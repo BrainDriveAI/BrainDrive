@@ -1,0 +1,43 @@
+{
+  "commands": [
+    "runtime-npm-ci",
+    "runtime-lint",
+    "runtime-test",
+    "runtime-build",
+    "web-npm-ci",
+    "web-lint",
+    "web-typecheck",
+    "web-test",
+    "web-build",
+    "mcp-npm-ci",
+    "mcp-test",
+    "mcp-build"
+  ],
+  "runtime_checks": [
+    {
+      "detected_version": "22.23.2",
+      "output_sha256": "c42fcf0db5a550bda2f566fcdc21955df3e5a8ec3aeb90ac533f3776e7fce32a",
+      "output_truncated": false,
+      "probe_argv": [
+        "node",
+        "--version"
+      ],
+      "requirement_id": "node-22",
+      "specifier": ">=22,<23",
+      "status": "passed"
+    },
+    {
+      "detected_version": "10.9.8",
+      "output_sha256": "7eeb2f42ee0d10d4e00355252af2e7468bbff992af43b511355feb76da5c7cfb",
+      "output_truncated": false,
+      "probe_argv": [
+        "npm",
+        "--version"
+      ],
+      "requirement_id": "npm-10",
+      "specifier": ">=10,<11",
+      "status": "passed"
+    }
+  ],
+  "status": "passed"
+}

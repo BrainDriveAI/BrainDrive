@@ -1,0 +1,61 @@
+{
+  "artifacts": [
+    {
+      "kind": "decisions",
+      "path": "decisions/decisions.md",
+      "sha256": "a65174e12a1fead6ad70a9a8affedfdeee6e89d33ec8a2a5eeedab1df033b798",
+      "source": "validated-final-lineage"
+    },
+    {
+      "kind": "implementation_plan",
+      "path": "plans/implementation/implementation-plan.md",
+      "sha256": "7645a7f6f5dda2e0d55fb9edf46964d19df8fb9cb0255323ebd9503f9fda96f3",
+      "source": "validated-final-lineage"
+    },
+    {
+      "kind": "test_plan",
+      "path": "plans/testing/test-plan.md",
+      "sha256": "4c83a01fbadf0176010e3276b792dd3a4a106db21cdef52362f2624354a29663",
+      "source": "validated-final-lineage"
+    },
+    {
+      "kind": "verification_plan",
+      "path": "plans/verification/verification-plan.md",
+      "sha256": "8a6ecd512e66e36c946288ecc3cf508bc7cdcff749b6f8047f3fb20a34a4e02d",
+      "source": "validated-final-lineage"
+    },
+    {
+      "kind": "milestone_prompt_pack",
+      "path": "prompts/milestone-prompts.md",
+      "sha256": "eff3b264793424234fb83f5ab90af967ca1e80c775ef464787051271add92e1c",
+      "source": "validated-final-lineage"
+    },
+    {
+      "kind": "documentation_report",
+      "path": "reports/documentation-report.json",
+      "sha256": "b9bd0b10c4270ffdadca6cf5e47e83fd5a29bf3cb73cb938c8f09fd4af65668c",
+      "source": "validated-final-lineage"
+    },
+    {
+      "kind": "final_handoff",
+      "path": "reports/final-handoff.md",
+      "sha256": "6eedbddf51d1d4c172ad857ee29d1ca5ce9bd25c674ad7405074d960cdeb7ad2",
+      "source": "validated-final-lineage"
+    },
+    {
+      "kind": "verification_report",
+      "path": "reports/verification-report.json",
+      "sha256": "fee0ffa4f480e1098f49723e5bcd0e679486492659064131b3f7a622cfd3f513",
+      "source": "validated-final-lineage"
+    },
+    {
+      "kind": "engineering_specification",
+      "path": "specifications/specification.md",
+      "sha256": "29dee33297990ec791f6bf7b047a16ff05df9b35c0bb946d5b275c6c43cb7e57",
+      "source": "validated-final-lineage"
+    }
+  ],
+  "project": "BrainDrive Live Remote Pilot 2026-08-01",
+  "result_commit": "7d16df0f7a1f3ddb8a0c33a144f303b47fc8cfcf",
+  "schema_version": 1
+}
