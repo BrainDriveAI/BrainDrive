@@ -1,0 +1,62 @@
+{
+  "artifacts": [
+    {
+      "kind": "decisions",
+      "path": "decisions/decisions.md",
+      "sha256": "48de70d88c8190fb98c4f3d7b04453535905e9696b48b902fdd72ec7be946d3b",
+      "source": "validated-final-lineage"
+    },
+    {
+      "kind": "implementation_plan",
+      "path": "plans/implementation/implementation-plan.md",
+      "sha256": "095733f12eb54902038ffa1c3c4bfc7b507637e148469fdd93d2221b63f55e45",
+      "source": "validated-final-lineage"
+    },
+    {
+      "kind": "test_plan",
+      "path": "plans/testing/test-plan.md",
+      "sha256": "14ba9d8aa7afecfe4f48a6c103afd18f94223f63941d1ff96b39712c6855d389",
+      "source": "validated-final-lineage"
+    },
+    {
+      "kind": "verification_plan",
+      "path": "plans/verification/verification-plan.md",
+      "sha256": "78b83525010f16c8bb40e6d29238fdc05c6ead7deaf5da4f847ea6e00d27d08a",
+      "source": "validated-final-lineage"
+    },
+    {
+      "kind": "milestone_prompt_pack",
+      "path": "prompts/milestone-prompts.md",
+      "sha256": "070890ce9700b5bc3e26d4fccc6a1670e9a4978caeb77e63a4a73ac8d6b859f8",
+      "source": "validated-final-lineage"
+    },
+    {
+      "kind": "documentation_report",
+      "path": "reports/documentation-report.json",
+      "sha256": "b9bd0b10c4270ffdadca6cf5e47e83fd5a29bf3cb73cb938c8f09fd4af65668c",
+      "source": "validated-final-lineage"
+    },
+    {
+      "kind": "final_handoff",
+      "path": "reports/final-handoff.md",
+      "sha256": "45f43e0263b19de3a8908d8421aa36ba607fa325c83b46881886ed341484f861",
+      "source": "validated-final-lineage"
+    },
+    {
+      "kind": "verification_report",
+      "path": "reports/verification-report.json",
+      "sha256": "1a25e1390f2a3a119f2aa24f1a29534a229575b82688df2dbffa91c4d7a3eabb",
+      "source": "validated-final-lineage"
+    },
+    {
+      "kind": "engineering_specification",
+      "path": "specifications/specification.md",
+      "sha256": "8fe9ccd8421522e42e05dcdb3da99f0b46cc8443b74732fb19ad60ae39468c8e",
+      "source": "validated-final-lineage"
+    }
+  ],
+  "project": "BrainDrive Anvil Fresh Blueprint Pilot",
+  "result_commit": "c401669982d852dce4dc3b6187c7625990c96088",
+  "result_commit_role": "verified_pre_blueprint_input",
+  "schema_version": 1
+}
