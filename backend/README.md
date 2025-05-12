@@ -51,8 +51,6 @@ cd BrainDrive/backend
 
 ### Environment Setup
 
-See full [Environment Setup Guide](../ENVIRONMENT_SETUP.md) or follow the summary below:
-
 #### Option 1: Conda (Recommended)
 
 ```bash
