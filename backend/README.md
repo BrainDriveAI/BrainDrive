@@ -51,8 +51,6 @@ cd BrainDrive/backend
 
 ### Environment Setup
 
-See full [Environment Setup Guide](../ENVIRONMENT_SETUP.md) or follow the summary below:
-
 #### Option 1: Conda (Recommended)
 
 ```bash
@@ -77,7 +75,11 @@ pip install -r requirements.txt
 Create a `.env` file in the `backend/` folder. You can copy from an example:
 
 ```bash
+<<<<<<< HEAD
 cp .env-dev .env
+=======
+cp .env.prod .env
+>>>>>>> dadcccd276a9a310f6516273cbcc3bd5974e9c05
 ```
 
 Or manually create it using the following template:

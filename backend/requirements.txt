@@ -17,3 +17,4 @@ fastapi-limiter>=0.1.5
 python-dotenv>=1.0.0
 pydantic[email]
 email-validator
+watchdog>=3.0.0

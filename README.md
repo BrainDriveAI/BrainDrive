@@ -98,7 +98,7 @@ For detailed instructions on setting up either environment type, please refer to
 
 1. Clone the repository:
    ```
-   git clone https://github.com/yourusername/BrainDrive.git
+   git clone https://github.com/BrainDriveAI/BrainDrive.git
    cd BrainDrive
    ```
 
