@@ -85,54 +85,18 @@ The plugin system allows developers to extend the platform with:
 - Git
 - Conda or Python's venv module for environment management
 
-### Environment Setup
+### Installation and Setup
 
-We provide two options for setting up your Python environment:
+For detailed installation and setup instructions, please refer to:
 
-1. **Conda Environment**: Recommended for users who prefer Conda's environment management
-2. **Python Virtual Environment (venv)**: Recommended for users who prefer Python's built-in venv
+- [Backend Setup Guide](backend/README.md) - Complete instructions for setting up the Python backend, including environment configuration, database setup, and running the server
+- [Frontend Setup Guide](frontend/README.md) - Instructions for setting up the React frontend
 
-For detailed instructions on setting up either environment type, please refer to our [Environment Setup Guide](ENVIRONMENT_SETUP.md).
+After following the setup guides, you can:
 
-### Installation
-
-1. Clone the repository:
-   ```
-   git clone https://github.com/BrainDriveAI/BrainDrive.git
-   cd BrainDrive
-   ```
-
-2. Set up the backend:
-   ```
-   cd backend
-   # Set up your environment following the Environment Setup Guide
-   # Configure your environment variables
-   cp .env.example .env  # If .env.example exists
-   # Edit .env with your settings
-   ```
-
-3. Set up the frontend:
-   ```
-   cd ../frontend
-   npm install
-   # Configure your environment variables
-   cp .env.example .env
-   # Edit .env with your settings
-   ```
-
-4. Start the backend server:
-   ```
-   cd ../backend
-   python -m app.main
-   ```
-
-5. Start the frontend development server:
-   ```
-   cd ../frontend
-   npm run dev
-   ```
-
-6. Open your browser and navigate to http://localhost:5173
+1. Start the backend server (from the backend directory)
+2. Start the frontend development server (from the frontend directory)
+3. Open your browser and navigate to http://localhost:5173
 
 ## Development
 
