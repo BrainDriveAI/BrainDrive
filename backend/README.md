@@ -77,7 +77,7 @@ pip install -r requirements.txt
 Create a `.env` file in the `backend/` folder. You can copy from an example:
 
 ```bash
-cp .env.example .env
+cp .env-dev .env
 ```
 
 Or manually create it using the following template:
