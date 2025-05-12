@@ -1,0 +1,45 @@
+{
+  "export_date": "2025-04-22T13:13:59.445903",
+  "tables": {
+    "components": {
+      "row_count": 4,
+      "status": "success"
+    },
+    "navigation_routes": {
+      "row_count": 7,
+      "status": "success"
+    },
+    "pages": {
+      "row_count": 6,
+      "status": "success"
+    },
+    "settings_definitions": {
+      "row_count": 2,
+      "status": "success"
+    },
+    "settings_instances": {
+      "row_count": 6,
+      "status": "success"
+    },
+    "conversations": {
+      "row_count": 6,
+      "status": "success"
+    },
+    "messages": {
+      "row_count": 12,
+      "status": "success"
+    },
+    "plugin": {
+      "row_count": 2,
+      "status": "success"
+    },
+    "module": {
+      "row_count": 15,
+      "status": "success"
+    },
+    "user_roles": {
+      "row_count": 3,
+      "status": "success"
+    }
+  }
+}

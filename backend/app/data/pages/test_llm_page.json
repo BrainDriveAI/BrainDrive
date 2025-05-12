@@ -1,0 +1,21 @@
+{
+    "id": "test-llm-page",
+    "title": "LLM Test Page",
+    "layout": [
+        {
+            "id": "llm-display-1",
+            "plugin": "LLMDisplay",
+            "x": 0, "y": 0, "w": 6, "h": 4
+        },
+        {
+            "id": "llm-input-1",
+            "plugin": "LLMInput",
+            "arguments": {
+                "PluginAPI": "llm-display-1",
+                "ButtonText": "Send!"
+            },
+            "x": 0, "y": 2, "w": 6, "h": 2
+        }
+
+    ]
+}

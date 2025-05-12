@@ -1,0 +1,31 @@
+{
+  "id": "test-page-3",
+  "title": "My Test Page 3",
+  "icon": "layout",
+  "layout": [
+    {
+      "id": "plugin1",
+      "plugin": "helloPlanetPlugin",
+      "x": 0,
+      "y": 0,
+      "w": 4,
+      "h": 3
+    },
+    {
+      "id": "plugin2",
+      "plugin": "helloWorldPlugin",
+      "x": 4,
+      "y": 0,
+      "w": 4,
+      "h": 3
+    },
+    {
+      "id": "plugin3",
+      "plugin": "randomColorPlugin",
+      "x": 0,
+      "y": 3,
+      "w": 8,
+      "h": 3
+    }
+  ]
+}

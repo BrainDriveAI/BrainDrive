@@ -1,0 +1,68 @@
+[
+  {
+    "id": "82a7743c-0f09-47fc-a53a-1a0b2ba13aeb",
+    "definition_id": "ollama_servers_settings",
+    "name": "Ollama Servers Settings",
+    "value": "{\"servers\": [{\"id\": \"server_1742924026005_ia7qq4i5p\", \"serverName\": \"Ubuntu\", \"serverAddress\": \"http://localhost:11434\", \"apiKey\": \"\", \"connectionStatus\": \"idle\"}]}",
+    "scope": "user",
+    "user_id": "c308a92642da412bbad26969b91972ac",
+    "page_id": null,
+    "created_at": "2025-03-25 17:33:47",
+    "updated_at": "2025-03-25 17:33:47"
+  },
+  {
+    "id": "fb040ebd-ed5e-45b0-8a2a-ff0f05a48e1a",
+    "definition_id": "theme_settings",
+    "name": "Theme Settings",
+    "value": "{\"theme\": \"light\", \"useSystemTheme\": false}",
+    "scope": "user",
+    "user_id": "c308a92642da412bbad26969b91972ac",
+    "page_id": null,
+    "created_at": "2025-03-26 19:26:15",
+    "updated_at": "2025-03-27 11:47:12"
+  },
+  {
+    "id": "3a0907a6e03a47a984d1c096d0d634ce",
+    "definition_id": "theme_settings",
+    "name": "Theme Settings",
+    "value": "{\"theme\": \"light\", \"useSystemTheme\": false}",
+    "scope": "user",
+    "user_id": "3bb10a2fc5f04ec2b7efbeee0f9cdb17",
+    "page_id": null,
+    "created_at": "2025-04-22 12:49:18",
+    "updated_at": "2025-04-22 12:49:18"
+  },
+  {
+    "id": "a6597cf9fcf34f788ac40b0244774cfc",
+    "definition_id": "ollama_servers_settings",
+    "name": "Ollama Servers Settings",
+    "value": "{\"servers\": [{\"id\": \"server_1\", \"serverName\": \"Local\", \"serverAddress\": \"http://localhost:11434\", \"apiKey\": \"\", \"connectionStatus\": \"idle\"}]}",
+    "scope": "user",
+    "user_id": "3bb10a2fc5f04ec2b7efbeee0f9cdb17",
+    "page_id": null,
+    "created_at": "2025-04-22 12:49:18",
+    "updated_at": "2025-04-22 12:49:18"
+  },
+  {
+    "id": "c0752d9e94964a3eb941c710645749a6",
+    "definition_id": "theme_settings",
+    "name": "Theme Settings",
+    "value": "{\"theme\": \"light\", \"useSystemTheme\": false}",
+    "scope": "user",
+    "user_id": "b6352810308749cdac40f8e5e43c9ba5",
+    "page_id": null,
+    "created_at": "2025-04-22 12:59:10",
+    "updated_at": "2025-04-22 12:59:10"
+  },
+  {
+    "id": "2981ac3407244b50a5f26283e5dd9e70",
+    "definition_id": "ollama_servers_settings",
+    "name": "Ollama Servers Settings",
+    "value": "{\"servers\": [{\"id\": \"server_1\", \"serverName\": \"Local\", \"serverAddress\": \"http://localhost:11434\", \"apiKey\": \"\", \"connectionStatus\": \"idle\"}]}",
+    "scope": "user",
+    "user_id": "b6352810308749cdac40f8e5e43c9ba5",
+    "page_id": null,
+    "created_at": "2025-04-22 12:59:10",
+    "updated_at": "2025-04-22 12:59:10"
+  }
+]

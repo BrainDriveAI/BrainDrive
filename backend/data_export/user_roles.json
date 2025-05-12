@@ -1,0 +1,26 @@
+[
+  {
+    "id": "dee634ea5d2541e2a1810d2848fa327a",
+    "role_name": "admin",
+    "description": "Administrator",
+    "is_global": 1,
+    "created_at": "2025-03-15 16:02:41",
+    "updated_at": "2025-03-15 16:02:41"
+  },
+  {
+    "id": "6a8a86a24c6a454eba1834a927292d66",
+    "role_name": "member",
+    "description": "Regular member",
+    "is_global": 1,
+    "created_at": "2025-03-15 16:02:41",
+    "updated_at": "2025-03-15 16:02:41"
+  },
+  {
+    "id": "6a51c74731654049a17429859e26e2ad",
+    "role_name": "viewer",
+    "description": "Read-only access",
+    "is_global": 1,
+    "created_at": "2025-03-15 16:02:41",
+    "updated_at": "2025-03-15 16:02:41"
+  }
+]

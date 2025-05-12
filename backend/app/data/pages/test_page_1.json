@@ -1,0 +1,31 @@
+{
+  "id": "test-page-1",
+  "title": "My Test Page 1",
+  "icon": "dashboard",
+  "layout": [
+    {
+      "id": "hello-planet-1738238321583",
+      "plugin": "helloPlanetPlugin",
+      "x": 0,
+      "y": 0,
+      "w": 4,
+      "h": 3
+    },
+    {
+      "id": "hello-world-1738238323758",
+      "plugin": "helloWorldPlugin",
+      "x": 4,
+      "y": 0,
+      "w": 4,
+      "h": 3
+    },
+    {
+      "id": "random-color-1738238329833",
+      "plugin": "randomColorPlugin",
+      "x": 0,
+      "y": 3,
+      "w": 8,
+      "h": 6
+    }
+  ]
+}

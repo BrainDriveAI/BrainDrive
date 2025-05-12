@@ -1,0 +1,187 @@
+"""
+Settings initializer plugin.
+
+This plugin initializes settings for a new user.
+"""
+
+import logging
+import uuid
+import datetime
+from app.core.user_initializer.utils import generate_uuid
+from typing import Dict, Any, List
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+
+from app.core.user_initializer.base import UserInitializerBase
+from app.core.user_initializer.registry import register_initializer
+from app.core.user_initializer.utils import prepare_record_for_new_user
+from app.models.settings import SettingInstance, SettingDefinition
+
+logger = logging.getLogger(__name__)
+
+class SettingsInitializer(UserInitializerBase):
+    """Initializer for user settings."""
+    
+    name = "settings_initializer"
+    description = "Initializes default settings for a new user"
+    priority = 900  # High priority - settings should be initialized early
+    dependencies = []  # No dependencies
+    
+    # Default settings definitions
+    DEFAULT_DEFINITIONS = [
+        {
+            "id": "theme_settings",
+            "name": "Theme Settings",
+            "description": "Auto-generated definition for Theme Settings",
+            "category": "auto_generated",
+            "type": "object",
+            "default_value": '{"theme": "light", "useSystemTheme": false}',
+            "allowed_scopes": '["system", "user", "page", "user_page"]',
+            "validation": None,
+            "is_multiple": False,
+            "tags": '["auto_generated"]'
+        },
+        {
+            "id": "ollama_servers_settings",
+            "name": "Ollama Servers Settings",
+            "description": "Auto-generated definition for Ollama Servers Settings",
+            "category": "auto_generated",
+            "type": "object",
+            "default_value": '{"servers": [{"id": "server_1742054635336_5puc3mrll", "serverName": "New Server", "serverAddress": "http://localhost:11434", "apiKey": "", "connectionStatus": "idle"}]}',
+            "allowed_scopes": '["system", "user", "page", "user_page"]',
+            "validation": None,
+            "is_multiple": False,
+            "tags": '["auto_generated"]'
+        }
+    ]
+    
+    # Default settings instances
+    DEFAULT_SETTINGS = [
+        {
+            "definition_id": "theme_settings",
+            "name": "Theme Settings",
+            "value": '{"theme": "light", "useSystemTheme": false}',
+            "scope": "user",
+            "page_id": None
+        },
+        {
+            "definition_id": "ollama_servers_settings",
+            "name": "Ollama Servers Settings",
+            "value": '{"servers": [{"id": "server_1742054635336_5puc3mrll", "serverName": "New Server", "serverAddress": "http://localhost:11434", "apiKey": "", "connectionStatus": "idle"}]}',
+            "scope": "user",
+            "page_id": None
+        }
+    ]
+    
+    async def initialize(self, user_id: str, db: AsyncSession, **kwargs) -> bool:
+        """Initialize settings for a new user."""
+        try:
+            logger.info(f"Initializing settings for user {user_id}")
+            
+            # Ensure settings definitions exist
+            await self._ensure_settings_definitions(db)
+            
+            # Create settings instances for the user using hardcoded default settings
+            for setting_data in self.DEFAULT_SETTINGS:
+                # Prepare the setting data for the new user
+                # This will:
+                # 1. Generate a new ID
+                # 2. Set the user_id to the new user's ID
+                # 3. Update created_at and updated_at timestamps
+                prepared_data = prepare_record_for_new_user(
+                    setting_data,
+                    user_id,
+                    preserve_fields=["definition_id", "name", "value", "scope", "page_id"],
+                    user_id_field="user_id"  # Explicitly specify the user_id field
+                )
+                
+                # Use direct SQL to avoid ORM relationship issues
+                try:
+                    # Get current timestamp
+                    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    
+                    # Create SQL statement
+                    from sqlalchemy import text
+                    stmt = text("""
+                    INSERT INTO settings_instances
+                    (id, definition_id, name, value, scope, user_id, page_id, created_at, updated_at)
+                    VALUES
+                    (:id, :definition_id, :name, :value, :scope, :user_id, :page_id, :created_at, :updated_at)
+                    """)
+                    
+                    # Execute statement with parameters
+                    await db.execute(stmt, {
+                        "id": prepared_data.get("id", generate_uuid()),
+                        "definition_id": prepared_data["definition_id"],
+                        "name": prepared_data["name"],
+                        "value": prepared_data["value"],
+                        "scope": prepared_data["scope"],
+                        "user_id": user_id,
+                        "page_id": prepared_data.get("page_id"),
+                        "created_at": current_time,
+                        "updated_at": current_time
+                    })
+                    
+                    logger.info(f"Created setting {prepared_data['name']} for user {user_id}")
+                except Exception as e:
+                    logger.error(f"Error creating setting {prepared_data.get('name')}: {e}")
+                    raise
+            
+            await db.commit()
+            logger.info(f"Settings initialized successfully for user {user_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error initializing settings for user {user_id}: {e}")
+            await db.rollback()
+            return False
+    
+    async def _ensure_settings_definitions(self, db: AsyncSession) -> None:
+        """Ensure that all required settings definitions exist."""
+        try:
+            # Use hardcoded default definitions
+            for definition_data in self.DEFAULT_DEFINITIONS:
+                # Check if definition already exists using direct SQL
+                from sqlalchemy import text
+                check_stmt = text("SELECT id FROM settings_definitions WHERE id = :id")
+                result = await db.execute(check_stmt, {"id": definition_data["id"]})
+                existing = result.scalar_one_or_none()
+                
+                if not existing:
+                    # Create the definition using direct SQL
+                    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    
+                    insert_stmt = text("""
+                    INSERT INTO settings_definitions
+                    (id, name, description, category, type, default_value, allowed_scopes, validation, is_multiple, tags, created_at, updated_at)
+                    VALUES
+                    (:id, :name, :description, :category, :type, :default_value, :allowed_scopes, :validation, :is_multiple, :tags, :created_at, :updated_at)
+                    """)
+                    
+                    await db.execute(insert_stmt, {
+                        "id": definition_data["id"],
+                        "name": definition_data["name"],
+                        "description": definition_data.get("description", ""),
+                        "category": definition_data.get("category", "auto_generated"),
+                        "type": definition_data.get("type", "object"),
+                        "default_value": definition_data.get("default_value", "{}"),
+                        "allowed_scopes": definition_data.get("allowed_scopes", '["system", "user", "page", "user_page"]'),
+                        "validation": definition_data.get("validation"),
+                        "is_multiple": definition_data.get("is_multiple", False),
+                        "tags": definition_data.get("tags", '["auto_generated"]'),
+                        "created_at": current_time,
+                        "updated_at": current_time
+                    })
+                    
+                    logger.info(f"Created settings definition: {definition_data['name']}")
+            
+            await db.commit()
+            logger.info("Settings definitions ensured")
+            
+        except Exception as e:
+            logger.error(f"Error ensuring settings definitions: {e}")
+            await db.rollback()
+            raise
+
+# Register the initializer
+register_initializer(SettingsInitializer)

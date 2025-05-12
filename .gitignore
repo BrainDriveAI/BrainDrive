@@ -1,0 +1,209 @@
+# BrainDrive - Python FastAPI + SQLite + React Application .gitignore
+
+# ----------------------------------------
+# BACKEND (PYTHON/FASTAPI)
+# ----------------------------------------
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+pythonenv*/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+*.egg
+MANIFEST
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+.nox/
+coverage/
+.hypothesis/
+
+# SQLite database files
+*.sqlite
+*.sqlite3
+*.db
+backend/braindrive.db
+
+# Alembic migrations (except configuration)
+backend/alembic/versions/
+
+# Logs
+*.log
+backend/logs/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+# Keep production environment for deployment
+!.env.prod
+
+# ----------------------------------------
+# FRONTEND (REACT/TYPESCRIPT)
+# ----------------------------------------
+
+# Dependencies
+**/node_modules/
+**/.pnp/
+**/.pnp.js
+
+# Build outputs
+**/build/
+**/dist/
+**/.turbo/
+**/.next/
+**/out/
+**/release/
+
+# Testing
+**/coverage/
+**/.nyc_output/
+
+# Debug
+**/npm-debug.log*
+**/yarn-debug.log*
+**/yarn-error.log*
+**/.pnpm-debug.log*
+
+# Local environment files
+frontend/.env
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+
+# TypeScript
+**/*.tsbuildinfo
+**/tsconfig.tsbuildinfo
+
+# Vite
+**/.vite/
+
+# Development
+frontend/scripts
+
+
+# ----------------------------------------
+# PLUGINS
+# ----------------------------------------
+
+# Plugin builds
+plugins/**/dist/
+plugins/**/build/
+plugins/**/node_modules/
+plugins/**/.env
+plugins/**/.env.local
+plugins/**/.env.development.local
+plugins/**/.env.test.local
+plugins/**/.env.production.local
+
+# ----------------------------------------
+# IDE / EDITORS
+# ----------------------------------------
+
+# VSCode (keep some shared settings)
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/*.code-snippets
+
+# JetBrains IDEs
+.idea/
+*.iml
+*.ipr
+*.iws
+.idea_modules/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# ----------------------------------------
+# OPERATING SYSTEMS
+# ----------------------------------------
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+.directory
+.Trash-*
+.nfs*
+
+# ----------------------------------------
+# MISC
+# ----------------------------------------
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+tmp/
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Documentation and Reports
+docs/
+Docs/
+**/docs/
+**/Docs/
+reports/
+**/reports/
+Reports/
+**/Reports/
+
+# Specific report files
+unused-report.txt
+unused-report.md

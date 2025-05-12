@@ -1,0 +1,20 @@
+{
+    "id": "cryptotest",
+    "title": "Crypto Test Page 1",
+    "icon": "dashboard",
+    "layout": [
+      {
+        "id": "crypto-price-1738238329833",
+        "plugin": "cryptoPricePlugin",
+        "x": 0,
+        "y": 3,
+        "w": 8,
+        "h": 6,
+        "arguments": {
+          "crypto": "Bitcoin",
+          "refreshRate": 15
+        }
+      }
+    ]
+  }
+  

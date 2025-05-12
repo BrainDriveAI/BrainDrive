@@ -1,0 +1,20 @@
+{
+    "id": "test-chat-page",
+    "title": "Chat Test Page",
+    "layout": [
+        {
+            "id": "chat-input-1",
+            "plugin": "ChatInput",
+            "x": 0, "y": 0, "w": 6, "h": 2
+        },
+        {
+            "id": "llm-input-1",
+            "plugin": "LLMInput",
+            "arguments": {
+                "PluginAPI": "llm-display-1",
+                "ButtonText": "Send!"
+            },
+            "x": 8, "y": 0, "w": 6, "h": 2
+        }
+    ]
+}

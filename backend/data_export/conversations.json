@@ -1,0 +1,62 @@
+[
+  {
+    "id": "5a333d4e-eff7-44a6-b1a1-2e18096b74ad",
+    "user_id": "c308a926-42da-412b-bad2-6969b91972ac",
+    "title": "Conversation with hf.co/Triangle104/Dolphin3.0-R1-Mistral-24B-Q6_K-GGUF:latest",
+    "page_context": null,
+    "model": "hf.co/Triangle104/Dolphin3.0-R1-Mistral-24B-Q6_K-GGUF:latest",
+    "server": "Ubuntu",
+    "created_at": "2025-03-25 17:33:55",
+    "updated_at": null
+  },
+  {
+    "id": "6a88cda6-84f5-4f2c-a036-09d3f7b9ae2b",
+    "user_id": "c308a926-42da-412b-bad2-6969b91972ac",
+    "title": "Conversation with hf.co/Triangle104/Dolphin3.0-R1-Mistral-24B-Q6_K-GGUF:latest",
+    "page_context": null,
+    "model": "hf.co/Triangle104/Dolphin3.0-R1-Mistral-24B-Q6_K-GGUF:latest",
+    "server": "Ubuntu",
+    "created_at": "2025-03-25 17:47:05",
+    "updated_at": null
+  },
+  {
+    "id": "9224536f-5a36-4e0a-aa5b-1ca959a66932",
+    "user_id": "c308a926-42da-412b-bad2-6969b91972ac",
+    "title": "Conversation with hf.co/Triangle104/Dolphin3.0-R1-Mistral-24B-Q6_K-GGUF:latest",
+    "page_context": null,
+    "model": "hf.co/Triangle104/Dolphin3.0-R1-Mistral-24B-Q6_K-GGUF:latest",
+    "server": "Ubuntu",
+    "created_at": "2025-03-28 14:09:33",
+    "updated_at": null
+  },
+  {
+    "id": "49d9867a-3065-4609-9df1-6c8601c8e7af",
+    "user_id": "c308a926-42da-412b-bad2-6969b91972ac",
+    "title": "Conversation with hf.co/Triangle104/Dolphin3.0-R1-Mistral-24B-Q6_K-GGUF:latest",
+    "page_context": null,
+    "model": "hf.co/Triangle104/Dolphin3.0-R1-Mistral-24B-Q6_K-GGUF:latest",
+    "server": "Ubuntu",
+    "created_at": "2025-04-21 12:56:36",
+    "updated_at": null
+  },
+  {
+    "id": "d667f154-ae0a-4687-8d0c-14befc12609d",
+    "user_id": "c308a926-42da-412b-bad2-6969b91972ac",
+    "title": "Conversation with hf.co/Triangle104/Dolphin3.0-R1-Mistral-24B-Q6_K-GGUF:latest",
+    "page_context": null,
+    "model": "hf.co/Triangle104/Dolphin3.0-R1-Mistral-24B-Q6_K-GGUF:latest",
+    "server": "Ubuntu",
+    "created_at": "2025-04-21 12:57:08",
+    "updated_at": null
+  },
+  {
+    "id": "5593b68a-f8e0-4ab2-a26f-c1192aec1ecb",
+    "user_id": "c308a926-42da-412b-bad2-6969b91972ac",
+    "title": "Conversation with hf.co/Triangle104/Dolphin3.0-R1-Mistral-24B-Q6_K-GGUF:latest",
+    "page_context": null,
+    "model": "hf.co/Triangle104/Dolphin3.0-R1-Mistral-24B-Q6_K-GGUF:latest",
+    "server": "Ubuntu",
+    "created_at": "2025-04-21 12:57:23",
+    "updated_at": "2025-04-21 12:57:23"
+  }
+]

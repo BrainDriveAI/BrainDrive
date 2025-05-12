@@ -1,0 +1,214 @@
+/* Base variables for light theme */
+:root {
+  --bg-color: #ffffff;
+  --paper-bg: #ffffff;
+  --text-color: #333333;
+  --border-color: rgba(0, 0, 0, 0.2);
+  --input-bg: #ffffff;
+  --button-primary-bg: #2196f3;
+  --button-primary-text: #ffffff;
+  --button-secondary-bg: #e0e0e0;
+  --button-secondary-text: #333333;
+  --button-danger-bg: #f44336;
+  --button-danger-text: #ffffff;
+  --status-success-color: #4caf50;
+  --status-error-color: #f44336;
+  --status-checking-color: #ff9800;
+}
+
+/* Dark theme variables - updated to match the app's dark theme */
+.dark-theme {
+  --bg-color: #121a28;
+  --paper-bg: #1a2332;
+  --text-color: #e0e0e0;
+  --border-color: rgba(255, 255, 255, 0.1);
+  --input-bg: #1e293b;
+  --button-primary-bg: #2196f3;
+  --button-primary-text: #ffffff;
+  --button-secondary-bg: #2c3a4f;
+  --button-secondary-text: #ffffff;
+  --button-danger-bg: #f44336;
+  --button-danger-text: #ffffff;
+  --status-success-color: #4caf50;
+  --status-error-color: #f44336;
+  --status-checking-color: #ff9800;
+}
+
+/* Container styles */
+.ollama-container {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  color: var(--text-color);
+  background-color: var(--bg-color);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.ollama-paper {
+  background-color: var(--paper-bg);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* Dark theme specific shadow */
+.dark-theme .ollama-paper {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+/* Form section styles */
+.form-section {
+  padding: 20px;
+  background-color: var(--paper-bg);
+  border-radius: 8px;
+  box-shadow: none;
+  border-bottom: none;
+  transition: background-color 0.3s ease;
+}
+
+/* Form layout styles */
+.form-row {
+  margin-bottom: 15px;
+  display: flex;
+  align-items: center;
+}
+
+.input-group {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.label-container {
+  display: flex;
+  flex-direction: column;
+}
+
+.input-label {
+  display: flex;
+  align-items: center;
+  font-weight: 500;
+  flex: 1;
+  color: var(--text-color);
+  transition: color 0.3s ease;
+}
+
+.label-description {
+  font-size: 12px;
+  color: var(--text-color);
+  opacity: 0.7;
+  margin-top: 2px;
+  transition: color 0.3s ease;
+}
+
+.input-field {
+  width: 33%;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 14px;
+  background-color: var(--input-bg);
+  color: var(--text-color);
+  transition: border-color 0.3s ease, background-color 0.3s ease, color 0.3s ease;
+}
+
+.input-field:focus {
+  outline: none;
+  border-color: var(--button-primary-bg);
+}
+
+/* Button styles - updated to match the app's button styles */
+.button-group {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+  justify-content: flex-end;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.3s ease, opacity 0.3s ease;
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.button-primary {
+  background-color: var(--button-primary-bg);
+  color: var(--button-primary-text);
+}
+
+.button-secondary {
+  background-color: var(--button-secondary-bg);
+  color: var(--button-secondary-text);
+}
+
+.button-danger {
+  background-color: var(--button-danger-bg);
+  color: var(--button-danger-text);
+}
+
+/* Status indicator styles */
+.status-indicator {
+  display: flex;
+  align-items: center;
+  padding: 10px;
+  border-radius: 4px;
+  margin-bottom: 15px;
+  font-size: 14px;
+}
+
+.status-success {
+  background-color: var(--status-success-color);
+  color: white;
+}
+
+.status-error {
+  background-color: var(--status-error-color);
+  color: white;
+}
+
+.status-checking {
+  background-color: var(--status-checking-color);
+  color: white;
+}
+
+/* Loading spinner */
+.loading-spinner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 0;
+}
+
+.spinner {
+  border: 3px solid rgba(0, 0, 0, 0.1);
+  border-top: 3px solid var(--button-primary-bg);
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  animation: spin 1s linear infinite;
+  margin-bottom: 10px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Dark theme spinner adjustment */
+.dark-theme .spinner {
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  border-top: 3px solid var(--button-primary-bg);
+}

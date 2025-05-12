@@ -1,0 +1,30 @@
+[
+  {
+    "id": "ollama_servers_settings",
+    "name": "Ollama Servers Settings",
+    "description": "Auto-generated definition for Ollama Servers Settings",
+    "category": "auto_generated",
+    "type": "object",
+    "default_value": "{\"servers\": [{\"id\": \"server_1742054635336_5puc3mrll\", \"serverName\": \"New Server\", \"serverAddress\": \"http://localhost:11434\", \"apiKey\": \"\", \"connectionStatus\": \"idle\"}]}",
+    "allowed_scopes": "[\"system\", \"user\", \"page\", \"user_page\"]",
+    "validation": null,
+    "is_multiple": 0,
+    "tags": "[\"auto_generated\"]",
+    "created_at": "2025-03-15 16:03:54",
+    "updated_at": "2025-03-15 16:03:54"
+  },
+  {
+    "id": "theme_settings",
+    "name": "Theme Settings",
+    "description": "Auto-generated definition for Theme Settings",
+    "category": "auto_generated",
+    "type": "object",
+    "default_value": "{\"theme\": \"dark\", \"useSystemTheme\": false}",
+    "allowed_scopes": "[\"system\", \"user\", \"page\", \"user_page\"]",
+    "validation": null,
+    "is_multiple": 0,
+    "tags": "[\"auto_generated\"]",
+    "created_at": "2025-03-15 16:05:18",
+    "updated_at": "2025-03-15 16:05:18"
+  }
+]

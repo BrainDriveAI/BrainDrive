@@ -1,0 +1,180 @@
+/* Inherit base styles from ComponentOllama.css */
+@import './ComponentOllama.css';
+
+/* Server list styles */
+.ollama-server-layout {
+  display: flex;
+  gap: 20px;
+  min-height: 400px;
+}
+
+.server-list {
+  flex: 0 0 300px;
+  border-right: 1px solid var(--border-color);
+  padding-right: 20px;
+  display: flex;
+  flex-direction: column;
+}
+
+.server-list-title {
+  margin-top: 0;
+  margin-bottom: 16px;
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--text-color);
+}
+
+.no-servers {
+  padding: 20px 0;
+  color: var(--text-color);
+  opacity: 0.7;
+  font-style: italic;
+}
+
+.server-items {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 20px 0;
+  flex-grow: 1;
+  overflow-y: auto;
+}
+
+.server-item {
+  padding: 12px;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  border: 1px solid var(--border-color);
+  background-color: var(--input-bg);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.server-item:hover {
+  border-color: var(--button-primary-bg);
+}
+
+.server-item.active {
+  border-color: var(--button-primary-bg);
+  background-color: rgba(33, 150, 243, 0.1);
+}
+
+.server-item-content {
+  flex-grow: 1;
+}
+
+.server-name {
+  font-weight: 500;
+  margin-bottom: 4px;
+  color: var(--text-color);
+}
+
+.server-address {
+  font-size: 12px;
+  color: var(--text-color);
+  opacity: 0.7;
+}
+
+.server-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  margin-left: 8px;
+}
+
+.status-success {
+  color: var(--status-success-color);
+}
+
+.status-error {
+  color: var(--status-error-color);
+}
+
+.status-checking {
+  color: var(--status-checking-color);
+}
+
+.spinner-small {
+  border: 2px solid rgba(0, 0, 0, 0.1);
+  border-top: 2px solid var(--button-primary-bg);
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  animation: spin 1s linear infinite;
+}
+
+.dark-theme .spinner-small {
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-top: 2px solid var(--button-primary-bg);
+}
+
+.add-server-button {
+  margin-top: auto;
+}
+
+/* Server detail styles */
+.server-detail {
+  flex: 1;
+  min-width: 0;
+}
+
+.server-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.server-detail-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--text-color);
+}
+
+.button-icon {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-color);
+  opacity: 0.7;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: opacity 0.2s ease, background-color 0.2s ease;
+}
+
+.button-icon:hover {
+  opacity: 1;
+  background-color: var(--button-secondary-bg);
+}
+
+.server-detail-placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.placeholder-content {
+  text-align: center;
+  color: var(--text-color);
+  opacity: 0.7;
+}
+
+.placeholder-content svg {
+  width: 40px;
+  height: 40px;
+}
+
+.placeholder-content p {
+  margin: 0;
+  font-size: 16px;
+}

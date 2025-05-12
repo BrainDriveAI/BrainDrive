@@ -1,0 +1,39 @@
+{
+  "id": "test-page-2",
+  "title": "My Test Page 2",
+  "icon": "grid",
+  "layout": [
+    {
+      "id": "random-color-1738239607195",
+      "plugin": "randomColorPlugin",
+      "x": 0,
+      "y": 0,
+      "w": 8,
+      "h": 5
+    },
+    {
+      "id": "hello-country-1738239619545",
+      "plugin": "helloCountryPlugin",
+      "x": 0,
+      "y": 5,
+      "w": 4,
+      "h": 3
+    },
+    {
+      "id": "hello-country-1738239621990",
+      "plugin": "helloCountryPlugin",
+      "x": 2,
+      "y": 8,
+      "w": 4,
+      "h": 3
+    },
+    {
+      "id": "hello-world-1738239627060",
+      "plugin": "helloWorldPlugin",
+      "x": 4,
+      "y": 5,
+      "w": 4,
+      "h": 3
+    }
+  ]
+}
