@@ -115,8 +115,8 @@ plugins/**/.env.test.local
 plugins/**/.env.production.local
 
 # Backend plugins directory - keep directory but ignore contents
-# backend/plugins/*
-# !backend/plugins/.gitkeep
+backend/plugins/*
+!backend/plugins/.gitkeep
 
 # ----------------------------------------
 # IDE / EDITORS
