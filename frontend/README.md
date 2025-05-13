@@ -131,6 +131,8 @@ VITE_DEV_EMAIL=your-email@example.com
 VITE_DEV_PASSWORD=your-password
 ```
 
+or can copy the .env.example to .env
+
 > **Note**: For production, make sure to set appropriate values and remove development-specific settings.
 
 ## Running the Application
