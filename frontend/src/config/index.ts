@@ -1,5 +1,12 @@
 import { z } from 'zod';
 
+// Add type declaration for Vite's import.meta.env
+declare global {
+  interface ImportMeta {
+    env: Record<string, string>;
+  }
+}
+
 
 // Environment configuration schema
 const envSchema = z.object({
@@ -16,26 +23,19 @@ const env = envSchema.parse(typeof import.meta !== 'undefined' ? import.meta.env
 
 // Determine API URL based on environment and protocol
 const getApiBaseUrl = () => {
-  // In development, use the proxy
-  if (env.MODE === 'development') {
-    return '';  // Empty string will use the current host with proxy
-  }
-  
-  // If environment variable is provided, use it
+  // If environment variable is provided, use it (highest priority)
   if (env.VITE_API_URL) {
     return env.VITE_API_URL;
   }
   
-  // If we're in the browser
-  if (typeof window !== 'undefined') {
-    // If frontend is served over HTTPS, use HTTPS for API
-    if (window.location.protocol === 'https:') {
-      return 'https://braindriveapi.ijustwantthebox.com';
-    }
+  // In development, use the proxy
+  if (env.MODE === 'development') {
+    return '';  // Empty string will use the current host with proxy
   }
+
   
-  // Default to HTTP for local development
-  return 'http://10.0.2.149:8005';
+  // Default to localhost for local development/testing
+  return 'http://localhost:8005';
 };
 
 // Application configuration

@@ -8,6 +8,7 @@ This document provides comprehensive information about the BrainDrive plugin sys
 - [Plugin Architecture](#plugin-architecture)
 - [Plugin Components](#plugin-components)
 - [Plugin Structure](#plugin-structure)
+- [Building Plugins](#building-plugins)
 - [Creating a Plugin](#creating-a-plugin)
 - [Plugin Configuration](#plugin-configuration)
 - [Module Configuration](#module-configuration)
@@ -62,6 +63,56 @@ plugin-name/
 └── backend/            # Backend code (optional)
     └── main.py         # Backend implementation
 ```
+
+## Building Plugins
+
+Before the BrainDrive backend can use the plugins, they need to be built. The system comes with pre-configured test plugins that just need to be built.
+
+### Prerequisites
+
+- Node.js (v16 or higher)
+- npm or yarn
+
+### Building the Existing Plugins
+
+To build a plugin, follow these simple steps:
+
+1. Navigate to the plugin directory:
+   ```bash
+   cd plugins/BrainDriveBasicAIChat
+   # or
+   cd plugins/BrainDriveSettings
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   # or
+   yarn install
+   ```
+
+3. Build the plugin:
+   ```bash
+   npm run build
+   # or
+   yarn build
+   ```
+
+4. The build process will compile the React components and output the files to the correct location in the backend plugins directory.
+
+5. Refresh your browser to see the updated plugin. No backend restart is needed for existing plugins.
+
+> **Note:** Currently, the mechanics to install plugins to existing users does not exist but it is coming soon.
+
+
+### Troubleshooting
+
+If the plugins are not appearing in the system:
+
+1. Ensure the build completed successfully without errors
+2. Check that the compiled files were created in the backend plugins directory
+3. Verify the backend server was restarted after building the plugins
+4. Check the backend logs for any plugin-related errors
 
 ## Creating a Plugin
 

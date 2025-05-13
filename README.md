@@ -91,6 +91,7 @@ For detailed installation and setup instructions, please refer to:
 
 - [Backend Setup Guide](backend/README.md) - Complete instructions for setting up the Python backend, including environment configuration, database setup, and running the server
 - [Frontend Setup Guide](frontend/README.md) - Instructions for setting up the React frontend
+- [Plugin Setup Guide](plugins/README.md) - Instructions for building and using the plugin system
 
 After following the setup guides, you can:
 
@@ -109,6 +110,8 @@ To create a new plugin:
 3. Implement your frontend components
 4. Implement backend services (if needed)
 5. Register your plugin with BrainDrive
+
+The plugin system is in heavily development at this time
 
 See the [Plugin System Documentation](plugins/README.md) for detailed instructions.
 
