@@ -90,8 +90,9 @@ The plugin system allows developers to extend the platform with:
 For detailed installation and setup instructions, please refer to:
 
 - [Backend Setup Guide](backend/README.md) - Complete instructions for setting up the Python backend, including environment configuration, database setup, and running the server
-- [Frontend Setup Guide](frontend/README.md) - Instructions for setting up the React frontend
 - [Plugin Setup Guide](plugins/README.md) - Instructions for building and using the plugin system
+- [Frontend Setup Guide](frontend/README.md) - Instructions for setting up the React frontend
+
 
 After following the setup guides, you can:
 

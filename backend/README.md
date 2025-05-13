@@ -115,8 +115,6 @@ ALLOWED_HOSTS=["localhost", "127.0.0.1"]
 ### Development Mode
 
 ```bash
-python main.py
-# or with uvicorn
 uvicorn main:app --reload --host 0.0.0.0 --port 8005
 ```
 
