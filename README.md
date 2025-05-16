@@ -11,7 +11,9 @@ With BrainDrive, you can:
 
 > Your AI. Your Rules.
 
-🚀 Ready to get started? [Check out the setup guide »](INSTALL.md)
+🚀 Ready to get started? [Check out the setup guide ](INSTALL.md)
+
+🎥 Want to see BrainDrive in action? [Watch the video](https://youtu.be/3G_OibAo-_o)
 
 
 ![BrainDrive Logo](images/braindrive-logo.png) 
