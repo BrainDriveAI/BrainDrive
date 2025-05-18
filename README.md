@@ -142,7 +142,7 @@ After following the setup guides, you can:
 
 ## Contributing
 
-We welcome contributions to BrainDrive! Please see our [Contributing Guidelines](CONTRIBUTING.md) for more information.
+We welcome contributions to BrainDrive! Please see our [Contributing Guidelines](CONTRIBUTING.md) and [Project Roadmap](./ROADMAP.md) for more information.
 
 ### Development Guidelines
 
