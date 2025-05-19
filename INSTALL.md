@@ -1,33 +1,51 @@
-
 # 🧠 BrainDrive: Full Installation Guide
 
-> **Works on Windows, macOS, and Linux**
+> **Compatible with Windows, macOS, and Linux**
 
 ---
 
 ## ✅ Requirements Overview
 
-Before installing BrainDrive, ensure the following are installed:
+Before continuing, ensure the following are installed:
 
-| Tool        | Download Link                                                                                                             | Verify Installed With  |
+| Tool        | Download Link                                                                                                             | Check with             |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
 | **Conda**   | [Miniconda](https://docs.conda.io/en/latest/miniconda.html) or [Anaconda](https://www.anaconda.com/products/distribution) | `conda --version`      |
 | **Git**     | [Git](https://git-scm.com/downloads)                                                                                      | `git --version`        |
 | **Node.js** | [Node.js](https://nodejs.org/en/download/)                                                                                | `node -v` and `npm -v` |
 
-> ⚠️ **Development Note:**
-> While running BrainDrive in development mode, you'll need to have **two terminal windows or tabs open**:
+> ⚠️ **Development Mode Note:**
+> While running BrainDrive in development, you’ll need **two terminal windows or tabs open**:
 >
-> * One to run the **backend server**
-> * One to run the **frontend development server**
->
-> These must run **simultaneously**, but in separate terminals.
-
-All installs at this point in development and not production
+> * One for the **backend server**
+> * One for the **frontend server**
 
 ---
 
-## 📦 Step 1: Clone the Repository
+## 🧰 Step 1: Create Conda Development Environment
+
+You can either install the tools system-wide or use Conda to isolate them. Using Conda is recommended for consistency.
+
+### ✅ Recommended: Create with Conda
+
+```bash
+conda create -n BrainDriveDev -c conda-forge python=3.11 nodejs git -y
+conda activate BrainDriveDev
+```
+
+This sets up:
+
+* Python 3.11
+* Node.js and npm
+* Git
+
+> You will need to activate this environment in both terminal windows before running backend and frontend.
+
+---
+
+## 📦 Step 2: Clone the Repository
+
+In either terminal:
 
 ```bash
 git clone https://github.com/BrainDriveAI/BrainDrive.git
@@ -36,54 +54,76 @@ cd BrainDrive
 
 ---
 
-## 🧰 Step 2: Set Up the Backend
+## 🧩 Step 3: Build Required Plugins
 
-### Option A: Using Conda (Recommended)
+Before using BrainDrive, plugins must be built. You can do this automatically or manually.
 
-```bash
-cd backend
-conda create -n BrainDriveDev python=3.11 -y
-conda activate BrainDriveDev
-pip install -r requirements.txt
+### 🔹 Option 1: ✅ Automatic (Recommended)
+
+#### 🪟 Windows
+
+```bat
+conda activate BrainDriveDev  # if not already activated
+build_plugins.bat
 ```
 
-### Option B: Using Python venv
+#### 🍎 macOS / 🐧 Linux
+
+```bash
+conda activate BrainDriveDev  # if not already activated
+chmod +x build_plugins.sh
+./build_plugins.sh
+```
+
+> 💡 These scripts detect all plugin folders in `plugins/` that contain a `package.json`, install dependencies, and run `npm run build`.
+
+---
+
+### 🔸 Option 2: 🛠 Manual Plugin Build
+
+```bash
+cd plugins/BrainDriveBasicAIChat
+npm install
+npm run build
+
+cd ../BrainDriveSettings
+npm install
+npm run build
+```
+
+Repeat for any additional plugins.
+
+---
+
+## 🧪 Step 4: Set Up the Backend
 
 ```bash
 cd backend
-python -m venv venv
-
-# Windows
-venv\Scripts\activate
-
-# macOS/Linux
-source venv/bin/activate
-
+conda activate BrainDriveDev  # if not already activated
 pip install -r requirements.txt
 ```
 
 ---
 
-## ⚙️ Step 3: Backend Configuration
+### ⚙️ Backend Configuration
 
-Create a `.env` file in the `backend/` directory.
+Create a `.env` file in the `backend/` folder.
 
-Option 1: Copy from provided template:
+#### Option A: Copy template
 
 ```bash
-cp .env-dev .env
-
-or 
-
-copy .env-dev .env
+cp .env-dev .env       # macOS/Linux
+copy .env-dev .env     # Windows
 ```
 
-Option 2: Manually create `.env` with the following:
+#### Option B: Manual `.env` Setup
+
+Paste the following into `backend/.env`:
 
 ```env
 # Application Settings
 APP_NAME="BrainDrive"
-APP_ENV="dev"  # Change to "prod" in production
+APP_ENV="dev"
 API_V1_PREFIX="/api/v1"
 DEBUG=true
 
@@ -99,19 +139,19 @@ ACCESS_TOKEN_EXPIRE_MINUTES=15
 REFRESH_TOKEN_EXPIRE_DAYS=30
 ALGORITHM="HS256"
 
-# Database Settings
+# Database
 DATABASE_URL="sqlite:///braindrive.db"
 DATABASE_TYPE="sqlite"
 USE_JSON_STORAGE=false
 JSON_DB_PATH="./storage/database.json"
-SQL_LOG_LEVEL="WARNING"  # Set to "DEBUG" for detailed SQL logging
+SQL_LOG_LEVEL="WARNING"
 
-# Redis Settings
+# Redis
 USE_REDIS=false
 REDIS_HOST="localhost"
 REDIS_PORT=6379
 
-# CORS Settings
+# CORS
 CORS_ORIGINS='["http://127.0.0.1:5173", "http://localhost:5173"]'
 CORS_METHODS='["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"]'
 CORS_HEADERS='["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"]'
@@ -122,13 +162,15 @@ CORS_ALLOW_CREDENTIALS=true
 # Allowed Hosts
 ALLOWED_HOSTS='["localhost", "127.0.0.1"]'
 
-# AI Provider Settings
-ENABLE_TEST_ROUTES=true  # Enable test routes in development
+# AI Providers
+ENABLE_TEST_ROUTES=true
 ```
 
 ---
 
-## ▶️ Step 4: Run the Backend Server
+## 🚀 Step 5: Run the Backend Server
+
+In the **backend terminal window**:
 
 ```bash
 uvicorn main:app --reload --host localhost --port 8005
@@ -136,91 +178,30 @@ uvicorn main:app --reload --host localhost --port 8005
 
 ---
 
-## 🧩 Step 5: Build Required Plugins
-
-Before using BrainDrive, plugins must be built. You can either build them **manually** or use our **automated script**.
-
-### 📌 Requirements
-
-* [Node.js (v16+)](https://nodejs.org/en/download)
-* npm (comes with Node) or yarn
-
----
-
-### 🔹 Option 1: ✅ Automatic (Recommended)
-
-We provide cross-platform scripts to build all plugins with one command:
-
-#### 🪟 Windows
-
-From the project root (`BrainDrive/`), run:
-
-```bat
-build_plugins.bat
-```
-
-#### 🍎 macOS / 🐧 Linux
-
-Make the script executable:
-
-```bash
-chmod +x build_plugins.sh
-```
-
-Then run:
-
-```bash
-./build_plugins.sh
-```
-
-> 💡 These scripts will automatically detect all plugin folders in `plugins/` that contain a `package.json`, install their dependencies, and run `npm run build`.
-
----
-
-### 🔸 Option 2: 🛠 Manual Build
-
-Build each plugin manually by navigating into its folder:
-
-```bash
-cd plugins/BrainDriveBasicAIChat
-npm install
-npm run build
-
-cd ../BrainDriveSettings
-npm install
-npm run build
-```
-
-You can repeat this process for any additional plugins.
-
-
-
----
-
 ## 💻 Step 6: Set Up the Frontend
 
+In a **second terminal window**:
+
 ```bash
-cd ../../frontend
+cd BrainDrive/frontend
+conda activate BrainDriveDev  # if not already activated
 npm install
 ```
 
 ---
 
-## ⚙️ Step 7: Frontend Configuration
+### ⚙️ Frontend Configuration
 
-Create a `.env` file in the `frontend/` directory.
+Create a `.env` file in the `frontend/` folder.
 
-Option 1: Copy from example:
+#### Option A: Copy example file
 
 ```bash
-cp .env.example .env
-
-or
-
-copy .env.example .env
+cp .env.example .env       # macOS/Linux
+copy .env.example .env     # Windows
 ```
 
-Option 2: Manually create `.env`:
+#### Option B: Manual `.env`
 
 ```env
 # API Configuration
@@ -230,23 +211,23 @@ VITE_API_TIMEOUT=10000
 # Environment
 NODE_ENV=development
 
-# Development Only - Temporary Auto Login (Remove in production)
+# Development Auto Login
 VITE_DEV_AUTO_LOGIN=false
 VITE_DEV_EMAIL=your-email@example.com
 VITE_DEV_PASSWORD=your-password
 ```
 
-> ⚠️ **Important:** Remove auto-login values before deploying to production.
+> ⚠️ **Security Note:** Remove auto-login details before production deployment.
 
 ---
 
-## 🚀 Step 8: Run the Frontend
+## 🖥️ Step 7: Run the Frontend
 
 ```bash
 npm run dev
 ```
 
-Or:
+Or if using Yarn:
 
 ```bash
 yarn dev
@@ -254,13 +235,13 @@ yarn dev
 
 ---
 
-## ✅ Verification Checklist
+## ✅ Final Verification Checklist
 
-After completing the steps:
+| Item       | URL / Result                                                             |
+| ---------- | ------------------------------------------------------------------------ |
+| ✅ Backend  | Open [http://localhost:8005](http://localhost:8005) to view FastAPI docs |
+| ✅ Frontend | Open [http://localhost:5173](http://localhost:5173) to launch the UI     |
+| ✅ Plugins  | Plugin builds completed successfully                                     |
 
-* [ ] `Backend`: [http://localhost:8005](http://localhost:8005) should load FastAPI Swagger docs.
-* [ ] Plugins are built and available for use.
-* [ ] `Frontend`: [http://localhost:5173](http://localhost:5173) should launch the PluginStudio UI.
-
-
+---
 
