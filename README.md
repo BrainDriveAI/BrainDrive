@@ -16,7 +16,7 @@ With BrainDrive, you can:
 🎥 Want to see BrainDrive in action? [Watch the video](https://youtu.be/3G_OibAo-_o)
 
 
-![BrainDrive Logo](images/braindrive-logo.png) 
+![BrainDrive Logo](images/Logo-Light-Mode.png) 
 
 ## Overview
 
