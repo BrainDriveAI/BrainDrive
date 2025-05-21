@@ -36,6 +36,23 @@ You can share your findings directly in our [Community Forum](https://community.
 
 3. **Help Others**
    - If you get it working, share your tips and tricks in the feeback thread above.
+  
+---
+
+## 🚀 What's Coming Soon
+
+We’re just getting started.
+
+Very soon, we’ll be opening BrainDrive up for broader contributions—both to the core system and through plugins. Whether you want to improve the software that powers every BrainDrive or build something brand new that others can use, there’s a place for you here.
+
+In the coming weeks, we’ll share:
+
+- Clear contribution pathways for improving the core system
+- Tools and templates to help you build your own plugins
+- A plugin marketplace where you can share or sell what you’ve built
+- If you're an early contributor, you’re not just writing code—you’re helping shape the future of personal AI.
+
+👉 Follow this repository for updates and be the first to know when contribution paths open up.
 
 ---
 
