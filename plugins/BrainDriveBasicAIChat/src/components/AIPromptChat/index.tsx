@@ -49,7 +49,9 @@ class AIPromptChat extends React.Component<AIPromptChatProps, {
       selectedModel: null,
       useStreaming: savedStreamingMode !== null
         ? savedStreamingMode
-        : !!props.defaultStreamingMode,
+        : props.defaultStreamingMode !== undefined 
+          ? !!props.defaultStreamingMode 
+          : true,
       conversation_id: null,
       isLoadingHistory: false,
       currentUserId: null, // Add state for current user ID

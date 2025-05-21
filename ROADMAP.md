@@ -84,6 +84,13 @@ Our roadmap is broken into clearly defined versions, each building toward a stab
 
 ---
 
+## 📢 Community Updates
+
+We post weekly development updates and community discussions in our forum.
+
+👉 [Join the conversation and follow our dev updates](https://community.braindrive.ai/t/braindrive-development-progress-updates/92)
+
+
 ## How to Contribute
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for ways to get involved. You can also:
