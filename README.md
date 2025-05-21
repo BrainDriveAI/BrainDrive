@@ -79,6 +79,8 @@ The backend is built with Python and provides:
 - User settings and preferences
 - Database management
 
+[Learn more about the backend](backend/README.md)
+
 ### Plugin System
 
 The plugin system allows developers to extend the platform with:

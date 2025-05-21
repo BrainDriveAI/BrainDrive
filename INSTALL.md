@@ -15,7 +15,7 @@ Before continuing, ensure the following are installed:
 | **Node.js** | [Node.js](https://nodejs.org/en/download/)                                                                                | `node -v` and `npm -v` |
 
 > ⚠️ **Development Mode Note:**
-> While running BrainDrive in development, you’ll need **two terminal windows or tabs open**:
+> While running BrainDrive in development, you’ll need **two terminal windows**:
 >
 > * One for the **backend server**
 > * One for the **frontend server**
@@ -26,20 +26,12 @@ Before continuing, ensure the following are installed:
 
 You can either install the tools system-wide or use Conda to isolate them. Using Conda is recommended for consistency.
 
-### ✅ Recommended: Create with Conda
-
 ```bash
 conda create -n BrainDriveDev -c conda-forge python=3.11 nodejs git -y
 conda activate BrainDriveDev
 ```
 
-This sets up:
-
-* Python 3.11
-* Node.js and npm
-* Git
-
-> You will need to activate this environment in both terminal windows before running backend and frontend.
+> You will need to activate this environment in **both terminal windows** when working on the project.
 
 ---
 
@@ -82,6 +74,7 @@ chmod +x build_plugins.sh
 ### 🔸 Option 2: 🛠 Manual Plugin Build
 
 ```bash
+conda activate BrainDriveDev  # if not already activated
 cd plugins/BrainDriveBasicAIChat
 npm install
 npm run build
@@ -170,25 +163,24 @@ ENABLE_TEST_ROUTES=true
 
 ## 🚀 Step 5: Run the Backend Server
 
-In the **backend terminal window**:
+In the **first terminal window**:
 
 ```bash
+cd BrainDrive/backend
 uvicorn main:app --reload --host localhost --port 8005
 ```
 
 ---
 
-## 💻 Step 6: Set Up the Frontend
+## 💻 Step 6: Set Up and Run the Frontend
 
-In a **second terminal window**:
+In the **second terminal window**:
 
 ```bash
 cd BrainDrive/frontend
 conda activate BrainDriveDev  # if not already activated
 npm install
 ```
-
----
 
 ### ⚙️ Frontend Configuration
 
@@ -217,21 +209,16 @@ VITE_DEV_EMAIL=your-email@example.com
 VITE_DEV_PASSWORD=your-password
 ```
 
-> ⚠️ **Security Note:** Remove auto-login details before production deployment.
+> ⚠️ **Security Note:** Remove auto-login credentials before production deployment.
 
----
-
-## 🖥️ Step 7: Run the Frontend
+Now start the frontend:
 
 ```bash
 npm run dev
 ```
 
-Or if using Yarn:
-
-```bash
-yarn dev
-```
+✅ Once both servers are running, you can access BrainDrive at:
+[http://localhost:5173](http://localhost:5173)
 
 ---
 
@@ -244,4 +231,36 @@ yarn dev
 | ✅ Plugins  | Plugin builds completed successfully                                     |
 
 ---
+
+## 🔁 Restarting BrainDrive Later
+
+After shutting down or rebooting, restart BrainDrive with the following steps:
+
+### 1️⃣ Open Two Terminal Windows
+
+* One for the **backend**
+* One for the **frontend**
+
+### 2️⃣ Activate Conda in Both
+
+```bash
+conda activate BrainDriveDev
+```
+
+### 3️⃣ Start the Backend Server
+
+```bash
+cd BrainDrive/backend
+uvicorn main:app --reload --host localhost --port 8005
+```
+
+### 4️⃣ Start the Frontend Server
+
+```bash
+cd BrainDrive/frontend
+npm run dev
+```
+
+Then visit: [http://localhost:5173](http://localhost:5173)
+
 
