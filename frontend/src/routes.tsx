@@ -8,6 +8,7 @@ import ProfilePage from './pages/ProfilePage';
 import { DynamicRoutes } from './components/DynamicRoutes';
 import { DynamicPageRenderer } from './components/DynamicPageRenderer';
 import { RouteContentRenderer } from './components/RouteContentRenderer';
+import DefaultPageRedirect from './components/DefaultPageRedirect';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
@@ -31,7 +32,7 @@ function AppRoutes() {
           </PrivateRoute>
         }
       >
-        <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route index element={<DefaultPageRedirect />} />
         <Route path="dashboard" element={<RouteContentRenderer route="dashboard" />} />
         <Route path="plugin-studio" element={<RouteContentRenderer route="plugin-studio" />} />
         <Route path="settings" element={<RouteContentRenderer route="settings" />} />

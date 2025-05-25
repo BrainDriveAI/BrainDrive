@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 from app.api.v1.endpoints import auth, settings, ollama, ai_providers, ai_provider_settings, navigation_routes, components, conversations, tags
 from app.routers import plugins
+from app.routes.pages import router as pages_router
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(auth.router, tags=["auth"])
@@ -14,3 +15,4 @@ api_router.include_router(conversations.router, tags=["conversations"])
 api_router.include_router(tags.router, tags=["tags"])
 # Include the plugins router with a prefix
 api_router.include_router(plugins.router, tags=["plugins"])
+api_router.include_router(pages_router)

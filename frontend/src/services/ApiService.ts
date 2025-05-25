@@ -18,6 +18,7 @@ export interface User {
   profile_picture?: string;
   is_active: boolean;
   is_verified: boolean;
+  version?: string;
 }
 
 export interface AuthResponse {

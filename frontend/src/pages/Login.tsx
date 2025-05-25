@@ -64,6 +64,12 @@ const Login = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [focusedField, setFocusedField] = useState<string | null>(null);
+  
+  // Configuration option: Set to true to show the Full Name field in registration form
+  // This can be easily toggled when full name collection is needed in the future
+  const [showFullNameField] = useState<boolean>(false);
+  
   const { login, register } = useAuth();
   const navigate = useNavigate();
   const theme = useTheme();
@@ -83,7 +89,7 @@ const Login = () => {
     try {
       await login(email, password);
       navigate('/');
-    } catch (err) {
+    } catch (err: any) {
       // Provide more user-friendly error messages
       if (err.response && err.response.status === 401) {
         setError('Invalid email or password. Please try again.');
@@ -117,10 +123,10 @@ const Login = () => {
         username,
         email,
         password,
-        full_name: fullName
+        full_name: showFullNameField ? fullName : "" // Send empty string if field is hidden
       });
       navigate('/');
-    } catch (err) {
+    } catch (err: any) {
       // Provide more user-friendly error messages for registration
       if (err.response && err.response.status === 400) {
         if (err.response.data && err.response.data.detail) {
@@ -151,18 +157,31 @@ const Login = () => {
     setShowPassword(!showPassword);
   };
 
-  const MissionCard = ({ title, description }: { title: string, description: string }) => (
-    <Card variant="outlined" sx={{ height: '100%', borderRadius: 2 }}>
-      <CardContent>
-        <Typography variant="h6" component="h3" gutterBottom color="primary">
-          {title}
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          {description}
-        </Typography>
-      </CardContent>
-    </Card>
-  );
+  const handleFieldFocus = (fieldName: string) => {
+    setFocusedField(fieldName);
+  };
+
+  const handleFieldBlur = () => {
+    setFocusedField(null);
+  };
+
+  // Helper function to get field-specific help text
+  const getFieldHelpText = (fieldName: string | null) => {
+    switch (fieldName) {
+      case 'email':
+        return "Enter a valid email address (example@domain.com)";
+      case 'password':
+        return "Password must be at least 8 characters long";
+      case 'confirmPassword':
+        return "Re-enter your password to confirm";
+      case 'username':
+        return "Choose a unique username (3-50 characters)";
+      case 'fullName':
+        return "Enter your full name as you'd like it to appear";
+      default:
+        return "";
+    }
+  };
 
   return (
     <Box
@@ -187,45 +206,14 @@ const Login = () => {
         </Typography>
       </Box>
       
-      <Grid 
-        container 
-        spacing={4} 
-        justifyContent="center" 
-        alignItems="flex-start" 
-        sx={{ 
-          maxWidth: isMobile ? '95%' : '1200px',
+      <Box
+        sx={{
+          width: '100%',
+          maxWidth: '450px',
           mx: 'auto',
           px: 2
         }}
       >
-        {/* Left side - Mission statements */}
-        {!isMobile && (
-          <Grid item xs={12} md={6}>
-            <Grid container spacing={2}>
-              <Grid item xs={12}>
-                <MissionCard 
-                  title="Build" 
-                  description="A flexible, easy to modify and extend, and robust foundation for your AI ecosystem."
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <MissionCard 
-                  title="Control" 
-                  description="Complete authority over how your AI system operates."
-                />
-              </Grid>
-              <Grid item xs={12}>
-                <MissionCard 
-                  title="Benefit" 
-                  description="Unlimited freedom to use, modify, distribute, and monetize your AI."
-                />
-              </Grid>
-            </Grid>
-          </Grid>
-        )}
-
-        {/* Right side - Auth form */}
-        <Grid item xs={12} md={6}>
           <Paper
             elevation={3}
             sx={{
@@ -283,8 +271,17 @@ const Login = () => {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  onFocus={() => handleFieldFocus('email')}
+                  onBlur={handleFieldBlur}
                   autoComplete="username"
-                  sx={{ mb: 2 }}
+                  error={!!error && error.toLowerCase().includes('email')}
+                  helperText={
+                    focusedField === 'email'
+                      ? getFieldHelpText('email')
+                      : error && error.toLowerCase().includes('email')
+                        ? error
+                        : " "
+                  }
                 />
                 <TextField
                   fullWidth
@@ -295,7 +292,17 @@ const Login = () => {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  onFocus={() => handleFieldFocus('password')}
+                  onBlur={handleFieldBlur}
                   autoComplete="current-password"
+                  error={!!error && error.toLowerCase().includes('password')}
+                  helperText={
+                    focusedField === 'password'
+                      ? getFieldHelpText('password')
+                      : error && error.toLowerCase().includes('password')
+                        ? error
+                        : " "
+                  }
                   InputProps={{
                     endAdornment: (
                       <InputAdornment position="end">
@@ -326,50 +333,34 @@ const Login = () => {
                 >
                   {isSubmitting ? 'Signing In...' : 'Sign In'}
                 </Button>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  align="center"
+                  sx={{ display: 'block', mt: 2 }}
+                >
+                  All data is stored locally on your device
+                </Typography>
               </form>
               
-              {isMobile && (
-                <Box sx={{ mt: 4 }}>
-                  <Divider sx={{ my: 2 }}>
-                    <Typography variant="body2" color="text.secondary">
-                      Our Mission
-                    </Typography>
-                  </Divider>
-                  <Grid container spacing={2}>
-                    <Grid item xs={12}>
-                      <MissionCard 
-                        title="Build" 
-                        description="A flexible, easy to modify and extend, and robust foundation for your AI ecosystem."
-                      />
-                    </Grid>
-                    <Grid item xs={12}>
-                      <MissionCard 
-                        title="Control" 
-                        description="Complete authority over how your AI system operates."
-                      />
-                    </Grid>
-                    <Grid item xs={12}>
-                      <MissionCard 
-                        title="Benefit" 
-                        description="Unlimited freedom to use, modify, distribute, and monetize your AI."
-                      />
-                    </Grid>
-                  </Grid>
-                </Box>
-              )}
             </TabPanel>
 
             <TabPanel value={tabValue} index={1}>
               <form onSubmit={handleRegister}>
-                <TextField
-                  fullWidth
-                  label="Full Name"
-                  margin="normal"
-                  variant="outlined"
-                  required
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                />
+                {showFullNameField && (
+                  <TextField
+                    fullWidth
+                    label="Full Name"
+                    margin="normal"
+                    variant="outlined"
+                    required
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    onFocus={() => handleFieldFocus('fullName')}
+                    onBlur={handleFieldBlur}
+                    helperText={focusedField === 'fullName' ? getFieldHelpText('fullName') : " "}
+                  />
+                )}
                 <TextField
                   fullWidth
                   label="Username"
@@ -378,7 +369,17 @@ const Login = () => {
                   required
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
+                  onFocus={() => handleFieldFocus('username')}
+                  onBlur={handleFieldBlur}
                   autoComplete="username"
+                  error={!!error && error.toLowerCase().includes('username')}
+                  helperText={
+                    focusedField === 'username'
+                      ? getFieldHelpText('username')
+                      : error && error.toLowerCase().includes('username')
+                        ? error
+                        : " "
+                  }
                 />
                 <TextField
                   fullWidth
@@ -389,7 +390,17 @@ const Login = () => {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  onFocus={() => handleFieldFocus('email')}
+                  onBlur={handleFieldBlur}
                   autoComplete="username"
+                  error={!!error && error.toLowerCase().includes('email')}
+                  helperText={
+                    focusedField === 'email'
+                      ? getFieldHelpText('email')
+                      : error && error.toLowerCase().includes('email')
+                        ? error
+                        : " "
+                  }
                 />
                 <TextField
                   fullWidth
@@ -400,7 +411,17 @@ const Login = () => {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  onFocus={() => handleFieldFocus('password')}
+                  onBlur={handleFieldBlur}
                   autoComplete="new-password"
+                  error={!!error && error.toLowerCase().includes('password')}
+                  helperText={
+                    focusedField === 'password'
+                      ? getFieldHelpText('password')
+                      : error && error.toLowerCase().includes('password')
+                        ? error
+                        : " "
+                  }
                   InputProps={{
                     endAdornment: (
                       <InputAdornment position="end">
@@ -424,7 +445,17 @@ const Login = () => {
                   required
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
+                  onFocus={() => handleFieldFocus('confirmPassword')}
+                  onBlur={handleFieldBlur}
                   autoComplete="new-password"
+                  error={!!error && error.toLowerCase().includes('password')}
+                  helperText={
+                    focusedField === 'confirmPassword'
+                      ? getFieldHelpText('confirmPassword')
+                      : error && error.toLowerCase().includes('password') && error.toLowerCase().includes('match')
+                        ? error
+                        : " "
+                  }
                   InputProps={{
                     endAdornment: (
                       <InputAdornment position="end">
@@ -455,41 +486,20 @@ const Login = () => {
                 >
                   {isSubmitting ? 'Creating Account...' : 'Create Account'}
                 </Button>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  align="center"
+                  sx={{ display: 'block', mt: 2 }}
+                >
+                  All data is stored locally on your device
+                </Typography>
               </form>
               
-              {isMobile && (
-                <Box sx={{ mt: 4 }}>
-                  <Divider sx={{ my: 2 }}>
-                    <Typography variant="body2" color="text.secondary">
-                      Our Mission
-                    </Typography>
-                  </Divider>
-                  <Grid container spacing={2}>
-                    <Grid item xs={12}>
-                      <MissionCard 
-                        title="Build" 
-                        description="A flexible, easy to modify and extend, and robust foundation for your AI ecosystem."
-                      />
-                    </Grid>
-                    <Grid item xs={12}>
-                      <MissionCard 
-                        title="Control" 
-                        description="Complete authority over how your AI system operates."
-                      />
-                    </Grid>
-                    <Grid item xs={12}>
-                      <MissionCard 
-                        title="Benefit" 
-                        description="Unlimited freedom to use, modify, distribute, and monetize your AI."
-                      />
-                    </Grid>
-                  </Grid>
-                </Box>
-              )}
             </TabPanel>
           </Paper>
-        </Grid>
-      </Grid>
+          
+        </Box>
     </Box>
   );
 };
