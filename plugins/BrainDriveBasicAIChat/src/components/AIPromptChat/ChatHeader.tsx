@@ -10,6 +10,9 @@ interface ChatHeaderProps {
  * Component to render the chat header with controls
  */
 class ChatHeader extends React.Component<ChatHeaderProps> {
+  static defaultProps = {
+    useStreaming: true
+  };
   render() {
     const { useStreaming, toggleStreamingMode, isLoading } = this.props;
     
