@@ -43,6 +43,8 @@ module.exports = {
       exposes: {
         "./ComponentTheme": "./src/ComponentTheme",
         "./ComponentOllamaServer": "./src/ComponentOllamaServer",
+        "./ComponentGeneralSettings": "./src/components/GeneralSettings/index"
+
       },
       shared: {
         react: { 

@@ -92,15 +92,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         content={"detail": exc.errors()},
     )
 
-# Mount the API router at /api/v1
+# Include API routers
 app.include_router(api_router)
 
-# Include the pages and navigation routers
-from app.routes.pages import router as pages_router
-from app.routes.navigation import router as navigation_router
 
-app.include_router(pages_router)
-app.include_router(navigation_router)
-
-# The plugin manager router is already included in api_router, so we don't need to include it again
-# app.include_router(plugin_manager.router, prefix="/api/v1")
