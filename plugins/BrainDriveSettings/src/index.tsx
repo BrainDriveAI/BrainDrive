@@ -2,12 +2,14 @@ import './index.css';
 import './bootstrap';
 import ComponentOllamaServer from './ComponentOllamaServer';
 import ComponentTheme from './ComponentTheme';
+import { ComponentGeneralSettings } from './components/GeneralSettings';
 
 // Export the components
-export { 
+export {
 
   ComponentOllamaServer,
   ComponentTheme,
+  ComponentGeneralSettings,
 };
 
 // For local development

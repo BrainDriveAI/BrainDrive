@@ -16,7 +16,8 @@ os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test.db"
 os.environ["ENVIRONMENT"] = "test"
 
 from app.core.config import settings
-from app.models.user import Base
+from app.models import Base  # Import all models so tables are created
+from app.core.database import Base as DBBase
 from app.main import app
 from app.core.database import get_db
 
@@ -35,10 +36,13 @@ app.dependency_overrides[get_db] = override_get_db
 async def setup_database():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(DBBase.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(DBBase.metadata.create_all)
     yield
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(DBBase.metadata.drop_all)
 
 @pytest_asyncio.fixture
 async def db() -> AsyncGenerator[AsyncSession, None]:
