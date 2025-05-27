@@ -7,10 +7,11 @@ This plugin initializes settings for a new user.
 import logging
 import uuid
 import datetime
+import json
 from app.core.user_initializer.utils import generate_uuid
 from typing import Dict, Any, List
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.core.user_initializer.base import UserInitializerBase
 from app.core.user_initializer.registry import register_initializer
@@ -52,6 +53,18 @@ class SettingsInitializer(UserInitializerBase):
             "validation": None,
             "is_multiple": False,
             "tags": '["auto_generated"]'
+        },
+        {
+            "id": "general_settings",
+            "name": "General Settings",
+            "description": "Auto-generated definition for General Settings",
+            "category": "auto_generated",
+            "type": "object",
+            "default_value": '{"settings":[{"Setting_Name":"default_page","Setting_Data":"Dashboard","Setting_Help":"This is the first page to be displayed after logging in to BrainDrive"}]}',
+            "allowed_scopes": '["system", "user", "page", "user_page"]',
+            "validation": None,
+            "is_multiple": False,
+            "tags": '["auto_generated"]'
         }
     ]
     
@@ -70,6 +83,13 @@ class SettingsInitializer(UserInitializerBase):
             "value": '{"servers": [{"id": "server_1742054635336_5puc3mrll", "serverName": "New Server", "serverAddress": "http://localhost:11434", "apiKey": "", "connectionStatus": "idle"}]}',
             "scope": "user",
             "page_id": None
+        },
+        {
+            "definition_id": "general_settings",
+            "name": "General Settings",
+            "value": "{}",  # Will be populated dynamically with page ID
+            "scope": "user",
+            "page_id": None
         }
     ]
     
@@ -81,8 +101,27 @@ class SettingsInitializer(UserInitializerBase):
             # Ensure settings definitions exist
             await self._ensure_settings_definitions(db)
             
+            # Retrieve the AI Chat page ID for this user
+            page_stmt = text("SELECT id FROM pages WHERE name = :name AND creator_id = :uid LIMIT 1")
+            result = await db.execute(page_stmt, {"name": "AI Chat", "uid": user_id})
+            ai_chat_page_id = result.scalar_one_or_none()
+
             # Create settings instances for the user using hardcoded default settings
             for setting_data in self.DEFAULT_SETTINGS:
+                # If this is the general settings entry, populate the value with the page ID
+                if setting_data["definition_id"] == "general_settings":
+                    default_page_value = ai_chat_page_id if ai_chat_page_id else "Dashboard"
+                    setting_value = {
+                        "settings": [
+                            {
+                                "Setting_Name": "default_page",
+                                "Setting_Data": default_page_value,
+                                "Setting_Help": "This is the first page to be displayed after logging in to BrainDrive"
+                            }
+                        ]
+                    }
+                    setting_data = setting_data.copy()
+                    setting_data["value"] = json.dumps(setting_value)
                 # Prepare the setting data for the new user
                 # This will:
                 # 1. Generate a new ID
@@ -101,7 +140,6 @@ class SettingsInitializer(UserInitializerBase):
                     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     
                     # Create SQL statement
-                    from sqlalchemy import text
                     stmt = text("""
                     INSERT INTO settings_instances
                     (id, definition_id, name, value, scope, user_id, page_id, created_at, updated_at)
@@ -142,7 +180,6 @@ class SettingsInitializer(UserInitializerBase):
             # Use hardcoded default definitions
             for definition_data in self.DEFAULT_DEFINITIONS:
                 # Check if definition already exists using direct SQL
-                from sqlalchemy import text
                 check_stmt = text("SELECT id FROM settings_definitions WHERE id = :id")
                 result = await db.execute(check_stmt, {"id": definition_data["id"]})
                 existing = result.scalar_one_or_none()

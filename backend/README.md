@@ -24,6 +24,7 @@ BrainDrive Backend is the engine behind the BrainDrive application—a modular, 
 
 * 🔒 JWT-based authentication with refresh tokens
 * 👤 User registration, login, and profile management
+* 🔄 User updaters run automatically after each login
 * ⚙️ Dynamic settings system with multi-tier support
 * 🤖 Modular plugin system with automatic discovery
 * 📚 AI provider registry and switching support

@@ -21,3 +21,17 @@ export const THEME_SETTINGS = {
 export const LOCAL_STORAGE_KEYS = {
   THEME_PREFERENCE: 'theme_preference_local'
 };
+
+export const GENERAL_SETTINGS = {
+  DEFINITION_ID: 'general_settings',
+  NAME: 'General Settings',
+  DEFAULT_VALUE: {
+    settings: [
+      {
+        Setting_Name: 'default_page',
+        Setting_Data: 'Dashboard',
+        Setting_Help: 'This is the first page to be displayed after logging in to BrainDrive'
+      }
+    ]
+  }
+};

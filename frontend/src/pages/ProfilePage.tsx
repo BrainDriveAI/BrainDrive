@@ -171,7 +171,7 @@ const ProfilePage = () => {
         {/* User Info Card */}
         <Grid item xs={12} md={4}>
           <Card sx={{ height: '100%' }}>
-            <CardContent sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 4 }}>
+            <CardContent sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', py: 4, height: '100%', position: 'relative' }}>
               <Avatar 
                 sx={{ 
                   width: 100, 
@@ -199,6 +199,12 @@ const ProfilePage = () => {
                 <Person fontSize="small" sx={{ mr: 1, color: 'text.secondary' }} />
                 <Typography variant="body1" color="text.secondary">
                   {user.username}
+                </Typography>
+              </Box>
+
+              <Box sx={{ mt: 'auto', pb: 2, width: '100%', position: 'absolute', bottom: 0, left: 0, textAlign: 'center' }}>
+                <Typography variant="caption" color="text.secondary" align="center">
+                  {`BrainDrive v${user.version ?? '0.0.0'}`}
                 </Typography>
               </Box>
             </CardContent>
