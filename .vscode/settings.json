@@ -1,2 +1,12 @@
 {
+    "sqltools.connections": [
+        {
+            "previewLimit": 50,
+            "driver": "SQLite",
+            "database": "backend/braindrive.db",
+            "name": "BrainDrive",
+            "group": "BrainDrive"
+        }
+    ],
+    "sqltools.useNodeRuntime": true
 }
