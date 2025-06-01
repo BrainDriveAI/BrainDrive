@@ -198,6 +198,9 @@ tmp/
 *.backup
 *~
 
+# Patch files
+patches/
+
 # Documentation and Reports
 docs/
 Docs/

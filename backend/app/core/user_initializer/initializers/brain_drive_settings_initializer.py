@@ -79,6 +79,24 @@ class BrainDriveSettingsInitializer(UserInitializerBase):
             "tags": "[\"Settings\", \"Theme Settings\"]"
         },
         {
+            "id": "componentGeneralSettings",
+            "plugin_id": "BrainDriveSettings",
+            "name": "ComponentGeneralSettings",
+            "display_name": "General Settings",
+            "description": "Manage general application settings",
+            "icon": "Settings",
+            "category": "Settings",
+            "enabled": True,
+            "priority": 1,
+            "props": "{}",
+            "config_fields": "{}",
+            "messages": "{\"sends\": [], \"receives\": []}",
+            "required_services": "{\"api\": {\"methods\": [\"get\", \"post\"], \"version\": \"1.0.0\"}, \"theme\": {\"methods\": [\"getCurrentTheme\", \"addThemeChangeListener\", \"removeThemeChangeListener\"], \"version\": \"1.0.0\"}}",
+            "dependencies": "[]",
+            "layout": "{\"minWidth\": 6, \"minHeight\": 1, \"defaultWidth\": 12, \"defaultHeight\": 1}",
+            "tags": "[\"Settings\", \"General Settings\"]"
+        },
+        {
             "id": "componentOllamaServer",
             "plugin_id": "BrainDriveSettings",
             "name": "ComponentOllamaServer",

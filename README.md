@@ -1,8 +1,22 @@
 # BrainDrive
 
-BrainDrive is a powerful, extensible platform for building plugin-based applications with a responsive, drag-and-drop interface. It provides a complete ecosystem for creating, managing, and deploying interactive applications through a modular plugin architecture.
+**BrainDrive is your personal AI system—fully owned, endlessly extensible, and built for freedom.**  
+It’s an open-source platform for building and running AI-powered applications using a modular plugin system and a responsive drag-and-drop interface.
 
-![BrainDrive Logo](images/braindrive-logo.png) <!-- You may need to add this image file -->
+With BrainDrive, you can:
+- 🧠 Create your own AI assistants, workflows, and tools
+- 🔌 Extend functionality using plugins or build your own
+- 🖥️ Host locally or deploy anywhere—with no lock-ins
+- 🤝 Own your data, your AI, and the value you create
+
+> Your AI. Your Rules.
+
+🚀 Ready to get started? [Check out the setup guide ](INSTALL.md)
+
+🎥 Want to see BrainDrive in action? [Watch the video](https://youtu.be/3G_OibAo-_o)
+
+
+![BrainDrive Logo](images/Logo-Light-Mode.png) 
 
 ## Overview
 
@@ -65,6 +79,8 @@ The backend is built with Python and provides:
 - User settings and preferences
 - Database management
 
+[Learn more about the backend](backend/README.md)
+
 ### Plugin System
 
 The plugin system allows developers to extend the platform with:
@@ -89,10 +105,7 @@ The plugin system allows developers to extend the platform with:
 
 For detailed installation and setup instructions, please refer to:
 
-- [Backend Setup Guide](backend/README.md) - Complete instructions for setting up the Python backend, including environment configuration, database setup, and running the server
-- [Plugin Setup Guide](plugins/README.md) - Instructions for building and using the plugin system
-- [Frontend Setup Guide](frontend/README.md) - Instructions for setting up the React frontend
-
+- [Installation Guide](INSTALL.md) - Complete instructions how to setup your BrainDrive
 
 After following the setup guides, you can:
 
@@ -100,21 +113,12 @@ After following the setup guides, you can:
 2. Start the frontend development server (from the frontend directory)
 3. Open your browser and navigate to http://localhost:5173
 
-## Development
+### System Guides
 
-### Creating a Plugin
+- [Backend Setup Guide](backend/README.md) - Complete instructions for setting up the Python backend, including environment configuration, database setup, and running the server
+- [Plugin Setup Guide](plugins/README.md) - Instructions for building and using the plugin system
+- [Frontend Setup Guide](frontend/README.md) - Instructions for setting up the React frontend
 
-To create a new plugin:
-
-1. Create a directory in the `plugins` directory with your plugin name
-2. Create a `plugin.json` manifest file
-3. Implement your frontend components
-4. Implement backend services (if needed)
-5. Register your plugin with BrainDrive
-
-The plugin system is in heavily development at this time
-
-See the [Plugin System Documentation](plugins/README.md) for detailed instructions.
 
 ### Project Structure
 
@@ -140,7 +144,7 @@ See the [Plugin System Documentation](plugins/README.md) for detailed instructio
 
 ## Contributing
 
-We welcome contributions to BrainDrive! Please see our [Contributing Guidelines](CONTRIBUTING.md) for more information.
+We welcome contributions to BrainDrive! Please see our [Contributing Guidelines](CONTRIBUTING.md) and [Project Roadmap](./ROADMAP.md) for more information.
 
 ### Development Guidelines
 

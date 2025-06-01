@@ -348,7 +348,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.error('AuthContext: Error initializing navigation after login:', navigationError);
       }
       
-      navigate('/dashboard');
+      // Navigation is handled by the calling component
     } catch (error) {
       console.error('AuthContext: Login error:', error);
       throw error;

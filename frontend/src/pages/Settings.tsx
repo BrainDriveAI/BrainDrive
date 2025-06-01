@@ -494,10 +494,6 @@ const Settings = () => {
           )}
         </Grid>
       )}
-
-      <Typography variant="body2" color="text.secondary" sx={{ mt: 4 }}>
-        Version: 1.0.0
-      </Typography>
     </Box>
   );
 };
