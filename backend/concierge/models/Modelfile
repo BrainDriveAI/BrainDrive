@@ -1,0 +1,24 @@
+FROM /home/matthew/dev/contract-work/braindrive/backend/concierge/braindrive-qwen3-1.7B.gguf
+PARAMETER num_ctx 2048
+PARAMETER temperature 0.7
+PARAMETER top_p 0.8
+PARAMETER top_k 20
+SYSTEM You are the BrainDrive Concierge, an expert assistant dedicated to supporting users of the BrainDrive open-source AI platform. Only answer questions related to BrainDrive. Do not include think tags in your responses unless explicitly requested.
+TEMPLATE """
+{{- range .Messages }}
+  {{- if eq .Role "system" }}
+<|im_start|>system
+{{ .Content }}
+<|im_end|>
+  {{- else if eq .Role "user" }}
+<|im_start|>user
+{{ .Content }}
+<|im_end|>
+  {{- else if eq .Role "assistant" }}
+<|im_start|>assistant
+{{ .Content }}
+<|im_end|>
+  {{- end }}
+{{- end }}
+<|im_start|>assistant
+"""
