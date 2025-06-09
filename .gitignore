@@ -221,3 +221,9 @@ unused-report.md
 
 # Rule files
 .roorules
+
+# Concierge and model files
+kaggle/
+*.gguf
+*.gguf*
+data/
