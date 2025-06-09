@@ -216,3 +216,5 @@ unused-report.txt
 unused-report.md
 
 kaggle/
+*.gguf
+*.gguf*
