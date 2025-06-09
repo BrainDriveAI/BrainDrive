@@ -541,9 +541,13 @@ async def chat_completion(request: ChatCompletionRequest, db: AsyncSession = Dep
                             if "choices" in chunk and len(chunk["choices"]) > 0:
                                 if "delta" in chunk["choices"][0]:
                                     content = chunk["choices"][0]["delta"].get("content", "")
+                                    chunk["choices"][0]["delta"]["content"] = provider_instance.clean_think_tags_streaming(content)
                                 elif "text" in chunk["choices"][0]:
                                     content = chunk["choices"][0]["text"]
-                            
+                                    chunk["choices"][0]["text"] = provider_instance.clean_think_tags_streaming(content)
+                            # Also clean the top-level text field if present
+                            if "text" in chunk:
+                                chunk["text"] = provider_instance.clean_think_tags_streaming(chunk["text"])
                             # Accumulate the full response
                             full_response += content
                             token_count += 1
@@ -624,6 +628,8 @@ async def chat_completion(request: ChatCompletionRequest, db: AsyncSession = Dep
                     response_content = result["choices"][0]["message"].get("content", "")
                 elif "text" in result["choices"][0]:
                     response_content = result["choices"][0]["text"]
+            # Clean think tags from the response content
+            response_content = provider_instance.clean_think_tags(response_content)
             
             # Estimate token count (this is a rough estimate)
             token_count = len(response_content.split()) * 1.3  # Rough estimate: words * 1.3
@@ -652,6 +658,12 @@ async def chat_completion(request: ChatCompletionRequest, db: AsyncSession = Dep
             # Add conversation_id to the result
             result["conversation_id"] = conversation.id
             
+            # Also clean the result before returning
+            if "choices" in result and len(result["choices"]) > 0:
+                if "message" in result["choices"][0]:
+                    result["choices"][0]["message"]["content"] = provider_instance.clean_think_tags(result["choices"][0]["message"].get("content", ""))
+                if "text" in result["choices"][0]:
+                    result["choices"][0]["text"] = provider_instance.clean_think_tags(result["choices"][0]["text"])
             return result
         except Exception as inner_e:
             logger.error(f"Inner exception in chat_completion: {inner_e}")
