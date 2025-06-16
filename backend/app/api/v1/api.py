@@ -13,6 +13,6 @@ api_router.include_router(navigation_routes.router, prefix="/navigation-routes",
 api_router.include_router(components.router, prefix="/components", tags=["components"])
 api_router.include_router(conversations.router, tags=["conversations"])
 api_router.include_router(tags.router, tags=["tags"])
-# Include the plugins router with a prefix
+# Include the plugins router (which already includes the lifecycle router)
 api_router.include_router(plugins.router, tags=["plugins"])
 api_router.include_router(pages_router)

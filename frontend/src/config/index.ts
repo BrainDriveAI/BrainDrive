@@ -30,7 +30,7 @@ const getApiBaseUrl = () => {
   
   // In development, use the proxy
   if (env.MODE === 'development') {
-    return '';  // Empty string will use the current host with proxy
+    return 'http://10.0.2.149:8005';  // Direct connection to backend
   }
 
   

@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import Login from './pages/Login';
 import { PluginStudioPage } from './features/plugin-studio';
+import { PluginInstallerPage } from './features/plugin-installer';
 import DashboardLayout from './components/dashboard/DashboardLayout';
 import ModuleDetailPage from './pages/ModuleDetailPage';
 import ProfilePage from './pages/ProfilePage';
@@ -39,6 +40,7 @@ function AppRoutes() {
         <Route path="profile" element={<ProfilePage />} />
         <Route path="plugin-manager" element={<RouteContentRenderer route="plugin-manager" />} />
         <Route path="plugin-manager/:pluginId/:moduleId" element={<ModuleDetailPage />} />
+        <Route path="plugin-installer" element={<PluginInstallerPage />} />
         {/* Dynamic routes for published pages - wrapped in Route element */}
         <Route path="pages/*" element={<DynamicRoutes />} />
         {/* Custom navigation routes - handled by RouteContentRenderer */}
