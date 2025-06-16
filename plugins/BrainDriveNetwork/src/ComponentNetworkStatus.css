@@ -1,0 +1,29 @@
+.bd-network-status {
+  font-family: sans-serif;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.status .indicator {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background-color: gray;
+  margin-right: 0.5rem;
+}
+
+.status.online .indicator {
+  background-color: green;
+}
+
+.status.offline .indicator {
+  background-color: red;
+}
+
+.status.unknown .indicator {
+  background-color: gray;
+}

@@ -107,6 +107,13 @@ export const DynamicPageRenderer: React.FC<DynamicPageRendererProps> = ({ pageId
   
   const deviceType: DeviceType = isMobile ? 'mobile' : isTablet ? 'tablet' : 'desktop';
   
+  // Determine if this is a studio page and update global variables
+  const isStudioPage = useMemo(() => {
+    const studioPage = location.pathname.startsWith('/plugin-studio') ||
+                      location.pathname.startsWith('/pages/');
+    return studioPage;
+  }, [location.pathname]);
+
   // Get module state functions from context
   const { getModuleState, saveModuleState, saveAllModuleStates } = useModuleState();
   
@@ -116,6 +123,22 @@ export const DynamicPageRenderer: React.FC<DynamicPageRendererProps> = ({ pageId
   
   // Memoize the current page ID to prevent unnecessary recalculations
   const currentId = useMemo(() => getPageId(), [pageId, route, location.pathname]);
+
+  // Update global variables when page or studio status changes
+  useEffect(() => {
+    if (page) {
+      window.currentPageTitle = page.name;
+      window.isStudioPage = isStudioPage;
+
+      console.log('DynamicPageRenderer - Current path:', location.pathname);
+      console.log('DynamicPageRenderer - Is studio page:', isStudioPage);
+      console.log('DynamicPageRenderer - Page name:', page.name);
+      console.log('DynamicPageRenderer - Global variables:', {
+        currentPageTitle: window.currentPageTitle,
+        isStudioPage: window.isStudioPage
+      });
+    }
+  }, [page, isStudioPage, location.pathname]);
   
   // Function to handle module state changes
   const handleModuleStateChange = useCallback((moduleId: string, state: any) => {
@@ -587,16 +610,17 @@ export const DynamicPageRenderer: React.FC<DynamicPageRendererProps> = ({ pageId
           display: 'flex',
           flexDirection: 'column',
           minHeight: rowSpan * 100, // Set minimum height based on row span
-          height: '100%',
-          overflow: 'auto',
+          height: rowSpan * 100, // Set fixed height based on row span
+          maxHeight: rowSpan * 100, // Prevent container from expanding
+          overflow: 'hidden', // Let the plugin handle its own scrolling
           borderRadius: 1,
           bgcolor: 'background.paper',
           boxShadow: 0
         }}
       >
-        <Box sx={{ width: '100%', p: 1, flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+        <Box sx={{ width: '100%', p: 1, flexGrow: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           <ComponentErrorBoundary>
-            <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', height: '100%' }}>
+            <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
               <PluginModuleRenderer
                 pluginId={moduleDefinition.pluginId}
                 moduleId={moduleDefinition.moduleId}
@@ -692,41 +716,19 @@ export const DynamicPageRenderer: React.FC<DynamicPageRendererProps> = ({ pageId
           boxSizing: 'border-box' // Ensure padding is included in width calculations
         }}
       >
-        {/* Determine if this is a studio page */}
-        {(() => {
-          const isStudioPage = location.pathname.startsWith('/plugin-studio') ||
-                              location.pathname.startsWith('/pages/');
-          
-          // Update global variables
-          window.currentPageTitle = page.name;
-          window.isStudioPage = isStudioPage;
-          
-          console.log('DynamicPageRenderer - Current path:', location.pathname);
-          console.log('DynamicPageRenderer - Is studio page:', isStudioPage);
-          console.log('DynamicPageRenderer - Page name:', page.name);
-          console.log('DynamicPageRenderer - Global variables:', {
-            currentPageTitle: window.currentPageTitle,
-            isStudioPage: window.isStudioPage
-          });
-          
-          return (
-            <>
-              {/* Page title - only show if not a studio page */}
-              {!isStudioPage && (
-                <Typography variant="h4" gutterBottom sx={{ pl: 2, pt: 2 }}>
-                  {page.name}
-                </Typography>
-              )}
-              
-              {/* Description if available */}
-              {page.description && (
-                <Typography variant="body1" color="text.secondary" paragraph sx={{ pl: 2 }}>
-                  {page.description}
-                </Typography>
-              )}
-            </>
-          );
-        })()}
+        {/* Page title - only show if not a studio page */}
+        {!isStudioPage && (
+          <Typography variant="h4" gutterBottom sx={{ pl: 2, pt: 2 }}>
+            {page.name}
+          </Typography>
+        )}
+
+        {/* Description if available */}
+        {page.description && (
+          <Typography variant="body1" color="text.secondary" paragraph sx={{ pl: 2 }}>
+            {page.description}
+          </Typography>
+        )}
         
         {/* Render the layout using CSS Grid */}
         <Box sx={{

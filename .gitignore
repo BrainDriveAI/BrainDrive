@@ -211,6 +211,9 @@ reports/
 Reports/
 **/Reports/
 
+# Plugin Workspace
+PluginBuild/
+
 # Specific report files
 unused-report.txt
 unused-report.md

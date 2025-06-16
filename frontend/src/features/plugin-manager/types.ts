@@ -25,6 +25,15 @@ export interface Plugin {
   messages?: Record<string, any>;
   dependencies?: string[];
   modules: Module[];
+  // Update tracking fields
+  sourceType?: string;
+  sourceUrl?: string;
+  updateCheckUrl?: string;
+  lastUpdateCheck?: string;
+  updateAvailable?: boolean;
+  latestVersion?: string;
+  installationType?: string;
+  permissions?: string[];
 }
 
 /**
