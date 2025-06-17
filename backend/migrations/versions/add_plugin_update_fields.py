@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 # revision identifiers
 revision = 'add_plugin_update_fields'
-down_revision = None  # Replace with actual previous revision
+down_revision = '8f37e0df1aaa'  # add version field to users
 branch_labels = None
 depends_on = None
 
