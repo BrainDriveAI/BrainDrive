@@ -239,7 +239,8 @@ export class SettingsService extends AbstractBaseService {
       throw new Error(`Setting definition ${definitionId} not found`);
     }
 
-    if (!definition.isMultiple && this.hasInstancesForDefinition(definitionId)) {
+    // Check if multiple instances are allowed, and if not, check for existing instances in the same context
+    if (!definition.isMultiple && this.hasInstancesForDefinitionInContext(definitionId, context)) {
       throw new Error(`Setting ${definitionId} does not support multiple instances`);
     }
 
@@ -470,6 +471,28 @@ export class SettingsService extends AbstractBaseService {
   private hasInstancesForDefinition(definitionId: string): boolean {
     return Array.from(this.instances.values())
       .some(instance => instance.definitionId === definitionId);
+  }
+
+  private hasInstancesForDefinitionInContext(definitionId: string, context: { userId?: string; pageId?: string }): boolean {
+    // Determine the appropriate scope based on context
+    let scope: SettingScope;
+    if (context.userId && context.pageId) {
+      scope = 'user_page';
+    } else if (context.userId) {
+      scope = 'user';
+    } else if (context.pageId) {
+      scope = 'page';
+    } else {
+      scope = 'system';
+    }
+
+    return Array.from(this.instances.values())
+      .some(instance =>
+        instance.definitionId === definitionId &&
+        instance.scope === scope &&
+        instance.userId === context.userId &&
+        instance.pageId === context.pageId
+      );
   }
 
   private loadFromStorage(): void {

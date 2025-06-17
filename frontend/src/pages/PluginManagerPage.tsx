@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Container, Typography, Box, Paper, Alert, AlertTitle } from '@mui/material';
+import { Container, Typography, Box, Paper, Alert, AlertTitle, Button } from '@mui/material';
+import { Add as AddIcon } from '@mui/icons-material';
 import ModuleSearch from '../features/plugin-manager/components/ModuleSearch';
 import ModuleFilters from '../features/plugin-manager/components/ModuleFilters';
 import ModuleGrid from '../features/plugin-manager/components/ModuleGrid';
@@ -69,11 +70,25 @@ const PluginManagerPage: React.FC = () => {
     setPage(newPage);
   }, []);
 
+  const handleInstallPlugins = useCallback(() => {
+    navigate('/plugin-installer');
+  }, [navigate]);
+
   return (
     <Container maxWidth="xl" sx={{ py: 4 }}>
-      <Typography variant="h4" component="h1" gutterBottom>
-        Plugin Manager
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Typography variant="h4" component="h1">
+          Plugin Manager
+        </Typography>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={handleInstallPlugins}
+          sx={{ minWidth: 160 }}
+        >
+          Install Plugins
+        </Button>
+      </Box>
       
       <Paper sx={{ p: 3, mb: 3 }}>
         <ModuleSearch onSearch={handleSearch} />

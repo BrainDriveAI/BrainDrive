@@ -2,12 +2,14 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import Login from './pages/Login';
 import { PluginStudioPage } from './features/plugin-studio';
+import { PluginInstallerPage } from './features/plugin-installer';
 import DashboardLayout from './components/dashboard/DashboardLayout';
 import ModuleDetailPage from './pages/ModuleDetailPage';
 import ProfilePage from './pages/ProfilePage';
 import { DynamicRoutes } from './components/DynamicRoutes';
 import { DynamicPageRenderer } from './components/DynamicPageRenderer';
 import { RouteContentRenderer } from './components/RouteContentRenderer';
+import DefaultPageRedirect from './components/DefaultPageRedirect';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
@@ -31,13 +33,14 @@ function AppRoutes() {
           </PrivateRoute>
         }
       >
-        <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route index element={<DefaultPageRedirect />} />
         <Route path="dashboard" element={<RouteContentRenderer route="dashboard" />} />
         <Route path="plugin-studio" element={<RouteContentRenderer route="plugin-studio" />} />
         <Route path="settings" element={<RouteContentRenderer route="settings" />} />
         <Route path="profile" element={<ProfilePage />} />
         <Route path="plugin-manager" element={<RouteContentRenderer route="plugin-manager" />} />
         <Route path="plugin-manager/:pluginId/:moduleId" element={<ModuleDetailPage />} />
+        <Route path="plugin-installer" element={<PluginInstallerPage />} />
         {/* Dynamic routes for published pages - wrapped in Route element */}
         <Route path="pages/*" element={<DynamicRoutes />} />
         {/* Custom navigation routes - handled by RouteContentRenderer */}

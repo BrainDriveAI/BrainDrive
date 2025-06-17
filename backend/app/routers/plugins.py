@@ -14,6 +14,9 @@ from typing import Dict, Any, List, Optional
 import structlog
 import json
 
+# Import the lifecycle API router
+from ..plugins.lifecycle_api import router as lifecycle_router
+
 logger = structlog.get_logger()
 
 # Initialize plugin manager with the correct plugins directory
@@ -26,6 +29,44 @@ from ..core.security import oauth2_scheme
 
 # Create a router for plugin management endpoints WITHOUT a prefix
 router = APIRouter(tags=["plugins"])
+
+def _is_version_newer(version1: str, version2: str) -> bool:
+    """Compare two version strings to determine if the first is newer than the second"""
+    try:
+        # Remove 'v' prefix if present
+        v1 = version1.replace('v', '')
+        v2 = version2.replace('v', '')
+
+        # Split versions into parts
+        parts1 = v1.split('.')
+        parts2 = v2.split('.')
+
+        # Pad with zeros to make same length
+        max_length = max(len(parts1), len(parts2))
+        parts1 += ['0'] * (max_length - len(parts1))
+        parts2 += ['0'] * (max_length - len(parts2))
+
+        # Compare each part
+        for i in range(max_length):
+            try:
+                part1 = int(parts1[i])
+                part2 = int(parts2[i])
+
+                if part1 > part2:
+                    return True
+                elif part1 < part2:
+                    return False
+            except ValueError:
+                # If not numeric, do string comparison
+                if parts1[i] > parts2[i]:
+                    return True
+                elif parts1[i] < parts2[i]:
+                    return False
+
+        return False  # Versions are equal
+    except Exception as e:
+        logger.error(f"Error comparing versions {version1} vs {version2}: {e}")
+        return False
 
 # Initialize plugin manager on startup
 @router.on_event("startup")
@@ -136,9 +177,19 @@ async def get_plugin_manifest_for_designer(current_user: User = Depends(get_curr
             # Store the actual database ID as a separate field if needed
             plugin_copy["database_id"] = plugin_id
             
-            # Make sure bundlelocation is using the public endpoint
-            if "bundlelocation" in plugin_copy and plugin_copy["bundlelocation"]:
-                # Extract the path part from the bundlelocation
+            # Transform bundle_location to bundlelocation for frontend compatibility
+            if "bundle_location" in plugin_copy and plugin_copy["bundle_location"]:
+                # Extract the path part from the bundle_location
+                bundle_path = plugin_copy["bundle_location"]
+                if bundle_path.startswith("/"):
+                    bundle_path = bundle_path[1:]
+
+                # Set bundlelocation field for frontend
+                plugin_copy["bundlelocation"] = bundle_path
+                # Remove the old field
+                del plugin_copy["bundle_location"]
+            elif "bundlelocation" in plugin_copy and plugin_copy["bundlelocation"]:
+                # Handle case where bundlelocation is already set
                 bundle_path = plugin_copy["bundlelocation"]
                 if bundle_path.startswith("/"):
                     bundle_path = bundle_path[1:]
@@ -569,7 +620,15 @@ async def get_module_detail(
             "scope": plugin_row.scope,
             "bundleMethod": plugin_row.bundle_method,
             "bundleLocation": plugin_row.bundle_location,
-            "isLocal": bool(plugin_row.is_local)
+            "isLocal": bool(plugin_row.is_local),
+            # Add source tracking fields for update/delete functionality
+            "sourceType": plugin_row.source_type,
+            "sourceUrl": plugin_row.source_url,
+            "updateCheckUrl": plugin_row.update_check_url,
+            "lastUpdateCheck": plugin_row.last_update_check.isoformat() if plugin_row.last_update_check else None,
+            "updateAvailable": bool(plugin_row.update_available) if plugin_row.update_available is not None else False,
+            "latestVersion": plugin_row.latest_version,
+            "installationType": plugin_row.installation_type
         }
         
         # Parse JSON fields for plugin
@@ -586,6 +645,67 @@ async def get_module_detail(
             else:
                 plugin[field] = {} if field != "dependencies" else []
         
+        # Parse permissions field
+        if plugin_row.permissions:
+            try:
+                plugin["permissions"] = json.loads(plugin_row.permissions)
+            except json.JSONDecodeError:
+                plugin["permissions"] = []
+        else:
+            plugin["permissions"] = []
+
+        # Check for updates if plugin has a source URL
+        if plugin.get("sourceUrl"):
+            try:
+                # Import here to avoid circular imports
+                import aiohttp
+                import re
+
+                # Parse GitHub URL to get owner/repo
+                github_match = re.match(r'https://github\.com/([^/]+)/([^/]+)', plugin["sourceUrl"])
+                if github_match:
+                    owner, repo = github_match.groups()
+
+                    # Get latest release from GitHub
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(f'https://api.github.com/repos/{owner}/{repo}/releases/latest') as response:
+                            if response.status == 200:
+                                release_data = await response.json()
+                                latest_version = release_data.get('tag_name', '').lstrip('v')
+
+                                # Compare versions
+                                current_version = plugin["version"]
+                                update_available = _is_version_newer(latest_version, current_version)
+
+                                # Update plugin data
+                                plugin["updateAvailable"] = update_available
+                                plugin["latestVersion"] = latest_version
+
+                                # Update database
+                                if update_available:
+                                    from sqlalchemy import text
+                                    update_query = text("""
+                                    UPDATE plugin
+                                    SET update_available = :update_available,
+                                        latest_version = :latest_version,
+                                        last_update_check = CURRENT_TIMESTAMP
+                                    WHERE id = :plugin_id
+                                    """)
+                                    await db.execute(update_query, {
+                                        "update_available": update_available,
+                                        "latest_version": latest_version,
+                                        "plugin_id": plugin_id
+                                    })
+                                    await db.commit()
+
+                                logger.info(f"Update check completed: {current_version} -> {latest_version}, available: {update_available}")
+                            else:
+                                logger.warning(f"GitHub API returned status {response.status}")
+            except Exception as e:
+                logger.error(f"Error checking for updates: {e}")
+                # Don't fail the request if update check fails
+                pass
+
         logger.info("Returning module and plugin details", plugin_id=plugin_id, module_id=module_id)
         return {
             "module": module,
@@ -703,7 +823,15 @@ async def get_module_detail_direct(
             "scope": plugin_row.scope,
             "bundleMethod": plugin_row.bundle_method,
             "bundleLocation": plugin_row.bundle_location,
-            "isLocal": bool(plugin_row.is_local)
+            "isLocal": bool(plugin_row.is_local),
+            # Add source tracking fields for update/delete functionality
+            "sourceType": plugin_row.source_type,
+            "sourceUrl": plugin_row.source_url,
+            "updateCheckUrl": plugin_row.update_check_url,
+            "lastUpdateCheck": plugin_row.last_update_check.isoformat() if plugin_row.last_update_check else None,
+            "updateAvailable": bool(plugin_row.update_available) if plugin_row.update_available is not None else False,
+            "latestVersion": plugin_row.latest_version,
+            "installationType": plugin_row.installation_type
         }
         
         # Parse JSON fields for plugin
@@ -720,6 +848,15 @@ async def get_module_detail_direct(
             else:
                 plugin[field] = {} if field != "dependencies" else []
         
+        # Parse permissions field
+        if plugin_row.permissions:
+            try:
+                plugin["permissions"] = json.loads(plugin_row.permissions)
+            except json.JSONDecodeError:
+                plugin["permissions"] = []
+        else:
+            plugin["permissions"] = []
+
         logger.info("Direct endpoint successful", plugin_id=plugin_id, module_id=module_id)
         return {
             "module": module,
@@ -893,8 +1030,12 @@ async def get_plugin_by_slug(
     
     if not plugin:
         raise HTTPException(status_code=404, detail=f"Plugin {plugin_slug} not found")
-    
+
     return plugin
+
+# Include the lifecycle API router for plugin lifecycle management
+router.include_router(lifecycle_router, tags=["Plugin Lifecycle Management"])
+
 
 # Add this route at the end so it doesn't catch other routes
 @router.get("/plugins/{plugin_id}/{path:path}", dependencies=[Depends(oauth2_scheme)])
@@ -909,6 +1050,10 @@ async def serve_plugin_static(
     if path.startswith("modules/"):
         raise HTTPException(status_code=404, detail="File not found")
     
+    # Skip if the path starts with "update/" to avoid catching update endpoints
+    if path.startswith("update/"):
+        raise HTTPException(status_code=404, detail="File not found")
+
     logger.debug(f"Serving static file for plugin_id: {plugin_id}, path: {path}")
     
     # First try to find the plugin by ID
@@ -954,21 +1099,34 @@ async def serve_plugin_static(
     # Try multiple possible locations for the file
     possible_paths = []
     
-    # 1. User-specific directory with plugin_slug
+    # 1. New architecture: Shared storage with version
+    if plugin.plugin_slug and plugin.version:
+        # The actual path is backend/backend/plugins/shared/ relative to project root
+        # PLUGINS_DIR is already /path/to/project/plugins, so PLUGINS_DIR.parent is /path/to/project
+        # We need to go to /path/to/project/backend/backend/plugins/shared/
+        shared_plugin_dir = PLUGINS_DIR.parent / "backend" / "plugins" / "shared" / plugin.plugin_slug / f"v{plugin.version}"
+        possible_paths.append(shared_plugin_dir / path)
+
+    # 2. New architecture: Shared storage without version (fallback)
+    if plugin.plugin_slug:
+        shared_plugin_dir = PLUGINS_DIR.parent / "backend" / "plugins" / "shared" / plugin.plugin_slug
+        possible_paths.append(shared_plugin_dir / path)
+
+    # 3. User-specific directory with plugin_slug
     if plugin.user_id and plugin.plugin_slug:
         user_plugin_dir = PLUGINS_DIR / plugin.user_id / plugin.plugin_slug
         possible_paths.append(user_plugin_dir / path)
     
-    # 2. User-specific directory with plugin ID
+    # 4. User-specific directory with plugin ID
     if plugin.user_id:
         user_plugin_dir = PLUGINS_DIR / plugin.user_id / plugin.id
         possible_paths.append(user_plugin_dir / path)
     
-    # 3. Legacy path directly under plugins directory with plugin_slug
+    # 5. Legacy path directly under plugins directory with plugin_slug
     if plugin.plugin_slug:
         possible_paths.append(PLUGINS_DIR / plugin.plugin_slug / path)
     
-    # 4. Legacy path directly under plugins directory with plugin ID
+    # 6. Legacy path directly under plugins directory with plugin ID
     possible_paths.append(PLUGINS_DIR / plugin.id / path)
     
     # Try each path
@@ -1024,21 +1182,36 @@ async def serve_plugin_static_public(
     # Try multiple possible locations for the file
     possible_paths = []
     
-    # 1. User-specific directory with plugin_slug
+    # 1. New architecture: Shared storage with version
+    if plugin.plugin_slug and plugin.version:
+        # The actual path is backend/backend/plugins/shared/ relative to project root
+        # PLUGINS_DIR is already /path/to/project/plugins, so PLUGINS_DIR.parent is /path/to/project
+        # We need to go to /path/to/project/backend/backend/plugins/shared/
+        shared_plugin_dir = PLUGINS_DIR.parent / "plugins" / "shared" / plugin.plugin_slug / f"v{plugin.version}"
+        possible_paths.append(shared_plugin_dir / path)
+        logger.debug(f"Added new architecture path with version: {shared_plugin_dir / path}")
+
+    # 2. New architecture: Shared storage without version (fallback)
+    if plugin.plugin_slug:
+        shared_plugin_dir = PLUGINS_DIR.parent / "plugins" / "shared" / plugin.plugin_slug
+        possible_paths.append(shared_plugin_dir / path)
+        logger.debug(f"Added new architecture path without version: {shared_plugin_dir / path}")
+
+    # 3. User-specific directory with plugin_slug
     if plugin.user_id and plugin.plugin_slug:
         user_plugin_dir = PLUGINS_DIR / plugin.user_id / plugin.plugin_slug
         possible_paths.append(user_plugin_dir / path)
     
-    # 2. User-specific directory with plugin ID
+    # 4. User-specific directory with plugin ID
     if plugin.user_id:
         user_plugin_dir = PLUGINS_DIR / plugin.user_id / plugin.id
         possible_paths.append(user_plugin_dir / path)
     
-    # 3. Legacy path directly under plugins directory with plugin_slug
+    # 5. Legacy path directly under plugins directory with plugin_slug
     if plugin.plugin_slug:
         possible_paths.append(PLUGINS_DIR / plugin.plugin_slug / path)
     
-    # 4. Legacy path directly under plugins directory with plugin ID
+    # 6. Legacy path directly under plugins directory with plugin ID
     possible_paths.append(PLUGINS_DIR / plugin.id / path)
     
     # Try each path
