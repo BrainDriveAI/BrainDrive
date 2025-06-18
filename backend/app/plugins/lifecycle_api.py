@@ -590,28 +590,38 @@ async def check_plugin_update_available(
         logger.info(f"Current version from database: {current_version}")
 
         # Get the latest version from GitHub
-        if plugin.source_url:
+        api_url = None
+        
+        # First try to use the update_check_url if available
+        if plugin.update_check_url:
+            api_url = plugin.update_check_url
+            logger.info(f"Using update_check_url: {api_url}")
+        elif plugin.source_url:
             logger.info(f"Plugin source URL: {plugin.source_url}")
             try:
-                # Parse GitHub URL to get owner/repo
+                # Parse GitHub URL to get owner/repo, handling .git suffix
                 import re
-                github_match = re.match(r'https://github\.com/([^/]+)/([^/]+)', plugin.source_url)
+                github_match = re.match(r'https://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$', plugin.source_url)
                 if github_match:
                     owner, repo = github_match.groups()
-
-                    # Get latest release from GitHub
-                    import aiohttp
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(f'https://api.github.com/repos/{owner}/{repo}/releases/latest') as response:
-                            if response.status == 200:
-                                release_data = await response.json()
-                                latest_version = release_data.get('tag_name', '').lstrip('v')
-                                logger.info(f"Latest version from GitHub: {latest_version}")
-                            else:
-                                logger.warning(f"GitHub API returned status {response.status}")
-                                latest_version = current_version
-                else:
-                    latest_version = current_version
+                    api_url = f'https://api.github.com/repos/{owner}/{repo}/releases/latest'
+                    logger.info(f"Constructed API URL: {api_url}")
+            except Exception as e:
+                logger.error(f"Error parsing source URL: {e}")
+        
+        if api_url:
+            try:
+                # Get latest release from GitHub
+                import aiohttp
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(api_url) as response:
+                        if response.status == 200:
+                            release_data = await response.json()
+                            latest_version = release_data.get('tag_name', '').lstrip('v')
+                            logger.info(f"Latest version from GitHub: {latest_version}")
+                        else:
+                            logger.warning(f"GitHub API returned status {response.status}")
+                            latest_version = current_version
             except Exception as e:
                 logger.error(f"Error fetching latest version from GitHub: {e}")
                 latest_version = current_version
@@ -628,7 +638,7 @@ async def check_plugin_update_available(
                 "plugin_id": plugin_slug,
                 "current_version": current_version,
                 "latest_version": latest_version,
-                "repo_url": "https://github.com/DJJones66/NetworkEyes",
+                "repo_url": plugin.source_url,
                 "update_available": update_available,
                 "message": f"Current: {current_version}, Latest: {latest_version}"
             }
