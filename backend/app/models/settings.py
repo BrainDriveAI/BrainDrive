@@ -1,6 +1,7 @@
 from sqlalchemy import Column, String, DateTime, Boolean, JSON, ForeignKey, Enum, func, select, ARRAY
 from sqlalchemy.orm import relationship
 from app.core.database import Base
+from app.core.encrypted_column import create_encrypted_column
 from datetime import datetime
 from uuid import uuid4
 import enum
@@ -89,7 +90,7 @@ class SettingInstance(Base):
     id = Column(String(32), primary_key=True, default=lambda: str(uuid4()).replace('-', ''))
     definition_id = Column(String(32), ForeignKey("settings_definitions.id"), nullable=False)
     name = Column(String, nullable=False)
-    value = Column(JSON, nullable=True)
+    value = Column(create_encrypted_column("settings_instances", "value"), nullable=True)
     scope = Column(Enum(SettingScope), nullable=False)
     user_id = Column(String(32), ForeignKey("users.id"), nullable=True)
     page_id = Column(String(32), ForeignKey("pages.id"), nullable=True)  # Reference to page ID

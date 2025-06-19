@@ -1,3 +1,13 @@
+/*
+ * Custom Utility Classes
+ *
+ * These are custom CSS utility classes with 'tw-' prefixes that were originally
+ * created to mimic TailwindCSS but are actually hand-written CSS.
+ *
+ * Note: These classes are currently not being used by any components.
+ * Consider removing unused classes or integrating useful ones into component CSS files.
+ */
+
 .tw-card {
   background-color: #ffffff;
   border-radius: 0.5rem;
