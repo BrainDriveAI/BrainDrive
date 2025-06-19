@@ -627,13 +627,31 @@ async def create_setting_instance(
                 if user_id_value == 'current' and current_user:
                     user_id_value = str(current_user.id)
                 
-                # Convert value to JSON string if it's not already
+                # Use SQLAlchemy model to update the instance (enables encryption)
+                logger.info("Using SQLAlchemy model to update the instance")
+                
+                # First check if instance exists using direct SQL
+                check_query = text("SELECT scope FROM settings_instances WHERE id = :id")
+                result = await db.execute(check_query, {"id": instance_data.id})
+                existing_row = result.fetchone()
+                
+                if not existing_row:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail=f"Setting instance {instance_data.id} not found"
+                    )
+                
+                # Convert the value to JSON string for direct SQL update
                 value_json = instance_data.value
                 if not isinstance(value_json, str):
                     value_json = json.dumps(value_json)
                 
-                # Use direct SQL to update the instance
-                logger.info("Using direct SQL to update the instance")
+                # Use our encrypted column type to encrypt the value
+                from app.core.encrypted_column import EncryptedJSON
+                encrypted_column = EncryptedJSON("settings_instances", "value")
+                encrypted_value = encrypted_column.process_bind_param(instance_data.value, None)
+                
+                # Update using direct SQL but with encrypted value
                 update_query = text("""
                 UPDATE settings_instances
                 SET name = :name, value = :value, user_id = :user_id, updated_at = CURRENT_TIMESTAMP
@@ -642,7 +660,7 @@ async def create_setting_instance(
                 
                 await db.execute(update_query, {
                     "name": instance_data.name,
-                    "value": value_json,
+                    "value": encrypted_value,
                     "user_id": user_id_value,
                     "id": instance_data.id
                 })
@@ -665,12 +683,15 @@ async def create_setting_instance(
                         detail=f"Setting instance {instance_data.id} not found after update"
                     )
                 
+                # Decrypt the value using our encrypted column type
+                decrypted_value = encrypted_column.process_result_value(updated_row[3], None)
+                
                 # Convert row to dict
                 updated_instance = {
                     "id": updated_row[0],
                     "definition_id": updated_row[1],
                     "name": updated_row[2],
-                    "value": json.loads(updated_row[3]) if updated_row[3] else None,
+                    "value": decrypted_value,
                     "scope": updated_row[4],
                     "user_id": updated_row[5],
                     "page_id": updated_row[6],
@@ -859,54 +880,54 @@ async def create_setting_instance(
             if hasattr(scope_value, 'value'):
                 scope_value = scope_value.value
             
-            # Use direct SQL to create the instance
-            create_query = text("""
-            INSERT INTO settings_instances (
-                id, definition_id, name, value, scope, user_id, page_id, created_at, updated_at
-            ) VALUES (
-                :id, :definition_id, :name, :value, :scope, :user_id, :page_id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            # Use SQLAlchemy model to create the instance (enables encryption)
+            logger.info("Using SQLAlchemy model to create the instance")
+            
+            # Ensure scope is enum, not string value
+            if isinstance(scope_value, str):
+                # Convert string back to enum
+                try:
+                    scope_enum = SettingScope(scope_value)
+                except ValueError:
+                    # Try case-insensitive matching
+                    for scope_enum in SettingScope:
+                        if scope_enum.value.lower() == scope_value.lower():
+                            break
+                    else:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Invalid scope value: {scope_value}"
+                        )
+            else:
+                scope_enum = scope_value
+            
+            # Create new instance using SQLAlchemy model
+            new_instance = SettingInstance(
+                id=instance_id,
+                definition_id=instance_data.definition_id,
+                name=instance_data.name,
+                value=instance_data.value,  # This will be automatically encrypted
+                scope=scope_enum,
+                user_id=user_id_value,
+                page_id=instance_data.page_id
             )
-            """)
             
-            await db.execute(create_query, {
-                "id": instance_id,
-                "definition_id": instance_data.definition_id,
-                "name": instance_data.name,
-                "value": value_json,
-                "scope": scope_value,
-                "user_id": user_id_value,
-                "page_id": instance_data.page_id
-            })
-            
+            # Add and commit the instance
+            db.add(new_instance)
             await db.commit()
+            await db.refresh(new_instance)
             
-            # Fetch the created instance using direct SQL
-            fetch_query = text("""
-            SELECT id, definition_id, name, value, scope, user_id, page_id, created_at, updated_at
-            FROM settings_instances
-            WHERE id = :id
-            """)
-            
-            result = await db.execute(fetch_query, {"id": instance_id})
-            created_row = result.fetchone()
-            
-            if not created_row:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Setting instance {instance_id} not found after creation"
-                )
-            
-            # Convert row to dict
+            # Convert to dict for response
             created_instance = {
-                "id": created_row[0],
-                "definition_id": created_row[1],
-                "name": created_row[2],
-                "value": json.loads(created_row[3]) if created_row[3] else None,
-                "scope": created_row[4],
-                "user_id": created_row[5],
-                "page_id": created_row[6],
-                "created_at": created_row[7],
-                "updated_at": created_row[8]
+                "id": new_instance.id,
+                "definition_id": new_instance.definition_id,
+                "name": new_instance.name,
+                "value": new_instance.value,  # This will be automatically decrypted
+                "scope": new_instance.scope.value if hasattr(new_instance.scope, 'value') else new_instance.scope,
+                "user_id": new_instance.user_id,
+                "page_id": new_instance.page_id,
+                "created_at": new_instance.created_at,
+                "updated_at": new_instance.updated_at
             }
             
             logger.info(f"Created setting instance: {instance_id}")
@@ -1017,14 +1038,29 @@ async def get_setting_instances(
         result = await db.execute(query, params)
         rows = result.fetchall()
         
-        # Convert rows to dictionaries
+        # Convert rows to dictionaries with proper decryption
+        from app.core.encrypted_column import EncryptedJSON
+        encrypted_column = EncryptedJSON("settings_instances", "value")
+        
         instances = []
         for row in rows:
+            # Decrypt the value using our encrypted column type
+            try:
+                decrypted_value = encrypted_column.process_result_value(row[3], None)
+            except Exception as e:
+                # If decryption fails, try parsing as plain JSON (for backward compatibility)
+                logger.warning(f"Failed to decrypt value for instance {row[0]}, trying plain JSON: {e}")
+                try:
+                    decrypted_value = json.loads(row[3]) if row[3] else None
+                except Exception as json_error:
+                    logger.error(f"Failed to parse value as JSON for instance {row[0]}: {json_error}")
+                    decrypted_value = None
+            
             instance = {
                 "id": row[0],
                 "definition_id": row[1],
                 "name": row[2],
-                "value": json.loads(row[3]) if row[3] else None,
+                "value": decrypted_value,
                 "scope": row[4],
                 "user_id": row[5],
                 "page_id": row[6],
