@@ -29,6 +29,7 @@ async def get_user_conversations(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     tag_id: Optional[str] = Query(None, description="Filter by tag ID"),
+    conversation_type: Optional[str] = Query(None, description="Filter by conversation type"),
     db: AsyncSession = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
@@ -50,9 +51,13 @@ async def get_user_conversations(
     # Filter by tag if provided
     if tag_id:
         query = query.join(
-            ConversationTag, 
+            ConversationTag,
             ConversationTag.conversation_id == Conversation.id
         ).where(ConversationTag.tag_id == tag_id)
+    
+    # Filter by conversation_type if provided
+    if conversation_type:
+        query = query.where(Conversation.conversation_type == conversation_type)
     
     # Add pagination
     query = query.order_by(Conversation.updated_at.desc()).offset(skip).limit(limit)
@@ -93,7 +98,8 @@ async def create_conversation(
         title=conversation.title,
         page_context=conversation.page_context,
         model=conversation.model,
-        server=conversation.server
+        server=conversation.server,
+        conversation_type=conversation.conversation_type or "chat"  # New field with default
     )
     db.add(db_conversation)
     await db.commit()
@@ -159,6 +165,8 @@ async def update_conversation(
         conversation.model = conversation_update.model
     if conversation_update.server is not None:
         conversation.server = conversation_update.server
+    if conversation_update.conversation_type is not None:
+        conversation.conversation_type = conversation_update.conversation_type
     
     await db.commit()
     await db.refresh(conversation)

@@ -16,6 +16,7 @@ class Conversation(Base, TimestampMixin):
     page_context = Column(String)  # e.g., 'home', 'editor', 'chatbot_lab'
     model = Column(String)  # Store which model was used
     server = Column(String)  # Store which server was used
+    conversation_type = Column(String(100), nullable=True, default="chat")  # New field for categorization
 
     # Relationships
     user = relationship("User", back_populates="conversations")

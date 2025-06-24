@@ -498,7 +498,8 @@ async def chat_completion(request: ChatCompletionRequest, db: AsyncSession = Dep
                     title=f"Conversation with {request.model}",
                     page_context=request.page_context,  # This is already defined in the schema with a default of None
                     model=request.model,
-                    server=provider_instance.server_name
+                    server=provider_instance.server_name,
+                    conversation_type=request.conversation_type or "chat"  # New field with default
                 )
                 db.add(conversation)
                 await db.commit()

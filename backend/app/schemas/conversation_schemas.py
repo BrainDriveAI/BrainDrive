@@ -35,6 +35,7 @@ class ConversationBase(BaseModel):
     page_context: Optional[str] = Field(None, description="Context where the conversation was created")
     model: Optional[str] = Field(None, description="LLM model used for the conversation")
     server: Optional[str] = Field(None, description="Server used for the conversation")
+    conversation_type: Optional[str] = Field("chat", description="Type/category of the conversation (e.g., 'chat', 'email_reply', 'therapy')")
 
 
 class ConversationCreate(ConversationBase):
