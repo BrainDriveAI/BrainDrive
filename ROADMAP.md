@@ -12,41 +12,49 @@ Our roadmap is broken into clearly defined versions, each building toward a stab
 - [x] Codebase published and installable outside lead developer’s machine
 - [x] Initial developer documentation posted
 - [x] Dev feedback loop started (install issues, missing dependencies, unclear steps)
-- [ ] Developers can follow instructions to install and run BrainDrive. Setup is less than 20 minutes including dependency installation and less than 10 mins otherwise. 
+- [x] Developers can follow instructions to install and run BrainDrive. Setup is less than 20 minutes including dependency installation and less than 10 mins otherwise. 
 
 
 ## Version 0.2 – Self-Updating System
 > Goal: Smooth updates with no data loss
 
-- [ ] System tracks version and handles updates gracefully
-- [ ] Database migrations work automatically
-- [ ] Each user instance updates independently (multi-user aware)
-- [ ] Updates never overwrite or lose user data
+- [x] System tracks version and handles updates gracefully
+- [x] Database migrations work automatically
+- [x] Each user instance updates independently (multi-user aware)
+- [x] Updates never overwrite or lose user data
 
 ---
 
 ## Version 0.3 – Plugin Manager Operational
 > Goal: Fully functional plugin lifecycle in the UI
 
-- [ ] Install, enable, disable, and remove plugins from the interface
-- [ ] Plugin metadata and update system in place
-- [ ] No CLI required for plugin management
-- [ ] Plugin examples available to fork or build from
+- [x] Install, enable, disable, and remove plugins from the interface
+- [x] Plugin metadata and update system in place
+- [x] No CLI required for plugin management
+- [x] Plugin examples available to fork or build from
 
 ---
 
 ## Version 0.4 – Core Interaction Polished
 > Goal: Own-your-AI moment works out of the box
 
-- [ ] BrainDrive launches directly into a working chat interface
-- [ ] Local model runs automatically (Ollama or equivalent)
-- [ ] Interface is stable and bug-free
-- [ ] UI/UX feedback implemented
-- [ ] BrainDrive Concierge Working
+- [x] BrainDrive launches directly into a working chat interface
+- [x] Local model runs automatically (Ollama or equivalent)
+- [x] Interface is stable and bug-free
+- [x] UI/UX feedback implemented
+
+## Version 0.5 - Developer data workflow
+>Goal: Give devs the ability to have a living plugin.
+
+- [x] Encryption
+- [ ] Plugin Data - the ability for a plugin to put it’s own data
+- [ ] Page Data - Constant state saved cross device
+- [ ] Page specific Response/convo data 
+- [ ] Personas 
 
 ---
 
-## Version 0.5 – Dashboard & Notifications
+## Version 0.5.5 – Dashboard & Notifications
 > Goal: Clear visibility into system health and updates
 
 - [ ] Version and update notifications surfaced to user
