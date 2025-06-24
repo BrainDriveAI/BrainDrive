@@ -42,6 +42,7 @@ class ChatCompletionRequest(BaseModel):
     stream: bool = Field(False, description="Whether to stream the response")
     conversation_id: Optional[str] = Field(None, description="ID of an existing conversation to continue")
     page_context: Optional[str] = Field(None, description="Context where the conversation is taking place (e.g., 'home', 'editor', 'chatbot_lab')")
+    conversation_type: Optional[str] = Field("chat", description="Type/category of the conversation (e.g., 'chat', 'email_reply', 'therapy')")
 
 
 class ValidationRequest(BaseModel):
