@@ -33,6 +33,7 @@ class Message(MessageInDB):
 class ConversationBase(BaseModel):
     title: Optional[str] = Field(None, description="Title of the conversation")
     page_context: Optional[str] = Field(None, description="Context where the conversation was created")
+    page_id: Optional[str] = Field(None, description="ID of the page this conversation belongs to")
     model: Optional[str] = Field(None, description="LLM model used for the conversation")
     server: Optional[str] = Field(None, description="Server used for the conversation")
     conversation_type: Optional[str] = Field("chat", description="Type/category of the conversation (e.g., 'chat', 'email_reply', 'therapy')")

@@ -497,6 +497,7 @@ async def chat_completion(request: ChatCompletionRequest, db: AsyncSession = Dep
                     user_id=user_id,
                     title=f"Conversation with {request.model}",
                     page_context=request.page_context,  # This is already defined in the schema with a default of None
+                    page_id=request.page_id,  # NEW FIELD - ID of the page this conversation belongs to
                     model=request.model,
                     server=provider_instance.server_name,
                     conversation_type=request.conversation_type or "chat"  # New field with default

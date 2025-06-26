@@ -22,6 +22,9 @@ class TextGenerationRequest(BaseModel):
     user_id: Optional[str] = Field(None, description="User ID for access control")
     params: Dict[str, Any] = Field(default_factory=dict, description="Additional parameters")
     stream: bool = Field(False, description="Whether to stream the response")
+    page_id: Optional[str] = Field(None, description="ID of the page this generation belongs to")
+    page_context: Optional[str] = Field(None, description="Context of the page where this generation is happening")
+    conversation_type: Optional[str] = Field("chat", description="Type/category of the conversation")
 
 
 class ChatMessage(BaseModel):
@@ -41,6 +44,7 @@ class ChatCompletionRequest(BaseModel):
     params: Dict[str, Any] = Field(default_factory=dict, description="Additional parameters")
     stream: bool = Field(False, description="Whether to stream the response")
     conversation_id: Optional[str] = Field(None, description="ID of an existing conversation to continue")
+    page_id: Optional[str] = Field(None, description="ID of the page this conversation belongs to")
     page_context: Optional[str] = Field(None, description="Context where the conversation is taking place (e.g., 'home', 'editor', 'chatbot_lab')")
     conversation_type: Optional[str] = Field("chat", description="Type/category of the conversation (e.g., 'chat', 'email_reply', 'therapy')")
 
