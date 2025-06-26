@@ -30,6 +30,7 @@ async def get_user_conversations(
     limit: int = Query(20, ge=1, le=100),
     tag_id: Optional[str] = Query(None, description="Filter by tag ID"),
     conversation_type: Optional[str] = Query(None, description="Filter by conversation type"),
+    page_id: Optional[str] = Query(None, description="Filter by page ID"),
     db: AsyncSession = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
@@ -47,6 +48,10 @@ async def get_user_conversations(
     from app.models.tag import ConversationTag
     
     query = select(Conversation).where(Conversation.user_id == formatted_user_id)
+    
+    # Filter by page_id if provided
+    if page_id:
+        query = query.where(Conversation.page_id == page_id)
     
     # Filter by tag if provided
     if tag_id:
@@ -97,6 +102,7 @@ async def create_conversation(
         user_id=conversation_user_id,  # Use formatted user ID
         title=conversation.title,
         page_context=conversation.page_context,
+        page_id=conversation.page_id,  # NEW FIELD
         model=conversation.model,
         server=conversation.server,
         conversation_type=conversation.conversation_type or "chat"  # New field with default
@@ -161,6 +167,8 @@ async def update_conversation(
         conversation.title = conversation_update.title
     if conversation_update.page_context is not None:
         conversation.page_context = conversation_update.page_context
+    if conversation_update.page_id is not None:
+        conversation.page_id = conversation_update.page_id
     if conversation_update.model is not None:
         conversation.model = conversation_update.model
     if conversation_update.server is not None:

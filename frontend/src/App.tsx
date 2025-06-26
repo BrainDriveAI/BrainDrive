@@ -10,6 +10,7 @@ import { SettingsService } from './services/SettingsService';
 import { UserSettingsInitService } from './services/UserSettingsInitService';
 import { userNavigationInitService } from './services/UserNavigationInitService';
 import { eventService } from './services/EventService';
+import { pageContextService } from './services/PageContextService';
 import { useAppTheme } from './hooks/useAppTheme';
 import { config } from './config';
 import { PluginManager } from './components/PluginManager';
@@ -38,6 +39,7 @@ serviceRegistry.registerService(settingsService);
 serviceRegistry.registerService(userSettingsInitService);
 serviceRegistry.registerService(userNavigationInitService);
 serviceRegistry.registerService(eventService);
+serviceRegistry.registerService(pageContextService);
 
 function AppContent() {
   const theme = useAppTheme();

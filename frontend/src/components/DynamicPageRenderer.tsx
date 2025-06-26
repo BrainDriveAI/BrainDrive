@@ -19,6 +19,7 @@ import { defaultPageService } from '../services/defaultPageService';
 import { PluginModuleRenderer } from './PluginModuleRenderer';
 import { PluginProvider } from '../contexts/PluginContext';
 import { getAvailablePlugins } from '../plugins';
+import { pageContextService } from '../services/PageContextService';
 
 interface DynamicPageRendererProps {
   pageId?: string;  // Optional: directly specify page ID
@@ -124,21 +125,32 @@ export const DynamicPageRenderer: React.FC<DynamicPageRendererProps> = ({ pageId
   // Memoize the current page ID to prevent unnecessary recalculations
   const currentId = useMemo(() => getPageId(), [pageId, route, location.pathname]);
 
-  // Update global variables when page or studio status changes
+  // Update global variables and page context when page or studio status changes
   useEffect(() => {
     if (page) {
       window.currentPageTitle = page.name;
       window.isStudioPage = isStudioPage;
 
+      // Update the page context service
+      const pageContextData = {
+        pageId: page.id || currentId,
+        pageName: page.name || 'Unknown Page',
+        pageRoute: page.route || location.pathname,
+        isStudioPage
+      };
+      
+      pageContextService.setPageContext(pageContextData);
+
       console.log('DynamicPageRenderer - Current path:', location.pathname);
       console.log('DynamicPageRenderer - Is studio page:', isStudioPage);
       console.log('DynamicPageRenderer - Page name:', page.name);
+      console.log('DynamicPageRenderer - Page context updated:', pageContextData);
       console.log('DynamicPageRenderer - Global variables:', {
         currentPageTitle: window.currentPageTitle,
         isStudioPage: window.isStudioPage
       });
     }
-  }, [page, isStudioPage, location.pathname]);
+  }, [page, currentId, isStudioPage, location.pathname]);
   
   // Function to handle module state changes
   const handleModuleStateChange = useCallback((moduleId: string, state: any) => {

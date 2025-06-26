@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Text, ForeignKey, DateTime, select
+from sqlalchemy import Column, String, Text, ForeignKey, DateTime, select, func
 from sqlalchemy.dialects.postgresql import JSON
 # Remove PostgreSQL UUID import as we're standardizing on String
 from sqlalchemy.orm import relationship
@@ -14,6 +14,7 @@ class Conversation(Base, TimestampMixin):
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
     title = Column(String)
     page_context = Column(String)  # e.g., 'home', 'editor', 'chatbot_lab'
+    page_id = Column(String(32), nullable=True)  # NEW - specific page ID for page-specific conversations
     model = Column(String)  # Store which model was used
     server = Column(String)  # Store which server was used
     conversation_type = Column(String(100), nullable=True, default="chat")  # New field for categorization
@@ -103,6 +104,36 @@ class Conversation(Base, TimestampMixin):
         ).offset(skip).limit(limit)
         result = await db.execute(query)
         return result.scalars().all()
+
+    @classmethod
+    async def get_by_user_id_and_page(cls, db, user_id, page_id=None, conversation_type=None, skip=0, limit=100):
+        """Get conversations for user, optionally filtered by page_id and conversation_type."""
+        formatted_user_id = str(user_id).replace('-', '')
+        query = select(cls).where(cls.user_id == formatted_user_id)
+        
+        # Filter by page_id if provided
+        if page_id:
+            query = query.where(cls.page_id == page_id)
+        
+        # Filter by conversation_type if provided
+        if conversation_type:
+            query = query.where(cls.conversation_type == conversation_type)
+        
+        query = query.order_by(cls.updated_at.desc()).offset(skip).limit(limit)
+        result = await db.execute(query)
+        return result.scalars().all()
+
+    @classmethod
+    async def count_by_user_and_page(cls, db, user_id, page_id=None):
+        """Count conversations for user, optionally filtered by page_id."""
+        formatted_user_id = str(user_id).replace('-', '')
+        query = select(func.count(cls.id)).where(cls.user_id == formatted_user_id)
+        
+        if page_id:
+            query = query.where(cls.page_id == page_id)
+        
+        result = await db.execute(query)
+        return result.scalar()
 
     async def get_messages(self, db, skip=0, limit=100):
         """Get all messages for this conversation with pagination."""
