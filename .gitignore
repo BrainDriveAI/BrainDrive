@@ -213,7 +213,11 @@ Reports/
 
 # Plugin Workspace
 PluginBuild/
+Template/
 
 # Specific report files
 unused-report.txt
 unused-report.md
+
+# Rule files
+.roorules
