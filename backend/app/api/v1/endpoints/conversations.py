@@ -2,7 +2,7 @@
 API endpoints for conversations and messages.
 """
 import uuid
-from fastapi import APIRouter, HTTPException, Depends, Query, Path
+from fastapi import APIRouter, HTTPException, Depends, Query, Path, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 from uuid import UUID
@@ -16,6 +16,7 @@ from app.schemas.conversation_schemas import (
     ConversationCreate,
     ConversationUpdate,
     ConversationWithMessages,
+    ConversationWithPersona,
     Message as MessageSchema,
     MessageCreate
 )
@@ -31,6 +32,7 @@ async def get_user_conversations(
     tag_id: Optional[str] = Query(None, description="Filter by tag ID"),
     conversation_type: Optional[str] = Query(None, description="Filter by conversation type"),
     page_id: Optional[str] = Query(None, description="Filter by page ID"),
+    persona_id: Optional[str] = Query(None, description="Filter by persona ID"),
     db: AsyncSession = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
@@ -63,6 +65,10 @@ async def get_user_conversations(
     # Filter by conversation_type if provided
     if conversation_type:
         query = query.where(Conversation.conversation_type == conversation_type)
+    
+    # Filter by persona_id if provided
+    if persona_id:
+        query = query.where(Conversation.persona_id == persona_id)
     
     # Add pagination
     query = query.order_by(Conversation.updated_at.desc()).offset(skip).limit(limit)
@@ -105,7 +111,8 @@ async def create_conversation(
         page_id=conversation.page_id,  # NEW FIELD
         model=conversation.model,
         server=conversation.server,
-        conversation_type=conversation.conversation_type or "chat"  # New field with default
+        conversation_type=conversation.conversation_type or "chat",  # New field with default
+        persona_id=conversation.persona_id  # Add persona_id support
     )
     db.add(db_conversation)
     await db.commit()
@@ -175,6 +182,8 @@ async def update_conversation(
         conversation.server = conversation_update.server
     if conversation_update.conversation_type is not None:
         conversation.conversation_type = conversation_update.conversation_type
+    if conversation_update.persona_id is not None:
+        conversation.persona_id = conversation_update.persona_id
     
     await db.commit()
     await db.refresh(conversation)
@@ -307,3 +316,135 @@ async def get_conversation_with_messages(
         "messages": messages,
         "tags": tags
     }
+
+
+@router.get("/conversations/{conversation_id}/with-persona", response_model=ConversationWithPersona)
+async def get_conversation_with_persona(
+    conversation_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Get a conversation with full persona details."""
+    from app.schemas.conversation_schemas import ConversationWithPersona
+    from app.models.persona import Persona
+    
+    conversation = await Conversation.get_by_id(db, conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    
+    # Ensure the current user can only access their own conversations
+    conversation_user_id = str(conversation.user_id).replace('-', '')
+    current_user_id = str(current_user.id).replace('-', '')
+    
+    if conversation_user_id != current_user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this conversation")
+    
+    # Get tags for the conversation
+    tags = await conversation.get_tags(db)
+    
+    # Get persona details if persona_id exists
+    persona = None
+    if conversation.persona_id:
+        persona = await Persona.get_by_id(db, conversation.persona_id)
+        # Ensure the persona belongs to the same user
+        if persona and str(persona.user_id).replace('-', '') != current_user_id:
+            persona = None  # Don't return persona if it doesn't belong to the user
+    
+    # Return the conversation with persona details
+    return {
+        **conversation.__dict__,
+        "tags": tags,
+        "persona": persona.__dict__ if persona else None
+    }
+
+
+@router.put("/conversations/{conversation_id}/persona", response_model=ConversationSchema)
+async def update_conversation_persona(
+    conversation_id: str,
+    persona_id: Optional[str] = Body(None, description="ID of the persona to assign to this conversation"),
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Update a conversation's persona."""
+    from app.models.persona import Persona
+    
+    conversation = await Conversation.get_by_id(db, conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    
+    # Ensure the current user can only update their own conversations
+    conversation_user_id = str(conversation.user_id).replace('-', '')
+    current_user_id = str(current_user.id).replace('-', '')
+    
+    if conversation_user_id != current_user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to update this conversation")
+    
+    # Validate persona ownership if persona_id is provided
+    if persona_id:
+        persona = await Persona.get_by_id(db, persona_id)
+        if not persona:
+            raise HTTPException(status_code=404, detail="Persona not found")
+        
+        # Ensure the persona belongs to the same user
+        persona_user_id = str(persona.user_id).replace('-', '')
+        if persona_user_id != current_user_id:
+            raise HTTPException(status_code=403, detail="Not authorized to use this persona")
+    
+    # Update conversation persona
+    conversation.persona_id = persona_id
+    
+    await db.commit()
+    await db.refresh(conversation)
+    
+    # Get tags for the conversation
+    tags = await conversation.get_tags(db)
+    
+    # Return the updated conversation with tags
+    return {
+        **conversation.__dict__,
+        "tags": tags
+    }
+
+
+@router.get("/conversations/by-persona/{persona_id}", response_model=List[ConversationSchema])
+async def get_conversations_by_persona(
+    persona_id: str,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Get all conversations for a specific persona."""
+    from app.models.persona import Persona
+    from sqlalchemy import select
+    
+    # Verify persona exists and belongs to current user
+    persona = await Persona.get_by_id(db, persona_id)
+    if not persona:
+        raise HTTPException(status_code=404, detail="Persona not found")
+    
+    # Ensure the current user can only access their own persona's conversations
+    persona_user_id = str(persona.user_id).replace('-', '')
+    current_user_id = str(current_user.id).replace('-', '')
+    
+    if persona_user_id != current_user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this persona's conversations")
+    
+    # Query conversations for this persona
+    query = select(Conversation).where(
+        Conversation.persona_id == persona_id
+    ).order_by(Conversation.updated_at.desc()).offset(skip).limit(limit)
+    
+    result = await db.execute(query)
+    conversations = result.scalars().all()
+    
+    # Get tags for each conversation
+    conversation_with_tags = []
+    for conversation in conversations:
+        tags = await conversation.get_tags(db)
+        conversation_with_tags.append({
+            **conversation.__dict__,
+            "tags": tags
+        })
+    
+    return conversation_with_tags

@@ -393,6 +393,32 @@ async def chat_completion(request: ChatCompletionRequest, db: AsyncSession = Dep
         logger.debug(f"Messages: {request.messages}")
         logger.debug(f"Params: {request.params}")
         
+        # Validate persona data if provided
+        if request.persona_id or request.persona_system_prompt or request.persona_model_settings:
+            logger.info(f"Persona data provided - persona_id: {request.persona_id}")
+            
+            # Basic validation: if persona_id is provided, persona_system_prompt should also be provided
+            if request.persona_id and not request.persona_system_prompt:
+                logger.error(f"Invalid persona data: persona_id provided but persona_system_prompt is missing")
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid persona data: persona_system_prompt is required when persona_id is provided"
+                )
+            
+            # Validate persona model settings if provided
+            if request.persona_model_settings:
+                try:
+                    # Import here to avoid circular imports
+                    from app.schemas.persona import ModelSettings
+                    ModelSettings(**request.persona_model_settings)
+                    logger.debug(f"Persona model settings validated successfully")
+                except Exception as validation_error:
+                    logger.error(f"Invalid persona model settings: {validation_error}")
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid persona model settings: {str(validation_error)}"
+                    )
+        
         try:
             # Get provider instance using the helper function
             logger.info("Getting provider instance from request")
@@ -403,8 +429,39 @@ async def chat_completion(request: ChatCompletionRequest, db: AsyncSession = Dep
             current_messages = [message.model_dump() for message in request.messages]
             print(f"Current messages: {current_messages}")
             
-            # Initialize combined_messages with current messages
-            combined_messages = current_messages.copy()
+            # Handle persona system prompt injection
+            messages_with_persona = current_messages.copy()
+            
+            # If persona is provided, inject system prompt at the beginning
+            if request.persona_system_prompt:
+                logger.info(f"Applying persona system prompt for persona_id: {request.persona_id}")
+                system_message = {
+                    "role": "system",
+                    "content": request.persona_system_prompt
+                }
+                # Insert system message at the beginning, but after any existing system messages
+                system_messages = [msg for msg in messages_with_persona if msg.get("role") == "system"]
+                non_system_messages = [msg for msg in messages_with_persona if msg.get("role") != "system"]
+                
+                # If there are existing system messages, replace the first one with persona system prompt
+                # Otherwise, add persona system prompt as the first message
+                if system_messages:
+                    messages_with_persona = [system_message] + system_messages[1:] + non_system_messages
+                else:
+                    messages_with_persona = [system_message] + non_system_messages
+                
+                logger.debug(f"Messages after persona system prompt injection: {len(messages_with_persona)} messages")
+            
+            # Apply persona model settings to params
+            enhanced_params = request.params.copy() if request.params else {}
+            if request.persona_model_settings:
+                logger.info(f"Applying persona model settings: {request.persona_model_settings}")
+                # Merge persona settings with request params (persona takes precedence)
+                enhanced_params.update(request.persona_model_settings)
+                logger.debug(f"Enhanced params with persona settings: {enhanced_params}")
+            
+            # Initialize combined_messages with persona-enhanced messages
+            combined_messages = messages_with_persona.copy()
             
             # Get or create a conversation
             from app.models.conversation import Conversation
@@ -445,6 +502,13 @@ async def chat_completion(request: ChatCompletionRequest, db: AsyncSession = Dep
                     print(f"ERROR: User {user_id} is not authorized to access conversation {conversation_id}")
                     print(f"Conversation owner: {conversation.user_id}, Request user: {user_id}, Original request user_id: {request.user_id}")
                     raise HTTPException(status_code=403, detail="Not authorized to access this conversation")
+                
+                # Update conversation with persona_id if provided and different from current
+                if request.persona_id and conversation.persona_id != request.persona_id:
+                    logger.info(f"Updating conversation {conversation_id} with persona_id: {request.persona_id}")
+                    conversation.persona_id = request.persona_id
+                    await db.commit()
+                    await db.refresh(conversation)
                 
                 # Get previous messages for this conversation
                 print(f"Retrieving previous messages for conversation {conversation_id}")
@@ -500,12 +564,32 @@ async def chat_completion(request: ChatCompletionRequest, db: AsyncSession = Dep
                     page_id=request.page_id,  # NEW FIELD - ID of the page this conversation belongs to
                     model=request.model,
                     server=provider_instance.server_name,
-                    conversation_type=request.conversation_type or "chat"  # New field with default
+                    conversation_type=request.conversation_type or "chat",  # New field with default
+                    persona_id=request.persona_id  # Store persona_id when creating conversation
                 )
                 db.add(conversation)
                 await db.commit()
                 await db.refresh(conversation)
                 print(f"Created new conversation with ID: {conversation.id}")
+                
+                # If persona has a sample greeting, add it as the first assistant message
+                if request.persona_sample_greeting:
+                    logger.info(f"Adding persona sample greeting for persona_id: {request.persona_id}")
+                    greeting_message = Message(
+                        id=str(uuid.uuid4()),
+                        conversation_id=conversation.id,
+                        sender="llm",
+                        message=request.persona_sample_greeting,
+                        message_metadata={
+                            "persona_id": request.persona_id,
+                            "persona_greeting": True,
+                            "model": request.model,
+                            "temperature": 0.0  # Greeting is static, not generated
+                        }
+                    )
+                    db.add(greeting_message)
+                    await db.commit()
+                    print(f"Added persona sample greeting: {request.persona_sample_greeting[:50]}...")
             
             # Store user messages in the database
             for msg in request.messages:
@@ -536,7 +620,7 @@ async def chat_completion(request: ChatCompletionRequest, db: AsyncSession = Dep
                         async for chunk in provider_instance.chat_completion_stream(
                             combined_messages,
                             request.model,
-                            request.params
+                            enhanced_params
                         ):
                             # Extract content from the chunk
                             content = ""
@@ -559,18 +643,29 @@ async def chat_completion(request: ChatCompletionRequest, db: AsyncSession = Dep
                         elapsed_time = time.time() - start_time
                         tokens_per_second = token_count / elapsed_time if elapsed_time > 0 else 0
                         
-                        # Store the LLM response in the database
+                        # Store the LLM response in the database with persona metadata
+                        message_metadata = {
+                            "token_count": token_count,
+                            "tokens_per_second": round(tokens_per_second, 1),
+                            "model": request.model,
+                            "temperature": enhanced_params.get("temperature", 0.7),
+                            "streaming": True
+                        }
+                        
+                        # Add persona metadata if persona was used
+                        if request.persona_id:
+                            message_metadata.update({
+                                "persona_id": request.persona_id,
+                                "persona_applied": bool(request.persona_system_prompt),
+                                "persona_model_settings_applied": bool(request.persona_model_settings)
+                            })
+                        
                         db_message = Message(
                             id=str(uuid.uuid4()),
                             conversation_id=conversation.id,
                             sender="llm",
                             message=full_response,
-                            message_metadata={
-                                "token_count": token_count,
-                                "tokens_per_second": round(tokens_per_second, 1),
-                                "model": request.model,
-                                "temperature": request.params.get("temperature", 0.7) if request.params else 0.7
-                            }
+                            message_metadata=message_metadata
                         )
                         db.add(db_message)
                         
@@ -582,9 +677,17 @@ async def chat_completion(request: ChatCompletionRequest, db: AsyncSession = Dep
                         yield "data: [DONE]\n\n"
                     except Exception as stream_error:
                         print(f"Error in stream_generator: {stream_error}")
+                        logger.error(f"Streaming error with persona_id {request.persona_id}: {stream_error}")
+                        
+                        # Enhanced error message for persona-related errors
+                        error_message = f"Streaming error: {str(stream_error)}"
+                        if request.persona_id:
+                            error_message += f" (Persona ID: {request.persona_id})"
+                        
                         error_json = json.dumps({
                             "error": True,
-                            "message": f"Streaming error: {str(stream_error)}"
+                            "message": error_message,
+                            "persona_id": request.persona_id if request.persona_id else None
                         })
                         yield f"data: {error_json}\n\n"
                         yield "data: [DONE]\n\n"
@@ -613,7 +716,7 @@ async def chat_completion(request: ChatCompletionRequest, db: AsyncSession = Dep
             result = await provider_instance.chat_completion(
                 combined_messages,
                 request.model,
-                request.params
+                enhanced_params
             )
             elapsed_time = time.time() - start_time
             
@@ -631,18 +734,29 @@ async def chat_completion(request: ChatCompletionRequest, db: AsyncSession = Dep
             token_count = len(response_content.split()) * 1.3  # Rough estimate: words * 1.3
             tokens_per_second = token_count / elapsed_time if elapsed_time > 0 else 0
             
-            # Store the LLM response in the database
+            # Store the LLM response in the database with persona metadata
+            message_metadata = {
+                "token_count": int(token_count),
+                "tokens_per_second": round(tokens_per_second, 1),
+                "model": request.model,
+                "temperature": enhanced_params.get("temperature", 0.7),
+                "streaming": False
+            }
+            
+            # Add persona metadata if persona was used
+            if request.persona_id:
+                message_metadata.update({
+                    "persona_id": request.persona_id,
+                    "persona_applied": bool(request.persona_system_prompt),
+                    "persona_model_settings_applied": bool(request.persona_model_settings)
+                })
+            
             db_message = Message(
                 id=str(uuid.uuid4()),
                 conversation_id=conversation.id,
                 sender="llm",
                 message=response_content,
-                message_metadata={
-                    "token_count": int(token_count),
-                    "tokens_per_second": round(tokens_per_second, 1),
-                    "model": request.model,
-                    "temperature": request.params.get("temperature", 0.7) if request.params else 0.7
-                }
+                message_metadata=message_metadata
             )
             db.add(db_message)
             
@@ -660,10 +774,12 @@ async def chat_completion(request: ChatCompletionRequest, db: AsyncSession = Dep
             import traceback
             logger.error(traceback.format_exc())
             
-            # Provide a more detailed error message
+            # Provide a more detailed error message with persona context
             error_message = str(inner_e)
             if "provider_instance" in locals():
                 error_message += f" Provider: {request.provider}, Server: {request.server_id}"
+            if request.persona_id:
+                error_message += f" Persona: {request.persona_id}"
             
             raise HTTPException(
                 status_code=500,

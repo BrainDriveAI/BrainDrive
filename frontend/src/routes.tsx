@@ -6,6 +6,8 @@ import { PluginInstallerPage } from './features/plugin-installer';
 import DashboardLayout from './components/dashboard/DashboardLayout';
 import ModuleDetailPage from './pages/ModuleDetailPage';
 import ProfilePage from './pages/ProfilePage';
+import PersonasPage from './pages/PersonasPage';
+import PersonaFormPage from './pages/PersonaFormPage';
 import { DynamicRoutes } from './components/DynamicRoutes';
 import { DynamicPageRenderer } from './components/DynamicPageRenderer';
 import { RouteContentRenderer } from './components/RouteContentRenderer';
@@ -41,6 +43,10 @@ function AppRoutes() {
         <Route path="plugin-manager" element={<RouteContentRenderer route="plugin-manager" />} />
         <Route path="plugin-manager/:pluginId/:moduleId" element={<ModuleDetailPage />} />
         <Route path="plugin-installer" element={<PluginInstallerPage />} />
+        <Route path="personas" element={<RouteContentRenderer route="personas" />} />
+        <Route path="personas/new" element={<PersonaFormPage />} />
+        <Route path="personas/:personaId" element={<PersonasPage />} />
+        <Route path="personas/:personaId/edit" element={<PersonaFormPage />} />
         {/* Dynamic routes for published pages - wrapped in Route element */}
         <Route path="pages/*" element={<DynamicRoutes />} />
         {/* Custom navigation routes - handled by RouteContentRenderer */}
