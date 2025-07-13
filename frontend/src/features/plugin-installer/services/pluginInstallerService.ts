@@ -36,12 +36,19 @@ class PluginInstallerService {
    */
   private async installFromGitHub(request: GitHubInstallRequest): Promise<PluginInstallResponse> {
     try {
+      // Create FormData for GitHub installation to match backend expectations
+      const formData = new FormData();
+      formData.append('method', 'github');
+      formData.append('repo_url', request.repo_url);
+      formData.append('version', request.version || 'latest');
+
       const response = await this.api.post<PluginInstallResponse>(
         '/api/v1/plugins/install',
+        formData,
         {
-          method: 'github',
-          repo_url: request.repo_url,
-          version: request.version
+          headers: {
+            'Content-Type': 'multipart/form-data'
+          }
         }
       );
 

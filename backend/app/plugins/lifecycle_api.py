@@ -9,13 +9,15 @@ based on their slug, providing a unified interface for plugin management.
 Now includes remote plugin installation from GitHub repositories.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, File, UploadFile, Form
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union
 from pathlib import Path
 import importlib.util
 import json
 import structlog
+import tempfile
+import shutil
 from pydantic import BaseModel
 
 # Import the remote installer
@@ -45,11 +47,19 @@ def _get_error_suggestions(step: str, error_message: str) -> list:
             "Verify the release contains downloadable assets",
             "Ensure the release archive format is supported (tar.gz, zip)"
         ])
+    elif step == 'file_extraction':
+        suggestions.extend([
+            "Ensure the uploaded file is a valid archive (ZIP, TAR.GZ)",
+            "Check that the file is not corrupted",
+            "Verify the file size is within limits (100MB max)",
+            "Try re-uploading the file if extraction fails"
+        ])
     elif step == 'plugin_validation':
         suggestions.extend([
             "Ensure the plugin contains a 'lifecycle_manager.py' file",
             "Check that the lifecycle manager extends BaseLifecycleManager",
-            "Verify the plugin structure follows BrainDrive plugin standards"
+            "Verify the plugin structure follows BrainDrive plugin standards",
+            "Make sure the archive contains a valid BrainDrive plugin"
         ])
     elif step == 'lifecycle_manager_install':
         suggestions.extend([
@@ -66,8 +76,8 @@ def _get_error_suggestions(step: str, error_message: str) -> list:
     else:
         suggestions.extend([
             "Check the server logs for more detailed error information",
-            "Ensure the plugin repository follows BrainDrive plugin standards",
-            "Try installing a different version of the plugin"
+            "Ensure the plugin follows BrainDrive plugin standards",
+            "Try installing a different version or format of the plugin"
         ])
 
     return suggestions
@@ -76,6 +86,12 @@ def _get_error_suggestions(step: str, error_message: str) -> list:
 class RemoteInstallRequest(BaseModel):
     repo_url: str
     version: str = "latest"
+
+class UnifiedInstallRequest(BaseModel):
+    method: str  # 'github' or 'local-file'
+    repo_url: Optional[str] = None
+    version: Optional[str] = "latest"
+    filename: Optional[str] = None
 
 class UpdateCheckResponse(BaseModel):
     plugin_id: str
@@ -733,6 +749,186 @@ async def get_plugin_info(plugin_slug: str):
         )
 
 # Remote plugin installation endpoints
+@router.post("/install")
+async def install_plugin_unified(
+    method: str = Form(...),
+    repo_url: Optional[str] = Form(None),
+    version: Optional[str] = Form("latest"),
+    filename: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None),
+    current_user = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Unified plugin installation endpoint supporting both GitHub and local file methods.
+    
+    For GitHub installation:
+    - method: 'github'
+    - repo_url: GitHub repository URL
+    - version: Version to install (optional, defaults to 'latest')
+    
+    For local file installation:
+    - method: 'local-file'
+    - file: Archive file (ZIP, RAR, TAR.GZ)
+    - filename: Original filename
+    """
+    try:
+        logger.info(f"Unified plugin installation requested by user {current_user.id}")
+        logger.info(f"Method: {method}")
+        
+        if method == 'github':
+            if not repo_url:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="repo_url is required for GitHub installation"
+                )
+            
+            logger.info(f"GitHub installation - Repository URL: {repo_url}, Version: {version}")
+            
+            # Use the remote installer to install the plugin
+            result = await remote_installer.install_from_url(
+                repo_url=repo_url,
+                user_id=current_user.id,
+                version=version or "latest"
+            )
+            
+            if result['success']:
+                return {
+                    "status": "success",
+                    "message": f"Plugin installed successfully from {repo_url}",
+                    "data": {
+                        "plugin_id": result.get('plugin_id'),
+                        "plugin_slug": result.get('plugin_slug'),
+                        "modules_created": result.get('modules_created', []),
+                        "plugin_directory": result.get('plugin_directory'),
+                        "source": "github",
+                        "repo_url": repo_url,
+                        "version": version or "latest"
+                    }
+                }
+            else:
+                # Enhanced error response with suggestions
+                error_details = result.get('details', {})
+                step = error_details.get('step', 'unknown')
+                error_message = result.get('error', 'Installation failed')
+                suggestions = _get_error_suggestions(step, error_message)
+                
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "message": error_message,
+                        "details": error_details,
+                        "suggestions": suggestions
+                    }
+                )
+        
+        elif method == 'local-file':
+            if not file:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="file is required for local file installation"
+                )
+            
+            logger.info(f"Local file installation - Filename: {filename}, Size: {file.size if hasattr(file, 'size') else 'unknown'}")
+            
+            # Validate file size (100MB limit)
+            MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
+            if hasattr(file, 'size') and file.size > MAX_FILE_SIZE:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"File size ({file.size} bytes) exceeds maximum allowed size ({MAX_FILE_SIZE} bytes)"
+                )
+            
+            # Validate file format
+            if filename:
+                supported_formats = ['.zip', '.rar', '.tar.gz', '.tgz']
+                file_ext = None
+                filename_lower = filename.lower()
+                for ext in supported_formats:
+                    if filename_lower.endswith(ext):
+                        file_ext = ext
+                        break
+                
+                if not file_ext:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Unsupported file format. Supported formats: {', '.join(supported_formats)}"
+                    )
+            
+            # Save uploaded file to temporary location
+            import tempfile
+            import shutil
+            temp_dir = Path(tempfile.mkdtemp())
+            temp_file_path = temp_dir / (filename or "uploaded_plugin")
+            
+            try:
+                # Write uploaded file to temporary location
+                with open(temp_file_path, "wb") as buffer:
+                    shutil.copyfileobj(file.file, buffer)
+                
+                logger.info(f"File saved to temporary location: {temp_file_path}")
+                
+                # Use the remote installer to install from file
+                result = await remote_installer.install_from_file(
+                    file_path=temp_file_path,
+                    user_id=current_user.id,
+                    filename=filename
+                )
+                
+                if result['success']:
+                    return {
+                        "status": "success",
+                        "message": f"Plugin '{filename}' installed successfully from local file",
+                        "data": {
+                            "plugin_id": result.get('plugin_id'),
+                            "plugin_slug": result.get('plugin_slug'),
+                            "modules_created": result.get('modules_created', []),
+                            "plugin_directory": result.get('plugin_directory'),
+                            "source": "local-file",
+                            "filename": filename,
+                            "file_size": temp_file_path.stat().st_size if temp_file_path.exists() else 0
+                        }
+                    }
+                else:
+                    # Enhanced error response with suggestions
+                    error_details = result.get('details', {})
+                    step = error_details.get('step', 'unknown')
+                    error_message = result.get('error', 'Installation failed')
+                    suggestions = _get_error_suggestions(step, error_message)
+                    
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail={
+                            "message": error_message,
+                            "details": error_details,
+                            "suggestions": suggestions
+                        }
+                    )
+                
+            finally:
+                # Clean up temporary file
+                try:
+                    if temp_file_path.exists():
+                        temp_file_path.unlink()
+                    temp_dir.rmdir()
+                except Exception as cleanup_error:
+                    logger.warning(f"Failed to clean up temporary file: {cleanup_error}")
+        
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported installation method: {method}. Supported methods: 'github', 'local-file'"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error during unified plugin installation: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal server error during plugin installation: {str(e)}"
+        )
+
 @router.post("/install-from-url")
 async def install_plugin_from_repository(
     request: RemoteInstallRequest,

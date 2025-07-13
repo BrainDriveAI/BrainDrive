@@ -47,6 +47,105 @@ class RemotePluginInstaller:
         self.github_repo_pattern = re.compile(r'github\.com/([^/]+)/([^/]+)')
         self.github_release_pattern = re.compile(r'github\.com/([^/]+)/([^/]+)/releases')
 
+    async def install_from_file(self, file_path: Path, user_id: str, filename: str) -> Dict[str, Any]:
+        """
+        Install a plugin from a local file
+
+        Args:
+            file_path: Path to the uploaded plugin file
+            user_id: User ID to install plugin for
+            filename: Original filename of the uploaded file
+
+        Returns:
+            Dict with installation result
+        """
+        try:
+            logger.info(f"Installing plugin from local file {filename} for user {user_id}")
+
+            # Extract the uploaded file
+            extract_result = await self._extract_local_file(file_path, filename)
+            if not extract_result['success']:
+                logger.error(f"Extraction failed: {extract_result.get('error', 'Unknown extraction error')}")
+                return {
+                    'success': False,
+                    'error': f"Extraction failed: {extract_result.get('error', 'Unknown extraction error')}",
+                    'details': {
+                        'step': 'file_extraction',
+                        'filename': filename
+                    }
+                }
+
+            logger.info(f"Successfully extracted to: {extract_result['extracted_path']}")
+
+            # Validate plugin structure
+            validation_result = await self._validate_plugin_structure(extract_result['extracted_path'])
+            if not validation_result['valid']:
+                await self._cleanup_temp_files(extract_result['extracted_path'])
+                error_msg = f"Plugin validation failed: {validation_result['error']}"
+                logger.error(error_msg)
+                return {
+                    'success': False,
+                    'error': error_msg,
+                    'details': {
+                        'step': 'plugin_validation',
+                        'validation_error': validation_result['error']
+                    }
+                }
+
+            logger.info(f"Plugin validation successful. Plugin info: {validation_result['plugin_info']}")
+
+            # Install plugin using lifecycle manager
+            install_result = await self._install_plugin_locally(
+                extract_result['extracted_path'],
+                validation_result['plugin_info'],
+                user_id
+            )
+
+            # Cleanup temporary files
+            await self._cleanup_temp_files(extract_result['extracted_path'])
+
+            if install_result['success']:
+                logger.info(f"Plugin installation successful: {install_result}")
+
+                # Store installation metadata for local file
+                try:
+                    await self._store_local_file_metadata(
+                        user_id,
+                        install_result['plugin_id'],
+                        filename,
+                        validation_result['plugin_info']
+                    )
+                    logger.info("Installation metadata stored successfully")
+                except Exception as metadata_error:
+                    logger.warning(f"Failed to store installation metadata: {metadata_error}")
+                    # Don't fail the installation for metadata storage issues
+
+                # Trigger plugin discovery to refresh the plugin manager cache
+                try:
+                    await self._refresh_plugin_discovery(user_id)
+                    logger.info("Plugin discovery refreshed successfully")
+                except Exception as discovery_error:
+                    logger.warning(f"Failed to refresh plugin discovery: {discovery_error}")
+                    # Don't fail the installation for discovery refresh issues
+            else:
+                logger.error(f"Plugin installation failed: {install_result}")
+
+            return install_result
+
+        except Exception as e:
+            error_msg = f"Unexpected error during plugin installation from file {filename}: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            return {
+                'success': False,
+                'error': error_msg,
+                'details': {
+                    'step': 'unexpected_exception',
+                    'exception_type': type(e).__name__,
+                    'filename': filename,
+                    'user_id': user_id
+                }
+            }
+
     async def install_from_url(self, repo_url: str, user_id: str, version: str = "latest") -> Dict[str, Any]:
         """
         Install a plugin from a remote repository URL
@@ -506,6 +605,78 @@ class RemotePluginInstaller:
 
             return {'success': False, 'error': f'Download and extraction failed: {str(e)}'}
 
+    async def _extract_local_file(self, file_path: Path, filename: str) -> Dict[str, Any]:
+        """Extract a local plugin file"""
+        extract_dir = None
+        try:
+            logger.info(f"Extracting local file {filename} from {file_path}")
+
+            # Create temporary extraction directory
+            extract_dir = self.temp_dir / f"local_extract_{filename}_{Path(file_path).stem}"
+            extract_dir.mkdir(exist_ok=True)
+
+            # Extract archive based on file extension
+            try:
+                if filename.lower().endswith(('.tar.gz', '.tgz')):
+                    with tarfile.open(file_path, 'r:gz') as tar:
+                        tar.extractall(extract_dir)
+                        logger.info(f"Successfully extracted tar.gz archive")
+                elif filename.lower().endswith('.zip'):
+                    with zipfile.ZipFile(file_path, 'r') as zip_file:
+                        zip_file.extractall(extract_dir)
+                        logger.info(f"Successfully extracted zip archive")
+                elif filename.lower().endswith('.rar'):
+                    # Note: RAR extraction requires additional library (rarfile)
+                    # For now, return an error for RAR files
+                    logger.error(f"RAR extraction not yet implemented")
+                    return {'success': False, 'error': 'RAR file extraction is not yet supported. Please use ZIP or TAR.GZ format.'}
+                else:
+                    logger.error(f"Unsupported archive format: {filename}")
+                    return {'success': False, 'error': f'Unsupported archive format: {filename}. Supported formats: ZIP, TAR.GZ'}
+            except tarfile.TarError as e:
+                logger.error(f"Error extracting tar archive: {e}")
+                return {'success': False, 'error': f'Failed to extract tar archive: {str(e)}'}
+            except zipfile.BadZipFile as e:
+                logger.error(f"Error extracting zip archive: {e}")
+                return {'success': False, 'error': f'Failed to extract zip archive: {str(e)}'}
+            except Exception as e:
+                logger.error(f"Error during archive extraction: {e}")
+                return {'success': False, 'error': f'Archive extraction failed: {str(e)}'}
+
+            # Find the actual plugin directory (may be nested)
+            plugin_dir = self._find_plugin_directory(extract_dir)
+            if not plugin_dir:
+                # List contents for debugging
+                try:
+                    contents = list(extract_dir.rglob('*'))
+                    logger.error(f"Could not find plugin directory. Archive contents: {[str(p.relative_to(extract_dir)) for p in contents[:10]]}")
+                except Exception:
+                    logger.error("Could not find plugin directory and failed to list archive contents")
+
+                return {
+                    'success': False,
+                    'error': 'Could not find plugin directory in archive. Archive may not contain a valid BrainDrive plugin.'
+                }
+
+            logger.info(f"Found plugin directory: {plugin_dir}")
+
+            return {
+                'success': True,
+                'extracted_path': plugin_dir,
+                'extract_dir': extract_dir
+            }
+
+        except Exception as e:
+            logger.error(f"Unexpected error extracting local file: {e}", exc_info=True)
+            # Clean up on error
+            if extract_dir and extract_dir.exists():
+                try:
+                    shutil.rmtree(extract_dir)
+                except Exception as cleanup_error:
+                    logger.error(f"Failed to cleanup extraction directory: {cleanup_error}")
+
+            return {'success': False, 'error': f'File extraction failed: {str(e)}'}
+
     def _find_plugin_directory(self, extract_dir: Path) -> Optional[Path]:
         """Find the actual plugin directory within extracted archive"""
         # Look for directory containing lifecycle_manager.py or package.json
@@ -859,6 +1030,36 @@ class RemotePluginInstaller:
         except Exception as e:
             logger.error(f"Error getting installation metadata: {e}")
             return None
+
+    async def _store_local_file_metadata(self, user_id: str, plugin_id: str, filename: str, plugin_info: Dict[str, Any]):
+        """Store metadata about a local file installation"""
+        try:
+            metadata_dir = self.plugins_base_dir / user_id / ".metadata"
+            metadata_dir.mkdir(parents=True, exist_ok=True)
+
+            metadata_file = metadata_dir / f"{plugin_id}_local.json"
+
+            metadata = {
+                'plugin_id': plugin_id,
+                'user_id': user_id,
+                'filename': filename,
+                'plugin_info': plugin_info,
+                'installed_at': str(Path().cwd()),  # Current timestamp would be better
+                'installation_type': 'local',
+                'source': 'local-file'
+            }
+
+            # Add current timestamp
+            from datetime import datetime
+            metadata['installed_at'] = datetime.utcnow().isoformat()
+
+            with open(metadata_file, 'w') as f:
+                json.dump(metadata, f, indent=2)
+
+            logger.info(f"Stored local file installation metadata for {plugin_id}")
+
+        except Exception as e:
+            logger.error(f"Error storing local file installation metadata: {e}")
 
     async def _cleanup_temp_files(self, temp_path: Path):
         """Clean up temporary files and directories"""
