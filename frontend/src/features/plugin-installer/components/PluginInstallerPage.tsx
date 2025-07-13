@@ -14,10 +14,11 @@ import {
   Extension as ExtensionIcon,
   Add as AddIcon
 } from '@mui/icons-material';
-import PluginInstallForm from './PluginInstallForm';
+import InstallMethodTabs from './install-methods/InstallMethodTabs';
 import InstallationProgress from './InstallationProgress';
 import InstallationResult from './InstallationResult';
 import { usePluginInstaller } from '../hooks';
+import { PluginInstallRequest } from '../types';
 
 const PluginInstallerPage: React.FC = () => {
   const navigate = useNavigate();
@@ -34,14 +35,14 @@ const PluginInstallerPage: React.FC = () => {
   }, [navigate]);
 
   const handleInstallAnother = useCallback(() => {
-    resetInstallation();
+    resetInstallation('github');
   }, [resetInstallation]);
 
   const handleGoToPluginManager = useCallback(() => {
     navigate('/plugin-manager');
   }, [navigate]);
 
-  const handleInstall = useCallback(async (request: any) => {
+  const handleInstall = useCallback(async (request: PluginInstallRequest) => {
     await installPlugin(request);
   }, [installPlugin]);
 
@@ -83,7 +84,7 @@ const PluginInstallerPage: React.FC = () => {
         </Box>
 
         <Typography variant="body1" color="text.secondary">
-          Install plugins from GitHub repositories. Plugins will be downloaded, validated, and installed for your account only.
+          Install plugins from GitHub repositories or upload local archive files. Plugins will be downloaded, validated, and installed for your account only.
         </Typography>
       </Box>
 
@@ -93,8 +94,9 @@ const PluginInstallerPage: React.FC = () => {
           How Plugin Installation Works:
         </Typography>
         <Box component="ul" sx={{ m: 0, pl: 2 }}>
-          <li>Enter a GitHub repository URL containing a BrainDrive plugin</li>
-          <li>The plugin will be downloaded from the latest release or specified version</li>
+          <li>Choose your installation method: GitHub repository or local file upload</li>
+          <li>For GitHub: Enter repository URL and select version</li>
+          <li>For local files: Upload ZIP, RAR, or TAR.GZ archive containing the plugin</li>
           <li>Plugin files are validated and installed securely for your account</li>
           <li>Only you will have access to the installed plugin</li>
           <li>You can uninstall or update the plugin at any time</li>
@@ -103,7 +105,7 @@ const PluginInstallerPage: React.FC = () => {
 
       {/* Installation Form */}
       {showForm && (
-        <PluginInstallForm
+        <InstallMethodTabs
           onInstall={handleInstall}
           isInstalling={installationState.isInstalling}
           onValidateUrl={validateUrl}
@@ -163,7 +165,7 @@ const PluginInstallerPage: React.FC = () => {
               variant="outlined"
               size="small"
               startIcon={<AddIcon />}
-              onClick={resetInstallation}
+              onClick={() => resetInstallation('github')}
             >
               Try Again
             </Button>
@@ -180,9 +182,10 @@ const PluginInstallerPage: React.FC = () => {
           If you're having trouble installing a plugin, make sure:
         </Typography>
         <Box component="ul" sx={{ m: 0, pl: 2, color: 'text.secondary' }}>
-          <li>The repository URL is correct and accessible</li>
-          <li>The repository contains a valid BrainDrive plugin</li>
-          <li>The plugin has releases with prebuilt files</li>
+          <li>For GitHub: The repository URL is correct and accessible</li>
+          <li>For GitHub: The repository contains a valid BrainDrive plugin with releases</li>
+          <li>For local files: The archive contains a valid plugin structure with plugin.json</li>
+          <li>For local files: The file format is supported (ZIP, RAR, TAR.GZ)</li>
           <li>You have a stable internet connection</li>
         </Box>
         <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>

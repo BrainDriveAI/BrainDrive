@@ -1,11 +1,15 @@
 import ApiService from '../../../services/ApiService';
 import {
   PluginInstallRequest,
+  GitHubInstallRequest,
+  LocalFileInstallRequest,
+  LegacyPluginInstallRequest,
   PluginInstallResponse,
   AvailableUpdatesResponse,
   PluginTestResponse,
   FrontendTestResult,
-  ModuleInstantiationTest
+  ModuleInstantiationTest,
+  FileUploadProgress
 } from '../types';
 import { remotePluginService } from '../../../services/remotePluginService';
 import { registerRemotePlugins } from '../../../plugins';
@@ -14,13 +18,31 @@ class PluginInstallerService {
   private api = ApiService.getInstance();
 
   /**
-   * Install a plugin from a remote repository URL
+   * Unified plugin installation method supporting both GitHub and local file uploads
    */
-  async installFromUrl(request: PluginInstallRequest): Promise<PluginInstallResponse> {
+  async installPlugin(request: PluginInstallRequest): Promise<PluginInstallResponse> {
+    switch (request.method) {
+      case 'github':
+        return this.installFromGitHub(request);
+      case 'local-file':
+        return this.installFromFile(request);
+      default:
+        throw new Error(`Unsupported installation method: ${(request as any).method}`);
+    }
+  }
+
+  /**
+   * Install a plugin from a GitHub repository
+   */
+  private async installFromGitHub(request: GitHubInstallRequest): Promise<PluginInstallResponse> {
     try {
       const response = await this.api.post<PluginInstallResponse>(
-        '/api/v1/plugins/install-from-url',
-        request
+        '/api/v1/plugins/install',
+        {
+          method: 'github',
+          repo_url: request.repo_url,
+          version: request.version
+        }
       );
 
       // If installation was successful, refresh the plugin registry
@@ -76,6 +98,139 @@ class PluginInstallerService {
 
       return errorResponse;
     }
+  }
+
+  /**
+   * Install a plugin from a local file upload
+   */
+  private async installFromFile(request: LocalFileInstallRequest): Promise<PluginInstallResponse> {
+    try {
+      // Create FormData for file upload
+      const formData = new FormData();
+      formData.append('file', request.file);
+      formData.append('method', 'local-file');
+      formData.append('filename', request.filename);
+
+      const response = await this.api.post<PluginInstallResponse>(
+        '/api/v1/plugins/install',
+        formData,
+        {
+          headers: {
+            'Content-Type': 'multipart/form-data'
+          }
+        }
+      );
+
+      // If installation was successful, refresh the plugin registry
+      if (response.status === 'success') {
+        await this.refreshPluginRegistry();
+      }
+
+      return response;
+    } catch (error: any) {
+      console.error('Plugin file installation failed:', error);
+
+      // Extract detailed error information from the response
+      let errorMessage = 'Plugin installation failed';
+      let errorDetails = null;
+      let suggestions: string[] = [];
+
+      if (error.response?.data) {
+        const errorData = error.response.data;
+
+        // Handle structured error response from our improved backend
+        if (typeof errorData === 'object' && errorData.message) {
+          errorMessage = errorData.message;
+          errorDetails = errorData.details;
+          suggestions = errorData.suggestions || [];
+        } else if (typeof errorData === 'object' && errorData.detail) {
+          // Handle FastAPI HTTPException format
+          if (typeof errorData.detail === 'object') {
+            errorMessage = errorData.detail.message || 'Installation failed';
+            errorDetails = errorData.detail.details;
+            suggestions = errorData.detail.suggestions || [];
+          } else {
+            errorMessage = errorData.detail;
+          }
+        } else if (typeof errorData === 'string') {
+          errorMessage = errorData;
+        }
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
+      // Create enhanced error response
+      const errorResponse: PluginInstallResponse = {
+        status: 'error',
+        message: errorMessage,
+        error: errorMessage
+      };
+
+      // Add additional error context if available
+      if (errorDetails || suggestions.length > 0) {
+        (errorResponse as any).errorDetails = errorDetails;
+        (errorResponse as any).suggestions = suggestions;
+      }
+
+      return errorResponse;
+    }
+  }
+
+  /**
+   * Legacy method for backward compatibility
+   * @deprecated Use installPlugin instead
+   */
+  async installFromUrl(request: LegacyPluginInstallRequest): Promise<PluginInstallResponse> {
+    return this.installFromGitHub({
+      method: 'github',
+      repo_url: request.repo_url,
+      version: request.version
+    });
+  }
+
+  /**
+   * Upload file with progress tracking
+   */
+  async uploadFileWithProgress(
+    file: File,
+    onProgress?: (progress: FileUploadProgress) => void
+  ): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      const formData = new FormData();
+      formData.append('file', file);
+
+      xhr.upload.addEventListener('progress', (event) => {
+        if (event.lengthComputable && onProgress) {
+          const progress: FileUploadProgress = {
+            loaded: event.loaded,
+            total: event.total,
+            percentage: Math.round((event.loaded / event.total) * 100)
+          };
+          onProgress(progress);
+        }
+      });
+
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const response = JSON.parse(xhr.responseText);
+            resolve(response.file_id || response.filename);
+          } catch (error) {
+            reject(new Error('Invalid response format'));
+          }
+        } else {
+          reject(new Error(`Upload failed: ${xhr.statusText}`));
+        }
+      });
+
+      xhr.addEventListener('error', () => {
+        reject(new Error('Upload failed'));
+      });
+
+      xhr.open('POST', '/api/v1/plugins/upload');
+      xhr.send(formData);
+    });
   }
 
   /**
@@ -317,7 +472,7 @@ class PluginInstallerService {
       let pluginManifest = manifest.find(p => p.id === pluginSlug);
       if (!pluginManifest) {
         // Also try to find by plugin_slug field if it exists
-        pluginManifest = manifest.find(p => p.plugin_slug === pluginSlug);
+        pluginManifest = manifest.find(p => (p as any).plugin_slug === pluginSlug);
       }
       if (!pluginManifest) {
         // Also try to find by name field as fallback
@@ -327,7 +482,7 @@ class PluginInstallerService {
       if (!pluginManifest) {
         return {
           success: false,
-          error: `Plugin '${pluginSlug}' not found in manifest. Available plugins: ${manifest.map(p => `${p.id} (slug: ${p.plugin_slug || p.name})`).join(', ')}`
+          error: `Plugin '${pluginSlug}' not found in manifest. Available plugins: ${manifest.map(p => `${p.id} (slug: ${(p as any).plugin_slug || p.name})`).join(', ')}`
         };
       }
 
