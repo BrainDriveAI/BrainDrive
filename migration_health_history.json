@@ -1,0 +1,242 @@
+[
+  {
+    "timestamp": "2025-07-13T10:47:12.075347",
+    "overall_status": "ERROR",
+    "checks": {
+      "database_connectivity": {
+        "status": "OK",
+        "message": "Database connection successful",
+        "details": {},
+        "timestamp": "2025-07-13T10:47:12.082886"
+      },
+      "alembic_version_table": {
+        "status": "OK",
+        "message": "Alembic version table valid, current version: c7eed881f009",
+        "details": {},
+        "timestamp": "2025-07-13T10:47:12.084326"
+      },
+      "pending_migrations": {
+        "status": "ERROR",
+        "message": "Failed to check pending migrations: Path doesn't exist: '/home/hacker/BrainDriveDev/BrainDrive/migrations'.  Please use the 'init' command to create a new scripts folder.",
+        "details": {},
+        "timestamp": "2025-07-13T10:47:12.084837"
+      },
+      "migration_history_integrity": {
+        "status": "ERROR",
+        "message": "Failed to check migration history: Path doesn't exist: '/home/hacker/BrainDriveDev/BrainDrive/migrations'.  Please use the 'init' command to create a new scripts folder.",
+        "details": {},
+        "timestamp": "2025-07-13T10:47:12.085361"
+      },
+      "schema_consistency": {
+        "status": "OK",
+        "message": "Database schema consistency verified",
+        "details": {
+          "table_count": 21
+        },
+        "timestamp": "2025-07-13T10:47:12.092308"
+      }
+    },
+    "metrics": {
+      "database_size_bytes": {
+        "value": 376832,
+        "unit": "",
+        "timestamp": "2025-07-13T10:47:12.092630"
+      }
+    },
+    "alerts": [
+      {
+        "level": "ERROR",
+        "message": "Error in pending_migrations: Failed to check pending migrations: Path doesn't exist: '/home/hacker/BrainDriveDev/BrainDrive/migrations'.  Please use the 'init' command to create a new scripts folder.",
+        "details": {},
+        "timestamp": "2025-07-13T10:47:12.092647"
+      },
+      {
+        "level": "ERROR",
+        "message": "Error in migration_history_integrity: Failed to check migration history: Path doesn't exist: '/home/hacker/BrainDriveDev/BrainDrive/migrations'.  Please use the 'init' command to create a new scripts folder.",
+        "details": {},
+        "timestamp": "2025-07-13T10:47:12.092651"
+      }
+    ],
+    "warnings": []
+  },
+  {
+    "timestamp": "2025-07-13T11:04:53.591106",
+    "overall_status": "ERROR",
+    "checks": {
+      "database_connectivity": {
+        "status": "OK",
+        "message": "Database connection successful",
+        "details": {},
+        "timestamp": "2025-07-13T11:04:53.599418"
+      },
+      "alembic_version_table": {
+        "status": "OK",
+        "message": "Alembic version table valid, current version: c7eed881f009",
+        "details": {},
+        "timestamp": "2025-07-13T11:04:53.601030"
+      },
+      "pending_migrations": {
+        "status": "ERROR",
+        "message": "Failed to check pending migrations: Path doesn't exist: '/home/hacker/BrainDriveDev/BrainDrive/migrations'.  Please use the 'init' command to create a new scripts folder.",
+        "details": {},
+        "timestamp": "2025-07-13T11:04:53.601565"
+      },
+      "migration_history_integrity": {
+        "status": "ERROR",
+        "message": "Failed to check migration history: Path doesn't exist: '/home/hacker/BrainDriveDev/BrainDrive/migrations'.  Please use the 'init' command to create a new scripts folder.",
+        "details": {},
+        "timestamp": "2025-07-13T11:04:53.602063"
+      },
+      "schema_consistency": {
+        "status": "OK",
+        "message": "Database schema consistency verified",
+        "details": {
+          "table_count": 21
+        },
+        "timestamp": "2025-07-13T11:04:53.609274"
+      }
+    },
+    "metrics": {
+      "database_size_bytes": {
+        "value": 376832,
+        "unit": "",
+        "timestamp": "2025-07-13T11:04:53.609635"
+      }
+    },
+    "alerts": [
+      {
+        "level": "ERROR",
+        "message": "Error in pending_migrations: Failed to check pending migrations: Path doesn't exist: '/home/hacker/BrainDriveDev/BrainDrive/migrations'.  Please use the 'init' command to create a new scripts folder.",
+        "details": {},
+        "timestamp": "2025-07-13T11:04:53.609653"
+      },
+      {
+        "level": "ERROR",
+        "message": "Error in migration_history_integrity: Failed to check migration history: Path doesn't exist: '/home/hacker/BrainDriveDev/BrainDrive/migrations'.  Please use the 'init' command to create a new scripts folder.",
+        "details": {},
+        "timestamp": "2025-07-13T11:04:53.609657"
+      }
+    ],
+    "warnings": []
+  },
+  {
+    "timestamp": "2025-07-13T11:06:50.038339",
+    "overall_status": "ERROR",
+    "checks": {
+      "database_connectivity": {
+        "status": "OK",
+        "message": "Database connection successful",
+        "details": {},
+        "timestamp": "2025-07-13T11:06:50.045889"
+      },
+      "alembic_version_table": {
+        "status": "OK",
+        "message": "Alembic version table valid, current version: c7eed881f009",
+        "details": {},
+        "timestamp": "2025-07-13T11:06:50.047333"
+      },
+      "pending_migrations": {
+        "status": "ERROR",
+        "message": "Failed to check pending migrations: Path doesn't exist: '/home/hacker/BrainDriveDev/BrainDrive/migrations'.  Please use the 'init' command to create a new scripts folder.",
+        "details": {},
+        "timestamp": "2025-07-13T11:06:50.047841"
+      },
+      "migration_history_integrity": {
+        "status": "ERROR",
+        "message": "Failed to check migration history: Path doesn't exist: '/home/hacker/BrainDriveDev/BrainDrive/migrations'.  Please use the 'init' command to create a new scripts folder.",
+        "details": {},
+        "timestamp": "2025-07-13T11:06:50.048360"
+      },
+      "schema_consistency": {
+        "status": "OK",
+        "message": "Database schema consistency verified",
+        "details": {
+          "table_count": 21
+        },
+        "timestamp": "2025-07-13T11:06:50.055160"
+      }
+    },
+    "metrics": {
+      "database_size_bytes": {
+        "value": 376832,
+        "unit": "",
+        "timestamp": "2025-07-13T11:06:50.055470"
+      }
+    },
+    "alerts": [
+      {
+        "level": "ERROR",
+        "message": "Error in pending_migrations: Failed to check pending migrations: Path doesn't exist: '/home/hacker/BrainDriveDev/BrainDrive/migrations'.  Please use the 'init' command to create a new scripts folder.",
+        "details": {},
+        "timestamp": "2025-07-13T11:06:50.055487"
+      },
+      {
+        "level": "ERROR",
+        "message": "Error in migration_history_integrity: Failed to check migration history: Path doesn't exist: '/home/hacker/BrainDriveDev/BrainDrive/migrations'.  Please use the 'init' command to create a new scripts folder.",
+        "details": {},
+        "timestamp": "2025-07-13T11:06:50.055491"
+      }
+    ],
+    "warnings": []
+  },
+  {
+    "timestamp": "2025-07-13T11:10:15.518802",
+    "overall_status": "ERROR",
+    "checks": {
+      "database_connectivity": {
+        "status": "OK",
+        "message": "Database connection successful",
+        "details": {},
+        "timestamp": "2025-07-13T11:10:15.526327"
+      },
+      "alembic_version_table": {
+        "status": "OK",
+        "message": "Alembic version table valid, current version: c7eed881f009",
+        "details": {},
+        "timestamp": "2025-07-13T11:10:15.527789"
+      },
+      "pending_migrations": {
+        "status": "ERROR",
+        "message": "Failed to check pending migrations: Path doesn't exist: '/home/hacker/BrainDriveDev/BrainDrive/migrations'.  Please use the 'init' command to create a new scripts folder.",
+        "details": {},
+        "timestamp": "2025-07-13T11:10:15.528319"
+      },
+      "migration_history_integrity": {
+        "status": "ERROR",
+        "message": "Failed to check migration history: Path doesn't exist: '/home/hacker/BrainDriveDev/BrainDrive/migrations'.  Please use the 'init' command to create a new scripts folder.",
+        "details": {},
+        "timestamp": "2025-07-13T11:10:15.528835"
+      },
+      "schema_consistency": {
+        "status": "OK",
+        "message": "Database schema consistency verified",
+        "details": {
+          "table_count": 21
+        },
+        "timestamp": "2025-07-13T11:10:15.535833"
+      }
+    },
+    "metrics": {
+      "database_size_bytes": {
+        "value": 376832,
+        "unit": "",
+        "timestamp": "2025-07-13T11:10:15.536136"
+      }
+    },
+    "alerts": [
+      {
+        "level": "ERROR",
+        "message": "Error in pending_migrations: Failed to check pending migrations: Path doesn't exist: '/home/hacker/BrainDriveDev/BrainDrive/migrations'.  Please use the 'init' command to create a new scripts folder.",
+        "details": {},
+        "timestamp": "2025-07-13T11:10:15.536177"
+      },
+      {
+        "level": "ERROR",
+        "message": "Error in migration_history_integrity: Failed to check migration history: Path doesn't exist: '/home/hacker/BrainDriveDev/BrainDrive/migrations'.  Please use the 'init' command to create a new scripts folder.",
+        "details": {},
+        "timestamp": "2025-07-13T11:10:15.536181"
+      }
+    ],
+    "warnings": []
+  }
+]

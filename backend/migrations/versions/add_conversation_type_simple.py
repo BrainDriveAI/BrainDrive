@@ -18,15 +18,37 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Add conversation_type column to conversations table
-    with op.batch_alter_table('conversations', schema=None) as batch_op:
-        batch_op.add_column(sa.Column('conversation_type', sa.String(length=100), nullable=True))
+    """Upgrade with conditional operations to prevent conflicts."""
+    
+    # Get database connection and inspector
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    
+    # Check if conversations table exists and get its columns
+    if 'conversations' in inspector.get_table_names():
+        columns = [col['name'] for col in inspector.get_columns('conversations')]
+        
+        # Add conversation_type column only if it doesn't exist
+        if 'conversation_type' not in columns:
+            with op.batch_alter_table('conversations', schema=None) as batch_op:
+                batch_op.add_column(sa.Column('conversation_type', sa.String(length=100), nullable=True))
 
-    # Update existing conversations to have default conversation_type
-    op.execute("UPDATE conversations SET conversation_type = 'chat' WHERE conversation_type IS NULL")
+            # Update existing conversations to have default conversation_type
+            op.execute("UPDATE conversations SET conversation_type = 'chat' WHERE conversation_type IS NULL")
 
 
 def downgrade() -> None:
-    # Remove conversation_type column from conversations table
-    with op.batch_alter_table('conversations', schema=None) as batch_op:
-        batch_op.drop_column('conversation_type')
+    """Downgrade with conditional operations to prevent conflicts."""
+    
+    # Get database connection and inspector
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    
+    # Check if conversations table exists and has the column
+    if 'conversations' in inspector.get_table_names():
+        columns = [col['name'] for col in inspector.get_columns('conversations')]
+        
+        # Remove conversation_type column only if it exists
+        if 'conversation_type' in columns:
+            with op.batch_alter_table('conversations', schema=None) as batch_op:
+                batch_op.drop_column('conversation_type')
