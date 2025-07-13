@@ -47,6 +47,11 @@ class ChatCompletionRequest(BaseModel):
     page_id: Optional[str] = Field(None, description="ID of the page this conversation belongs to")
     page_context: Optional[str] = Field(None, description="Context where the conversation is taking place (e.g., 'home', 'editor', 'chatbot_lab')")
     conversation_type: Optional[str] = Field("chat", description="Type/category of the conversation (e.g., 'chat', 'email_reply', 'therapy')")
+    # Persona integration fields
+    persona_id: Optional[str] = Field(None, description="ID of the persona to use")
+    persona_system_prompt: Optional[str] = Field(None, description="System prompt from persona")
+    persona_model_settings: Optional[Dict[str, Any]] = Field(None, description="Model settings from persona")
+    persona_sample_greeting: Optional[str] = Field(None, description="Sample greeting from persona for new conversations")
 
 
 class ValidationRequest(BaseModel):

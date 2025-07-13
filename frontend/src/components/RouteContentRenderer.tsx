@@ -13,6 +13,7 @@ import Dashboard from '../pages/Dashboard';
 import { PluginStudioPage } from '../features/plugin-studio';
 import Settings from '../pages/Settings';
 import PluginManagerPage from '../pages/PluginManagerPage';
+import PersonasPage from '../pages/PersonasPage';
 
 
 
@@ -245,6 +246,9 @@ export const RouteContentRenderer: React.FC<RouteContentRendererProps> = ({ rout
     } else if (routePath === 'plugin-manager') {
       // console.log('Rendering PluginManagerPage component as fallback for plugin-manager route');
       return <PluginManagerPage />;
+    } else if (routePath === 'personas') {
+      // console.log('Rendering PersonasPage component as fallback for personas route');
+      return <PersonasPage />;
     }
   }
 

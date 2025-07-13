@@ -18,10 +18,12 @@ class Conversation(Base, TimestampMixin):
     model = Column(String)  # Store which model was used
     server = Column(String)  # Store which server was used
     conversation_type = Column(String(100), nullable=True, default="chat")  # New field for categorization
+    persona_id = Column(String(32), ForeignKey("personas.id", ondelete="SET NULL"), nullable=True)  # NEW - persona tracking
 
     # Relationships
     user = relationship("User", back_populates="conversations")
     messages = relationship("Message", back_populates="conversation", cascade="all, delete-orphan")
+    persona = relationship("Persona", back_populates="conversations")  # NEW - persona relationship
     
     # Tags relationship
     tags = relationship("ConversationTag", back_populates="conversation", cascade="all, delete-orphan")

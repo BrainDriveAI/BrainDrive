@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import auth, settings, ollama, ai_providers, ai_provider_settings, navigation_routes, components, conversations, tags
+from app.api.v1.endpoints import auth, settings, ollama, ai_providers, ai_provider_settings, navigation_routes, components, conversations, tags, personas
 from app.routers import plugins
 from app.routes.pages import router as pages_router
 
@@ -13,6 +13,7 @@ api_router.include_router(navigation_routes.router, prefix="/navigation-routes",
 api_router.include_router(components.router, prefix="/components", tags=["components"])
 api_router.include_router(conversations.router, tags=["conversations"])
 api_router.include_router(tags.router, tags=["tags"])
+api_router.include_router(personas.router, tags=["personas"])
 # Include the plugins router (which already includes the lifecycle router)
 api_router.include_router(plugins.router, tags=["plugins"])
 api_router.include_router(pages_router)

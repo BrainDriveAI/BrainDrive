@@ -52,6 +52,17 @@ class NavigationInitializer(UserInitializerBase):
             "can_change_default": False
         },
         {
+            "name": "Personas",
+            "route": "personas",
+            "icon": "Person",
+            "description": "Manage AI conversation personas",
+            "order": 25,
+            "is_visible": True,
+            "is_system_route": True,
+            "default_component_id": "personas",
+            "can_change_default": False
+        },
+        {
             "name": "Settings",
             "route": "settings",
             "icon": "Settings",
