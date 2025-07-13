@@ -1,0 +1,298 @@
+[
+  {
+    "timestamp": "2025-07-13T11:11:52.584688",
+    "overall_status": "CRITICAL",
+    "checks": {
+      "database_connectivity": {
+        "status": "CRITICAL",
+        "message": "Database connection failed: (sqlite3.OperationalError) unable to open database file\n(Background on this error at: https://sqlalche.me/e/20/e3q8)",
+        "details": {},
+        "timestamp": "2025-07-13T11:11:52.591632"
+      },
+      "alembic_version_table": {
+        "status": "ERROR",
+        "message": "Failed to check Alembic version table: (sqlite3.OperationalError) unable to open database file\n(Background on this error at: https://sqlalche.me/e/20/e3q8)",
+        "details": {},
+        "timestamp": "2025-07-13T11:11:52.591942"
+      },
+      "pending_migrations": {
+        "status": "ERROR",
+        "message": "Failed to check pending migrations: No 'script_location' key found in configuration.",
+        "details": {},
+        "timestamp": "2025-07-13T11:11:52.592160"
+      },
+      "migration_history_integrity": {
+        "status": "ERROR",
+        "message": "Failed to check migration history: No config file 'backend/alembic.ini' found, or file has no '[alembic]' section",
+        "details": {},
+        "timestamp": "2025-07-13T11:11:52.592284"
+      },
+      "schema_consistency": {
+        "status": "ERROR",
+        "message": "Failed to check schema consistency: (sqlite3.OperationalError) unable to open database file\n(Background on this error at: https://sqlalche.me/e/20/e3q8)",
+        "details": {},
+        "timestamp": "2025-07-13T11:11:52.592574"
+      }
+    },
+    "metrics": {},
+    "alerts": [
+      {
+        "level": "CRITICAL",
+        "message": "Critical issue in database_connectivity: Database connection failed: (sqlite3.OperationalError) unable to open database file\n(Background on this error at: https://sqlalche.me/e/20/e3q8)",
+        "details": {},
+        "timestamp": "2025-07-13T11:11:52.592905"
+      },
+      {
+        "level": "ERROR",
+        "message": "Error in alembic_version_table: Failed to check Alembic version table: (sqlite3.OperationalError) unable to open database file\n(Background on this error at: https://sqlalche.me/e/20/e3q8)",
+        "details": {},
+        "timestamp": "2025-07-13T11:11:52.592912"
+      },
+      {
+        "level": "ERROR",
+        "message": "Error in pending_migrations: Failed to check pending migrations: No 'script_location' key found in configuration.",
+        "details": {},
+        "timestamp": "2025-07-13T11:11:52.592915"
+      },
+      {
+        "level": "ERROR",
+        "message": "Error in migration_history_integrity: Failed to check migration history: No config file 'backend/alembic.ini' found, or file has no '[alembic]' section",
+        "details": {},
+        "timestamp": "2025-07-13T11:11:52.592918"
+      },
+      {
+        "level": "ERROR",
+        "message": "Error in schema_consistency: Failed to check schema consistency: (sqlite3.OperationalError) unable to open database file\n(Background on this error at: https://sqlalche.me/e/20/e3q8)",
+        "details": {},
+        "timestamp": "2025-07-13T11:11:52.592921"
+      }
+    ],
+    "warnings": []
+  },
+  {
+    "timestamp": "2025-07-13T11:14:15.706993",
+    "overall_status": "ERROR",
+    "checks": {
+      "database_connectivity": {
+        "status": "OK",
+        "message": "Database connection successful",
+        "details": {},
+        "timestamp": "2025-07-13T11:14:15.714594"
+      },
+      "alembic_version_table": {
+        "status": "OK",
+        "message": "Alembic version table valid, current version: c7eed881f009",
+        "details": {},
+        "timestamp": "2025-07-13T11:14:15.716072"
+      },
+      "pending_migrations": {
+        "status": "ERROR",
+        "message": "Failed to check pending migrations: No 'script_location' key found in configuration.",
+        "details": {},
+        "timestamp": "2025-07-13T11:14:15.716276"
+      },
+      "migration_history_integrity": {
+        "status": "ERROR",
+        "message": "Failed to check migration history: No config file 'backend/alembic.ini' found, or file has no '[alembic]' section",
+        "details": {},
+        "timestamp": "2025-07-13T11:14:15.716393"
+      },
+      "schema_consistency": {
+        "status": "OK",
+        "message": "Database schema consistency verified",
+        "details": {
+          "table_count": 21
+        },
+        "timestamp": "2025-07-13T11:14:15.723415"
+      }
+    },
+    "metrics": {
+      "database_size_bytes": {
+        "value": 376832,
+        "unit": "",
+        "timestamp": "2025-07-13T11:14:15.723758"
+      }
+    },
+    "alerts": [
+      {
+        "level": "ERROR",
+        "message": "Error in pending_migrations: Failed to check pending migrations: No 'script_location' key found in configuration.",
+        "details": {},
+        "timestamp": "2025-07-13T11:14:15.723775"
+      },
+      {
+        "level": "ERROR",
+        "message": "Error in migration_history_integrity: Failed to check migration history: No config file 'backend/alembic.ini' found, or file has no '[alembic]' section",
+        "details": {},
+        "timestamp": "2025-07-13T11:14:15.723779"
+      }
+    ],
+    "warnings": []
+  },
+  {
+    "timestamp": "2025-07-13T11:15:21.730737",
+    "overall_status": "HEALTHY",
+    "checks": {
+      "database_connectivity": {
+        "status": "OK",
+        "message": "Database connection successful",
+        "details": {},
+        "timestamp": "2025-07-13T11:15:21.738633"
+      },
+      "alembic_version_table": {
+        "status": "OK",
+        "message": "Alembic version table valid, current version: c7eed881f009",
+        "details": {},
+        "timestamp": "2025-07-13T11:15:21.740174"
+      },
+      "pending_migrations": {
+        "status": "OK",
+        "message": "No pending migrations",
+        "details": {
+          "current_revision": "c7eed881f009",
+          "head_revision": "c7eed881f009"
+        },
+        "timestamp": "2025-07-13T11:15:21.745157"
+      },
+      "migration_history_integrity": {
+        "status": "OK",
+        "message": "Migration history integrity verified",
+        "details": {
+          "total_migrations": 11
+        },
+        "timestamp": "2025-07-13T11:15:21.747398"
+      },
+      "schema_consistency": {
+        "status": "OK",
+        "message": "Database schema consistency verified",
+        "details": {
+          "table_count": 21
+        },
+        "timestamp": "2025-07-13T11:15:21.754695"
+      }
+    },
+    "metrics": {
+      "database_size_bytes": {
+        "value": 376832,
+        "unit": "",
+        "timestamp": "2025-07-13T11:15:21.754968"
+      }
+    },
+    "alerts": [],
+    "warnings": []
+  },
+  {
+    "timestamp": "2025-07-13T11:40:57.832865",
+    "overall_status": "ERROR",
+    "checks": {
+      "database_connectivity": {
+        "status": "OK",
+        "message": "Database connection successful",
+        "details": {},
+        "timestamp": "2025-07-13T11:40:57.840066"
+      },
+      "alembic_version_table": {
+        "status": "WARNING",
+        "message": "Alembic version table is empty",
+        "details": {},
+        "timestamp": "2025-07-13T11:40:57.841307"
+      },
+      "pending_migrations": {
+        "status": "ERROR",
+        "message": "Failed to check pending migrations: Requested range c7eed881f009:None does not refer to ancestor/descendant revisions along the same branch",
+        "details": {},
+        "timestamp": "2025-07-13T11:40:57.846064"
+      },
+      "migration_history_integrity": {
+        "status": "OK",
+        "message": "Migration history integrity verified",
+        "details": {
+          "total_migrations": 11
+        },
+        "timestamp": "2025-07-13T11:40:57.848401"
+      },
+      "schema_consistency": {
+        "status": "OK",
+        "message": "Database schema consistency verified",
+        "details": {
+          "table_count": 21
+        },
+        "timestamp": "2025-07-13T11:40:57.855830"
+      }
+    },
+    "metrics": {
+      "database_size_bytes": {
+        "value": 430080,
+        "unit": "",
+        "timestamp": "2025-07-13T11:40:57.856088"
+      }
+    },
+    "alerts": [
+      {
+        "level": "ERROR",
+        "message": "Error in pending_migrations: Failed to check pending migrations: Requested range c7eed881f009:None does not refer to ancestor/descendant revisions along the same branch",
+        "details": {},
+        "timestamp": "2025-07-13T11:40:57.856106"
+      }
+    ],
+    "warnings": [
+      {
+        "message": "Warning in alembic_version_table: Alembic version table is empty",
+        "details": {},
+        "timestamp": "2025-07-13T11:40:57.856102"
+      }
+    ]
+  },
+  {
+    "timestamp": "2025-07-13T11:41:16.703346",
+    "overall_status": "HEALTHY",
+    "checks": {
+      "database_connectivity": {
+        "status": "OK",
+        "message": "Database connection successful",
+        "details": {},
+        "timestamp": "2025-07-13T11:41:16.710445"
+      },
+      "alembic_version_table": {
+        "status": "OK",
+        "message": "Alembic version table valid, current version: c7eed881f009",
+        "details": {},
+        "timestamp": "2025-07-13T11:41:16.711821"
+      },
+      "pending_migrations": {
+        "status": "OK",
+        "message": "No pending migrations",
+        "details": {
+          "current_revision": "c7eed881f009",
+          "head_revision": "c7eed881f009"
+        },
+        "timestamp": "2025-07-13T11:41:16.716960"
+      },
+      "migration_history_integrity": {
+        "status": "OK",
+        "message": "Migration history integrity verified",
+        "details": {
+          "total_migrations": 11
+        },
+        "timestamp": "2025-07-13T11:41:16.719358"
+      },
+      "schema_consistency": {
+        "status": "OK",
+        "message": "Database schema consistency verified",
+        "details": {
+          "table_count": 21
+        },
+        "timestamp": "2025-07-13T11:41:16.726373"
+      }
+    },
+    "metrics": {
+      "database_size_bytes": {
+        "value": 430080,
+        "unit": "",
+        "timestamp": "2025-07-13T11:41:16.726636"
+      }
+    },
+    "alerts": [],
+    "warnings": []
+  }
+]

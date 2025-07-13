@@ -18,24 +18,51 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Add page_id column to conversations table
-    # Using batch_alter_table for SQLite compatibility
-    with op.batch_alter_table('conversations', schema=None) as batch_op:
-        batch_op.add_column(sa.Column('page_id', sa.String(length=32), nullable=True))
+    """Upgrade with conditional operations to prevent conflicts."""
     
-    # Add indexes for efficient querying (SQLite compatible)
-    op.create_index('idx_conversations_page_id', 'conversations', ['page_id'], unique=False)
-    op.create_index('idx_conversations_user_page', 'conversations', ['user_id', 'page_id'], unique=False)
+    # Get database connection and inspector
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    
+    # Check if conversations table exists and get its columns
+    if 'conversations' in inspector.get_table_names():
+        columns = [col['name'] for col in inspector.get_columns('conversations')]
+        indexes = [idx['name'] for idx in inspector.get_indexes('conversations')]
+        
+        # Add page_id column only if it doesn't exist
+        if 'page_id' not in columns:
+            with op.batch_alter_table('conversations', schema=None) as batch_op:
+                batch_op.add_column(sa.Column('page_id', sa.String(length=32), nullable=True))
+        
+        # Add indexes only if they don't exist
+        if 'idx_conversations_page_id' not in indexes:
+            op.create_index('idx_conversations_page_id', 'conversations', ['page_id'], unique=False)
+        if 'idx_conversations_user_page' not in indexes:
+            op.create_index('idx_conversations_user_page', 'conversations', ['user_id', 'page_id'], unique=False)
     
     # Note: Existing conversations will have page_id = NULL (treated as global conversations)
     # New page-specific conversations will have specific page_id values
 
 
 def downgrade() -> None:
-    # Remove indexes first
-    op.drop_index('idx_conversations_user_page', table_name='conversations')
-    op.drop_index('idx_conversations_page_id', table_name='conversations')
+    """Downgrade with conditional operations to prevent conflicts."""
     
-    # Remove page_id column using batch_alter_table for SQLite compatibility
-    with op.batch_alter_table('conversations', schema=None) as batch_op:
-        batch_op.drop_column('page_id')
+    # Get database connection and inspector
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    
+    # Check if conversations table exists
+    if 'conversations' in inspector.get_table_names():
+        indexes = [idx['name'] for idx in inspector.get_indexes('conversations')]
+        columns = [col['name'] for col in inspector.get_columns('conversations')]
+        
+        # Remove indexes only if they exist
+        if 'idx_conversations_user_page' in indexes:
+            op.drop_index('idx_conversations_user_page', table_name='conversations')
+        if 'idx_conversations_page_id' in indexes:
+            op.drop_index('idx_conversations_page_id', table_name='conversations')
+        
+        # Remove page_id column only if it exists
+        if 'page_id' in columns:
+            with op.batch_alter_table('conversations', schema=None) as batch_op:
+                batch_op.drop_column('page_id')
