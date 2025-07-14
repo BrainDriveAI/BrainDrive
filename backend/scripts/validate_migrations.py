@@ -49,7 +49,7 @@ def get_migration_info(file_path: Path) -> Dict:
         'alters': alter_tables
     }
 
-def analyze_migration_files(migrations_dir: str = "backend/migrations/versions") -> Dict[str, Dict]:
+def analyze_migration_files(migrations_dir: str = "migrations/versions") -> Dict[str, Dict]:
     """Analyze all migration files for table operations."""
     migrations_path = Path(migrations_dir)
     
@@ -156,7 +156,7 @@ def generate_migration_graph(migrations: Dict[str, Dict]) -> str:
 
 def main():
     parser = argparse.ArgumentParser(description="Validate database migrations")
-    parser.add_argument("--migrations-dir", default="backend/migrations/versions",
+    parser.add_argument("--migrations-dir", default="migrations/versions",
                        help="Path to migrations directory")
     parser.add_argument("--verbose", "-v", action="store_true",
                        help="Verbose output")

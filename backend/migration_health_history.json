@@ -294,5 +294,57 @@
     },
     "alerts": [],
     "warnings": []
+  },
+  {
+    "timestamp": "2025-07-14T08:02:25.728468",
+    "overall_status": "HEALTHY",
+    "checks": {
+      "database_connectivity": {
+        "status": "OK",
+        "message": "Database connection successful",
+        "details": {},
+        "timestamp": "2025-07-14T08:02:25.735918"
+      },
+      "alembic_version_table": {
+        "status": "OK",
+        "message": "Alembic version table valid, current version: 49d16cc7f8f1",
+        "details": {},
+        "timestamp": "2025-07-14T08:02:25.737395"
+      },
+      "pending_migrations": {
+        "status": "OK",
+        "message": "No pending migrations",
+        "details": {
+          "current_revision": "49d16cc7f8f1",
+          "head_revision": "49d16cc7f8f1"
+        },
+        "timestamp": "2025-07-14T08:02:25.742624"
+      },
+      "migration_history_integrity": {
+        "status": "OK",
+        "message": "Migration history integrity verified",
+        "details": {
+          "total_migrations": 14
+        },
+        "timestamp": "2025-07-14T08:02:25.745578"
+      },
+      "schema_consistency": {
+        "status": "OK",
+        "message": "Database schema consistency verified",
+        "details": {
+          "table_count": 22
+        },
+        "timestamp": "2025-07-14T08:02:25.752726"
+      }
+    },
+    "metrics": {
+      "database_size_bytes": {
+        "value": 376832,
+        "unit": "",
+        "timestamp": "2025-07-14T08:02:25.752983"
+      }
+    },
+    "alerts": [],
+    "warnings": []
   }
 ]
