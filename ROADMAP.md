@@ -47,10 +47,10 @@ Our roadmap is broken into clearly defined versions, each building toward a stab
 >Goal: Give devs the ability to have a living plugin.
 
 - [x] Encryption
-- [ ] Plugin Data - the ability for a plugin to put it’s own data
+- [x] Plugin Data - the ability for a plugin to put it’s own data
 - [ ] Page Data - Constant state saved cross device
 - [x] Page specific Response/convo data 
-- [ ] Personas 
+- [x] Personas 
 
 ---
 
