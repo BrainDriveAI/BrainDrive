@@ -5,6 +5,7 @@ import ModuleDetailHeader from '../features/plugin-manager/components/ModuleDeta
 import ModuleGrid from '../features/plugin-manager/components/ModuleGrid';
 import useModuleDetail from '../features/plugin-manager/hooks/useModuleDetail';
 import { Module } from '../features/plugin-manager/types';
+import { moduleService } from '../features/plugin-manager/services/moduleService';
 
 /**
  * The detail page for a specific module
@@ -47,6 +48,34 @@ const ModuleDetailPage: React.FC = () => {
     navigate(`/plugin-manager/${relatedModule.pluginId}/${relatedModule.id}`);
   }, [navigate]);
 
+  const handleUpdatePlugin = useCallback(async () => {
+    if (!plugin) return;
+
+    console.log(`Update plugin requested: ${plugin.name}`);
+    try {
+      await moduleService.updatePlugin(plugin.id);
+      // Refresh the page data after successful update
+      // window.location.reload();
+    } catch (error) {
+      console.error('Failed to update plugin:', error);
+      throw error;
+    }
+  }, [plugin]);
+
+  const handleDeletePlugin = useCallback(async () => {
+    if (!plugin) return;
+
+    console.log(`Delete plugin requested: ${plugin.name}`);
+    try {
+      await moduleService.deletePlugin(plugin.id);
+      // Navigate back to plugin manager after successful deletion
+      navigate('/plugin-manager');
+    } catch (error) {
+      console.error('Failed to delete plugin:', error);
+      throw error;
+    }
+  }, [plugin, navigate]);
+
   if (loading) {
     console.log('ModuleDetailPage is loading');
     return (
@@ -88,6 +117,8 @@ const ModuleDetailPage: React.FC = () => {
         plugin={plugin}
         onBack={handleBack}
         onToggleStatus={handleToggleStatus}
+        onUpdate={handleUpdatePlugin}
+        onDelete={handleDeletePlugin}
       />
       
       {relatedModules.length > 0 && (

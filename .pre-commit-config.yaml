@@ -1,0 +1,33 @@
+repos:
+  - repo: local
+    hooks:
+      - id: migration-validation
+        name: Validate Database Migrations
+        entry: python backend/scripts/validate_migrations.py
+        language: python
+        files: ^backend/migrations/versions/.*\.py$
+        pass_filenames: false
+        
+      - id: migration-naming
+        name: Check Migration Naming Convention
+        entry: python backend/scripts/check_migration_naming.py
+        language: python
+        files: ^backend/migrations/versions/.*\.py$
+        
+      - id: migration-syntax
+        name: Check Migration Syntax
+        entry: python -m py_compile
+        language: python
+        files: ^backend/migrations/versions/.*\.py$
+
+  - repo: https://github.com/psf/black
+    rev: 23.3.0
+    hooks:
+      - id: black
+        files: ^(backend/|scripts/).*\.py$
+
+  - repo: https://github.com/pycqa/flake8
+    rev: 6.0.0
+    hooks:
+      - id: flake8
+        files: ^(backend/|scripts/).*\.py$

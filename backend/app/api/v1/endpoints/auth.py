@@ -119,7 +119,7 @@ async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
             password=hashed_password,
             username=user_data.username,
             # New users should start on the latest schema version
-            version="0.2.0",
+            version="0.4.1",
         )
         await user.save(db)
 

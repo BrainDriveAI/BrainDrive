@@ -1,5 +1,2 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-/* Plugin-specific styles can be added below */
+/* Plugin-specific styles */
+/* TailwindCSS directives removed - not being used */

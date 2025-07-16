@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Boolean, ForeignKey, Text, JSON, UniqueConstraint
+from sqlalchemy import Column, String, Integer, Boolean, ForeignKey, Text, JSON, UniqueConstraint, TIMESTAMP
 import sqlalchemy
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -30,6 +30,16 @@ class Plugin(Base):
     is_local = Column(Boolean, default=False)
     long_description = Column(Text)
     
+    # Update tracking fields
+    source_type = Column(String(50), nullable=True)  # github, gitlab, npm, custom, local
+    source_url = Column(Text, nullable=True)  # Original repository/source URL
+    update_check_url = Column(Text, nullable=True)  # Specific API endpoint for checking updates
+    last_update_check = Column(TIMESTAMP, nullable=True)  # When we last checked for updates
+    update_available = Column(Boolean, default=False)  # Cached flag indicating if update is available
+    latest_version = Column(String(50), nullable=True)  # Latest available version (cached)
+    installation_type = Column(String(20), default='local')  # Installation type: local or remote
+    permissions = Column(Text, nullable=True)  # JSON array of required permissions
+
     # JSON fields
     config_fields = Column(Text)  # Stored as JSON string
     messages = Column(Text)       # Stored as JSON string
@@ -77,6 +87,14 @@ class Plugin(Base):
             "islocal": self.is_local,
             "longDescription": self.long_description,
             "userId": self.user_id,
+            # Update tracking fields
+            "sourceType": self.source_type,
+            "sourceUrl": self.source_url,
+            "updateCheckUrl": self.update_check_url,
+            "lastUpdateCheck": self.last_update_check.isoformat() if self.last_update_check else None,
+            "updateAvailable": self.update_available,
+            "latestVersion": self.latest_version,
+            "installationType": self.installation_type,
         }
         
         # Deserialize JSON fields
@@ -95,6 +113,11 @@ class Plugin(Base):
         else:
             result["dependencies"] = []
             
+        if self.permissions:
+            result["permissions"] = json.loads(self.permissions)
+        else:
+            result["permissions"] = []
+
         return result
     
     @classmethod
@@ -112,6 +135,13 @@ class Plugin(Base):
             "configFields": "config_fields",
             "userId": "user_id",
             "pluginSlug": "plugin_slug",
+            "sourceType": "source_type",
+            "sourceUrl": "source_url",
+            "updateCheckUrl": "update_check_url",
+            "lastUpdateCheck": "last_update_check",
+            "updateAvailable": "update_available",
+            "latestVersion": "latest_version",
+            "installationType": "installation_type",
         }
         
         # Create a new dictionary with snake_case keys
@@ -124,7 +154,7 @@ class Plugin(Base):
                 db_key = ''.join(['_' + c.lower() if c.isupper() else c for c in key]).lstrip('_')
             
             # Handle special fields
-            if db_key in ["config_fields", "messages", "dependencies"] and value is not None:
+            if db_key in ["config_fields", "messages", "dependencies", "permissions"] and value is not None:
                 db_data[db_key] = json.dumps(value)
             else:
                 db_data[db_key] = value

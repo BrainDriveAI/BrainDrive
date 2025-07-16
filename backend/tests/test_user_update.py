@@ -24,8 +24,8 @@ async def test_login_updates_version(client: TestClient, db: AsyncSession):
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["user"]["version"] == "0.2.0"
+    assert data["user"]["version"] == "0.4.1"
 
     updated_user = await User.get_by_email(db, "update@example.com")
-    assert updated_user.version == "0.2.0"
+    assert updated_user.version == "0.4.1"
 
