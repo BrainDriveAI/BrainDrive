@@ -69,6 +69,89 @@ export interface RequiredServices {
   [serviceName: string]: ServiceRequirement;
 }
 
+// Plugin State Management Types
+export interface PluginStateConfig {
+  pluginId: string;
+  stateStrategy: 'none' | 'session' | 'persistent' | 'custom';
+  preserveKeys?: string[];
+  stateSchema?: {
+    [key: string]: {
+      type: 'string' | 'number' | 'boolean' | 'object' | 'array';
+      required?: boolean;
+      default?: any;
+    };
+  };
+  serialize?: (state: any) => string;
+  deserialize?: (serialized: string) => any;
+  maxStateSize?: number;
+  ttl?: number;
+}
+
+// Enhanced Plugin State Configuration for Phase 3
+export interface EnhancedPluginStateConfig extends PluginStateConfig {
+  // Advanced filtering options
+  excludeKeys?: string[];
+  includePatterns?: RegExp[];
+  excludePatterns?: RegExp[];
+  
+  // State transformation options
+  transformers?: {
+    beforeSave?: (state: any) => any;
+    afterLoad?: (state: any) => any;
+  };
+  
+  // Validation options
+  validation?: {
+    strict?: boolean;
+    allowUnknownKeys?: boolean;
+    customValidators?: Map<string, (value: any) => boolean>;
+  };
+  
+  // Storage optimization
+  compression?: {
+    enabled?: boolean;
+    threshold?: number;
+  };
+  
+  // Lifecycle hooks
+  hooks?: {
+    beforeSave?: (state: any) => Promise<any> | any;
+    afterSave?: (state: any) => Promise<void> | void;
+    beforeLoad?: () => Promise<void> | void;
+    afterLoad?: (state: any) => Promise<any> | any;
+    onError?: (error: Error, operation: 'save' | 'load' | 'clear') => void;
+  };
+  
+  // Performance options
+  performance?: {
+    debounceMs?: number;
+    maxRetries?: number;
+    timeout?: number;
+  };
+}
+
+// Plugin State Service Interface for plugins
+export interface PluginStateServiceInterface {
+  configure(config: PluginStateConfig | EnhancedPluginStateConfig): void;
+  getConfiguration(): PluginStateConfig | EnhancedPluginStateConfig | null;
+  saveState(state: any): Promise<void>;
+  getState(): Promise<any>;
+  clearState(): Promise<void>;
+  validateState(state: any): boolean;
+  sanitizeState(state: any): any;
+  onSave(callback: (state: any) => void): () => void;
+  onRestore(callback: (state: any) => void): () => void;
+  onClear(callback: () => void): () => void;
+}
+
+// Plugin State Factory Interface for plugins
+export interface PluginStateFactoryInterface {
+  createPluginStateService(pluginId: string): PluginStateServiceInterface;
+  getPluginStateService(pluginId: string): PluginStateServiceInterface | null;
+  destroyPluginStateService(pluginId: string): Promise<void>;
+  listActivePlugins(): string[];
+}
+
 export interface DynamicModuleConfig {
   id: string;
   name: string;
@@ -95,6 +178,7 @@ export interface DynamicModuleConfig {
   type?: 'frontend' | 'backend';
   requiredServices?: RequiredServices;
   enabled?: boolean;
+  stateConfig?: Omit<PluginStateConfig | EnhancedPluginStateConfig, 'pluginId'>; // Plugin state configuration
 }
 
 export interface DynamicPluginConfig {

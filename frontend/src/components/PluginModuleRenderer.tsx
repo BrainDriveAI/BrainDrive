@@ -53,8 +53,32 @@ export const PluginModuleRenderer: React.FC<PluginModuleRendererProps> = ({
     if (!serviceContext) {
       throw new Error('Service context not available');
     }
+    
+    // Special handling for pluginState service - create plugin-specific instance
+    if (name === 'pluginState' && pluginId) {
+      try {
+        const pluginStateFactory = serviceContext.getService('pluginStateFactory') as any;
+        
+        if (!pluginStateFactory) {
+          console.error(`[PluginModuleRenderer] pluginStateFactory service is null/undefined`);
+          return null;
+        }
+        
+        // Try to get existing service first, create if it doesn't exist
+        let pluginStateService = pluginStateFactory.getPluginStateService(pluginId);
+        if (!pluginStateService) {
+          pluginStateService = pluginStateFactory.createPluginStateService(pluginId);
+        }
+        
+        return pluginStateService;
+      } catch (error) {
+        console.error(`[PluginModuleRenderer] Failed to get plugin state service for ${pluginId}:`, error);
+        return null;
+      }
+    }
+    
     return serviceContext.getService(name);
-  }, [serviceContext]);
+  }, [serviceContext, pluginId]);
   
   // Extract state persistence props
   const { initialState, onStateChange, savedState, moduleUniqueId, stateTimestamp } = moduleProps;

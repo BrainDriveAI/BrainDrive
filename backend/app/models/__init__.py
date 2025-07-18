@@ -10,6 +10,7 @@ from app.models.conversation import Conversation
 from app.models.tag import Tag
 from app.models.component import Component
 from app.models.plugin import Plugin
+from app.models.plugin_state import PluginState, PluginStateHistory, PluginStateConfig
 from app.models.persona import Persona
 from app.models.settings import SettingDefinition, SettingInstance
 from app.models.message import Message
