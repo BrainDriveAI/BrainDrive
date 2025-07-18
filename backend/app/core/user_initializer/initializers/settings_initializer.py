@@ -36,7 +36,7 @@ class SettingsInitializer(UserInitializerBase):
             "description": "Auto-generated definition for Theme Settings",
             "category": "auto_generated",
             "type": "object",
-            "default_value": '{"theme": "light", "useSystemTheme": false}',
+            "default_value": '{"theme": "dark", "useSystemTheme": false}',
             "allowed_scopes": '["system", "user", "page", "user_page"]',
             "validation": None,
             "is_multiple": False,
@@ -73,7 +73,7 @@ class SettingsInitializer(UserInitializerBase):
         {
             "definition_id": "theme_settings",
             "name": "Theme Settings",
-            "value": '{"theme": "light", "useSystemTheme": false}',
+            "value": '{"theme": "dark", "useSystemTheme": false}',
             "scope": "user",
             "page_id": None
         },
