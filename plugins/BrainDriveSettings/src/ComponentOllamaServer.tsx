@@ -1,6 +1,7 @@
 import React from 'react';
 import './ComponentOllamaServer.css';
-import { GearIcon, TagIcon, LinkIcon, KeyIcon, LightningIcon, UpdateIcon, TrashIcon, CloseIcon, PlusIcon } from './icons';
+import { GearIcon, TagIcon, LinkIcon, KeyIcon, LightningIcon, UpdateIcon, TrashIcon, CloseIcon, PlusIcon, SearchIcon, SortIcon, FilterIcon } from './icons';
+import CustomDropdown from './CustomDropdown';
 
 interface ApiResponse {
   data?: any;
@@ -20,6 +21,29 @@ interface ServerConfig {
   serverAddress: string; // URL
   apiKey: string;      // Optional authentication
   connectionStatus: 'idle' | 'checking' | 'success' | 'error';
+}
+
+// New interfaces for model management
+interface ModelInfo {
+  name: string;
+  tag: string;
+  size: number;
+  digest: string;
+  modified_at: string;
+  details?: ModelDetails;
+}
+
+interface ModelDetails {
+  format: string;
+  family: string;
+  families?: string[];
+  parameter_size: string;
+  quantization_level: string;
+  template?: string;
+  system?: string;
+  license?: string;
+  modelfile?: string;
+  parameters?: string;
 }
 
 interface OllamaServerComponentProps {
@@ -46,6 +70,17 @@ interface OllamaServerComponentState {
   activeServerId: string | null; // Currently selected server for editing
   isAddingNew: boolean;          // Flag to indicate adding a new server
   existingSettingId: string | null; // ID of the existing settings instance
+  
+  // New state for tabbed interface and model management
+  activeTab: 'servers' | 'models';
+  models: ModelInfo[];
+  modelsLoading: boolean;
+  modelsError: string;
+  sortBy: 'name' | 'size' | 'modified' | 'family' | 'parameters' | 'quantization';
+  sortOrder: 'asc' | 'desc';
+  selectedModelId: string | null;
+  selectedModel: ModelInfo | null;
+  expandedModelId: string | null;
 }
 
 class ComponentOllamaServer extends React.Component<OllamaServerComponentProps, OllamaServerComponentState> {
@@ -61,7 +96,18 @@ class ComponentOllamaServer extends React.Component<OllamaServerComponentProps, 
       currentTheme: 'light', // Default theme
       activeServerId: null,
       isAddingNew: false,
-      existingSettingId: null
+      existingSettingId: null,
+      
+      // New state initialization
+      activeTab: 'servers',
+      models: [],
+      modelsLoading: false,
+      modelsError: '',
+      sortBy: 'name',
+      sortOrder: 'asc',
+      selectedModelId: null,
+      selectedModel: null,
+      expandedModelId: null
     };
   }
 
@@ -414,6 +460,344 @@ class ComponentOllamaServer extends React.Component<OllamaServerComponentProps, 
     });
   };
 
+  // Model Management Methods
+  setActiveTab = (tab: 'servers' | 'models') => {
+    this.setState({ activeTab: tab }, () => {
+      // Auto-refresh models when switching to models tab
+      if (tab === 'models' && this.state.activeServerId) {
+        this.loadModels(this.state.activeServerId);
+      }
+    });
+  };
+
+  loadModels = async (serverId: string) => {
+    const server = this.state.servers.find(s => s.id === serverId);
+    if (!server) {
+      this.setState({ modelsError: 'Server not found' });
+      return;
+    }
+
+    this.setState({ modelsLoading: true, modelsError: '' });
+
+    if (!this.props.services?.api) {
+      this.setState({ 
+        modelsLoading: false, 
+        modelsError: 'API service not available' 
+      });
+      return;
+    }
+
+    try {
+      const encodedUrl = encodeURIComponent(server.serverAddress);
+      const params: Record<string, string> = { server_url: encodedUrl };
+      
+      if (server.apiKey) {
+        params.api_key = server.apiKey;
+      }
+      
+      const response = await this.props.services.api.get('/api/v1/ollama/models', { params });
+      
+      if (response && Array.isArray(response)) {
+        this.setState({
+          models: response,
+          modelsLoading: false,
+          modelsError: ''
+        });
+      } else {
+        this.setState({
+          models: [],
+          modelsLoading: false,
+          modelsError: 'Invalid response format from server'
+        });
+      }
+    } catch (error: any) {
+      this.setState({
+        models: [],
+        modelsLoading: false,
+        modelsError: `Error loading models: ${error.message || 'Unknown error'}`
+      });
+    }
+  };
+
+  handleSortChange = (sortBy: 'name' | 'size' | 'modified' | 'family' | 'parameters' | 'quantization') => {
+    this.setState(prevState => ({
+      sortBy,
+      sortOrder: prevState.sortBy === sortBy && prevState.sortOrder === 'asc' ? 'desc' : 'asc'
+    }));
+  };
+
+  getSortedModels = () => {
+    const { models, sortBy, sortOrder } = this.state;
+    
+    // Sort models
+    const sortedModels = [...models].sort((a, b) => {
+      let aValue: string | number;
+      let bValue: string | number;
+      
+      switch (sortBy) {
+        case 'name':
+          aValue = (a.name || '').toLowerCase();
+          bValue = (b.name || '').toLowerCase();
+          break;
+        case 'size':
+          aValue = a.size || 0;
+          bValue = b.size || 0;
+          break;
+        case 'modified':
+          aValue = new Date(a.modified_at || 0).getTime();
+          bValue = new Date(b.modified_at || 0).getTime();
+          break;
+        case 'family':
+          aValue = (a.details?.family || '').toLowerCase();
+          bValue = (b.details?.family || '').toLowerCase();
+          break;
+        case 'parameters':
+          aValue = (a.details?.parameter_size || '').toLowerCase();
+          bValue = (b.details?.parameter_size || '').toLowerCase();
+          break;
+        case 'quantization':
+          aValue = (a.details?.quantization_level || '').toLowerCase();
+          bValue = (b.details?.quantization_level || '').toLowerCase();
+          break;
+        default:
+          aValue = (a.name || '').toLowerCase();
+          bValue = (b.name || '').toLowerCase();
+      }
+      
+      if (sortOrder === 'asc') {
+        return aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
+      } else {
+        return aValue > bValue ? -1 : aValue < bValue ? 1 : 0;
+      }
+    });
+    
+    return sortedModels;
+  };
+
+  formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  formatDate = (dateString: string): string => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+  };
+
+  handleModelSelection = (modelId: string) => {
+    const selectedModel = this.state.models.find(model => 
+      `${model.name}-${model.tag}` === modelId
+    );
+    
+    this.setState({
+      selectedModelId: modelId,
+      selectedModel: selectedModel || null,
+      expandedModelId: null // Clear expansion when selecting from dropdown
+    });
+  };
+
+  handleModelRowClick = (modelId: string) => {
+    this.setState(prevState => ({
+      expandedModelId: prevState.expandedModelId === modelId ? null : modelId
+    }));
+  };
+
+  handleModelAction = (action: 'copy' | 'delete', modelId: string) => {
+    const model = this.state.models.find(m => `${m.name}-${m.tag}` === modelId);
+    if (!model) return;
+
+    switch (action) {
+      case 'copy':
+        // TODO: Implement model copying
+        console.log('Copy model:', model.name);
+        break;
+      case 'delete':
+        if (window.confirm(`Are you sure you want to delete "${model.name}"?`)) {
+          // TODO: Implement model deletion
+          console.log('Delete model:', model.name);
+        }
+        break;
+    }
+  };
+
+  getDropdownOptions = () => {
+    const sortedModels = this.getSortedModels();
+    
+    // Convert to dropdown options with size and parameters as secondary text
+    return sortedModels.map(model => ({
+      id: `${model.name}-${model.tag}`,
+      primaryText: model.name,
+      secondaryText: `${this.formatFileSize(model.size)}${model.details?.parameter_size ? ` • ${model.details.parameter_size}` : ''}`
+    }));
+  };
+
+  renderModelsTable = () => {
+    const { selectedModelId, expandedModelId } = this.state;
+    const sortedModels = this.getSortedModels();
+    
+    // Filter to selected model if one is selected
+    const displayModels = selectedModelId 
+      ? sortedModels.filter(model => `${model.name}-${model.tag}` === selectedModelId)
+      : sortedModels;
+
+    if (displayModels.length === 0) {
+      return (
+        <div className="models-table-empty">
+          <p>No models found on this server</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="models-table-container">
+        <table className="models-table">
+          <thead>
+            <tr>
+              <th 
+                className={`sortable-header ${this.state.sortBy === 'name' ? 'active' : ''}`}
+                onClick={() => this.handleSortChange('name')}
+              >
+                Name
+                {this.state.sortBy === 'name' && (
+                  <span className="sort-indicator">
+                    {this.state.sortOrder === 'asc' ? '↑' : '↓'}
+                  </span>
+                )}
+              </th>
+              <th 
+                className={`sortable-header ${this.state.sortBy === 'size' ? 'active' : ''}`}
+                onClick={() => this.handleSortChange('size')}
+              >
+                Size
+                {this.state.sortBy === 'size' && (
+                  <span className="sort-indicator">
+                    {this.state.sortOrder === 'asc' ? '↑' : '↓'}
+                  </span>
+                )}
+              </th>
+              <th 
+                className={`sortable-header ${this.state.sortBy === 'modified' ? 'active' : ''}`}
+                onClick={() => this.handleSortChange('modified')}
+              >
+                Modified
+                {this.state.sortBy === 'modified' && (
+                  <span className="sort-indicator">
+                    {this.state.sortOrder === 'asc' ? '↑' : '↓'}
+                  </span>
+                )}
+              </th>
+              <th 
+                className={`sortable-header ${this.state.sortBy === 'family' ? 'active' : ''}`}
+                onClick={() => this.handleSortChange('family')}
+              >
+                Family
+                {this.state.sortBy === 'family' && (
+                  <span className="sort-indicator">
+                    {this.state.sortOrder === 'asc' ? '↑' : '↓'}
+                  </span>
+                )}
+              </th>
+              <th 
+                className={`sortable-header ${this.state.sortBy === 'parameters' ? 'active' : ''}`}
+                onClick={() => this.handleSortChange('parameters')}
+              >
+                Parameters
+                {this.state.sortBy === 'parameters' && (
+                  <span className="sort-indicator">
+                    {this.state.sortOrder === 'asc' ? '↑' : '↓'}
+                  </span>
+                )}
+              </th>
+              <th 
+                className={`sortable-header ${this.state.sortBy === 'quantization' ? 'active' : ''}`}
+                onClick={() => this.handleSortChange('quantization')}
+              >
+                Quantization
+                {this.state.sortBy === 'quantization' && (
+                  <span className="sort-indicator">
+                    {this.state.sortOrder === 'asc' ? '↑' : '↓'}
+                  </span>
+                )}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {displayModels.map((model) => {
+              const modelId = `${model.name}-${model.tag}`;
+              const isExpanded = expandedModelId === modelId;
+              
+              return (
+                <React.Fragment key={modelId}>
+                  <tr 
+                    className={`model-row ${isExpanded ? 'expanded' : ''}`}
+                    onClick={() => this.handleModelRowClick(modelId)}
+                  >
+                    <td className="model-name-cell">
+                      <div className="model-name-content">
+                        <span className="model-name">{model.name}</span>
+                        <span className="model-tag">{model.tag}</span>
+                      </div>
+                    </td>
+                    <td>{this.formatFileSize(model.size)}</td>
+                    <td>{this.formatDate(model.modified_at)}</td>
+                    <td>{model.details?.family || '-'}</td>
+                    <td>{model.details?.parameter_size || '-'}</td>
+                    <td>{model.details?.quantization_level || '-'}</td>
+                  </tr>
+                  {isExpanded && (
+                    <tr className="model-actions-row">
+                      <td colSpan={6}>
+                        <div className="model-actions">
+                          <div className="model-actions-info">
+                            <div className="action-info-item">
+                              <span className="label">License:</span>
+                              <span className="value">{model.details?.license || 'Not specified'}</span>
+                            </div>
+                            {model.details?.template && (
+                              <div className="action-info-item">
+                                <span className="label">Template:</span>
+                                <span className="value template-preview">{model.details.template.substring(0, 100)}...</span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="model-actions-buttons">
+                            <button
+                              className="button button-secondary"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                this.handleModelAction('copy', modelId);
+                              }}
+                            >
+                              <TagIcon />
+                              <span>Copy Model</span>
+                            </button>
+                            <button
+                              className="button button-danger"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                this.handleModelAction('delete', modelId);
+                              }}
+                            >
+                              <TrashIcon />
+                              <span>Delete Model</span>
+                            </button>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
   renderServerList() {
     const { servers, activeServerId } = this.state;
     
@@ -630,6 +1014,144 @@ class ComponentOllamaServer extends React.Component<OllamaServerComponentProps, 
     );
   }
 
+  renderModelManagement() {
+    const { servers, activeServerId, models, modelsLoading, modelsError, selectedModelId } = this.state;
+    
+    if (!activeServerId) {
+      return (
+        <div className="model-management">
+          <div className="model-management-placeholder">
+            <div className="placeholder-content">
+              <div style={{ marginBottom: '16px' }}>
+                <TagIcon />
+              </div>
+              <p>Select a server to view and manage its models</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const server = servers.find(s => s.id === activeServerId);
+    if (!server) return null;
+
+    const dropdownOptions = this.getDropdownOptions();
+
+    return (
+      <div className="model-management">
+        <div className="model-management-header">
+          <h3>{server.serverName}</h3>
+        </div>
+
+        {modelsError && (
+          <div className="form-section">
+            <div className="status-indicator status-error">
+              {modelsError}
+            </div>
+          </div>
+        )}
+
+        <div className="model-selection-section">
+          <div className="model-controls">
+            <div className="model-dropdown-container">
+              <label className="input-label">
+                {selectedModelId ? 'Selected Model' : 'Filter Models'}
+              </label>
+              <CustomDropdown
+                options={dropdownOptions}
+                selectedId={selectedModelId || ''}
+                onChange={this.handleModelSelection}
+                placeholder="Select a model"
+                disabled={modelsLoading || models.length === 0}
+                ariaLabel="Select Ollama model"
+              />
+            </div>
+            <div className="model-controls-buttons">
+              {selectedModelId && (
+                <button
+                  className="button button-secondary"
+                  onClick={() => this.setState({ selectedModelId: null, expandedModelId: null })}
+                >
+                  <CloseIcon />
+                  <span>Clear Filter</span>
+                </button>
+              )}
+              <button
+                className="button button-secondary"
+                onClick={() => this.loadModels(server.id)}
+                disabled={modelsLoading}
+              >
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <div style={{ marginRight: '8px' }}>
+                    <UpdateIcon />
+                  </div>
+                  <span>{modelsLoading ? 'Loading...' : 'Refresh Models'}</span>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="models-table-section">
+          {modelsLoading ? (
+            <div className="loading-spinner">
+              <div className="spinner" />
+              <span>Loading models...</span>
+            </div>
+          ) : (
+            this.renderModelsTable()
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  renderTabs() {
+    const { activeTab } = this.state;
+    
+    return (
+      <div className="tabs-container">
+        <div className="tabs-header">
+          <button
+            className={`tab-button ${activeTab === 'servers' ? 'active' : ''}`}
+            onClick={() => this.setActiveTab('servers')}
+          >
+            <GearIcon />
+            <span>Server Settings</span>
+          </button>
+          <button
+            className={`tab-button ${activeTab === 'models' ? 'active' : ''}`}
+            onClick={() => this.setActiveTab('models')}
+          >
+            <TagIcon />
+            <span>Model Management</span>
+          </button>
+        </div>
+        
+        <div className="tab-content">
+          {activeTab === 'servers' && (
+            <div className="server-management">
+              {this.renderServerList()}
+              {this.state.activeServerId && this.renderServerDetail()}
+              {!this.state.activeServerId && (
+                <div className="server-detail-placeholder">
+                  <div className="placeholder-content">
+                    <div style={{ marginBottom: '16px' }}>
+                      <GearIcon />
+                    </div>
+                    <p>Select a server to edit or add a new server</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          
+          {activeTab === 'models' && this.renderModelManagement()}
+        </div>
+      </div>
+    );
+  }
+
   render() {
     const { isLoading } = this.state;
     const themeClass = this.state.currentTheme === 'dark' ? 'dark-theme' : '';
@@ -651,18 +1173,7 @@ class ComponentOllamaServer extends React.Component<OllamaServerComponentProps, 
       <div className={`ollama-container ${themeClass}`}>
         <div className="ollama-paper">
           <div className="ollama-server-layout">
-            {this.renderServerList()}
-            {this.state.activeServerId && this.renderServerDetail()}
-            {!this.state.activeServerId && (
-              <div className="server-detail-placeholder">
-                <div className="placeholder-content">
-                  <div style={{ marginBottom: '16px' }}>
-                    <GearIcon />
-                  </div>
-                  <p>Select a server to edit or add a new server</p>
-                </div>
-              </div>
-            )}
+            {this.renderTabs()}
           </div>
         </div>
       </div>
