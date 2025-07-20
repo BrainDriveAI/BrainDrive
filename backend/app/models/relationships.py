@@ -14,6 +14,7 @@ from app.models.navigation import NavigationRoute
 from app.models.conversation import Conversation
 from app.models.tag import Tag
 from app.models.plugin import Plugin, Module
+from app.models.plugin_state import PluginState, PluginStateHistory, PluginStateConfig
 from app.models.component import Component
 from app.models.persona import Persona
 
@@ -26,6 +27,7 @@ User.plugins = relationship("Plugin", back_populates="user", lazy="selectin")
 User.modules = relationship("Module", back_populates="user", lazy="selectin")
 User.components = relationship("Component", back_populates="user", lazy="selectin")
 User.personas = relationship("Persona", back_populates="user", lazy="selectin")
+User.plugin_states = relationship("PluginState", back_populates="user", lazy="selectin")
 
 # Define Page relationships
 Page.creator = relationship("User", back_populates="pages")

@@ -11,6 +11,10 @@ import { UserSettingsInitService } from './services/UserSettingsInitService';
 import { userNavigationInitService } from './services/UserNavigationInitService';
 import { eventService } from './services/EventService';
 import { pageContextService } from './services/PageContextService';
+import { pluginStateFactory } from './services/PluginStateFactory';
+import { databasePersistenceManager } from './services/DatabasePersistenceManager';
+import { stateRestorationManager } from './services/StateRestorationManager';
+import { pluginStateLifecycleManager } from './services/PluginStateLifecycleManager';
 import { useAppTheme } from './hooks/useAppTheme';
 import { config } from './config';
 import { PluginManager } from './components/PluginManager';
@@ -40,6 +44,10 @@ serviceRegistry.registerService(userSettingsInitService);
 serviceRegistry.registerService(userNavigationInitService);
 serviceRegistry.registerService(eventService);
 serviceRegistry.registerService(pageContextService);
+serviceRegistry.registerService(pluginStateFactory);
+serviceRegistry.registerService(databasePersistenceManager);
+serviceRegistry.registerService(stateRestorationManager);
+serviceRegistry.registerService(pluginStateLifecycleManager);
 
 function AppContent() {
   const theme = useAppTheme();
