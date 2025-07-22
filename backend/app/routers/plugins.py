@@ -1112,21 +1112,26 @@ async def serve_plugin_static(
         shared_plugin_dir = PLUGINS_DIR.parent / "backend" / "plugins" / "shared" / plugin.plugin_slug
         possible_paths.append(shared_plugin_dir / path)
 
-    # 3. User-specific directory with plugin_slug
+    # 3. Backend plugins directory (where webpack builds to) - ESSENTIAL FOR BUILD
+    if plugin.plugin_slug:
+        backend_plugin_dir = PLUGINS_DIR.parent / "backend" / "plugins" / plugin.plugin_slug
+        possible_paths.append(backend_plugin_dir / path)
+
+    # 4. User-specific directory with plugin_slug
     if plugin.user_id and plugin.plugin_slug:
         user_plugin_dir = PLUGINS_DIR / plugin.user_id / plugin.plugin_slug
         possible_paths.append(user_plugin_dir / path)
     
-    # 4. User-specific directory with plugin ID
+    # 5. User-specific directory with plugin ID
     if plugin.user_id:
         user_plugin_dir = PLUGINS_DIR / plugin.user_id / plugin.id
         possible_paths.append(user_plugin_dir / path)
     
-    # 5. Legacy path directly under plugins directory with plugin_slug
+    # 6. Legacy path directly under plugins directory with plugin_slug
     if plugin.plugin_slug:
         possible_paths.append(PLUGINS_DIR / plugin.plugin_slug / path)
     
-    # 6. Legacy path directly under plugins directory with plugin ID
+    # 7. Legacy path directly under plugins directory with plugin ID
     possible_paths.append(PLUGINS_DIR / plugin.id / path)
     
     # Try each path

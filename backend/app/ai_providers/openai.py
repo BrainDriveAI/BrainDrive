@@ -18,6 +18,8 @@ class OpenAIProvider(AIProvider):
         self.api_key = config.get("api_key", "")
         self.organization = config.get("organization", None)
         self.base_url = config.get("base_url", None)
+        self.server_name = config.get("server_name", "OpenAI API")
+
         
         # Initialize the OpenAI client
         client_kwargs = {"api_key": self.api_key}
