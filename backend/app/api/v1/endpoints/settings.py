@@ -25,6 +25,30 @@ from sqlalchemy import text, func
 router = APIRouter(prefix="/settings")
 logger = logging.getLogger(__name__)
 
+def mask_sensitive_data(definition_id: str, value: any) -> any:
+    """
+    Mask sensitive data in settings values to prevent exposure to frontend.
+    Currently handles OpenAI API keys.
+    """
+    if not value:
+        return value
+    
+    # Handle OpenAI API keys
+    if definition_id == "openai_api_keys_settings":
+        if isinstance(value, dict) and "api_key" in value:
+            api_key = value["api_key"]
+            if api_key and len(api_key) >= 11:
+                # Mask the API key (first 7 + last 4 characters)
+                masked_key = api_key[:7] + "..." + api_key[-4:]
+                return {
+                    **value,
+                    "api_key": masked_key,
+                    "_has_key": bool(api_key.strip()),
+                    "_key_valid": bool(api_key.startswith('sk-') and len(api_key) >= 23)
+                }
+    
+    return value
+
 async def get_definition_by_id(db, definition_id: str):
     """Helper function to get a setting definition by ID using direct SQL."""
     query = text("""
@@ -1056,11 +1080,14 @@ async def get_setting_instances(
                     logger.error(f"Failed to parse value as JSON for instance {row[0]}: {json_error}")
                     decrypted_value = None
             
+            # Mask sensitive data before sending to frontend
+            masked_value = mask_sensitive_data(row[1], decrypted_value)
+            
             instance = {
                 "id": row[0],
                 "definition_id": row[1],
                 "name": row[2],
-                "value": decrypted_value,
+                "value": masked_value,
                 "scope": row[4],
                 "user_id": row[5],
                 "page_id": row[6],

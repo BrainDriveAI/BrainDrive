@@ -13,7 +13,9 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from app.core.database import get_db
+from app.core.security import get_current_user
 from app.models.settings import SettingDefinition, SettingScope, SettingInstance
+from app.models.user import User
 from app.ai_providers.registry import provider_registry
 from app.ai_providers.ollama import OllamaProvider
 from app.schemas.ai_providers import (
@@ -94,7 +96,7 @@ async def get_provider_instance_from_request(request, db):
         setting = settings[0]
         logger.info(f"Using setting with ID: {setting['id'] if isinstance(setting, dict) else setting.id}")
         
-        # Extract servers from settings value
+        # Extract configuration from settings value
         # Parse the JSON string if value is a string
         setting_value = setting['value'] if isinstance(setting, dict) else setting.value
         
@@ -119,8 +121,6 @@ async def get_provider_instance_from_request(request, db):
                         detail=f"Error parsing settings value: expected dict, got {type(value_dict)}. "
                                f"Please check the format of your settings."
                     )
-                
-                servers = value_dict.get("servers", [])
             except json.JSONDecodeError as e:
                 logger.error(f"Error parsing JSON string: {e}")
                 raise HTTPException(
@@ -130,47 +130,70 @@ async def get_provider_instance_from_request(request, db):
                 )
         else:
             logger.info("Settings value is already a dictionary")
-            servers = setting_value.get("servers", [])
+            value_dict = setting_value
         
-        logger.info(f"Found {len(servers)} servers in settings")
-        
-        # Find the specific server by ID
-        logger.info(f"Looking for server with ID: {request.server_id}")
-        server = next((s for s in servers if s.get("id") == request.server_id), None)
-        if not server and servers:
-            # If the requested server ID is not found but there are servers available,
-            # use the first server as a fallback
-            logger.warning(f"Server with ID {request.server_id} not found, using first available server as fallback")
-            server = servers[0]
-            logger.info(f"Using fallback server: {server.get('serverName')} ({server.get('id')})")
-        
-        if not server:
-            logger.error(f"No server found with ID: {request.server_id} and no fallback available")
-            raise HTTPException(
-                status_code=404,
-                detail=f"Server not found with ID: {request.server_id}. "
-                       f"Please check your server configuration or use a different server ID."
-            )
-        
-        logger.info(f"Found server: {server.get('serverName')}")
-        
-        # Create provider configuration from server details
-        server_url = server.get("serverAddress")
-        if not server_url:
-            logger.error(f"Server URL is missing for server: {server.get('id')}")
-            raise HTTPException(
-                status_code=400,
-                detail=f"Server URL is missing for server: {server.get('id')}. "
-                       f"Please update your server configuration with a valid URL."
-            )
+        # Handle different provider configurations
+        if request.provider == "openai":
+            # OpenAI uses simple api_key structure
+            logger.info("Processing OpenAI provider configuration")
+            api_key = value_dict.get("api_key", "")
+            if not api_key:
+                logger.error("OpenAI API key is missing")
+                raise HTTPException(
+                    status_code=400,
+                    detail="OpenAI API key is required. Please configure your OpenAI API key in settings."
+                )
             
-        config = {
-            "server_url": server_url,
-            "api_key": server.get("apiKey", ""),
-            "server_name": server.get("serverName", "Unknown Server")
-        }
+            # For OpenAI, we create a virtual server configuration
+            config = {
+                "api_key": api_key,
+                "server_url": "https://api.openai.com/v1",  # Default OpenAI API URL
+                "server_name": "OpenAI API"
+            }
+            logger.info(f"Created OpenAI config with API key")
+        else:
+            # Other providers (like Ollama) use servers array
+            logger.info("Processing server-based provider configuration")
+            servers = value_dict.get("servers", [])
+            logger.info(f"Found {len(servers)} servers in settings")
+            
+            # Find the specific server by ID
+            logger.info(f"Looking for server with ID: {request.server_id}")
+            server = next((s for s in servers if s.get("id") == request.server_id), None)
+            if not server and servers:
+                # If the requested server ID is not found but there are servers available,
+                # use the first server as a fallback
+                logger.warning(f"Server with ID {request.server_id} not found, using first available server as fallback")
+                server = servers[0]
+                logger.info(f"Using fallback server: {server.get('serverName')} ({server.get('id')})")
+            
+            if not server:
+                logger.error(f"No server found with ID: {request.server_id} and no fallback available")
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Server not found with ID: {request.server_id}. "
+                           f"Please check your server configuration or use a different server ID."
+                )
+            
+            logger.info(f"Found server: {server.get('serverName')}")
+            
+            # Create provider configuration from server details
+            server_url = server.get("serverAddress")
+            if not server_url:
+                logger.error(f"Server URL is missing for server: {server.get('id')}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Server URL is missing for server: {server.get('id')}. "
+                           f"Please update your server configuration with a valid URL."
+                )
+                
+            config = {
+                "server_url": server_url,
+                "api_key": server.get("apiKey", ""),
+                "server_name": server.get("serverName", "Unknown Server")
+            }
         
-        logger.info(f"Created config with server_url: {config['server_url']}")
+        logger.info(f"Created config with server_url: {config.get('server_url', 'N/A')}")
         
         # Get provider instance
         logger.info(f"Getting provider instance for: {request.provider}, {request.server_id}")
@@ -228,13 +251,19 @@ async def get_models(
     settings_id: str = Query(..., description="Settings ID"),
     server_id: str = Query(..., description="Server ID"),
     user_id: Optional[str] = Query("current", description="User ID"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user)
 ):
     """Get available models from a provider."""
     try:
+        # Resolve user_id from authentication if "current" is specified
+        if user_id == "current":
+            if not current_user:
+                raise HTTPException(status_code=401, detail="Authentication required")
+            user_id = str(current_user.id)
+        
         # Normalize user_id by removing hyphens if present
-        if user_id != "current":
-            user_id = user_id.replace("-", "")
+        user_id = user_id.replace("-", "")
             
         print(f"Getting models for: provider={provider}, settings_id={settings_id}, server_id={server_id}, user_id={user_id}")
         
@@ -254,7 +283,7 @@ async def get_models(
         # Use the first setting found
         setting = settings[0]
         
-        # Extract servers from settings value
+        # Extract configuration from settings value
         # Parse the JSON string if value is a string
         setting_value = setting['value'] if isinstance(setting, dict) else setting.value
         
@@ -274,36 +303,50 @@ async def get_models(
                 if not isinstance(value_dict, dict):
                     print(f"Error: value_dict is not a dictionary: {type(value_dict)}")
                     raise HTTPException(status_code=500, detail=f"Error parsing settings value: expected dict, got {type(value_dict)}")
-                
-                servers = value_dict.get("servers", [])
             except json.JSONDecodeError as e:
                 print(f"Error parsing JSON string: {e}")
                 raise HTTPException(status_code=500, detail=f"Error parsing settings value: {str(e)}")
         else:
-            servers = setting_value.get("servers", [])
+            value_dict = setting_value
         
-        print(f"Found {len(servers)} servers in settings")
-        
-        # Find the specific server by ID
-        server = next((s for s in servers if s.get("id") == server_id), None)
-        if not server and servers:
-            # If the requested server ID is not found but there are servers available,
-            # use the first server as a fallback
-            print(f"Server with ID {server_id} not found, using first available server as fallback")
-            server = servers[0]
-            print(f"Using fallback server: {server.get('serverName')} ({server.get('id')})")
-        
-        if not server:
-            raise HTTPException(status_code=404, detail=f"Server not found with ID: {server_id}")
-        
-        print(f"Found server: {server.get('serverName')}")
-        
-        # Create provider configuration from server details
-        config = {
-            "server_url": server.get("serverAddress"),
-            "api_key": server.get("apiKey", ""),
-            "server_name": server.get("serverName")
-        }
+        # Handle different provider configurations
+        if provider == "openai":
+            # OpenAI uses simple api_key structure
+            api_key = value_dict.get("api_key", "")
+            if not api_key:
+                raise HTTPException(status_code=400, detail="OpenAI API key is required")
+            
+            config = {
+                "api_key": api_key,
+                "server_url": "https://api.openai.com/v1",  # Default OpenAI API URL
+                "server_name": "OpenAI API"
+            }
+            print(f"Created OpenAI config with API key")
+        else:
+            # Other providers (like Ollama) use servers array
+            servers = value_dict.get("servers", [])
+            print(f"Found {len(servers)} servers in settings")
+            
+            # Find the specific server by ID
+            server = next((s for s in servers if s.get("id") == server_id), None)
+            if not server and servers:
+                # If the requested server ID is not found but there are servers available,
+                # use the first server as a fallback
+                print(f"Server with ID {server_id} not found, using first available server as fallback")
+                server = servers[0]
+                print(f"Using fallback server: {server.get('serverName')} ({server.get('id')})")
+            
+            if not server:
+                raise HTTPException(status_code=404, detail=f"Server not found with ID: {server_id}")
+            
+            print(f"Found server: {server.get('serverName')}")
+            
+            # Create provider configuration from server details
+            config = {
+                "server_url": server.get("serverAddress"),
+                "api_key": server.get("apiKey", ""),
+                "server_name": server.get("serverName")
+            }
         
         print(f"Created config with server_url: {config['server_url']}")
         
