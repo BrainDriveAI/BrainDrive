@@ -219,5 +219,11 @@ Template/
 unused-report.txt
 unused-report.md
 
+# Data and model files
+kaggle/
+*.gguf
+*.gguf*
+data/
+
 # Rule files
 .roorules
