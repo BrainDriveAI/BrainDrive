@@ -38,7 +38,19 @@ export class ServiceBridgeManager {
     const timestamp = Date.now();
     
     try {
-      const service = getService(serviceName);
+      let service;
+      
+      // Special handling for pluginState service - check if pluginStateFactory is available
+      if (serviceName === 'pluginState') {
+        try {
+          const pluginStateFactory = getService('pluginStateFactory');
+          service = pluginStateFactory; // If factory exists, pluginState is available
+        } catch (error) {
+          service = null;
+        }
+      } else {
+        service = getService(serviceName);
+      }
       
       if (!service) {
         const check: ServiceAvailabilityCheck = {

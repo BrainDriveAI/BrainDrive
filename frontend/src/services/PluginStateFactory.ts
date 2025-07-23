@@ -59,7 +59,7 @@ class PluginStateFactoryImpl extends AbstractBaseService implements PluginStateF
     const service = createPluginStateService(pluginId);
     this.activeServices.set(pluginId, service);
     
-    // Initialize the service
+    // Initialize the service asynchronously but don't wait
     service.initialize().catch(error => {
       console.error(`[PluginStateFactory] Error initializing plugin state service for ${pluginId}:`, error);
     });

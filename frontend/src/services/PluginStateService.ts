@@ -73,6 +73,30 @@ class PluginStateServiceImpl extends AbstractBaseService implements PluginStateS
     console.log(`[PluginStateService] Initialized for plugin ${this.getPluginId()}`);
   }
 
+  /**
+   * Ensure the service is initialized before use
+   * This method waits for PageContextService to be available
+   */
+  private async ensureInitialized(): Promise<void> {
+    if (this.pageContextService) {
+      return; // Already initialized
+    }
+
+    // Wait for initialization with timeout
+    const maxWaitTime = 5000; // 5 seconds
+    const checkInterval = 100; // 100ms
+    let waitTime = 0;
+
+    while (!this.pageContextService && waitTime < maxWaitTime) {
+      await new Promise(resolve => setTimeout(resolve, checkInterval));
+      waitTime += checkInterval;
+    }
+
+    if (!this.pageContextService) {
+      throw new Error('PageContextService initialization timeout - service not available after 5 seconds');
+    }
+  }
+
   async destroy(): Promise<void> {
     // Clean up enhanced configuration manager
     if (this.config) {
@@ -112,9 +136,8 @@ class PluginStateServiceImpl extends AbstractBaseService implements PluginStateS
       throw new Error('Plugin state service not configured. Call configure() first.');
     }
 
-    if (!this.pageContextService) {
-      throw new Error('PageContextService not available');
-    }
+    // Wait for PageContextService to be available
+    await this.ensureInitialized();
 
     try {
       // Validate state before saving
@@ -165,9 +188,8 @@ class PluginStateServiceImpl extends AbstractBaseService implements PluginStateS
       throw new Error('Plugin state service not configured. Call configure() first.');
     }
 
-    if (!this.pageContextService) {
-      throw new Error('PageContextService not available');
-    }
+    // Wait for PageContextService to be available
+    await this.ensureInitialized();
 
     try {
       const state = await this.pageContextService.getPluginState(this.config.pluginId);
@@ -196,9 +218,8 @@ class PluginStateServiceImpl extends AbstractBaseService implements PluginStateS
       throw new Error('Plugin state service not configured. Call configure() first.');
     }
 
-    if (!this.pageContextService) {
-      throw new Error('PageContextService not available');
-    }
+    // Wait for PageContextService to be available
+    await this.ensureInitialized();
 
     try {
       await this.pageContextService.clearPluginState(this.config.pluginId);
