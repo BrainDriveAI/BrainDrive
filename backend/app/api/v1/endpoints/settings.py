@@ -9,6 +9,9 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.settings import SettingDefinition, SettingInstance, SettingScope
 from app.models.user import User
+from app.models.page import Page
+# Import all models to ensure they're registered with SQLAlchemy
+from app.models import *
 from app.schemas.settings import (
     SettingDefinitionCreate,
     SettingDefinitionUpdate,
@@ -707,6 +710,11 @@ async def create_setting_instance(
                     detail=f"Error updating instance: {str(e)}"
                 )
         
+        # Handle special case for 'current' user_id BEFORE duplicate check
+        if instance_data.user_id == 'current' and current_user:
+            logger.info(f"Resolving 'current' user_id to actual user ID: {current_user.id}")
+            instance_data.user_id = str(current_user.id)
+        
         # Ensure user context is set correctly
         if instance_data.scope == SettingScope.USER or instance_data.scope == SettingScope.USER_PAGE:
             if not instance_data.user_id and current_user:
@@ -871,9 +879,11 @@ async def create_setting_instance(
                 user_id_value = str(current_user.id)
             
             # Convert value to JSON string if it's not already
-            value_json = instance_data.value
-            if not isinstance(value_json, str):
-                value_json = json.dumps(value_json)
+            value_data = instance_data.value
+            if not isinstance(value_data, str):
+                value_json = json.dumps(value_data)
+            else:
+                value_json = value_data
             
             # Convert scope to string if it's an enum
             scope_value = instance_data.scope
@@ -901,34 +911,50 @@ async def create_setting_instance(
             else:
                 scope_enum = scope_value
             
-            # Create new instance using SQLAlchemy model
-            new_instance = SettingInstance(
-                id=instance_id,
-                definition_id=instance_data.definition_id,
-                name=instance_data.name,
-                value=instance_data.value,  # This will be automatically encrypted
-                scope=scope_enum,
-                user_id=user_id_value,
-                page_id=instance_data.page_id
-            )
+            # Use raw SQL to bypass SQLAlchemy foreign key resolution issues
+            from datetime import datetime
             
-            # Add and commit the instance
-            db.add(new_instance)
+            # Prepare the values for raw SQL insertion
+            now = datetime.utcnow()
+            # Use the already converted value_json from above
+            scope_str = scope_enum.value if hasattr(scope_enum, 'value') else str(scope_enum)
+            
+            # Insert using raw SQL
+            insert_query = text("""
+                INSERT INTO settings_instances
+                (id, definition_id, name, value, scope, user_id, page_id, created_at, updated_at)
+                VALUES (:id, :definition_id, :name, :value, :scope, :user_id, :page_id, :created_at, :updated_at)
+            """)
+            
+            await db.execute(insert_query, {
+                'id': instance_id,
+                'definition_id': instance_data.definition_id,
+                'name': instance_data.name,
+                'value': value_json,
+                'scope': scope_str,
+                'user_id': user_id_value,
+                'page_id': instance_data.page_id,
+                'created_at': now,
+                'updated_at': now
+            })
+            
             await db.commit()
-            await db.refresh(new_instance)
             
-            # Convert to dict for response
-            created_instance = {
-                "id": new_instance.id,
-                "definition_id": new_instance.definition_id,
-                "name": new_instance.name,
-                "value": new_instance.value,  # This will be automatically decrypted
-                "scope": new_instance.scope.value if hasattr(new_instance.scope, 'value') else new_instance.scope,
-                "user_id": new_instance.user_id,
-                "page_id": new_instance.page_id,
-                "created_at": new_instance.created_at,
-                "updated_at": new_instance.updated_at
+            # Create a response object manually
+            new_instance = {
+                'id': instance_id,
+                'definition_id': instance_data.definition_id,
+                'name': instance_data.name,
+                'value': instance_data.value,
+                'scope': scope_str,
+                'user_id': user_id_value,
+                'page_id': instance_data.page_id,
+                'created_at': now,
+                'updated_at': now
             }
+            
+            # new_instance is already a dict, so use it directly as the response
+            created_instance = new_instance
             
             logger.info(f"Created setting instance: {instance_id}")
             return created_instance
