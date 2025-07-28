@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   AppBar,
   Box,
@@ -40,9 +40,24 @@ const Header = ({ onToggleSidebar, rightContent, sidebarOpen }: HeaderProps) => 
   const [pageTitle, setPageTitle] = useState<string>('');
   const [isStudioPage, setIsStudioPage] = useState<boolean>(false);
   
-  // Determine if the current URL is a studio page
-  const isCurrentPathStudioPage = location.pathname.startsWith('/plugin-studio') ||
-                                 location.pathname.startsWith('/pages/');
+  // Determine if the current URL is a studio page - aligned with DynamicPageRenderer logic
+  const isCurrentPathStudioPage = useMemo(() => {
+    console.log('[Header] Determining isCurrentPathStudioPage for path:', location.pathname);
+    
+    if (location.pathname.startsWith('/plugin-studio')) {
+      console.log('[Header] → Studio interface detected: true');
+      return true;
+    }
+    
+    if (location.pathname.startsWith('/pages/')) {
+      const hasStudioParam = new URLSearchParams(location.search).has('studio');
+      console.log('[Header] → Page with studio param:', hasStudioParam);
+      return hasStudioParam;
+    }
+    
+    console.log('[Header] → Default: false');
+    return false;
+  }, [location.pathname, location.search]);
   
   // Effect to reset state when location changes
   useEffect(() => {
