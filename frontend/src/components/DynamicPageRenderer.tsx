@@ -110,25 +110,10 @@ export const DynamicPageRenderer: React.FC<DynamicPageRendererProps> = ({ pageId
   
   // Determine if this is a studio page and update global variables
   const isStudioPage = useMemo(() => {
-    // FIXED: Simple, explicit logic based on analysis report
-    console.log('[DynamicPageRenderer] Determining isStudioPage for path:', location.pathname);
-    console.log('[DynamicPageRenderer] URL search params:', location.search);
-    
-    if (location.pathname.startsWith('/plugin-studio')) {
-      console.log('[DynamicPageRenderer] → Studio interface detected: true');
-      return true;  // Studio interface
-    }
-    
-    if (location.pathname.startsWith('/pages/')) {
-      // Check for explicit studio parameter
-      const hasStudioParam = new URLSearchParams(location.search).has('studio');
-      console.log('[DynamicPageRenderer] → Page with studio param:', hasStudioParam);
-      return hasStudioParam;
-    }
-    
-    console.log('[DynamicPageRenderer] → Default: false');
-    return false;  // Default: not a studio page
-  }, [location.pathname, location.search]);
+    const studioPage = location.pathname.startsWith('/plugin-studio') ||
+                      location.pathname.startsWith('/pages/');
+    return studioPage;
+  }, [location.pathname]);
 
   // Get module state functions from context
   const { getModuleState, saveModuleState, saveAllModuleStates } = useModuleState();
@@ -473,7 +458,8 @@ export const DynamicPageRenderer: React.FC<DynamicPageRendererProps> = ({ pageId
         
         // Set global variables for the Header component
         window.currentPageTitle = sanitizedPage.name;
-        window.isStudioPage = isStudioPage;
+        window.isStudioPage = location.pathname.startsWith('/plugin-studio') ||
+                             location.pathname.startsWith('/pages/');
         
         console.log('DynamicPageRenderer - Setting global variables:', {
           currentPageTitle: window.currentPageTitle,
