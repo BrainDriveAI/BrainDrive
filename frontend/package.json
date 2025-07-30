@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
   },
   "dependencies": {
     "@emotion/react": "^11.11.1",
@@ -27,6 +30,10 @@
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.4",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/jest": "^30.0.0",
     "@types/lodash": "^4.17.15",
     "@types/node": "^22.13.8",
     "@types/react": "^18.2.15",
@@ -36,6 +43,8 @@
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "@vitejs/plugin-react": "^4.0.3",
+    "jest": "^30.0.5",
+    "jest-environment-jsdom": "^30.0.5",
     "typescript": "^5.0.2",
     "vite": "^4.4.5"
   }
