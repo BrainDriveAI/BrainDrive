@@ -48,7 +48,7 @@ Our roadmap is broken into clearly defined versions, each building toward a stab
 
 - [x] Encryption
 - [x] Plugin Data - the ability for a plugin to put it’s own data
-- [ ] Page Data - Constant state saved cross device
+- [x] Page Data - Constant state saved cross device
 - [x] Page specific Response/convo data 
 - [x] Personas 
 

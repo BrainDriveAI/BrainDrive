@@ -178,7 +178,6 @@ In the **second terminal window**:
 
 ```bash
 cd BrainDrive/frontend
-conda activate BrainDriveDev  # if not already activated
 npm install
 ```
 
