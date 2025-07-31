@@ -33,7 +33,7 @@ Each service bridge has working examples with visual demonstrations and full doc
 
 ## Questions?
 
-We're here to help. Post in the developer forum at [community.braindrive.ai](community.braindrive.ai)
+Post in the developer forum at [community.braindrive.ai](community.braindrive.ai). We're here to help build the future of user-owned AI together. 
 
 
 
