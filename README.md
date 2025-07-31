@@ -105,7 +105,7 @@ Build for yourself, build for the user-owned AI community, build for customers. 
 
 ## Contributing
 
-We welcome contributions to BrainDrive! Please see our [Contributing Guidelines](CONTRIBUTING.md) and [Project Roadmap](ROADMAP.md) for more information.
+We welcome & appreciate contributions. See [Contributing Guidelines](CONTRIBUTING.md) and [Project Roadmap](ROADMAP.md).
 
 ## Documentation
 
