@@ -17,6 +17,11 @@ from app.models.plugin import Plugin, Module
 from app.models.plugin_state import PluginState, PluginStateHistory, PluginStateConfig
 from app.models.component import Component
 from app.models.persona import Persona
+from app.models.settings import SettingDefinition, SettingInstance
+from app.models.message import Message
+from app.models.role import Role
+from app.models.tenant_models import Tenant, UserRole, TenantUser, RolePermission, Session, OAuthAccount
+
 
 # Define User relationships
 User.pages = relationship("Page", back_populates="creator", lazy="selectin", foreign_keys="Page.creator_id")
