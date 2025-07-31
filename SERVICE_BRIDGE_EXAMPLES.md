@@ -12,14 +12,14 @@ Designed to save you 90% of typical dev time.
 
 Each service bridge has working examples with visual demonstrations and full documentation. Install them, interact with them, and copy the proven patterns.
 
-| Service Bridge         | Working Example                         | What You'll See                              | Docs                         |
+| Service Bridge         | Working Example                         | What You'll See                              | Dev Guide                         |
 |------------------------|------------------------------------------|-----------------------------------------------|------------------------------|
-| 🔗 API Bridge          | [`ServiceExample_API`](#)               | Authentication, streaming, error handling     | [Guide](#) / [Reference](#) |
-| ⚡ Event Bridge        | [`ServiceExample_Events`](#)            | Real-time messaging between modules           | [Guide](#) / [Reference](#) |
-| 🎨 Theme Bridge        | [`ServiceExample_Theme`](#)             | Automatic light/dark theme switching          | [Guide](#) / [Reference](#) |
-| ⚙️ Settings Bridge     | [`ServiceExample_Settings`](#)          | Multi-scope configuration management          | [Guide](#) / [Reference](#) |
-| 📍 PageContext Bridge  | [`ServiceExample_PageContext`](#)       | Location-aware plugin behavior                | [Guide](#) / [Reference](#) |
-| 💾 PluginState Bridge  | [`ServiceExample_PluginState`](#)       | Persistent data storage                       | [Guide](#) / [Reference](#) |
+| 🔗 API Bridge          | [`ServiceExample_API`](https://github.com/DJJones66/ServiceExample_API)               | Authentication, streaming, error handling     | [Guide](https://github.com/DJJones66/ServiceExample_API/blob/main/DEVELOPMENT.md)|
+| ⚡ Event Bridge        | [`ServiceExample_Events`](https://github.com/DJJones66/ServiceExample_Events)            | Real-time messaging between modules           | [Guide](https://github.com/DJJones66/ServiceExample_Events/blob/main/DEVELOPER_GUIDE.md) |
+| 🎨 Theme Bridge        | [`ServiceExample_Theme`](https://github.com/DJJones66/ServiceExample_Theme)             | Automatic light/dark theme switching          | [Guide](https://github.com/DJJones66/ServiceExample_Theme/blob/main/DEVELOPER_GUIDE.md) |
+| ⚙️ Settings Bridge     | [`ServiceExample_Settings`](https://github.com/DJJones66/ServiceExample_Settings)          | Multi-scope configuration management          | [Guide](https://github.com/DJJones66/ServiceExample_Settings/blob/main/DEVELOPER_GUIDE.md) |
+| 📍 PageContext Bridge  | [`ServiceExample_PageContext`](https://github.com/DJJones66/ServiceExample_PageContext)       | Location-aware plugin behavior                | [Guide](https://github.com/DJJones66/ServiceExample_PageContext/blob/main/DEVELOPMENT.md) |
+| 💾 PluginState Bridge  | [`ServiceExample_PluginState`](https://github.com/DJJones66/ServiceExample_PluginState)       | Persistent data storage                       | [Guide](https://github.com/DJJones66/ServiceExample_PluginState/blob/main/DEVELOPMENT.md) |
 
 
 **How to explore:**
@@ -33,7 +33,7 @@ Each service bridge has working examples with visual demonstrations and full doc
 
 ## Questions?
 
-We're here to help. Post in the developer forum at community.braindrive.ai
+We're here to help. Post in the developer forum at [community.braindrive.ai](community.braindrive.ai)
 
 
 
