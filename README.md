@@ -26,7 +26,7 @@ A page builder to create custom interfaces using your own and other publicly ava
 
 ![Page Builder](https://github.com/BrainDriveAI/BrainDrive/blob/main/images/Page%20Builder%20Screenshot.png)
 
-A full set of developer resources, code examples, and tutorials that make it easy to build on BrainDrive.
+A [full set of developer resources](https://github.com/BrainDriveAI/BrainDrive/blob/main/DOCUMENTATION_INDEX.md), code examples, and tutorials that make it easy to build on BrainDrive.
 
 Use BrainDrive as your personal AI system and/or build AI-powered products and services to offer to others. 
 
@@ -96,7 +96,7 @@ Build for yourself, build for the user-owned AI community, build for customers. 
 
 ## Developer Quick Start
 
-Follow the [Developer Quick Start Guide](https://github.com/BrainDriveAI/BrainDrive/blob/main/PLUGIN_DEVELOPER_QUICKSTART.md) designed to get you up and running building plugins in 30 minutes or less. 
+ * [Developer Quick Start Guide](https://github.com/BrainDriveAI/BrainDrive/blob/main/PLUGIN_DEVELOPER_QUICKSTART.md) designed to get you up and running building plugins in 30 minutes or less. 
 
 ## Community & Support
 - **[User and Developer Forum](https://community.braindrive.ai)** - Get support and discuss the future of user-owned AI
