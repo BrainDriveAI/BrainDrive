@@ -37,9 +37,6 @@ Up to date list of all BrainDrive repos & corresponding documentation.
 
 * [Plugin Data Field Reference](https://github.com/BrainDriveAI/PluginTemplate/blob/main/references/Plugin-Data-Field-Reference.md) \- Plugin\_data dictionary field descriptions.
 
-* [Service Bridges Guide](https://github.com/BrainDriveAI/DocDrafts/blob/main/Service%20Bridges.md): Overview of decoupled communication system.
-
-
 **[BrainDrive Chat Plugin Repo](https://github.com/DJJones66/BrainDriveChat/tree/main) - AI Chat Interface plugin. Includes chat, model select & convo history management with light/dark theme support.**
 
 * [Readme](https://github.com/DJJones66/BrainDriveChat/blob/main/README.md) \- Overview and Installation
