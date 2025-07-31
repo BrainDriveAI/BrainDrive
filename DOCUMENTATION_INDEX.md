@@ -1,4 +1,5 @@
-Below is an up to date list of all BrainDrive repos and their corresponding documentation. Have questions? We're here to help: [community.braindrive.ai](community.braindrive.ai)
+An up to date list of all BrainDrive repos and their corresponding documentation. 
+
 ## Start here: 
 
 Start building plugins for your BrainDrive, fast. - [Plugin Developer Quick Start Guide](https://github.com/BrainDriveAI/DocDrafts/blob/main/BrainDrive-Developer-Quickstart.md)  
