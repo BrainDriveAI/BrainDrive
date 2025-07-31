@@ -43,16 +43,21 @@ def upgrade() -> None:
     inspector = sa.inspect(conn)
     existing_tables = inspector.get_table_names()
     
-    # Verify that settings tables exist (they should have been manually created)
+    # Check if settings tables exist - they may not exist if running from a fresh database
+    # where the 7d0185f79500 migration was fixed to not drop them
     if 'settings_definitions' not in existing_tables:
-        raise Exception("settings_definitions table not found - manual restoration may have failed")
+        print("⚠️  settings_definitions table not found - this is expected for fresh databases")
+        print("⚠️  The restore_settings_tables migration will create it")
+    else:
+        print("✅ Verified settings_definitions table exists")
     
     if 'settings_instances' not in existing_tables:
-        raise Exception("settings_instances table not found - manual restoration may have failed")
+        print("⚠️  settings_instances table not found - this is expected for fresh databases")
+        print("⚠️  The restore_settings_tables migration will create it")
+    else:
+        print("✅ Verified settings_instances table exists")
     
-    print("✅ Verified settings_definitions table exists")
-    print("✅ Verified settings_instances table exists")
-    print("✅ Settings tables restoration confirmed in migration history")
+    print("✅ Settings tables restoration check completed")
 
 
 def downgrade() -> None:
