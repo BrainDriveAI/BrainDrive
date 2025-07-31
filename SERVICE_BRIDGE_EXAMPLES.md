@@ -1,4 +1,4 @@
-# BrainDrive Service Bridges Overview & Examples
+# Service Bridges Overview & Examples
 
 Plugins communicate through standardized bridges, not direct calls. This means:
 
