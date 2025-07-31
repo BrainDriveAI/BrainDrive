@@ -1,4 +1,4 @@
-# BrainDrive
+![BrainDrive Logo](https://github.com/BrainDriveAI/BrainDrive/blob/main/images/Logo-Light-Mode.png)
 
 BrainDrive is the open source ChatGPT alternative you fully own and control. Use, customize, and monetize your BrainDrive however you want. No Big Tech overlords. Just your AI. Your rules.
 
@@ -8,7 +8,7 @@ BrainDrive is the open source ChatGPT alternative you fully own and control. Use
 
 **Think WordPress for AI**: Install BrainDrive → Add your plugin → Ship your AI powered feature.
 
-🚀 Ready to get started? Check out the [setup guide](INSTALL.md)  
+🚀 Ready to get started? Check out the [Install Guide](INSTALL.md)  
 
 🔨Ready to start building? Check out the [Developer Quick Start Guide](https://github.com/BrainDriveAI/BrainDrive/blob/main/PLUGIN_DEVELOPER_QUICKSTART.md)
 
