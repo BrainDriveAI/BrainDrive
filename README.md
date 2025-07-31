@@ -76,7 +76,7 @@ Build for yourself, build for the user-owned AI community, build for customers. 
   * **1-Minute Development Cycle**: Edit → Build → Refresh
   * **Zero Dependencies**: Service Bridges handle all complexity
   * **Built-in Services**: API, Theme, Settings, Events, Context, State
-    * **React Class Components**: Established patterns with TypeScript support
+  * **React Class Components**: Established patterns with TypeScript support
   * **Lifecycle Manager**: Python-based automated installation system
   * **Module Federation**: Modern plugin architecture with hot-reload
   * **Full Control**: Own your plugins, data, and deployment
