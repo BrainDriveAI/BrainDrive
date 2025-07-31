@@ -1,4 +1,4 @@
-An up to date list of all BrainDrive repos and their corresponding documentation. 
+Up to date list of all BrainDrive repos & corresponding documentation. 
 
 ## Start here: 
 
@@ -50,40 +50,40 @@ An up to date list of all BrainDrive repos and their corresponding documentation
 
 Plugins communicate through 6 standardized [service bridges](https://github.com/BrainDriveAI/DocDrafts/blob/main/Service%20Bridges.md), not direct calls. No plugin dependencies, breaking changes, or intimate system knowledge needed. 
 
-1. [Events Bridge Demo Repo](https://github.com/DJJones66/ServiceExample_Events) \- Demonstrates real-time inter-module communication
+**1. [Events Bridge Demo Repo](https://github.com/DJJones66/ServiceExample_Events) \- Demonstrates real-time inter-module communication**
 
 * [Readme](https://github.com/DJJones66/ServiceExample_Events/blob/main/README.md)  
 * [Release](https://github.com/DJJones66/ServiceExample_Events/blob/main/RELEASE.md)   
 * [Dev Guide](https://github.com/DJJones66/ServiceExample_Events/blob/main/DEVELOPER_GUIDE.md)
 
-2. [Theme Bridge Demo Repo](https://github.com/DJJones66/ServiceExample_Theme) \- Demonstrates real-time theme management
+**2. [Theme Bridge Demo Repo](https://github.com/DJJones66/ServiceExample_Theme) \- Demonstrates real-time theme management**
 
 * [Readme](http://ServiceExample_Theme)   
 * [Release](https://github.com/DJJones66/ServiceExample_Theme/blob/main/RELEASE.md)   
 * [Dev Guide](https://github.com/DJJones66/ServiceExample_Theme/blob/main/DEVELOPER_GUIDE.md)   
 * [Error Handling](https://github.com/DJJones66/ServiceExample_Theme/blob/main/ERROR_HANDLING_GUIDE.md)
 
-3. [Settings Bridge Demo Repo](https://github.com/DJJones66/ServiceExample_Settings) \- Demonstrates persistent configuration management
+**3. [Settings Bridge Demo Repo](https://github.com/DJJones66/ServiceExample_Settings) \- Demonstrates persistent configuration management**
 
 * [Readme](https://github.com/DJJones66/ServiceExample_Settings/blob/main/README.md)  
 * [Release](https://github.com/DJJones66/ServiceExample_Settings/blob/main/RELEASE.md)  
 * [Dev Guide](https://github.com/DJJones66/ServiceExample_Settings/blob/main/DEVELOPER_GUIDE.md)
 
-4. [Page Context Bridge Demo Repo](https://github.com/DJJones66/ServiceExample_PageContext) \- Demonstrates page context monitoring & information retrieval
+**4. [Page Context Bridge Demo Repo](https://github.com/DJJones66/ServiceExample_PageContext) \- Demonstrates page context monitoring & information retrieval**
 
 * [Readme](https://github.com/DJJones66/ServiceExample_PageContext/blob/main/README.md)  
 * [Release](https://github.com/DJJones66/ServiceExample_PageContext/blob/main/RELEASE.md)  
 * [Dev Reference](https://github.com/DJJones66/ServiceExample_PageContext/blob/main/DEVELOPER_GUIDE.md)  
 * [Dev Guide](https://github.com/DJJones66/ServiceExample_PageContext/blob/main/DEVELOPMENT.md)
 
-5. [Plugin State Bridge Demo Repo](https://github.com/DJJones66/ServiceExample_PluginState) \- Demonstrates persistent state management
+**5. [Plugin State Bridge Demo Repo](https://github.com/DJJones66/ServiceExample_PluginState) \- Demonstrates persistent state management**
 
 * [Readme](https://github.com/DJJones66/ServiceExample_PluginState/blob/main/README.md)  
 * [Release](https://github.com/DJJones66/ServiceExample_PluginState/blob/main/RELEASE.md)  
 * [Dev Reference](http://DEVELOPER_GUIDE)   
 * [Dev Guide](https://github.com/DJJones66/ServiceExample_PluginState/blob/main/DEVELOPMENT.md) 
 
-6. [API Bridge Demo Repo](https://github.com/DJJones66/ServiceExample_API) \- Demonstrates Internal backend CRUD operations & external API connectivity testing.
+**6. [API Bridge Demo Repo](https://github.com/DJJones66/ServiceExample_API) \- Demonstrates Internal backend CRUD operations & external API connectivity testing.**
 
 * [Readme](https://github.com/DJJones66/ServiceExample_API/blob/main/README.md)  
 * [Release](https://github.com/DJJones66/ServiceExample_API/blob/main/RELEASE.md)  
@@ -99,5 +99,5 @@ Plugins communicate through 6 standardized [service bridges](https://github.com/
 
 ## Have Questions?
 
-Post them in the developer [support forum](https://community.braindrive.ai/c/support-help/14). We’re here to make it easy to build, control, and benefit from your own AI system.
+Post them in the developer forum at [community.braindrive.ai](community.braindrive.ai) We're here to help build the future of user-owned AI together. 
 
