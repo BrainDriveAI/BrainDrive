@@ -96,7 +96,7 @@ Build for yourself, build for the user-owned AI community, build for customers. 
 
 ## Developer Quick Start
 
- * [Developer Quick Start Guide](https://github.com/BrainDriveAI/BrainDrive/blob/main/PLUGIN_DEVELOPER_QUICKSTART.md) designed to get you up and running building plugins in 30 minutes or less. 
+ * [Developer Quick Start Guide](https://github.com/BrainDriveAI/BrainDrive/blob/main/PLUGIN_DEVELOPER_QUICKSTART.md) - designed to get you up and running building plugins in 30 minutes or less. 
 
 ## Community & Support
 - [User and Developer Forum](https://community.braindrive.ai) - Get support and discuss the future of user-owned AI
