@@ -2,13 +2,11 @@ An up to date list of all BrainDrive repos and their corresponding documentation
 
 ## Start here: 
 
-Start building plugins for your BrainDrive, fast. - [Plugin Developer Quick Start Guide](https://github.com/BrainDriveAI/DocDrafts/blob/main/BrainDrive-Developer-Quickstart.md)  
+[Plugin Developer Quick Start Guide](https://github.com/BrainDriveAI/DocDrafts/blob/main/BrainDrive-Developer-Quickstart.md) - Start building plugins for your BrainDrive, fast.
 
 ## All Docs:
 
-## [BrainDrive Core](https://github.com/BrainDriveAI/BrainDrive) 
-
-Front End, Backend, and Plugin System
+**[BrainDrive Core Repo](https://github.com/BrainDriveAI/BrainDrive) - Front End, Backend, and Plugin System**
 
 * [README](https://github.com/BrainDriveAI/BrainDrive/blob/main/README.md): What BrainDrive is, how it works, & why it matters
 
@@ -21,9 +19,7 @@ Front End, Backend, and Plugin System
 * [Plugin README](https://github.com/BrainDriveAI/BrainDrive/blob/main/plugins/README.md): Dev workflow & modular architecture overview.
 
 
-## [BrainDrive Plugin Template](https://github.com/BrainDriveAI/PluginTemplate)
-
- Boilerplate to jumpstart your development.
+**[BrainDrive Plugin Template Repo](https://github.com/BrainDriveAI/PluginTemplate) - Boilerplate to jumpstart your development.**
 
 * [Readme](https://github.com/BrainDriveAI/PluginTemplate/blob/main/README.md) \- Dev workflow, testing & customization overview.
 
@@ -44,51 +40,50 @@ Front End, Backend, and Plugin System
 * [Service Bridges Guide](https://github.com/BrainDriveAI/DocDrafts/blob/main/Service%20Bridges.md): Overview of decoupled communication system.
 
 
-## [BrainDrive Chat Plugin](https://github.com/DJJones66/BrainDriveChat/tree/main) 
+**[BrainDrive Chat Plugin Repo](https://github.com/DJJones66/BrainDriveChat/tree/main) - AI Chat Interface plugin. Includes chat, model select & convo history management with light/dark theme support.**
 
-Working AI Chat Interface plugin. Includes chat, model select & convo history management with light/dark theme support.
-
-* [Readme](https://github.com/DJJones66/BrainDriveChat/blob/main/README.md) \- Overview and Installation  
+* [Readme](https://github.com/DJJones66/BrainDriveChat/blob/main/README.md) \- Overview and Installation
+  
 * [Summary](https://github.com/DJJones66/BrainDriveChat/blob/main/PLUGIN_SUMMARY.md) \- Modular Implementation Summary
 
 ## Service Bridge Examples
 
 Plugins communicate through 6 standardized [service bridges](https://github.com/BrainDriveAI/DocDrafts/blob/main/Service%20Bridges.md), not direct calls. No plugin dependencies, breaking changes, or intimate system knowledge needed. 
 
-1. [Events Bridge Demo](https://github.com/DJJones66/ServiceExample_Events) \- Demonstrates real-time inter-module communication
+1. [Events Bridge Demo Repo](https://github.com/DJJones66/ServiceExample_Events) \- Demonstrates real-time inter-module communication
 
 * [Readme](https://github.com/DJJones66/ServiceExample_Events/blob/main/README.md)  
 * [Release](https://github.com/DJJones66/ServiceExample_Events/blob/main/RELEASE.md)   
 * [Dev Guide](https://github.com/DJJones66/ServiceExample_Events/blob/main/DEVELOPER_GUIDE.md)
 
-2. [Theme Bridge Demo](https://github.com/DJJones66/ServiceExample_Theme) \- Demonstrates real-time theme management
+2. [Theme Bridge Demo Repo](https://github.com/DJJones66/ServiceExample_Theme) \- Demonstrates real-time theme management
 
 * [Readme](http://ServiceExample_Theme)   
 * [Release](https://github.com/DJJones66/ServiceExample_Theme/blob/main/RELEASE.md)   
 * [Dev Guide](https://github.com/DJJones66/ServiceExample_Theme/blob/main/DEVELOPER_GUIDE.md)   
 * [Error Handling](https://github.com/DJJones66/ServiceExample_Theme/blob/main/ERROR_HANDLING_GUIDE.md)
 
-3. [Settings Bridge Demo](https://github.com/DJJones66/ServiceExample_Settings) \- Demonstrates persistent configuration management
+3. [Settings Bridge Demo Repo](https://github.com/DJJones66/ServiceExample_Settings) \- Demonstrates persistent configuration management
 
 * [Readme](https://github.com/DJJones66/ServiceExample_Settings/blob/main/README.md)  
 * [Release](https://github.com/DJJones66/ServiceExample_Settings/blob/main/RELEASE.md)  
 * [Dev Guide](https://github.com/DJJones66/ServiceExample_Settings/blob/main/DEVELOPER_GUIDE.md)
 
-4. [Page Context Bridge Demo](https://github.com/DJJones66/ServiceExample_PageContext) \- Demonstrates page context monitoring & information retrieval
+4. [Page Context Bridge Demo Repo](https://github.com/DJJones66/ServiceExample_PageContext) \- Demonstrates page context monitoring & information retrieval
 
 * [Readme](https://github.com/DJJones66/ServiceExample_PageContext/blob/main/README.md)  
 * [Release](https://github.com/DJJones66/ServiceExample_PageContext/blob/main/RELEASE.md)  
 * [Dev Reference](https://github.com/DJJones66/ServiceExample_PageContext/blob/main/DEVELOPER_GUIDE.md)  
 * [Dev Guide](https://github.com/DJJones66/ServiceExample_PageContext/blob/main/DEVELOPMENT.md)
 
-5. [Plugin State Bridge Demo](https://github.com/DJJones66/ServiceExample_PluginState) \- Demonstrates persistent state management
+5. [Plugin State Bridge Demo Repo](https://github.com/DJJones66/ServiceExample_PluginState) \- Demonstrates persistent state management
 
 * [Readme](https://github.com/DJJones66/ServiceExample_PluginState/blob/main/README.md)  
 * [Release](https://github.com/DJJones66/ServiceExample_PluginState/blob/main/RELEASE.md)  
 * [Dev Reference](http://DEVELOPER_GUIDE)   
 * [Dev Guide](https://github.com/DJJones66/ServiceExample_PluginState/blob/main/DEVELOPMENT.md) 
 
-6. [API Bridge Demo](https://github.com/DJJones66/ServiceExample_API) \- Demonstrates Internal backend CRUD operations & external API connectivity testing.
+6. [API Bridge Demo Repo](https://github.com/DJJones66/ServiceExample_API) \- Demonstrates Internal backend CRUD operations & external API connectivity testing.
 
 * [Readme](https://github.com/DJJones66/ServiceExample_API/blob/main/README.md)  
 * [Release](https://github.com/DJJones66/ServiceExample_API/blob/main/RELEASE.md)  
