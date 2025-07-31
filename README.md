@@ -109,7 +109,7 @@ We welcome & appreciate contributions. See [Contributing Guidelines](CONTRIBUTIN
 
 ## Documentation
 
-  * [Plugin Development Quick Start Guide](plugins/DEVELOPMENT.md) - Start building plugins
+  * [Plugin Development Quick Start Guide](PLUGIN_DEVELOPER_QUICKSTART.md) - Start building plugins
   * [Plugin Template](https://github.com/BrainDriveAI/PluginTemplate) - Boilerplate
   * [Lifecycle Manager Primers](https://github.com/BrainDriveAI/PluginTemplate/tree/main/references) - Customization primers
   * [Service Bridge Examples](https://github.com/BrainDriveAI/BrainDrive/blob/main/SERVICE_BRIDGE_EXAMPLES.md) - working examples and up to date documentation
