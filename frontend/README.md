@@ -4,7 +4,7 @@ A drag-and-drop interface for building AI powered applications using BrainDrive 
 
 Create responsive, interactive applications without coding. Built for both developers and everyday owners looking to customize their BrainDrive.
 
-Use existing plugins or [create your own](DEVELOPER_QUICK_START). 
+Use existing plugins or [create your own](DEVELOPER_QUICK_START). The only limit is your imagination. 
 
 ![BrainDrive Studio](https://github.com/BrainDriveAI/BrainDrive/blob/main/images/Page%20Builder%20Screenshot.png)
 
