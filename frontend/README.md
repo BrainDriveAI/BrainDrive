@@ -1,8 +1,10 @@
 # BrainDrive PluginStudio
 
-A drag-and-drop interface for building and managing BrainDrive plugins. 
+A drag-and-drop interface for building AI powered applications using BrainDrive Plugins.
 
-Create responsive, interactive applications without coding—perfect for both developers and everyday owners looking to customize your BrainDrive.
+Create responsive, interactive applications without coding. Built for both developers and everyday owners looking to customize their BrainDrive.
+
+Use existing plugins or [create your own](DEVELOPER_QUICK_START). 
 
 ![BrainDrive Studio](https://github.com/BrainDriveAI/BrainDrive/blob/main/images/Page%20Builder%20Screenshot.png)
 
