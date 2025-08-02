@@ -2,6 +2,7 @@ import React from 'react';
 import './ComponentOllamaServer.css';
 import { GearIcon, TagIcon, LinkIcon, KeyIcon, LightningIcon, UpdateIcon, TrashIcon, CloseIcon, PlusIcon, SearchIcon, SortIcon, FilterIcon } from './icons';
 import CustomDropdown from './CustomDropdown';
+import ModelInstallDialog from './InstallModel';
 
 interface ApiResponse {
   data?: any;
@@ -46,11 +47,32 @@ interface ModelDetails {
   parameters?: string;
 }
 
+// New interfaces for model installation and operations
+interface ModelInstallation {
+  id: string;
+  modelName: string;
+  status: 'pending' | 'downloading' | 'completed' | 'error';
+  progress: number;
+  error?: string;
+  customMessage?: string;
+  startTime: Date;
+}
+
+interface ModelOperation {
+  id: string;
+  type: 'install' | 'delete';
+  modelName: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'error';
+  progress?: number;
+  error?: string;
+  startTime: Date;
+}
+
 interface OllamaServerComponentProps {
   services: {
     api?: {
       get: (url: string, options?: any) => Promise<ApiResponse>;
-      post: (url: string, data: any) => Promise<ApiResponse>;
+      post: (url: string, data: any, config?: any) => Promise<ApiResponse>;
       delete: (url: string, options?: any) => Promise<ApiResponse>;
     };
     theme?: {
@@ -81,6 +103,18 @@ interface OllamaServerComponentState {
   selectedModelId: string | null;
   selectedModel: ModelInfo | null;
   expandedModelId: string | null;
+  
+  // Pagination state
+  currentPage: number;
+  itemsPerPage: number;
+  
+  // New state for model installation and operations
+  showInstallModal: boolean;
+  installModelName: string;
+  
+  // Model operations state (converted from hooks)
+  installations: ModelInstallation[];
+  operations: ModelOperation[];
 }
 
 class ComponentOllamaServer extends React.Component<OllamaServerComponentProps, OllamaServerComponentState> {
@@ -107,7 +141,19 @@ class ComponentOllamaServer extends React.Component<OllamaServerComponentProps, 
       sortOrder: 'asc',
       selectedModelId: null,
       selectedModel: null,
-      expandedModelId: null
+      expandedModelId: null,
+      
+      // Pagination state
+      currentPage: 1,
+      itemsPerPage: 10,
+      
+      // New state for model installation and operations
+      showInstallModal: false,
+      installModelName: '',
+      
+      // Model operations state (converted from hooks)
+      installations: [],
+      operations: [],
     };
   }
 
@@ -522,14 +568,288 @@ class ComponentOllamaServer extends React.Component<OllamaServerComponentProps, 
   handleSortChange = (sortBy: 'name' | 'size' | 'modified' | 'family' | 'parameters' | 'quantization') => {
     this.setState(prevState => ({
       sortBy,
-      sortOrder: prevState.sortBy === sortBy && prevState.sortOrder === 'asc' ? 'desc' : 'asc'
+      sortOrder: prevState.sortBy === sortBy && prevState.sortOrder === 'asc' ? 'desc' : 'asc',
+      currentPage: 1 // Reset to first page when sorting
     }));
   };
 
-  getSortedModels = () => {
-    const { models, sortBy, sortOrder } = this.state;
+
+
+  getDropdownOptions = () => {
+    const { models } = this.getPaginatedModels();
     
-    // Sort models
+    // Convert to dropdown options with size and parameters as secondary text
+    return models.map(model => ({
+      id: `${model.name}-${model.tag}`,
+      primaryText: model.name,
+      secondaryText: `${this.formatFileSize(model.size)}${model.details?.parameter_size ? ` • ${model.details.parameter_size}` : ''}`
+    }));
+  };
+
+  formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  formatDate = (dateString: string): string => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+  };
+
+  handleModelSelection = (modelId: string) => {
+    const selectedModel = this.state.models.find(model => 
+      `${model.name}-${model.tag}` === modelId
+    );
+    
+    this.setState({
+      selectedModelId: modelId,
+      selectedModel: selectedModel || null,
+      expandedModelId: null, // Clear expansion when selecting from dropdown
+      currentPage: 1 // Reset to first page when filtering
+    });
+  };
+
+  handleModelRowClick = (modelId: string) => {
+    this.setState(prevState => ({
+      expandedModelId: prevState.expandedModelId === modelId ? null : modelId
+    }));
+  };
+
+  // Model Operations Methods
+  handleModelAction = async (action: 'delete', modelId: string) => {
+    const model = this.state.models.find(m => `${m.name}-${m.tag}` === modelId);
+    if (!model) return;
+
+    // Show confirmation dialog
+    if (!window.confirm(`Are you sure you want to delete the model "${model.name}"? This action cannot be undone.`)) {
+      return;
+    }
+
+    const server = this.state.servers.find(s => s.id === this.state.activeServerId);
+    if (!server) {
+      this.setState({ errorMessage: 'Server not available' });
+      return;
+    }
+
+    try {
+      if (action === 'delete') {
+        await this.deleteModel(model, server.serverAddress, server.apiKey);
+        // Remove the model from local state immediately instead of refreshing
+        this.setState(prevState => ({
+          models: prevState.models.filter(m => `${m.name}-${m.tag}` !== modelId),
+          selectedModelId: prevState.selectedModelId === modelId ? null : prevState.selectedModelId,
+          expandedModelId: prevState.expandedModelId === modelId ? null : prevState.expandedModelId
+        }));
+      }
+    } catch (error: any) {
+      this.setState({ errorMessage: error.message });
+    }
+  };
+
+  // Model Installation Methods
+  openInstallModal = () => {
+    this.setState({ 
+      showInstallModal: true,
+      installModelName: ''
+    });
+  };
+
+  closeInstallModal = () => {
+    this.setState({ 
+      showInstallModal: false,
+      installModelName: ''
+    });
+  };
+
+  handleInstallInputChange = (field: 'installModelName', value: string) => {
+    this.setState({ [field]: value } as any);
+  };
+
+  validateInstallInputs = (): boolean => {
+    const { installModelName } = this.state;
+    
+    if (!installModelName.trim()) {
+      this.setState({ errorMessage: 'Model name is required' });
+      return false;
+    }
+    
+    return true;
+  };
+
+  // Model Operations Methods (converted from hooks)
+  startModelInstallation = async (modelName: string) => {
+    console.log('startModelInstallation called with:', modelName);
+    const { activeServerId } = this.state;
+    const server = this.state.servers.find(s => s.id === activeServerId);
+    
+    if (!server) {
+      console.error('No server selected');
+      this.setState({ errorMessage: 'No server selected' });
+      return;
+    }
+
+    console.log('Using server:', server);
+
+    const installation: ModelInstallation = {
+      id: `install_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      modelName,
+      status: 'pending',
+      progress: 0,
+      startTime: new Date()
+    };
+
+    this.setState(prevState => ({
+      installations: [...prevState.installations, installation]
+    }));
+
+    try {
+      // Simulate installation process
+      await this.performModelInstallation(installation, server.serverAddress, server.apiKey, { timeout: 600000 });
+      this.setState({ showInstallModal: false, errorMessage: '' });
+    } catch (error: any) {
+      console.error('Installation error:', error);
+      this.setState({ errorMessage: error.message });
+    }
+  };
+
+  performModelInstallation = async (installation: ModelInstallation, serverAddress: string, apiKey?: string, config?: any) => {
+    console.log('performModelInstallation called with:', { installation, serverAddress, apiKey, config });
+    
+    if (!this.props.services?.api) {
+      console.error('API service not available');
+      throw new Error('API service not available');
+    }
+
+    console.log('API service available:', this.props.services.api);
+
+    // Update status to downloading
+    this.updateInstallationStatus(installation.id, 'downloading', 0);
+
+    try {
+      const requestData = {
+        name: installation.modelName,
+        server_url: serverAddress,
+        api_key: apiKey || undefined
+      };
+
+      console.log('Sending install request:', requestData);
+      
+      // Use the API service instead of fetch directly
+      const response = await this.props.services.api.post('/api/v1/ollama/install', requestData, config);
+      
+      console.log('Install response:', response);
+      
+      // Check if this is a streaming response or a regular response
+      if (response && typeof response === 'object') {
+        // Handle regular response (non-streaming)
+        if (response.data?.status === 'success') {
+          if (response.data?.already_exists) {
+            this.updateInstallationStatus(installation.id, 'completed', 100, undefined, 'Model already exists');
+          } else {
+            this.updateInstallationStatus(installation.id, 'completed', 100);
+          }
+          // Remove after 3 seconds
+          setTimeout(() => {
+            this.removeInstallation(installation.id);
+          }, 3000);
+          return;
+        } else if (response.data?.error) {
+          throw new Error(response.data.error);
+        }
+      }
+      
+      // If we get here, assume completion
+      this.updateInstallationStatus(installation.id, 'completed', 100);
+      setTimeout(() => {
+        this.removeInstallation(installation.id);
+      }, 3000);
+
+    } catch (error: any) {
+      console.error('Install error:', error);
+      this.updateInstallationStatus(installation.id, 'error', 0, error.message);
+    }
+  };
+
+
+
+  deleteModel = async (model: ModelInfo, serverAddress: string, apiKey?: string) => {
+    if (!this.props.services?.api) {
+      throw new Error('API service not available');
+    }
+
+    try {
+      const requestData = {
+        name: model.name,
+        server_url: serverAddress,
+        api_key: apiKey || undefined
+      };
+
+      await this.props.services.api.delete('/api/v1/ollama/delete', { data: requestData });
+      
+      // Success - model will be removed from state in handleModelAction
+      
+    } catch (error: any) {
+      throw new Error(`Failed to delete model: ${error.message || 'Unknown error'}`);
+    }
+  };
+
+  updateInstallationStatus = (id: string, status: ModelInstallation['status'], progress?: number, error?: string, customMessage?: string) => {
+    this.setState(prevState => ({
+      installations: prevState.installations.map(installation =>
+        installation.id === id
+          ? { 
+              ...installation, 
+              status, 
+              ...(progress !== undefined && { progress }), 
+              ...(error && { error }),
+              ...(customMessage && { customMessage })
+            }
+          : installation
+      )
+    }));
+  };
+
+  updateOperationStatus = (id: string, status: ModelOperation['status'], error?: string) => {
+    this.setState(prevState => ({
+      operations: prevState.operations.map(operation =>
+        operation.id === id
+          ? { ...operation, status, ...(error && { error }) }
+          : operation
+      )
+    }));
+  };
+
+  removeInstallation = (id: string) => {
+    this.setState(prevState => ({
+      installations: prevState.installations.filter(installation => installation.id !== id)
+    }));
+  };
+
+  removeOperation = (id: string) => {
+    this.setState(prevState => ({
+      operations: prevState.operations.filter(operation => operation.id !== id)
+    }));
+  };
+
+  // Pagination methods
+  handlePageChange = (page: number) => {
+    this.setState({ currentPage: page });
+  };
+
+  handleItemsPerPageChange = (itemsPerPage: number) => {
+    this.setState({ 
+      itemsPerPage, 
+      currentPage: 1 // Reset to first page when changing items per page
+    });
+  };
+
+  getPaginatedModels = () => {
+    const { models, sortBy, sortOrder, selectedModelId, currentPage, itemsPerPage } = this.state;
+    
+    // Get sorted models
     const sortedModels = [...models].sort((a, b) => {
       let aValue: string | number;
       let bValue: string | number;
@@ -571,79 +891,94 @@ class ComponentOllamaServer extends React.Component<OllamaServerComponentProps, 
       }
     });
     
-    return sortedModels;
-  };
-
-  formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
-
-  formatDate = (dateString: string): string => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
-  };
-
-  handleModelSelection = (modelId: string) => {
-    const selectedModel = this.state.models.find(model => 
-      `${model.name}-${model.tag}` === modelId
-    );
+    // Filter to selected model if one is chosen from the dropdown
+    const filteredModels = selectedModelId 
+      ? sortedModels.filter(model => `${model.name}-${model.tag}` === selectedModelId)
+      : sortedModels;
     
-    this.setState({
-      selectedModelId: modelId,
-      selectedModel: selectedModel || null,
-      expandedModelId: null // Clear expansion when selecting from dropdown
+    // Calculate pagination
+    const totalItems = filteredModels.length;
+    const totalPages = Math.ceil(totalItems / itemsPerPage);
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    
+    return {
+      models: filteredModels.slice(startIndex, endIndex),
+      totalItems,
+      totalPages,
+      currentPage,
+      itemsPerPage
+    };
+  };
+
+  renderPageNumbers = (currentPage: number, totalPages: number) => {
+    const pageNumbers = [];
+    const maxVisiblePages = 5;
+    
+    if (totalPages <= maxVisiblePages) {
+      // Show all pages if total is small
+      for (let i = 1; i <= totalPages; i++) {
+        pageNumbers.push(i);
+      }
+    } else {
+      // Show a subset of pages with ellipsis
+      if (currentPage <= 3) {
+        // Near the beginning
+        for (let i = 1; i <= 4; i++) {
+          pageNumbers.push(i);
+        }
+        pageNumbers.push('...');
+        pageNumbers.push(totalPages);
+      } else if (currentPage >= totalPages - 2) {
+        // Near the end
+        pageNumbers.push(1);
+        pageNumbers.push('...');
+        for (let i = totalPages - 3; i <= totalPages; i++) {
+          pageNumbers.push(i);
+        }
+      } else {
+        // In the middle
+        pageNumbers.push(1);
+        pageNumbers.push('...');
+        for (let i = currentPage - 1; i <= currentPage + 1; i++) {
+          pageNumbers.push(i);
+        }
+        pageNumbers.push('...');
+        pageNumbers.push(totalPages);
+      }
+    }
+    
+    return pageNumbers.map((page, index) => {
+      if (page === '...') {
+        return (
+          <span key={`ellipsis-${index}`} className="pagination-ellipsis">
+            ...
+          </span>
+        );
+      }
+      
+      return (
+        <button
+          key={page}
+          className={`pagination-button ${currentPage === page ? 'active' : ''}`}
+          onClick={() => this.handlePageChange(page as number)}
+          aria-label={`Page ${page}`}
+        >
+          {page}
+        </button>
+      );
     });
   };
 
-  handleModelRowClick = (modelId: string) => {
-    this.setState(prevState => ({
-      expandedModelId: prevState.expandedModelId === modelId ? null : modelId
-    }));
-  };
 
-  handleModelAction = (action: 'copy' | 'delete', modelId: string) => {
-    const model = this.state.models.find(m => `${m.name}-${m.tag}` === modelId);
-    if (!model) return;
 
-    switch (action) {
-      case 'copy':
-        // TODO: Implement model copying
-        console.log('Copy model:', model.name);
-        break;
-      case 'delete':
-        if (window.confirm(`Are you sure you want to delete "${model.name}"?`)) {
-          // TODO: Implement model deletion
-          console.log('Delete model:', model.name);
-        }
-        break;
-    }
-  };
 
-  getDropdownOptions = () => {
-    const sortedModels = this.getSortedModels();
-    
-    // Convert to dropdown options with size and parameters as secondary text
-    return sortedModels.map(model => ({
-      id: `${model.name}-${model.tag}`,
-      primaryText: model.name,
-      secondaryText: `${this.formatFileSize(model.size)}${model.details?.parameter_size ? ` • ${model.details.parameter_size}` : ''}`
-    }));
-  };
 
   renderModelsTable = () => {
-    const { selectedModelId, expandedModelId } = this.state;
-    const sortedModels = this.getSortedModels();
-    
-    // Filter to selected model if one is selected
-    const displayModels = selectedModelId 
-      ? sortedModels.filter(model => `${model.name}-${model.tag}` === selectedModelId)
-      : sortedModels;
+    const { selectedModelId, expandedModelId, installations } = this.state;
+    const { models: displayModels, totalItems, totalPages, currentPage, itemsPerPage } = this.getPaginatedModels();
 
-    if (displayModels.length === 0) {
+    if (totalItems === 0 && installations.length === 0) {
       return (
         <div className="models-table-empty">
           <p>No models found on this server</p>
@@ -679,17 +1014,6 @@ class ComponentOllamaServer extends React.Component<OllamaServerComponentProps, 
                 )}
               </th>
               <th 
-                className={`sortable-header ${this.state.sortBy === 'modified' ? 'active' : ''}`}
-                onClick={() => this.handleSortChange('modified')}
-              >
-                Modified
-                {this.state.sortBy === 'modified' && (
-                  <span className="sort-indicator">
-                    {this.state.sortOrder === 'asc' ? '↑' : '↓'}
-                  </span>
-                )}
-              </th>
-              <th 
                 className={`sortable-header ${this.state.sortBy === 'family' ? 'active' : ''}`}
                 onClick={() => this.handleSortChange('family')}
               >
@@ -700,31 +1024,70 @@ class ComponentOllamaServer extends React.Component<OllamaServerComponentProps, 
                   </span>
                 )}
               </th>
-              <th 
-                className={`sortable-header ${this.state.sortBy === 'parameters' ? 'active' : ''}`}
-                onClick={() => this.handleSortChange('parameters')}
-              >
-                Parameters
-                {this.state.sortBy === 'parameters' && (
-                  <span className="sort-indicator">
-                    {this.state.sortOrder === 'asc' ? '↑' : '↓'}
-                  </span>
-                )}
-              </th>
-              <th 
-                className={`sortable-header ${this.state.sortBy === 'quantization' ? 'active' : ''}`}
-                onClick={() => this.handleSortChange('quantization')}
-              >
-                Quantization
-                {this.state.sortBy === 'quantization' && (
-                  <span className="sort-indicator">
-                    {this.state.sortOrder === 'asc' ? '↑' : '↓'}
-                  </span>
-                )}
+              <th className="table-header-actions">
+                Remove
               </th>
             </tr>
           </thead>
           <tbody>
+            {/* Installation Progress Rows */}
+            {installations.map((installation) => (
+              <tr key={`install-${installation.id}`} className="table-row-installation">
+                <td className="model-name-cell">
+                  <div className="model-name-content">
+                    <span className="model-name">{installation.modelName}</span>
+                    <div className="installation-status-inline">
+                      {installation.status === 'pending' && 'Queued...'}
+                      {installation.status === 'downloading' && (
+                        installation.progress > 0 ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <div className="installation-progress-bar-inline">
+                              <div 
+                                className="installation-progress-fill-inline" 
+                                style={{ width: `${installation.progress}%` }}
+                              />
+                            </div>
+                            <span>Downloading... {installation.progress}%</span>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <div className="spinner-small" />
+                            <span>Downloading...</span>
+                          </div>
+                        )
+                      )}
+                      {installation.status === 'completed' && (
+                        <span className="installation-completed">
+                          {installation.customMessage 
+                            ? `✓ ${installation.customMessage}`
+                            : '✓ Installation completed'
+                          }
+                        </span>
+                      )}
+                      {installation.status === 'error' && (
+                        <span className="installation-error">✗ Failed: {installation.error}</span>
+                      )}
+                    </div>
+                  </div>
+                </td>
+                <td>-</td>
+                <td>-</td>
+                <td>
+                  <button
+                    className="button-icon small delete-button"
+                    onClick={() => this.removeInstallation(installation.id)}
+                    aria-label="Remove installation"
+                    title="Remove installation"
+                  >
+                    <CloseIcon />
+                  </button>
+                </td>
+              </tr>
+            ))}
+
+
+
+            {/* Regular Model Rows */}
             {displayModels.map((model) => {
               const modelId = `${model.name}-${model.tag}`;
               const isExpanded = expandedModelId === modelId;
@@ -742,48 +1105,60 @@ class ComponentOllamaServer extends React.Component<OllamaServerComponentProps, 
                       </div>
                     </td>
                     <td>{this.formatFileSize(model.size)}</td>
-                    <td>{this.formatDate(model.modified_at)}</td>
                     <td>{model.details?.family || '-'}</td>
-                    <td>{model.details?.parameter_size || '-'}</td>
-                    <td>{model.details?.quantization_level || '-'}</td>
+                    <td>
+                      <button
+                        className="button-icon small delete-button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          this.handleModelAction('delete', modelId);
+                        }}
+                        aria-label={`Delete ${model.name}`}
+                        title={`Delete ${model.name}`}
+                      >
+                        <TrashIcon />
+                      </button>
+                    </td>
                   </tr>
                   {isExpanded && (
                     <tr className="model-actions-row">
-                      <td colSpan={6}>
+                      <td colSpan={4}>
                         <div className="model-actions">
-                          <div className="model-actions-info">
+                          <div className="model-actions-grid">
                             <div className="action-info-item">
-                              <span className="label">License:</span>
-                              <span className="value">{model.details?.license || 'Not specified'}</span>
+                              <span className="label">Modified:</span>
+                              <span className="value">{this.formatDate(model.modified_at)}</span>
                             </div>
+                            <div className="action-info-item">
+                              <span className="label">Parameters:</span>
+                              <span className="value">{model.details?.parameter_size || 'Not specified'}</span>
+                            </div>
+                            <div className="action-info-item">
+                              <span className="label">Quantization:</span>
+                              <span className="value">{model.details?.quantization_level || 'Not specified'}</span>
+                            </div>
+                            <div className="action-info-item">
+                              <span className="label">Format:</span>
+                              <span className="value">{model.details?.format || 'Not specified'}</span>
+                            </div>
+                            {model.details?.license && (
+                              <div className="action-info-item">
+                                <span className="label">License:</span>
+                                <span className="value">{model.details.license}</span>
+                              </div>
+                            )}
                             {model.details?.template && (
                               <div className="action-info-item">
                                 <span className="label">Template:</span>
                                 <span className="value template-preview">{model.details.template.substring(0, 100)}...</span>
                               </div>
                             )}
-                          </div>
-                          <div className="model-actions-buttons">
-                            <button
-                              className="button button-secondary"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                this.handleModelAction('copy', modelId);
-                              }}
-                            >
-                              <TagIcon />
-                              <span>Copy Model</span>
-                            </button>
-                            <button
-                              className="button button-danger"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                this.handleModelAction('delete', modelId);
-                              }}
-                            >
-                              <TrashIcon />
-                              <span>Delete Model</span>
-                            </button>
+                            {model.details?.system && (
+                              <div className="action-info-item">
+                                <span className="label">System:</span>
+                                <span className="value template-preview">{model.details.system.substring(0, 100)}...</span>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -794,6 +1169,71 @@ class ComponentOllamaServer extends React.Component<OllamaServerComponentProps, 
             })}
           </tbody>
         </table>
+        
+        {/* Pagination Controls */}
+        <div className="pagination-container">
+          <div className="pagination-info">
+            <span>
+              Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems} models
+            </span>
+          </div>
+          
+          <div className="pagination-controls">
+            <div className="pagination-items-per-page">
+              <label htmlFor="items-per-page">Items per page:</label>
+              <select
+                id="items-per-page"
+                value={itemsPerPage}
+                onChange={(e) => this.handleItemsPerPageChange(Number(e.target.value))}
+                className="pagination-select"
+              >
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+              </select>
+            </div>
+            
+            <div className="pagination-buttons">
+              <button
+                className="pagination-button"
+                onClick={() => this.handlePageChange(1)}
+                disabled={currentPage === 1}
+                aria-label="First page"
+              >
+                «
+              </button>
+              <button
+                className="pagination-button"
+                onClick={() => this.handlePageChange(currentPage - 1)}
+                disabled={currentPage === 1}
+                aria-label="Previous page"
+              >
+                ‹
+              </button>
+              
+              {/* Page numbers */}
+              {this.renderPageNumbers(currentPage, totalPages)}
+              
+              <button
+                className="pagination-button"
+                onClick={() => this.handlePageChange(currentPage + 1)}
+                disabled={currentPage === totalPages}
+                aria-label="Next page"
+              >
+                ›
+              </button>
+              <button
+                className="pagination-button"
+                onClick={() => this.handlePageChange(totalPages)}
+                disabled={currentPage === totalPages}
+                aria-label="Last page"
+              >
+                »
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     );
   };
@@ -1057,25 +1497,42 @@ class ComponentOllamaServer extends React.Component<OllamaServerComponentProps, 
               <label className="input-label">
                 {selectedModelId ? 'Selected Model' : 'Filter Models'}
               </label>
-              <CustomDropdown
-                options={dropdownOptions}
-                selectedId={selectedModelId || ''}
-                onChange={this.handleModelSelection}
-                placeholder="Select a model"
-                disabled={modelsLoading || models.length === 0}
-                ariaLabel="Select Ollama model"
-              />
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.75rem' }}>
+                <CustomDropdown
+                  options={dropdownOptions}
+                  selectedId={selectedModelId || ''}
+                  onChange={this.handleModelSelection}
+                  placeholder="Select a model"
+                  disabled={modelsLoading || models.length === 0}
+                  ariaLabel="Select Ollama model"
+                />
+                {selectedModelId && (
+                  <button
+                    className="button button-secondary"
+                    onClick={() => this.setState({ selectedModelId: null, expandedModelId: null })}
+                    style={{ height: '40px', padding: '0.5rem 1rem' }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                      <CloseIcon />
+                      <span style={{ marginLeft: '0.5rem' }}>Clear Filter</span>
+                    </div>
+                  </button>
+                )}
+              </div>
             </div>
             <div className="model-controls-buttons">
-              {selectedModelId && (
-                <button
-                  className="button button-secondary"
-                  onClick={() => this.setState({ selectedModelId: null, expandedModelId: null })}
-                >
-                  <CloseIcon />
-                  <span>Clear Filter</span>
-                </button>
-              )}
+              <button
+                className="button button-primary"
+                onClick={this.openInstallModal}
+                disabled={!activeServerId}
+              >
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <div style={{ marginRight: '8px' }}>
+                    <PlusIcon />
+                  </div>
+                  <span>Install Model</span>
+                </div>
+              </button>
               <button
                 className="button button-secondary"
                 onClick={() => this.loadModels(server.id)}
@@ -1174,6 +1631,15 @@ class ComponentOllamaServer extends React.Component<OllamaServerComponentProps, 
         <div className="ollama-paper">
           <div className="ollama-server-layout">
             {this.renderTabs()}
+            <ModelInstallDialog
+              isOpen={this.state.showInstallModal}
+              onClose={this.closeInstallModal}
+              onInstall={this.startModelInstallation}
+              isLoading={false}
+              services={this.props.services}
+              serverAddress={this.state.activeServerId ? (this.state.servers.find(s => s.id === this.state.activeServerId)?.serverAddress || '') : ''}
+              apiKey={this.state.activeServerId ? (this.state.servers.find(s => s.id === this.state.activeServerId)?.apiKey || '') : ''}
+            />
           </div>
         </div>
       </div>

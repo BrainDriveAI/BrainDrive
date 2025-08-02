@@ -451,7 +451,7 @@ class CustomDropdown extends React.Component<CustomDropdownProps, CustomDropdown
         >
           {isOpen && searchTerm ? (
             <div className="dropdown-selected-content">
-              <div className="dropdown-option-primary search-input">{searchTerm}</div>
+              <div className="dropdown-option-primary">{searchTerm}</div>
               <div className="dropdown-option-secondary">Type to search...</div>
             </div>
           ) : selectedOption ? (
