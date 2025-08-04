@@ -5,6 +5,7 @@ from typing import Dict, Type, List, Any
 from .base import AIProvider
 from .ollama import OllamaProvider
 from .openai import OpenAIProvider
+from .openrouter import OpenRouterProvider
 
 class AIProviderRegistry:
     """Registry for AI providers."""
@@ -16,6 +17,7 @@ class AIProviderRegistry:
         # Register built-in providers
         self.register_provider("ollama", OllamaProvider)
         self.register_provider("openai", OpenAIProvider)
+        self.register_provider("openrouter", OpenRouterProvider)
     
     def register_provider(self, name: str, provider_class: Type[AIProvider]) -> None:
         """Register a new provider class."""
