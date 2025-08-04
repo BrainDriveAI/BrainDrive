@@ -151,6 +151,24 @@ async def get_provider_instance_from_request(request, db):
                 "server_name": "OpenAI API"
             }
             logger.info(f"Created OpenAI config with API key")
+        elif request.provider == "openrouter":
+            # OpenRouter uses simple api_key structure (similar to OpenAI)
+            logger.info("Processing OpenRouter provider configuration")
+            api_key = value_dict.get("api_key", "")
+            if not api_key:
+                logger.error("OpenRouter API key is missing")
+                raise HTTPException(
+                    status_code=400,
+                    detail="OpenRouter API key is required. Please configure your OpenRouter API key in settings."
+                )
+            
+            # For OpenRouter, we create a virtual server configuration
+            config = {
+                "api_key": api_key,
+                "server_url": "https://openrouter.ai/api/v1",  # OpenRouter API URL
+                "server_name": "OpenRouter API"
+            }
+            logger.info(f"Created OpenRouter config with API key")
         else:
             # Other providers (like Ollama) use servers array
             logger.info("Processing server-based provider configuration")
@@ -286,28 +304,15 @@ async def get_models(
         # Extract configuration from settings value
         # Parse the JSON string if value is a string
         setting_value = setting['value'] if isinstance(setting, dict) else setting.value
-        
         if isinstance(setting_value, str):
             try:
-                # First parse
                 value_dict = json.loads(setting_value)
-                print(f"Parsed JSON string into: {value_dict}")
-                
-                # Check if the result is still a string (double-encoded JSON)
-                if isinstance(value_dict, str):
-                    print("Value is double-encoded JSON, parsing again")
-                    value_dict = json.loads(value_dict)
-                    print(f"Parsed double-encoded JSON into: {value_dict}")
-                
-                # Now value_dict should be a dictionary
-                if not isinstance(value_dict, dict):
-                    print(f"Error: value_dict is not a dictionary: {type(value_dict)}")
-                    raise HTTPException(status_code=500, detail=f"Error parsing settings value: expected dict, got {type(value_dict)}")
-            except json.JSONDecodeError as e:
-                print(f"Error parsing JSON string: {e}")
-                raise HTTPException(status_code=500, detail=f"Error parsing settings value: {str(e)}")
+            except json.JSONDecodeError:
+                raise HTTPException(status_code=400, detail="Invalid settings value format")
         else:
             value_dict = setting_value
+        
+        print(f"Parsed settings value: {value_dict}")
         
         # Handle different provider configurations
         if provider == "openai":
@@ -322,6 +327,18 @@ async def get_models(
                 "server_name": "OpenAI API"
             }
             print(f"Created OpenAI config with API key")
+        elif provider == "openrouter":
+            # OpenRouter uses simple api_key structure
+            api_key = value_dict.get("api_key", "")
+            if not api_key:
+                raise HTTPException(status_code=400, detail="OpenRouter API key is required")
+            
+            config = {
+                "api_key": api_key,
+                "server_url": "https://openrouter.ai/api/v1",  # OpenRouter API URL
+                "server_name": "OpenRouter API"
+            }
+            print(f"Created OpenRouter config with API key")
         else:
             # Other providers (like Ollama) use servers array
             servers = value_dict.get("servers", [])

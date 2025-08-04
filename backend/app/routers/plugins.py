@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text
 from ..plugins import PluginManager
 from ..plugins.repository import PluginRepository
-from ..core.database import get_db, db_factory
+from ..core.database import get_db
 from ..models.plugin import Plugin, Module
 from ..models.user import User
 from ..core.security import get_current_user
@@ -75,8 +75,7 @@ async def startup_event():
     await plugin_manager.initialize()
     
     # Discover plugins for all users
-    try:
-        db = db_factory.session_factory()
+    async for db in get_db():
         # Get all users
         result = await db.execute(select(User))
         users = result.scalars().all()
@@ -85,10 +84,7 @@ async def startup_event():
         for user in users:
             await plugin_manager._discover_plugins(user_id=user.id)
         
-        await db.close()
-    except Exception as e:
-        logger.warning(f"Could not discover plugins for users during startup: {e}")
-        # Continue startup even if plugin discovery fails
+        break  # Only need one session
 
 @router.get("/plugins/manifest", dependencies=[Depends(oauth2_scheme)])
 async def get_plugin_manifest(current_user: User = Depends(get_current_user)):
@@ -1116,7 +1112,7 @@ async def serve_plugin_static(
         shared_plugin_dir = PLUGINS_DIR.parent / "backend" / "plugins" / "shared" / plugin.plugin_slug
         possible_paths.append(shared_plugin_dir / path)
 
-    # 3. Backend plugins directory (where webpack builds to) - ESSENTIAL FOR BUILD
+    # 3. Backend plugins directory (where webpack builds to)
     if plugin.plugin_slug:
         backend_plugin_dir = PLUGINS_DIR.parent / "backend" / "plugins" / plugin.plugin_slug
         possible_paths.append(backend_plugin_dir / path)
@@ -1206,21 +1202,27 @@ async def serve_plugin_static_public(
         possible_paths.append(shared_plugin_dir / path)
         logger.debug(f"Added new architecture path without version: {shared_plugin_dir / path}")
 
-    # 3. User-specific directory with plugin_slug
+    # 3. Backend plugins directory (where webpack builds to)
+    if plugin.plugin_slug:
+        backend_plugin_dir = PLUGINS_DIR.parent / "backend" / "plugins" / plugin.plugin_slug
+        possible_paths.append(backend_plugin_dir / path)
+        logger.debug(f"Added backend plugins path: {backend_plugin_dir / path}")
+
+    # 4. User-specific directory with plugin_slug
     if plugin.user_id and plugin.plugin_slug:
         user_plugin_dir = PLUGINS_DIR / plugin.user_id / plugin.plugin_slug
         possible_paths.append(user_plugin_dir / path)
     
-    # 4. User-specific directory with plugin ID
+    # 5. User-specific directory with plugin ID
     if plugin.user_id:
         user_plugin_dir = PLUGINS_DIR / plugin.user_id / plugin.id
         possible_paths.append(user_plugin_dir / path)
     
-    # 5. Legacy path directly under plugins directory with plugin_slug
+    # 6. Legacy path directly under plugins directory with plugin_slug
     if plugin.plugin_slug:
         possible_paths.append(PLUGINS_DIR / plugin.plugin_slug / path)
     
-    # 6. Legacy path directly under plugins directory with plugin ID
+    # 7. Legacy path directly under plugins directory with plugin ID
     possible_paths.append(PLUGINS_DIR / plugin.id / path)
     
     # Try each path

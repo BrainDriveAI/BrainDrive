@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 def mask_sensitive_data(definition_id: str, value: any) -> any:
     """
     Mask sensitive data in settings values to prevent exposure to frontend.
-    Currently handles OpenAI API keys.
+    Currently handles OpenAI and OpenRouter API keys.
     """
     if not value:
         return value
@@ -45,6 +45,20 @@ def mask_sensitive_data(definition_id: str, value: any) -> any:
                     "api_key": masked_key,
                     "_has_key": bool(api_key.strip()),
                     "_key_valid": bool(api_key.startswith('sk-') and len(api_key) >= 23)
+                }
+    
+    # Handle OpenRouter API keys
+    if definition_id == "openrouter_api_keys_settings":
+        if isinstance(value, dict) and "api_key" in value:
+            api_key = value["api_key"]
+            if api_key and len(api_key) >= 11:
+                # Mask the API key (first 7 + last 4 characters)
+                masked_key = api_key[:7] + "..." + api_key[-4:]
+                return {
+                    **value,
+                    "api_key": masked_key,
+                    "_has_key": bool(api_key.strip()),
+                    "_key_valid": bool(api_key.startswith('sk-or-') and len(api_key) >= 26)
                 }
     
     return value
