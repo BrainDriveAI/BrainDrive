@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text
 from ..plugins import PluginManager
 from ..plugins.repository import PluginRepository
-from ..core.database import get_db
+from ..core.database import get_db, db_factory
 from ..models.plugin import Plugin, Module
 from ..models.user import User
 from ..core.security import get_current_user
@@ -75,7 +75,8 @@ async def startup_event():
     await plugin_manager.initialize()
     
     # Discover plugins for all users
-    async for db in get_db():
+    try:
+        db = db_factory.session_factory()
         # Get all users
         result = await db.execute(select(User))
         users = result.scalars().all()
@@ -84,7 +85,10 @@ async def startup_event():
         for user in users:
             await plugin_manager._discover_plugins(user_id=user.id)
         
-        break  # Only need one session
+        await db.close()
+    except Exception as e:
+        logger.warning(f"Could not discover plugins for users during startup: {e}")
+        # Continue startup even if plugin discovery fails
 
 @router.get("/plugins/manifest", dependencies=[Depends(oauth2_scheme)])
 async def get_plugin_manifest(current_user: User = Depends(get_current_user)):
