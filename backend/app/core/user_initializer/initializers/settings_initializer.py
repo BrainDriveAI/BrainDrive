@@ -45,14 +45,14 @@ class SettingsInitializer(UserInitializerBase):
         {
             "id": "ollama_servers_settings",
             "name": "Ollama Servers Settings",
-            "description": "Auto-generated definition for Ollama Servers Settings",
-            "category": "auto_generated",
+            "description": "Configuration for multiple Ollama server connections",
+            "category": "llm_servers",
             "type": "object",
             "default_value": '{"servers": [{"id": "server_1742054635336_5puc3mrll", "serverName": "New Server", "serverAddress": "http://localhost:11434", "apiKey": "", "connectionStatus": "idle"}]}',
-            "allowed_scopes": '["system", "user", "page", "user_page"]',
+            "allowed_scopes": '["user"]',
             "validation": None,
             "is_multiple": False,
-            "tags": '["auto_generated"]'
+            "tags": '["ollama", "llm", "servers", "ai"]'
         },
         {
             "id": "general_settings",
