@@ -326,7 +326,10 @@ export const DynamicPageRenderer: React.FC<DynamicPageRendererProps> = ({ pageId
         
         // Check for cached page first
         const cachedPage = getCachedPage(currentId);
+        console.log('[DynamicPageRenderer] Checking cache for key:', currentId);
+        console.log('[DynamicPageRenderer] Cached page found:', !!cachedPage);
         if (cachedPage) {
+          console.log('[DynamicPageRenderer] Using cached page with modules:', Object.keys(cachedPage.modules || {}));
           // Get module states for this page
           const cachedModuleStates = getModuleStatesForPage(currentId);
           
@@ -552,19 +555,86 @@ export const DynamicPageRenderer: React.FC<DynamicPageRendererProps> = ({ pageId
     
     // Try to get the module definition with different moduleUniqueId formats
     let moduleDefinition = page.modules[moduleUniqueId];
+    let actualModuleKey = moduleUniqueId;
 
-    // If not found, try with underscores removed (for new Plugin Studio format)
+    // If not found, try various format variations for Plugin Studio compatibility
     if (!moduleDefinition) {
-      const moduleUniqueIdWithoutUnderscores = moduleUniqueId.replace(/_/g, '');
-      moduleDefinition = page.modules[moduleUniqueIdWithoutUnderscores];
+      // Try all possible module keys to find a match
+      const moduleKeys = Object.keys(page.modules);
       
+      for (const key of moduleKeys) {
+        // Try exact match first
+        if (key === moduleUniqueId) {
+          moduleDefinition = page.modules[key];
+          actualModuleKey = key;
+          break;
+        }
+        
+        // Try case-insensitive match
+        if (key.toLowerCase() === moduleUniqueId.toLowerCase()) {
+          moduleDefinition = page.modules[key];
+          actualModuleKey = key;
+          break;
+        }
+        
+        // Try matching the base part (before timestamp)
+        const keyBase = key.split('_').slice(0, -1).join('_');
+        const moduleIdBase = moduleUniqueId.split('_').slice(0, -1).join('_');
+        if (keyBase.toLowerCase() === moduleIdBase.toLowerCase()) {
+          moduleDefinition = page.modules[key];
+          actualModuleKey = key;
+          break;
+        }
+        
+        // Try Plugin Studio format compatibility: handle underscore differences
+        // Convert "BrainDriveBasicAIChat_a8e..." to "BrainDriveBasicAIChatA8e..."
+        const normalizedModuleId = moduleUniqueId.replace(/([A-Za-z])_([a-f0-9]{32})/, '$1$2');
+        if (key === normalizedModuleId) {
+          moduleDefinition = page.modules[key];
+          actualModuleKey = key;
+          break;
+        }
+        
+        // Try the reverse: convert "BrainDriveBasicAIChatA8e..." to "BrainDriveBasicAIChat_A8e..."
+        const normalizedKey = key.replace(/([A-Za-z])([a-f0-9]{32})/, '$1_$2');
+        if (normalizedKey === moduleUniqueId) {
+          moduleDefinition = page.modules[key];
+          actualModuleKey = key;
+          break;
+        }
+        
+        // Try case-insensitive version of the normalized formats
+        if (normalizedModuleId.toLowerCase() === key.toLowerCase()) {
+          moduleDefinition = page.modules[key];
+          actualModuleKey = key;
+          break;
+        }
+        
+        if (normalizedKey.toLowerCase() === moduleUniqueId.toLowerCase()) {
+          moduleDefinition = page.modules[key];
+          actualModuleKey = key;
+          break;
+        }
+      }
+      
+      // If still not found, try with underscores removed (legacy compatibility)
       if (!moduleDefinition) {
-        return null;
+        const moduleUniqueIdWithoutUnderscores = moduleUniqueId.replace(/_/g, '');
+        for (const key of moduleKeys) {
+          const keyWithoutUnderscores = key.replace(/_/g, '');
+          if (keyWithoutUnderscores === moduleUniqueIdWithoutUnderscores) {
+            moduleDefinition = page.modules[key];
+            actualModuleKey = key;
+            break;
+          }
+        }
       }
     }
 
-    // If still not found, return null
+    // If still not found, log the issue and return null
     if (!moduleDefinition) {
+      console.warn(`[DynamicPageRenderer] Module not found for ID: ${moduleUniqueId}`);
+      console.warn(`[DynamicPageRenderer] Available module keys:`, Object.keys(page.modules));
       return null;
     }
     
@@ -574,8 +644,8 @@ export const DynamicPageRenderer: React.FC<DynamicPageRendererProps> = ({ pageId
       ...(item.configOverrides || {})
     };
     
-    // Get the current state for this module
-    const currentModuleState = moduleStates[moduleUniqueId];
+    // Get the current state for this module using the actual module key
+    const currentModuleState = moduleStates[actualModuleKey] || moduleStates[moduleUniqueId];
     
     // Check if we have a saved state in the module config (from cache)
     const savedStateFromConfig = moduleDefinition.config?.savedState;
@@ -588,7 +658,7 @@ export const DynamicPageRenderer: React.FC<DynamicPageRendererProps> = ({ pageId
       if (savedStateFromConfig && !currentModuleState) {
         setModuleStates(prev => ({
           ...prev,
-          [moduleUniqueId]: savedStateFromConfig
+          [actualModuleKey]: savedStateFromConfig
         }));
       }
     }
@@ -596,7 +666,7 @@ export const DynamicPageRenderer: React.FC<DynamicPageRendererProps> = ({ pageId
     // Add state persistence props
     const stateProps = {
       initialState: effectiveState,
-      onStateChange: (state: any) => handleModuleStateChange(moduleUniqueId, state),
+      onStateChange: (state: any) => handleModuleStateChange(actualModuleKey, state),
       savedState: effectiveState,
       // Add a timestamp to force the component to recognize the state change
       stateTimestamp: Date.now(),

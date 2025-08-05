@@ -1,0 +1,355 @@
+/* Inherit base styles from ComponentTheme.css */
+@import '../../ComponentTheme.css';
+
+/* Server list styles */
+.ollama-server-layout {
+  display: flex;
+  gap: 20px;
+  min-height: 400px;
+}
+
+.server-list {
+  flex: 0 0 300px;
+  border-right: 1px solid var(--border-color);
+  padding-right: 20px;
+  display: flex;
+  flex-direction: column;
+}
+
+.server-list-title {
+  margin-top: 0;
+  margin-bottom: 16px;
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--text-color);
+}
+
+.no-servers {
+  padding: 20px 0;
+  color: var(--text-color);
+  opacity: 0.7;
+  font-style: italic;
+}
+
+.server-items {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 20px 0;
+  flex-grow: 1;
+  overflow-y: auto;
+}
+
+.server-item {
+  padding: 12px;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  border: 1px solid var(--border-color);
+  background-color: var(--input-bg);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.server-item:hover {
+  border-color: var(--button-primary-bg);
+}
+
+.server-item.active {
+  border-color: var(--button-primary-bg);
+  background-color: rgba(33, 150, 243, 0.1);
+}
+
+.server-item-content {
+  flex-grow: 1;
+}
+
+.server-name {
+  font-weight: 500;
+  margin-bottom: 4px;
+  color: var(--text-color);
+}
+
+.server-address {
+  font-size: 12px;
+  color: var(--text-color);
+  opacity: 0.7;
+}
+
+.server-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  margin-left: 8px;
+}
+
+.status-success {
+  color: var(--status-success-color);
+}
+
+.status-error {
+  color: var(--status-error-color);
+}
+
+.status-checking {
+  color: var(--status-checking-color);
+}
+
+.spinner-small {
+  border: 2px solid rgba(0, 0, 0, 0.1);
+  border-top: 2px solid var(--button-primary-bg);
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  animation: spin 1s linear infinite;
+}
+
+.dark-theme .spinner-small {
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-top: 2px solid var(--button-primary-bg);
+}
+
+.add-server-button {
+  margin-top: auto;
+}
+
+/* Server detail styles */
+.server-detail {
+  flex: 1;
+  min-width: 0;
+}
+
+.server-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.server-detail-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--text-color);
+}
+
+.button-icon {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-color);
+  opacity: 0.7;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: opacity 0.2s ease, background-color 0.2s ease;
+}
+
+.button-icon:hover {
+  opacity: 1;
+  background-color: var(--button-secondary-bg);
+}
+
+.server-detail-placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.placeholder-content {
+  text-align: center;
+  color: var(--text-color);
+  opacity: 0.7;
+}
+
+.placeholder-content svg {
+  width: 40px;
+  height: 40px;
+}
+
+.placeholder-content p {
+  margin: 0;
+  font-size: 16px;
+}
+
+/* Form styles */
+.form-section {
+  margin-bottom: 20px;
+}
+
+.form-row {
+  margin-bottom: 16px;
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.input-label {
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: var(--text-color);
+}
+
+.label-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.label-description {
+  font-size: 12px;
+  opacity: 0.7;
+  font-weight: normal;
+}
+
+.input-field {
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background-color: var(--input-bg);
+  color: var(--text-color);
+  font-size: 14px;
+  transition: border-color 0.2s ease;
+}
+
+.input-field:focus {
+  outline: none;
+  border-color: var(--button-primary-bg);
+}
+
+.button-group {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.button {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background-color 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.button-primary {
+  background-color: var(--button-primary-bg);
+  color: var(--button-primary-text);
+}
+
+.button-primary:hover {
+  background-color: var(--button-primary-hover);
+}
+
+.button-secondary {
+  background-color: var(--button-secondary-bg);
+  color: var(--button-secondary-text);
+  border: 1px solid var(--border-color);
+}
+
+.button-secondary:hover {
+  background-color: var(--button-secondary-hover);
+}
+
+.button-danger {
+  background-color: var(--status-error-color);
+  color: white;
+}
+
+.button-danger:hover {
+  background-color: #d32f2f;
+}
+
+/* Status indicators */
+.status-indicator {
+  padding: 12px;
+  border-radius: 4px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-indicator.status-success {
+  background-color: rgba(76, 175, 80, 0.1);
+  border: 1px solid var(--status-success-color);
+  color: var(--status-success-color);
+}
+
+.status-indicator.status-error {
+  background-color: rgba(244, 67, 54, 0.1);
+  border: 1px solid var(--status-error-color);
+  color: var(--status-error-color);
+}
+
+.status-indicator.status-checking {
+  background-color: rgba(255, 193, 7, 0.1);
+  border: 1px solid var(--status-checking-color);
+  color: var(--status-checking-color);
+}
+
+/* Loading spinner */
+.loading-spinner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  gap: 16px;
+}
+
+.spinner {
+  border: 3px solid rgba(0, 0, 0, 0.1);
+  border-top: 3px solid var(--button-primary-bg);
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  animation: spin 1s linear infinite;
+}
+
+.dark-theme .spinner {
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  border-top: 3px solid var(--button-primary-bg);
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .ollama-server-layout {
+    flex-direction: column;
+    gap: 16px;
+  }
+  
+  .server-list {
+    flex: none;
+    border-right: none;
+    border-bottom: 1px solid var(--border-color);
+    padding-right: 0;
+    padding-bottom: 16px;
+  }
+  
+  .button-group {
+    flex-direction: column;
+  }
+  
+  .button {
+    justify-content: center;
+  }
+}

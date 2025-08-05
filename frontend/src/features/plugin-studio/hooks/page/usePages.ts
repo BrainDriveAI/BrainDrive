@@ -393,7 +393,10 @@ export const usePages = () => {
         
         // Clear the page cache to ensure fresh data is loaded next time
         console.log('Clearing page cache after saving existing page');
+        console.log('Page route being saved:', updatedPage.route);
+        console.log('Expected cache key would be: route:' + updatedPage.route);
         clearCache();
+        console.log('Cache cleared successfully');
         
         return transformedPage;
       }

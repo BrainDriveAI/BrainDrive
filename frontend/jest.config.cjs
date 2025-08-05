@@ -2,11 +2,13 @@ module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'jsdom',
   setupFilesAfterEnv: [
-    '<rootDir>/src/features/unified-dynamic-page-renderer/tests/setup.ts',
     '@testing-library/jest-dom'
   ],
-  moduleNameMapping: {
+  moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
+    '^../config$': '<rootDir>/src/features/plugin-studio/tests/__mocks__/config.ts',
+    '^../../config$': '<rootDir>/src/features/plugin-studio/tests/__mocks__/config.ts',
+    '^../../../config$': '<rootDir>/src/features/plugin-studio/tests/__mocks__/config.ts',
   },
   testMatch: [
     '<rootDir>/src/**/__tests__/**/*.(ts|tsx)',
@@ -25,4 +27,11 @@ module.exports = {
   },
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   testPathIgnorePatterns: ['/node_modules/', '/dist/'],
+  globals: {
+    'ts-jest': {
+      tsconfig: {
+        jsx: 'react-jsx',
+      },
+    },
+  },
 };

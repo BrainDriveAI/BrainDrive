@@ -14,6 +14,7 @@ import { PluginStudioPage } from '../features/plugin-studio';
 import Settings from '../pages/Settings';
 import PluginManagerPage from '../pages/PluginManagerPage';
 import PersonasPage from '../pages/PersonasPage';
+import BannerPage from './BannerPage';
 
 
 

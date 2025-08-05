@@ -109,6 +109,25 @@ export const UnifiedPageRenderer: React.FC<UnifiedPageRendererProps> = ({
     }
   }, [pageError, handleError]);
 
+  // Context value - MUST be before any conditional returns to follow Rules of Hooks
+  const contextValue = useMemo(() => ({
+    pageData: pageData!, // We know pageData exists when this is used (after error checks)
+    mode: currentMode,
+    responsive,
+    breakpoints,
+    containerQueries,
+    lazyLoading,
+    preloadPlugins,
+  }), [
+    pageData,
+    currentMode,
+    responsive,
+    breakpoints,
+    containerQueries,
+    lazyLoading,
+    preloadPlugins,
+  ]);
+
   // Loading state
   if (isLoading || pageLoading) {
     return (
@@ -148,25 +167,6 @@ export const UnifiedPageRenderer: React.FC<UnifiedPageRendererProps> = ({
       </div>
     );
   }
-
-  // Context value
-  const contextValue = useMemo(() => ({
-    pageData,
-    mode: currentMode,
-    responsive,
-    breakpoints,
-    containerQueries,
-    lazyLoading,
-    preloadPlugins,
-  }), [
-    pageData,
-    currentMode,
-    responsive,
-    breakpoints,
-    containerQueries,
-    lazyLoading,
-    preloadPlugins,
-  ]);
 
   return (
     <ErrorBoundary

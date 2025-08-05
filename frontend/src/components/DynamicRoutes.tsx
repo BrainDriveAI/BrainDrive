@@ -107,7 +107,7 @@ function renderDynamicRoutes(hierarchy: PageHierarchy, navigationRoutes: Navigat
                 <Route 
                   key={childPage.id} 
                   path={childSegment} 
-                  element={<DynamicPageRenderer pageId={childPage.id} />} 
+                  element={<DynamicPageRenderer pageId={childPage.id} />}
                 />
               );
             })}
@@ -119,7 +119,7 @@ function renderDynamicRoutes(hierarchy: PageHierarchy, navigationRoutes: Navigat
           <Route 
             key={page.id} 
             path={page.route} 
-            element={<DynamicPageRenderer pageId={page.id} />} 
+            element={<DynamicPageRenderer pageId={page.id} />}
           />
         );
       }
@@ -134,7 +134,7 @@ function renderDynamicRoutes(hierarchy: PageHierarchy, navigationRoutes: Navigat
           <Route 
             key={`${navRoute.route}-${page.id}`} 
             path={page.route} 
-            element={<DynamicPageRenderer pageId={page.id} />} 
+            element={<DynamicPageRenderer pageId={page.id} />}
           />
         );
       });
