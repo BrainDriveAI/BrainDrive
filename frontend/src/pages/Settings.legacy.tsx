@@ -36,7 +36,7 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import { useTheme } from '../contexts/ServiceContext';
 import { getAllModules, getModuleById } from '../plugins';
 import { DynamicModuleConfig } from '../types/index';
-import { LegacyModuleAdapter } from '../features/unified-dynamic-page-renderer/adapters';
+import { PluginModuleRenderer } from '../components/PluginModuleRenderer';
 import { useApi } from '../contexts/ServiceContext';
 
 // Interface for settings plugin with additional metadata
@@ -481,18 +481,11 @@ const Settings = () => {
                     avatar={<SettingsIcon />}
                   />
                   <CardContent sx={{ flexGrow: 1, overflow: 'auto', minHeight: '200px' }}>
-                    <LegacyModuleAdapter
+                    <PluginModuleRenderer
                       pluginId={plugin.pluginId}
                       moduleId={plugin.moduleId}
                       moduleName={plugin.moduleName}
                       isLocal={false}
-                      useUnifiedRenderer={true}
-                      mode="published"
-                      lazyLoading={true}
-                      priority="normal"
-                      enableMigrationWarnings={process.env.NODE_ENV === 'development'}
-                      fallbackStrategy="on-error"
-                      performanceMonitoring={process.env.NODE_ENV === 'development'}
                     />
                   </CardContent>
                 </Card>

@@ -267,6 +267,9 @@ export class ServiceBridgeV2Implementation implements ServiceBridgeV2 {
     this.registerService('cache', new CacheServiceImpl());
     this.registerService('performance', new PerformanceServiceImpl());
     this.registerService('responsive', new ResponsiveServiceImpl());
+    
+    // Add settings service for plugin compatibility
+    this.registerService('settings', new SettingsServiceImpl());
   }
 
   /**
@@ -481,6 +484,169 @@ class ResponsiveServiceImpl implements ResponsiveService {
 
   generateResponsiveStyles(config: any): string {
     return '';
+  }
+}
+
+/**
+ * Enhanced Settings Service Implementation with Backend Integration
+ */
+class SettingsServiceImpl {
+  private settings = new Map<string, any>();
+  private subscriptions = new Map<string, Set<(value: any) => void>>();
+  private initialized = false;
+
+  constructor() {
+    // Ensure subscribe method is always bound and available
+    this.subscribe = this.subscribe.bind(this);
+    this.subscribeTo = this.subscribeTo.bind(this);
+    console.log('[SettingsService] Initialized with subscribe method:', typeof this.subscribe);
+    
+    // Initialize with some mock data for Ollama servers
+    this.initializeMockData();
+  }
+
+  private async initializeMockData(): Promise<void> {
+    // Initialize with mock Ollama server data to simulate backend data
+    // The plugin expects the data in a specific format - let's try different formats
+    const mockOllamaServers = {
+      servers: [
+        {
+          id: 'default-ollama',
+          name: 'Default Ollama Server',
+          url: 'http://localhost:11434',
+          status: 'connected',
+          models: ['llama2', 'codellama', 'mistral']
+        }
+      ]
+    };
+    
+    // Also try setting it as a direct array and as a settings object
+    this.settings.set('value_ollama_servers_settings', mockOllamaServers);
+    this.settings.set('value_ollama_servers', mockOllamaServers.servers);
+    this.settings.set('value_servers', mockOllamaServers.servers);
+    
+    console.log('[SettingsService] Initialized with mock Ollama server data:', mockOllamaServers);
+    this.initialized = true;
+  }
+
+  // Settings service methods that plugins expect
+  registerSettingDefinition(definition: any): void {
+    console.log('[SettingsService] Registering setting definition:', definition);
+    // Store the definition for later use
+    if (definition && definition.id) {
+      this.settings.set(`definition_${definition.id}`, definition);
+      
+      // If this is the ollama servers setting and we have subscribers, notify them
+      if (definition.id === 'ollama_servers_settings') {
+        const callbacks = this.subscriptions.get('ollama_servers_settings');
+        if (callbacks && callbacks.size > 0) {
+          const currentValue = this.getSettingValue('ollama_servers_settings');
+          console.log('[SettingsService] Notifying existing subscribers with current value:', currentValue);
+          callbacks.forEach(callback => {
+            try {
+              callback(currentValue);
+            } catch (error) {
+              console.error('[SettingsService] Error in notification callback:', error);
+            }
+          });
+        }
+      }
+    }
+  }
+
+  getSettingValue(key: string): any {
+    const value = this.settings.get(`value_${key}`);
+    console.log(`[SettingsService] Getting setting value for '${key}':`, value);
+    return value;
+  }
+
+  setSettingValue(key: string, value: any): void {
+    this.settings.set(`value_${key}`, value);
+    console.log('[SettingsService] Setting value:', key, value);
+    
+    // Notify all subscribers of this setting
+    const callbacks = this.subscriptions.get(key);
+    if (callbacks) {
+      callbacks.forEach(callback => {
+        try {
+          callback(value);
+        } catch (error) {
+          console.error('[SettingsService] Error in subscription callback:', error);
+        }
+      });
+    }
+  }
+
+  subscribeTo(key: string, callback: (value: any) => void): () => void {
+    console.log('[SettingsService] Subscribing to setting:', key);
+    
+    // Add callback to subscriptions
+    if (!this.subscriptions.has(key)) {
+      this.subscriptions.set(key, new Set());
+    }
+    this.subscriptions.get(key)!.add(callback);
+    
+    // Immediately call callback with current value if it exists
+    const currentValue = this.getSettingValue(key);
+    if (currentValue !== undefined) {
+      console.log(`[SettingsService] Calling subscriber immediately with current value for '${key}':`, currentValue);
+      setTimeout(() => {
+        try {
+          callback(currentValue);
+        } catch (error) {
+          console.error('[SettingsService] Error in initial callback:', error);
+        }
+      }, 0);
+    } else {
+      console.log(`[SettingsService] No current value found for '${key}', subscriber will wait for updates`);
+    }
+    
+    // Return unsubscribe function
+    return () => {
+      console.log('[SettingsService] Unsubscribing from setting:', key);
+      const callbacks = this.subscriptions.get(key);
+      if (callbacks) {
+        callbacks.delete(callback);
+        if (callbacks.size === 0) {
+          this.subscriptions.delete(key);
+        }
+      }
+    };
+  }
+
+  // Primary method that plugins expect for subscription - ensure it's always available
+  subscribe(key: string, callback: (value: any) => void): () => void {
+    console.log('[SettingsService] Subscribe method called for:', key);
+    return this.subscribeTo(key, callback);
+  }
+
+  // Additional methods that might be expected
+  getAllSettings(): Record<string, any> {
+    const result: Record<string, any> = {};
+    for (const [key, value] of this.settings) {
+      if (key.startsWith('value_')) {
+        result[key.substring(6)] = value;
+      }
+    }
+    return result;
+  }
+
+  hasSettingDefinition(id: string): boolean {
+    return this.settings.has(`definition_${id}`);
+  }
+
+  // Method to check if service is properly initialized
+  isReady(): boolean {
+    return typeof this.subscribe === 'function' && typeof this.subscribeTo === 'function' && this.initialized;
+  }
+
+  // Get subscription count for debugging
+  getSubscriptionCount(): number {
+    let total = 0;
+    for (const callbacks of this.subscriptions.values()) {
+      total += callbacks.size;
+    }
+    return total;
   }
 }
 

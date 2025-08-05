@@ -16,6 +16,10 @@ export { usePageLoader } from './hooks/usePageLoader';
 export { useErrorHandler } from './hooks/useErrorHandler';
 export { useBreakpoint } from './hooks/useBreakpoint';
 
+// Legacy Adapter exports
+export { LegacyModuleAdapter, LegacyPluginModuleRenderer } from './adapters';
+export type { LegacyModuleAdapterProps, LegacyAdapterConfig } from './adapters';
+
 // Type exports
 export * from './types';
 
