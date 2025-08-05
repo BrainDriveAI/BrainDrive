@@ -90,21 +90,6 @@ Once running:
 
 ---
 
-## 🧬 Database Migrations (Alembic)
-
-```bash
-# Create a new revision
-d alembic revision --autogenerate -m "Add new field"
-
-# Apply migrations
-alembic upgrade head
-
-# Downgrade (if needed)
-alembic downgrade <revision>
-```
-
----
-
 ## 🧪 Development Workflow
 
 1. Activate your environment (`conda activate BrainDriveDev` or `source venv/bin/activate`)

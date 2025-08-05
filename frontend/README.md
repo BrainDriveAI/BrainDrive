@@ -1,10 +1,12 @@
 # BrainDrive PluginStudio
 
-## Overview
+A drag-and-drop interface for building AI powered applications using BrainDrive Plugins.
 
-BrainDrive PluginStudio is a powerful and flexible frontend application for creating, managing, and visualizing plugins within the BrainDrive ecosystem. It provides a drag-and-drop interface for building plugin-based applications with a responsive grid layout system.
+Create responsive, interactive applications without coding. Built for both developers and everyday owners looking to customize their BrainDrive.
 
-PluginStudio allows developers and non-technical users alike to create dynamic, interactive applications by arranging and configuring plugins on a canvas. The studio supports multiple view modes (desktop, tablet, mobile) for responsive design and provides tools for managing pages, routes, and component configurations.
+Use existing plugins or [create your own](DEVELOPER_QUICK_START). The only limit is your imagination. 
+
+![BrainDrive Studio](https://github.com/BrainDriveAI/BrainDrive/blob/main/images/Page%20Builder%20Screenshot.png)
 
 ## Tech Stack
 
@@ -120,6 +122,14 @@ See the [Backend README](../backend/README.md) for instructions on setting up an
   - `main.tsx`: Application entry point
   - `routes.tsx`: Application routes
 
+ ## Full Project Documentation
+
+ [BrainDrive Documentation Index](DOCUMENTATION_INDEX)
+
+ ## Questions? 
+
+ Post at [community.braindrive.ai](https://community.braindrive.ai). We're here to help build the future of user owned AI together. 
+
 ## License
 
-[Your License Here]
+Licensed under the [MIT License](LICENSE). Your AI. Your Rules.

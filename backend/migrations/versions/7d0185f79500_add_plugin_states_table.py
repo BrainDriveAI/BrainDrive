@@ -91,13 +91,8 @@ def upgrade() -> None:
         batch_op.create_index(batch_op.f('ix_plugin_state_history_id'), ['id'], unique=False)
         batch_op.create_index(batch_op.f('ix_plugin_state_history_plugin_state_id'), ['plugin_state_id'], unique=False)
 
-    op.drop_table('settings_definitions')
-    with op.batch_alter_table('settings_instances', schema=None) as batch_op:
-        batch_op.drop_index('ix_settings_instances_definition_id')
-        batch_op.drop_index('ix_settings_instances_page_id')
-        batch_op.drop_index('ix_settings_instances_user_id')
-
-    op.drop_table('settings_instances')
+    # Note: settings_definitions and settings_instances tables are preserved
+    # They were restored in the restore_settings_tables migration and should not be dropped
     op.drop_table('pages_temp')
     with op.batch_alter_table('components', schema=None) as batch_op:
         batch_op.alter_column('created_at',
@@ -228,7 +223,7 @@ def upgrade() -> None:
 
     with op.batch_alter_table('role', schema=None) as batch_op:
         batch_op.drop_index('ix_role_role_name')
-        batch_op.create_unique_constraint(None, ['role_name'])
+        batch_op.create_unique_constraint('uq_role_role_name', ['role_name'])
 
     with op.batch_alter_table('role_permissions', schema=None) as batch_op:
         batch_op.alter_column('role_id',
@@ -302,11 +297,11 @@ def upgrade() -> None:
                existing_type=sa.TIMESTAMP(),
                type_=sa.DateTime(timezone=True),
                existing_nullable=True)
-        batch_op.create_unique_constraint(None, ['sso_domain'])
-        batch_op.create_unique_constraint(None, ['name'])
+        batch_op.create_unique_constraint('uq_tenants_sso_domain', ['sso_domain'])
+        batch_op.create_unique_constraint('uq_tenants_name', ['name'])
 
     with op.batch_alter_table('user_roles', schema=None) as batch_op:
-        batch_op.create_unique_constraint(None, ['role_name'])
+        batch_op.create_unique_constraint('uq_user_roles_role_name', ['role_name'])
 
     with op.batch_alter_table('users', schema=None) as batch_op:
         batch_op.alter_column('created_at',
@@ -336,11 +331,11 @@ def downgrade() -> None:
                existing_server_default=sa.text('(CURRENT_TIMESTAMP)'))
 
     with op.batch_alter_table('user_roles', schema=None) as batch_op:
-        batch_op.drop_constraint(None, type_='unique')
+        batch_op.drop_constraint('uq_user_roles_role_name', type_='unique')
 
     with op.batch_alter_table('tenants', schema=None) as batch_op:
-        batch_op.drop_constraint(None, type_='unique')
-        batch_op.drop_constraint(None, type_='unique')
+        batch_op.drop_constraint('uq_tenants_name', type_='unique')
+        batch_op.drop_constraint('uq_tenants_sso_domain', type_='unique')
         batch_op.alter_column('updated_at',
                existing_type=sa.DateTime(timezone=True),
                type_=sa.TIMESTAMP(),
@@ -414,7 +409,7 @@ def downgrade() -> None:
                nullable=False)
 
     with op.batch_alter_table('role', schema=None) as batch_op:
-        batch_op.drop_constraint(None, type_='unique')
+        batch_op.drop_constraint('uq_role_role_name', type_='unique')
         batch_op.create_index('ix_role_role_name', ['role_name'], unique=1)
 
     with op.batch_alter_table('plugin', schema=None) as batch_op:
@@ -578,26 +573,8 @@ def downgrade() -> None:
     sa.Column('updated_at', sa.TIMESTAMP(), nullable=True),
     sa.PrimaryKeyConstraint('id')
     )
-    with op.batch_alter_table('settings_instances', schema=None) as batch_op:
-        batch_op.create_index('ix_settings_instances_user_id', ['user_id'], unique=False)
-        batch_op.create_index('ix_settings_instances_page_id', ['page_id'], unique=False)
-        batch_op.create_index('ix_settings_instances_definition_id', ['definition_id'], unique=False)
-
-    op.create_table('settings_definitions',
-    sa.Column('id', sa.VARCHAR(length=32), nullable=False),
-    sa.Column('name', sa.VARCHAR(), nullable=False),
-    sa.Column('description', sa.VARCHAR(), nullable=True),
-    sa.Column('category', sa.VARCHAR(), nullable=False),
-    sa.Column('type', sa.VARCHAR(), nullable=False),
-    sa.Column('default_value', sa.TEXT(), nullable=True),
-    sa.Column('allowed_scopes', sa.TEXT(), nullable=False),
-    sa.Column('validation', sa.TEXT(), nullable=True),
-    sa.Column('is_multiple', sa.BOOLEAN(), server_default=sa.text('(FALSE)'), nullable=True),
-    sa.Column('tags', sa.TEXT(), nullable=True),
-    sa.Column('created_at', sa.TIMESTAMP(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
-    sa.Column('updated_at', sa.TIMESTAMP(), nullable=True),
-    sa.PrimaryKeyConstraint('id')
-    )
+    # Note: settings_definitions and settings_instances tables are preserved
+    # They are managed by the restore_settings_tables migration and should not be recreated here
     with op.batch_alter_table('plugin_state_history', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_plugin_state_history_plugin_state_id'))
         batch_op.drop_index(batch_op.f('ix_plugin_state_history_id'))

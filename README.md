@@ -1,169 +1,122 @@
-# BrainDrive
+![BrainDrive Logo](https://github.com/BrainDriveAI/BrainDrive/blob/main/images/Logo-Light-Mode.png)
 
-**BrainDrive is your personal AI system—fully owned, endlessly extensible, and built for freedom.**  
-It’s an open-source platform for building and running AI-powered applications using a modular plugin system and a responsive drag-and-drop interface.
+BrainDrive is the open source ChatGPT alternative you fully own and control. Use, customize, and monetize your BrainDrive however you want. No Big Tech overlords. Just your AI. Your rules.
 
-With BrainDrive, you can:
-- 🧠 Create your own AI assistants, workflows, and tools
-- 🔌 Extend functionality using plugins or build your own
-- 🖥️ Host locally or deploy anywhere—with no lock-ins
-- 🤝 Own your data, your AI, and the value you create
+* **Own:** MIT Licensed & Self-Hosted
+* **Build:** Modular & Easy to Customize
+* **Earn:** On Your Terms, not Big Tech's
 
-> Your AI. Your Rules.
+**Think WordPress for AI**: Install BrainDrive → Add your plugin → Ship your AI powered feature.
 
-🚀 Ready to get started? [Check out the setup guide ](INSTALL.md)
+🚀 Ready to get started? [Install Guide](INSTALL.md)  
 
-🎥 Want to see BrainDrive in action? [Watch the video](https://youtu.be/3G_OibAo-_o)
+🔨Ready to start building? [Developer Quick Start Guide](https://github.com/BrainDriveAI/BrainDrive/blob/main/PLUGIN_DEVELOPER_QUICKSTART.md)
 
+## BrainDrive Gives You:
 
-![BrainDrive Logo](images/Logo-Light-Mode.png) 
+A chat interface for running local and API based AI models:
 
-## Overview
+![Chat Interface](https://github.com/BrainDriveAI/BrainDrive/blob/main/images/BrainDrive%20Chat%20Interface.png)
 
-BrainDrive consists of three main components:
+A plugin manager to easily search existing, and add new plugins to your BrainDrive:
 
-- **Frontend**: A React-based application that provides a visual editor for arranging and configuring plugins
-- **Backend**: A Python API server that handles data storage, user management, and plugin services
-- **Plugins**: Modular components that extend the platform's functionality
+![Plugin Manager](https://github.com/BrainDriveAI/BrainDrive/blob/main/images/Plugin%20Manager%20Screenshot.png)
 
-The platform is designed to be:
+A page builder to create custom interfaces using your own and other publicly available plugins:
 
-- **Modular**: Build applications by combining reusable plugins
-- **Extensible**: Create custom plugins to add new features
-- **Responsive**: Design applications that work across desktop, tablet, and mobile devices
-- **User-friendly**: Intuitive drag-and-drop interface for non-technical users
-- **Developer-friendly**: Comprehensive APIs and tools for plugin developers
+![Page Builder](https://github.com/BrainDriveAI/BrainDrive/blob/main/images/Page%20Builder%20Screenshot.png)
 
-## Key Features
+A [full set of developer resources](https://github.com/BrainDriveAI/BrainDrive/blob/main/DOCUMENTATION_INDEX.md), code examples, and tutorials that make it easy to build on BrainDrive.
 
-- **Plugin Studio**: Visual editor for creating applications by arranging plugins
-- **Plugin Management**: Browse, install, and configure plugins
-- **Responsive Design**: Support for desktop, tablet, and mobile layouts
-- **User Management**: Authentication, authorization, and user-specific data
-- **Theme Support**: Light and dark mode with customizable themes
-- **Page Management**: Create and organize multiple pages
-- **Route Management**: Define navigation between pages
-- **Component Configuration**: Configure plugin properties through a user-friendly interface
-- **Service Architecture**: Modular service-based architecture for extensibility
+Use BrainDrive as your personal AI system and/or build AI-powered products and services to offer to others. 
+
+All under your ownership and control, with no Big Tech lock-in. Your AI. Your Rules.
+
+## What You Can Build
+
+When building on BrainDrive, the only limit is your imagination. 
+
+Examples include:
+
+  * Custom AI chatbots with specialized knowledge
+  * AI-powered productivity tools
+  * Data analysis dashboards
+  * Custom UIs for specific AI models
+  * Multi-plugin workflows where components work together seamlessly
+
+Host locally or on the cloud host of your choice.
+
+Build for yourself, build for the user-owned AI community, build for customers. Your AI. Your Rules. 
 
 ## Architecture
 
-BrainDrive follows a modular architecture:
+**Core System** (this repo):
 
-```
-BrainDrive/
-├── frontend/       # React-based UI application
-├── backend/        # Python API server
-└── plugins/        # Plugin system and examples
-```
+  * Frontend: React + TypeScript + Material UI
+  * Backend: Python + FastAPI + SQLite
+  * Core Plugins: Essential system plugins
 
-### Frontend
+**Plugin Ecosystem** (separate repos):
 
-The frontend is built with React, TypeScript, and Material UI. It provides:
+  * Each plugin is its own repository (release on your Github)
+  * 1-Click Install via Plugin Manager or manual build
+  * Full Module Federation architecture
 
-- Visual editor for arranging plugins
-- Plugin management interface
-- User authentication and settings
-- Theme management
-- Page and route configuration
+## Key Features
 
-[Learn more about the frontend](frontend/README.md)
+### For Users
 
-### Backend
+  * **Drag & Drop Interface**: Build applications visually without coding
+  * **Responsive Design**: Works on desktop, tablet, and mobile
+  * **Plugin Marketplace**: Extend functionality with community plugins
+  * **Own Your Data**: Host locally or deploy anywhere, no vendor lock-in
 
-The backend is built with Python and provides:
+### For Developers
 
-- RESTful API for data access
-- User authentication and authorization
-- Plugin data storage and retrieval
-- User settings and preferences
-- Database management
-
-[Learn more about the backend](backend/README.md)
-
-### Plugin System
-
-The plugin system allows developers to extend the platform with:
-
-- UI Components
-- Settings Components
-- Service Components
-- Integration Components
-
-[Learn more about the plugin system](plugins/README.md)
+  * **1-Minute Development Cycle**: Edit → Build → Refresh
+  * **Zero Dependencies**: Service Bridges handle all complexity
+  * **Built-in Services**: API, Theme, Settings, Events, Context, State
+  * **React Class Components**: Established patterns with TypeScript support
+  * **Lifecycle Manager**: Python-based automated installation system
+  * **Module Federation**: Modern plugin architecture with hot-reload
+  * **Full Control**: Own your plugins, data, and deployment
 
 ## Getting Started
 
 ### Prerequisites
 
-- Node.js 16.x or higher
-- Python 3.9 or higher (Python 3.11 recommended)
-- Git
-- Conda or Python's venv module for environment management
+  * Node.js 16.x or higher
+  * Python 3.9 or higher (Python 3.11 recommended)
+  * Git
+  * Conda or Python's venv module for environment management
 
 ### Installation and Setup
 
-For detailed installation and setup instructions, please refer to:
+  * [Installation Guide](INSTALL.md) - Complete instructions how to setup your BrainDrive
 
-- [Installation Guide](INSTALL.md) - Complete instructions how to setup your BrainDrive
+## Developer Quick Start
 
-After following the setup guides, you can:
+ * [Developer Quick Start Guide](https://github.com/BrainDriveAI/BrainDrive/blob/main/PLUGIN_DEVELOPER_QUICKSTART.md) - designed to get you up and running building plugins in 30 minutes or less. 
 
-1. Start the backend server (from the backend directory)
-2. Start the frontend development server (from the frontend directory)
-3. Open your browser and navigate to http://localhost:5173
-
-### System Guides
-
-- [Backend Setup Guide](backend/README.md) - Complete instructions for setting up the Python backend, including environment configuration, database setup, and running the server
-- [Plugin Setup Guide](plugins/README.md) - Instructions for building and using the plugin system
-- [Frontend Setup Guide](frontend/README.md) - Instructions for setting up the React frontend
-
-
-### Project Structure
-
-- `frontend/`: Frontend application
-  - `src/`: Source code
-    - `components/`: Reusable UI components
-    - `contexts/`: React context providers
-    - `features/`: Feature-specific code
-    - `hooks/`: Custom React hooks
-    - `pages/`: Page components
-    - `services/`: Service layer for API communication
-
-- `backend/`: Backend server
-  - `app/`: Application code
-    - `api/`: API endpoints
-    - `core/`: Core functionality
-    - `models/`: Database models
-    - `schemas/`: Data validation schemas
-
-- `plugins/`: Plugin system and examples
-  - `BrainDriveBasicAIChat/`: Example AI chat plugin
-  - `BrainDriveSettings/`: Example settings plugin
+## Community & Support
+- [User and Developer Forum](https://community.braindrive.ai) - Get support and discuss the future of user-owned AI
+- [GitHub Issues](https://github.com/BrainDriveAI/BrainDrive/issues) - Bug reports with `[plugin]` tag
+- [API Reference](http://localhost:8005/api/v1/docs) - Backend endpoints (when running locally)
 
 ## Contributing
 
-We welcome contributions to BrainDrive! Please see our [Contributing Guidelines](CONTRIBUTING.md) and [Project Roadmap](./ROADMAP.md) for more information.
-
-### Development Guidelines
-
-- Use TypeScript for frontend code
-- Follow PEP 8 for Python code
-- Write tests for new features
-- Document your code with comments
-- Update documentation when making changes
-
-## License
-
-This project is licensed under the [MIT License](LICENSE).
+We welcome & appreciate contributions. See [Contributing Guidelines](CONTRIBUTING.md) and [Project Roadmap](ROADMAP.md).
 
 ## Documentation
 
-- [Frontend Documentation](frontend/README.md)
-- [Plugin System Documentation](plugins/README.md)
-- [Backend Documentation](backend/README.md)
+  * [Plugin Development Quick Start Guide](PLUGIN_DEVELOPER_QUICKSTART.md) - Start building plugins
+  * [Plugin Template](https://github.com/BrainDriveAI/PluginTemplate) - Boilerplate
+  * [Lifecycle Manager Primers](https://github.com/BrainDriveAI/PluginTemplate/tree/main/references) - Customization primers
+  * [Service Bridge Examples](https://github.com/BrainDriveAI/BrainDrive/blob/main/SERVICE_BRIDGE_EXAMPLES.md) - working examples and up to date documentation
+  * [Frontend Documentation](frontend/README.md) - React application details
+  * [Backend Documentation](backend/README.md) - Python API details
+  * [Full Documentation Index](https://github.com/BrainDriveAI/BrainDrive/blob/main/DOCUMENTATION_INDEX.md) - Links to all repos and corresponding documentation. 
 
-## Support
+## License
 
-For support, please open an issue on GitHub or contact the maintainers.
+Licensed under the [MIT License](LICENSE). Your AI. Your Rules.
