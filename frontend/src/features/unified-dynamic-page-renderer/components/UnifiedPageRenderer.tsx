@@ -13,6 +13,9 @@ export interface UnifiedPageRendererProps {
   pageId?: string;
   route?: string;
   
+  // Pre-loaded page data (bypasses internal fetching)
+  pageData?: PageData;
+  
   // Rendering mode
   mode: RenderMode;
   allowUnpublished?: boolean;
@@ -29,6 +32,10 @@ export interface UnifiedPageRendererProps {
   // Event handlers
   onModeChange?: (mode: RenderMode) => void;
   onPageLoad?: (page: PageData) => void;
+  onLayoutChange?: (layouts: any) => void;
+  onItemSelect?: (itemId: string | null) => void;
+  onItemConfig?: (itemId: string) => void;
+  onItemRemove?: (itemId: string) => void;
   onError?: (error: Error) => void;
 }
 
@@ -59,6 +66,7 @@ const defaultBreakpoints: BreakpointConfig = {
 export const UnifiedPageRenderer: React.FC<UnifiedPageRendererProps> = ({
   pageId,
   route,
+  pageData: preloadedPageData,
   mode,
   allowUnpublished = false,
   responsive = true,
@@ -68,20 +76,29 @@ export const UnifiedPageRenderer: React.FC<UnifiedPageRendererProps> = ({
   preloadPlugins = [],
   onModeChange,
   onPageLoad,
+  onLayoutChange,
+  onItemSelect,
+  onItemConfig,
+  onItemRemove,
   onError,
 }) => {
   // State management
   const [currentMode, setCurrentMode] = useState<RenderMode>(mode);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(!preloadedPageData);
   const [error, setError] = useState<Error | null>(null);
 
-  // Custom hooks
-  const { pageData, loading: pageLoading, error: pageError } = usePageLoader({
-    pageId,
-    route,
+  // Custom hooks - only use pageLoader if no preloaded data is provided
+  const { pageData: fetchedPageData, loading: pageLoading, error: pageError } = usePageLoader({
+    pageId: preloadedPageData ? undefined : pageId,
+    route: preloadedPageData ? undefined : route,
     mode: currentMode,
     allowUnpublished,
   });
+
+  // Use preloaded data if available, otherwise use fetched data
+  const pageData = preloadedPageData || fetchedPageData;
+  const loading = preloadedPageData ? false : pageLoading;
+  const dataError = preloadedPageData ? null : pageError;
 
   const { handleError, clearError } = useErrorHandler({
     onError,
@@ -114,22 +131,22 @@ export const UnifiedPageRenderer: React.FC<UnifiedPageRendererProps> = ({
 
   // Page load effect
   useEffect(() => {
-    if (pageData && !pageLoading) {
+    if (pageData && !loading) {
       setIsLoading(false);
       onPageLoad?.(pageData);
     }
-  }, [pageData, pageLoading, onPageLoad]);
+  }, [pageData, loading, onPageLoad]);
 
   // Error handling effect
   useEffect(() => {
-    if (pageError) {
-      setError(pageError);
-      handleError(pageError);
+    if (dataError) {
+      setError(dataError);
+      handleError(dataError);
     }
-  }, [pageError, handleError]);
+  }, [dataError, handleError]);
 
   // Loading state
-  if (isLoading || pageLoading) {
+  if (isLoading || loading) {
     return (
       <div className="unified-page-renderer unified-page-renderer--loading">
         <div className="unified-page-renderer__loading-indicator">
@@ -211,6 +228,11 @@ export const UnifiedPageRenderer: React.FC<UnifiedPageRendererProps> = ({
                     mode={currentMode}
                     lazyLoading={lazyLoading}
                     preloadPlugins={preloadPlugins}
+                    pageId={pageData.id || pageId}
+                    onLayoutChange={onLayoutChange}
+                    onItemSelect={onItemSelect}
+                    onItemConfig={onItemConfig}
+                    onItemRemove={onItemRemove}
                   />
                 </ResponsiveContainer>
               ) : (
@@ -220,6 +242,11 @@ export const UnifiedPageRenderer: React.FC<UnifiedPageRendererProps> = ({
                   mode={currentMode}
                   lazyLoading={lazyLoading}
                   preloadPlugins={preloadPlugins}
+                  pageId={pageData.id || pageId}
+                  onLayoutChange={onLayoutChange}
+                  onItemSelect={onItemSelect}
+                  onItemConfig={onItemConfig}
+                  onItemRemove={onItemRemove}
                 />
               )}
             </>

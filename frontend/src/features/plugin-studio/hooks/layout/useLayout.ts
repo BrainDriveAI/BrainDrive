@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Layouts, LayoutItem, GridItem, Page } from '../../types';
 
 /**
@@ -13,31 +13,56 @@ export const useLayout = (
 ) => {
   const [layouts, setLayouts] = useState<Layouts | null>(initialPage?.layouts || null);
   
+  // Track performance metrics
+  const performanceMetricsRef = useRef<{ lastUpdate: number }>({ lastUpdate: 0 });
+  
+  // Track the current page ID to detect page changes
+  const currentPageIdRef = useRef<string | null>(null);
+  
   // Update layouts when the page changes
   useEffect(() => {
+    // Only update if the page ID actually changed
+    if (currentPageIdRef.current === initialPage?.id) {
+      return;
+    }
+    
+    currentPageIdRef.current = initialPage?.id || null;
+    console.log('[useLayout] Page changed to:', initialPage?.id);
+    
     if (initialPage?.layouts) {
       // Create a deep copy of the layouts to ensure we're not sharing references
       const layoutsCopy = JSON.parse(JSON.stringify(initialPage.layouts));
-      console.log('useLayout: Setting layouts from initialPage:', JSON.stringify(layoutsCopy));
+      console.log('[useLayout] Setting layouts from new page:', JSON.stringify(layoutsCopy));
       setLayouts(layoutsCopy);
+      // Reset the last processed layout when page changes
+      lastProcessedLayoutRef.current = JSON.stringify(layoutsCopy);
     } else {
       setLayouts({
         desktop: [],
         tablet: [],
         mobile: []
       });
+      lastProcessedLayoutRef.current = null;
     }
-    // Only depend on initialPage.id to prevent unnecessary re-renders
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialPage?.id, initialPage?.layouts]);
+  }, [initialPage?.id]);
   
   /**
    * Handle layout changes
    * @param layout The new layout
    * @param newLayouts The new layouts for all device types
    */
-  const handleLayoutChange = useCallback((layout: any[], newLayouts: Layouts) => {
-    console.log('Layout changed:', JSON.stringify(newLayouts));
+  // Use refs to track layout changes and prevent rapid successive updates
+  const lastProcessedLayoutRef = useRef<string | null>(null);
+  const pendingLayoutRef = useRef<{ layout: any[], newLayouts: Layouts } | null>(null);
+  const layoutUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isResizingRef = useRef(false);
+  const resizeEndTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  const processLayoutChange = useCallback((layout: any[], newLayouts: Layouts) => {
+    console.log('[useLayout] Processing layout change');
+    
+    // Track performance metrics
+    performanceMetricsRef.current.lastUpdate = Date.now();
     
     // Validate and ensure all layout items have required properties
     const validateLayouts = (layouts: Layouts): Layouts => {
@@ -54,7 +79,7 @@ export const useLayout = (
           y: typeof item.y === 'number' ? item.y : 0,
           w: typeof item.w === 'number' ? item.w : 2,
           h: typeof item.h === 'number' ? item.h : 2,
-          i: item.i || item.moduleUniqueId || `item_${Date.now()}`
+          i: item.i || item.moduleUniqueId || `item_${item.x}_${item.y}_${item.w}_${item.h}`
         };
       };
       
@@ -85,14 +110,16 @@ export const useLayout = (
       return result;
     };
     
-    // Validate and create a deep copy of the layouts
+    // Validate the layouts
     const validatedLayouts = validateLayouts(newLayouts);
-    const layoutsCopy = JSON.parse(JSON.stringify(validatedLayouts));
     
-    setLayouts(layoutsCopy);
+    // Update state with validated layouts
+    setLayouts(validatedLayouts);
     
     // If initialPage is provided, update its layouts as well
     if (initialPage) {
+      // Create a deep copy for the page object
+      const layoutsCopy = JSON.parse(JSON.stringify(validatedLayouts));
       initialPage.layouts = layoutsCopy;
       
       // Also update content.layouts if it exists
@@ -101,6 +128,68 @@ export const useLayout = (
       }
     }
   }, [initialPage]);
+  
+  const handleLayoutChange = useCallback((layout: any[], newLayouts: Layouts) => {
+    console.log('[useLayout] Processing layout change with enhanced debouncing');
+    
+    // Create a stable hash of the new layouts for comparison
+    const newLayoutsHash = JSON.stringify(newLayouts);
+    
+    // Check if this is the exact same layout we just processed
+    const timeSinceLastUpdate = Date.now() - performanceMetricsRef.current.lastUpdate;
+    const isImmediateDuplicate = lastProcessedLayoutRef.current === newLayoutsHash && timeSinceLastUpdate < 200;
+    
+    if (isImmediateDuplicate) {
+      console.log('[useLayout] Immediate duplicate layout detected, skipping');
+      return;
+    }
+    
+    // Store the pending layout update
+    pendingLayoutRef.current = { layout, newLayouts };
+    
+    // Clear any existing timeout
+    if (layoutUpdateTimeoutRef.current) {
+      clearTimeout(layoutUpdateTimeoutRef.current);
+    }
+    
+    // Use higher debounce to prevent infinite loops
+    const debounceTime = isResizingRef.current ? 300 : 150;
+    
+    // Debounce the layout update to prevent rapid successive updates
+    layoutUpdateTimeoutRef.current = setTimeout(() => {
+      if (pendingLayoutRef.current) {
+        const { layout: pendingLayout, newLayouts: pendingNewLayouts } = pendingLayoutRef.current;
+        const pendingHash = JSON.stringify(pendingNewLayouts);
+        
+        // Final duplicate check before processing
+        if (pendingHash === lastProcessedLayoutRef.current) {
+          console.log('[useLayout] Skipping duplicate in timeout');
+          pendingLayoutRef.current = null;
+          layoutUpdateTimeoutRef.current = null;
+          return;
+        }
+        
+        // Process the layout change
+        lastProcessedLayoutRef.current = pendingHash;
+        processLayoutChange(pendingLayout, pendingNewLayouts);
+        
+        pendingLayoutRef.current = null;
+      }
+      layoutUpdateTimeoutRef.current = null;
+    }, debounceTime);
+  }, [processLayoutChange]);
+  
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (layoutUpdateTimeoutRef.current) {
+        clearTimeout(layoutUpdateTimeoutRef.current);
+      }
+      if (resizeEndTimeoutRef.current) {
+        clearTimeout(resizeEndTimeoutRef.current);
+      }
+    };
+  }, []);
   
   /**
    * Remove an item from all layouts
@@ -157,7 +246,7 @@ export const useLayout = (
         y: y,
         w: adjustedWidth,
         h: h,
-        i: item.i || item.moduleUniqueId || `item_${Date.now()}`
+        i: item.i || item.moduleUniqueId || `item_${item.x}_${item.y}_${item.w}_${item.h}`
       };
     };
     
@@ -418,7 +507,7 @@ export const useLayout = (
         y: typeof item.y === 'number' ? item.y : 0,
         w: typeof item.w === 'number' ? item.w : 2,
         h: typeof item.h === 'number' ? item.h : 2,
-        i: item.i || item.moduleUniqueId || `item_${Date.now()}`
+        i: item.i || item.moduleUniqueId || `item_${item.x}_${item.y}_${item.w}_${item.h}`
       };
     };
     
@@ -440,6 +529,29 @@ export const useLayout = (
     setLayouts(updatedLayouts);
   }, [layouts]);
   
+  /**
+   * Handle resize start event
+   */
+  const handleResizeStart = useCallback(() => {
+    isResizingRef.current = true;
+    
+    // Clear any existing resize end timeout
+    if (resizeEndTimeoutRef.current) {
+      clearTimeout(resizeEndTimeoutRef.current);
+    }
+  }, []);
+  
+  /**
+   * Handle resize stop event
+   */
+  const handleResizeStop = useCallback(() => {
+    // Set a timeout to mark resize as ended after a delay
+    // This ensures the longer debounce is used for the entire resize operation
+    resizeEndTimeoutRef.current = setTimeout(() => {
+      isResizingRef.current = false;
+    }, 200);
+  }, []);
+  
   return {
     layouts,
     setLayouts,
@@ -447,6 +559,8 @@ export const useLayout = (
     removeItem,
     copyLayout,
     addItem,
-    updateItem
+    updateItem,
+    handleResizeStart,
+    handleResizeStop
   };
 };

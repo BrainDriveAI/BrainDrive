@@ -95,17 +95,17 @@ export const ModeController: React.FC<ModeControllerProps> = ({
     const features: Record<string, boolean> = {};
     
     switch (mode) {
-      case 'studio':
+      case RenderMode.STUDIO:
         Object.entries(studioFeatures).forEach(([key, value]) => {
           features[key] = value;
         });
         break;
-      case 'published':
+      case RenderMode.PUBLISHED:
         Object.entries(publishedFeatures).forEach(([key, value]) => {
           features[key] = value;
         });
         break;
-      case 'preview':
+      case RenderMode.PREVIEW:
         Object.entries(previewFeatures).forEach(([key, value]) => {
           features[key] = value;
         });
@@ -138,22 +138,22 @@ export const ModeController: React.FC<ModeControllerProps> = ({
       {/* Mode Selector */}
       <div className="mode-controller__selector">
         <button
-          className={`mode-controller__mode-button ${mode === 'studio' ? 'active' : ''}`}
-          onClick={() => handleModeChange('studio')}
+          className={`mode-controller__mode-button ${mode === RenderMode.STUDIO ? 'active' : ''}`}
+          onClick={() => handleModeChange(RenderMode.STUDIO)}
           disabled={isTransitioning}
         >
           Studio
         </button>
         <button
-          className={`mode-controller__mode-button ${mode === 'published' ? 'active' : ''}`}
-          onClick={() => handleModeChange('published')}
+          className={`mode-controller__mode-button ${mode === RenderMode.PUBLISHED ? 'active' : ''}`}
+          onClick={() => handleModeChange(RenderMode.PUBLISHED)}
           disabled={isTransitioning}
         >
           Published
         </button>
         <button
-          className={`mode-controller__mode-button ${mode === 'preview' ? 'active' : ''}`}
-          onClick={() => handleModeChange('preview')}
+          className={`mode-controller__mode-button ${mode === RenderMode.PREVIEW ? 'active' : ''}`}
+          onClick={() => handleModeChange(RenderMode.PREVIEW)}
           disabled={isTransitioning}
         >
           Preview
@@ -161,14 +161,14 @@ export const ModeController: React.FC<ModeControllerProps> = ({
       </div>
 
       {/* Studio Mode Features */}
-      {mode === 'studio' && (
+      {mode === RenderMode.STUDIO && (
         <div className="mode-controller__studio-features">
           <div className="mode-controller__feature-group">
             <h4>Editing Tools</h4>
             <label>
               <input
                 type="checkbox"
-                checked={activeFeatures.dragAndDrop}
+                checked={!!activeFeatures.dragAndDrop}
                 onChange={() => toggleFeature('dragAndDrop')}
               />
               Drag & Drop
@@ -176,7 +176,7 @@ export const ModeController: React.FC<ModeControllerProps> = ({
             <label>
               <input
                 type="checkbox"
-                checked={activeFeatures.resize}
+                checked={!!activeFeatures.resize}
                 onChange={() => toggleFeature('resize')}
               />
               Resize
@@ -184,7 +184,7 @@ export const ModeController: React.FC<ModeControllerProps> = ({
             <label>
               <input
                 type="checkbox"
-                checked={activeFeatures.configure}
+                checked={!!activeFeatures.configure}
                 onChange={() => toggleFeature('configure')}
               />
               Configure
@@ -196,7 +196,7 @@ export const ModeController: React.FC<ModeControllerProps> = ({
             <label>
               <input
                 type="checkbox"
-                checked={activeFeatures.toolbar}
+                checked={!!activeFeatures.toolbar}
                 onChange={() => toggleFeature('toolbar')}
               />
               Toolbar
@@ -204,7 +204,7 @@ export const ModeController: React.FC<ModeControllerProps> = ({
             <label>
               <input
                 type="checkbox"
-                checked={activeFeatures.contextMenu}
+                checked={!!activeFeatures.contextMenu}
                 onChange={() => toggleFeature('contextMenu')}
               />
               Context Menu
@@ -212,7 +212,7 @@ export const ModeController: React.FC<ModeControllerProps> = ({
             <label>
               <input
                 type="checkbox"
-                checked={activeFeatures.propertyPanel}
+                checked={!!activeFeatures.propertyPanel}
                 onChange={() => toggleFeature('propertyPanel')}
               />
               Property Panel
@@ -222,14 +222,14 @@ export const ModeController: React.FC<ModeControllerProps> = ({
       )}
       
       {/* Published Mode Features */}
-      {mode === 'published' && (
+      {mode === RenderMode.PUBLISHED && (
         <div className="mode-controller__published-features">
           <div className="mode-controller__feature-group">
             <h4>Performance</h4>
             <label>
               <input
                 type="checkbox"
-                checked={activeFeatures.lazyLoading}
+                checked={!!activeFeatures.lazyLoading}
                 onChange={() => toggleFeature('lazyLoading')}
               />
               Lazy Loading
@@ -237,7 +237,7 @@ export const ModeController: React.FC<ModeControllerProps> = ({
             <label>
               <input
                 type="checkbox"
-                checked={activeFeatures.caching}
+                checked={!!activeFeatures.caching}
                 onChange={() => toggleFeature('caching')}
               />
               Caching
@@ -245,7 +245,7 @@ export const ModeController: React.FC<ModeControllerProps> = ({
             <label>
               <input
                 type="checkbox"
-                checked={activeFeatures.preloading}
+                checked={!!activeFeatures.preloading}
                 onChange={() => toggleFeature('preloading')}
               />
               Preloading
@@ -257,7 +257,7 @@ export const ModeController: React.FC<ModeControllerProps> = ({
             <label>
               <input
                 type="checkbox"
-                checked={activeFeatures.metaTags}
+                checked={!!activeFeatures.metaTags}
                 onChange={() => toggleFeature('metaTags')}
               />
               Meta Tags
@@ -265,7 +265,7 @@ export const ModeController: React.FC<ModeControllerProps> = ({
             <label>
               <input
                 type="checkbox"
-                checked={activeFeatures.pageViews}
+                checked={!!activeFeatures.pageViews}
                 onChange={() => toggleFeature('pageViews')}
               />
               Page Views
@@ -273,7 +273,7 @@ export const ModeController: React.FC<ModeControllerProps> = ({
             <label>
               <input
                 type="checkbox"
-                checked={activeFeatures.performanceMetrics}
+                checked={!!activeFeatures.performanceMetrics}
                 onChange={() => toggleFeature('performanceMetrics')}
               />
               Performance Metrics
@@ -283,14 +283,14 @@ export const ModeController: React.FC<ModeControllerProps> = ({
       )}
       
       {/* Preview Mode Features */}
-      {mode === 'preview' && (
+      {mode === RenderMode.PREVIEW && (
         <div className="mode-controller__preview-features">
           <div className="mode-controller__feature-group">
             <h4>Testing Tools</h4>
             <label>
               <input
                 type="checkbox"
-                checked={activeFeatures.deviceSimulation}
+                checked={!!activeFeatures.deviceSimulation}
                 onChange={() => toggleFeature('deviceSimulation')}
               />
               Device Simulation
@@ -298,7 +298,7 @@ export const ModeController: React.FC<ModeControllerProps> = ({
             <label>
               <input
                 type="checkbox"
-                checked={activeFeatures.accessibilityCheck}
+                checked={!!activeFeatures.accessibilityCheck}
                 onChange={() => toggleFeature('accessibilityCheck')}
               />
               Accessibility Check
@@ -306,7 +306,7 @@ export const ModeController: React.FC<ModeControllerProps> = ({
             <label>
               <input
                 type="checkbox"
-                checked={activeFeatures.responsiveTest}
+                checked={!!activeFeatures.responsiveTest}
                 onChange={() => toggleFeature('responsiveTest')}
               />
               Responsive Test
@@ -314,7 +314,7 @@ export const ModeController: React.FC<ModeControllerProps> = ({
             <label>
               <input
                 type="checkbox"
-                checked={activeFeatures.loadTimeTest}
+                checked={!!activeFeatures.loadTimeTest}
                 onChange={() => toggleFeature('loadTimeTest')}
               />
               Load Time Test

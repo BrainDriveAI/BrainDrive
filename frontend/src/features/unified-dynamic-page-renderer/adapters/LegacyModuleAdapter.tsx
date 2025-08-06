@@ -76,7 +76,90 @@ const defaultAdapterConfig: LegacyAdapterConfig = {
   retryAttempts: 2
 };
 
-export const LegacyModuleAdapter: React.FC<LegacyModuleAdapterProps> = ({
+// Custom comparison function for React.memo to prevent unnecessary re-renders
+const arePropsEqual = (prevProps: LegacyModuleAdapterProps, nextProps: LegacyModuleAdapterProps) => {
+  const moduleKey = `${nextProps.pluginId}/${nextProps.moduleId}`;
+  
+  // Compare primitive props
+  if (
+    prevProps.pluginId !== nextProps.pluginId ||
+    prevProps.moduleId !== nextProps.moduleId ||
+    prevProps.moduleName !== nextProps.moduleName ||
+    prevProps.useUnifiedRenderer !== nextProps.useUnifiedRenderer ||
+    prevProps.fallbackStrategy !== nextProps.fallbackStrategy ||
+    prevProps.mode !== nextProps.mode ||
+    prevProps.lazyLoading !== nextProps.lazyLoading ||
+    prevProps.priority !== nextProps.priority ||
+    prevProps.isLocal !== nextProps.isLocal
+  ) {
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[LegacyModuleAdapter] MEMO COMPARISON FAILED - Primitive props changed for ${moduleKey}`);
+    }
+    return false;
+  }
+
+  // Deep compare moduleProps if they exist
+  if (prevProps.moduleProps !== nextProps.moduleProps) {
+    // If both are objects, do a shallow comparison of keys and values
+    if (typeof prevProps.moduleProps === 'object' && typeof nextProps.moduleProps === 'object' &&
+        prevProps.moduleProps !== null && nextProps.moduleProps !== null) {
+      
+      const prevKeys = Object.keys(prevProps.moduleProps);
+      const nextKeys = Object.keys(nextProps.moduleProps);
+      
+      if (prevKeys.length !== nextKeys.length) {
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`[LegacyModuleAdapter] MEMO COMPARISON FAILED - moduleProps keys length changed for ${moduleKey}`);
+        }
+        return false;
+      }
+      
+      for (const key of prevKeys) {
+        if (prevProps.moduleProps[key] !== nextProps.moduleProps[key]) {
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`[LegacyModuleAdapter] MEMO COMPARISON FAILED - moduleProps.${key} changed for ${moduleKey}`);
+          }
+          return false;
+        }
+      }
+    } else {
+      // Different types or one is null
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[LegacyModuleAdapter] MEMO COMPARISON FAILED - moduleProps type changed for ${moduleKey}`);
+      }
+      return false;
+    }
+  }
+
+  // Compare breakpoint object if it exists
+  if (prevProps.breakpoint !== nextProps.breakpoint) {
+    if (typeof prevProps.breakpoint === 'object' && typeof nextProps.breakpoint === 'object' &&
+        prevProps.breakpoint !== null && nextProps.breakpoint !== null) {
+      
+      // Compare essential breakpoint properties
+      if (prevProps.breakpoint.name !== nextProps.breakpoint.name ||
+          prevProps.breakpoint.containerWidth !== nextProps.breakpoint.containerWidth ||
+          prevProps.breakpoint.containerHeight !== nextProps.breakpoint.containerHeight) {
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`[LegacyModuleAdapter] MEMO COMPARISON FAILED - breakpoint changed for ${moduleKey}`);
+        }
+        return false;
+      }
+    } else {
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[LegacyModuleAdapter] MEMO COMPARISON FAILED - breakpoint type changed for ${moduleKey}`);
+      }
+      return false;
+    }
+  }
+
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`[LegacyModuleAdapter] MEMO COMPARISON SUCCESS - Props are equal for ${moduleKey}, preventing re-render`);
+  }
+  return true;
+};
+
+export const LegacyModuleAdapter: React.FC<LegacyModuleAdapterProps> = React.memo(({
   pluginId,
   moduleId,
   moduleName,
@@ -92,9 +175,12 @@ export const LegacyModuleAdapter: React.FC<LegacyModuleAdapterProps> = ({
   fallbackStrategy = 'on-error',
   performanceMonitoring = process.env.NODE_ENV === 'development'
 }) => {
-  // Debug: Log all props received
+  // Debug: Log all props received with render count
+  const renderCountRef = useRef(0);
+  renderCountRef.current++;
+  
   if (process.env.NODE_ENV === 'development') {
-    console.log(`[LegacyModuleAdapter] Props received for ${pluginId}/${moduleId || moduleName}:`, {
+    console.log(`[LegacyModuleAdapter] RENDER #${renderCountRef.current} - Props received for ${pluginId}/${moduleId || moduleName}:`, {
       pluginId,
       moduleId,
       moduleName,
@@ -104,8 +190,13 @@ export const LegacyModuleAdapter: React.FC<LegacyModuleAdapterProps> = ({
       enableMigrationWarnings,
       performanceMonitoring,
       lazyLoading,
-      priority
+      priority,
+      modulePropsKeys: Object.keys(moduleProps || {}),
+      modulePropsLength: Object.keys(moduleProps || {}).length
     });
+    
+    // Track what's causing re-renders
+    console.log(`[LegacyModuleAdapter] RENDER #${renderCountRef.current} - Stack trace:`, new Error().stack);
   }
 
   // State management
@@ -120,9 +211,10 @@ export const LegacyModuleAdapter: React.FC<LegacyModuleAdapterProps> = ({
     renderTime?: number;
   }>({ startTime: Date.now() });
 
-  // Refs for performance tracking
+  // Refs for performance tracking and caching
   const mountedRef = useRef(true);
   const retryCountRef = useRef(0);
+  const configCacheRef = useRef<{ key: string; config: ModuleConfig | null } | null>(null);
   const serviceContext = useContext(ServiceContext);
 
   // Cleanup on unmount
@@ -147,13 +239,21 @@ export const LegacyModuleAdapter: React.FC<LegacyModuleAdapterProps> = ({
 
   const currentBreakpoint = breakpoint || defaultBreakpoint;
 
-  // Generate instance ID for the unified renderer
+  // Generate stable instance ID for the unified renderer - avoid Date.now() to prevent re-renders
   const instanceId = useMemo(() => {
-    return `legacy-${pluginId}-${moduleId || moduleName}-${Date.now()}`;
+    return `legacy-${pluginId}-${moduleId || moduleName}`;
   }, [pluginId, moduleId, moduleName]);
 
-  // Convert legacy props to unified renderer format
+  // Convert legacy props to unified renderer format - memoize to prevent infinite loops
   const convertToUnifiedConfig = useCallback((): ModuleConfig | null => {
+    // Create a cache key based on the essential props
+    const cacheKey = `${pluginId}-${moduleId || moduleName}-${JSON.stringify(moduleProps)}`;
+    
+    // Check if we have a cached result
+    if (configCacheRef.current && configCacheRef.current.key === cacheKey) {
+      return configCacheRef.current.config;
+    }
+    
     try {
       const startTime = performance.now();
       
@@ -202,9 +302,34 @@ export const LegacyModuleAdapter: React.FC<LegacyModuleAdapterProps> = ({
           targetModule = remotePlugin.loadedModules.find(m => m.id === moduleId);
           
           if (!targetModule) {
+            // Enhanced module ID extraction for complex generated IDs
+            // Format: PluginName_actualModuleId_timestamp
+            const parts = moduleId.split('_');
+            if (parts.length >= 2) {
+              const extractedModuleId = parts[1]; // Get the actual module ID
+              targetModule = remotePlugin.loadedModules.find(m => m.id === extractedModuleId);
+              
+              if (process.env.NODE_ENV === 'development') {
+                console.log(`[LegacyModuleAdapter] Trying extracted module ID: "${extractedModuleId}" from complex ID: "${moduleId}"`);
+                if (targetModule) {
+                  console.log(`[LegacyModuleAdapter] Successfully found module with extracted ID:`, {
+                    id: targetModule.id,
+                    name: targetModule.name,
+                    hasComponent: !!targetModule.component
+                  });
+                }
+              }
+            }
+          }
+          
+          if (!targetModule) {
             // Try simple pattern removal (original logic)
             const baseModuleId = moduleId.replace(/-\d+$/, '');
             targetModule = remotePlugin.loadedModules.find(m => m.id === baseModuleId);
+            
+            if (process.env.NODE_ENV === 'development' && targetModule) {
+              console.log(`[LegacyModuleAdapter] Found module with base ID: "${baseModuleId}"`);
+            }
           }
           
           if (!targetModule) {
@@ -223,7 +348,7 @@ export const LegacyModuleAdapter: React.FC<LegacyModuleAdapterProps> = ({
           }
           
           if (!targetModule) {
-            // Last resort: try to match by plugin ID
+            // Try to match by plugin ID directly
             targetModule = remotePlugin.loadedModules.find(m =>
               m.id === pluginId ||
               m.name === pluginId ||
@@ -232,6 +357,21 @@ export const LegacyModuleAdapter: React.FC<LegacyModuleAdapterProps> = ({
             
             if (process.env.NODE_ENV === 'development') {
               console.log(`[LegacyModuleAdapter] Trying plugin ID match: "${pluginId}"`);
+            }
+          }
+          
+          if (!targetModule) {
+            // Final fallback: use the first module from the plugin
+            targetModule = remotePlugin.loadedModules[0];
+            
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`[LegacyModuleAdapter] Using first available module as fallback:`, {
+                id: targetModule.id,
+                name: targetModule.name,
+                hasComponent: !!targetModule.component,
+                componentType: typeof targetModule.component,
+                componentName: targetModule.component?.name
+              });
             }
           }
         } else if (moduleName) {
@@ -294,12 +434,17 @@ export const LegacyModuleAdapter: React.FC<LegacyModuleAdapterProps> = ({
         console.log(`[LegacyModuleAdapter] Config conversion took ${performance.now() - startTime}ms`);
       }
 
+      // Cache the result
+      configCacheRef.current = { key: cacheKey, config: unifiedConfig };
+      
       return unifiedConfig;
     } catch (error) {
       console.error('[LegacyModuleAdapter] Failed to convert config:', error);
+      // Cache the null result to prevent repeated failures
+      configCacheRef.current = { key: cacheKey, config: null };
       return null;
     }
-  }, [pluginId, moduleId, moduleName, moduleProps, isLocal, currentBreakpoint, lazyLoading, priority, performanceMonitoring]);
+  }, [pluginId, moduleId, moduleName, isLocal, currentBreakpoint, lazyLoading, priority, performanceMonitoring]);
 
   // Layout configuration for the unified renderer
   const layoutConfig = useMemo((): LayoutConfig => ({
@@ -426,13 +571,13 @@ export const LegacyModuleAdapter: React.FC<LegacyModuleAdapterProps> = ({
           {performanceMonitoring && process.env.NODE_ENV === 'development' && (
             <div style={{
               position: 'absolute',
-              top: 0,
-              right: 0,
+              bottom: 0,
+              left: 0,
               background: 'rgba(0,0,0,0.7)',
               color: 'white',
               padding: '4px 8px',
               fontSize: '10px',
-              borderRadius: '0 0 0 4px',
+              borderRadius: '0 4px 0 0',
               zIndex: 9999
             }}>
               Unified ({performanceMetrics.loadTime || 0}ms)
@@ -494,6 +639,6 @@ export const LegacyModuleAdapter: React.FC<LegacyModuleAdapterProps> = ({
       </div>
     </ComponentErrorBoundary>
   );
-};
+}, arePropsEqual);
 
 export default LegacyModuleAdapter;

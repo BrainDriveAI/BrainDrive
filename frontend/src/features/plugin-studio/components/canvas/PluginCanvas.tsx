@@ -11,7 +11,7 @@ import { usePluginStudio, useViewMode } from '../../hooks';
  * @returns The plugin canvas component
  */
 export const PluginCanvas: React.FC = () => {
-  const { layouts, handleLayoutChange, currentPage, savePage } = usePluginStudio();
+  const { layouts, handleLayoutChange, handleResizeStart, handleResizeStop, currentPage, savePage } = usePluginStudio();
   const { viewMode, viewWidth, setContainerWidth } = useViewMode();
   const containerRef = useRef<HTMLDivElement>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -71,6 +71,8 @@ export const PluginCanvas: React.FC = () => {
             key={key} // Add key to force re-render
             layouts={layouts}
             onLayoutChange={handleLayoutChange}
+            onResizeStart={handleResizeStart}
+            onResizeStop={handleResizeStop}
             viewMode={viewMode}
             viewWidth={viewWidth}
             newItemId={newItemId}

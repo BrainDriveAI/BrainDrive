@@ -20,6 +20,10 @@ export { useBreakpoint } from './hooks/useBreakpoint';
 export { LegacyModuleAdapter, LegacyPluginModuleRenderer } from './adapters';
 export type { LegacyModuleAdapterProps, LegacyAdapterConfig } from './adapters';
 
+// Plugin Studio Adapter exports
+export { PluginStudioAdapter } from './adapters';
+export type { PluginStudioAdapterProps } from './adapters';
+
 // Type exports
 export * from './types';
 

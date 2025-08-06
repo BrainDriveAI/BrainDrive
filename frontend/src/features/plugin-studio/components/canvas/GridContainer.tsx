@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Responsive, WidthProvider, Layout, Layouts as ReactGridLayouts } from 'react-grid-layout';
 import { Box, Paper } from '@mui/material';
 import { Layouts, ViewModeState, GridItem as GridItemType, LayoutItem } from '../../types';
@@ -13,6 +13,8 @@ const ResponsiveGridLayout = WidthProvider(Responsive);
 interface GridContainerProps {
   layouts: Layouts | null;
   onLayoutChange: (layout: Layout[], newLayouts: Layouts) => void;
+  onResizeStart?: () => void;
+  onResizeStop?: () => void;
   viewMode: ViewModeState;
   viewWidth: number;
   newItemId?: string | null;
@@ -26,6 +28,8 @@ interface GridContainerProps {
 export const GridContainer: React.FC<GridContainerProps> = ({
   layouts,
   onLayoutChange,
+  onResizeStart,
+  onResizeStop,
   viewMode,
   viewWidth,
   newItemId = null
@@ -70,54 +74,72 @@ export const GridContainer: React.FC<GridContainerProps> = ({
   // Get the current view mode config
   const currentViewModeConfig = VIEW_MODE_LAYOUTS[viewMode.type];
   
-  // Convert our Layouts type to ReactGridLayout.Layouts type
-  const convertedLayouts: ReactGridLayouts = layouts ? {
-    desktop: layouts.desktop || [],
-    tablet: layouts.tablet || [],
-    mobile: layouts.mobile || []
-  } : { desktop: [], tablet: [], mobile: [] };
+  // Convert our Layouts type to ReactGridLayout.Layouts type and memoize it
+  const convertedLayouts: ReactGridLayouts = useMemo(() => {
+    if (!layouts) {
+      return { desktop: [], tablet: [], mobile: [] };
+    }
+    
+    // Return the layouts directly - React Grid Layout will handle them properly
+    return {
+      desktop: layouts.desktop || [],
+      tablet: layouts.tablet || [],
+      mobile: layouts.mobile || []
+    };
+  }, [layouts]);
   
-  // Handle layout change from react-grid-layout
-  const handleLayoutChange = (currentLayout: Layout[], allLayouts: ReactGridLayouts) => {
-    // Convert back to our Layouts type, preserving the original GridItem properties
-    const convertLayoutArray = (layouts: Layout[] | undefined, currentLayouts: (GridItemType | LayoutItem)[] | undefined): (GridItemType | LayoutItem)[] => {
-      if (!layouts) return [];
-      
-      return layouts.map(layout => {
-        // Find the original item to preserve its properties
-        const originalItem = currentLayouts?.find(item => item.i === layout.i);
+  // Memoize the layout change handler to prevent unnecessary re-renders
+  const handleLayoutChange = React.useCallback((currentLayout: Layout[], allLayouts: ReactGridLayouts) => {
+    // Debounce rapid layout changes from React Grid Layout
+    requestAnimationFrame(() => {
+      // Convert back to our Layouts type, preserving the original GridItem properties
+      const convertLayoutArray = (layouts: Layout[] | undefined, currentLayouts: (GridItemType | LayoutItem)[] | undefined): (GridItemType | LayoutItem)[] => {
+        if (!layouts) return [];
         
-        if (originalItem) {
-          // Preserve all properties but update position and size
-          return {
-            ...originalItem,
-            x: layout.x,
-            y: layout.y,
-            w: layout.w,
-            h: layout.h
-          };
-        } else {
-          // If original item not found, create a basic LayoutItem
-          return {
-            moduleUniqueId: layout.i,
-            i: layout.i,
-            x: layout.x,
-            y: layout.y,
-            w: layout.w,
-            h: layout.h
-          } as LayoutItem;
-        }
-      });
-    };
-    
-    const ourLayouts: Layouts = {
-      desktop: convertLayoutArray(allLayouts.desktop, layouts?.desktop),
-      tablet: convertLayoutArray(allLayouts.tablet, layouts?.tablet),
-      mobile: convertLayoutArray(allLayouts.mobile, layouts?.mobile)
-    };
-    
-    onLayoutChange(currentLayout, ourLayouts);
-  };
+        return layouts.map(layout => {
+          // Find the original item to preserve its properties
+          const originalItem = currentLayouts?.find(item => item.i === layout.i);
+          
+          if (originalItem) {
+            // Only update if position or size actually changed
+            if (originalItem.x === layout.x &&
+                originalItem.y === layout.y &&
+                originalItem.w === layout.w &&
+                originalItem.h === layout.h) {
+              return originalItem; // No change, return original
+            }
+            
+            // Preserve all properties but update position and size
+            return {
+              ...originalItem,
+              x: layout.x,
+              y: layout.y,
+              w: layout.w,
+              h: layout.h
+            };
+          } else {
+            // If original item not found, create a basic LayoutItem
+            return {
+              moduleUniqueId: layout.i,
+              i: layout.i,
+              x: layout.x,
+              y: layout.y,
+              w: layout.w,
+              h: layout.h
+            } as LayoutItem;
+          }
+        });
+      };
+      
+      const ourLayouts: Layouts = {
+        desktop: convertLayoutArray(allLayouts.desktop, layouts?.desktop),
+        tablet: convertLayoutArray(allLayouts.tablet, layouts?.tablet),
+        mobile: convertLayoutArray(allLayouts.mobile, layouts?.mobile)
+      };
+      
+      onLayoutChange(currentLayout, ourLayouts);
+    });
+  }, [layouts, onLayoutChange]);
   
   return (
     <Box
@@ -146,11 +168,17 @@ export const GridContainer: React.FC<GridContainerProps> = ({
         margin={currentViewModeConfig.margin}
         containerPadding={currentViewModeConfig.padding}
         onLayoutChange={handleLayoutChange}
+        onResizeStart={onResizeStart}
+        onResizeStop={onResizeStop}
         isDraggable={!previewMode}
         isResizable={!previewMode}
         compactType="vertical"
         useCSSTransforms={true}
         draggableHandle=".react-grid-dragHandleExample"
+        preventCollision={false}
+        allowOverlap={false}
+        measureBeforeMount={false}
+        transformScale={1}
       >
         {currentLayout
           .filter(item => item && item.i && typeof item.y === 'number' && typeof item.x === 'number' &&

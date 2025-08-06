@@ -119,7 +119,8 @@ export const GridToolbar: React.FC<GridToolbarProps> = ({ onSave }) => {
       alignItems: 'center',
       borderBottom: 1,
       borderColor: 'divider',
-      justifyContent: 'space-between'
+      justifyContent: 'space-between',
+      backgroundColor: 'white'
     }}>
       {/* Left Section: Basic Actions and Page Management Controls */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: '1 0 auto' }}>
