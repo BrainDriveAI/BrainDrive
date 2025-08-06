@@ -29,6 +29,7 @@ export interface UnifiedPageRendererProps {
   // Event handlers
   onModeChange?: (mode: RenderMode) => void;
   onPageLoad?: (page: PageData) => void;
+  onLayoutChange?: (layouts: any) => void;
   onError?: (error: Error) => void;
 }
 
@@ -68,6 +69,7 @@ export const UnifiedPageRenderer: React.FC<UnifiedPageRendererProps> = ({
   preloadPlugins = [],
   onModeChange,
   onPageLoad,
+  onLayoutChange,
   onError,
 }) => {
   // State management
@@ -211,6 +213,7 @@ export const UnifiedPageRenderer: React.FC<UnifiedPageRendererProps> = ({
                     mode={currentMode}
                     lazyLoading={lazyLoading}
                     preloadPlugins={preloadPlugins}
+                    onLayoutChange={onLayoutChange}
                   />
                 </ResponsiveContainer>
               ) : (
@@ -220,6 +223,7 @@ export const UnifiedPageRenderer: React.FC<UnifiedPageRendererProps> = ({
                   mode={currentMode}
                   lazyLoading={lazyLoading}
                   preloadPlugins={preloadPlugins}
+                  onLayoutChange={onLayoutChange}
                 />
               )}
             </>

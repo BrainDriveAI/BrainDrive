@@ -1,5 +1,6 @@
 import React from 'react';
 import { PluginStudioProvider } from './context/PluginStudioProvider';
+import { PluginStudioLayoutUnified } from './components/PluginStudioLayoutUnified';
 import { PluginStudioLayout } from './components/PluginStudioLayout';
 
 /**
@@ -7,9 +8,17 @@ import { PluginStudioLayout } from './components/PluginStudioLayout';
  * @returns The Plugin Studio page component
  */
 export const PluginStudioPage: React.FC = () => {
+  // Use unified layout by default, with fallback to legacy
+  // Use import.meta.env for Vite instead of process.env
+  const useUnifiedLayout = import.meta.env.VITE_PLUGIN_STUDIO_UNIFIED !== 'false';
+  
   return (
     <PluginStudioProvider>
-      <PluginStudioLayout />
+      {useUnifiedLayout ? (
+        <PluginStudioLayoutUnified />
+      ) : (
+        <PluginStudioLayout />
+      )}
     </PluginStudioProvider>
   );
 };

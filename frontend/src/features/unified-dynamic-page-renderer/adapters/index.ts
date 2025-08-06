@@ -6,3 +6,7 @@ export type { LegacyModuleAdapterProps, LegacyAdapterConfig } from './LegacyModu
 
 // Re-export for convenience
 export { LegacyModuleAdapter as LegacyPluginModuleRenderer } from './LegacyModuleAdapter';
+
+// Plugin Studio Adapter
+export { PluginStudioAdapter } from './PluginStudioAdapter';
+export type { PluginStudioAdapterProps } from './PluginStudioAdapter';
