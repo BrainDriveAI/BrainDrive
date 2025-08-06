@@ -128,9 +128,16 @@ export const PublishedModeController: React.FC<PublishedModeControllerProps> = (
           name: pageData.name,
           route: pageData.route,
           publishedLayouts: pageData.layouts,
-          publishedModules: pageData.modules.map((module: ModuleConfig) => ({
+          publishedModules: pageData.modules.filter((module: ModuleConfig) => {
+            const pluginId = (module as any).pluginId || module.pluginId;
+            if (!pluginId || pluginId === 'unknown') {
+              console.warn(`[PublishedModeController] Skipping module with missing pluginId:`, module);
+              return false;
+            }
+            return true;
+          }).map((module: ModuleConfig) => ({
             moduleId: (module as any).moduleId || `module-${Math.random()}`,
-            pluginId: (module as any).pluginId || 'unknown',
+            pluginId: (module as any).pluginId || module.pluginId,
             config: module,
             lazy: module.lazy || false,
             priority: module.priority || 'normal',

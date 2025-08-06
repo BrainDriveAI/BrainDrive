@@ -1,6 +1,6 @@
 import { DynamicPluginRenderer } from './DynamicPluginRenderer';
 import { LoadedModule } from '../types/remotePlugin';
-import { getPluginConfigForInstance, getModuleConfigForInstance } from '../plugins';
+import { getPluginConfigForInstance, getModuleConfigForInstance, plugins, onPluginRegistryChange } from '../plugins';
 import React, { useState, useEffect, useContext, useCallback, useMemo, useRef } from 'react';
 import { debounce } from 'lodash';
 import ComponentErrorBoundary from './ComponentErrorBoundary';
@@ -41,6 +41,57 @@ export const PluginModuleRenderer: React.FC<PluginModuleRendererProps> = ({
   
   // Get the service context - this is a reference to the function, not calling the hook
   const serviceContext = useContext(ServiceContext);
+  
+  // Simple polling approach to check for plugin availability
+  const [pluginsAvailable, setPluginsAvailable] = useState(false);
+  const [pluginConfig, setPluginConfig] = useState<any>(null);
+  
+  // Poll for plugin availability every 100ms until plugins are loaded
+  useEffect(() => {
+    const checkPluginAvailability = () => {
+      const currentPlugins = Object.keys(plugins);
+      const currentPluginConfig = getPluginConfigForInstance(pluginId);
+      
+      console.log(`[PluginModuleRenderer] Checking plugin availability for ${pluginId}:`, {
+        totalPlugins: currentPlugins.length,
+        availablePluginIds: currentPlugins,
+        pluginConfigFound: !!currentPluginConfig,
+        pluginsAvailable: currentPlugins.length > 0 && !!currentPluginConfig
+      });
+      
+      if (currentPlugins.length > 0 && currentPluginConfig) {
+        console.log(`[PluginModuleRenderer] Plugin ${pluginId} is now available!`);
+        setPluginsAvailable(true);
+        setPluginConfig(currentPluginConfig);
+        return true; // Stop polling
+      }
+      
+      return false; // Continue polling
+    };
+    
+    // Check immediately
+    if (checkPluginAvailability()) {
+      return;
+    }
+    
+    // Poll every 50ms until plugins are available (more frequent)
+    const pollInterval = setInterval(() => {
+      if (checkPluginAvailability()) {
+        clearInterval(pollInterval);
+      }
+    }, 50);
+    
+    // Cleanup after 15 seconds to prevent infinite polling
+    const timeout = setTimeout(() => {
+      clearInterval(pollInterval);
+      console.warn(`[PluginModuleRenderer] Timeout waiting for plugin ${pluginId}`);
+    }, 15000);
+    
+    return () => {
+      clearInterval(pollInterval);
+      clearTimeout(timeout);
+    };
+  }, [pluginId, plugins]); // Add plugins as dependency to re-run when plugins change
   
   // Get the module state context for state persistence
   const { saveModuleState } = useModuleState();
@@ -577,6 +628,8 @@ export const PluginModuleRenderer: React.FC<PluginModuleRendererProps> = ({
     
     // Only check for changes every 500ms to prevent rapid updates
     const checkPropsChanges = () => {
+      // Ensure prevModuleRef.current is not null before accessing properties
+      if (!prevModuleRef.current) return;
       
       const currentProps = getEssentialPropsStable(stableModulePropsRef.current);
       const prevProps = getEssentialPropsStable(prevModuleRef.current.props);
@@ -599,8 +652,8 @@ export const PluginModuleRenderer: React.FC<PluginModuleRendererProps> = ({
         }
       }
       
-      if (hasChanged) {
-        // Only update if there's a significant change
+      if (hasChanged && prevModuleRef.current) {
+        // Only update if there's a significant change and prevModuleRef.current is not null
         prevModuleRef.current = {
           ...prevModuleRef.current,
           props: {
@@ -618,6 +671,18 @@ export const PluginModuleRenderer: React.FC<PluginModuleRendererProps> = ({
   }, [module, pluginId, moduleId, moduleName]);
   // Removed moduleProps from dependencies to prevent infinite loops
   // WARNING: This could cause stale props if moduleProps changes but effect doesn't re-run
+
+  // Show loading state if plugins aren't available yet
+  if (!pluginsAvailable && !pluginConfig) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" height="100%" p={2}>
+        <CircularProgress size={24} />
+        <Typography variant="body2" sx={{ ml: 1 }}>
+          Loading plugins...
+        </Typography>
+      </Box>
+    );
+  }
 
   if (loading) {
     return fallback || <Box display="flex" justifyContent="center" alignItems="center" height="100%"><CircularProgress /></Box>;

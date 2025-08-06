@@ -93,6 +93,25 @@ export const UnifiedPageRenderer: React.FC<UnifiedPageRendererProps> = ({
     onModeChange?.(newMode);
   }, [onModeChange]);
 
+  // Context value - MUST be before any conditional returns
+  const contextValue = useMemo(() => ({
+    pageData: pageData || null,
+    mode: currentMode,
+    responsive,
+    breakpoints,
+    containerQueries,
+    lazyLoading,
+    preloadPlugins,
+  }), [
+    pageData,
+    currentMode,
+    responsive,
+    breakpoints,
+    containerQueries,
+    lazyLoading,
+    preloadPlugins,
+  ]);
+
   // Page load effect
   useEffect(() => {
     if (pageData && !pageLoading) {
@@ -149,24 +168,6 @@ export const UnifiedPageRenderer: React.FC<UnifiedPageRendererProps> = ({
     );
   }
 
-  // Context value
-  const contextValue = useMemo(() => ({
-    pageData,
-    mode: currentMode,
-    responsive,
-    breakpoints,
-    containerQueries,
-    lazyLoading,
-    preloadPlugins,
-  }), [
-    pageData,
-    currentMode,
-    responsive,
-    breakpoints,
-    containerQueries,
-    lazyLoading,
-    preloadPlugins,
-  ]);
 
   return (
     <ErrorBoundary
@@ -188,36 +189,40 @@ export const UnifiedPageRenderer: React.FC<UnifiedPageRendererProps> = ({
         <div
           className={`unified-page-renderer unified-page-renderer--${currentMode}`}
           data-testid="unified-page-renderer"
-          data-page-id={pageData.id}
+          data-page-id={pageData?.id || 'unknown'}
           data-mode={currentMode}
         >
-          <ModeController
-            mode={currentMode}
-            onModeChange={handleModeChange}
-            pageData={pageData}
-          />
-          
-          {responsive ? (
-            <ResponsiveContainer
-              breakpoints={breakpoints}
-              containerQueries={containerQueries}
-            >
-              <LayoutEngine
-                layouts={pageData.layouts}
-                modules={pageData.modules}
+          {pageData && (
+            <>
+              <ModeController
                 mode={currentMode}
-                lazyLoading={lazyLoading}
-                preloadPlugins={preloadPlugins}
+                onModeChange={handleModeChange}
+                pageData={pageData}
               />
-            </ResponsiveContainer>
-          ) : (
-            <LayoutEngine
-              layouts={pageData.layouts}
-              modules={pageData.modules}
-              mode={currentMode}
-              lazyLoading={lazyLoading}
-              preloadPlugins={preloadPlugins}
-            />
+              
+              {responsive ? (
+                <ResponsiveContainer
+                  breakpoints={breakpoints}
+                  containerQueries={containerQueries}
+                >
+                  <LayoutEngine
+                    layouts={pageData.layouts}
+                    modules={pageData.modules}
+                    mode={currentMode}
+                    lazyLoading={lazyLoading}
+                    preloadPlugins={preloadPlugins}
+                  />
+                </ResponsiveContainer>
+              ) : (
+                <LayoutEngine
+                  layouts={pageData.layouts}
+                  modules={pageData.modules}
+                  mode={currentMode}
+                  lazyLoading={lazyLoading}
+                  preloadPlugins={preloadPlugins}
+                />
+              )}
+            </>
           )}
         </div>
       </PageProvider>

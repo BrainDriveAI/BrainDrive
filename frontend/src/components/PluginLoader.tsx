@@ -23,21 +23,31 @@ export const PluginLoader: React.FC<PluginLoaderProps> = ({
     const loadPlugins = async () => {
       try {
         setLoading(true);
+        console.log('[PluginLoader] Starting plugin loading process...');
+        
         // Get the manifest of available remote plugins
+        console.log('[PluginLoader] Getting remote plugin manifest...');
         const manifest = await remotePluginService.getRemotePluginManifest();
+        console.log('[PluginLoader] Manifest received:', manifest);
         
         // Load all plugins in parallel
+        console.log('[PluginLoader] Loading plugins in parallel...');
         const loadedPlugins = await Promise.all(
-          manifest.map(plugin => remotePluginService.loadRemotePlugin(plugin))
+          manifest.map(plugin => {
+            console.log(`[PluginLoader] Loading plugin: ${plugin.id || plugin.name}`);
+            return remotePluginService.loadRemotePlugin(plugin);
+          })
         );
+        console.log('[PluginLoader] All plugins loaded:', loadedPlugins);
 
         // Filter out any failed loads (null results)
         const successfullyLoaded = loadedPlugins.filter((p): p is LoadedRemotePlugin => p !== null);
+        console.log('[PluginLoader] Successfully loaded plugins:', successfullyLoaded);
         
         setLoadedPlugins(successfullyLoaded);
         onPluginsLoaded(successfullyLoaded);
       } catch (err) {
-        console.error('Plugin loading error:', err);
+        console.error('[PluginLoader] Plugin loading error:', err);
         setError(err instanceof Error ? err.message : 'Unknown error loading plugins');
         // Still call onPluginsLoaded with empty array to indicate completion
         onPluginsLoaded([]);

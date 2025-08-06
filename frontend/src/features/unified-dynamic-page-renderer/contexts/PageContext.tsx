@@ -2,7 +2,7 @@ import React, { createContext, useContext } from 'react';
 import { PageData, RenderMode, BreakpointConfig } from '../types';
 
 export interface PageContextValue {
-  pageData: PageData;
+  pageData: PageData | null;
   mode: RenderMode;
   responsive: boolean;
   breakpoints: BreakpointConfig;

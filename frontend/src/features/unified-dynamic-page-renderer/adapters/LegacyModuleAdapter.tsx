@@ -12,6 +12,7 @@ import { ServiceContext } from '../../../contexts/ServiceContext';
 import { createServiceBridges, ServiceError } from '../../../utils/serviceBridge';
 import { remotePluginService } from '../../../services/remotePluginService';
 import { getPluginConfigForInstance } from '../../../plugins';
+import { usePluginConfig, usePluginsReady } from '../../../contexts/PluginLoadingContext';
 
 /**
  * Universal Legacy Module Adapter
@@ -91,6 +92,22 @@ export const LegacyModuleAdapter: React.FC<LegacyModuleAdapterProps> = ({
   fallbackStrategy = 'on-error',
   performanceMonitoring = process.env.NODE_ENV === 'development'
 }) => {
+  // Debug: Log all props received
+  if (process.env.NODE_ENV === 'development') {
+    console.log(`[LegacyModuleAdapter] Props received for ${pluginId}/${moduleId || moduleName}:`, {
+      pluginId,
+      moduleId,
+      moduleName,
+      useUnifiedRenderer,
+      fallbackStrategy,
+      mode,
+      enableMigrationWarnings,
+      performanceMonitoring,
+      lazyLoading,
+      priority
+    });
+  }
+
   // State management
   const [shouldUseUnified, setShouldUseUnified] = useState(
     useUnifiedRenderer && fallbackStrategy !== 'immediate'
@@ -115,15 +132,7 @@ export const LegacyModuleAdapter: React.FC<LegacyModuleAdapterProps> = ({
     };
   }, []);
 
-  // Migration warnings
-  useEffect(() => {
-    if (enableMigrationWarnings && process.env.NODE_ENV === 'development') {
-      console.warn(
-        `[LegacyModuleAdapter] Plugin "${pluginId}" is using legacy adapter. ` +
-        `Consider migrating to native unified renderer for better performance.`
-      );
-    }
-  }, [pluginId, enableMigrationWarnings]);
+  // Migration warnings are now shown only when actually using legacy renderer (see legacy fallback section)
 
   // Default breakpoint if not provided
   const defaultBreakpoint: BreakpointInfo = useMemo(() => ({
@@ -148,19 +157,35 @@ export const LegacyModuleAdapter: React.FC<LegacyModuleAdapterProps> = ({
     try {
       const startTime = performance.now();
       
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[LegacyModuleAdapter] Converting config for ${pluginId}/${moduleId || moduleName}`);
+      }
+      
       // Try to get plugin configuration
       const remotePlugin = remotePluginService.getLoadedPlugin(pluginId);
       const isLocalPlugin = isLocal !== undefined ? isLocal : !remotePlugin || remotePlugin.islocal === true;
+      
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[LegacyModuleAdapter] Plugin lookup: remotePlugin=${!!remotePlugin}, isLocalPlugin=${isLocalPlugin}`);
+      }
       
       let targetModule: any = null;
       
       if (isLocalPlugin) {
         const pluginConfig = getPluginConfigForInstance(pluginId);
-        if (!pluginConfig) return null;
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`[LegacyModuleAdapter] Local plugin config:`, pluginConfig);
+        }
+        if (!pluginConfig) {
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`[LegacyModuleAdapter] No local plugin config found for ${pluginId}`);
+          }
+          return null;
+        }
         
         if (pluginConfig.modules && pluginConfig.modules.length > 0) {
           const baseModuleId = moduleId ? moduleId.replace(/-\d+$/, '') : null;
-          targetModule = moduleId 
+          targetModule = moduleId
             ? pluginConfig.modules.find(m => m.id === moduleId) ||
               (baseModuleId ? pluginConfig.modules.find(m => m.id === baseModuleId) : null)
             : moduleName
@@ -168,11 +193,46 @@ export const LegacyModuleAdapter: React.FC<LegacyModuleAdapterProps> = ({
               : pluginConfig.modules[0];
         }
       } else if (remotePlugin && remotePlugin.loadedModules) {
-        const baseModuleId = moduleId ? moduleId.replace(/-\d+$/, '') : null;
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`[LegacyModuleAdapter] Remote plugin modules:`, remotePlugin.loadedModules);
+        }
+        
         if (moduleId) {
+          // Try exact match first
           targetModule = remotePlugin.loadedModules.find(m => m.id === moduleId);
-          if (!targetModule && baseModuleId) {
+          
+          if (!targetModule) {
+            // Try simple pattern removal (original logic)
+            const baseModuleId = moduleId.replace(/-\d+$/, '');
             targetModule = remotePlugin.loadedModules.find(m => m.id === baseModuleId);
+          }
+          
+          if (!targetModule) {
+            // For complex generated IDs like "BrainDriveChat_1830586da8834501bea1ef1d39c3cbe8_BrainDriveChat_BrainDriveChat_1754404718788"
+            // Try to extract the plugin name (first part before underscore)
+            const pluginNameFromId = moduleId.split('_')[0];
+            targetModule = remotePlugin.loadedModules.find(m =>
+              m.id === pluginNameFromId ||
+              m.name === pluginNameFromId ||
+              (m.id && m.id.includes(pluginNameFromId))
+            );
+            
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`[LegacyModuleAdapter] Trying plugin name extraction: "${pluginNameFromId}" from moduleId: "${moduleId}"`);
+            }
+          }
+          
+          if (!targetModule) {
+            // Last resort: try to match by plugin ID
+            targetModule = remotePlugin.loadedModules.find(m =>
+              m.id === pluginId ||
+              m.name === pluginId ||
+              (m.id && m.id.includes(pluginId))
+            );
+            
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`[LegacyModuleAdapter] Trying plugin ID match: "${pluginId}"`);
+            }
           }
         } else if (moduleName) {
           targetModule = remotePlugin.loadedModules.find(m => m.name === moduleName);
@@ -181,9 +241,13 @@ export const LegacyModuleAdapter: React.FC<LegacyModuleAdapterProps> = ({
         }
       }
 
-      console.log(`[LegacyModuleAdapter] Target module found:`, targetModule);
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[LegacyModuleAdapter] Target module found:`, targetModule);
+      }
       if (!targetModule) {
-        console.log(`[LegacyModuleAdapter] No target module found for ${pluginId}/${moduleId || moduleName}`);
+        if (process.env.NODE_ENV === 'development') {
+          console.log(`[LegacyModuleAdapter] No target module found for ${pluginId}/${moduleId || moduleName}`);
+        }
         return null;
       }
 
@@ -310,13 +374,13 @@ export const LegacyModuleAdapter: React.FC<LegacyModuleAdapterProps> = ({
   // Try unified renderer first, fallback to legacy if needed
   if (shouldUseUnified && !unifiedError && fallbackStrategy !== 'never') {
     if (process.env.NODE_ENV === 'development') {
-      console.debug(`[LegacyModuleAdapter] Attempting unified render for ${pluginId}/${moduleId || moduleName}`);
+      console.log(`[LegacyModuleAdapter] Attempting unified render for ${pluginId}/${moduleId || moduleName}`);
     }
     const unifiedConfig = convertToUnifiedConfig();
     
     if (unifiedConfig) {
       if (process.env.NODE_ENV === 'development') {
-        console.debug(`[LegacyModuleAdapter] Using unified renderer for ${pluginId}/${moduleId || moduleName}`);
+        console.log(`[LegacyModuleAdapter] Using unified renderer for ${pluginId}/${moduleId || moduleName}`);
       }
       return (
         <ComponentErrorBoundary
@@ -333,15 +397,12 @@ export const LegacyModuleAdapter: React.FC<LegacyModuleAdapterProps> = ({
             </Box>
           }
         >
-          <ModuleRenderer
+          <PluginModuleRenderer
             pluginId={pluginId}
-            moduleId={moduleId || moduleName || 'default'}
-            
-            
+            moduleId={moduleId}
             moduleName={moduleName}
-            isLocal={isLocal}
-            additionalProps={{
-              layoutConfig,
+            moduleProps={{
+              ...moduleProps,
               mode: mode as RenderMode,
               breakpoint: currentBreakpoint,
               initialState: moduleProps.initialState,
@@ -351,7 +412,14 @@ export const LegacyModuleAdapter: React.FC<LegacyModuleAdapterProps> = ({
               priority,
               onLoad: handleModuleLoad
             }}
-            onError={handleUnifiedError}
+            isLocal={isLocal}
+            fallback={
+              <Box display="flex" justifyContent="center" alignItems="center" height="100%" p={2}>
+                <Typography variant="body2" color="text.secondary">
+                  Loading unified module...
+                </Typography>
+              </Box>
+            }
           />
           
           {/* Performance overlay in development */}
@@ -374,18 +442,26 @@ export const LegacyModuleAdapter: React.FC<LegacyModuleAdapterProps> = ({
       );
     } else {
       if (process.env.NODE_ENV === 'development') {
-        console.debug(`[LegacyModuleAdapter] Unified config is null, falling back to legacy for ${pluginId}/${moduleId || moduleName}`);
+        console.log(`[LegacyModuleAdapter] Unified config is null, falling back to legacy for ${pluginId}/${moduleId || moduleName}`);
       }
     }
   } else {
     if (process.env.NODE_ENV === 'development') {
-      console.debug(`[LegacyModuleAdapter] Skipping unified renderer: shouldUseUnified=${shouldUseUnified}, unifiedError=${!!unifiedError}, fallbackStrategy=${fallbackStrategy}`);
+      console.log(`[LegacyModuleAdapter] Skipping unified renderer: shouldUseUnified=${shouldUseUnified}, unifiedError=${!!unifiedError}, fallbackStrategy=${fallbackStrategy}`);
     }
   }
 
   // Fallback to legacy PluginModuleRenderer
   if (process.env.NODE_ENV === 'development') {
-    console.debug(`[LegacyModuleAdapter] Using legacy renderer for ${pluginId}/${moduleId || moduleName}`);
+    console.log(`[LegacyModuleAdapter] Using legacy renderer for ${pluginId}/${moduleId || moduleName}`);
+    
+    // Show migration warning only when actually using legacy renderer
+    if (enableMigrationWarnings) {
+      console.warn(
+        `[LegacyModuleAdapter] Plugin "${pluginId}" is using legacy adapter. ` +
+        `Consider migrating to native unified renderer for better performance.`
+      );
+    }
   }
   return (
     <ComponentErrorBoundary>
