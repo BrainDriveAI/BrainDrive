@@ -90,11 +90,11 @@ export const PluginStudioLayoutUnified: React.FC = () => {
         
         {/* Migration Control Panel (Development Only) */}
         {import.meta.env.MODE === 'development' && (
-          <Box sx={{ 
-            p: 2, 
-            borderTop: 1, 
+          <Box sx={{
+            p: 2,
+            borderTop: 1,
             borderColor: 'divider',
-            bgcolor: 'grey.50'
+            bgcolor: 'background.default'
           }}>
             <FormControlLabel
               control={

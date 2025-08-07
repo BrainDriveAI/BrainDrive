@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Box } from '@mui/material';
+import { Box, useTheme } from '@mui/material';
 import { UnifiedPageRenderer } from '../components/UnifiedPageRenderer';
 import { ResponsiveContainer } from '../components/ResponsiveContainer';
 import { LayoutEngine } from '../components/LayoutEngine';
@@ -66,6 +66,8 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
   fallbackToLegacy = false,
   performanceMonitoring = import.meta.env.MODE === 'development'
 }) => {
+  // Get Material-UI theme for dark mode support
+  const theme = useTheme();
   // State for converted data
   const [convertedPageData, setConvertedPageData] = useState<PageData | null>(null);
   const [conversionError, setConversionError] = useState<Error | null>(null);
@@ -561,7 +563,7 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
               overflow: visible !important;
             }
 
-            /* Create expandable grid background like legacy Plugin Studio */
+            /* Create expandable grid background like legacy Plugin Studio - Theme aware */
             .unified-page-renderer .responsive-container::before {
               content: '';
               position: absolute;
@@ -570,10 +572,10 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
               right: 0;
               bottom: 0;
               background-image:
-                linear-gradient(to right, #e0e0e0 1px, transparent 1px),
-                linear-gradient(to bottom, #e0e0e0 1px, transparent 1px);
+                linear-gradient(to right, ${theme.palette.mode === 'dark' ? '#424242' : '#e0e0e0'} 1px, transparent 1px),
+                linear-gradient(to bottom, ${theme.palette.mode === 'dark' ? '#424242' : '#e0e0e0'} 1px, transparent 1px);
               background-size: 20px 20px;
-              background-color: #f5f5f5;
+              background-color: ${theme.palette.mode === 'dark' ? '#303030' : '#f5f5f5'};
               z-index: -1;
               min-height: 100vh;
               min-width: 100vw;
@@ -593,27 +595,31 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
               transition-property: left, top !important;
             }
 
-            /* Grid item basic styling */
+            /* Grid item basic styling - Theme aware */
             .unified-page-renderer .react-grid-item {
-              background: white !important;
-              border: 1px solid #e0e0e0 !important;
+              background: ${theme.palette.background.paper} !important;
+              border: 1px solid ${theme.palette.divider} !important;
               border-radius: 8px !important;
-              box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+              box-shadow: ${theme.palette.mode === 'dark'
+                ? '0 2px 4px rgba(0, 0, 0, 0.3)'
+                : '0 2px 4px rgba(0, 0, 0, 0.1)'} !important;
               overflow: hidden !important;
               cursor: pointer !important;
             }
 
-            /* Hover effect */
+            /* Hover effect - Theme aware */
             .unified-page-renderer .react-grid-item:hover {
-              box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
-              border-color: #c0c0c0 !important;
+              box-shadow: ${theme.palette.mode === 'dark'
+                ? '0 4px 12px rgba(0, 0, 0, 0.4)'
+                : '0 4px 12px rgba(0, 0, 0, 0.15)'} !important;
+              border-color: ${theme.palette.mode === 'dark' ? '#666666' : '#c0c0c0'} !important;
             }
 
             /* Selected module styling */
             .unified-page-renderer .react-grid-item.selected,
             .unified-page-renderer .react-grid-item.layout-item--selected {
-              border: 2px solid #1976d2 !important;
-              box-shadow: 0 4px 16px rgba(25, 118, 210, 0.3) !important;
+              border: 2px solid ${theme.palette.primary.main} !important;
+              box-shadow: 0 4px 16px ${theme.palette.primary.main}4D !important;
             }
 
             /* Resize handles - only show when selected */
@@ -627,9 +633,9 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
               opacity: 1;
             }
 
-            /* Style the southeast resize handle */
+            /* Style the southeast resize handle - Theme aware */
             .unified-page-renderer .react-grid-item .react-resizable-handle-se {
-              background: rgba(0, 0, 0, 0.7);
+              background: ${theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)'};
               border-radius: 3px;
               width: 16px !important;
               height: 16px !important;
@@ -640,7 +646,7 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
 
             .unified-page-renderer .react-grid-item .react-resizable-handle-se::after {
               content: '↘';
-              color: white;
+              color: ${theme.palette.mode === 'dark' ? '#000' : '#fff'};
               font-size: 10px;
               position: absolute;
               top: 50%;
@@ -649,10 +655,10 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
               z-index: 10001 !important;
             }
 
-            /* Placeholder styling during drag */
+            /* Placeholder styling during drag - Theme aware */
             .unified-page-renderer .react-grid-item.react-grid-placeholder {
-              background: rgba(0, 123, 255, 0.1) !important;
-              border: 2px dashed #007bff !important;
+              background: ${theme.palette.primary.main}1A !important;
+              border: 2px dashed ${theme.palette.primary.main} !important;
               border-radius: 8px !important;
               z-index: 2 !important;
               user-select: none !important;
@@ -683,8 +689,8 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
             .layout-engine-container--resizing .react-grid-item.selected,
             .layout-engine-container--dragging .react-grid-item.layout-item--selected,
             .layout-engine-container--resizing .react-grid-item.layout-item--selected {
-              border: 2px solid #1976d2 !important;
-              box-shadow: 0 4px 16px rgba(25, 118, 210, 0.3) !important;
+              border: 2px solid ${theme.palette.primary.main} !important;
+              box-shadow: 0 4px 16px ${theme.palette.primary.main}4D !important;
             }
 
             /* Enhanced visual feedback during operations */
@@ -694,14 +700,14 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
             }
 
             .layout-engine-container--resizing .react-grid-item.selected {
-              border-color: #ff9800 !important;
-              box-shadow: 0 4px 16px rgba(255, 152, 0, 0.4) !important;
+              border-color: ${theme.palette.warning.main} !important;
+              box-shadow: 0 4px 16px ${theme.palette.warning.main}66 !important;
             }
 
-            /* Drag and drop visual feedback */
+            /* Drag and drop visual feedback - Theme aware */
             .layout-engine-container--drag-over {
-              background-color: rgba(25, 118, 210, 0.05) !important;
-              border: 2px dashed #1976d2 !important;
+              background-color: ${theme.palette.primary.main}0D !important;
+              border: 2px dashed ${theme.palette.primary.main} !important;
               border-radius: 8px !important;
             }
 
@@ -711,14 +717,64 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
               top: 50%;
               left: 50%;
               transform: translate(-50%, -50%);
-              background: rgba(25, 118, 210, 0.9);
-              color: white;
+              background: ${theme.palette.primary.main}E6;
+              color: ${theme.palette.primary.contrastText};
               padding: 12px 24px;
               border-radius: 4px;
               font-size: 16px;
               font-weight: 500;
               z-index: 1000;
               pointer-events: none;
+            }
+
+            /* Theme-aware scrollbar styling */
+            .unified-page-renderer ::-webkit-scrollbar {
+              width: 12px;
+              height: 12px;
+            }
+
+            .unified-page-renderer ::-webkit-scrollbar-track {
+              background: ${theme.palette.mode === 'dark' ? '#424242' : '#f1f1f1'};
+              border-radius: 6px;
+            }
+
+            .unified-page-renderer ::-webkit-scrollbar-thumb {
+              background: ${theme.palette.mode === 'dark' ? '#666666' : '#c1c1c1'};
+              border-radius: 6px;
+              border: 2px solid ${theme.palette.mode === 'dark' ? '#424242' : '#f1f1f1'};
+            }
+
+            .unified-page-renderer ::-webkit-scrollbar-thumb:hover {
+              background: ${theme.palette.mode === 'dark' ? '#888888' : '#a8a8a8'};
+            }
+
+            .unified-page-renderer ::-webkit-scrollbar-corner {
+              background: ${theme.palette.mode === 'dark' ? '#424242' : '#f1f1f1'};
+            }
+
+            /* Also apply to the main container */
+            .plugin-studio-adapter ::-webkit-scrollbar {
+              width: 12px;
+              height: 12px;
+            }
+
+            .plugin-studio-adapter ::-webkit-scrollbar-track {
+              background: ${theme.palette.mode === 'dark' ? '#424242' : '#f1f1f1'};
+              border-radius: 6px;
+            }
+
+            .plugin-studio-adapter ::-webkit-scrollbar-thumb {
+              background: ${theme.palette.mode === 'dark' ? '#666666' : '#c1c1c1'};
+              border-radius: 6px;
+              border: 2px solid ${theme.palette.mode === 'dark' ? '#424242' : '#f1f1f1'};
+            }
+
+            .plugin-studio-adapter ::-webkit-scrollbar-thumb:hover {
+              background: ${theme.palette.mode === 'dark' ? '#888888' : '#a8a8a8'};
+            }
+
+            .plugin-studio-adapter ::-webkit-scrollbar-corner {
+              background: ${theme.palette.mode === 'dark' ? '#424242' : '#f1f1f1'};
             }
           `}
         </style>
@@ -742,7 +798,7 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
       {performanceMonitoring && import.meta.env.MODE === 'development' && (
         <div style={{
           position: 'fixed',
-          top: 10,
+          bottom: 10,
           right: 10,
           background: 'rgba(0,0,0,0.8)',
           color: 'white',
