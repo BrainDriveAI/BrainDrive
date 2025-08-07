@@ -5,6 +5,7 @@ import CustomDropdown from "./CustomDropdown";
 // Define model interfaces
 interface ModelInfo {
 	name: string;
+	id: string; // Add id field for model ID
 	provider: string;
 	providerId: string;
 	serverName: string;
@@ -257,11 +258,12 @@ class ComponentModelSelection extends React.Component<
 		}
 
 		try {
-			// Include Ollama, OpenAI, and OpenRouter settings
+			// Include Ollama, OpenAI, OpenRouter, and Claude settings
 			const providerSettingIds = [
 				"ollama_servers_settings",
 				"openai_api_keys_settings",
 				"openrouter_api_keys_settings",
+				"claude_api_keys_settings",
 			];
 			const providerSettingsData: ProviderSettings[] = [];
 
@@ -315,6 +317,8 @@ class ComponentModelSelection extends React.Component<
 							? "openai"
 							: settingId.includes("openrouter")
 							? "openrouter"
+							: settingId.includes("claude")
+							? "claude"
 							: "unknown";
 
 						if (providerType === "openai") {
@@ -344,6 +348,22 @@ class ComponentModelSelection extends React.Component<
 											id: "openrouter_default_server",
 											serverName: "OpenRouter API",
 											serverAddress: "https://openrouter.ai/api/v1",
+											apiKey: parsedValue.api_key,
+										},
+									],
+								});
+							}
+						} else if (providerType === "claude") {
+							// For Claude, create a virtual server structure if API key exists
+							if (parsedValue.api_key) {
+								providerSettingsData.push({
+									id: settingId,
+									name: settingsData.name || settingId,
+									servers: [
+										{
+											id: "claude_default_server",
+											serverName: "Claude API",
+											serverAddress: "https://api.anthropic.com",
 											apiKey: parsedValue.api_key,
 										},
 									],
@@ -413,6 +433,8 @@ class ComponentModelSelection extends React.Component<
 					? "openai"
 					: providerSetting.id.includes("openrouter")
 					? "openrouter"
+					: providerSetting.id.includes("claude")
+					? "claude"
 					: "unknown";
 
 				// Skip if no servers configured for this provider
@@ -466,11 +488,25 @@ class ComponentModelSelection extends React.Component<
 								}
 							);
 							serverModels = response?.models || [];
+						} else if (providerType === "claude") {
+							// Claude endpoint
+							const response = await this.props.services.api.get(
+								"/api/v1/ai/providers/models",
+								{
+									params: {
+										provider: "claude",
+										settings_id: providerSetting.id,
+										server_id: server.id,
+									},
+								}
+							);
+							serverModels = response?.models || [];
 						}
 						// Add models to dropdown
 						for (const model of serverModels) {
 							models.push({
 								name: model.name,
+								id: model.id, // Use model.id as the model ID
 								provider: providerType,
 								providerId: providerSetting.id,
 								serverName: server.serverName,
