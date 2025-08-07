@@ -91,118 +91,63 @@ const Settings = () => {
 	};
 
 	// Fetch all settings plugins (modules with "settings" tag)
-	const fetchSettingsPlugins = async () => {
+	const fetchSettingsPlugins = () => {
 		try {
-			// Enable local plugins to ensure BrainDriveOpenAI is available
-			enableLocalPlugins();
-
-			// Load remote plugins to ensure BrainDriveOpenAI is available
-			const remoteManifest =
-				await remotePluginService.getRemotePluginManifest();
-			await Promise.all(
-				remoteManifest.map((plugin) =>
-					remotePluginService.loadRemotePlugin(plugin)
-				)
+		const allModules = getAllModules();
+		
+		// Filter modules with "settings" tag (case-insensitive)
+		const settingsModules = allModules.filter(({ module }) => 
+			module.tags?.some(tag => tag.toLowerCase() === 'settings')
+		);
+		
+		// Extract categories and create settings plugins
+		const pluginsMap = new Map<string, SettingsPlugin>();
+		const categoriesSet = new Set<string>();
+		
+		settingsModules.forEach(({ pluginId, module }) => {
+			// Find the settings name tag (any tag other than "settings")
+			const settingNameTag = module.tags?.find(tag => 
+			tag.toLowerCase() !== 'settings'
 			);
-
-			// Get modules from local plugins
-			const localModules = getAllModules();
-
-			// Get modules from remote plugins with their plugin IDs
-			const remoteModules: { pluginId: string; module: DynamicModuleConfig }[] =
-				[];
-			const loadedPlugins = remotePluginService.getAllLoadedPlugins();
-
-			loadedPlugins.forEach((plugin) => {
-				plugin.loadedModules.forEach((module) => {
-					remoteModules.push({
-						pluginId: plugin.id,
-						module: {
-							id: module.id,
-							name: module.name,
-							displayName: module.displayName,
-							description: module.description,
-							icon: module.icon,
-							category: module.category,
-							enabled: true,
-							priority: module.priority,
-							props: module.props,
-							configFields: module.configFields,
-							messages: module.messages,
-							requiredServices: module.requiredServices,
-							dependencies: module.dependencies,
-							layout: module.layout,
-							tags: module.tags,
-							type: module.type,
-						} as DynamicModuleConfig,
-					});
-				});
-			});
-
-			// Combine local and remote modules
-			const allModules = [...localModules, ...remoteModules];
-
-			console.log("Local modules found:", localModules.length);
-			console.log("Remote modules found:", remoteModules.length);
-			console.log("Total modules found:", allModules.length);
-			console.log("All modules:", allModules);
-
-			// Filter modules with "settings" tag (case-insensitive)
-			const settingsModules = allModules.filter(({ module }) =>
-				module.tags?.some((tag) => tag.toLowerCase() === "settings")
-			);
-
-			console.log("Settings modules found:", settingsModules.length);
-			console.log("Settings modules:", settingsModules);
-
-			// Extract categories and create settings plugins
-			const pluginsMap = new Map<string, SettingsPlugin>();
-			const categoriesSet = new Set<string>();
-
-			settingsModules.forEach(({ pluginId, module }) => {
-				// Find the settings name tag (any tag other than "settings")
-				const settingNameTag = module.tags?.find(
-					(tag) => tag.toLowerCase() !== "settings"
-				);
-
-				if (settingNameTag) {
-					const category = module.category || "General";
-					categoriesSet.add(category);
-
-					const settingsPlugin: SettingsPlugin = {
-						pluginId,
-						moduleId: module.id || module.name,
-						moduleName: module.name,
-						displayName: module.displayName || module.name,
-						category,
-						priority: module.priority || 0,
-						settingName: settingNameTag,
-						isActive: false, // Will be updated when we fetch existing settings
-					};
-
-					// Use settingName as key to ensure uniqueness
-					pluginsMap.set(settingNameTag.toLowerCase(), settingsPlugin);
-				}
-			});
-
-			// Convert to arrays
-			const allCategories = Array.from(categoriesSet).sort();
-			const allPlugins = Array.from(pluginsMap.values());
-
-			// Set state
-			setCategories(allCategories);
-			setAvailablePlugins(allPlugins);
-
-			// Set default category if available
-			if (allCategories.length > 0 && !selectedCategory) {
-				setSelectedCategory(allCategories[0]);
+			
+			if (settingNameTag) {
+			const category = module.category || 'General';
+			categoriesSet.add(category);
+			
+			const settingsPlugin: SettingsPlugin = {
+				pluginId,
+				moduleId: module.id || module.name,
+				moduleName: module.name,
+				displayName: module.displayName || module.name,
+				category,
+				priority: module.priority || 0,
+				settingName: settingNameTag,
+				isActive: false, // Will be updated when we fetch existing settings
+			};
+			
+			// Use settingName as key to ensure uniqueness
+			pluginsMap.set(settingNameTag.toLowerCase(), settingsPlugin);
 			}
-
-			return allPlugins;
+		});
+		
+		// Convert to arrays
+		const allCategories = Array.from(categoriesSet).sort();
+		const allPlugins = Array.from(pluginsMap.values());
+		
+		// Set state
+		setCategories(allCategories);
+		setAvailablePlugins(allPlugins);
+		
+		// Set default category if available
+		if (allCategories.length > 0 && !selectedCategory) {
+			setSelectedCategory(allCategories[0]);
+		}
+		
+		return allPlugins;
 		} catch (error) {
-			console.error("Error fetching settings plugins:", error);
-			setError("Failed to load settings plugins");
-			return [];
+		console.error('Error fetching settings plugins:', error);
+		setError('Failed to load settings plugins');
+		return [];
 		}
 	};
 
