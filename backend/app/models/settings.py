@@ -1,6 +1,6 @@
 from sqlalchemy import Column, String, DateTime, Boolean, JSON, ForeignKey, Enum, func, select, ARRAY
 from sqlalchemy.orm import relationship
-from app.core.database import Base
+from app.models.base import Base
 from app.core.encrypted_column import create_encrypted_column
 from datetime import datetime
 from uuid import uuid4

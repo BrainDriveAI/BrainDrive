@@ -90,4 +90,8 @@ async def get_db():
             await db.rollback()
             raise
         finally:
-            await db.close()
+            try:
+                await db.close()
+            except Exception as close_error:
+                # Log but don't raise close errors to avoid masking the real error
+                logger.warning(f"Error closing database session: {close_error}")
