@@ -28,6 +28,7 @@ export const PluginStudioLayoutUnified: React.FC = () => {
     currentPage,
     layouts,
     handleLayoutChange,
+    savePage,
     previewMode,
     selectedItem,
     setSelectedItem,
@@ -40,6 +41,18 @@ export const PluginStudioLayoutUnified: React.FC = () => {
     routeManagementOpen,
     setRouteManagementOpen
   } = usePluginStudio();
+
+  // Wrapper function to match the adapter's expected signature
+  const handleSave = async (pageId: string): Promise<void> => {
+    console.log('[PluginStudioLayoutUnified] handleSave called with pageId:', pageId);
+    try {
+      await savePage(pageId);
+      console.log('[PluginStudioLayoutUnified] Save completed successfully');
+    } catch (error) {
+      console.error('[PluginStudioLayoutUnified] Save failed:', error);
+      throw error;
+    }
+  };
 
   // Migration control state
   const [useUnifiedRenderer, setUseUnifiedRenderer] = useState(
@@ -145,6 +158,7 @@ export const PluginStudioLayoutUnified: React.FC = () => {
               page={currentPage}
               layouts={layouts}
               onLayoutChange={handleLayoutChange}
+              onSave={handleSave}
               previewMode={previewMode}
               selectedItem={selectedItem}
               onItemSelect={handleItemSelect}

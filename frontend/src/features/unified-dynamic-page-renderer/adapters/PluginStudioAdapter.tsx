@@ -27,6 +27,7 @@ export interface PluginStudioAdapterProps {
   onLayoutChange?: (layout: any[], newLayouts: PluginStudioLayouts) => void;
   onPageLoad?: (page: PageData) => void;
   onError?: (error: Error) => void;
+  onSave?: (pageId: string) => Promise<void>; // Add save callback
   
   // UI state
   previewMode?: boolean;
@@ -56,6 +57,7 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
   onLayoutChange,
   onPageLoad,
   onError,
+  onSave,
   previewMode = false,
   selectedItem,
   onItemSelect,
@@ -480,10 +482,16 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
   }
 
   // Handle save functionality for the GridToolbar
-  const handleSave = async () => {
-    if (!page || !convertedPageData) return;
+  const handleSave = async (pageId?: string) => {
+    if (!page || !convertedPageData) {
+      console.error('[PluginStudioAdapter] Cannot save - missing page or convertedPageData');
+      return;
+    }
     
     try {
+      console.log('[PluginStudioAdapter] Starting save operation for page:', pageId || page.id);
+      console.log('[PluginStudioAdapter] Current convertedPageData layouts:', convertedPageData.layouts);
+      
       // Convert the current unified layouts back to Plugin Studio format for saving
       const convertUnifiedToPluginStudio = (items: LayoutItem[] = []): (PluginStudioGridItem | any)[] => {
         return items.map(item => {
@@ -517,10 +525,24 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
         mobile: convertUnifiedToPluginStudio(convertedPageData.layouts.mobile)
       };
 
-      // Now call onLayoutChange to save the current state
+      console.log('[PluginStudioAdapter] Converted layouts for save:', pluginStudioLayouts);
+
+      // 🔧 FIX: Call onLayoutChange to update the Plugin Studio state
       if (onLayoutChange) {
+        console.log('[PluginStudioAdapter] Calling onLayoutChange to update state');
         onLayoutChange(convertedPageData.layouts.desktop, pluginStudioLayouts);
       }
+      
+      // 🔧 FIX: Call onSave to actually save to backend
+      if (onSave) {
+        console.log('[PluginStudioAdapter] Calling onSave to persist to backend');
+        await onSave(pageId || page.id);
+        console.log('[PluginStudioAdapter] Backend save completed');
+      } else {
+        console.error('[PluginStudioAdapter] onSave callback is missing - cannot save to backend!');
+      }
+      
+      console.log('[PluginStudioAdapter] Save operation completed');
     } catch (error) {
       console.error('[PluginStudioAdapter] Save failed:', error);
       onError?.(error as Error);

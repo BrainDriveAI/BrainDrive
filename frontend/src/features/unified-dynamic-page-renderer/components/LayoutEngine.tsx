@@ -110,6 +110,17 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   // Track operation IDs for proper state management
   const currentOperationId = useRef<string | null>(null);
   const pageIdRef = useRef<string | undefined>(pageId);
+  
+  // Operation deduplication tracking
+  const processedOperations = useRef<Set<string>>(new Set());
+  const operationCleanupTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
+  
+  // Debug logging for bounce detection
+  const debugLog = useCallback((message: string, data?: any) => {
+    const timestamp = performance.now();
+    const stack = new Error().stack?.split('\n').slice(2, 5).join(' -> ') || 'unknown';
+    console.log(`[BOUNCE-DEBUG ${timestamp.toFixed(2)}ms] ${message}`, data ? { ...data, stack } : { stack });
+  }, []);
 
   // Handle external layout changes (from props)
   useEffect(() => {
@@ -128,12 +139,15 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
 
     // Skip during active operations to prevent interference
     if (isDragging || isResizing) {
-      console.log('[LayoutEngine] Skipping external sync during active operation');
+      debugLog('EXTERNAL SYNC BLOCKED - Active operation in progress', { isDragging, isResizing });
       return;
     }
 
     // Update from external source
-    console.log('[LayoutEngine] Syncing external layout change');
+    debugLog('EXTERNAL SYNC TRIGGERED', {
+      layoutsKeys: Object.keys(layouts),
+      currentOperationId: currentOperationId.current
+    });
     unifiedLayoutState.updateLayouts(layouts, {
       source: 'external-sync',
       timestamp: Date.now()
@@ -142,9 +156,29 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
 
   // Handle layout change - convert from react-grid-layout format to our format
   const handleLayoutChange = useCallback((layout: any[], allLayouts: any) => {
-    // Don't process layout changes if we're not in an active operation
-    if (!currentOperationId.current) {
-      console.log('[LayoutEngine] Ignoring layout change - no active operation');
+    const operationId = currentOperationId.current;
+    
+    debugLog('handleLayoutChange called', {
+      operationId,
+      isResizing,
+      isDragging,
+      layoutLength: layout?.length,
+      allLayoutsKeys: Object.keys(allLayouts || {}),
+      layoutData: layout?.map(item => ({ i: item.i, x: item.x, y: item.y, w: item.w, h: item.h }))
+    });
+    
+    // Check for duplicate processing
+    if (operationId && processedOperations.current.has(operationId)) {
+      debugLog('Skipping duplicate processing for operation', { operationId });
+      return;
+    }
+    
+    // Allow layout changes during active operations OR during resize/drag state
+    const hasActiveOperation = !!operationId;
+    const isInActiveState = isResizing || isDragging;
+    
+    if (!hasActiveOperation && !isInActiveState) {
+      debugLog('Ignoring layout change - no active operation or state');
       return;
     }
 
@@ -176,14 +210,26 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     const origin: LayoutChangeOrigin = {
       source: isDragging ? 'user-drag' : isResizing ? 'user-resize' : 'external-sync',
       timestamp: Date.now(),
-      operationId: currentOperationId.current
+      operationId: currentOperationId.current || `late-${Date.now()}`
     };
 
-    console.log(`[LayoutEngine] Processing layout change from ${origin.source}`);
+    debugLog(`Processing layout change from ${origin.source}`, {
+      operationId,
+      convertedLayouts: Object.keys(convertedLayouts).map(bp => ({
+        breakpoint: bp,
+        itemCount: convertedLayouts[bp as keyof ResponsiveLayouts]?.length || 0
+      }))
+    });
     
     // Update through unified state management
     unifiedLayoutState.updateLayouts(convertedLayouts, origin);
-  }, [isDragging, isResizing, unifiedLayoutState]);
+    
+    // Mark operation as processed
+    if (operationId) {
+      processedOperations.current.add(operationId);
+      debugLog('Marked operation as processed', { operationId });
+    }
+  }, [isDragging, isResizing, unifiedLayoutState, debugLog]);
 
   // Handle drag start
   const handleDragStart = useCallback(() => {
@@ -210,18 +256,36 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     currentOperationId.current = operationId;
     setIsResizing(true);
     unifiedLayoutState.startOperation(operationId);
-    console.log('[LayoutEngine] Started resize operation:', operationId);
-  }, [unifiedLayoutState]);
+    debugLog('RESIZE START', { operationId, isResizing: true });
+  }, [unifiedLayoutState, debugLog]);
 
   // Handle resize stop
   const handleResizeStop = useCallback(() => {
     if (currentOperationId.current) {
-      unifiedLayoutState.stopOperation(currentOperationId.current);
-      console.log('[LayoutEngine] Stopped resize operation:', currentOperationId.current);
-      currentOperationId.current = null;
+      const operationId = currentOperationId.current;
+      unifiedLayoutState.stopOperation(operationId);
+      debugLog('RESIZE STOP - Starting grace period', { operationId });
+      
+      // Schedule cleanup of processed operation tracking
+      const cleanupTimer = setTimeout(() => {
+        processedOperations.current.delete(operationId);
+        operationCleanupTimers.current.delete(operationId);
+        debugLog('Cleaned up processed operation tracking', { operationId });
+      }, 300); // 300ms - longer than grace period to ensure all related processing is complete
+      
+      operationCleanupTimers.current.set(operationId, cleanupTimer);
+      
+      // Keep operation ID active for extended grace period to catch all final layout changes
+      setTimeout(() => {
+        if (currentOperationId.current === operationId) {
+          currentOperationId.current = null;
+          debugLog('GRACE PERIOD ENDED', { operationId });
+        }
+      }, 200); // Extended grace period to catch all React Grid Layout events
     }
     setIsResizing(false);
-  }, [unifiedLayoutState]);
+    debugLog('RESIZE STATE SET TO FALSE');
+  }, [unifiedLayoutState, debugLog]);
 
   // Handle drag over for drop zone functionality
   const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
