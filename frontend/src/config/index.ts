@@ -12,6 +12,10 @@ const envSchema = z.object({
 	VITE_API_URL: z.string().optional(),
 	VITE_API_TIMEOUT: z.string().transform(Number).optional(),
 	MODE: z.enum(["development", "production"]).default("development"),
+	VITE_PLUGIN_STUDIO_DEV_MODE: z
+		.string()
+		.transform((val) => val === "true")
+		.default("false"),
 	VITE_DEV_AUTO_LOGIN: z
 		.string()
 		.transform((val) => val === "true")
@@ -58,6 +62,9 @@ export const config = {
 	env: {
 		isDevelopment: env.MODE === "development",
 		isProduction: env.MODE === "production",
+	},
+	devMode: {
+		pluginStudio: env.VITE_PLUGIN_STUDIO_DEV_MODE || false,
 	},
 } as const;
 

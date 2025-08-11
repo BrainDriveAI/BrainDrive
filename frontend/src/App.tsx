@@ -3,6 +3,7 @@ import { CssBaseline, ThemeProvider } from '@mui/material';
 import { PageStateProvider } from './contexts/PageStateContext';
 import { ModuleStateProvider } from './contexts/ModuleStateContext';
 import { ServiceProvider } from './contexts/ServiceContext';
+import { PluginStudioDevModeProvider } from './contexts/PluginStudioDevModeContext';
 import { ServiceRegistry } from './services/ServiceRegistry';
 import ApiService from './services/ApiService';
 import { themeService } from './services/themeService';
@@ -65,15 +66,17 @@ function AppContent() {
 function App() {
   return (
     <Router>
-      <ServiceProvider registry={serviceRegistry}>
-        <PageStateProvider>
-          <ModuleStateProvider>
-            <AuthProvider>
-              <AppContent />
-            </AuthProvider>
-          </ModuleStateProvider>
-        </PageStateProvider>
-      </ServiceProvider>
+      <PluginStudioDevModeProvider>
+        <ServiceProvider registry={serviceRegistry}>
+          <PageStateProvider>
+            <ModuleStateProvider>
+              <AuthProvider>
+                <AppContent />
+              </AuthProvider>
+            </ModuleStateProvider>
+          </PageStateProvider>
+        </ServiceProvider>
+      </PluginStudioDevModeProvider>
     </Router>
   );
 }

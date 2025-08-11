@@ -22,6 +22,8 @@ export interface PluginStudioContextType {
   layouts: Layouts | null;
   handleLayoutChange: (layout: any[], newLayouts: Layouts) => void;
   removeItem: (id: string) => void;
+  handleResizeStart: () => void;
+  handleResizeStop: () => void;
   
   // Plugin state
   availablePlugins: DynamicPluginConfig[];

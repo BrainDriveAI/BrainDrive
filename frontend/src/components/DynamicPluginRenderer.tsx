@@ -49,6 +49,36 @@ export class DynamicPluginRenderer extends React.Component<
     }
 
     const Component = module.component;
+    
+    console.log(`[DynamicPluginRenderer] Rendering component for ${module.name}:`, {
+      hasComponent: !!Component,
+      componentType: typeof Component,
+      componentName: Component?.name,
+      isFunction: typeof Component === 'function',
+      moduleProps: Object.keys(module.props || {})
+    });
+    
+    if (!Component) {
+      console.error(`[DynamicPluginRenderer] No component found for module ${module.name}`);
+      return fallback || (
+        <div className="plugin-error">
+          <h3>Missing Component</h3>
+          <p>No component found for module: {module.name}</p>
+        </div>
+      );
+    }
+    
+    if (typeof Component !== 'function') {
+      console.error(`[DynamicPluginRenderer] Component is not a function for module ${module.name}:`, Component);
+      return fallback || (
+        <div className="plugin-error">
+          <h3>Invalid Component</h3>
+          <p>Component is not a function for module: {module.name}</p>
+          <p>Component type: {typeof Component}</p>
+        </div>
+      );
+    }
+    
     return <Component {...module.props} />;
   }
 }

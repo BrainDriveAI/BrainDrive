@@ -22,24 +22,26 @@ export const GridItemControls: React.FC<GridItemControlsProps> = ({
 }) => {
   return (
     <>
-      {/* Move handle - top right */}
-      <Box
-        className="react-grid-dragHandleExample"
-        sx={{
-          position: 'absolute',
-          top: 0,
-          right: 0,
-          zIndex: 2,
-          cursor: 'move',
-          p: 0.5,
-          color: isSelected ? 'primary.main' : 'text.secondary',
-          '&:hover': {
-            color: 'primary.main'
-          }
-        }}
-      >
-        <DragIndicatorIcon fontSize="small" />
-      </Box>
+      {/* Move handle - top right - only visible when selected */}
+      {isSelected && (
+        <Box
+          className="react-grid-dragHandleExample"
+          sx={{
+            position: 'absolute',
+            top: 0,
+            right: 0,
+            zIndex: 2,
+            cursor: 'move',
+            p: 0.5,
+            color: 'primary.main',
+            '&:hover': {
+              color: 'primary.main'
+            }
+          }}
+        >
+          <DragIndicatorIcon fontSize="small" />
+        </Box>
+      )}
       
       {/* Config and remove buttons - only visible when selected */}
       {isSelected && (

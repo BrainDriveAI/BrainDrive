@@ -96,15 +96,22 @@ export function normalizeObjectKeys(obj: Record<string, any>): Record<string, an
   const result: Record<string, any> = {};
   
   for (const [key, value] of Object.entries(obj)) {
-    // Convert snake_case to camelCase if needed
-    const camelKey = key.includes('_') ? snakeToCamel(key) : key;
+    // Special handling for module IDs - don't normalize keys that look like module IDs
+    // Module IDs typically contain plugin names and UUIDs separated by underscores
+    const isModuleId = key.match(/^[A-Za-z]+(_[a-f0-9]{32}_|\w+_)+\d+$/) ||
+                      key.match(/^[A-Za-z]+[A-Za-z0-9]*(_[a-f0-9]+)*(_\d+)?$/) ||
+                      key.includes('BrainDrive') ||
+                      key.includes('Plugin');
+    
+    // Convert snake_case to camelCase if needed, but preserve module IDs
+    const camelKey = (!isModuleId && key.includes('_')) ? snakeToCamel(key) : key;
     
     // Recursively normalize nested objects
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       result[camelKey] = normalizeObjectKeys(value);
     } else if (Array.isArray(value)) {
       // Handle arrays of objects
-      result[camelKey] = value.map(item => 
+      result[camelKey] = value.map(item =>
         item && typeof item === 'object' ? normalizeObjectKeys(item) : item
       );
     } else {

@@ -1,44 +1,43 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { config } from "../config";
 import {
-	Box,
-	Paper,
-	Typography,
-	Divider,
-	List,
-	ListItem,
-	ListItemText,
-	ListItemIcon,
-	Switch,
-	FormControlLabel,
-	TextField,
-	Grid,
-	MenuItem,
-	Select,
-	FormControl,
-	InputLabel,
-	Button,
-	IconButton,
-	Card,
-	CardContent,
-	CardHeader,
-	CardActions,
-	Tooltip,
-	Alert,
-	CircularProgress,
-} from "@mui/material";
-import DarkModeIcon from "@mui/icons-material/DarkMode";
-import LanguageIcon from "@mui/icons-material/Language";
-import StorageIcon from "@mui/icons-material/Storage";
-import AddIcon from "@mui/icons-material/Add";
-import CloseIcon from "@mui/icons-material/Close";
-import SettingsIcon from "@mui/icons-material/Settings";
-import { useTheme } from "../contexts/ServiceContext";
-import { getAllModules, getModuleById, enableLocalPlugins } from "../plugins";
-import { DynamicModuleConfig } from "../types/index";
-import { PluginModuleRenderer } from "../components/PluginModuleRenderer";
-import { useApi } from "../contexts/ServiceContext";
-import { remotePluginService } from "../services/remotePluginService";
+  Box,
+  Paper,
+  Typography,
+  Divider,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemIcon,
+  Switch,
+  FormControlLabel,
+  TextField,
+  Grid,
+  MenuItem,
+  Select,
+  FormControl,
+  InputLabel,
+  Button,
+  IconButton,
+  Card,
+  CardContent,
+  CardHeader,
+  CardActions,
+  Tooltip,
+  Alert,
+  CircularProgress,
+} from '@mui/material';
+import DarkModeIcon from '@mui/icons-material/DarkMode';
+import LanguageIcon from '@mui/icons-material/Language';
+import StorageIcon from '@mui/icons-material/Storage';
+import AddIcon from '@mui/icons-material/Add';
+import CloseIcon from '@mui/icons-material/Close';
+import SettingsIcon from '@mui/icons-material/Settings';
+import { useTheme } from '../contexts/ServiceContext';
+import { getAllModules, getModuleById } from '../plugins';
+import { DynamicModuleConfig } from '../types/index';
+import { LegacyModuleAdapter } from '../features/unified-dynamic-page-renderer/adapters';
+import { useApi } from '../contexts/ServiceContext';
 
 // Interface for settings plugin with additional metadata
 interface SettingsPlugin {
@@ -92,118 +91,63 @@ const Settings = () => {
 	};
 
 	// Fetch all settings plugins (modules with "settings" tag)
-	const fetchSettingsPlugins = async () => {
+	const fetchSettingsPlugins = () => {
 		try {
-			// Enable local plugins to ensure BrainDriveOpenAI is available
-			enableLocalPlugins();
-
-			// Load remote plugins to ensure BrainDriveOpenAI is available
-			const remoteManifest =
-				await remotePluginService.getRemotePluginManifest();
-			await Promise.all(
-				remoteManifest.map((plugin) =>
-					remotePluginService.loadRemotePlugin(plugin)
-				)
+		const allModules = getAllModules();
+		
+		// Filter modules with "settings" tag (case-insensitive)
+		const settingsModules = allModules.filter(({ module }) => 
+			module.tags?.some(tag => tag.toLowerCase() === 'settings')
+		);
+		
+		// Extract categories and create settings plugins
+		const pluginsMap = new Map<string, SettingsPlugin>();
+		const categoriesSet = new Set<string>();
+		
+		settingsModules.forEach(({ pluginId, module }) => {
+			// Find the settings name tag (any tag other than "settings")
+			const settingNameTag = module.tags?.find(tag => 
+			tag.toLowerCase() !== 'settings'
 			);
-
-			// Get modules from local plugins
-			const localModules = getAllModules();
-
-			// Get modules from remote plugins with their plugin IDs
-			const remoteModules: { pluginId: string; module: DynamicModuleConfig }[] =
-				[];
-			const loadedPlugins = remotePluginService.getAllLoadedPlugins();
-
-			loadedPlugins.forEach((plugin) => {
-				plugin.loadedModules.forEach((module) => {
-					remoteModules.push({
-						pluginId: plugin.id,
-						module: {
-							id: module.id,
-							name: module.name,
-							displayName: module.displayName,
-							description: module.description,
-							icon: module.icon,
-							category: module.category,
-							enabled: true,
-							priority: module.priority,
-							props: module.props,
-							configFields: module.configFields,
-							messages: module.messages,
-							requiredServices: module.requiredServices,
-							dependencies: module.dependencies,
-							layout: module.layout,
-							tags: module.tags,
-							type: module.type,
-						} as DynamicModuleConfig,
-					});
-				});
-			});
-
-			// Combine local and remote modules
-			const allModules = [...localModules, ...remoteModules];
-
-			console.log("Local modules found:", localModules.length);
-			console.log("Remote modules found:", remoteModules.length);
-			console.log("Total modules found:", allModules.length);
-			console.log("All modules:", allModules);
-
-			// Filter modules with "settings" tag (case-insensitive)
-			const settingsModules = allModules.filter(({ module }) =>
-				module.tags?.some((tag) => tag.toLowerCase() === "settings")
-			);
-
-			console.log("Settings modules found:", settingsModules.length);
-			console.log("Settings modules:", settingsModules);
-
-			// Extract categories and create settings plugins
-			const pluginsMap = new Map<string, SettingsPlugin>();
-			const categoriesSet = new Set<string>();
-
-			settingsModules.forEach(({ pluginId, module }) => {
-				// Find the settings name tag (any tag other than "settings")
-				const settingNameTag = module.tags?.find(
-					(tag) => tag.toLowerCase() !== "settings"
-				);
-
-				if (settingNameTag) {
-					const category = module.category || "General";
-					categoriesSet.add(category);
-
-					const settingsPlugin: SettingsPlugin = {
-						pluginId,
-						moduleId: module.id || module.name,
-						moduleName: module.name,
-						displayName: module.displayName || module.name,
-						category,
-						priority: module.priority || 0,
-						settingName: settingNameTag,
-						isActive: false, // Will be updated when we fetch existing settings
-					};
-
-					// Use settingName as key to ensure uniqueness
-					pluginsMap.set(settingNameTag.toLowerCase(), settingsPlugin);
-				}
-			});
-
-			// Convert to arrays
-			const allCategories = Array.from(categoriesSet).sort();
-			const allPlugins = Array.from(pluginsMap.values());
-
-			// Set state
-			setCategories(allCategories);
-			setAvailablePlugins(allPlugins);
-
-			// Set default category if available
-			if (allCategories.length > 0 && !selectedCategory) {
-				setSelectedCategory(allCategories[0]);
+			
+			if (settingNameTag) {
+			const category = module.category || 'General';
+			categoriesSet.add(category);
+			
+			const settingsPlugin: SettingsPlugin = {
+				pluginId,
+				moduleId: module.id || module.name,
+				moduleName: module.name,
+				displayName: module.displayName || module.name,
+				category,
+				priority: module.priority || 0,
+				settingName: settingNameTag,
+				isActive: false, // Will be updated when we fetch existing settings
+			};
+			
+			// Use settingName as key to ensure uniqueness
+			pluginsMap.set(settingNameTag.toLowerCase(), settingsPlugin);
 			}
-
-			return allPlugins;
+		});
+		
+		// Convert to arrays
+		const allCategories = Array.from(categoriesSet).sort();
+		const allPlugins = Array.from(pluginsMap.values());
+		
+		// Set state
+		setCategories(allCategories);
+		setAvailablePlugins(allPlugins);
+		
+		// Set default category if available
+		if (allCategories.length > 0 && !selectedCategory) {
+			setSelectedCategory(allCategories[0]);
+		}
+		
+		return allPlugins;
 		} catch (error) {
-			console.error("Error fetching settings plugins:", error);
-			setError("Failed to load settings plugins");
-			return [];
+		console.error('Error fetching settings plugins:', error);
+		setError('Failed to load settings plugins');
+		return [];
 		}
 	};
 
@@ -478,145 +422,141 @@ const Settings = () => {
 		setActivePlugins(updatedActivePlugins);
 	};
 
-	return (
-		<Box sx={{ width: "100%", p: 2 }}>
-			<Typography variant="h4" gutterBottom>
-				Settings
-			</Typography>
-
-			{error && (
-				<Alert severity="error" sx={{ mb: 2 }}>
-					{error}
-				</Alert>
-			)}
-
-			{/* Category and Plugin Selection */}
-			<Paper sx={{ p: 2, mb: 3 }}>
-				<Grid container spacing={2} alignItems="center">
-					{/* Category Dropdown */}
-					<Grid item xs={12} sm={4}>
-						<FormControl fullWidth>
-							<InputLabel id="category-select-label">Category</InputLabel>
-							<Select
-								labelId="category-select-label"
-								id="category-select"
-								value={selectedCategory}
-								label="Category"
-								onChange={(e) => setSelectedCategory(e.target.value)}
-								disabled={isLoading || categories.length === 0}
-							>
-								{categories.map((category) => (
-									<MenuItem key={category} value={category}>
-										{category}
-									</MenuItem>
-								))}
-							</Select>
-						</FormControl>
-					</Grid>
-
-					{/* Available Plugins Dropdown */}
-					<Grid item xs={12} sm={6}>
-						<FormControl fullWidth>
-							<InputLabel id="plugin-select-label">
-								Available Plugins
-							</InputLabel>
-							<Select
-								labelId="plugin-select-label"
-								id="plugin-select"
-								value={selectedPlugin}
-								label="Available Plugins"
-								onChange={(e) => setSelectedPlugin(e.target.value)}
-								disabled={isLoading || filteredAvailablePlugins.length === 0}
-							>
-								{filteredAvailablePlugins.map((plugin) => (
-									<MenuItem key={plugin.moduleId} value={plugin.moduleId}>
-										{plugin.displayName}
-									</MenuItem>
-								))}
-							</Select>
-						</FormControl>
-					</Grid>
-
-					{/* Add Button */}
-					<Grid item xs={12} sm={2}>
-						<Button
-							variant="contained"
-							startIcon={<AddIcon />}
-							onClick={handleAddPlugin}
-							disabled={isLoading || !selectedPlugin}
-							fullWidth
-						>
-							Add
-						</Button>
-					</Grid>
-				</Grid>
-			</Paper>
-
-			{/* Settings Plugins Grid */}
-			{isLoading ? (
-				<Box sx={{ display: "flex", justifyContent: "center", my: 4 }}>
-					<CircularProgress />
-				</Box>
-			) : (
-				<Grid container spacing={3}>
-					{filteredActivePlugins.length === 0 ? (
-						<Grid item xs={12}>
-							<Alert severity="info">
-								No settings plugins available for this category. Select a plugin
-								from the dropdown above to add it.
-							</Alert>
-						</Grid>
-					) : (
-						filteredActivePlugins.map((plugin) => (
-							<Grid
-								item
-								xs={12}
-								sm={12}
-								md={12}
-								key={`${plugin.pluginId}-${plugin.moduleId}`}
-							>
-								<Card
-									sx={{
-										width: "100%",
-										display: "flex",
-										flexDirection: "column",
-										position: "relative",
-									}}
-								>
-									<CardHeader
-										title={plugin.displayName}
-										subheader={`Priority: ${plugin.priority}`}
-										action={
-											<Tooltip title="Remove">
-												<IconButton
-													aria-label="remove"
-													onClick={() => handleRemovePlugin(plugin)}
-													size="small"
-												>
-													<CloseIcon />
-												</IconButton>
-											</Tooltip>
-										}
-										avatar={<SettingsIcon />}
-									/>
-									<CardContent
-										sx={{ flexGrow: 1, overflow: "auto", minHeight: "200px" }}
-									>
-										<PluginModuleRenderer
-											pluginId={plugin.pluginId}
-											moduleId={plugin.moduleId}
-											moduleName={plugin.moduleName}
-											isLocal={false}
-										/>
-									</CardContent>
-								</Card>
-							</Grid>
-						))
-					)}
-				</Grid>
-			)}
-		</Box>
-	);
+  return (
+    <Box sx={{ width: '100%', p: 2 }}>
+      <Typography variant="h4" gutterBottom>
+        Settings
+      </Typography>
+      
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+      
+      {/* Category and Plugin Selection */}
+      <Paper sx={{ p: 2, mb: 3 }}>
+        <Grid container spacing={2} alignItems="center">
+          {/* Category Dropdown */}
+          <Grid item xs={12} sm={4}>
+            <FormControl fullWidth>
+              <InputLabel id="category-select-label">Category</InputLabel>
+              <Select
+                labelId="category-select-label"
+                id="category-select"
+                value={selectedCategory}
+                label="Category"
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                disabled={isLoading || categories.length === 0}
+              >
+                {categories.map((category) => (
+                  <MenuItem key={category} value={category}>
+                    {category}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+          
+          {/* Available Plugins Dropdown */}
+          <Grid item xs={12} sm={6}>
+            <FormControl fullWidth>
+              <InputLabel id="plugin-select-label">Available Plugins</InputLabel>
+              <Select
+                labelId="plugin-select-label"
+                id="plugin-select"
+                value={selectedPlugin}
+                label="Available Plugins"
+                onChange={(e) => setSelectedPlugin(e.target.value)}
+                disabled={isLoading || filteredAvailablePlugins.length === 0}
+              >
+                {filteredAvailablePlugins.map((plugin) => (
+                  <MenuItem key={plugin.moduleId} value={plugin.moduleId}>
+                    {plugin.displayName}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+          
+          {/* Add Button */}
+          <Grid item xs={12} sm={2}>
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={handleAddPlugin}
+              disabled={isLoading || !selectedPlugin}
+              fullWidth
+            >
+              Add
+            </Button>
+          </Grid>
+        </Grid>
+      </Paper>
+      
+      {/* Settings Plugins Grid */}
+      {isLoading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', my: 4 }}>
+          <CircularProgress />
+        </Box>
+      ) : (
+        <Grid container spacing={3}>
+          {filteredActivePlugins.length === 0 ? (
+            <Grid item xs={12}>
+              <Alert severity="info">
+                No settings plugins available for this category. Select a plugin from the dropdown above to add it.
+              </Alert>
+            </Grid>
+          ) : (
+            filteredActivePlugins.map((plugin) => (
+              <Grid item xs={12} sm={12} md={12} key={`${plugin.pluginId}-${plugin.moduleId}`}>
+                <Card 
+                  sx={{ 
+                    width: '100%', 
+                    display: 'flex', 
+                    flexDirection: 'column',
+                    position: 'relative'
+                  }}
+                >
+                  <CardHeader
+                    title={plugin.displayName}
+                    subheader={`Priority: ${plugin.priority}`}
+                    action={
+                      <Tooltip title="Remove">
+                        <IconButton 
+                          aria-label="remove" 
+                          onClick={() => handleRemovePlugin(plugin)}
+                          size="small"
+                        >
+                          <CloseIcon />
+                        </IconButton>
+                      </Tooltip>
+                    }
+                    avatar={<SettingsIcon />}
+                  />
+                  <CardContent sx={{ flexGrow: 1, overflow: 'auto', minHeight: '200px' }}>
+                    <LegacyModuleAdapter
+                      pluginId={plugin.pluginId}
+                      moduleId={plugin.moduleId}
+                      moduleName={plugin.moduleName}
+                      isLocal={false}
+                      useUnifiedRenderer={true}
+                      mode="published"
+                      lazyLoading={true}
+                      priority="normal"
+                      enableMigrationWarnings={process.env.NODE_ENV === 'development'}
+                      fallbackStrategy="on-error"
+                      performanceMonitoring={process.env.NODE_ENV === 'development'}
+                    />
+                  </CardContent>
+                </Card>
+              </Grid>
+            ))
+          )}
+        </Grid>
+      )}
+    </Box>
+  );
 };
 
 export default Settings;

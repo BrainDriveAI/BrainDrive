@@ -1,6 +1,6 @@
 import { DynamicPluginRenderer } from './DynamicPluginRenderer';
 import { LoadedModule } from '../types/remotePlugin';
-import { getPluginConfigForInstance, getModuleConfigForInstance } from '../plugins';
+import { getPluginConfigForInstance, getModuleConfigForInstance, plugins, onPluginRegistryChange } from '../plugins';
 import React, { useState, useEffect, useContext, useCallback, useMemo, useRef } from 'react';
 import { debounce } from 'lodash';
 import ComponentErrorBoundary from './ComponentErrorBoundary';
@@ -41,6 +41,57 @@ export const PluginModuleRenderer: React.FC<PluginModuleRendererProps> = ({
   
   // Get the service context - this is a reference to the function, not calling the hook
   const serviceContext = useContext(ServiceContext);
+  
+  // Simple polling approach to check for plugin availability
+  const [pluginsAvailable, setPluginsAvailable] = useState(false);
+  const [pluginConfig, setPluginConfig] = useState<any>(null);
+  
+  // Poll for plugin availability every 100ms until plugins are loaded
+  useEffect(() => {
+    const checkPluginAvailability = () => {
+      const currentPlugins = Object.keys(plugins);
+      const currentPluginConfig = getPluginConfigForInstance(pluginId);
+      
+      console.log(`[PluginModuleRenderer] Checking plugin availability for ${pluginId}:`, {
+        totalPlugins: currentPlugins.length,
+        availablePluginIds: currentPlugins,
+        pluginConfigFound: !!currentPluginConfig,
+        pluginsAvailable: currentPlugins.length > 0 && !!currentPluginConfig
+      });
+      
+      if (currentPlugins.length > 0 && currentPluginConfig) {
+        console.log(`[PluginModuleRenderer] Plugin ${pluginId} is now available!`);
+        setPluginsAvailable(true);
+        setPluginConfig(currentPluginConfig);
+        return true; // Stop polling
+      }
+      
+      return false; // Continue polling
+    };
+    
+    // Check immediately
+    if (checkPluginAvailability()) {
+      return;
+    }
+    
+    // Poll every 50ms until plugins are available (more frequent)
+    const pollInterval = setInterval(() => {
+      if (checkPluginAvailability()) {
+        clearInterval(pollInterval);
+      }
+    }, 50);
+    
+    // Cleanup after 15 seconds to prevent infinite polling
+    const timeout = setTimeout(() => {
+      clearInterval(pollInterval);
+      console.warn(`[PluginModuleRenderer] Timeout waiting for plugin ${pluginId}`);
+    }, 15000);
+    
+    return () => {
+      clearInterval(pollInterval);
+      clearTimeout(timeout);
+    };
+  }, [pluginId, plugins]); // Add plugins as dependency to re-run when plugins change
   
   // Get the module state context for state persistence
   const { saveModuleState } = useModuleState();
@@ -225,8 +276,10 @@ export const PluginModuleRenderer: React.FC<PluginModuleRendererProps> = ({
     let isMounted = true;
     
     const loadModule = async () => {
+      console.log(`[PluginModuleRenderer] Starting loadModule for ${pluginId}, moduleId: ${moduleId}, moduleName: ${moduleName}`);
       try {
         if (!isMounted) return;
+        console.log(`[PluginModuleRenderer] Setting loading to true for ${pluginId}`);
         setLoading(true);
         setError(null);
         
@@ -411,17 +464,46 @@ export const PluginModuleRenderer: React.FC<PluginModuleRendererProps> = ({
             throw new Error(`Plugin ${pluginId} has no modules`);
           }
           
-          // Extract the base moduleId from the custom moduleId (e.g., "component-display" from "component-display-2")
-          const baseModuleId = moduleId ? moduleId.replace(/-\d+$/, '') : null;
-          
-          // Find the module by ID first, then by base ID, then by name
+          // Extract the actual module ID from complex generated IDs
+          // Format: PluginName_actualModuleId_timestamp or similar patterns
+          let actualModuleId = moduleId;
           let foundModule: LoadedModule | undefined;
           
           if (moduleId) {
+            console.log(`[PluginModuleRenderer] Looking for module with ID: "${moduleId}"`);
+            console.log(`[PluginModuleRenderer] Available modules:`, remotePlugin.loadedModules.map(m => ({ id: m.id, name: m.name })));
+            
+            // Try exact match first
             foundModule = remotePlugin.loadedModules.find(m => m.id === moduleId);
-            // If not found by exact moduleId, try with the base moduleId
-            if (!foundModule && baseModuleId) {
+            
+            if (!foundModule) {
+              // Try to extract actual module ID from complex generated ID
+              // Pattern: PluginName_actualModuleId_timestamp
+              const parts = moduleId.split('_');
+              if (parts.length >= 2) {
+                // Try the second part (actual module ID)
+                actualModuleId = parts[1];
+                console.log(`[PluginModuleRenderer] Trying extracted module ID: "${actualModuleId}"`);
+                foundModule = remotePlugin.loadedModules.find(m => m.id === actualModuleId);
+              }
+            }
+            
+            if (!foundModule) {
+              // Try simple pattern removal (original logic)
+              const baseModuleId = moduleId.replace(/-\d+$/, '');
+              console.log(`[PluginModuleRenderer] Trying base module ID: "${baseModuleId}"`);
               foundModule = remotePlugin.loadedModules.find(m => m.id === baseModuleId);
+            }
+            
+            if (!foundModule) {
+              // Try to match by plugin name
+              const pluginNameFromId = moduleId.split('_')[0];
+              console.log(`[PluginModuleRenderer] Trying plugin name match: "${pluginNameFromId}"`);
+              foundModule = remotePlugin.loadedModules.find(m =>
+                m.id === pluginNameFromId ||
+                m.name === pluginNameFromId ||
+                (m.id && m.id.includes(pluginNameFromId))
+              );
             }
           } else if (moduleName) {
             foundModule = remotePlugin.loadedModules.find(m => m.name === moduleName);
@@ -430,9 +512,22 @@ export const PluginModuleRenderer: React.FC<PluginModuleRendererProps> = ({
             foundModule = remotePlugin.loadedModules[0];
           }
           
+          if (!foundModule && remotePlugin.loadedModules.length > 0) {
+            // Final fallback: use the first available module
+            console.log(`[PluginModuleRenderer] No exact match found, using first available module as fallback`);
+            foundModule = remotePlugin.loadedModules[0];
+          }
+          
           if (!foundModule) {
             throw new Error(`Module ${moduleId || moduleName} not found in plugin ${pluginId}`);
           }
+          
+          console.log(`[PluginModuleRenderer] Successfully found module:`, {
+            id: foundModule.id,
+            name: foundModule.name,
+            hasComponent: !!foundModule.component,
+            componentType: typeof foundModule.component
+          });
           
           // Debug the foundModule object - only log in development
           
@@ -512,13 +607,24 @@ export const PluginModuleRenderer: React.FC<PluginModuleRendererProps> = ({
               JSON.stringify(getEssentialProps(newModule.props));
               
           if (shouldUpdate) {
+            console.log(`[PluginModuleRenderer] Updating module for ${pluginId}:`, {
+              moduleId: newModule.id,
+              moduleName: newModule.name,
+              hasComponent: !!newModule.component,
+              componentType: typeof newModule.component,
+              componentName: newModule.component?.name
+            });
             prevModuleRef.current = newModule;
             setModule(newModule);
+          } else {
+            console.log(`[PluginModuleRenderer] Skipping module update for ${pluginId} (no changes detected)`);
           }
         }
       } catch (err) {
+        console.error(`[PluginModuleRenderer] Error loading module for ${pluginId}:`, err);
         setError(err instanceof Error ? err.message : 'Unknown error loading module');
       } finally {
+        console.log(`[PluginModuleRenderer] Setting loading to false for ${pluginId}`);
         setLoading(false);
       }
     };
@@ -577,6 +683,8 @@ export const PluginModuleRenderer: React.FC<PluginModuleRendererProps> = ({
     
     // Only check for changes every 500ms to prevent rapid updates
     const checkPropsChanges = () => {
+      // Ensure prevModuleRef.current is not null before accessing properties
+      if (!prevModuleRef.current) return;
       
       const currentProps = getEssentialPropsStable(stableModulePropsRef.current);
       const prevProps = getEssentialPropsStable(prevModuleRef.current.props);
@@ -599,8 +707,8 @@ export const PluginModuleRenderer: React.FC<PluginModuleRendererProps> = ({
         }
       }
       
-      if (hasChanged) {
-        // Only update if there's a significant change
+      if (hasChanged && prevModuleRef.current) {
+        // Only update if there's a significant change and prevModuleRef.current is not null
         prevModuleRef.current = {
           ...prevModuleRef.current,
           props: {
@@ -619,7 +727,20 @@ export const PluginModuleRenderer: React.FC<PluginModuleRendererProps> = ({
   // Removed moduleProps from dependencies to prevent infinite loops
   // WARNING: This could cause stale props if moduleProps changes but effect doesn't re-run
 
+  // Show loading state if plugins aren't available yet
+  if (!pluginsAvailable && !pluginConfig) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" height="100%" p={2}>
+        <CircularProgress size={24} />
+        <Typography variant="body2" sx={{ ml: 1 }}>
+          Loading plugins...
+        </Typography>
+      </Box>
+    );
+  }
+
   if (loading) {
+    console.log(`[PluginModuleRenderer] Still loading for ${pluginId}, showing fallback`);
     return fallback || <Box display="flex" justifyContent="center" alignItems="center" height="100%"><CircularProgress /></Box>;
   }
 
@@ -637,12 +758,22 @@ export const PluginModuleRenderer: React.FC<PluginModuleRendererProps> = ({
   }
 
   if (error || !module) {
+    console.log(`[PluginModuleRenderer] Rendering error state for ${pluginId}:`, { error, hasModule: !!module });
     return fallback || (
       <Box display="flex" justifyContent="center" alignItems="center" height="100%">
-        <Typography variant="h6" color="error">Error: {error}</Typography>
+        <Typography variant="h6" color="error">Error: {error || 'No module found'}</Typography>
       </Box>
     );
   }
+
+  console.log(`[PluginModuleRenderer] Rendering module for ${pluginId}:`, {
+    moduleId: module.id,
+    moduleName: module.name,
+    hasComponent: !!module.component,
+    componentType: typeof module.component,
+    componentName: module.component?.name,
+    propsKeys: Object.keys(module.props || {})
+  });
 
   return (
     <ComponentErrorBoundary>
@@ -656,7 +787,7 @@ export const PluginModuleRenderer: React.FC<PluginModuleRendererProps> = ({
             // No state management needed
           }
         }}
-        fallback={fallback} 
+        fallback={fallback}
       />
     </ComponentErrorBoundary>
   );

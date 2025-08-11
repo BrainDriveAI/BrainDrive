@@ -1,0 +1,214 @@
+import { ResponsiveLayouts, LayoutItem } from '../types';
+
+export interface LayoutChangeOrigin {
+  source: 'user-drag' | 'user-resize' | 'user-remove' | 'external-sync' | 'initial-load' | 'drop-add';
+  timestamp: number;
+  operationId?: string;
+}
+
+export interface LayoutChangeEvent {
+  layouts: ResponsiveLayouts;
+  origin: LayoutChangeOrigin;
+  hash: string;
+}
+
+/**
+ * Semantic layout comparison that ignores object reference changes
+ * but detects actual layout differences
+ */
+export function compareLayoutsSemanticaly(
+  layouts1: ResponsiveLayouts | null,
+  layouts2: ResponsiveLayouts | null
+): boolean {
+  if (!layouts1 && !layouts2) return true;
+  if (!layouts1 || !layouts2) return false;
+
+  const breakpoints: (keyof ResponsiveLayouts)[] = ['mobile', 'tablet', 'desktop', 'wide'];
+  
+  for (const breakpoint of breakpoints) {
+    const layout1 = layouts1[breakpoint] || [];
+    const layout2 = layouts2[breakpoint] || [];
+    
+    if (layout1.length !== layout2.length) return false;
+    
+    // Sort by item ID for consistent comparison
+    const sorted1 = [...layout1].sort((a, b) => a.i.localeCompare(b.i));
+    const sorted2 = [...layout2].sort((a, b) => a.i.localeCompare(b.i));
+    
+    for (let i = 0; i < sorted1.length; i++) {
+      const item1 = sorted1[i];
+      const item2 = sorted2[i];
+      
+      // Compare essential layout properties
+      if (
+        item1.i !== item2.i ||
+        item1.x !== item2.x ||
+        item1.y !== item2.y ||
+        item1.w !== item2.w ||
+        item1.h !== item2.h ||
+        item1.moduleId !== item2.moduleId ||
+        item1.pluginId !== item2.pluginId
+      ) {
+        return false;
+      }
+    }
+  }
+  
+  return true;
+}
+
+/**
+ * Generate a stable hash for layouts based on semantic content
+ */
+export function generateLayoutHash(layouts: ResponsiveLayouts | null): string {
+  if (!layouts) return 'null';
+  
+  const breakpoints: (keyof ResponsiveLayouts)[] = ['mobile', 'tablet', 'desktop', 'wide'];
+  const hashParts: string[] = [];
+  
+  for (const breakpoint of breakpoints) {
+    const layout = layouts[breakpoint] || [];
+    const sortedItems = [...layout]
+      .sort((a, b) => a.i.localeCompare(b.i))
+      .map(item => `${item.i}:${item.x},${item.y},${item.w},${item.h}:${item.moduleId}:${item.pluginId}`)
+      .join('|');
+    
+    hashParts.push(`${breakpoint}=[${sortedItems}]`);
+  }
+  
+  return hashParts.join(';');
+}
+
+/**
+ * Layout Change Manager - handles debouncing, deduplication, and origin tracking
+ */
+export class LayoutChangeManager {
+  private pendingChanges = new Map<string, LayoutChangeEvent>();
+  private lastProcessedHash: string | null = null;
+  private debounceTimeouts = new Map<string, NodeJS.Timeout>();
+  private activeOperations = new Set<string>();
+  
+  constructor(
+    private onLayoutChange: (event: LayoutChangeEvent) => void,
+    private debounceMs: number = 50
+  ) {}
+
+  /**
+   * Queue a layout change with debouncing and deduplication
+   */
+  queueLayoutChange(
+    layouts: ResponsiveLayouts,
+    origin: LayoutChangeOrigin,
+    debounceKey: string = 'default'
+  ): void {
+    const hash = generateLayoutHash(layouts);
+    
+    // Skip if this is the exact same layout we just processed
+    if (hash === this.lastProcessedHash) {
+      console.log('[LayoutChangeManager] Skipping duplicate layout change');
+      return;
+    }
+    
+    // Skip if there's an active operation that should block this change
+    if (this.shouldBlockChange(origin)) {
+      console.log('[LayoutChangeManager] Blocking layout change due to active operation');
+      return;
+    }
+    
+    const event: LayoutChangeEvent = { layouts, origin, hash };
+    this.pendingChanges.set(debounceKey, event);
+    
+    // Clear existing timeout for this key
+    const existingTimeout = this.debounceTimeouts.get(debounceKey);
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+    }
+    
+    // Set new debounced timeout
+    const timeout = setTimeout(() => {
+      this.processPendingChange(debounceKey);
+    }, this.debounceMs);
+    
+    this.debounceTimeouts.set(debounceKey, timeout);
+  }
+
+  /**
+   * Process a pending layout change
+   */
+  private processPendingChange(debounceKey: string): void {
+    const event = this.pendingChanges.get(debounceKey);
+    if (!event) return;
+    
+    // Final deduplication check
+    if (event.hash === this.lastProcessedHash) {
+      console.log('[LayoutChangeManager] Skipping duplicate in processPendingChange');
+      return;
+    }
+    
+    console.log(`[LayoutChangeManager] Processing layout change from ${event.origin.source}`);
+    
+    this.lastProcessedHash = event.hash;
+    this.pendingChanges.delete(debounceKey);
+    this.debounceTimeouts.delete(debounceKey);
+    
+    this.onLayoutChange(event);
+  }
+
+  /**
+   * Start tracking an operation that should block certain layout changes
+   */
+  startOperation(operationId: string): void {
+    this.activeOperations.add(operationId);
+    console.log(`[LayoutChangeManager] Started operation: ${operationId}`);
+  }
+
+  /**
+   * Stop tracking an operation
+   */
+  stopOperation(operationId: string): void {
+    this.activeOperations.delete(operationId);
+    console.log(`[LayoutChangeManager] Stopped operation: ${operationId}`);
+  }
+
+  /**
+   * Check if a layout change should be blocked
+   */
+  private shouldBlockChange(origin: LayoutChangeOrigin): boolean {
+    // Don't block user-initiated changes
+    if (origin.source === 'user-drag' || origin.source === 'user-resize') {
+      return false;
+    }
+    
+    // Block external syncs if there are active user operations
+    if (origin.source === 'external-sync' && this.activeOperations.size > 0) {
+      return true;
+    }
+    
+    return false;
+  }
+
+  /**
+   * Force process all pending changes (useful for cleanup)
+   */
+  flush(): void {
+    for (const [key] of this.pendingChanges) {
+      const timeout = this.debounceTimeouts.get(key);
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      this.processPendingChange(key);
+    }
+  }
+
+  /**
+   * Clean up all timeouts
+   */
+  destroy(): void {
+    for (const timeout of this.debounceTimeouts.values()) {
+      clearTimeout(timeout);
+    }
+    this.debounceTimeouts.clear();
+    this.pendingChanges.clear();
+    this.activeOperations.clear();
+  }
+}
