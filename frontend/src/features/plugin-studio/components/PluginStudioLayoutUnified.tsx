@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Box, Switch, FormControlLabel, Tooltip } from '@mui/material';
 import { PluginToolbar } from './toolbar/PluginToolbar';
 import { usePluginStudio } from '../hooks/usePluginStudio';
+import { usePluginStudioDevMode } from '../../../hooks/usePluginStudioDevMode';
 import {
   JsonViewDialog,
   ConfigDialog,
@@ -109,25 +110,30 @@ export const PluginStudioLayoutUnified: React.FC = () => {
             borderColor: 'divider',
             bgcolor: 'background.default'
           }}>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={useUnifiedRenderer}
-                  onChange={(e) => {
-                    setUseUnifiedRenderer(e.target.checked);
-                    setUnifiedError(null);
-                  }}
-                  size="small"
+            {(() => {
+              const { features } = usePluginStudioDevMode();
+              return features.rendererSwitch && (
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={useUnifiedRenderer}
+                      onChange={(e) => {
+                        setUseUnifiedRenderer(e.target.checked);
+                        setUnifiedError(null);
+                      }}
+                      size="small"
+                    />
+                  }
+                  label={
+                    <Tooltip title="Toggle between unified renderer and legacy Plugin Studio">
+                      <span style={{ fontSize: '0.75rem' }}>
+                        Unified Renderer
+                      </span>
+                    </Tooltip>
+                  }
                 />
-              }
-              label={
-                <Tooltip title="Toggle between unified renderer and legacy Plugin Studio">
-                  <span style={{ fontSize: '0.75rem' }}>
-                    Unified Renderer
-                  </span>
-                </Tooltip>
-              }
-            />
+              );
+            })()}
             
             {unifiedError && (
               <Box sx={{ 
@@ -174,24 +180,27 @@ export const PluginStudioLayoutUnified: React.FC = () => {
           )}
         </ErrorBoundary>
         
-        {/* Renderer Status Indicator (Development Only) */}
-        {import.meta.env.MODE === 'development' && (
-          <Box sx={{
-            position: 'absolute',
-            top: 8,
-            left: 8,
-            bgcolor: useUnifiedRenderer ? 'success.main' : 'warning.main',
-            color: 'white',
-            px: 1,
-            py: 0.5,
-            borderRadius: 1,
-            fontSize: '0.75rem',
-            fontWeight: 'bold',
-            zIndex: 1000
-          }}>
-            {useUnifiedRenderer ? 'UNIFIED' : 'LEGACY'}
-          </Box>
-        )}
+        {/* Renderer Status Indicator (Plugin Studio Dev Mode Only) */}
+        {import.meta.env.MODE === 'development' && (() => {
+          const { features } = usePluginStudioDevMode();
+          return features.unifiedIndicator && (
+            <Box sx={{
+              position: 'absolute',
+              top: 8,
+              left: 8,
+              bgcolor: useUnifiedRenderer ? 'success.main' : 'warning.main',
+              color: 'white',
+              px: 1,
+              py: 0.5,
+              borderRadius: 1,
+              fontSize: '0.75rem',
+              fontWeight: 'bold',
+              zIndex: 1000
+            }}>
+              {useUnifiedRenderer ? 'UNIFIED' : 'LEGACY'}
+            </Box>
+          );
+        })()}
       </Box>
       
       {/* Dialogs - These remain unchanged */}

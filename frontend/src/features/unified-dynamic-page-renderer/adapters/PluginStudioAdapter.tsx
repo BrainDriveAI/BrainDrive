@@ -5,6 +5,7 @@ import { ResponsiveContainer } from '../components/ResponsiveContainer';
 import { LayoutEngine } from '../components/LayoutEngine';
 import { PageProvider } from '../contexts/PageContext';
 import { RenderMode, PageData, ResponsiveLayouts, LayoutItem, ModuleConfig } from '../types';
+import { usePluginStudioDevMode } from '../../../hooks/usePluginStudioDevMode';
 
 // Import Plugin Studio types and components
 import {
@@ -817,26 +818,29 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
       </div>
 
       {/* Performance overlay in development */}
-      {performanceMonitoring && import.meta.env.MODE === 'development' && (
-        <div style={{
-          position: 'fixed',
-          bottom: 10,
-          right: 10,
-          background: 'rgba(0,0,0,0.8)',
-          color: 'white',
-          padding: '8px 12px',
-          borderRadius: '4px',
-          fontSize: '12px',
-          zIndex: 9999,
-          fontFamily: 'monospace'
-        }}>
-          <div>Plugin Studio Adapter</div>
-          <div>Conversion: {performanceMetrics.conversionTime?.toFixed(2)}ms</div>
-          <div>Render: {performanceMetrics.renderTime?.toFixed(2)}ms</div>
-          <div>Mode: {renderMode}</div>
-          <div>Items: {convertedPageData.layouts.desktop.length}</div>
-        </div>
-      )}
+      {performanceMonitoring && import.meta.env.MODE === 'development' && (() => {
+        const { features } = usePluginStudioDevMode();
+        return features.debugPanels && (
+          <div style={{
+            position: 'fixed',
+            bottom: 10,
+            right: 10,
+            background: 'rgba(0,0,0,0.8)',
+            color: 'white',
+            padding: '8px 12px',
+            borderRadius: '4px',
+            fontSize: '12px',
+            zIndex: 9999,
+            fontFamily: 'monospace'
+          }}>
+            <div>Plugin Studio Adapter</div>
+            <div>Conversion: {performanceMetrics.conversionTime?.toFixed(2)}ms</div>
+            <div>Render: {performanceMetrics.renderTime?.toFixed(2)}ms</div>
+            <div>Mode: {renderMode}</div>
+            <div>Items: {convertedPageData.layouts.desktop.length}</div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

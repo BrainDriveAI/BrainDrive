@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box, Chip, Typography } from '@mui/material';
+import { usePluginStudioDevMode } from '../../../hooks/usePluginStudioDevMode';
 
 interface DebugInfoProps {
   system: 'direct' | 'legacy' | 'unified';
@@ -8,7 +9,10 @@ interface DebugInfoProps {
 }
 
 export const DebugInfo: React.FC<DebugInfoProps> = ({ system, pageData, layouts }) => {
-  if (import.meta.env.MODE !== 'development') {
+  const { isPluginStudioDevMode } = usePluginStudioDevMode();
+  
+  // Keep existing dev mode check AND add Plugin Studio check
+  if (import.meta.env.MODE !== 'development' || !isPluginStudioDevMode) {
     return null;
   }
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { RenderMode, PageData } from '../types';
 import { StudioFeatures, PublishedFeatures, PreviewFeatures } from '../types/layout';
+import { usePluginStudioDevMode } from '../../../hooks/usePluginStudioDevMode';
 
 export interface ModeControllerProps {
   mode: RenderMode;
@@ -65,8 +66,14 @@ export const ModeController: React.FC<ModeControllerProps> = ({
   onFeatureToggle,
   onModeTransition,
 }) => {
+  const { isPluginStudioDevMode } = usePluginStudioDevMode();
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [activeFeatures, setActiveFeatures] = useState<Record<string, boolean>>({});
+
+  // Don't render the ModeController if Plugin Studio dev mode is disabled
+  if (!isPluginStudioDevMode) {
+    return null;
+  }
 
   // Handle mode transitions
   const handleModeChange = useCallback(async (newMode: RenderMode) => {

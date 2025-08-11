@@ -4,6 +4,7 @@ import { debounce } from 'lodash';
 import { ModuleRenderer } from '../components/ModuleRenderer';
 import { serviceBridgeV2 } from '../services/ServiceBridgeV2';
 import { RenderMode, ModuleConfig, BreakpointInfo, LayoutConfig } from '../types';
+import { usePluginStudioDevMode } from '../../../hooks/usePluginStudioDevMode';
 
 // Import legacy components and services
 import ComponentErrorBoundary from '../../../components/ComponentErrorBoundary';
@@ -567,22 +568,25 @@ export const LegacyModuleAdapter: React.FC<LegacyModuleAdapterProps> = React.mem
             }
           />
           
-          {/* Performance overlay in development */}
-          {performanceMonitoring && process.env.NODE_ENV === 'development' && (
-            <div style={{
-              position: 'absolute',
-              bottom: 0,
-              left: 0,
-              background: 'rgba(0,0,0,0.7)',
-              color: 'white',
-              padding: '4px 8px',
-              fontSize: '10px',
-              borderRadius: '0 4px 0 0',
-              zIndex: 9999
-            }}>
-              Unified ({performanceMetrics.loadTime || 0}ms)
-            </div>
-          )}
+          {/* Performance overlay in Plugin Studio dev mode only */}
+          {performanceMonitoring && process.env.NODE_ENV === 'development' && (() => {
+            const { features } = usePluginStudioDevMode();
+            return features.moduleDebugInfo && (
+              <div style={{
+                position: 'absolute',
+                bottom: 0,
+                left: 0,
+                background: 'rgba(0,0,0,0.7)',
+                color: 'white',
+                padding: '4px 8px',
+                fontSize: '10px',
+                borderRadius: '0 4px 0 0',
+                zIndex: 9999
+              }}>
+                Unified ({performanceMetrics.loadTime || 0}ms)
+              </div>
+            );
+          })()}
         </ComponentErrorBoundary>
       );
     } else {

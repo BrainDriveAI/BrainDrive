@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { RenderMode, PageData } from '../types';
 import { BreakpointInfo } from '../types/responsive';
+import { usePluginStudioDevMode } from '../../../hooks/usePluginStudioDevMode';
 import {
   StudioModeFeatures,
   type StudioContext as StudioContextType,
@@ -114,6 +115,16 @@ export const StudioModeController: React.FC<StudioModeControllerProps> = ({
   onStudioEvent,
   children
 }) => {
+  // Plugin Studio Dev Mode
+  const { isPluginStudioDevMode } = usePluginStudioDevMode();
+  
+  // Debug logging utility - only logs when Plugin Studio dev mode is enabled
+  const debugLog = useCallback((message: string, ...args: any[]) => {
+    if (isPluginStudioDevMode) {
+      debugLog(message, ...args);
+    }
+  }, [isPluginStudioDevMode]);
+
   // State management
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [features, setFeatures] = useState<StudioModeFeatures>({
@@ -220,7 +231,7 @@ export const StudioModeController: React.FC<StudioModeControllerProps> = ({
     
     handleDrop: (data, position) => {
       // Implementation will be handled by drag-drop system
-      console.log('[StudioModeController] Drop handled:', data, position);
+      debugLog('[StudioModeController] Drop handled:', data, position);
     },
     
     // Selection
@@ -268,45 +279,45 @@ export const StudioModeController: React.FC<StudioModeControllerProps> = ({
     
     // Editing (placeholder implementations)
     copyItems: (itemIds) => {
-      console.log('[StudioModeController] Copy items:', itemIds);
+      debugLog('[StudioModeController] Copy items:', itemIds);
     },
     
     pasteItems: (position) => {
-      console.log('[StudioModeController] Paste items at:', position);
+      debugLog('[StudioModeController] Paste items at:', position);
     },
     
     deleteItems: (itemIds) => {
-      console.log('[StudioModeController] Delete items:', itemIds);
+      debugLog('[StudioModeController] Delete items:', itemIds);
     },
     
     duplicateItems: (itemIds) => {
-      console.log('[StudioModeController] Duplicate items:', itemIds);
+      debugLog('[StudioModeController] Duplicate items:', itemIds);
     },
     
     // Layout (placeholder implementations)
     moveItems: (itemIds, delta) => {
-      console.log('[StudioModeController] Move items:', itemIds, delta);
+      debugLog('[StudioModeController] Move items:', itemIds, delta);
     },
     
     resizeItem: (itemId, size) => {
-      console.log('[StudioModeController] Resize item:', itemId, size);
+      debugLog('[StudioModeController] Resize item:', itemId, size);
     },
     
     alignItems: (itemIds, alignment) => {
-      console.log('[StudioModeController] Align items:', itemIds, alignment);
+      debugLog('[StudioModeController] Align items:', itemIds, alignment);
     },
     
     // Undo/Redo (placeholder implementations)
     undo: () => {
-      console.log('[StudioModeController] Undo');
+      debugLog('[StudioModeController] Undo');
     },
     
     redo: () => {
-      console.log('[StudioModeController] Redo');
+      debugLog('[StudioModeController] Redo');
     },
     
     executeCommand: (command) => {
-      console.log('[StudioModeController] Execute command:', command);
+      debugLog('[StudioModeController] Execute command:', command);
     },
     
     // Grid
@@ -377,7 +388,7 @@ export const StudioModeController: React.FC<StudioModeControllerProps> = ({
       setDragDropState(defaultDragDropState);
     }
     
-    console.log(`[StudioModeController] Transitioning from ${fromMode} to ${toMode}`);
+    debugLog(`[StudioModeController] Transitioning from ${fromMode} to ${toMode}`);
   };
 
   // Keyboard shortcuts effect
@@ -441,7 +452,7 @@ export const StudioModeController: React.FC<StudioModeControllerProps> = ({
 
     const autoSaveInterval = setInterval(() => {
       // Auto-save logic would go here
-      console.log('[StudioModeController] Auto-save triggered');
+      debugLog('[StudioModeController] Auto-save triggered');
     }, 30000); // Auto-save every 30 seconds
 
     return () => clearInterval(autoSaveInterval);
