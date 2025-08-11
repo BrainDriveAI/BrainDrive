@@ -43,6 +43,8 @@ Our roadmap is broken into clearly defined versions, each building toward a stab
 - [x] Interface is stable and bug-free
 - [x] UI/UX feedback implemented
 
+---
+
 ## Version 0.5 - Developer data workflow
 >Goal: Give devs the ability to have a living plugin.
 
@@ -54,20 +56,32 @@ Our roadmap is broken into clearly defined versions, each building toward a stab
 
 ---
 
-## Version 0.5.5 – Dashboard & Notifications
+## Version 0.6.0 – Open Beta
+> Goal: AI System with core functionality for developers
+
+- [ ] All plugins moved to the Life Cycle Manager
+- [ ] Ollama plugin updated to include server manager
+- [ ] User initializer - Plugin install from remote
+- [ ] User initializer - Restructure navigation 
+- [ ] Prompt Library
+- [ ] One-Click Installer - (Windows first)
+
+---
+
+## Version 0.6.0 – Open Beta Issues
+> Goal: Outstanding issues 
+
+- [ ] Unified Dynamic Page Renderer - Bounce
+- [ ] Unified Dynamic Page Renderer - Finetune
+
+---
+
+## Version 0.6.5 – Dashboard & Notifications
 > Goal: Clear visibility into system health and updates
 
 - [ ] Version and update notifications surfaced to user
 - [ ] Dashboard highlights recent plugin activity
 - [ ] Easy access to system help and documentation
-
-## Version 0.6 – One-Click Installer
-> Goal: Non-technical setup across all platforms
-
-- [ ] Installers tested and working for macOS, Windows, and Linux
-- [ ] All dependencies bundled or clearly linked
-- [ ] Install time <10 minutes including setup steps
-- [ ] No terminal or manual steps required
 
 ---
 
@@ -92,6 +106,14 @@ Our roadmap is broken into clearly defined versions, each building toward a stab
 
 ---
 
+## One-Click Installer Specs
+> Goal: Non-technical setup across all platforms
+
+- [ ] Installers tested and working for macOS, Windows, and Linux
+- [ ] All dependencies bundled or clearly linked
+- [ ] Install time <10 minutes including setup steps
+- [ ] No terminal or manual steps required
+
 ## 📢 Community Updates
 
 We post weekly development updates and community discussions in our forum.
@@ -115,5 +137,3 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for ways to get involved. You can also:
 ---
 
 Your AI. Your Rules.
-
-
