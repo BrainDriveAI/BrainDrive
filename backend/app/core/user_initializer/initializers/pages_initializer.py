@@ -26,7 +26,7 @@ class PagesInitializer(UserInitializerBase):
     name = "pages_initializer"
     description = "Initializes default pages for a new user"
     priority = 600  # Run after navigation routes
-    dependencies = ["navigation_initializer", "brain_drive_basic_ai_chat_initializer"]  # Depends on navigation routes and AI Chat plugin
+    dependencies = ["navigation_initializer", "github_plugin_initializer"]  # Depends on navigation routes and GitHub plugin installer
     
     # Default pages templates
     DEFAULT_PAGES = [
@@ -45,7 +45,7 @@ class PagesInitializer(UserInitializerBase):
     
     async def get_module_ids(self, user_id: str, db: AsyncSession) -> Dict[str, str]:
         """
-        Get the module IDs for a user's BrainDrive Basic AI Chat plugin.
+        Get the module IDs for a user's BrainDrive Chat plugin (GitHub-installed).
         
         Args:
             user_id: The user ID
@@ -55,17 +55,17 @@ class PagesInitializer(UserInitializerBase):
             Dict[str, str]: A dictionary mapping module names to their IDs
         """
         try:
-            # Get the plugin ID for the user's BrainDrive Basic AI Chat plugin
+            # Get the plugin ID for the user's BrainDrive Chat plugin (GitHub-installed)
             plugin_stmt = text("""
             SELECT id FROM plugin
-            WHERE user_id = :user_id AND plugin_slug = 'BrainDriveBasicAIChat'
+            WHERE user_id = :user_id AND plugin_slug = 'BrainDriveChat'
             """)
             
             plugin_result = await db.execute(plugin_stmt, {"user_id": user_id})
             plugin_id = plugin_result.scalar_one_or_none()
             
             if not plugin_id:
-                logger.error(f"BrainDriveBasicAIChat plugin not found for user {user_id}")
+                logger.error(f"BrainDriveChat plugin not found for user {user_id}")
                 return {}
             
             # Get the module IDs for the plugin
@@ -96,7 +96,7 @@ class PagesInitializer(UserInitializerBase):
         try:
             logger.info(f"Initializing pages for user {user_id}")
             
-            # Get the module IDs for the user's BrainDrive Basic AI Chat plugin
+            # Get the module IDs for the user's BrainDrive Chat plugin (GitHub-installed)
             module_info = await self.get_module_ids(user_id, db)
             
             if not module_info:
@@ -107,73 +107,77 @@ class PagesInitializer(UserInitializerBase):
             module_ids = module_info.get("module_ids", {})
             
             if not plugin_id:
-                logger.error(f"BrainDriveBasicAIChat plugin not found for user {user_id}")
+                logger.error(f"BrainDriveChat plugin not found for user {user_id}")
                 return False
                 
             # Create pages for the user using default pages
             for page_data in self.DEFAULT_PAGES:
                 # If this is the AI Chat page, generate dynamic content
                 if page_data["name"] == "AI Chat":
-                    # Generate unique module IDs for the content JSON
+                    # Generate unique module ID for the BrainDriveChat interface
                     timestamp_base = int(datetime.datetime.now().timestamp() * 1000)  # Use milliseconds for timestamp
-                    model_selection_module_id = f"BrainDriveBasicAIChat_{module_ids.get('ComponentModelSelection', '')}_{timestamp_base}"
-                    chat_history_module_id = f"BrainDriveBasicAIChat_{module_ids.get('AIChatHistory', '')}_{timestamp_base + 2000}"  # Add 2 seconds
-                    ai_prompt_chat_module_id = f"BrainDriveBasicAIChat_{module_ids.get('AIPromptChat', '')}_{timestamp_base + 5000}"  # Add 5 seconds
                     
-                    # Generate the content JSON with the actual module IDs
+                    # Get the BrainDriveChat module ID (should be the only module in the plugin)
+                    brain_drive_chat_module_id = None
+                    for module_name, module_id in module_ids.items():
+                        if 'BrainDriveChat' in module_name:
+                            brain_drive_chat_module_id = module_id
+                            break
+                    
+                    if not brain_drive_chat_module_id:
+                        logger.error(f"BrainDriveChat module not found for user {user_id}")
+                        return False
+                    
+                    # Generate unique identifier for the layout
+                    chat_interface_id = f"BrainDriveChat_{brain_drive_chat_module_id}_{timestamp_base}"
+                    
+                    # Generate the content JSON with the actual module IDs (new BrainDriveChat structure)
                     page_data["content"] = {
                         "layouts": {
                             "desktop": [
-                                {"moduleUniqueId": model_selection_module_id, "i": model_selection_module_id, "x": 0, "y": 0, "w": 6, "h": 1, "minW": 3, "minH": 1},
-                                {"moduleUniqueId": chat_history_module_id, "i": chat_history_module_id, "x": 6, "y": 0, "w": 6, "h": 1, "minW": 3, "minH": 1},
-                                {"moduleUniqueId": ai_prompt_chat_module_id, "i": ai_prompt_chat_module_id, "x": 0, "y": 1, "w": 12, "h": 5, "minW": 4, "minH": 4}
+                                {
+                                    "i": chat_interface_id,
+                                    "x": 0,
+                                    "y": 0,
+                                    "w": 12,
+                                    "h": 10,
+                                    "pluginId": "BrainDriveChat",
+                                    "args": {
+                                        "moduleId": brain_drive_chat_module_id,
+                                        "displayName": "AI Chat Interface"
+                                    }
+                                }
                             ],
                             "tablet": [
-                                {"moduleUniqueId": model_selection_module_id, "i": model_selection_module_id, "x": 0, "y": 0, "w": 6, "h": 1, "minW": 3, "minH": 1},
-                                {"moduleUniqueId": chat_history_module_id, "i": chat_history_module_id, "x": 0, "y": 1, "w": 6, "h": 1, "minW": 3, "minH": 1},
-                                {"moduleUniqueId": ai_prompt_chat_module_id, "i": ai_prompt_chat_module_id, "x": 0, "y": 2, "w": 6, "h": 6, "minW": 4, "minH": 4}
+                                {
+                                    "i": chat_interface_id,
+                                    "x": 1,
+                                    "y": 0,
+                                    "w": 4,
+                                    "h": 3,
+                                    "pluginId": "BrainDriveChat",
+                                    "args": {
+                                        "moduleId": brain_drive_chat_module_id,
+                                        "displayName": "AI Chat Interface"
+                                    }
+                                }
                             ],
                             "mobile": [
-                                {"moduleUniqueId": model_selection_module_id, "i": model_selection_module_id, "x": 0, "y": 0, "w": 4, "h": 1, "minW": 3, "minH": 1},
-                                {"moduleUniqueId": chat_history_module_id, "i": chat_history_module_id, "x": 0, "y": 1, "w": 4, "h": 1, "minW": 3, "minH": 1},
-                                {"moduleUniqueId": ai_prompt_chat_module_id, "i": ai_prompt_chat_module_id, "x": 0, "y": 2, "w": 4, "h": 6, "minW": 4, "minH": 4}
+                                {
+                                    "i": chat_interface_id,
+                                    "x": 1,
+                                    "y": 0,
+                                    "w": 4,
+                                    "h": 3,
+                                    "pluginId": "BrainDriveChat",
+                                    "args": {
+                                        "moduleId": brain_drive_chat_module_id,
+                                        "displayName": "AI Chat Interface"
+                                    }
+                                }
                             ]
                         },
-                        "modules": {
-                            model_selection_module_id.replace("-", ""): {
-                                "pluginId": "BrainDriveBasicAIChat",
-                                "moduleId": module_ids.get('ComponentModelSelection', ''),
-                                "moduleName": "ComponentModelSelection",
-                                "config": {
-                                    "moduleId": module_ids.get('ComponentModelSelection', ''),
-                                    "label": "Select Model",
-                                    "labelPosition": "top",
-                                    "providerSettings": ["ollama_servers_settings"],
-                                    "targetComponent": "",
-                                    "displayName": "Model Selection v2"
-                                }
-                            },
-                            chat_history_module_id.replace("-", ""): {
-                                "pluginId": "BrainDriveBasicAIChat",
-                                "moduleId": module_ids.get('AIChatHistory', ''),
-                                "moduleName": "AIChatHistory",
-                                "config": {
-                                    "moduleId": module_ids.get('AIChatHistory', ''),
-                                    "displayName": "AI Chat History"
-                                }
-                            },
-                            ai_prompt_chat_module_id.replace("-", ""): {
-                                "pluginId": "BrainDriveBasicAIChat",
-                                "moduleId": module_ids.get('AIPromptChat', ''),
-                                "moduleName": "AIPromptChat",
-                                "config": {
-                                    "initialGreeting": "Hello! How can I assist you today?",
-                                    "promptQuestion": "Type your message here...",
-                                    "moduleId": module_ids.get('AIPromptChat', ''),
-                                    "displayName": "AI Prompt Chat V2"
-                                }
-                            }
-                        }
+                        "modules": {}
                     }
                 # Prepare the page data for the new user
                 # This will:
