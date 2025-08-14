@@ -16,9 +16,9 @@ export const PluginManager: React.FC<PluginManagerProps> = ({ children }) => {
 
   const handlePluginsLoaded = (plugins: LoadedRemotePlugin[]) => {
     try {
-      console.log('[PluginManager] Received plugins to register:', plugins);
+      // console.log('[PluginManager] Received plugins to register:', plugins);
       registerRemotePlugins(plugins);
-      console.log('[PluginManager] Plugins registered successfully');
+      // console.log('[PluginManager] Plugins registered successfully');
       setIsPluginsLoading(false);
     } catch (err) {
       console.error('[PluginManager] Error registering remote plugins:', err);

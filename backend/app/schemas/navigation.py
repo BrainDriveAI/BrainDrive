@@ -16,6 +16,12 @@ class NavigationRouteBase(BaseModel):
     default_page_id: Optional[UUID] = Field(default=None, description="Can be null to clear the default page")
     can_change_default: Optional[bool] = False
     
+    # Hierarchical fields
+    parent_id: Optional[str] = None
+    display_order: Optional[int] = 0
+    is_collapsible: Optional[bool] = True
+    is_expanded: Optional[bool] = True
+    
     @validator('default_page_id', pre=True)
     def validate_default_page_id(cls, v):
         if v is None or v == "":
@@ -40,6 +46,10 @@ class NavigationRouteUpdate(BaseModel):
     default_component_id: Optional[str] = None
     default_page_id: Optional[UUID] = Field(default=None, description="Can be null to clear the default page")
     can_change_default: Optional[bool] = None
+    parent_id: Optional[str] = None
+    display_order: Optional[int] = None
+    is_collapsible: Optional[bool] = None
+    is_expanded: Optional[bool] = None
     # Note: is_system_route should not be updatable
     
     @validator('default_page_id', pre=True)
@@ -70,6 +80,23 @@ class NavigationRouteDetailResponse(NavigationRouteResponse):
     creator: Optional[dict] = None
     pages: Optional[List[str]] = None
 
+class NavigationRouteTree(NavigationRouteResponse):
+    children: Optional[List['NavigationRouteTree']] = []
+    depth_level: Optional[int] = 0
+
+class NavigationRouteMove(BaseModel):
+    parent_id: Optional[str] = None
+    display_order: Optional[int] = None
+
+class NavigationRouteBatchUpdate(BaseModel):
+    id: str
+    parent_id: Optional[str] = None
+    display_order: Optional[int] = None
+    is_expanded: Optional[bool] = None
+
 class NavigationRouteListResponse(BaseModel):
     routes: List[NavigationRouteResponse]
     total: int
+
+# Enable forward references for NavigationRouteTree
+NavigationRouteTree.model_rebuild()

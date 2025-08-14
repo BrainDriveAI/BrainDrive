@@ -66,7 +66,7 @@ export class PluginLoader {
     if (!options.bypassCache) {
       const cached = this.getCachedPlugin(cacheKey);
       if (cached) {
-        console.log(`[PluginLoader] Cache hit for ${cacheKey}`);
+        // console.log(`[PluginLoader] Cache hit for ${cacheKey}`);
         return {
           success: true,
           component: cached.component,
@@ -78,7 +78,7 @@ export class PluginLoader {
 
     // Check if already loading
     if (this.loadingPromises.has(cacheKey)) {
-      console.log(`[PluginLoader] Already loading ${cacheKey}, waiting...`);
+      // console.log(`[PluginLoader] Already loading ${cacheKey}, waiting...`);
       return await this.loadingPromises.get(cacheKey)!;
     }
 
@@ -146,7 +146,7 @@ export class PluginLoader {
    * Preload plugins for better performance
    */
   async preloadPlugins(pluginIds: string[]): Promise<void> {
-    console.log(`[PluginLoader] Preloading ${pluginIds.length} plugins...`);
+    // console.log(`[PluginLoader] Preloading ${pluginIds.length} plugins...`);
     
     const preloadPromises = pluginIds.map(async (pluginId) => {
       try {
@@ -157,7 +157,7 @@ export class PluginLoader {
     });
 
     await Promise.allSettled(preloadPromises);
-    console.log(`[PluginLoader] Preloading completed`);
+    // console.log(`[PluginLoader] Preloading completed`);
   }
 
   /**
@@ -169,10 +169,10 @@ export class PluginLoader {
         key.startsWith(`${pluginId}:`)
       );
       keysToDelete.forEach(key => this.cache.delete(key));
-      console.log(`[PluginLoader] Cleared cache for plugin: ${pluginId}`);
+      // console.log(`[PluginLoader] Cleared cache for plugin: ${pluginId}`);
     } else {
       this.cache.clear();
-      console.log(`[PluginLoader] Cleared all plugin cache`);
+      // console.log(`[PluginLoader] Cleared all plugin cache`);
     }
   }
 
@@ -244,7 +244,7 @@ export class PluginLoader {
       this.cachePlugin(cacheKey, component, metadata);
 
       const loadTime = performance.now() - startTime;
-      console.log(`[PluginLoader] Successfully loaded ${cacheKey} in ${loadTime.toFixed(2)}ms`);
+      // console.log(`[PluginLoader] Successfully loaded ${cacheKey} in ${loadTime.toFixed(2)}ms`);
 
       return {
         success: true,
@@ -405,7 +405,7 @@ export class PluginLoader {
 
     if (oldestKey) {
       this.cache.delete(oldestKey);
-      console.log(`[PluginLoader] Evicted cache entry: ${oldestKey}`);
+      // console.log(`[PluginLoader] Evicted cache entry: ${oldestKey}`);
     }
   }
 }

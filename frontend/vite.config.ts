@@ -31,6 +31,10 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 5173,
+    force: true, // Force dependency pre-bundling
+    hmr: {
+      overlay: true
+    },
     proxy: {
       '/api': {
         target: 'http://10.0.2.149:8005',
@@ -38,5 +42,8 @@ export default defineConfig({
         secure: false,
       }
     }
+  },
+  optimizeDeps: {
+    force: true // Force re-optimization of dependencies
   }
 })

@@ -1,5 +1,5 @@
 import ApiService from './ApiService';
-import { NavigationRoute } from '../types/navigation';
+import { NavigationRoute, NavigationRouteTree, NavigationRouteMove, NavigationRouteBatchUpdate } from '../types/navigation';
 
 const API_PATH = '/api/v1/navigation-routes';
 
@@ -206,6 +206,105 @@ export const navigationService = {
       return matchingRoute;
     } catch (error) {
       console.error(`Failed to fetch navigation route by path ${route}:`, error);
+      return null;
+    }
+  },
+
+  // HIERARCHICAL NAVIGATION METHODS
+
+  // Get navigation routes as tree structure
+  async getNavigationTree(): Promise<NavigationRouteTree[]> {
+    try {
+      console.log('🌳 [NavigationService] Starting getNavigationTree...');
+      const apiService = ApiService.getInstance();
+      
+      const token = localStorage.getItem('accessToken');
+      if (!token) {
+        console.warn('🌳 [NavigationService] No access token available, skipping navigation tree API call');
+        return [];
+      }
+      
+      console.log('🌳 [NavigationService] Making API call to /tree endpoint...');
+      const response = await apiService.get(`${API_PATH}/tree`);
+      console.log('🌳 [NavigationService] Tree API response:', response);
+      
+      if (!response || !Array.isArray(response)) {
+        console.warn('🌳 [NavigationService] Navigation tree response is not an array:', response);
+        return [];
+      }
+      
+      console.log('🌳 [NavigationService] Successfully fetched tree with', response.length, 'root routes');
+      return response;
+    } catch (error) {
+      console.error('🌳 [NavigationService] Failed to fetch navigation tree:', error);
+      return [];
+    }
+  },
+
+  // Move a navigation route
+  async moveNavigationRoute(routeId: string, moveData: NavigationRouteMove): Promise<NavigationRoute> {
+    try {
+      const apiService = ApiService.getInstance();
+      return await apiService.put(`${API_PATH}/${routeId}/move`, moveData);
+    } catch (error) {
+      console.error(`Failed to move navigation route ${routeId}:`, error);
+      throw new Error(`Failed to move navigation route: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  },
+
+  // Batch update navigation routes
+  async batchUpdateNavigationRoutes(updates: NavigationRouteBatchUpdate[]): Promise<NavigationRoute[]> {
+    try {
+      const apiService = ApiService.getInstance();
+      return await apiService.post(`${API_PATH}/batch-update`, updates);
+    } catch (error) {
+      console.error('Failed to batch update navigation routes:', error);
+      throw new Error(`Failed to batch update navigation routes: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  },
+
+  // Toggle expanded state of a navigation route
+  async toggleNavigationRouteExpanded(routeId: string, isExpanded: boolean): Promise<NavigationRoute> {
+    try {
+      const updates: NavigationRouteBatchUpdate[] = [{
+        id: routeId,
+        is_expanded: isExpanded
+      }];
+      
+      const results = await this.batchUpdateNavigationRoutes(updates);
+      if (results.length === 0) {
+        throw new Error('No route was updated');
+      }
+      
+      return results[0];
+    } catch (error) {
+      console.error(`Failed to toggle expanded state for route ${routeId}:`, error);
+      throw new Error(`Failed to toggle expanded state: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  },
+
+  // Get navigation route with children
+  async getNavigationRouteWithChildren(routeId: string): Promise<NavigationRouteTree | null> {
+    try {
+      const tree = await this.getNavigationTree();
+      
+      // Recursively search for the route in the tree
+      const findRouteInTree = (routes: NavigationRouteTree[], targetId: string): NavigationRouteTree | null => {
+        for (const route of routes) {
+          if (route.id === targetId) {
+            return route;
+          }
+          if (route.children && route.children.length > 0) {
+            const found = findRouteInTree(route.children, targetId);
+            if (found) return found;
+          }
+        }
+        return null;
+      };
+      
+      return findRouteInTree(tree, routeId);
+    } catch (error) {
+      console.error(`Failed to get navigation route with children ${routeId}:`, error);
       return null;
     }
   }
