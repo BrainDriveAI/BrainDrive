@@ -61,7 +61,7 @@
         "name": "Debug Vite Dev Server",
         "cwd": "${workspaceFolder}/frontend",
         "program": "${workspaceFolder}/frontend/node_modules/vite/bin/vite.js",
-        "args": ["--host", "0.0.0.0"],
+        "args": ["--host", "0.0.0.0", "--force", "--clearScreen", "false"],
         "skipFiles": [
             "<node_internals>/**"
         ],

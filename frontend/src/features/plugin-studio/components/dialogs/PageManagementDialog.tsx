@@ -238,7 +238,7 @@ export const PageManagementDialog: React.FC<PageManagementDialogProps> = ({ open
         
         {/* Page List */}
         <Typography variant="subtitle1" gutterBottom>
-          Your Pages
+          Your Pages 3
         </Typography>
         
         <List>

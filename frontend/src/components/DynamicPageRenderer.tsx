@@ -103,7 +103,7 @@ function useUnifiedPageLoader(options: {
       // If no direct pluginId, try to extract from moduleId
       if (!pluginId && moduleId) {
         pluginId = extractPluginIdFromModuleId(moduleId);
-        console.log(`[DynamicPageRenderer] Extracted pluginId '${pluginId}' from moduleId '${moduleId}'`);
+        // console.log(`[DynamicPageRenderer] Extracted pluginId '${pluginId}' from moduleId '${moduleId}'`);
       }
       
       // Skip items without a valid pluginId to prevent infinite loops

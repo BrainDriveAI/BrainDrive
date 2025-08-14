@@ -1,8 +1,8 @@
 import uuid
 import sqlalchemy as sa
 from sqlalchemy import Column, String, Boolean, Integer, ForeignKey, Text, select
-# Remove PostgreSQL UUID import
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, selectinload
+from typing import List, Optional
 from app.models.base import Base
 from app.models.mixins import TimestampMixin
 
@@ -29,7 +29,21 @@ class NavigationRoute(Base, TimestampMixin):
     default_page_id = Column(String(32), ForeignKey("pages.id", ondelete="SET NULL"), nullable=True)  # For assigning a page as default
     can_change_default = Column(Boolean, default=False)  # Flag to indicate if default component/page can be changed
     
-    # Relationships
+    # NEW HIERARCHICAL FIELDS
+    parent_id = Column(String(32), ForeignKey("navigation_routes.id", ondelete="CASCADE"), nullable=True)
+    display_order = Column(Integer, default=0)
+    is_collapsible = Column(Boolean, default=True)
+    is_expanded = Column(Boolean, default=True)
+    
+    # RELATIONSHIPS
+    parent = relationship("NavigationRoute", remote_side=[id], back_populates="children")
+    children = relationship(
+        "NavigationRoute",
+        back_populates="parent",
+        cascade="all, delete-orphan",
+        order_by="NavigationRoute.display_order"
+    )
+    
     # Relationships that cause circular imports are now defined in app.models.relationships
     # creator = relationship("User", back_populates="navigation_routes")
     # pages = relationship("Page", foreign_keys="Page.navigation_route_id", back_populates="navigation_route")
@@ -142,4 +156,127 @@ class NavigationRoute(Base, TimestampMixin):
         except Exception as e:
             print(f"Error saving navigation route: {e}")
             await db.rollback()
+            raise
+    
+    @classmethod
+    async def get_tree_structure(cls, db, creator_id: str) -> List['NavigationRoute']:
+        """Get navigation routes as a tree structure for a specific user"""
+        try:
+            creator_id_str = str(creator_id)
+            
+            # Get all visible routes for the user, including children
+            query = select(cls).options(
+                selectinload(cls.children)
+            ).where(
+                sa.and_(
+                    cls.is_visible == True,
+                    cls.creator_id == creator_id_str,
+                    cls.parent_id == None  # Only root level routes
+                )
+            ).order_by(cls.display_order)
+            
+            result = await db.execute(query)
+            root_routes = result.scalars().all()
+            
+            # Recursively load children
+            for route in root_routes:
+                await cls._load_children_recursive(db, route, creator_id_str)
+            
+            return root_routes
+        except Exception as e:
+            print(f"Error getting navigation tree: {e}")
+            return []
+    
+    @classmethod
+    async def _load_children_recursive(cls, db, parent_route: 'NavigationRoute', creator_id: str):
+        """Recursively load children for a navigation route"""
+        try:
+            query = select(cls).where(
+                sa.and_(
+                    cls.parent_id == parent_route.id,
+                    cls.creator_id == creator_id,
+                    cls.is_visible == True
+                )
+            ).order_by(cls.display_order)
+            
+            result = await db.execute(query)
+            children = result.scalars().all()
+            
+            parent_route.children = children
+            
+            # Recursively load grandchildren
+            for child in children:
+                await cls._load_children_recursive(db, child, creator_id)
+                
+        except Exception as e:
+            print(f"Error loading children for route {parent_route.id}: {e}")
+    
+    @classmethod
+    async def validate_hierarchy(cls, db, route_id: str, parent_id: Optional[str]) -> tuple[bool, str]:
+        """Validate that adding parent_id won't create circular reference"""
+        if not parent_id:
+            return True, "No parent specified"
+        
+        if route_id == parent_id:
+            return False, "Route cannot be its own parent"
+        
+        # Check for circular reference by traversing up the parent chain
+        current_parent_id = parent_id
+        visited = set()
+        
+        while current_parent_id:
+            if current_parent_id in visited:
+                return False, "Circular reference detected in parent chain"
+            
+            if current_parent_id == route_id:
+                return False, "Circular reference: route would become ancestor of itself"
+            
+            visited.add(current_parent_id)
+            
+            # Get the parent of current_parent_id
+            parent_route = await cls.get_by_id(db, current_parent_id)
+            if not parent_route:
+                break
+            
+            current_parent_id = parent_route.parent_id
+        
+        return True, "Hierarchy is valid"
+    
+    @classmethod
+    async def get_max_display_order(cls, db, parent_id: Optional[str], creator_id: str) -> int:
+        """Get the maximum display_order for routes under a specific parent"""
+        try:
+            query = select(sa.func.max(cls.display_order)).where(
+                sa.and_(
+                    cls.parent_id == parent_id,
+                    cls.creator_id == creator_id
+                )
+            )
+            result = await db.execute(query)
+            max_order = result.scalar()
+            return max_order if max_order is not None else -1
+        except Exception as e:
+            print(f"Error getting max display order: {e}")
+            return -1
+    
+    async def move_to_parent(self, db, new_parent_id: Optional[str], new_display_order: Optional[int] = None):
+        """Move this route to a new parent and/or position"""
+        try:
+            # Validate the move
+            is_valid, message = await self.validate_hierarchy(db, self.id, new_parent_id)
+            if not is_valid:
+                raise ValueError(f"Invalid hierarchy move: {message}")
+            
+            # If no display_order specified, append to end
+            if new_display_order is None:
+                new_display_order = await self.get_max_display_order(db, new_parent_id, self.creator_id) + 1
+            
+            # Update the route
+            self.parent_id = new_parent_id
+            self.display_order = new_display_order
+            
+            await self.save(db)
+            return self
+        except Exception as e:
+            print(f"Error moving route: {e}")
             raise
