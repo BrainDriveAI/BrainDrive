@@ -124,19 +124,19 @@ export const GridToolbar: React.FC<GridToolbarProps> = ({ onSave }) => {
     }}>
       {/* Left Section: Basic Actions and Page Management Controls */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: '1 0 auto' }}>
+        {/* Page Selector - Always visible */}
+        <PageSelector
+          pages={pages}
+          currentPage={currentPage}
+          onPageChange={setCurrentPage}
+          onCreatePage={createPage}
+          onDeletePage={deletePage}
+          onRenamePage={renamePage}
+          onSavePage={savePage}
+        />
+        
         {currentPage ? (
           <>
-            {/* Create Page Button */}
-            <Tooltip title="Create New Page">
-              <IconButton
-                onClick={() => createPage('New Page')}
-                size="small"
-                sx={{ color: 'primary.main' }}
-              >
-                <AddIcon />
-              </IconButton>
-            </Tooltip>
-            
             {/* Save Page Button */}
             <Tooltip title="Save Page">
               <IconButton
@@ -190,17 +190,6 @@ export const GridToolbar: React.FC<GridToolbarProps> = ({ onSave }) => {
               </span>
             </Tooltip>
             
-            {/* Page Selector */}
-            <PageSelector
-              pages={pages}
-              currentPage={currentPage}
-              onPageChange={setCurrentPage}
-              onCreatePage={createPage}
-              onDeletePage={deletePage}
-              onRenamePage={renamePage}
-              onSavePage={savePage}
-            />
-            
             {/* Page Management and Route Management */}
             {currentPage.is_local !== true && (
               <>
@@ -252,17 +241,8 @@ export const GridToolbar: React.FC<GridToolbarProps> = ({ onSave }) => {
             )}
           </>
         ) : (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Tooltip title="Create New Page">
-              <IconButton
-                onClick={() => createPage('New Page')}
-                size="small"
-                sx={{ color: 'primary.main' }}
-              >
-                <AddIcon />
-              </IconButton>
-            </Tooltip>
-            <Box sx={{ ml: 1 }}>No pages available. Create a new page to get started.</Box>
+          <Box sx={{ ml: 1, color: 'text.secondary' }}>
+            No pages available. Use the + button to create a new page.
           </Box>
         )}
       </Box>
