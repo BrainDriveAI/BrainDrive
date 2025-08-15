@@ -7,6 +7,8 @@ from .ollama import OllamaProvider
 from .openai import OpenAIProvider
 from .openrouter import OpenRouterProvider
 from .claude import ClaudeProvider
+from .groq import GroqProvider
+
 
 from .openrouter import OpenRouterProvider
 
@@ -21,6 +23,7 @@ class AIProviderRegistry:
         self.register_provider("ollama", OllamaProvider)
         self.register_provider("openai", OpenAIProvider)
         self.register_provider("claude", ClaudeProvider)
+        self.register_provider("groq", GroqProvider)
 
         self.register_provider("openrouter", OpenRouterProvider)
     

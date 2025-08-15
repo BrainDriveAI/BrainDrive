@@ -75,6 +75,18 @@ def mask_sensitive_data(definition_id: str, value: any) -> any:
                     "_key_valid": bool(api_key.startswith('sk-ant-') and len(api_key) >= 26)
                 }
     
+      if definition_id == "groq_api_keys_settings":
+        if isinstance(value, dict) and "api_key" in value:
+            api_key = value["api_key"]
+            if api_key and len(api_key) >= 11:
+                masked_key = api_key[:4] + "..." + api_key[-4:]
+                return {
+                    **value,
+                    "api_key": masked_key,
+                    "_has_key": bool(api_key.strip()),
+                    "_key_valid": bool(api_key.startswith('gsk_') and len(api_key) >= 24)
+                }
+    
     return value
 
 async def get_definition_by_id(db, definition_id: str):

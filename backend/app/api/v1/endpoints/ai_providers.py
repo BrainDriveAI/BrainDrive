@@ -169,6 +169,42 @@ async def get_provider_instance_from_request(request, db):
                 "server_name": "OpenRouter API"
             }
             logger.info(f"Created OpenRouter config with API key")
+        elif request.provider == "claude":
+            # Claude uses simple api_key structure (similar to OpenAI)
+            logger.info("Processing Claude provider configuration")
+            api_key = value_dict.get("api_key", "")
+            if not api_key:
+                logger.error("Claude API key is missing")
+                raise HTTPException(
+                    status_code=400,
+                    detail="Claude API key is required. Please configure your Claude API key in settings."
+                )
+            
+            # For Claude, we create a virtual server configuration
+            config = {
+                "api_key": api_key,
+                "server_url": "https://api.anthropic.com",  # Claude API URL
+                "server_name": "Claude API"
+            }
+            logger.info(f"Created Claude config with API key")
+        elif request.provider == "groq":
+            # Groq uses simple api_key structure (similar to OpenAI)
+            logger.info("Processing Groq provider configuration")
+            api_key = value_dict.get("api_key", "")
+            if not api_key:
+                logger.error("Groq API key is missing")
+                raise HTTPException(
+                    status_code=400,
+                    detail="Groq API key is required. Please configure your Groq API key in settings."
+                )
+            
+            # For Groq, we create a virtual server configuration
+            config = {
+                "api_key": api_key,
+                "server_url": "https://api.groq.com",  
+                "server_name": "Groq API"
+            }
+            logger.info(f"Created Groq config with API key")
         else:
             # Other providers (like Ollama) use servers array
             logger.info("Processing server-based provider configuration")
@@ -339,6 +375,32 @@ async def get_models(
                 "server_name": "OpenRouter API"
             }
             print(f"Created OpenRouter config with API key")
+        elif provider == "claude":
+            # Claude uses simple api_key structure (similar to OpenAI)
+            api_key = value_dict.get("api_key", "")
+            if not api_key:
+                raise HTTPException(status_code=400, detail="Claude API key is required")
+            
+            # For Claude, we create a virtual server configuration
+            config = {
+                "api_key": api_key,
+                "server_url": "https://api.anthropic.com",  # Claude API URL
+                "server_name": "Claude API"
+            }
+            print(f"Created Claude config with API key")
+        elif provider == "groq":
+            # Groq uses simple api_key structure (similar to OpenAI)
+            api_key = value_dict.get("api_key", "")
+            if not api_key:
+                raise HTTPException(status_code=400, detail="Groq API key is required")
+            
+            # For Groq, we create a virtual server configuration
+            config = {
+                "api_key": api_key,
+                "server_url": "https://api.groq.com",  
+                "server_name": "Groq API"
+            }
+            print(f"Created Groq config with API key")
         else:
             # Other providers (like Ollama) use servers array
             servers = value_dict.get("servers", [])
@@ -385,6 +447,211 @@ async def get_models(
         }
     except Exception as e:
         print(f"Error in get_models: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/all-models")
+async def get_all_models(
+    user_id: Optional[str] = Query("current", description="User ID"),
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user)
+):
+    """Get models from ALL connected providers for a user."""
+    try:
+        # Resolve user_id from authentication if "current" is specified
+        if user_id == "current":
+            if not current_user:
+                raise HTTPException(status_code=401, detail="Authentication required")
+            user_id = str(current_user.id)
+        
+        # Normalize user_id by removing hyphens if present
+        user_id = user_id.replace("-", "")
+        
+        print(f"Getting all models for user: {user_id}")
+        
+        # Define all possible provider settings
+        provider_settings = [
+            {
+                "provider": "openai",
+                "settings_id": "openai_api_keys_settings",
+                "server_id": "openai_default_server"
+            },
+            {
+                "provider": "openrouter", 
+                "settings_id": "openrouter_api_keys_settings",
+                "server_id": "openrouter_default_server"
+            },
+            {
+                "provider": "claude",
+                "settings_id": "claude_api_keys_settings", 
+                "server_id": "claude_default_server"
+            },
+            {
+                "provider": "groq",
+                "settings_id": "groq_api_keys_settings",
+                "server_id": "groq_default_server"
+            },
+            {
+                "provider": "ollama",
+                "settings_id": "ollama_servers_settings",
+                "server_id": None  # Ollama uses dynamic server IDs
+            }
+        ]
+        
+        all_models = []
+        errors = []
+        successful_providers = 0
+        
+        # Process each provider
+        for provider_config in provider_settings:
+            try:
+                provider = provider_config["provider"]
+                settings_id = provider_config["settings_id"]
+                server_id = provider_config["server_id"]
+                
+                print(f"Processing provider: {provider}")
+                
+                # Get settings for this provider
+                settings = await SettingInstance.get_all_parameterized(
+                    db,
+                    definition_id=settings_id,
+                    scope=SettingScope.USER.value,
+                    user_id=user_id
+                )
+                
+                if not settings or len(settings) == 0:
+                    print(f"No settings found for {provider}, skipping")
+                    continue
+                
+                # Use the first setting found
+                setting = settings[0]
+                setting_value = setting['value'] if isinstance(setting, dict) else setting.value
+                
+                if isinstance(setting_value, str):
+                    try:
+                        value_dict = json.loads(setting_value)
+                    except json.JSONDecodeError:
+                        print(f"Invalid JSON for {provider}, skipping")
+                        continue
+                else:
+                    value_dict = setting_value
+                
+                # Check if provider has valid configuration
+                if provider == "ollama":
+                    # Ollama needs servers array
+                    if not value_dict.get("servers") or len(value_dict["servers"]) == 0:
+                        print(f"No servers configured for {provider}, skipping")
+                        continue
+                else:
+                    # Other providers need API key
+                    if not value_dict.get("api_key"):
+                        print(f"No API key for {provider}, skipping")
+                        continue
+                
+                # Get provider instance and models
+                if provider == "ollama":
+                    # Handle Ollama servers dynamically
+                    for server in value_dict["servers"]:
+                        try:
+                            config = {
+                                "server_url": server.get("serverAddress"),
+                                "api_key": server.get("apiKey", ""),
+                                "server_name": server.get("serverName", "Unknown Server")
+                            }
+                            
+                            provider_instance = await provider_registry.get_provider(
+                                provider,
+                                server["id"],
+                                config
+                            )
+                            
+                            models = await provider_instance.get_models()
+                            for model in models:
+                                model["provider"] = provider
+                                model["server_id"] = server["id"]
+                                model["server_name"] = server.get("serverName", "Unknown Server")
+                                all_models.append(model)
+                            
+                            successful_providers += 1
+                            print(f"Successfully loaded {len(models)} models from {provider} server: {server['id']}")
+                            
+                        except Exception as e:
+                            error_msg = f"Failed to load models from {provider} server {server.get('id', 'unknown')}: {str(e)}"
+                            errors.append(error_msg)
+                            print(f"Error: {error_msg}")
+                else:
+                    # Handle API key-based providers
+                    try:
+                        if provider == "openai":
+                            config = {
+                                "api_key": value_dict["api_key"],
+                                "server_url": "https://api.openai.com/v1",
+                                "server_name": "OpenAI API"
+                            }
+                        elif provider == "openrouter":
+                            config = {
+                                "api_key": value_dict["api_key"],
+                                "server_url": "https://openrouter.ai/api/v1",
+                                "server_name": "OpenRouter API"
+                            }
+                        elif provider == "claude":
+                            config = {
+                                "api_key": value_dict["api_key"],
+                                "server_url": "https://api.anthropic.com",
+                                "server_name": "Claude API"
+                            }
+                        elif provider == "groq":
+                            config = {
+                                "api_key": value_dict["api_key"],
+                                "server_url": "https://api.groq.com",
+                                "server_name": "Groq API"
+                            }
+                        
+                        provider_instance = await provider_registry.get_provider(
+                            provider,
+                            server_id,
+                            config
+                        )
+                        
+                        models = await provider_instance.get_models()
+                        for model in models:
+                            model["provider"] = provider
+                            model["server_id"] = server_id
+                            model["server_name"] = config["server_name"]
+                            all_models.append(model)
+                        
+                        successful_providers += 1
+                        print(f"Successfully loaded {len(models)} models from {provider}")
+                        
+                    except Exception as e:
+                        error_msg = f"Failed to load models from {provider}: {str(e)}"
+                        errors.append(error_msg)
+                        print(f"Error: {error_msg}")
+                
+            except Exception as e:
+                error_msg = f"Error processing {provider}: {str(e)}"
+                errors.append(error_msg)
+                print(f"Error: {error_msg}")
+        
+        print(f"Total models loaded: {len(all_models)} from {successful_providers} providers")
+        
+        return {
+            "models": all_models,
+            "total_count": len(all_models),
+            "successful_providers": successful_providers,
+            "errors": errors,
+            "summary": {
+                "total_providers_checked": len(provider_settings),
+                "successful_providers": successful_providers,
+                "failed_providers": len(errors),
+                "total_models": len(all_models)
+            }
+        }
+        
+    except Exception as e:
+        print(f"Error in get_all_models: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
