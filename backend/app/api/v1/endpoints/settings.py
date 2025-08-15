@@ -75,7 +75,7 @@ def mask_sensitive_data(definition_id: str, value: any) -> any:
                     "_key_valid": bool(api_key.startswith('sk-ant-') and len(api_key) >= 26)
                 }
     
-     if definition_id == "groq_api_keys_settings":
+    if definition_id == "groq_api_keys_settings":
         if isinstance(value, dict) and "api_key" in value:
             api_key = value["api_key"]
             if api_key and len(api_key) >= 11:
