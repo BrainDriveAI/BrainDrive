@@ -20,6 +20,8 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 from urllib.parse import urlparse
 import structlog
+from .service_installler.plugin_service_installer import install_required_services
+from .service_installler.service_runtime_extractor import extract_required_services_runtime
 
 logger = structlog.get_logger()
 
@@ -236,6 +238,15 @@ class RemotePluginInstaller:
 
             if install_result['success']:
                 logger.info(f"Plugin installation successful: {install_result}")
+
+                service_runtime: list = validation_result.get("service_runtime", [])
+                logger.info(f"\n\n>>>>>>>>SERVICE RUNTIME\n\n: {service_runtime}\n\n>>>>>>>>>>")
+                if service_runtime:
+                    plugin_slug = validation_result["plugin_info"].get("plugin_slug")
+                    await install_required_services(
+                        service_runtime,
+                        plugin_slug
+                    )
 
                 # Store installation metadata
                 try:
@@ -718,6 +729,7 @@ class RemotePluginInstaller:
 
             # Try to load plugin metadata
             plugin_info = {}
+            service_runtime = []
 
             # Check package.json
             package_json_path = plugin_dir / 'package.json'
@@ -828,6 +840,12 @@ class RemotePluginInstaller:
                                     extracted_slug = slug_match.group(1)
                                     plugin_info['plugin_slug'] = extracted_slug
                                     logger.info(f"Extracted plugin_slug from source: {extracted_slug}")
+
+                                # Extract services using the dedicated function
+                                services = extract_required_services_runtime(content, plugin_info.get('plugin_slug'))
+                                if services:
+                                    plugin_info['required_services_runtime'] = services
+                                    service_runtime.extend(services)
                     except Exception as extract_error:
                         logger.warning(f"Could not extract plugin_slug from source: {extract_error}")
 
@@ -839,7 +857,8 @@ class RemotePluginInstaller:
 
             return {
                 'valid': True,
-                'plugin_info': plugin_info
+                'plugin_info': plugin_info,
+                'service_runtime': service_runtime
             }
 
         except Exception as e:

@@ -47,6 +47,8 @@ backend/alembic/versions/
 *.log
 backend/logs/
 
+backend/services_runtime/
+
 # Environment variables
 .env
 .env.local
