@@ -337,8 +337,8 @@ export const usePages = () => {
         // Normal case - update existing page
         // Create deep clones to avoid reference issues
         const content = {
-          layouts: JSON.parse(JSON.stringify(currentPage.layouts)),
-          modules: JSON.parse(JSON.stringify(currentPage.modules))
+          layouts: JSON.parse(JSON.stringify(currentPage.layouts || {})),
+          modules: JSON.parse(JSON.stringify(currentPage.modules || {}))
         };
         
         console.log('savePage - Saving content to backend:', content);
