@@ -434,7 +434,54 @@ class ApiService extends AbstractBaseService {
             // console.log('ApiService: Error detail:', errorDetail);
             
             // Handle specific error cases
-            if (errorDetail.includes('user not found')) {
+            if (errorDetail === 'STALE_TOKEN_RESET_REQUIRED' || errorDetail.startsWith('INVALID_TOKEN_RESET_REQUIRED') || errorDetail.startsWith('BLOCKED_TOKEN_DETECTED')) {
+              console.error('ApiService: INVALID TOKEN DETECTED - Performing complete reset');
+              console.error('ApiService: Reason:', errorDetail);
+              
+              // Clear ALL storage types
+              localStorage.clear();
+              sessionStorage.clear();
+              
+              // Clear IndexedDB if available
+              if ('indexedDB' in window) {
+                try {
+                  indexedDB.databases().then(databases => {
+                    databases.forEach(db => {
+                      if (db.name) indexedDB.deleteDatabase(db.name);
+                    });
+                  });
+                } catch (e) {
+                  console.warn('Failed to clear IndexedDB:', e);
+                }
+              }
+              
+              // Enhanced cookie clearing with multiple domain/path combinations
+              const domains = ['', 'localhost', '127.0.0.1', '10.0.2.149', '.localhost', '.127.0.0.1'];
+              const paths = ['/', '/api', '/api/v1', ''];
+              
+              // Get all existing cookies
+              const cookies = document.cookie.split(";");
+              
+              cookies.forEach(cookie => {
+                const eqPos = cookie.indexOf("=");
+                const name = eqPos > -1 ? cookie.substr(0, eqPos).trim() : cookie.trim();
+                
+                domains.forEach(domain => {
+                  paths.forEach(path => {
+                    // Try multiple clearing methods
+                    document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=${path}${domain ? `;domain=${domain}` : ''}`;
+                    document.cookie = `${name}=;max-age=0;path=${path}${domain ? `;domain=${domain}` : ''}`;
+                    document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=${path}${domain ? `;domain=${domain}` : ''};secure=false`;
+                    document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=${path}${domain ? `;domain=${domain}` : ''};httponly=false`;
+                  });
+                });
+              });
+              
+              // Force complete page reload with cache clearing
+              console.log('ApiService: Forcing page reload to clear all cached state');
+              window.location.replace('/login?reason=invalid_token_cleared&t=' + Date.now());
+              return; // Don't throw error, just redirect
+            } else if (errorDetail.includes('user not found')) {
               console.error('ApiService: User not found during token refresh - account may have been deleted');
               localStorage.removeItem('accessToken');
               localStorage.removeItem('refreshToken');

@@ -37,9 +37,15 @@ export default defineConfig({
     },
     proxy: {
       '/api': {
-        target: 'http://10.0.2.149:8005',
+        target: process.env.VITE_API_TARGET || 'http://127.0.0.1:8005',
         changeOrigin: true,
         secure: false,
+        configure: (proxy, options) => {
+          // Log proxy requests for debugging
+          proxy.on('proxyReq', (proxyReq, req, res) => {
+            console.log(`[PROXY] ${req.method} ${req.url} -> ${options.target}${req.url}`);
+          });
+        }
       }
     }
   },
