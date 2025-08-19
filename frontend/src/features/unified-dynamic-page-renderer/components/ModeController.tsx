@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { RenderMode, PageData } from '../types';
 import { StudioFeatures, PublishedFeatures, PreviewFeatures } from '../types/layout';
 import { usePluginStudioDevMode } from '../../../hooks/usePluginStudioDevMode';
+import { useControlVisibility } from '../../../hooks/useControlVisibility';
 
 export interface ModeControllerProps {
   mode: RenderMode;
@@ -67,11 +68,12 @@ export const ModeController: React.FC<ModeControllerProps> = ({
   onModeTransition,
 }) => {
   const { isPluginStudioDevMode } = usePluginStudioDevMode();
+  const { showControls } = useControlVisibility(mode);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [activeFeatures, setActiveFeatures] = useState<Record<string, boolean>>({});
 
-  // Don't render the ModeController if Plugin Studio dev mode is disabled
-  if (!isPluginStudioDevMode) {
+  // Don't render the ModeController if controls should not be shown
+  if (!showControls) {
     return null;
   }
 

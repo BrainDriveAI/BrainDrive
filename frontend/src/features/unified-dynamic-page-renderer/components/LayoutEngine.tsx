@@ -7,6 +7,7 @@ import { useBreakpoint } from '../hooks/useBreakpoint';
 import { GridItemControls } from '../../plugin-studio/components/canvas/GridItemControls';
 import { useUnifiedLayoutState } from '../hooks/useUnifiedLayoutState';
 import { LayoutChangeOrigin } from '../utils/layoutChangeManager';
+import { useControlVisibility } from '../../../hooks/useControlVisibility';
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
@@ -106,6 +107,48 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   const [isDragOver, setIsDragOver] = useState(false);
 
   const { currentBreakpoint } = useBreakpoint();
+  
+  // Control visibility based on context
+  const { showControls } = useControlVisibility(mode);
+
+  // Failsafe: Programmatically remove resize handles when controls should be hidden
+  useEffect(() => {
+    if (!showControls) {
+      const removeResizeHandles = () => {
+        const resizeHandles = document.querySelectorAll('.react-resizable-handle');
+        resizeHandles.forEach(handle => {
+          (handle as HTMLElement).style.display = 'none';
+          (handle as HTMLElement).style.visibility = 'hidden';
+          (handle as HTMLElement).style.pointerEvents = 'none';
+        });
+      };
+
+      // Remove immediately
+      removeResizeHandles();
+
+      // Also remove after a short delay to catch any dynamically added handles
+      const timeoutId = setTimeout(removeResizeHandles, 100);
+
+      // Set up a mutation observer to catch any new resize handles
+      const observer = new MutationObserver(() => {
+        if (!showControls) {
+          removeResizeHandles();
+        }
+      });
+
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['class']
+      });
+
+      return () => {
+        clearTimeout(timeoutId);
+        observer.disconnect();
+      };
+    }
+  }, [showControls]);
   
   // Track operation IDs for proper state management
   const currentOperationId = useRef<string | null>(null);
@@ -512,7 +555,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
         // Instead of returning null, try to render with the layout item data directly
         // This allows the LegacyModuleAdapter to handle the module loading
         const isSelected = selectedItem === item.i;
-        const isStudioMode = mode === RenderMode.STUDIO;
+        const isStudioMode = showControls; // Use control visibility instead of just mode check
 
         // Try to extract pluginId from moduleId if item.pluginId is 'unknown'
         let fallbackPluginId = item.pluginId;
@@ -559,7 +602,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
             style={{ position: 'relative' }}
           >
             {/* Use the legacy GridItemControls component for consistent behavior */}
-            {isStudioMode && (
+            {showControls && (
               <GridItemControls
                 isSelected={isSelected}
                 onConfig={() => onItemConfig?.(item.i)}
@@ -585,7 +628,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       }
 
       const isSelected = selectedItem === item.i;
-      const isStudioMode = mode === RenderMode.STUDIO;
+      const isStudioMode = showControls; // Use control visibility instead of just mode check
 
       return (
         <div
@@ -596,7 +639,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
           style={{ position: 'relative' }}
         >
           {/* Use the legacy GridItemControls component for consistent behavior */}
-          {isStudioMode && (
+          {showControls && (
             <GridItemControls
               isSelected={isSelected}
               onConfig={() => onItemConfig?.(item.i)}
@@ -679,8 +722,9 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       onDragStop: handleDragStop,
       onResizeStart: handleResizeStart,
       onResizeStop: handleResizeStop,
-      isDraggable: mode === RenderMode.STUDIO,
-      isResizable: mode === RenderMode.STUDIO,
+      isDraggable: showControls, // Use control visibility instead of mode
+      isResizable: showControls, // Use control visibility instead of mode
+      resizeHandles: showControls ? ['se' as const] : [], // Only show resize handles when controls are visible
       draggableHandle: '.react-grid-dragHandleExample',
       compactType: 'vertical' as const,
       useCSSTransforms: true,
@@ -690,7 +734,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       transformScale: 1,
       ...defaultGridConfig,
     };
-  }, [currentLayouts, mode, handleLayoutChange, handleDragStart, handleDragStop, handleResizeStart, handleResizeStop]);
+  }, [currentLayouts, mode, showControls, handleLayoutChange, handleDragStart, handleDragStop, handleResizeStart, handleResizeStop]);
 
   // Memoize the rendered grid items with minimal stable dependencies
   const gridItems = useMemo(() => {

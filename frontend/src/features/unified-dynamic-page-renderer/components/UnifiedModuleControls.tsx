@@ -3,6 +3,7 @@ import { Box, IconButton, Tooltip } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import SettingsIcon from '@mui/icons-material/Settings';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
+import { useShowControls } from '../../../hooks/useControlVisibility';
 
 interface UnifiedModuleControlsProps {
   moduleId: string;
@@ -28,6 +29,13 @@ export const UnifiedModuleControls: React.FC<UnifiedModuleControlsProps> = ({
   onDelete,
   onSelect
 }) => {
+  const showControls = useShowControls();
+  
+  // Early return if controls should not be shown
+  if (!showControls) {
+    return null;
+  }
+  
   return (
     <>
       {/* Move handle - top right, always visible on hover */}
