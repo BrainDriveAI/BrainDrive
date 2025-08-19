@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, IconButton } from '@mui/material';
 import { Settings, Delete, DragIndicator } from '@mui/icons-material';
+import { useShowControls } from '../../../hooks/useControlVisibility';
 
 export interface GridItemControlsProps {
   isSelected: boolean;
@@ -21,6 +22,13 @@ export const GridItemControls: React.FC<GridItemControlsProps> = ({
   onRemove,
   onSelect
 }) => {
+  const showControls = useShowControls();
+  
+  // Early return if controls should not be shown
+  if (!showControls) {
+    return null;
+  }
+  
   // Use onRemove if provided, otherwise use onDelete
   const handleDelete = onRemove || onDelete;
   

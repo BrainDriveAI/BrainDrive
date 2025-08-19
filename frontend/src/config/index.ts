@@ -20,6 +20,10 @@ const envSchema = z.object({
 		.string()
 		.transform((val) => val === "true")
 		.default("false"),
+	VITE_SHOW_EDITING_CONTROLS: z
+		.string()
+		.transform((val) => val === "true")
+		.default("false"),
 	VITE_DEV_AUTO_LOGIN: z
 		.string()
 		.transform((val) => val === "true")
@@ -74,6 +78,7 @@ export const config = {
 	},
 	devMode: {
 		pluginStudio: env.VITE_PLUGIN_STUDIO_DEV_MODE || false,
+		showEditingControls: env.VITE_SHOW_EDITING_CONTROLS || false,
 	},
 } as const;
 
