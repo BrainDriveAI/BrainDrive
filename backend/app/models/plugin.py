@@ -44,6 +44,7 @@ class Plugin(Base):
     config_fields = Column(Text)  # Stored as JSON string
     messages = Column(Text)       # Stored as JSON string
     dependencies = Column(Text)   # Stored as JSON string
+    required_services_runtime = Column(Text, nullable=True)  # Stored as JSON string
     
     # Timestamps
     created_at = Column(String, default=func.now())
@@ -117,6 +118,11 @@ class Plugin(Base):
             result["permissions"] = json.loads(self.permissions)
         else:
             result["permissions"] = []
+            
+        if self.required_services_runtime:
+            result["requiredServicesRuntime"] = json.loads(self.required_services_runtime)
+        else:
+            result["requiredServicesRuntime"] = {}
 
         return result
     
@@ -142,6 +148,7 @@ class Plugin(Base):
             "updateAvailable": "update_available",
             "latestVersion": "latest_version",
             "installationType": "installation_type",
+            "requiredServicesRuntime": "required_services_runtime",
         }
         
         # Create a new dictionary with snake_case keys
@@ -154,7 +161,7 @@ class Plugin(Base):
                 db_key = ''.join(['_' + c.lower() if c.isupper() else c for c in key]).lstrip('_')
             
             # Handle special fields
-            if db_key in ["config_fields", "messages", "dependencies", "permissions"] and value is not None:
+            if db_key in ["config_fields", "messages", "dependencies", "permissions", "required_services_runtime"] and value is not None:
                 db_data[db_key] = json.dumps(value)
             else:
                 db_data[db_key] = value
