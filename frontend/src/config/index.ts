@@ -11,6 +11,10 @@ declare global {
 const envSchema = z.object({
 	VITE_API_URL: z.string().optional(),
 	VITE_API_TIMEOUT: z.string().transform(Number).optional(),
+	VITE_USE_PROXY: z
+		.string()
+		.transform((val) => val !== "false")
+		.default("true"), // Default to using proxy in development
 	MODE: z.enum(["development", "production"]).default("development"),
 	VITE_PLUGIN_STUDIO_DEV_MODE: z
 		.string()
@@ -29,19 +33,24 @@ const env = envSchema.parse(
 	typeof import.meta !== "undefined" ? import.meta.env : {}
 );
 
-// Determine API URL based on environment and protocol
+// Determine API URL based on environment and proxy configuration
 const getApiBaseUrl = () => {
 	// If environment variable is provided, use it (highest priority)
 	if (env.VITE_API_URL) {
 		return env.VITE_API_URL;
 	}
 
-	// In development, use the proxy
+	// In development with proxy enabled, use relative URLs
+	if (env.MODE === "development" && env.VITE_USE_PROXY) {
+		return ""; // Relative URLs will be proxied by Vite
+	}
+
+	// In development without proxy, direct connection to backend
 	if (env.MODE === "development") {
 		return "http://127.0.0.1:8005"; // Direct connection to backend
 	}
 
-	// Default to localhost for local development/testing
+	// Production fallback
 	return "http://localhost:8005";
 };
 
