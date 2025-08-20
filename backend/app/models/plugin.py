@@ -1,9 +1,11 @@
-from sqlalchemy import Column, String, Integer, Boolean, ForeignKey, Text, JSON, UniqueConstraint, TIMESTAMP
+from sqlalchemy import Column, String, Integer, Boolean, ForeignKey, Text, JSON, UniqueConstraint, TIMESTAMP, DateTime
 import sqlalchemy
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
+from datetime import datetime, UTC
 
 from app.models.base import Base
+
 
 class Plugin(Base):
     """SQLAlchemy model for plugins."""
@@ -44,6 +46,7 @@ class Plugin(Base):
     config_fields = Column(Text)  # Stored as JSON string
     messages = Column(Text)       # Stored as JSON string
     dependencies = Column(Text)   # Stored as JSON string
+    required_services_runtime = Column(Text, nullable=True)
     
     # Timestamps
     created_at = Column(String, default=func.now())
@@ -60,6 +63,7 @@ class Plugin(Base):
     
     # Relationships
     modules = relationship("Module", back_populates="plugin", cascade="all, delete-orphan")
+    service_runtimes = relationship("PluginServiceRuntime", back_populates="plugin", cascade="all, delete-orphan")
     
     def to_dict(self):
         """Convert model to dictionary."""
@@ -118,6 +122,11 @@ class Plugin(Base):
         else:
             result["permissions"] = []
 
+        if self.required_services_runtime:
+            result["requiredServicesRuntime"] = json.loads(self.required_services_runtime)
+        else:
+            result["requiredServicesRuntime"] = []
+
         return result
     
     @classmethod
@@ -162,8 +171,43 @@ class Plugin(Base):
         # Remove modules from data as they are handled separately
         if "modules" in db_data:
             db_data.pop("modules")
+
+        # Handle service runtimes (only store names in plugin table)
+        if "requiredServicesRuntime" in db_data and db_data["requiredServicesRuntime"] is not None:
+            db_data["required_services_runtime"] = json.dumps([
+                r["name"] for r in db_data["requiredServicesRuntime"]
+            ])
+            db_data.pop("requiredServicesRuntime")
             
         return cls(**db_data)
+
+
+class PluginServiceRuntime(Base):
+    """SQLAlchemy model for plugin service runtimes."""
+
+    __tablename__ = "plugin_service_runtime"
+
+    id = Column(String, primary_key=True, index=True)
+    plugin_id = Column(String, ForeignKey("plugin.id"), nullable=False, index=True)
+    plugin_slug = Column(String, nullable=False, index=True)
+
+    name = Column(String, nullable=False)
+    source_url = Column(String)
+    type = Column(String)
+    install_command = Column(Text)
+    start_command = Column(Text)
+    healthcheck_url = Column(String)
+    required_env_vars = Column(Text)  # store as JSON string
+    status = Column(String, default="pending")
+
+    created_at = Column(DateTime, default=datetime.now(UTC))
+    updated_at = Column(DateTime, default=datetime.now(UTC), onupdate=datetime.now(UTC))
+
+    user_id = Column(String(32), ForeignKey("users.id", name="fk_plugin_service_runtime_user_id"), nullable=False)
+    user = relationship("User")
+
+    # Relationship back to plugin
+    plugin = relationship("Plugin", back_populates="service_runtimes")
 
 
 class Module(Base):
