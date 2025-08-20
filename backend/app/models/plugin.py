@@ -3,6 +3,7 @@ import sqlalchemy
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from datetime import datetime, UTC
+import json
 
 from app.models.base import Base
 
@@ -208,6 +209,42 @@ class PluginServiceRuntime(Base):
 
     # Relationship back to plugin
     plugin = relationship("Plugin", back_populates="service_runtimes")
+
+    def to_dict(self):
+        """
+        Convert the model instance to a dictionary, handling JSON fields.
+        """
+        return {
+            "id": self.id,
+            "plugin_id": self.plugin_id,
+            "plugin_slug": self.plugin_slug,
+            "name": self.name,
+            "source_url": self.source_url,
+            "type": self.type,
+            "install_command": self.install_command,
+            "start_command": self.start_command,
+            "healthcheck_url": self.healthcheck_url,
+            "required_env_vars": json.loads(self.required_env_vars) if self.required_env_vars else [],
+            "status": self.status,
+            "user_id": self.user_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict):
+        """
+        Create a new instance from a dictionary, serializing JSON fields.
+        """
+        db_data = data.copy()
+        
+        if "required_env_vars" in db_data and db_data["required_env_vars"] is not None:
+            db_data["required_env_vars"] = json.dumps(db_data["required_env_vars"])
+            
+        # Handle conversion from camelCase to snake_case if necessary
+        # For simplicity, we are assuming keys in the incoming dict match model attributes
+        
+        return cls(**db_data)
 
 
 class Module(Base):
