@@ -5,6 +5,7 @@ from typing import Dict, List
 import structlog
 from app.plugins.service_installler.prerequisites import write_env_file
 from app.plugins.service_installler.service_health_checker import wait_for_service_health
+from app.dto.plugin import PluginServiceRuntimeDTO
 
 logger = structlog.get_logger()
 
@@ -86,7 +87,7 @@ async def check_docker_availability():
 
 
 async def install_and_start_docker_service(
-    service_data: dict,
+    service_data: PluginServiceRuntimeDTO,
     target_dir: Path,
     env_vars: Dict[str, str],
     required_vars: List[str]
@@ -95,12 +96,12 @@ async def install_and_start_docker_service(
     Handles the installation and startup of a Docker Compose-based service.
     This includes checking Docker availability, writing env files, and running the service.
     """
-    logger.info("Starting Docker service installation process", name=service_data.get("name"))
+    logger.info("Starting Docker service installation process", name=service_data.name)
 
     await check_docker_availability()
 
-    start_command = service_data.get("start_command")
-    healthcheck_url = service_data.get("healthcheck_url")
+    start_command = service_data.start_command
+    healthcheck_url = service_data.healthcheck_url
     
     if not start_command:
         raise ValueError("Missing 'start_command' for Docker service.")
@@ -124,11 +125,11 @@ async def install_and_start_docker_service(
         logger.warning("No healthcheck URL provided, assuming service started successfully.")
 
 
-async def stop_docker_service(service_data: Dict, target_dir: Path):
+async def stop_docker_service(service_data: PluginServiceRuntimeDTO, target_dir: Path):
     """
     Stops and removes a running docker-compose service.
     """
-    logger.info("Attempting to stop docker-compose service", service=service_data['name'])
+    logger.info("Attempting to stop docker-compose service", service=service_data.name)
     
     command = "docker compose stop"
 
@@ -137,5 +138,5 @@ async def stop_docker_service(service_data: Dict, target_dir: Path):
         return True
     except RuntimeError:
         # We don't want to fail the entire shutdown process if one service fails to stop.
-        logger.error("Failed to stop docker-compose service gracefully", service=service_data['name'])
+        logger.error("Failed to stop docker-compose service gracefully", service=service_data.name)
         return False

@@ -10,6 +10,7 @@ import structlog
 import shutil
 from dotenv import dotenv_values
 
+from app.dto.plugin import PluginServiceRuntimeDTO
 from app.plugins.service_installler.docker_manager import install_and_start_docker_service, stop_docker_service
 from app.plugins.service_installler.python_manager import install_python_service
 from .prerequisites import check_required_env_vars, convert_to_download_url
@@ -79,14 +80,14 @@ async def _extract_archive(temp_path: Path, target_dir: Path, is_zip: bool):
         raise RuntimeError(f"Failed to extract archive: {e}")
 
 
-async def install_plugin_service(service_data: dict, plugin_slug: str):
+async def install_plugin_service(service_data: PluginServiceRuntimeDTO, plugin_slug: str):
     """
     Installs a single plugin service, including downloading the source
     and starting the service. This function is for first-time installation.
     """
     base_services_dir = Path("services_runtime")
     base_services_dir.mkdir(parents=True, exist_ok=True)
-    target_dir = base_services_dir / f"{plugin_slug}_{service_data['name']}"
+    target_dir = base_services_dir / f"{plugin_slug}_{service_data.name}"
     
     if target_dir.exists():
         logger.info("Service directory already exists, skipping installation", path=str(target_dir))
@@ -98,18 +99,18 @@ async def install_plugin_service(service_data: dict, plugin_slug: str):
         
         try:
             async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
-                await download_and_extract_repo(session, service_data["source_url"], target_dir)
+                await download_and_extract_repo(session, service_data.source_url, target_dir)
         except Exception as e:
             logger.error("Failed to download or extract repository", error=str(e))
-            raise RuntimeError(f"Failed to download repository for service {service_data['name']}: {e}")
+            raise RuntimeError(f"Failed to download repository for service {service_data.name}: {e}")
 
     # Dispatch to the appropriate installer/runner
-    service_type = service_data.get("type", "python")
-    required_vars = service_data.get("required_env_vars", [])
+    service_type = service_data.type or "docker-compose"
+    required_vars = service_data.required_env_vars or []
     
     # Prerequisite Check
     check_required_env_vars(
-        service_name=service_data['name'],
+        service_name=service_data.name,
         required_vars=required_vars,
         root_env_path=Path(os.getcwd()) / ".env"
     )
@@ -122,7 +123,7 @@ async def install_plugin_service(service_data: dict, plugin_slug: str):
         raise ValueError(f"Unknown service type: {service_type}")
 
 
-async def start_plugin_services(services_runtime: List[Dict], plugin_slug: str):
+async def start_plugin_services(services_runtime: List[PluginServiceRuntimeDTO], plugin_slug: str):
     """
     Starts a list of plugin services. This is used on application startup
     and assumes the code is already downloaded.
@@ -130,42 +131,42 @@ async def start_plugin_services(services_runtime: List[Dict], plugin_slug: str):
     logger.info("Starting required plugin services")
     
     for service_data in services_runtime:
-        target_dir = Path("services_runtime") / f"{plugin_slug}_{service_data['name']}"
-        service_type = service_data.get("type", "python")
+        target_dir = Path("services_runtime") / f"{plugin_slug}_{service_data.name}"
+        service_type = service_data.type or "docker-compose"
         
         try:
-            logger.info("Attempting to start service", name=service_data['name'])
+            logger.info("Attempting to start service", name=service_data.name)
             if service_type == 'docker-compose':
                 # The start_command is the same as the install command for docker
                 await install_and_start_docker_service(
                     service_data,
                     target_dir,
                     dotenv_values(Path(os.getcwd()) / ".env"),
-                    service_data.get('required_env_vars', [])
+                    service_data.required_env_vars or []
                 )
             elif service_type == 'python':
                 # Assuming install_python_service can handle a pre-existing venv
                 await install_python_service(service_data, target_dir)
             else:
-                logger.warning("Skipping unknown service type", type=service_type, name=service_data['name'])
+                logger.warning("Skipping unknown service type", type=service_type, name=service_data.name)
                 
         except Exception as e:
-            logger.error("Failed to start service", name=service_data['name'], error=str(e))
+            logger.error("Failed to start service", name=service_data.name, error=str(e))
             # Continue to the next service even if one fails
             continue
 
 
-async def stop_plugin_services(services_runtime: List[Dict], plugin_slug: str):
+async def stop_plugin_services(services_runtime: List[PluginServiceRuntimeDTO], plugin_slug: str):
     """
     Stops a list of plugin services. This is used on application shotdown.
     """
     logger.info("Stopping required plugin services")
     for service_data in services_runtime:
-        target_dir = Path("services_runtime") / f"{plugin_slug}_{service_data['name']}"
-        service_type = service_data.get("type", "python")
+        target_dir = Path("services_runtime") / f"{plugin_slug}_{service_data.name}"
+        service_type = service_data.type or "docker-compose"
         
         try:
-            logger.info("Attempting to stop service", name=service_data['name'])
+            logger.info("Attempting to stop service", name=service_data.name)
             if service_type == 'docker-compose':
                 # The start_command is the same as the install command for docker
                 await stop_docker_service(
@@ -173,9 +174,9 @@ async def stop_plugin_services(services_runtime: List[Dict], plugin_slug: str):
                     target_dir,
                 )
             else:
-                logger.warning("Skipping unknown service type", type=service_type, name=service_data['name'])
+                logger.warning("Skipping unknown service type", type=service_type, name=service_data.name)
                 
         except Exception as e:
-            logger.error("Failed to stop service", name=service_data['name'], error=str(e))
+            logger.error("Failed to stop service", name=service_data.name, error=str(e))
             # Continue to the next service even if one fails
             continue
