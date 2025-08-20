@@ -6,7 +6,7 @@ from sqlalchemy import select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
-from app.models.plugin import Plugin, Module
+from app.models.plugin import Plugin, Module, PluginServiceRuntime
 
 logger = structlog.get_logger()
 
@@ -85,6 +85,8 @@ class PluginRepository:
             plugin_dicts = []
             for plugin in plugins:
                 plugin_dict = plugin.to_dict()
+
+                logger.info(f">>>>>>>>>>PLUGIN DICT\n\n {plugin_dict}\n\n>>>>>>>>>>>>>>>>")
                 
                 # Get modules for this plugin
                 modules_query = select(Module).where(Module.plugin_id == plugin.id)
@@ -103,6 +105,35 @@ class PluginRepository:
             return plugin_dicts
         except Exception as e:
             logger.error("Error getting plugins with modules", error=str(e))
+            raise
+
+    async def get_all_service_runtimes(self) -> List[Dict[str, Any]]:
+        """Get all plugin service runtimes for startup."""
+        try:
+            query = select(PluginServiceRuntime).where(
+                PluginServiceRuntime.status.in_(["pending", "stopped", "running"])
+            )
+            
+            result = await self.db.execute(query)
+            services = result.scalars().all()
+            
+            return [{
+                "id": service.id,
+                "plugin_id": service.plugin_id,
+                "plugin_slug": service.plugin_slug,
+                "name": service.name,
+                "source_url": service.source_url,
+                "type": service.type,
+                "install_command": service.install_command,
+                "start_command": service.start_command,
+                "healthcheck_url": service.healthcheck_url,
+                "required_env_vars": json.loads(service.required_env_vars) if service.required_env_vars else [],
+                "status": service.status,
+                "user_id": service.user_id
+            } for service in services]
+            
+        except Exception as e:
+            logger.error("Error getting service runtimes", error=str(e))
             raise
             
     async def get_plugin(self, plugin_id: str) -> Optional[Dict[str, Any]]:
