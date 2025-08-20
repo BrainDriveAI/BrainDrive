@@ -5,6 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from app.api.v1.api import api_router
 from app.core.config import settings
 from app.routers.plugins import plugin_manager
+from backend.app.plugins.service_installler.start_stop_plugin_services import start_plugin_services, stop_plugin_services
 import logging
 import time
 import structlog
@@ -29,7 +30,20 @@ async def startup_event():
     logger.info("Initializing application settings...")
     from app.init_settings import init_ollama_settings
     await init_ollama_settings()
+    # Start plugin services
+    await start_plugin_services()
     logger.info("Settings initialization completed")
+
+
+# Add shutdown event to gracefully stop services
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Gracefully stop all plugin services on application shutdown."""
+    logger.info("Shutting down application and stopping plugin services...")
+    # Stop all plugin services gracefully
+    await stop_plugin_services()
+    logger.info("Application shutdown completed.")
+
 
 # Add middleware to log all requests
 logger = structlog.get_logger()
@@ -94,5 +108,3 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 # Include API routers
 app.include_router(api_router)
-
-
