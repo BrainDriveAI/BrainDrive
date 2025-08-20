@@ -86,8 +86,6 @@ class PluginRepository:
             for plugin in plugins:
                 plugin_dict = plugin.to_dict()
 
-                logger.info(f">>>>>>>>>>PLUGIN DICT\n\n {plugin_dict}\n\n>>>>>>>>>>>>>>>>")
-                
                 # Get modules for this plugin
                 modules_query = select(Module).where(Module.plugin_id == plugin.id)
                 
