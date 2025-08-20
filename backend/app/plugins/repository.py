@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
 from app.models.plugin import Plugin, Module, PluginServiceRuntime
+from app.dto.plugin import PluginServiceRuntimeDTO
 
 logger = structlog.get_logger()
 
@@ -105,8 +106,10 @@ class PluginRepository:
             logger.error("Error getting plugins with modules", error=str(e))
             raise
 
-    async def get_all_service_runtimes(self) -> List[Dict[str, Any]]:
-        """Get all plugin service runtimes for startup."""
+    async def get_all_service_runtimes(self) -> List[PluginServiceRuntimeDTO]:
+        """
+        Get all plugin service runtimes for startup and return them as DTOs.
+        """
         try:
             query = select(PluginServiceRuntime).where(
                 PluginServiceRuntime.status.in_(["pending", "stopped", "running"])
@@ -115,20 +118,8 @@ class PluginRepository:
             result = await self.db.execute(query)
             services = result.scalars().all()
             
-            return [{
-                "id": service.id,
-                "plugin_id": service.plugin_id,
-                "plugin_slug": service.plugin_slug,
-                "name": service.name,
-                "source_url": service.source_url,
-                "type": service.type,
-                "install_command": service.install_command,
-                "start_command": service.start_command,
-                "healthcheck_url": service.healthcheck_url,
-                "required_env_vars": json.loads(service.required_env_vars) if service.required_env_vars else [],
-                "status": service.status,
-                "user_id": service.user_id
-            } for service in services]
+            # Convert SQLAlchemy models to Pydantic DTOs for a typed return
+            return [PluginServiceRuntimeDTO(**service.to_dict()) for service in services]
             
         except Exception as e:
             logger.error("Error getting service runtimes", error=str(e))
