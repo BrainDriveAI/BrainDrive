@@ -75,3 +75,30 @@ def write_env_file(target_dir: Path, env_vars: dict, required_vars: list):
         logger.error(f"Failed to create .env file for service: {e}")
         raise RuntimeError(f"Failed to create .env file for service: {e}")
 
+def convert_to_download_url(source_url: str, branch: str = 'main') -> str:
+    """
+    Convert git repository URLs to download URLs for archives
+    """
+    source_url = source_url.rstrip('.git')
+    
+    # GitHub
+    if 'github.com' in source_url:
+        if source_url.startswith('git@'):
+            # Convert SSH to HTTPS
+            source_url = source_url.replace('git@github.com:', 'https://github.com/')
+        return f"{source_url}/archive/refs/heads/{branch}.zip"
+    
+    # GitLab
+    elif 'gitlab.com' in source_url:
+        if source_url.startswith('git@'):
+            source_url = source_url.replace('git@gitlab.com:', 'https://gitlab.com/')
+        return f"{source_url}/-/archive/{branch}/repository.zip"
+    
+    # Bitbucket
+    elif 'bitbucket.org' in source_url:
+        if source_url.startswith('git@'):
+            source_url = source_url.replace('git@bitbucket.org:', 'https://bitbucket.org/')
+        return f"{source_url}/get/{branch}.zip"
+    
+    # For other cases, assume it's already a direct download URL
+    return source_url

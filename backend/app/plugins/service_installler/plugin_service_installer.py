@@ -11,8 +11,8 @@ import traceback
 from dotenv import dotenv_values
 
 from app.plugins.service_installler.installer_docker import install_docker_service
-from app.plugins.service_installler.installer_python import install_python_service
-from .prerequisites import check_required_env_vars
+from backend.app.plugins.service_installler.python_manager import install_python_service
+from .prerequisites import check_required_env_vars, convert_to_download_url
 
 # Create logs directory
 log_dir = Path("logs")
@@ -163,34 +163,6 @@ async def extract_archive(temp_path: Path, target_dir: Path, is_zip: bool):
     finally:
         # Clean up temporary file
         temp_path.unlink(missing_ok=True)
-
-def convert_to_download_url(source_url: str, branch: str = 'main') -> str:
-    """
-    Convert git repository URLs to download URLs for archives
-    """
-    source_url = source_url.rstrip('.git')
-    
-    # GitHub
-    if 'github.com' in source_url:
-        if source_url.startswith('git@'):
-            # Convert SSH to HTTPS
-            source_url = source_url.replace('git@github.com:', 'https://github.com/')
-        return f"{source_url}/archive/refs/heads/{branch}.zip"
-    
-    # GitLab
-    elif 'gitlab.com' in source_url:
-        if source_url.startswith('git@'):
-            source_url = source_url.replace('git@gitlab.com:', 'https://gitlab.com/')
-        return f"{source_url}/-/archive/{branch}/repository.zip"
-    
-    # Bitbucket
-    elif 'bitbucket.org' in source_url:
-        if source_url.startswith('git@'):
-            source_url = source_url.replace('git@bitbucket.org:', 'https://bitbucket.org/')
-        return f"{source_url}/get/{branch}.zip"
-    
-    # For other cases, assume it's already a direct download URL
-    return source_url
 
 async def install_required_services(services_runtime: list, plugin_slug: str):
     """
