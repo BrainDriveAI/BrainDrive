@@ -129,28 +129,21 @@ class ComponentModelSelection extends React.Component<
 		}
 	}
 
-	/**
-	 * Initialize event listeners for conversation model selection
-	 */
 	initializeEventListeners() {
 		if (this.props.services?.event) {
 			try {
-				// Set up conversation model selection listener
 				this.conversationModelListener = (message: any) => {
 					console.log("Received model selection from conversation:", message);
 
-					// Extract model from the message content
 					const modelInfo = message.content?.model;
 
 					if (modelInfo) {
-						// First try to find the exact model by ID
 						const modelId = `${modelInfo.provider}_${modelInfo.serverId}_${modelInfo.name}`;
 						let matchingModel = this.state.models.find(
 							(model) =>
 								`${model.provider}_${model.serverId}_${model.name}` === modelId
 						);
 
-						// If exact match not found, try to find by name only
 						if (!matchingModel) {
 							console.log(
 								"Exact model match not found, trying to find by name:",
@@ -161,7 +154,6 @@ class ComponentModelSelection extends React.Component<
 							);
 						}
 
-						// If model is found and different from current selection, update it
 						if (
 							matchingModel &&
 							(!this.state.selectedModel ||
@@ -169,7 +161,7 @@ class ComponentModelSelection extends React.Component<
 						) {
 							this.setState({
 								selectedModel: matchingModel,
-								pendingModelSelection: null, // Clear any pending selection
+								pendingModelSelection: null,
 							});
 							console.log(
 								"Updated model selection from conversation event:",
@@ -187,7 +179,6 @@ class ComponentModelSelection extends React.Component<
 								)
 							);
 
-							// Store the model info for later selection when models are loaded
 							this.setState({
 								pendingModelSelection: {
 									name: modelInfo.name,
@@ -203,7 +194,6 @@ class ComponentModelSelection extends React.Component<
 					}
 				};
 
-				// Subscribe to model selection events from conversation history
 				this.props.services.event.subscribeToMessages(
 					"model-selection-v2",
 					this.conversationModelListener
@@ -218,22 +208,16 @@ class ComponentModelSelection extends React.Component<
 		}
 	}
 
-	/**
-	 * Initialize the theme service to listen for theme changes
-	 */
 	initializeThemeService() {
 		if (this.props.services?.theme) {
 			try {
-				// Get the current theme
 				const currentTheme = this.props.services.theme.getCurrentTheme();
 				this.setState({ currentTheme: currentTheme as "light" | "dark" });
 
-				// Set up theme change listener
 				this.themeChangeListener = (newTheme: string) => {
 					this.setState({ currentTheme: newTheme as "light" | "dark" });
 				};
 
-				// Add the listener to the theme service
 				this.props.services.theme.addThemeChangeListener(
 					this.themeChangeListener
 				);
@@ -243,9 +227,6 @@ class ComponentModelSelection extends React.Component<
 		}
 	}
 
-	/**
-	 * Load provider settings based on configuration
-	 */
 	loadProviderSettings = async () => {
 		this.setState({ isLoading: true, error: null });
 
@@ -258,16 +239,15 @@ class ComponentModelSelection extends React.Component<
 		}
 
 		try {
-			// Include Ollama, OpenAI, OpenRouter, and Claude settings
 			const providerSettingIds = [
 				"ollama_servers_settings",
 				"openai_api_keys_settings",
 				"openrouter_api_keys_settings",
 				"claude_api_keys_settings",
+				"groq_api_keys_settings",
 			];
 			const providerSettingsData: ProviderSettings[] = [];
 
-			// Load each provider setting
 			for (const settingId of providerSettingIds) {
 				try {
 					const response = await this.props.services.api.get(
@@ -281,7 +261,6 @@ class ComponentModelSelection extends React.Component<
 						}
 					);
 
-					// Process response to extract settings data
 					let settingsData = null;
 
 					if (Array.isArray(response) && response.length > 0) {
@@ -304,13 +283,11 @@ class ComponentModelSelection extends React.Component<
 					}
 
 					if (settingsData && settingsData.value) {
-						// Parse the value field
 						let parsedValue =
 							typeof settingsData.value === "string"
 								? JSON.parse(settingsData.value)
 								: settingsData.value;
 
-						// Determine provider type from setting ID
 						const providerType = settingId.includes("ollama")
 							? "ollama"
 							: settingId.includes("openai")
@@ -319,58 +296,63 @@ class ComponentModelSelection extends React.Component<
 							? "openrouter"
 							: settingId.includes("claude")
 							? "claude"
+							: settingId.includes("groq")
+							? "groq"
 							: "unknown";
 
-						if (providerType === "openai") {
-							// For OpenAI, create a virtual server structure if API key exists
-							if (parsedValue.api_key) {
-								providerSettingsData.push({
-									id: settingId,
-									name: settingsData.name || settingId,
-									servers: [
-										{
-											id: "openai_default_server",
-											serverName: "OpenAI API",
-											serverAddress: "https://api.openai.com",
-											apiKey: parsedValue.api_key,
-										},
-									],
-								});
-							}
-						} else if (providerType === "openrouter") {
-							// For OpenRouter, create a virtual server structure if API key exists
-							if (parsedValue.api_key) {
-								providerSettingsData.push({
-									id: settingId,
-									name: settingsData.name || settingId,
-									servers: [
-										{
-											id: "openrouter_default_server",
-											serverName: "OpenRouter API",
-											serverAddress: "https://openrouter.ai/api/v1",
-											apiKey: parsedValue.api_key,
-										},
-									],
-								});
-							}
-						} else if (providerType === "claude") {
-							// For Claude, create a virtual server structure if API key exists
-							if (parsedValue.api_key) {
-								providerSettingsData.push({
-									id: settingId,
-									name: settingsData.name || settingId,
-									servers: [
-										{
-											id: "claude_default_server",
-											serverName: "Claude API",
-											serverAddress: "https://api.anthropic.com",
-											apiKey: parsedValue.api_key,
-										},
-									],
-								});
-							}
+						if (providerType === "openai" && parsedValue.api_key) {
+							providerSettingsData.push({
+								id: settingId,
+								name: settingsData.name || settingId,
+								servers: [
+									{
+										id: "openai_default_server",
+										serverName: "OpenAI API",
+										serverAddress: "https://api.openai.com",
+										apiKey: parsedValue.api_key,
+									},
+								],
+							});
+						} else if (providerType === "openrouter" && parsedValue.api_key) {
+							providerSettingsData.push({
+								id: settingId,
+								name: settingsData.name || settingId,
+								servers: [
+									{
+										id: "openrouter_default_server",
+										serverName: "OpenRouter API",
+										serverAddress: "https://openrouter.ai/api/v1",
+										apiKey: parsedValue.api_key,
+									},
+								],
+							});
+						} else if (providerType === "claude" && parsedValue.api_key) {
+							providerSettingsData.push({
+								id: settingId,
+								name: settingsData.name || settingId,
+								servers: [
+									{
+										id: "claude_default_server",
+										serverName: "Claude API",
+										serverAddress: "https://api.anthropic.com",
+										apiKey: parsedValue.api_key,
+									},
+								],
+							});
+						} else if (providerType === "groq" && parsedValue.api_key) {
+							providerSettingsData.push({
+								id: settingId,
+								name: settingsData.name || settingId,
+								servers: [
+									{
+										id: "groq_default_server",
+										serverName: "Groq API",
+										serverAddress: "https://api.groq.com",
+										apiKey: parsedValue.api_key,
+									},
+								],
+							});
 						} else if (providerType === "ollama") {
-							// For Ollama, use the servers structure
 							providerSettingsData.push({
 								id: settingId,
 								name: settingsData.name || settingId,
@@ -391,7 +373,6 @@ class ComponentModelSelection extends React.Component<
 					isLoading: false,
 				},
 				() => {
-					// Load models after settings are loaded
 					this.loadModels();
 				}
 			);
@@ -407,9 +388,6 @@ class ComponentModelSelection extends React.Component<
 		}
 	};
 
-	/**
-	 * Load models from all configured providers
-	 */
 	loadModels = async () => {
 		this.setState({ isLoading: true, error: null });
 
@@ -422,138 +400,67 @@ class ComponentModelSelection extends React.Component<
 		}
 
 		try {
-			const models: ModelInfo[] = [];
-			const { providerSettingsData } = this.state;
+			const response = await this.props.services.api.get(
+				"/api/v1/ai/providers/all-models"
+			);
 
-			// Process each provider setting
-			for (const providerSetting of providerSettingsData) {
-				const providerType = providerSetting.id.includes("ollama")
-					? "ollama"
-					: providerSetting.id.includes("openai")
-					? "openai"
-					: providerSetting.id.includes("openrouter")
-					? "openrouter"
-					: providerSetting.id.includes("claude")
-					? "claude"
-					: "unknown";
+			if (response?.models && Array.isArray(response.models)) {
+				const models: ModelInfo[] = response.models.map((model: any) => ({
+					name: model.name || "Unknown Model",
+					id: model.id || "unknown",
+					provider: model.provider || "unknown",
+					providerId: `${model.provider || "unknown"}_api_keys_settings`,
+					serverName: model.server_name || model.provider || "Unknown Server",
+					serverId:
+						model.server_id || `${model.provider || "unknown"}_default_server`,
+				}));
 
-				// Skip if no servers configured for this provider
-				if (!providerSetting.servers || providerSetting.servers.length === 0) {
-					continue;
-				}
+				const { pendingModelSelection } = this.state;
+				let modelToSelect = models.length > 0 ? models[0] : null;
 
-				// Process each server in the provider setting
-				for (const server of providerSetting.servers) {
-					try {
-						let serverModels: any[] = [];
-						if (providerType === "ollama") {
-							// Ollama endpoint
-							const encodedUrl = encodeURIComponent(server.serverAddress);
-							const params: Record<string, string> = {
-								server_url: encodedUrl,
-								settings_id: providerSetting.id,
-								server_id: server.id,
-							};
-							if (server.apiKey) {
-								params.api_key = server.apiKey;
-							}
-							const response = await this.props.services.api.get(
-								"/api/v1/ollama/models",
-								{ params }
-							);
-							serverModels = Array.isArray(response) ? response : [];
-						} else if (providerType === "openai") {
-							// OpenAI endpoint
-							const response = await this.props.services.api.get(
-								"/api/v1/ai/providers/models",
-								{
-									params: {
-										provider: "openai",
-										settings_id: providerSetting.id,
-										server_id: server.id,
-									},
-								}
-							);
-							serverModels = response?.models || [];
-						} else if (providerType === "openrouter") {
-							// OpenRouter endpoint
-							const response = await this.props.services.api.get(
-								"/api/v1/ai/providers/models",
-								{
-									params: {
-										provider: "openrouter",
-										settings_id: providerSetting.id,
-										server_id: server.id,
-									},
-								}
-							);
-							serverModels = response?.models || [];
-						} else if (providerType === "claude") {
-							// Claude endpoint
-							const response = await this.props.services.api.get(
-								"/api/v1/ai/providers/models",
-								{
-									params: {
-										provider: "claude",
-										settings_id: providerSetting.id,
-										server_id: server.id,
-									},
-								}
-							);
-							serverModels = response?.models || [];
-						}
-						// Add models to dropdown
-						for (const model of serverModels) {
-							models.push({
-								name: model.name,
-								id: model.id, // Use model.id as the model ID
-								provider: providerType,
-								providerId: providerSetting.id,
-								serverName: server.serverName,
-								serverId: server.id,
-							});
-						}
-					} catch (error) {
-						console.error(
-							`Error loading models for server ${server.serverName}:`,
-							error
+				if (pendingModelSelection && models.length > 0) {
+					let matchingModel = models.find(
+						(model) =>
+							model.name === pendingModelSelection.name &&
+							model.provider === pendingModelSelection.provider &&
+							model.serverId === pendingModelSelection.serverId
+					);
+					if (!matchingModel) {
+						matchingModel = models.find(
+							(model) => model.name === pendingModelSelection.name
 						);
 					}
+					if (matchingModel) {
+						modelToSelect = matchingModel;
+					}
 				}
-			}
-			// Model selection logic (unchanged)
-			const { pendingModelSelection } = this.state;
-			let modelToSelect = models.length > 0 ? models[0] : null;
-			if (pendingModelSelection && models.length > 0) {
-				let matchingModel = models.find(
-					(model) =>
-						model.name === pendingModelSelection.name &&
-						model.provider === pendingModelSelection.provider &&
-						model.serverId === pendingModelSelection.serverId
-				);
-				if (!matchingModel) {
-					matchingModel = models.find(
-						(model) => model.name === pendingModelSelection.name
+
+				this.setState({
+					models,
+					selectedModel: modelToSelect,
+					isLoading: false,
+					error: null,
+				});
+
+				if (response.errors && response.errors.length > 0) {
+					console.warn(
+						"Some providers failed to load models:",
+						response.errors
 					);
 				}
-				if (matchingModel) {
-					modelToSelect = matchingModel;
-				}
+
+				console.log(
+					`Successfully loaded ${models.length} models from ${response.successful_providers} providers`
+				);
+			} else {
+				throw new Error("Invalid response format from all-models endpoint");
 			}
-			this.setState({
-				models,
-				isLoading: false,
-				selectedModel: modelToSelect,
-				pendingModelSelection: modelToSelect ? null : pendingModelSelection,
-			});
-			if (modelToSelect) {
-				this.broadcastModelSelection(modelToSelect);
-			}
-		} catch (error) {
+		} catch (error: any) {
 			console.error("Error loading models:", error);
+
 			this.setState({
 				isLoading: false,
-				error: "Error loading models",
+				error: "Failed to load models. Please try again.",
 			});
 		}
 	};
@@ -573,16 +480,12 @@ class ComponentModelSelection extends React.Component<
 		}
 	};
 
-	/**
-	 * Broadcast model selection event
-	 */
 	broadcastModelSelection = (model: ModelInfo) => {
 		if (!this.eventService && !this.props.services?.event) {
 			console.error("Event service not available");
 			return;
 		}
 
-		// Create model selection message
 		const modelInfo = {
 			type: "model.selection",
 			content: {
@@ -597,14 +500,10 @@ class ComponentModelSelection extends React.Component<
 			},
 		};
 
-		// Send to target component or broadcast to all
 		const target = this.props.targetComponent || "ai-prompt-chat";
 
-		// Log the target and message for debugging
 		console.log(`Sending model selection to target: ${target}`, modelInfo);
 
-		// Send via both methods to ensure delivery
-		// The receiving component will handle deduplication
 		if (this.props.services?.event) {
 			this.props.services.event.sendMessage(target, modelInfo.content);
 			console.log("Model selection sent via services.event");
@@ -616,29 +515,22 @@ class ComponentModelSelection extends React.Component<
 		}
 	};
 
-	/**
-	 * Render the component
-	 */
 	render() {
 		const { models, selectedModel, isLoading, error, currentTheme } =
 			this.state;
 		const { label = "Select Model", labelPosition = "top" } = this.props;
 
-		// Determine layout based on position
 		const isHorizontal = labelPosition === "top" || labelPosition === "bottom";
 		const layoutClass = isHorizontal ? "horizontal" : "vertical";
 
-		// Adjust order based on position
 		const labelOrder =
 			labelPosition === "bottom" || labelPosition === "right" ? 2 : 1;
 		const dropdownOrder =
 			labelPosition === "bottom" || labelPosition === "right" ? 1 : 2;
 
-		// Create a unique ID for each model
 		const getModelId = (model: ModelInfo) =>
 			`${model.provider}_${model.serverId}_${model.name}`;
 
-		// Convert models to dropdown options
 		const dropdownOptions = models.map((model) => ({
 			id: getModelId(model),
 			primaryText: model.name,

@@ -2,6 +2,7 @@ from datetime import datetime, timedelta as datetime_timedelta
 from typing import Optional
 from uuid import uuid4, UUID
 from fastapi import APIRouter, Depends, HTTPException, Response, Request, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.core.config import settings
@@ -17,6 +18,8 @@ from app.models.user import User
 from app.schemas.user import UserCreate, UserLogin, UserResponse
 import logging
 import json
+import time
+import base64
 from jose import jwt, JWTError
 
 router = APIRouter(prefix="/auth")
@@ -35,9 +38,7 @@ def log_token_info(token, token_type="access", mask=True):
             )
             return
 
-        import base64
-        import json
-
+        # Use module-level imports - no need to re-import here
         # Pad the base64 string if needed
         padded = parts[1] + "=" * ((4 - len(parts[1]) % 4) % 4)
         decoded_bytes = base64.b64decode(padded)
@@ -93,6 +94,102 @@ def get_cookie_options(path: str = "/") -> dict:
         * 60,  # Convert days to seconds
         "path": path,
     }
+
+
+def validate_token_logic(token_payload: dict) -> tuple[bool, str]:
+    """Validate token for logical inconsistencies"""
+    try:
+        iat = token_payload.get('iat', 0)
+        exp = token_payload.get('exp', 0)
+        current_time = time.time()
+        
+        # Check for impossible timestamps
+        if iat > exp:
+            return False, "Token issued after expiry date"
+        
+        if iat > current_time + 86400:  # More than 1 day in future
+            return False, "Token issued in future"
+            
+        if exp < current_time - 86400:  # Expired more than 1 day ago
+            return False, "Token expired long ago"
+            
+        return True, "Valid"
+    except Exception as e:
+        return False, f"Invalid token format: {str(e)}"
+
+
+def clear_refresh_token_systematically(response: Response, request: Request):
+    """Clear refresh token using ALL possible combinations"""
+    host = request.headers.get('host', 'localhost').split(':')[0]
+    
+    # ALL possible domains that might have been used
+    domains = [None, host, 'localhost', '127.0.0.1', '10.0.2.149', '.localhost', '.127.0.0.1']
+    
+    # ALL possible paths
+    paths = ['/', '/api', '/api/v1', '']
+    
+    # ALL possible cookie attribute combinations
+    configs = [
+        {"httponly": True, "secure": False, "samesite": "lax"},
+        {"httponly": True, "secure": False, "samesite": "strict"},
+        {"httponly": False, "secure": False, "samesite": "none"},
+        {"httponly": True, "secure": False, "samesite": None},
+        {"httponly": False, "secure": False, "samesite": "lax"},
+        {"httponly": False, "secure": False, "samesite": "strict"},
+        {"httponly": False, "secure": False, "samesite": None},
+    ]
+    
+    cleared_count = 0
+    for domain in domains:
+        for path in paths:
+            for config in configs:
+                try:
+                    response.set_cookie(
+                        "refresh_token",
+                        "",
+                        max_age=0,
+                        path=path,
+                        domain=domain,
+                        expires="Thu, 01 Jan 1970 00:00:00 GMT",
+                        **config
+                    )
+                    cleared_count += 1
+                except Exception as e:
+                    logger.warning(f"Failed to clear cookie variant - domain={domain}, path={path}: {e}")
+    
+    logger.info(f"Attempted to clear {cleared_count} cookie variants")
+
+
+def log_token_validation(token: str, user_id: str, source: str, result: str):
+    """Enhanced logging for token validation"""
+    try:
+        # Import json and base64 here to ensure they're available in this scope
+        import json
+        import base64
+        
+        # Decode payload for logging (without verification)
+        parts = token.split('.')
+        if len(parts) == 3:
+            padded = parts[1] + "=" * ((4 - len(parts[1]) % 4) % 4)
+            payload = json.loads(base64.b64decode(padded))
+            
+            log_data = {
+                "source": source,
+                "user_id": user_id[:8] + "..." if user_id else "None",
+                "token_preview": token[:10] + "...",
+                "token_length": len(token),
+                "iat": payload.get('iat'),
+                "exp": payload.get('exp'),
+                "jti": payload.get('jti', 'N/A')[:8] + "..." if payload.get('jti') else 'N/A',
+                "env": payload.get('env', 'N/A'),
+                "version": payload.get('version', 'N/A'),
+                "result": result
+            }
+            
+            import json as json_module
+            logger.info(f"Token validation: {json_module.dumps(log_data)}")
+    except Exception as e:
+        logger.warning(f"Failed to log token details: {e}")
 
 
 @router.post("/register", response_model=UserResponse)
@@ -201,12 +298,11 @@ async def login(
         logger.info(f"Created access token for user {user.email} (ID: {user.id})")
         log_token_info(access_token, "access")
 
-        # Create refresh token with explicit iat (issued at) timestamp
+        # Create refresh token (let JWT library handle iat automatically)
         refresh_token = create_access_token(
             data={
                 "sub": str(user.id),
                 "refresh": True,
-                "iat": datetime.utcnow().timestamp(),
             },
             expires_delta=datetime_timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
         )
@@ -315,9 +411,106 @@ async def refresh_token(
     try:
         # Log all cookies for debugging
         logger.info(f"Cookies in request: {request.cookies}")
-
+        
         # Get refresh token from cookie
         refresh_token = request.cookies.get("refresh_token")
+        
+        # DETAILED TOKEN LOGGING
+        if refresh_token:
+            logger.info(f"🔍 REFRESH TOKEN RECEIVED:")
+            logger.info(f"   Token (first 50 chars): {refresh_token[:50]}...")
+            logger.info(f"   Token (last 50 chars): ...{refresh_token[-50:]}")
+            logger.info(f"   Token length: {len(refresh_token)}")
+            logger.info(f"   Full token: {refresh_token}")
+        else:
+            logger.info("❌ NO REFRESH TOKEN IN REQUEST")
+        
+        # NUCLEAR OPTION: Block the specific problematic token immediately
+        BLOCKED_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJiOTExODgwMTMyNWQ0MDdmYWIzM2E2Zjc5YmQyNGRhZCIsInJlZnJlc2giOnRydWUsImlhdCI6MTc1NTQ2NjQxMC41MzM1MDEsImV4cCI6MTc1ODA0NDAxMH0.0lVRx8qHILYv3IaaaMWNLDdKx_5ANTp4vMiAGuC_Hzg"
+        
+        if refresh_token == BLOCKED_TOKEN:
+            logger.error("BLOCKED TOKEN DETECTED - IMMEDIATE REJECTION")
+            
+            # Nuclear cookie clearing - try EVERYTHING
+            clear_refresh_token_systematically(response, request)
+            
+            # Also try to set a poison cookie to override it
+            response.set_cookie(
+                "refresh_token",
+                "INVALID_TOKEN_CLEARED",
+                max_age=1,  # Very short expiry
+                path="/",
+                httponly=True,
+                secure=False,
+                samesite="lax"
+            )
+            
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="BLOCKED_TOKEN_DETECTED: This token is permanently blocked",
+                headers={
+                    "X-Auth-Reset": "true",
+                    "X-Clear-Storage": "true",
+                    "X-Blocked-Token": "true",
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0"
+                }
+            )
+        
+        # ENHANCED VALIDATION: Check for logically invalid tokens
+        if refresh_token:
+            try:
+                # Import json and base64 here to ensure they're available in this scope
+                import json
+                import base64
+                
+                # Decode token payload for validation (without verification)
+                parts = refresh_token.split(".")
+                if len(parts) == 3:
+                    padded = parts[1] + "=" * ((4 - len(parts[1]) % 4) % 4)
+                    payload = json.loads(base64.b64decode(padded))
+                    
+                    # Validate token logic
+                    is_valid, reason = validate_token_logic(payload)
+                    
+                    if not is_valid:
+                        user_id = payload.get("sub", "unknown")
+                        logger.error(f"INVALID TOKEN DETECTED: {reason} - User: {user_id}")
+                        log_token_validation(refresh_token, user_id, "cookie", f"INVALID: {reason}")
+                        
+                        # Clear cookies systematically
+                        clear_refresh_token_systematically(response, request)
+                        
+                        # Return enhanced error with reset instructions
+                        raise HTTPException(
+                            status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail=f"INVALID_TOKEN_RESET_REQUIRED: {reason}",
+                            headers={
+                                "X-Auth-Reset": "true",
+                                "X-Clear-Storage": "true",
+                                "Cache-Control": "no-cache, no-store, must-revalidate",
+                                "Pragma": "no-cache",
+                                "Expires": "0"
+                            }
+                        )
+                    else:
+                        # Log successful validation
+                        user_id = payload.get("sub", "unknown")
+                        log_token_validation(refresh_token, user_id, "cookie", "VALID")
+            except Exception as e:
+                logger.error(f"Error validating token logic: {e}")
+                # If we can't decode the token, it's invalid
+                clear_refresh_token_systematically(response, request)
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="INVALID_TOKEN_RESET_REQUIRED: Malformed token",
+                    headers={
+                        "X-Auth-Reset": "true",
+                        "X-Clear-Storage": "true",
+                        "Cache-Control": "no-cache, no-store, must-revalidate"
+                    }
+                )
 
         # If no cookie, try to get refresh token from request body
         if not refresh_token:
@@ -335,6 +528,53 @@ async def refresh_token(
                     logger.info(
                         f"Found refresh token in request body, using as fallback. Token length: {len(refresh_token)}"
                     )
+                    
+                    # Validate token from request body using enhanced validation
+                    try:
+                        # Import json and base64 here to ensure they're available in this scope
+                        import json
+                        import base64
+                        
+                        parts = refresh_token.split(".")
+                        if len(parts) == 3:
+                            padded = parts[1] + "=" * ((4 - len(parts[1]) % 4) % 4)
+                            payload = json.loads(base64.b64decode(padded))
+                            
+                            # Validate token logic
+                            is_valid, reason = validate_token_logic(payload)
+                            
+                            if not is_valid:
+                                user_id = payload.get("sub", "unknown")
+                                logger.error(f"INVALID TOKEN IN REQUEST BODY: {reason} - User: {user_id}")
+                                log_token_validation(refresh_token, user_id, "request_body", f"INVALID: {reason}")
+                                
+                                # Clear cookies systematically
+                                clear_refresh_token_systematically(response, request)
+                                
+                                raise HTTPException(
+                                    status_code=status.HTTP_401_UNAUTHORIZED,
+                                    detail=f"INVALID_TOKEN_RESET_REQUIRED: {reason}",
+                                    headers={
+                                        "X-Auth-Reset": "true",
+                                        "X-Clear-Storage": "true",
+                                        "Cache-Control": "no-cache, no-store, must-revalidate"
+                                    }
+                                )
+                            else:
+                                # Log successful validation
+                                user_id = payload.get("sub", "unknown")
+                                log_token_validation(refresh_token, user_id, "request_body", "VALID")
+                    except Exception as e:
+                        logger.error(f"Error validating request body token: {e}")
+                        clear_refresh_token_systematically(response, request)
+                        raise HTTPException(
+                            status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="INVALID_TOKEN_RESET_REQUIRED: Malformed token in request body",
+                            headers={
+                                "X-Auth-Reset": "true",
+                                "X-Clear-Storage": "true"
+                            }
+                        )
                 else:
                     logger.error("No refresh token in request body either")
             except Exception as e:
@@ -427,10 +667,25 @@ async def refresh_token(
                 logger.info(f"Using user_id as is: {user_id_str}")
 
             # Get the user from the database
+            logger.info(f"Getting user by ID: {user_id_str}")
             user = await User.get_by_id(db, user_id_str)
 
             if not user:
                 logger.error(f"User not found for ID: {user_id_str}, rejecting token")
+                
+                # Clear the stale cookie by setting an expired cookie
+                response.set_cookie(
+                    "refresh_token",
+                    "",
+                    max_age=0,
+                    path="/",
+                    domain=None,
+                    secure=False,  # Set to False for development
+                    httponly=True,
+                    samesite="lax",
+                    expires="Thu, 01 Jan 1970 00:00:00 GMT"  # Expired date
+                )
+                
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Invalid refresh token: user not found",
@@ -534,16 +789,14 @@ async def refresh_token(
         logger.info(f"New access token generated successfully for user ID: {user.id}")
         log_token_info(new_access_token, "access")
 
-        # Generate new refresh token (rotation) with explicit iat timestamp and extended expiration
+        # Generate new refresh token (rotation) with proper expiration
         refresh_token_expires = datetime_timedelta(
             days=settings.REFRESH_TOKEN_EXPIRE_DAYS
         )
-        current_time = datetime.utcnow()
         new_refresh_token = create_access_token(
             data={
                 "sub": str(user.id),
                 "refresh": True,
-                "iat": current_time.timestamp(),
             },
             expires_delta=refresh_token_expires,
         )
@@ -860,3 +1113,330 @@ async def update_password(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal server error: {str(e)}",
         )
+
+
+@router.post("/nuclear-clear-cookies")
+async def nuclear_clear_cookies(request: Request, response: Response):
+    """
+    Nuclear option: Clear ALL cookies with every possible domain/path combination.
+    This addresses shared development environment cookie pollution issues.
+    """
+    
+    # Get the request host
+    host = request.headers.get("host", "localhost")
+    
+    # Extract domain variations
+    domain_variations = [
+        host,
+        host.split(':')[0],  # Remove port
+        f".{host}",
+        f".{host.split(':')[0]}",
+        "localhost",
+        ".localhost", 
+        "127.0.0.1",
+        ".127.0.0.1",
+        "10.0.2.149",
+        ".10.0.2.149",
+    ]
+    
+    # Path variations
+    path_variations = [
+        "/",
+        "/api",
+        "/api/v1",
+        "/api/v1/auth",
+    ]
+    
+    # Cookie names to clear (including the problematic one and all AspNetCore cookies)
+    cookie_names = [
+        "refresh_token",
+        "access_token", 
+        "token",
+        "auth_token",
+        "session",
+        "JSESSIONID",
+        "PHPSESSID",
+        ".Smart.Antiforgery",
+        ".AspNetCore.Antiforgery.MfBEF8FAV4c",
+        ".AspNetCore.Antiforgery.n7nB1Zop0vY",
+        ".AspNetCore.Antiforgery.jgsIVDtBpfc",
+        ".AspNetCore.Antiforgery.yy6KYerk9As",
+        ".AspNetCore.Antiforgery.HQvFLiDS4EI",
+        ".AspNetCore.Antiforgery.OHHyBbX4Fh4",
+        ".AspNetCore.Antiforgery.iE3U3Kjs4vk",
+        ".AspNetCore.Antiforgery.f3Z33LvPBz0",
+        ".AspNetCore.Antiforgery.o5Lch03m5ek",
+        ".AspNetCore.Antiforgery.0CfnEWqKFLI",
+        ".AspNetCore.Antiforgery.323-jCjgv18",
+        ".AspNetCore.Identity.ApplicationC1",
+        ".AspNetCore.Identity.ApplicationC2",
+        ".AspNetCore.Antiforgery.eIC0QtdCWTo",
+        ".AspNetCore.Antiforgery.kZBODwCsLn0",
+        ".AspNetCore.Antiforgery.Dgsjy1b71sY",
+        ".AspNetCore.Antiforgery.O9VU2ovLVjE",
+        ".AspNetCore.Antiforgery.GWaHR8ygEDs",
+        ".AspNetCore.Antiforgery.1yrNIIOcUxA",
+        ".AspNetCore.Antiforgery.7NBRGKmVPUQ",
+        ".AspNetCore.Antiforgery.LAjWJiFM3FI",
+        ".AspNetCore.Antiforgery.PuRE-prZdIs",
+        ".AspNetCore.Antiforgery.168yrhk6-gA",
+        ".AspNetCore.Antiforgery.OxRvv6aLUlg",
+        ".AspNetCore.Antiforgery.S_R2MqLboe0",
+        ".AspNetCore.Session",
+        ".AspNetCore.Identity.Application",
+        "phpMyAdmin",
+        "pmaAuth-1",
+    ]
+    
+    cleared_count = 0
+    
+    logger.info("🚀 NUCLEAR COOKIE CLEARING INITIATED")
+    logger.info(f"   Host: {host}")
+    logger.info(f"   Domains to try: {len(domain_variations)}")
+    logger.info(f"   Paths to try: {len(path_variations)}")
+    logger.info(f"   Cookies to clear: {len(cookie_names)}")
+    
+    # Nuclear clearing: Try every combination
+    for cookie_name in cookie_names:
+        for domain in domain_variations:
+            for path in path_variations:
+                try:
+                    # Set expired cookie for this domain/path combination
+                    response.set_cookie(
+                        key=cookie_name,
+                        value="",
+                        max_age=0,
+                        expires=0,
+                        path=path,
+                        domain=domain,
+                        secure=False,
+                        httponly=True,
+                        samesite="lax"
+                    )
+                    cleared_count += 1
+                except:
+                    # Some combinations might fail, that's OK
+                    pass
+                
+                try:
+                    # Also try without domain (for localhost)
+                    response.set_cookie(
+                        key=cookie_name,
+                        value="",
+                        max_age=0,
+                        expires=0,
+                        path=path,
+                        secure=False,
+                        httponly=True,
+                        samesite="lax"
+                    )
+                    cleared_count += 1
+                except:
+                    pass
+    
+    logger.info(f"💥 NUCLEAR CLEARING COMPLETE: {cleared_count} cookie clearing attempts made")
+    
+    return {
+        "status": "success",
+        "message": "Nuclear cookie clearing completed",
+        "cleared_attempts": cleared_count,
+        "domains_tried": domain_variations,
+        "paths_tried": path_variations,
+        "cookies_targeted": len(cookie_names),
+        "instructions": [
+            "1. Close ALL browser windows/tabs completely",
+            "2. Clear browser cache and cookies manually (Ctrl+Shift+Delete)",
+            "3. Restart browser completely",
+            "4. Try logging in again with fresh session",
+            "5. If still failing, try incognito/private mode",
+            "6. Consider using a different browser temporarily"
+        ],
+        "note": "This clears cookies across all domain/path combinations to handle shared development environment pollution"
+    }
+
+
+@router.post("/force-logout-clear")
+async def force_logout_clear(request: Request, response: Response):
+    """
+    Force logout and aggressive cookie clearing with cache-busting headers.
+    This is the nuclear option for persistent cookie issues.
+    """
+    
+    logger.info("🚨 FORCE LOGOUT AND CLEAR INITIATED")
+    
+    # Get the request host for domain variations
+    host = request.headers.get("host", "localhost")
+    
+    # All possible cookie names we've seen in the logs
+    all_cookies = [
+        "refresh_token",
+        "access_token",
+        "token",
+        "auth_token",
+        "session",
+        "JSESSIONID",
+        "PHPSESSID",
+        ".Smart.Antiforgery",
+        ".AspNetCore.Antiforgery.MfBEF8FAV4c",
+        ".AspNetCore.Antiforgery.n7nB1Zop0vY",
+        ".AspNetCore.Antiforgery.jgsIVDtBpfc",
+        ".AspNetCore.Antiforgery.yy6KYerk9As",
+        ".AspNetCore.Antiforgery.HQvFLiDS4EI",
+        ".AspNetCore.Antiforgery.OHHyBbX4Fh4",
+        ".AspNetCore.Antiforgery.iE3U3Kjs4vk",
+        ".AspNetCore.Antiforgery.f3Z33LvPBz0",
+        ".AspNetCore.Antiforgery.o5Lch03m5ek",
+        ".AspNetCore.Antiforgery.0CfnEWqKFLI",
+        ".AspNetCore.Antiforgery.323-jCjgv18",
+        ".AspNetCore.Identity.ApplicationC1",
+        ".AspNetCore.Identity.ApplicationC2",
+        ".AspNetCore.Antiforgery.eIC0QtdCWTo",
+        ".AspNetCore.Antiforgery.kZBODwCsLn0",
+        ".AspNetCore.Antiforgery.Dgsjy1b71sY",
+        ".AspNetCore.Antiforgery.O9VU2ovLVjE",
+        ".AspNetCore.Antiforgery.GWaHR8ygEDs",
+        ".AspNetCore.Antiforgery.1yrNIIOcUxA",
+        ".AspNetCore.Antiforgery.7NBRGKmVPUQ",
+        ".AspNetCore.Antiforgery.LAjWJiFM3FI",
+        ".AspNetCore.Antiforgery.PuRE-prZdIs",
+        ".AspNetCore.Antiforgery.168yrhk6-gA",
+        ".AspNetCore.Antiforgery.OxRvv6aLUlg",
+        ".AspNetCore.Antiforgery.S_R2MqLboe0",
+        ".AspNetCore.Session",
+        ".AspNetCore.Identity.Application",
+        "phpMyAdmin",
+        "pmaAuth-1",
+    ]
+    
+    # Domain variations
+    domain_variations = [
+        host,
+        host.split(':')[0],
+        f".{host}",
+        f".{host.split(':')[0]}",
+        "localhost",
+        ".localhost",
+        "127.0.0.1",
+        ".127.0.0.1",
+        "10.0.2.149",
+        ".10.0.2.149",
+    ]
+    
+    # Path variations
+    path_variations = ["/", "/api", "/api/v1", "/api/v1/auth"]
+    
+    cleared_count = 0
+    
+    # Clear every cookie with every domain/path combination
+    for cookie_name in all_cookies:
+        for domain in domain_variations:
+            for path in path_variations:
+                try:
+                    # Method 1: Standard clearing
+                    response.set_cookie(
+                        key=cookie_name,
+                        value="",
+                        max_age=0,
+                        expires=0,
+                        path=path,
+                        domain=domain,
+                        secure=False,
+                        httponly=True,
+                        samesite="lax"
+                    )
+                    cleared_count += 1
+                except:
+                    pass
+                
+                try:
+                    # Method 2: Aggressive clearing with past date
+                    response.set_cookie(
+                        key=cookie_name,
+                        value="CLEARED",
+                        expires="Thu, 01 Jan 1970 00:00:00 GMT",
+                        path=path,
+                        domain=domain,
+                        secure=False,
+                        httponly=True,
+                        samesite="lax"
+                    )
+                    cleared_count += 1
+                except:
+                    pass
+                
+                try:
+                    # Method 3: Without domain (for localhost)
+                    response.set_cookie(
+                        key=cookie_name,
+                        value="",
+                        max_age=0,
+                        expires=0,
+                        path=path,
+                        secure=False,
+                        httponly=True,
+                        samesite="lax"
+                    )
+                    cleared_count += 1
+                except:
+                    pass
+    
+    # Set aggressive cache-busting headers
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage", "executionContexts"'
+    response.headers["X-Auth-Reset"] = "true"
+    response.headers["X-Clear-Storage"] = "true"
+    response.headers["X-Force-Logout"] = "true"
+    
+    logger.info(f"💥 FORCE LOGOUT COMPLETE: {cleared_count} cookie clearing attempts made")
+    
+    return {
+        "status": "success",
+        "message": "Force logout and cookie clearing completed",
+        "cleared_attempts": cleared_count,
+        "instructions": [
+            "1. This response includes Clear-Site-Data header to clear everything",
+            "2. Close ALL browser windows/tabs immediately",
+            "3. Clear browser data manually (Ctrl+Shift+Delete)",
+            "4. Restart browser completely",
+            "5. Visit http://10.0.2.149:5173/clear-cookies.html for additional clearing",
+            "6. Try logging in with a fresh session"
+        ],
+        "frontend_cleaner": "http://10.0.2.149:5173/clear-cookies.html",
+        "note": "This uses the Clear-Site-Data header for maximum effectiveness"
+    }
+
+
+@router.post("/test-cookie-setting")
+async def test_cookie_setting(response: Response):
+    """Test endpoint to verify cookie setting works"""
+    
+    logger.info("🧪 Testing cookie setting...")
+    
+    # Try to set a simple test cookie
+    response.set_cookie(
+        key="test_cookie",
+        value="test_value",
+        max_age=60,
+        path="/",
+        httponly=True,
+        secure=False,
+        samesite="lax"
+    )
+    
+    # Try to clear refresh_token
+    response.set_cookie(
+        key="refresh_token",
+        value="",
+        max_age=0,
+        expires=0,
+        path="/",
+        httponly=True,
+        secure=False,
+        samesite="lax"
+    )
+    
+    logger.info("✅ Cookie setting test completed")
+    
+    return {"status": "success", "message": "Test cookies set"}

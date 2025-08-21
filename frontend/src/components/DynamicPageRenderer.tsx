@@ -103,7 +103,7 @@ function useUnifiedPageLoader(options: {
       // If no direct pluginId, try to extract from moduleId
       if (!pluginId && moduleId) {
         pluginId = extractPluginIdFromModuleId(moduleId);
-        console.log(`[DynamicPageRenderer] Extracted pluginId '${pluginId}' from moduleId '${moduleId}'`);
+        // console.log(`[DynamicPageRenderer] Extracted pluginId '${pluginId}' from moduleId '${moduleId}'`);
       }
       
       // Skip items without a valid pluginId to prevent infinite loops
@@ -300,9 +300,11 @@ export const DynamicPageRenderer: React.FC<DynamicPageRendererProps> = ({
   
   // Determine render mode based on current path
   const renderMode = useMemo((): RenderMode => {
-    if (location.pathname.startsWith('/plugin-studio') || location.pathname.startsWith('/pages/')) {
+    // Only Plugin Studio routes should use STUDIO mode
+    if (location.pathname.startsWith('/plugin-studio')) {
       return RenderMode.STUDIO;
     }
+    // All other routes, including /pages/, should use PUBLISHED mode
     return RenderMode.PUBLISHED;
   }, [location.pathname]);
 

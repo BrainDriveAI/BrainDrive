@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Box, useTheme } from '@mui/material';
 import { UnifiedPageRenderer } from '../components/UnifiedPageRenderer';
 import { ResponsiveContainer } from '../components/ResponsiveContainer';
@@ -75,6 +75,9 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
   const [convertedPageData, setConvertedPageData] = useState<PageData | null>(null);
   const [conversionError, setConversionError] = useState<Error | null>(null);
   const [isConverting, setIsConverting] = useState(false);
+
+  // Safeguard to prevent infinite loops during module updates
+  const isUpdatingModulesRef = useRef(false);
 
   // Performance tracking
   const [performanceMetrics, setPerformanceMetrics] = useState<{
@@ -415,9 +418,11 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
 
   /**
    * Watch for changes in page modules and update converted data
+   * Fixed: Removed convertedPageData from dependency array to prevent infinite loop
+   * Added safeguard to prevent recursive updates
    */
   useEffect(() => {
-    if (!page || !convertedPageData) return;
+    if (!page || !convertedPageData || isUpdatingModulesRef.current) return;
     
     // Check if modules have changed
     const currentModulesHash = JSON.stringify(page.modules);
@@ -428,15 +433,18 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
     
     if (currentModulesHash !== convertedModulesHash) {
       console.log('[PluginStudioAdapter] Modules changed, updating converted data');
+      isUpdatingModulesRef.current = true;
       try {
         const updated = convertPageData(page, layouts || { desktop: [], tablet: [], mobile: [] });
         setConvertedPageData(updated);
       } catch (error) {
         console.error('[PluginStudioAdapter] Module update failed:', error);
         setConversionError(error as Error);
+      } finally {
+        isUpdatingModulesRef.current = false;
       }
     }
-  }, [page?.modules, convertPageData, convertedPageData, layouts]);
+  }, [page?.modules, convertPageData, layouts]);
 
   /**
    * Determine render mode based on preview state

@@ -23,12 +23,12 @@ export const PluginStudioDevModeProvider: React.FC<PluginStudioDevModeProviderPr
   const isPluginStudioDevMode = config.devMode.pluginStudio;
   
   const features = {
-    unifiedIndicator: isPluginStudioDevMode,
-    rendererSwitch: isPluginStudioDevMode,
-    debugPanels: isPluginStudioDevMode,
-    moduleDebugInfo: isPluginStudioDevMode,
+    unifiedIndicator: false, // Disable debug indicator
+    rendererSwitch: false, // Disable unified renderer switch
+    debugPanels: false, // Disable debug panels
+    moduleDebugInfo: false, // Disable module debug info
     studioToolbar: isPluginStudioDevMode,
-    performanceMetrics: isPluginStudioDevMode,
+    performanceMetrics: false, // Disable performance metrics display
   };
 
   return (

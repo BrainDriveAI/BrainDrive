@@ -242,7 +242,7 @@ export const onPluginRegistryChange = (listener: () => void) => {
 
 // Register a remote plugin
 export const registerRemotePlugin = (plugin: LoadedRemotePlugin) => {
-  console.log('[registerRemotePlugin] Registering plugin:', plugin);
+  // console.log('[registerRemotePlugin] Registering plugin:', plugin);
   
   // Convert LoadedRemotePlugin to DynamicPluginConfig format
   const pluginConfig: DynamicPluginConfig = {
@@ -272,16 +272,16 @@ export const registerRemotePlugin = (plugin: LoadedRemotePlugin) => {
     })) : []
   };
   
-  console.log('[registerRemotePlugin] Created plugin config:', pluginConfig);
+  // console.log('[registerRemotePlugin] Created plugin config:', pluginConfig);
   
   // Register in the plugin registry
   pluginConfigs[plugin.id] = pluginConfig;
-  console.log('[registerRemotePlugin] Plugin registered. Current pluginConfigs keys:', Object.keys(pluginConfigs));
+  // console.log('[registerRemotePlugin] Plugin registered. Current pluginConfigs keys:', Object.keys(pluginConfigs));
   
   // Notify listeners of the change
   notifyPluginRegistryChange();
   
-  console.log(`[registerRemotePlugin] Remote plugin registered successfully: ${plugin.id}`);
+  // console.log(`[registerRemotePlugin] Remote plugin registered successfully: ${plugin.id}`);
 };
 
 // Register multiple remote plugins

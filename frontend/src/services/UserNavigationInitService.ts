@@ -30,15 +30,13 @@ export class UserNavigationInitService extends AbstractBaseService {
    */
   async initializeUserNavigation(userId: string): Promise<void> {
     try {
-      // console.log(`Initializing system routes and components for user: ${userId}`);
+      console.log(`🔧 UserNavigationInitService: Skipping frontend route creation - using backend hierarchical navigation for user: ${userId}`);
       
-      // Ensure system components exist
-      await this.ensureSystemComponents();
+      // Skip system components and routes creation - let backend handle it
+      // await this.ensureSystemComponents();
+      // await this.ensureSystemRoutes(userId);
       
-      // Ensure system routes exist
-      await this.ensureSystemRoutes(userId);
-      
-      // console.log('System routes and components initialized successfully');
+      console.log('🔧 UserNavigationInitService: Initialization completed (backend-managed)');
     } catch (error) {
       console.error('Error initializing system routes and components:', error);
     }
@@ -109,73 +107,12 @@ export class UserNavigationInitService extends AbstractBaseService {
       const existingRoutes = await navigationService.getNavigationRoutes();
       
       // Define system routes
-      const systemRoutes = [
-        {
-          name: 'Your BrainDrive',
-          route: 'dashboard',
-          icon: 'Dashboard',
-          description: 'Your BrainDrive Dashboard',
-          order: 1,
-          is_visible: true,
-          is_system_route: true,
-          default_component_id: 'dashboard',
-          can_change_default: false,
-          creator_id: userId
-        },
-        {
-          name: 'BrainDrive Studio',
-          route: 'plugin-studio',
-          icon: 'Extension',
-          description: 'BrainDrive Studio for creating and editing pages',
-          order: 2,
-          is_visible: true,
-          is_system_route: true,
-          default_component_id: 'plugin-studio',
-          can_change_default: false,
-          creator_id: userId
-        },
-        {
-          name: 'Settings',
-          route: 'settings',
-          icon: 'Settings',
-          description: 'System settings and configuration',
-          order: 3,
-          is_visible: true,
-          is_system_route: true,
-          default_component_id: 'settings',
-          can_change_default: false,
-          creator_id: userId
-        },
-        {
-          name: 'Plugin Manager',
-          route: 'plugin-manager',
-          icon: 'Extension',
-          description: 'Manage plugins and modules',
-          order: 4,
-          is_visible: true,
-          is_system_route: true,
-          default_component_id: 'plugin-manager',
-          can_change_default: true,
-          creator_id: userId
-        }
-      ];
+      // Skip system route creation - now handled by backend navigation initializer
+      // The backend creates hierarchical navigation routes during user registration
+      console.log('Skipping frontend system route creation - handled by backend initializer');
       
-      // Create any missing routes
-      for (const route of systemRoutes) {
-        const existingRoute = existingRoutes.find(r => r.route === route.route);
-        
-        if (!existingRoute) {
-          // console.log(`Creating system route: ${route.name}`);
-          await navigationService.createNavigationRoute(route);
-        } else if (existingRoute.default_component_id !== route.default_component_id) {
-          // Update the route if the default_component_id is different
-          // console.log(`Updating system route: ${route.name}`);
-          await navigationService.updateNavigationRoute(existingRoute.id, {
-            default_component_id: route.default_component_id,
-            is_system_route: true
-          });
-        }
-      }
+      // Note: System routes are now created by the backend navigation initializer
+      // during user registration with proper hierarchical structure
     } catch (error) {
       console.error('Error ensuring system routes:', error);
       throw error;

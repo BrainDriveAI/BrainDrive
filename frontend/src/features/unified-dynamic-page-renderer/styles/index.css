@@ -1568,3 +1568,90 @@
     font-size: 1.125rem;
   }
 }
+
+/* Hide React Grid Layout resize handles on published pages */
+.layout-engine--published .react-resizable-handle {
+  display: none !important;
+}
+
+.layout-engine--published .react-resizable-handle-se {
+  display: none !important;
+}
+
+.layout-engine--published .react-resizable-handle-sw {
+  display: none !important;
+}
+
+.layout-engine--published .react-resizable-handle-ne {
+  display: none !important;
+}
+
+.layout-engine--published .react-resizable-handle-nw {
+  display: none !important;
+}
+
+.layout-engine--published .react-resizable-handle-n {
+  display: none !important;
+}
+
+.layout-engine--published .react-resizable-handle-s {
+  display: none !important;
+}
+
+.layout-engine--published .react-resizable-handle-e {
+  display: none !important;
+}
+
+.layout-engine--published .react-resizable-handle-w {
+  display: none !important;
+}
+
+/* Also hide any resize cursors */
+.layout-engine--published .react-grid-item {
+  cursor: default !important;
+}
+
+.layout-engine--published .react-grid-item:hover {
+  cursor: default !important;
+}
+
+/* Disable pointer events on resize handles */
+.layout-engine--published .react-resizable {
+  pointer-events: none;
+}
+
+.layout-engine--published .react-resizable > * {
+  pointer-events: auto;
+}
+
+/* Additional high-specificity rules to ensure resize handles are completely hidden */
+.layout-engine--published .react-grid-item .react-resizable-handle,
+.layout-engine--published .react-grid-item > .react-resizable-handle,
+.layout-engine--published .react-grid-item .react-resizable-handle-se,
+.layout-engine--published .react-grid-item .react-resizable-handle-sw,
+.layout-engine--published .react-grid-item .react-resizable-handle-ne,
+.layout-engine--published .react-grid-item .react-resizable-handle-nw,
+.layout-engine--published .react-grid-item .react-resizable-handle-n,
+.layout-engine--published .react-grid-item .react-resizable-handle-s,
+.layout-engine--published .react-grid-item .react-resizable-handle-e,
+.layout-engine--published .react-grid-item .react-resizable-handle-w {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  overflow: hidden !important;
+  position: absolute !important;
+  left: -9999px !important;
+  top: -9999px !important;
+}
+
+/* Force hide any resize handles with even higher specificity */
+.unified-page-renderer--published .layout-engine--published .react-resizable-handle {
+  display: none !important;
+}
+
+.unified-page-renderer--published .layout-engine--published .react-grid-item .react-resizable-handle {
+  display: none !important;
+}

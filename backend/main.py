@@ -22,6 +22,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from contextlib import asynccontextmanager
 
 from app.core.config import settings
+from app.core.cors_utils import build_dev_origin_regex, validate_production_origins, log_cors_config
 from app.routers import plugins
 from app.routes import pages
 from app.api.v1.api import api_router
@@ -115,23 +116,53 @@ app = FastAPI(
     docs_url="/api/v1/docs"
 )
 
-# ✅ 1. Move CORS Middleware to the top
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=json.loads(settings.CORS_ORIGINS),  # Ensure it's a list
-    allow_credentials=True,  # Allow cookies
-    allow_methods=["*"],  # Allow all methods
-    allow_headers=["*"],  # Allow all headers
-)
+log = logging.getLogger("uvicorn")
 
-# ✅ 2. Handle Preflight OPTIONS Requests (Fix CORS Issues)
-@app.options("/{full_path:path}")
-async def preflight_handler(full_path: str, response: Response):
-    response.headers["Access-Control-Allow-Origin"] = ",".join(json.loads(settings.CORS_ORIGINS))
-    response.headers["Access-Control-Allow-Methods"] = "OPTIONS, GET, POST, PUT, DELETE"
-    response.headers["Access-Control-Allow-Headers"] = "*"
-    response.headers["Access-Control-Allow-Credentials"] = "true"
-    return response
+# ✅ Environment-aware CORS Configuration (Revised Solution)
+if settings.APP_ENV == "dev":
+    # Development: Use regex for flexible origin matching
+    allow_origin_regex = build_dev_origin_regex(settings.CORS_DEV_HOSTS)
+    
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=allow_origin_regex,
+        allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=settings.CORS_EXPOSE_HEADERS,
+        max_age=settings.CORS_MAX_AGE,
+    )
+    
+    log_cors_config(
+        app_env=settings.APP_ENV,
+        mode="regex",
+        pattern=allow_origin_regex,
+        allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
+        dev_hosts=settings.CORS_DEV_HOSTS
+    )
+    
+else:
+    # Production/Staging: Use explicit origin list
+    validated_origins = validate_production_origins(settings.CORS_ORIGINS)
+    
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=validated_origins,
+        allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+        allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
+        expose_headers=settings.CORS_EXPOSE_HEADERS,
+        max_age=settings.CORS_MAX_AGE,
+    )
+    
+    log_cors_config(
+        app_env=settings.APP_ENV,
+        mode="explicit",
+        origins=validated_origins,
+        allow_credentials=settings.CORS_ALLOW_CREDENTIALS
+    )
+
+log.info(f"CORS configured for environment: {settings.APP_ENV}")
 
 class LoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
