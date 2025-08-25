@@ -5,9 +5,10 @@ import tempfile
 import aiohttp
 import asyncio
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Union
 import structlog
 import shutil
+import traceback
 from dotenv import dotenv_values
 
 from app.dto.plugin import PluginServiceRuntimeDTO
@@ -16,6 +17,105 @@ from app.plugins.service_installler.python_manager import install_python_service
 from .prerequisites import check_required_env_vars, convert_to_download_url
 
 logger = structlog.get_logger()
+
+def ensure_service_dto(
+    service_data: Union[Dict, PluginServiceRuntimeDTO], 
+    plugin_id: str = None, 
+    plugin_slug: str = None, 
+    user_id: str = None
+) -> PluginServiceRuntimeDTO:
+    """
+    Ensures the service data is a DTO, converting from dict if necessary.
+    """
+    return PluginServiceRuntimeDTO.from_dict_or_dto(service_data, plugin_id, plugin_slug, user_id)
+
+
+async def install_and_run_required_services(
+    services_runtime: list[dict],
+    plugin_slug: str,
+    plugin_id: str = None,
+    user_id: str = None
+):
+    """
+    Install and run required backend services for a plugin.
+    Each service runs in its own venv and process.
+    
+    Args:
+        services_runtime: List of service configurations (dicts from GitHub or DTOs from DB)
+        plugin_slug: The plugin identifier slug
+        plugin_id: Plugin ID (required when services_runtime contains dicts)
+        user_id: User ID (required when services_runtime contains dicts)
+    """
+    base_services_dir = Path("services_runtime")
+    base_services_dir.mkdir(parents=True, exist_ok=True)
+
+    # Define the path to the root .env file
+    root_env_path = Path(os.getcwd()) / ".env"
+    
+    # Load the environment variables from the root .env file once
+    env_vars = dotenv_values(root_env_path)
+    
+    # Configure session with longer timeouts and connection limits
+    timeout = aiohttp.ClientTimeout(
+        total=300,  # 5 minutes total
+        connect=30,  # 30 seconds to connect
+        sock_read=60  # 60 seconds for reading data
+    )
+    
+    connector = aiohttp.TCPConnector(
+        limit=10,
+        limit_per_host=5,
+        ttl_dns_cache=300,
+        use_dns_cache=True
+    )
+
+    logger.info("Starting installation of required services")
+    
+    try:
+        async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+            for service in services_runtime:
+                # Convert to DTO if it's a dict (first install from GitHub)
+                service_dto = ensure_service_dto(service, plugin_id, plugin_slug, user_id)
+
+                name = service_dto.name
+                source_url = service_dto.source_url
+                service_type = service_dto.type
+                required_vars = service_dto.required_env_vars
+
+                # --- Prerequisite Check ---
+                check_required_env_vars(
+                    service_name=name,
+                    required_vars=required_vars,
+                    root_env_path=root_env_path
+                )
+                
+                target_dir = base_services_dir / f"{plugin_slug}_{name}"
+                
+                # Download and extract repository
+                if target_dir.exists():
+                    logger.info(f"Service directory already exists: {target_dir}, skipping download.")
+                else:
+                    try:
+                        await download_and_extract_repo(session, source_url, target_dir)
+                        logger.info(f"Successfully downloaded and extracted {source_url} to {target_dir}")
+                    except Exception as e:
+                        logger.error(f"Failed to download repository {source_url}: {e}")
+                        raise RuntimeError(f"Failed to download repository for service {name}: {e}")
+                
+                # Dispatch to the appropriate installer based on service type
+                if service_type == 'python':
+                    await install_python_service(service, target_dir)
+                elif service_type == 'docker-compose':
+                    await install_and_start_docker_service(service_dto, target_dir, env_vars, required_vars)
+                else:
+                    raise ValueError(f"Unknown service type: {service_type}")
+    except Exception as e:
+        logger.error(
+            f"Installation failed: {type(e).__name__}: {e}\n"
+            f"Traceback:\n{traceback.format_exc()}"
+        )
+        raise
+
 
 async def download_and_extract_repo(session: aiohttp.ClientSession, source_url: str, target_dir: Path, max_retries: int = 3):
     """
@@ -56,28 +156,58 @@ async def _extract_archive(temp_path: Path, target_dir: Path, is_zip: bool):
     """
     logger.info("Extracting archive", path=str(temp_path), target=str(target_dir))
     
-    # Ensure target directory is clean and ready
-    if target_dir.exists():
-        shutil.rmtree(target_dir)
-    target_dir.mkdir(parents=True, exist_ok=True)
-
+    # Ensure target directory parent exists
+    target_dir.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Create a temporary extraction directory
+    temp_extract_dir = target_dir.parent / f"temp_extract_{target_dir.name}"
+    if temp_extract_dir.exists():
+        shutil.rmtree(temp_extract_dir)
+    temp_extract_dir.mkdir(exist_ok=True)
+    
     try:
         if is_zip:
             with zipfile.ZipFile(temp_path, 'r') as zip_file:
-                zip_file.extractall(target_dir.parent)
-                # Find and rename the extracted directory (e.g., repo-main)
-                # This is a common pattern for GitHub/GitLab zip archives
-                first_dir = [name for name in zip_file.namelist() if '/' in name][0].split('/')[0]
-                shutil.move(target_dir.parent / first_dir, target_dir)
+                zip_file.extractall(temp_extract_dir)
+                # Find the first directory (e.g., repo-main)
+                extracted_items = list(temp_extract_dir.iterdir())
+                if len(extracted_items) == 1 and extracted_items[0].is_dir():
+                    # Single directory case - move its contents
+                    extracted_dir = extracted_items[0]
+                    if target_dir.exists():
+                        shutil.rmtree(target_dir)
+                    shutil.move(str(extracted_dir), str(target_dir))
+                else:
+                    # Multiple items or files - move temp_extract_dir to target
+                    if target_dir.exists():
+                        shutil.rmtree(target_dir)
+                    shutil.move(str(temp_extract_dir), str(target_dir))
+                    temp_extract_dir = None  # Prevent cleanup since it's been moved
         else:
             with tarfile.open(temp_path, 'r:gz') as tar_file:
-                tar_file.extractall(target_dir.parent)
-                first_dir = tar_file.getmembers()[0].name.split('/')[0]
-                shutil.move(target_dir.parent / first_dir, target_dir)
+                tar_file.extractall(temp_extract_dir)
+                # Find the first directory
+                extracted_items = list(temp_extract_dir.iterdir())
+                if len(extracted_items) == 1 and extracted_items[0].is_dir():
+                    # Single directory case - move its contents
+                    extracted_dir = extracted_items[0]
+                    if target_dir.exists():
+                        shutil.rmtree(target_dir)
+                    shutil.move(str(extracted_dir), str(target_dir))
+                else:
+                    # Multiple items or files - move temp_extract_dir to target
+                    if target_dir.exists():
+                        shutil.rmtree(target_dir)
+                    shutil.move(str(temp_extract_dir), str(target_dir))
+                    temp_extract_dir = None  # Prevent cleanup since it's been moved
                 
     except (zipfile.BadZipFile, tarfile.TarError) as e:
         logger.error("Archive extraction failed", error=str(e))
         raise RuntimeError(f"Failed to extract archive: {e}")
+    finally:
+        # Clean up temp extraction directory if it still exists
+        if temp_extract_dir and temp_extract_dir.exists():
+            shutil.rmtree(temp_extract_dir)
 
 
 async def install_plugin_service(service_data: PluginServiceRuntimeDTO, plugin_slug: str):
