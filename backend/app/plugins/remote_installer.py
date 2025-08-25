@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 from urllib.parse import urlparse
 import structlog
-from .service_installler.plugin_service_manager import install_and_start_docker_service
+from .service_installler.plugin_service_manager import install_and_run_required_services
 from .service_installler.service_runtime_extractor import extract_required_services_runtime
 
 logger = structlog.get_logger()
@@ -243,9 +243,11 @@ class RemotePluginInstaller:
                 logger.info(f"\n\n>>>>>>>>SERVICE RUNTIME\n\n: {service_runtime}\n\n>>>>>>>>>>")
                 if service_runtime:
                     plugin_slug = validation_result["plugin_info"].get("plugin_slug")
-                    await install_and_start_docker_service(
+                    await install_and_run_required_services(
                         service_runtime,
-                        plugin_slug
+                        plugin_slug,
+                        install_result['plugin_id'],
+                        user_id
                     )
 
                 # Store installation metadata
