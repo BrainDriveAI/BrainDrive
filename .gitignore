@@ -48,6 +48,7 @@ backend/alembic/versions/
 backend/logs/
 
 backend/services_runtime/
+backend/persistent/
 
 # Environment variables
 .env
