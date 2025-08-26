@@ -68,53 +68,7 @@ copy .env-dev .env     # Windows
 
 #### Option B: Manual `.env` Setup
 
-Paste the following into `backend/.env`:
-
-```env
-# Application Settings
-APP_NAME="BrainDrive"
-APP_ENV="dev"
-API_V1_PREFIX="/api/v1"
-DEBUG=true
-
-# Server Settings
-HOST="0.0.0.0"
-PORT=8005
-RELOAD=true
-LOG_LEVEL="info"
-
-# Security
-SECRET_KEY="your-secret-key-here"
-ACCESS_TOKEN_EXPIRE_MINUTES=15
-REFRESH_TOKEN_EXPIRE_DAYS=30
-ALGORITHM="HS256"
-
-# Database
-DATABASE_URL="sqlite:///braindrive.db"
-DATABASE_TYPE="sqlite"
-USE_JSON_STORAGE=false
-JSON_DB_PATH="./storage/database.json"
-SQL_LOG_LEVEL="WARNING"
-
-# Redis
-USE_REDIS=false
-REDIS_HOST="localhost"
-REDIS_PORT=6379
-
-# CORS
-CORS_ORIGINS='["http://127.0.0.1:5173", "http://localhost:5173"]'
-CORS_METHODS='["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"]'
-CORS_HEADERS='["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"]'
-CORS_EXPOSE_HEADERS='["*"]'
-CORS_MAX_AGE=3600
-CORS_ALLOW_CREDENTIALS=true
-
-# Allowed Hosts
-ALLOWED_HOSTS='["localhost", "127.0.0.1"]'
-
-# AI Providers
-ENABLE_TEST_ROUTES=true
-```
+Look at [/backend/.env-dev](https://github.com/BrainDriveAI/BrainDrive/blob/main/backend/.env-dev) and set as your needs require. 
 
 ---
 

@@ -59,11 +59,12 @@ Our roadmap is broken into clearly defined versions, each building toward a stab
 ## Version 0.6.0 – Open Beta
 > Goal: AI System with core functionality for developers
 
-- [ ] All plugins moved to the Life Cycle Manager
-- [ ] Ollama plugin updated to include server manager
-- [ ] User initializer - Plugin install from remote
-- [ ] User initializer - Restructure navigation 
-- [ ] Prompt Library
+- [x] All plugins moved to the Life Cycle Manager
+- [x] Ollama plugin updated to include server manager
+- [x] User initializer - Plugin install from remote
+- [x] User initializer - Restructure navigation 
+- [ ] Improve Registration
+- [ ] Ollama AI Provider
 - [ ] One-Click Installer - (Windows first)
 
 ---
@@ -73,6 +74,7 @@ Our roadmap is broken into clearly defined versions, each building toward a stab
 
 - [ ] Unified Dynamic Page Renderer - Bounce
 - [ ] Unified Dynamic Page Renderer - Finetune
+- [ ] Prompt Library
 
 ---
 
