@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from datetime import datetime, timedelta as datetime_timedelta
+from datetime import datetime, timedelta as datetime_timedelta, UTC
 from typing import Optional
 from jose import jwt, JWTError
 import logging
@@ -41,16 +41,16 @@ def create_access_token(data: dict, expires_delta: Optional[datetime_timedelta] 
     """Create a new access token."""
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(UTC) + expires_delta
     else:
-        expire = datetime.utcnow() + datetime_timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.now(UTC) + datetime_timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     
     # Convert datetime to Unix timestamp for JWT
     to_encode.update({"exp": expire.timestamp()})
     
     # Let JWT library handle iat automatically if not provided
     if "iat" not in to_encode:
-        to_encode.update({"iat": datetime.utcnow().timestamp()})
+        to_encode.update({"iat": datetime.now(UTC).timestamp()})
     
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
