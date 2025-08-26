@@ -35,6 +35,10 @@ class AIProviderRegistry:
     
     async def get_provider(self, name: str, instance_id: str, config: Dict[str, Any]) -> AIProvider:
         """Get or create a provider instance."""
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.debug(f"Provider registry: get_provider called - {name}, instance: {instance_id}")
+        
         if name not in self._providers:
             raise ValueError(f"Provider '{name}' not registered")
         
@@ -43,9 +47,11 @@ class AIProviderRegistry:
         
         # Check if instance exists
         if instance_key in self._instances[name]:
+            logger.debug(f"Using existing provider instance: {instance_key}")
             return self._instances[name][instance_key]
         
         # Create new instance
+        logger.debug(f"Creating new provider instance: {instance_key}")
         provider = self._providers[name]()
         await provider.initialize(config)
         self._instances[name][instance_key] = provider

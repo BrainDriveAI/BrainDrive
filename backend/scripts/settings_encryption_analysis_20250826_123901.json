@@ -1,0 +1,189 @@
+{
+  "timestamp": 422970.048188365,
+  "encryption_status": {
+    "encryption_enabled": true,
+    "settings_field_encrypted": true,
+    "encryption_key_available": false,
+    "error": "Encryption test failed: Failed to encrypt field: ENCRYPTION_MASTER_KEY environment variable not set. Please set it to a secure random string."
+  },
+  "all_settings": [
+    {
+      "id": "a1b04c7e28b742eaa2947bc622277723",
+      "definition_id": "general_settings",
+      "name": "General Settings",
+      "value": "{\"settings\": [{\"Setting_Name\": \"default_page\", \"Setting_Data\": \"Dashboard\", \"Setting_Help\": \"This is the first page to be displayed after logging in to BrainDrive\"}]}",
+      "scope": "user",
+      "user_id": "55882ff25c944edcbe54d3dabfb1ba7e",
+      "created_at": "2025-08-26 09:05:58",
+      "updated_at": "2025-08-26 09:05:58"
+    },
+    {
+      "id": "3e08e6c0fdd4422cb8ec9f4e911813fe",
+      "definition_id": "ollama_servers_settings",
+      "name": "Ollama Servers Settings",
+      "value": "8xi6uddsdusu0gG6/97ifv4FTqrHKrFf8tvqG5fxpttWb6LF5rFj7/CBKoSQa3eFZvZTagRCeacFOclba7uinydH/vtviH0bEqJAvxMHantzNfV5qMWlVMEvXanGybaIay1TAZ4hXGP2h0PJYRzJ7II4gfsGHVq1hZByECl4DBFv6RcJLRM2jDqKk+EZl98UF3AMIcnEdP/zGlZUdQhcSUjtr+Ua+P7exJpdh++NnhHGozEU5fKV4GQ/xWzMfQiYVWRnnL0cPHjYtqGO3u0yOHQUxcjvuoxAUAQAbQ==",
+      "scope": "user",
+      "user_id": "55882ff25c944edcbe54d3dabfb1ba7e",
+      "created_at": "2025-08-26 09:05:58",
+      "updated_at": "2025-08-26 16:05:16"
+    },
+    {
+      "id": "e33aace4a1e148d4a914ac494eedff17",
+      "definition_id": "theme_settings",
+      "name": "Theme Settings",
+      "value": "{\"theme\": \"dark\", \"useSystemTheme\": false}",
+      "scope": "user",
+      "user_id": "55882ff25c944edcbe54d3dabfb1ba7e",
+      "created_at": "2025-08-26 09:05:58",
+      "updated_at": "2025-08-26 09:05:58"
+    }
+  ],
+  "ollama_settings": [
+    {
+      "id": "3e08e6c0fdd4422cb8ec9f4e911813fe",
+      "definition_id": "ollama_servers_settings",
+      "name": "Ollama Servers Settings",
+      "value": "8xi6uddsdusu0gG6/97ifv4FTqrHKrFf8tvqG5fxpttWb6LF5rFj7/CBKoSQa3eFZvZTagRCeacFOclba7uinydH/vtviH0bEqJAvxMHantzNfV5qMWlVMEvXanGybaIay1TAZ4hXGP2h0PJYRzJ7II4gfsGHVq1hZByECl4DBFv6RcJLRM2jDqKk+EZl98UF3AMIcnEdP/zGlZUdQhcSUjtr+Ua+P7exJpdh++NnhHGozEU5fKV4GQ/xWzMfQiYVWRnnL0cPHjYtqGO3u0yOHQUxcjvuoxAUAQAbQ==",
+      "scope": "user",
+      "user_id": "55882ff25c944edcbe54d3dabfb1ba7e",
+      "created_at": "2025-08-26 09:05:58",
+      "updated_at": "2025-08-26 16:05:16"
+    }
+  ],
+  "value_analyses": [
+    {
+      "context": "general_settings:General Settings",
+      "raw_value_type": "str",
+      "raw_value_length": 166,
+      "raw_value_preview": "'{\"settings\": [{\"Setting_Name\": \"default_page\", \"Setting_Data\": \"Dashboard\", \"Setting_Help\": \"This is'",
+      "appears_encrypted": false,
+      "appears_json": true,
+      "appears_double_encoded": false,
+      "json_parse_attempts": [
+        {
+          "method": "direct_json",
+          "success": true,
+          "result_type": "dict",
+          "result_preview": "{'settings': [{'Setting_Name': 'default_page', 'Setting_Data': 'Dashboard', 'Setting_Help': 'This is the first page to be displayed after logging in to BrainDrive'}]}"
+        },
+        {
+          "method": "strip_quotes",
+          "success": true,
+          "result_type": "dict",
+          "result_preview": "{'settings': [{'Setting_Name': 'default_page', 'Setting_Data': 'Dashboard', 'Setting_Help': 'This is the first page to be displayed after logging in to BrainDrive'}]}"
+        },
+        {
+          "method": "double_decode",
+          "success": true,
+          "result_type": "dict",
+          "result_preview": "{'settings': [{'Setting_Name': 'default_page', 'Setting_Data': 'Dashboard', 'Setting_Help': 'This is the first page to be displayed after logging in to BrainDrive'}]}"
+        },
+        {
+          "method": "unescape_quotes",
+          "success": false,
+          "error": "Returned None"
+        }
+      ],
+      "final_parsed_value": {
+        "settings": [
+          {
+            "Setting_Name": "default_page",
+            "Setting_Data": "Dashboard",
+            "Setting_Help": "This is the first page to be displayed after logging in to BrainDrive"
+          }
+        ]
+      },
+      "parsing_success": true,
+      "setting_id": "a1b04c7e28b742eaa2947bc622277723",
+      "definition_id": "general_settings",
+      "setting_name": "General Settings"
+    },
+    {
+      "context": "ollama_servers_settings:Ollama Servers Settings",
+      "raw_value_type": "str",
+      "raw_value_length": 296,
+      "raw_value_preview": "'8xi6uddsdusu0gG6/97ifv4FTqrHKrFf8tvqG5fxpttWb6LF5rFj7/CBKoSQa3eFZvZTagRCeacFOclba7uinydH/vtviH0bEqJA'",
+      "appears_encrypted": true,
+      "appears_json": false,
+      "appears_double_encoded": false,
+      "json_parse_attempts": [
+        {
+          "method": "direct_json",
+          "success": false,
+          "error": "Extra data: line 1 column 2 (char 1)"
+        },
+        {
+          "method": "strip_quotes",
+          "success": false,
+          "error": "Extra data: line 1 column 2 (char 1)"
+        },
+        {
+          "method": "double_decode",
+          "success": false,
+          "error": "Extra data: line 1 column 2 (char 1)"
+        },
+        {
+          "method": "unescape_quotes",
+          "success": false,
+          "error": "Returned None"
+        }
+      ],
+      "final_parsed_value": null,
+      "parsing_success": false,
+      "setting_id": "3e08e6c0fdd4422cb8ec9f4e911813fe",
+      "definition_id": "ollama_servers_settings",
+      "setting_name": "Ollama Servers Settings"
+    },
+    {
+      "context": "theme_settings:Theme Settings",
+      "raw_value_type": "str",
+      "raw_value_length": 42,
+      "raw_value_preview": "'{\"theme\": \"dark\", \"useSystemTheme\": false}'",
+      "appears_encrypted": false,
+      "appears_json": true,
+      "appears_double_encoded": false,
+      "json_parse_attempts": [
+        {
+          "method": "direct_json",
+          "success": true,
+          "result_type": "dict",
+          "result_preview": "{'theme': 'dark', 'useSystemTheme': False}"
+        },
+        {
+          "method": "strip_quotes",
+          "success": true,
+          "result_type": "dict",
+          "result_preview": "{'theme': 'dark', 'useSystemTheme': False}"
+        },
+        {
+          "method": "double_decode",
+          "success": true,
+          "result_type": "dict",
+          "result_preview": "{'theme': 'dark', 'useSystemTheme': False}"
+        },
+        {
+          "method": "unescape_quotes",
+          "success": false,
+          "error": "Returned None"
+        }
+      ],
+      "final_parsed_value": {
+        "theme": "dark",
+        "useSystemTheme": false
+      },
+      "parsing_success": true,
+      "setting_id": "e33aace4a1e148d4a914ac494eedff17",
+      "definition_id": "theme_settings",
+      "setting_name": "Theme Settings"
+    }
+  ],
+  "summary": {
+    "total_settings": 3,
+    "ollama_settings_count": 1,
+    "encrypted_values": 1,
+    "json_values": 2,
+    "double_encoded_values": 0,
+    "parsing_failures": 1,
+    "parsing_successes": 2
+  }
+}

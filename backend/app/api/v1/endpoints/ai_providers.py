@@ -18,6 +18,7 @@ from app.models.settings import SettingDefinition, SettingScope, SettingInstance
 from app.models.user import User
 from app.ai_providers.registry import provider_registry
 from app.ai_providers.ollama import OllamaProvider
+from app.utils.json_parsing import safe_encrypted_json_parse, validate_ollama_settings_format, create_default_ollama_settings
 from app.schemas.ai_providers import (
     TextGenerationRequest,
     ChatCompletionRequest,
@@ -41,6 +42,12 @@ async def get_provider_instance_from_request(request, db):
         user_id = user_id.replace("-", "")
     
     logger = logging.getLogger(__name__)
+    print(f"🚀 PROVIDER REQUEST RECEIVED")
+    print(f"📊 Provider: {request.provider}")
+    print(f"📊 Settings ID: {request.settings_id}")
+    print(f"📊 Server ID: {request.server_id}")
+    print(f"📊 Model: {getattr(request, 'model', 'N/A')}")
+    print(f"📊 User ID: {user_id}")
     logger.info(f"Getting provider instance for: settings_id={request.settings_id}, user_id={user_id}")
     logger.info(f"Original user_id from request: {request.user_id}")
     
@@ -94,43 +101,63 @@ async def get_provider_instance_from_request(request, db):
         
         # Use the first setting found
         setting = settings[0]
-        logger.info(f"Using setting with ID: {setting['id'] if isinstance(setting, dict) else setting.id}")
+        logger.debug(f"Using setting with ID: {setting['id'] if isinstance(setting, dict) else setting.id}")
         
-        # Extract configuration from settings value
-        # Parse the JSON string if value is a string
+        # Extract configuration from settings value using robust parsing
         setting_value = setting['value'] if isinstance(setting, dict) else setting.value
+        setting_id = setting['id'] if isinstance(setting, dict) else setting.id
         
-        if isinstance(setting_value, str):
-            try:
-                # First parse
-                logger.info("Parsing settings value as JSON string")
-                value_dict = json.loads(setting_value)
-                logger.debug(f"Parsed JSON string into: {value_dict}")
-                
-                # Check if the result is still a string (double-encoded JSON)
-                if isinstance(value_dict, str):
-                    logger.info("Value is double-encoded JSON, parsing again")
-                    value_dict = json.loads(value_dict)
-                    logger.debug(f"Parsed double-encoded JSON into: {value_dict}")
-                
-                # Now value_dict should be a dictionary
-                if not isinstance(value_dict, dict):
-                    logger.error(f"Error: value_dict is not a dictionary: {type(value_dict)}")
+        # Use our robust JSON parsing utility that handles encryption issues
+        try:
+            value_dict = safe_encrypted_json_parse(
+                setting_value,
+                context=f"settings_id={request.settings_id}, user_id={user_id}",
+                setting_id=setting_id,
+                definition_id=request.settings_id
+            )
+            
+            # Ensure we have a dictionary
+            if not isinstance(value_dict, dict):
+                logger.error(f"Parsed value is not a dictionary: {type(value_dict)}")
+                # For Ollama settings, provide a default structure
+                if 'ollama' in request.settings_id.lower():
+                    logger.warning("Creating default Ollama settings structure")
+                    value_dict = create_default_ollama_settings()
+                else:
                     raise HTTPException(
                         status_code=500,
-                        detail=f"Error parsing settings value: expected dict, got {type(value_dict)}. "
-                               f"Please check the format of your settings."
+                        detail=f"Settings value must be a dictionary, got {type(value_dict)}. "
+                               f"Setting ID: {setting_id}"
                     )
-            except json.JSONDecodeError as e:
-                logger.error(f"Error parsing JSON string: {e}")
+            
+            logger.debug(f"Successfully parsed settings value for {request.settings_id}")
+            
+        except ValueError as e:
+            logger.error(f"Failed to parse encrypted settings: {e}")
+            # For Ollama settings, provide helpful error message and fallback
+            if 'ollama' in request.settings_id.lower():
+                logger.info("Ollama settings parsing failed, using fallback configuration")
+                value_dict = create_default_ollama_settings()
+            else:
                 raise HTTPException(
                     status_code=500,
-                    detail=f"Error parsing settings value: {str(e)}. "
-                           f"Please ensure the settings value is valid JSON."
+                    detail=str(e)
                 )
-        else:
-            logger.info("Settings value is already a dictionary")
-            value_dict = setting_value
+        except Exception as e:
+            logger.error(f"Unexpected error parsing settings: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Unexpected error parsing settings: {str(e)}. Setting ID: {setting_id}"
+            )
+        
+        # Add specific validation for Ollama settings
+        if 'ollama' in request.settings_id.lower():
+            logger.info("Validating Ollama settings format")
+            if not validate_ollama_settings_format(value_dict):
+                logger.warning("Ollama settings format validation failed, using default structure")
+                value_dict = create_default_ollama_settings()
+            else:
+                logger.info("Ollama settings format validation passed")
         
         # Handle different provider configurations
         if request.provider == "openai":
@@ -207,32 +234,33 @@ async def get_provider_instance_from_request(request, db):
             logger.info(f"Created Groq config with API key")
         else:
             # Other providers (like Ollama) use servers array
-            logger.info("Processing server-based provider configuration")
+            logger.debug("Processing server-based provider configuration")
             servers = value_dict.get("servers", [])
-            logger.info(f"Found {len(servers)} servers in settings")
+            logger.debug(f"Found {len(servers)} servers in settings")
             
             # Find the specific server by ID
-            logger.info(f"Looking for server with ID: {request.server_id}")
+            logger.debug(f"Looking for server with ID: '{request.server_id}'")
             server = next((s for s in servers if s.get("id") == request.server_id), None)
+            
             if not server and servers:
-                # If the requested server ID is not found but there are servers available,
-                # use the first server as a fallback
-                logger.warning(f"Server with ID {request.server_id} not found, using first available server as fallback")
+                logger.warning(f"Server with ID '{request.server_id}' not found, using first available server as fallback")
                 server = servers[0]
-                logger.info(f"Using fallback server: {server.get('serverName')} ({server.get('id')})")
+                logger.info(f"Using fallback server: {server.get('serverName')} (ID: {server.get('id')})")
             
             if not server:
-                logger.error(f"No server found with ID: {request.server_id} and no fallback available")
+                logger.error(f"No server found with ID: '{request.server_id}' and no fallback available")
                 raise HTTPException(
                     status_code=404,
                     detail=f"Server not found with ID: {request.server_id}. "
                            f"Please check your server configuration or use a different server ID."
                 )
             
-            logger.info(f"Found server: {server.get('serverName')}")
+            logger.debug(f"Found server: {server.get('serverName')} (ID: {server.get('id')})")
             
             # Create provider configuration from server details
             server_url = server.get("serverAddress")
+            logger.debug(f"Server URL from settings: '{server_url}'")
+            
             if not server_url:
                 logger.error(f"Server URL is missing for server: {server.get('id')}")
                 raise HTTPException(
@@ -246,8 +274,13 @@ async def get_provider_instance_from_request(request, db):
                 "api_key": server.get("apiKey", ""),
                 "server_name": server.get("serverName", "Unknown Server")
             }
+            
+            logger.info(f"🔧 Created server config:")
+            logger.info(f"  - server_url: {config.get('server_url')}")
+            logger.info(f"  - server_name: {config.get('server_name')}")
+            logger.info(f"  - api_key: {'***' if config.get('api_key') else 'None'}")
         
-        logger.info(f"Created config with server_url: {config.get('server_url', 'N/A')}")
+        logger.info(f"🎯 Final config server_url: {config.get('server_url', 'N/A')}")
         
         # Get provider instance
         logger.info(f"Getting provider instance for: {request.provider}, {request.server_id}")
@@ -716,6 +749,13 @@ async def chat_completion(request: ChatCompletionRequest, db: AsyncSession = Dep
     """
     logger = logging.getLogger(__name__)
     try:
+        print(f"🎯 CHAT COMPLETION ENDPOINT CALLED")
+        print(f"📊 Provider: {request.provider}")
+        print(f"📊 Settings ID: {request.settings_id}")
+        print(f"📊 Server ID: {request.server_id}")
+        print(f"📊 Model: {request.model}")
+        print(f"📊 User ID: {request.user_id}")
+        print(f"📊 Stream: {request.stream}")
         logger.info(f"Production chat endpoint called with: provider={request.provider}, settings_id={request.settings_id}, server_id={request.server_id}, model={request.model}")
         logger.debug(f"Messages: {request.messages}")
         logger.debug(f"Params: {request.params}")
