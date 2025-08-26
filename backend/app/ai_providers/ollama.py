@@ -114,6 +114,36 @@ class OllamaProvider(AIProvider):
                     "metadata": result,
                     "finish_reason": result.get("done") and "stop" or None
                 }
+        except httpx.ConnectError as e:
+            logger.error(f"❌ Cannot connect to Ollama server at {api_url}")
+            return {
+                "error": f"Cannot connect to Ollama server at {self.server_url}. "
+                        f"Please check if the server is running and accessible.",
+                "provider": "ollama",
+                "model": model,
+                "server_name": self.server_name,
+                "server_url": self.server_url
+            }
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                logger.error(f"❌ Model '{model}' not found on server {self.server_name}")
+                return {
+                    "error": f"Model '{model}' not found on Ollama server '{self.server_name}'. "
+                            f"Please check if the model is installed or use a different model.",
+                    "provider": "ollama",
+                    "model": model,
+                    "server_name": self.server_name,
+                    "server_url": self.server_url
+                }
+            else:
+                logger.error(f"❌ HTTP error {e.response.status_code} from server {self.server_name}")
+                return {
+                    "error": f"HTTP {e.response.status_code} error from Ollama server '{self.server_name}': {e.response.text}",
+                    "provider": "ollama",
+                    "model": model,
+                    "server_name": self.server_name,
+                    "server_url": self.server_url
+                }
         except Exception as e:
             return self._format_error(e, model)
 

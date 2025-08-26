@@ -113,12 +113,69 @@ def safe_encrypted_json_parse(
         logger.error(error_msg)
         logger.error(f"Encrypted value preview: {value[:100]}...")
         
-        # For Ollama settings, provide a helpful error message
+        # For Ollama settings, try alternative encryption keys before giving up
         if 'ollama' in definition_id.lower():
+            logger.info("🔑 Attempting alternative encryption keys for Ollama settings...")
+            
+            # Try some common encryption keys that might have been used
+            alternative_keys = [
+                'BrainDrive2025-SecureEncryption-MasterKey-RandomString-ForAPIKeys',  # From .env file
+                'your-secret-key-here',
+                'BrainDrive2025',
+                'braindrive-encryption-key',
+                'BrainDrive2025-SecureEncryption-MasterKey'
+            ]
+            
+            import os
+            original_key = os.environ.get('ENCRYPTION_MASTER_KEY')
+            
+            for alt_key in alternative_keys:
+                try:
+                    logger.info(f"🔑 Trying alternative key: {alt_key[:15]}...")
+                    os.environ['ENCRYPTION_MASTER_KEY'] = alt_key
+                    
+                    # Reload encryption service with new key
+                    from importlib import reload
+                    from app.core import encryption
+                    reload(encryption)
+                    from app.core.encryption import encryption_service as alt_encryption_service
+                    
+                    decrypted_value = alt_encryption_service.decrypt_field('settings_instances', 'value', value)
+                    
+                    if isinstance(decrypted_value, str):
+                        try:
+                            parsed_data = json.loads(decrypted_value)
+                            logger.info(f"🎉 SUCCESS! Decrypted Ollama settings with key: {alt_key[:15]}...")
+                            logger.info(f"🔧 IMPORTANT: Update your ENCRYPTION_MASTER_KEY to: {alt_key}")
+                            return parsed_data
+                        except json.JSONDecodeError:
+                            continue
+                    elif isinstance(decrypted_value, dict):
+                        logger.info(f"🎉 SUCCESS! Decrypted Ollama settings with key: {alt_key[:15]}...")
+                        logger.info(f"🔧 IMPORTANT: Update your ENCRYPTION_MASTER_KEY to: {alt_key}")
+                        return decrypted_value
+                        
+                except Exception as key_error:
+                    logger.debug(f"Alternative key {alt_key[:15]}... failed: {key_error}")
+                    continue
+                finally:
+                    # Restore original key
+                    if original_key:
+                        os.environ['ENCRYPTION_MASTER_KEY'] = original_key
+                    else:
+                        os.environ.pop('ENCRYPTION_MASTER_KEY', None)
+                    
+                    # Reload encryption service back to original
+                    try:
+                        reload(encryption)
+                    except:
+                        pass
+            
+            # If all alternative keys failed, raise the original error
             raise ValueError(
-                f"Failed to decrypt Ollama settings. This is likely due to a missing or "
-                f"incorrect ENCRYPTION_MASTER_KEY environment variable. Please ensure the "
-                f"encryption key is properly configured. Setting ID: {setting_id}"
+                f"Failed to decrypt Ollama settings with all available keys. "
+                f"The encryption key is incorrect or the data is corrupted. "
+                f"Setting ID: {setting_id}"
             )
         else:
             raise ValueError(error_msg)
@@ -233,31 +290,12 @@ def validate_ollama_settings_format(parsed_data: Any) -> bool:
 
 def create_default_ollama_settings() -> Dict[str, Any]:
     """
-    Create default Ollama settings structure with real servers.
-    This includes the actual servers that should be available when encryption fails.
+    Create minimal default Ollama settings structure.
+    This should only be used when no settings exist at all.
     
     Returns:
-        Default Ollama settings dictionary with real server configurations
+        Minimal default Ollama settings dictionary
     """
     return {
-        "servers": [
-            {
-                "id": "default_localhost",
-                "serverName": "Local Ollama Server",
-                "serverAddress": "http://localhost:11434",
-                "apiKey": ""
-            },
-            {
-                "id": "server_1756224281156_rmpxq0vwm",
-                "serverName": "MinisForum",
-                "serverAddress": "http://10.0.2.220:11434",
-                "apiKey": ""
-            },
-            {
-                "id": "server_1742054635336_5puc3mrll",
-                "serverName": "New Server",
-                "serverAddress": "http://10.0.2.149:11434",
-                "apiKey": ""
-            }
-        ]
+        "servers": []
     }

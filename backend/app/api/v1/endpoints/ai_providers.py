@@ -238,22 +238,34 @@ async def get_provider_instance_from_request(request, db):
             servers = value_dict.get("servers", [])
             logger.debug(f"Found {len(servers)} servers in settings")
             
+            logger.debug("Processing server-based provider configuration")
+            servers = value_dict.get("servers", [])
+            logger.debug(f"Found {len(servers)} servers in settings")
+            
             # Find the specific server by ID
             logger.debug(f"Looking for server with ID: '{request.server_id}'")
             server = next((s for s in servers if s.get("id") == request.server_id), None)
             
-            if not server and servers:
-                logger.warning(f"Server with ID '{request.server_id}' not found, using first available server as fallback")
-                server = servers[0]
-                logger.info(f"Using fallback server: {server.get('serverName')} (ID: {server.get('id')})")
-            
             if not server:
-                logger.error(f"No server found with ID: '{request.server_id}' and no fallback available")
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Server not found with ID: {request.server_id}. "
-                           f"Please check your server configuration or use a different server ID."
-                )
+                # Provide detailed error message about available servers
+                if servers:
+                    available_servers = [f"{s.get('serverName', 'Unknown')} (ID: {s.get('id', 'Unknown')})" for s in servers]
+                    available_list = ", ".join(available_servers)
+                    logger.error(f"❌ Server with ID '{request.server_id}' not found")
+                    logger.error(f"📋 Available servers: {available_list}")
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Ollama server '{request.server_id}' not found. "
+                               f"Available servers: {available_list}. "
+                               f"Please select a valid server from your Ollama settings."
+                    )
+                else:
+                    logger.error(f"❌ No Ollama servers configured")
+                    raise HTTPException(
+                        status_code=404,
+                        detail="No Ollama servers are configured. "
+                               "Please add at least one Ollama server in your settings before using this provider."
+                    )
             
             logger.debug(f"Found server: {server.get('serverName')} (ID: {server.get('id')})")
             
@@ -275,15 +287,10 @@ async def get_provider_instance_from_request(request, db):
                 "server_name": server.get("serverName", "Unknown Server")
             }
             
-            logger.info(f"🔧 Created server config:")
-            logger.info(f"  - server_url: {config.get('server_url')}")
-            logger.info(f"  - server_name: {config.get('server_name')}")
-            logger.info(f"  - api_key: {'***' if config.get('api_key') else 'None'}")
-        
-        logger.info(f"🎯 Final config server_url: {config.get('server_url', 'N/A')}")
+            logger.debug(f"Created server config: {config.get('server_name')} -> {config.get('server_url')}")
         
         # Get provider instance
-        logger.info(f"Getting provider instance for: {request.provider}, {request.server_id}")
+        logger.debug(f"Getting provider instance for: {request.provider}, {request.server_id}")
         provider_instance = await provider_registry.get_provider(
             request.provider,
             request.server_id,
