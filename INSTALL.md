@@ -43,52 +43,9 @@ In either terminal:
 git clone https://github.com/BrainDriveAI/BrainDrive.git
 cd BrainDrive
 ```
-
 ---
 
-## 🧩 Step 3: Build Required Plugins
-
-Before using BrainDrive, plugins must be built. You can do this automatically or manually.
-
-### 🔹 Option 1: ✅ Automatic (Recommended)
-
-#### 🪟 Windows
-
-```bat
-conda activate BrainDriveDev  # if not already activated
-build_plugins.bat
-```
-
-#### 🍎 macOS / 🐧 Linux
-
-```bash
-conda activate BrainDriveDev  # if not already activated
-chmod +x build_plugins.sh
-./build_plugins.sh
-```
-
-> 💡 These scripts detect all plugin folders in `plugins/` that contain a `package.json`, install dependencies, and run `npm run build`.
-
----
-
-### 🔸 Option 2: 🛠 Manual Plugin Build
-
-```bash
-conda activate BrainDriveDev  # if not already activated
-cd plugins/BrainDriveBasicAIChat
-npm install
-npm run build
-
-cd ../BrainDriveSettings
-npm install
-npm run build
-```
-
-Repeat for any additional plugins.
-
----
-
-## 🧪 Step 4: Set Up the Backend
+## 🧪 Step 3: Set Up the Backend
 
 ```bash
 cd backend
@@ -161,7 +118,7 @@ ENABLE_TEST_ROUTES=true
 
 ---
 
-## 🚀 Step 5: Run the Backend Server
+## 🚀 Step 4: Run the Backend Server
 
 In the **first terminal window**:
 
@@ -172,7 +129,7 @@ uvicorn main:app --reload --host localhost --port 8005
 
 ---
 
-## 💻 Step 6: Set Up and Run the Frontend
+## 💻 Step 5: Set Up and Run the Frontend
 
 In the **second terminal window**:
 
@@ -227,7 +184,6 @@ npm run dev
 | ---------- | ------------------------------------------------------------------------ |
 | ✅ Backend  | Open [http://localhost:8005](http://localhost:8005) to view FastAPI docs |
 | ✅ Frontend | Open [http://localhost:5173](http://localhost:5173) to launch the UI     |
-| ✅ Plugins  | Plugin builds completed successfully                                     |
 
 ---
 

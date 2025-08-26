@@ -2,7 +2,7 @@ Up to date list of all BrainDrive repos & corresponding documentation.
 
 ## Start here: 
 
-[Plugin Developer Quick Start Guide](https://github.com/BrainDriveAI/DocDrafts/blob/main/BrainDrive-Developer-Quickstart.md) - Start building plugins for your BrainDrive, fast.
+[Plugin Developer Quick Start Guide](https://github.com/BrainDriveAI/BrainDrive/blob/main/PLUGIN_DEVELOPER_QUICKSTART.md) - Start building plugins for your BrainDrive, fast.
 
 ## All Docs:
 
