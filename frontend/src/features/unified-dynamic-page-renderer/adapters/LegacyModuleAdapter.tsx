@@ -304,21 +304,40 @@ export const LegacyModuleAdapter: React.FC<LegacyModuleAdapterProps> = React.mem
           
           if (!targetModule) {
             // Enhanced module ID extraction for complex generated IDs
-            // Format: PluginName_actualModuleId_timestamp
+            // Format: ServiceExample_Theme_userId_ServiceExample_Theme_actualModuleId_timestamp
             const parts = moduleId.split('_');
-            if (parts.length >= 2) {
-              const extractedModuleId = parts[1]; // Get the actual module ID
+            if (parts.length >= 6) {
+              const extractedModuleId = parts[5]; // Get the actual module ID (ThemeDisplay/ThemeController)
               targetModule = remotePlugin.loadedModules.find(m => m.id === extractedModuleId);
               
               if (process.env.NODE_ENV === 'development') {
                 console.log(`[LegacyModuleAdapter] Trying extracted module ID: "${extractedModuleId}" from complex ID: "${moduleId}"`);
+                console.log(`[LegacyModuleAdapter] Module ID parts:`, parts);
                 if (targetModule) {
-                  console.log(`[LegacyModuleAdapter] Successfully found module with extracted ID:`, {
+                  console.log(`[LegacyModuleAdapter] ✅ Successfully found module with extracted ID:`, {
                     id: targetModule.id,
                     name: targetModule.name,
+                    displayName: targetModule.displayName,
                     hasComponent: !!targetModule.component
                   });
                 }
+              }
+            }
+          }
+          
+          if (!targetModule) {
+            // Enhanced fallback for complex IDs: try combined plugin_module format
+            const parts = moduleId.split('_');
+            if (parts.length >= 4) {
+              const combinedModuleId = `${parts[1]}_${parts[2]}`; // ServiceExample_Theme_ThemeDisplay
+              targetModule = remotePlugin.loadedModules.find(m =>
+                m.id === combinedModuleId ||
+                (m.id && m.id.endsWith(parts[2])) ||
+                m.name === parts[2]
+              );
+              
+              if (process.env.NODE_ENV === 'development') {
+                console.log(`[LegacyModuleAdapter] Trying combined module ID: "${combinedModuleId}" and module name: "${parts[2]}"`);
               }
             }
           }
@@ -334,17 +353,19 @@ export const LegacyModuleAdapter: React.FC<LegacyModuleAdapterProps> = React.mem
           }
           
           if (!targetModule) {
-            // For complex generated IDs like "BrainDriveChat_1830586da8834501bea1ef1d39c3cbe8_BrainDriveChat_BrainDriveChat_1754404718788"
-            // Try to extract the plugin name (first part before underscore)
-            const pluginNameFromId = moduleId.split('_')[0];
-            targetModule = remotePlugin.loadedModules.find(m =>
-              m.id === pluginNameFromId ||
-              m.name === pluginNameFromId ||
-              (m.id && m.id.includes(pluginNameFromId))
-            );
-            
-            if (process.env.NODE_ENV === 'development') {
-              console.log(`[LegacyModuleAdapter] Trying plugin name extraction: "${pluginNameFromId}" from moduleId: "${moduleId}"`);
+            // Final module name fallback: try exact match with the extracted module name
+            const parts = moduleId.split('_');
+            if (parts.length >= 3) {
+              const moduleNameOnly = parts[2];
+              targetModule = remotePlugin.loadedModules.find(m =>
+                m.name === moduleNameOnly ||
+                m.displayName === moduleNameOnly ||
+                (m.id && m.id.toLowerCase().includes(moduleNameOnly.toLowerCase()))
+              );
+              
+              if (process.env.NODE_ENV === 'development') {
+                console.log(`[LegacyModuleAdapter] Trying module name fallback: "${moduleNameOnly}"`);
+              }
             }
           }
           
@@ -383,12 +404,36 @@ export const LegacyModuleAdapter: React.FC<LegacyModuleAdapterProps> = React.mem
       }
 
       if (process.env.NODE_ENV === 'development') {
-        console.log(`[LegacyModuleAdapter] Target module found:`, targetModule);
-      }
-      if (!targetModule) {
-        if (process.env.NODE_ENV === 'development') {
-          console.log(`[LegacyModuleAdapter] No target module found for ${pluginId}/${moduleId || moduleName}`);
+        if (targetModule) {
+          const parts = moduleId ? moduleId.split('_') : [];
+          console.log(`[LegacyModuleAdapter] ✅ Module resolution successful:`, {
+            originalModuleId: moduleId,
+            extractedParts: parts,
+            extractedModuleId: parts.length >= 6 ? parts[5] : 'N/A',
+            resolvedModule: {
+              id: targetModule.id,
+              name: targetModule.name,
+              displayName: targetModule.displayName,
+              componentType: typeof targetModule.component,
+              hasComponent: !!targetModule.component
+            }
+          });
+        } else {
+          console.warn(`[LegacyModuleAdapter] ❌ Module resolution failed:`, {
+            originalModuleId: moduleId,
+            pluginId: pluginId,
+            moduleName: moduleName,
+            extractedParts: moduleId ? moduleId.split('_') : [],
+            availableModules: remotePlugin?.loadedModules?.map(m => ({
+              id: m.id,
+              name: m.name,
+              displayName: m.displayName
+            })) || []
+          });
         }
+      }
+      
+      if (!targetModule) {
         return null;
       }
 

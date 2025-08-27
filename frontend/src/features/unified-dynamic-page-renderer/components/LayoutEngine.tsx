@@ -580,7 +580,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
         // Pattern: BrainDriveBasicAIChat_59898811a4b34d9097615ed6698d25f6_1754507768265
         // We want: 59898811a4b34d9097615ed6698d25f6
         const parts = item.moduleId.split('_');
-        const extractedModuleId = parts.length >= 2 ? parts[1] : item.moduleId;
+        const extractedModuleId = parts.length >= 6 ? parts[5] : item.moduleId;
 
         // Create stable breakpoint object
         const breakpointConfig = {
@@ -651,12 +651,13 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
             pluginId={item.pluginId}
             moduleId={module._legacy?.moduleId || (() => {
               // Extract simple module ID from complex ID
-              // Pattern: BrainDriveBasicAIChat_59898811a4b34d9097615ed6698d25f6_1754507768265
-              // We want: 59898811a4b34d9097615ed6698d25f6
+              // Pattern: ServiceExample_Theme_userId_ServiceExample_Theme_actualModuleId_timestamp
+              // Example: ServiceExample_Theme_c34bfc30de004813ad5b5d3a4ab9df34_ServiceExample_Theme_ThemeDisplay_1756311722722
+              // We want: ThemeDisplay (or ThemeController)
               const parts = item.moduleId.split('_');
-              if (parts.length >= 2) {
-                // The module ID is typically the second part (after plugin name)
-                return parts[1];
+              if (parts.length >= 6) {
+                // The actual module ID is the sixth part (after ServiceExample_Theme_userId_ServiceExample_Theme)
+                return parts[5];
               }
               return item.moduleId; // fallback to original if pattern doesn't match
             })()}
