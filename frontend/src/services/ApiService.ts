@@ -186,6 +186,14 @@ class ApiService extends AbstractBaseService {
           return Promise.reject(error);
         }
         
+        // Skip token refresh for login and register requests - they should fail immediately
+        if (originalRequest.url && (
+          originalRequest.url.includes('/auth/login') ||
+          originalRequest.url.includes('/auth/register')
+        )) {
+          return Promise.reject(error);
+        }
+        
         // If error is not 401 or request has already been retried, reject
         if (error.response.status !== 401 || originalRequest._retry) {
           return Promise.reject(error);
