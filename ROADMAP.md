@@ -74,7 +74,6 @@ Our roadmap is broken into clearly defined versions, each building toward a stab
 
 - [ ] Unified Dynamic Page Renderer - Bounce
 - [ ] Unified Dynamic Page Renderer - Finetune
-- [ ] Prompt Library
 
 ---
 
