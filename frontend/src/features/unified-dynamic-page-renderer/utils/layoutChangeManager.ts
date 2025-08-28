@@ -105,13 +105,13 @@ export class LayoutChangeManager {
     
     // Skip if this is the exact same layout we just processed
     if (hash === this.lastProcessedHash) {
-      console.log('[LayoutChangeManager] Skipping duplicate layout change');
+      
       return;
     }
     
     // Skip if there's an active operation that should block this change
     if (this.shouldBlockChange(origin)) {
-      console.log('[LayoutChangeManager] Blocking layout change due to active operation');
+      
       return;
     }
     
@@ -141,11 +141,11 @@ export class LayoutChangeManager {
     
     // Final deduplication check
     if (event.hash === this.lastProcessedHash) {
-      console.log('[LayoutChangeManager] Skipping duplicate in processPendingChange');
+      
       return;
     }
     
-    console.log(`[LayoutChangeManager] Processing layout change from ${event.origin.source}`);
+    
     
     this.lastProcessedHash = event.hash;
     this.pendingChanges.delete(debounceKey);
@@ -159,7 +159,7 @@ export class LayoutChangeManager {
    */
   startOperation(operationId: string): void {
     this.activeOperations.add(operationId);
-    console.log(`[LayoutChangeManager] Started operation: ${operationId}`);
+    
   }
 
   /**
@@ -167,7 +167,7 @@ export class LayoutChangeManager {
    */
   stopOperation(operationId: string): void {
     this.activeOperations.delete(operationId);
-    console.log(`[LayoutChangeManager] Stopped operation: ${operationId}`);
+    
   }
 
   /**

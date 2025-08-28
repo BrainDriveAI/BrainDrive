@@ -27,12 +27,12 @@ export const useLayout = (
     }
     
     currentPageIdRef.current = initialPage?.id || null;
-    console.log('[useLayout] Page changed to:', initialPage?.id);
+    
     
     if (initialPage?.layouts) {
       // Create a deep copy of the layouts to ensure we're not sharing references
       const layoutsCopy = JSON.parse(JSON.stringify(initialPage.layouts));
-      console.log('[useLayout] Setting layouts from new page:', JSON.stringify(layoutsCopy));
+      
       setLayouts(layoutsCopy);
       // Reset the last processed layout when page changes
       lastProcessedLayoutRef.current = JSON.stringify(layoutsCopy);
@@ -59,7 +59,7 @@ export const useLayout = (
   const resizeEndTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   const processLayoutChange = useCallback((layout: any[], newLayouts: Layouts) => {
-    console.log('[useLayout] Processing layout change');
+    
     
     // Track performance metrics
     performanceMetricsRef.current.lastUpdate = Date.now();
@@ -130,7 +130,7 @@ export const useLayout = (
   }, [initialPage]);
   
   const handleLayoutChange = useCallback((layout: any[], newLayouts: Layouts) => {
-    console.log('[useLayout] Processing layout change with enhanced debouncing');
+    
     
     // Create a stable hash of the new layouts for comparison
     const newLayoutsHash = JSON.stringify(newLayouts);
@@ -140,7 +140,7 @@ export const useLayout = (
     const isImmediateDuplicate = lastProcessedLayoutRef.current === newLayoutsHash && timeSinceLastUpdate < 200;
     
     if (isImmediateDuplicate) {
-      console.log('[useLayout] Immediate duplicate layout detected, skipping');
+      
       return;
     }
     
@@ -163,7 +163,7 @@ export const useLayout = (
         
         // Final duplicate check before processing
         if (pendingHash === lastProcessedLayoutRef.current) {
-          console.log('[useLayout] Skipping duplicate in timeout');
+          
           pendingLayoutRef.current = null;
           layoutUpdateTimeoutRef.current = null;
           return;

@@ -50,13 +50,7 @@ export class DynamicPluginRenderer extends React.Component<
 
     const Component = module.component;
     
-    console.log(`[DynamicPluginRenderer] Rendering component for ${module.name}:`, {
-      hasComponent: !!Component,
-      componentType: typeof Component,
-      componentName: Component?.name,
-      isFunction: typeof Component === 'function',
-      moduleProps: Object.keys(module.props || {})
-    });
+    
     
     if (!Component) {
       console.error(`[DynamicPluginRenderer] No component found for module ${module.name}`);

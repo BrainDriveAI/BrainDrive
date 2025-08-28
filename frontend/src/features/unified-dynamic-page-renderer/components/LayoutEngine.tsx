@@ -50,22 +50,12 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   const layoutEngineRenderCount = useRef(0);
   layoutEngineRenderCount.current++;
   
-  if (process.env.NODE_ENV === 'development') {
-    console.log(`[LayoutEngine] COMPONENT RENDER #${layoutEngineRenderCount.current}`, {
-      layoutsKeys: Object.keys(layouts),
-      modulesLength: modules.length,
-      mode,
-      lazyLoading,
-      preloadPluginsLength: preloadPlugins.length,
-    });
-  }
 
   // Use unified layout state management with stable reference
   const unifiedLayoutState = useUnifiedLayoutState({
     initialLayouts: layouts,
     debounceMs: 200, // Increase debounce to prevent rapid updates
     onLayoutPersist: (persistedLayouts, origin) => {
-      console.log(`[LayoutEngine] Persisting layout change from ${origin.source}`);
       onLayoutChange?.(persistedLayouts);
     },
     onError: (error) => {
@@ -169,7 +159,6 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   useEffect(() => {
     // Reset layouts when page changes
     if (pageId !== pageIdRef.current) {
-      console.log('[LayoutEngine] Page changed, resetting layouts');
       unifiedLayoutState.resetLayouts(layouts);
       pageIdRef.current = pageId;
       return;
@@ -280,14 +269,12 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     currentOperationId.current = operationId;
     setIsDragging(true);
     unifiedLayoutState.startOperation(operationId);
-    console.log('[LayoutEngine] Started drag operation:', operationId);
   }, [unifiedLayoutState]);
 
   // Handle drag stop
   const handleDragStop = useCallback((layout: any[]) => {
     if (currentOperationId.current) {
       unifiedLayoutState.stopOperation(currentOperationId.current);
-      console.log('[LayoutEngine] Stopped drag operation:', currentOperationId.current);
       currentOperationId.current = null;
     }
     setIsDragging(false);
@@ -452,7 +439,6 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
 
   // Handle item removal
   const handleItemRemove = useCallback((itemId: string) => {
-    console.log(`[LayoutEngine] Removing item: ${itemId}`);
     
     // Create new layouts with the item removed from all breakpoints
     const updatedLayouts: ResponsiveLayouts = {
@@ -502,16 +488,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   const renderGridItems = useCallback(() => {
     const currentLayout = currentLayouts[currentBreakpoint as keyof ResponsiveLayouts] || currentLayouts.desktop || [];
     
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`[LayoutEngine] RENDER TRIGGERED - Rendering ${currentLayout.length} items for breakpoint: ${currentBreakpoint}`, {
-        availableModules: Object.keys(moduleMap),
-        availableModuleDetails: Object.entries(moduleMap).map(([id, mod]) => ({ id, pluginId: mod.pluginId })),
-        layoutItems: currentLayout.map((item: LayoutItem) => ({ i: item.i, moduleId: item.moduleId, pluginId: item.pluginId })),
-        currentLayouts: Object.keys(currentLayouts),
-        currentBreakpoint,
-        stackTrace: new Error().stack?.split('\n').slice(0, 5).join('\n')
-      });
-    }
+    
     
     return currentLayout.map((item: LayoutItem) => {
       // Try to find the module by moduleId with multiple strategies
@@ -524,17 +501,11 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
         module = moduleMap[sanitizedModuleId];
         
         if (module) {
-          if (process.env.NODE_ENV === 'development') {
-            console.log(`[LayoutEngine] Found module using sanitized ID: ${sanitizedModuleId} for original: ${item.moduleId}`);
-          }
         } else {
           // Strategy 2: Try finding by pluginId match
           for (const [moduleId, moduleConfig] of Object.entries(moduleMap)) {
             if (moduleConfig.pluginId === item.pluginId) {
               module = moduleConfig;
-              if (process.env.NODE_ENV === 'development') {
-                console.log(`[LayoutEngine] Found module by pluginId match: ${moduleId} for ${item.moduleId}`);
-              }
               break;
             }
           }
@@ -542,15 +513,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       }
       
       if (!module) {
-        if (process.env.NODE_ENV === 'development') {
-          console.warn(`[LayoutEngine] Module not found for moduleId: ${item.moduleId}`, {
-            availableModules: Object.keys(moduleMap),
-            availableModuleDetails: Object.entries(moduleMap).map(([id, mod]) => ({ id, pluginId: mod.pluginId })),
-            layoutItem: item,
-            searchedModuleId: item.moduleId,
-            itemPluginId: item.pluginId
-          });
-        }
+        
         
         // Instead of returning null, try to render with the layout item data directly
         // This allows the LegacyModuleAdapter to handle the module loading
@@ -569,9 +532,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
             const availablePluginIds = ['BrainDriveBasicAIChat', 'BrainDriveChat', 'BrainDriveSettings'];
             if (availablePluginIds.includes(potentialPluginId)) {
               fallbackPluginId = potentialPluginId;
-              if (process.env.NODE_ENV === 'development') {
-                console.log(`[LayoutEngine] Extracted pluginId '${fallbackPluginId}' from moduleId '${item.moduleId}'`);
-              }
+              
             }
           }
         }
@@ -739,18 +700,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
 
   // Memoize the rendered grid items with minimal stable dependencies
   const gridItems = useMemo(() => {
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`[LayoutEngine] MEMO RECALCULATION - gridItems being recalculated`, {
-        currentLayoutsKeys: Object.keys(currentLayouts),
-        currentBreakpoint,
-        moduleMapSize: Object.keys(moduleMap).length,
-        selectedItem,
-        mode,
-        lazyLoading,
-        preloadPluginsLength: preloadPlugins.length,
-        stackTrace: new Error().stack?.split('\n').slice(0, 3).join('\n')
-      });
-    }
+    
     return renderGridItems();
   }, [
     // Only include the most essential dependencies that should trigger re-render
@@ -777,9 +727,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   );
 }, (prevProps, nextProps) => {
   // Custom comparison function for React.memo
-  if (process.env.NODE_ENV === 'development') {
-    console.log('[LayoutEngine] MEMO COMPARISON - Checking if props are equal');
-  }
+  
   
   // Compare primitive props
   if (
@@ -787,24 +735,18 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     prevProps.lazyLoading !== nextProps.lazyLoading ||
     prevProps.pageId !== nextProps.pageId
   ) {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[LayoutEngine] MEMO COMPARISON - Primitive props changed, re-rendering');
-    }
+    
     return false;
   }
   
   // Compare arrays by length and content
   if (prevProps.modules.length !== nextProps.modules.length) {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[LayoutEngine] MEMO COMPARISON - Modules length changed, re-rendering');
-    }
+    
     return false;
   }
   
   if ((prevProps.preloadPlugins?.length || 0) !== (nextProps.preloadPlugins?.length || 0)) {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[LayoutEngine] MEMO COMPARISON - PreloadPlugins length changed, re-rendering');
-    }
+    
     return false;
   }
   
@@ -813,18 +755,14 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   const nextLayoutsStr = JSON.stringify(nextProps.layouts);
   
   if (prevLayoutsStr !== nextLayoutsStr) {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[LayoutEngine] MEMO COMPARISON - Layouts changed, re-rendering');
-    }
+    
     return false;
   }
   
   // Compare modules by ID (assuming modules have stable IDs)
   for (let i = 0; i < prevProps.modules.length; i++) {
     if (prevProps.modules[i].id !== nextProps.modules[i].id) {
-      if (process.env.NODE_ENV === 'development') {
-        console.log('[LayoutEngine] MEMO COMPARISON - Module IDs changed, re-rendering');
-      }
+      
       return false;
     }
   }
@@ -832,9 +770,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   // Skip callback function comparison - they change frequently but don't affect rendering
   // This is the key optimization: ignore callback prop changes
   
-  if (process.env.NODE_ENV === 'development') {
-    console.log('[LayoutEngine] MEMO COMPARISON - Props are equal, preventing re-render');
-  }
+  
   
   return true; // Props are equal, prevent re-render
 });

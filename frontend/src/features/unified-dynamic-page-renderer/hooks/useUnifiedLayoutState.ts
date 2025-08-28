@@ -72,14 +72,14 @@ export function useUnifiedLayoutState(options: UnifiedLayoutStateOptions = {}): 
 
   // Handle processed layout changes - now stable!
   const handleLayoutChangeEvent = useCallback((event: LayoutChangeEvent) => {
-    console.log(`[useUnifiedLayoutState] Processing layout change from ${event.origin.source}`);
+    
     
     setIsLayoutChanging(true);
     
     // Update the layouts state only if different
     setLayouts(prevLayouts => {
       if (compareLayoutsSemanticaly(prevLayouts, event.layouts)) {
-        console.log('[useUnifiedLayoutState] Layouts are identical, skipping state update');
+        
         setIsLayoutChanging(false); // Reset immediately if no change
         return prevLayouts; // Return same reference to prevent re-render
       }
@@ -128,7 +128,7 @@ export function useUnifiedLayoutState(options: UnifiedLayoutStateOptions = {}): 
   // Handle initial layouts
   useEffect(() => {
     if (initialLayouts && !initializationCompleteRef.current) {
-      console.log('[useUnifiedLayoutState] Setting initial layouts');
+      
       setLayouts(initialLayouts);
       stableLayoutsRef.current = initialLayouts;
       lastPersistedHashRef.current = generateLayoutHash(initialLayouts);
@@ -145,11 +145,11 @@ export function useUnifiedLayoutState(options: UnifiedLayoutStateOptions = {}): 
 
     // Skip if layouts are semantically identical - use stable ref instead of state
     if (compareLayoutsSemanticaly(stableLayoutsRef.current, newLayouts)) {
-      console.log('[useUnifiedLayoutState] Skipping identical layout update');
+      
       return;
     }
 
-    console.log(`[useUnifiedLayoutState] Queueing layout update from ${origin.source}`);
+    
     
     // Queue the layout change with appropriate debounce key
     const debounceKey = origin.operationId || origin.source;
@@ -158,7 +158,7 @@ export function useUnifiedLayoutState(options: UnifiedLayoutStateOptions = {}): 
 
   // Reset layouts function (for page changes, etc.)
   const resetLayouts = useCallback((newLayouts: ResponsiveLayouts | null) => {
-    console.log('[useUnifiedLayoutState] Resetting layouts');
+    
     setLayouts(newLayouts);
     stableLayoutsRef.current = newLayouts;
     lastPersistedHashRef.current = newLayouts ? generateLayoutHash(newLayouts) : null;

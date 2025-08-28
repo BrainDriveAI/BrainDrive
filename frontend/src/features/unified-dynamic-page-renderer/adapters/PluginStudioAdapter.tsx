@@ -254,7 +254,7 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
           conversionTime,
           lastUpdate: Date.now()
         }));
-        console.log(`[PluginStudioAdapter] Page conversion took ${conversionTime.toFixed(2)}ms`);
+        
       }
 
       return pageData;

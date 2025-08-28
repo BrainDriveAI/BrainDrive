@@ -25,8 +25,7 @@ export const PageManagementDialog: React.FC<PageManagementDialogAdapterProps> = 
     updatePage
   } = usePluginStudio();
   
-  console.log('🔧 PageManagementDialogAdapter rendered:', { open, hasCurrentPage: !!currentPage });
-  console.log('🔧 PageManagementDialogAdapter context:', { currentPageId: currentPage?.id, currentPageName: currentPage?.name });
+  
 
   // Only render the dialog if we have a current page
   if (!currentPage) {
