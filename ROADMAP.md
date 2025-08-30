@@ -6,7 +6,7 @@ Our roadmap is broken into clearly defined versions, each building toward a stab
 
 ---
 
-## Current Version: 0.1 – Developer Access (In Progress)
+## Current Version: 0.1 – Developer Access
 > Status: Early developer installs and feedback
 
 - [x] Codebase published and installable outside lead developer’s machine
@@ -56,7 +56,7 @@ Our roadmap is broken into clearly defined versions, each building toward a stab
 
 ---
 
-## Version 0.6.0 – Open Beta
+## Version 0.6.0 – Open Beta (In Progress)
 > Goal: AI System with core functionality for developers
 
 - [x] All plugins moved to the Life Cycle Manager
