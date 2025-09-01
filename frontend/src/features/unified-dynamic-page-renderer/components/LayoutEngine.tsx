@@ -148,6 +148,15 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   const processedOperations = useRef<Set<string>>(new Set());
   const operationCleanupTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
   
+  // Bounce detection tracking
+  const previousPositionsRef = useRef<Map<string, { x: number; y: number; w: number; h: number; timestamp?: number }>>(new Map());
+  
+  // Track intended positions (the position user actually wanted)
+  const intendedPositionsRef = useRef<Map<string, { x: number; y: number; w: number; h: number; timestamp: number }>>(new Map());
+  
+  // Track bounce suppression window
+  const bounceSuppressionRef = useRef<Map<string, number>>(new Map());
+  
   // Debug logging for bounce detection
   const debugLog = useCallback((message: string, data?: any) => {
     const timestamp = performance.now();
@@ -161,6 +170,11 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     if (pageId !== pageIdRef.current) {
       unifiedLayoutState.resetLayouts(layouts);
       pageIdRef.current = pageId;
+      
+      // Clear bounce detection tracking when page changes
+      previousPositionsRef.current.clear();
+      intendedPositionsRef.current.clear();
+      debugLog('🔄 Page changed - cleared bounce detection tracking', { newPageId: pageId });
       return;
     }
 
@@ -198,6 +212,124 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       allLayoutsKeys: Object.keys(allLayouts || {}),
       layoutData: layout?.map(item => ({ i: item.i, x: item.x, y: item.y, w: item.w, h: item.h }))
     });
+
+    // EARLY BOUNCE DETECTION: Block suspicious layout changes immediately
+    if (!operationId && !isResizing && !isDragging && layout && layout.length > 0) {
+      // Check if any item is trying to change to a position we've seen before (potential bounce)
+      for (const item of layout) {
+        const itemKey = `${item.i}`;
+        const intendedPos = intendedPositionsRef.current.get(itemKey);
+        
+        if (intendedPos) {
+          const timeSinceIntended = Date.now() - intendedPos.timestamp;
+          const currentPos = { x: item.x, y: item.y, w: item.w, h: item.h };
+          
+          // If this change is happening soon after an intended position was set
+          // and it's different from the intended position, it's likely a bounce
+          if (timeSinceIntended < 1000) {
+            const isDifferentFromIntended = intendedPos.x !== currentPos.x || intendedPos.y !== currentPos.y ||
+                                          intendedPos.w !== currentPos.w || intendedPos.h !== currentPos.h;
+            
+            if (isDifferentFromIntended) {
+              debugLog('🚫 EARLY BOUNCE BLOCK - Rejecting suspicious layout change', {
+                itemId: item.i,
+                currentPosition: currentPos,
+                intendedPosition: intendedPos,
+                timeSinceIntended,
+                reason: 'SUSPICIOUS_CHANGE_AFTER_OPERATION'
+              });
+              
+              // Completely reject this layout change - CRITICAL: This prevents the bounce!
+              return;
+            }
+          }
+        }
+      }
+    }
+
+    // BOUNCE DETECTION: Track position changes to detect visual bounces
+    if (layout && layout.length > 0) {
+      layout.forEach(item => {
+        const currentPos = { x: item.x, y: item.y, w: item.w, h: item.h };
+        const itemKey = `${item.i}`;
+        
+        // Get previous position from ref
+        if (!previousPositionsRef.current) {
+          previousPositionsRef.current = new Map();
+        }
+        
+        const prevPos = previousPositionsRef.current.get(itemKey);
+        
+        if (prevPos) {
+          // Check if position changed
+          const posChanged = prevPos.x !== currentPos.x || prevPos.y !== currentPos.y ||
+                           prevPos.w !== currentPos.w || prevPos.h !== currentPos.h;
+          
+          if (posChanged) {
+            // Check if this is a bounce back to an even earlier position
+            const prevPrevPos = previousPositionsRef.current.get(`${itemKey}_prev`);
+            if (prevPrevPos) {
+              const isBouncingBack = prevPrevPos.x === currentPos.x && prevPrevPos.y === currentPos.y &&
+                                   prevPrevPos.w === currentPos.w && prevPrevPos.h === currentPos.h;
+              
+              if (isBouncingBack) {
+                debugLog('🔴 BOUNCE DETECTED! Item returned to previous position', {
+                  itemId: item.i,
+                  operationId,
+                  isResizing,
+                  isDragging,
+                  previousPosition: prevPos,
+                  currentPosition: currentPos,
+                  bouncedBackTo: prevPrevPos,
+                  timeSinceLastChange: Date.now() - (prevPos.timestamp || 0)
+                });
+                
+                // AGGRESSIVE BOUNCE PREVENTION: Completely block bounce changes
+                const intendedPos = intendedPositionsRef.current.get(itemKey);
+                if (intendedPos && !operationId && !isResizing && !isDragging) {
+                  // This is a bounce occurring after operation completion
+                  const timeSinceIntended = Date.now() - intendedPos.timestamp;
+                  
+                  // Block bounces that occur within 1 second of the intended position being set
+                  if (timeSinceIntended < 1000) {
+                    debugLog('🚫 BLOCKING BOUNCE - Rejecting entire layout change', {
+                      itemId: item.i,
+                      bouncedTo: currentPos,
+                      intendedPosition: intendedPos,
+                      timeSinceIntended,
+                      action: 'REJECTING_LAYOUT_CHANGE'
+                    });
+                    
+                    // COMPLETELY REJECT this layout change by returning early
+                    // This prevents the bounce from being processed at all
+                    return;
+                  }
+                }
+              }
+            }
+            
+            debugLog('📍 POSITION CHANGE', {
+              itemId: item.i,
+              operationId,
+              isResizing,
+              isDragging,
+              from: prevPos,
+              to: currentPos,
+              deltaX: currentPos.x - prevPos.x,
+              deltaY: currentPos.y - prevPos.y,
+              deltaW: currentPos.w - prevPos.w,
+              deltaH: currentPos.h - prevPos.h
+            });
+            
+            // Store previous position as prev_prev for bounce detection
+            previousPositionsRef.current.set(`${itemKey}_prev`, prevPos);
+          }
+        }
+        
+        // Update current position with timestamp
+        previousPositionsRef.current.set(itemKey, { ...currentPos, timestamp: Date.now() });
+      });
+    }
     
     // Check for duplicate processing
     if (operationId && processedOperations.current.has(operationId)) {
@@ -260,6 +392,22 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     if (operationId) {
       processedOperations.current.add(operationId);
       debugLog('Marked operation as processed', { operationId });
+      
+      // CAPTURE INTENDED POSITIONS: Store the final positions from user operations
+      if (origin.source === 'user-resize' || origin.source === 'user-drag') {
+        layout?.forEach(item => {
+          const itemKey = `${item.i}`;
+          const intendedPos = { x: item.x, y: item.y, w: item.w, h: item.h, timestamp: Date.now() };
+          intendedPositionsRef.current.set(itemKey, intendedPos);
+          
+          debugLog('💾 CAPTURED INTENDED POSITION', {
+            itemId: item.i,
+            operationId,
+            operationType: origin.source,
+            intendedPosition: intendedPos
+          });
+        });
+      }
     }
   }, [isDragging, isResizing, unifiedLayoutState, debugLog]);
 
