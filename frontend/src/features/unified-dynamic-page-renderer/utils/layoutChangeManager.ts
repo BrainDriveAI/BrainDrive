@@ -4,6 +4,7 @@ export interface LayoutChangeOrigin {
   source: 'user-drag' | 'user-resize' | 'user-remove' | 'external-sync' | 'initial-load' | 'drop-add';
   timestamp: number;
   operationId?: string;
+  version?: number; // PHASE B: Add version field for stale update detection
 }
 
 export interface LayoutChangeEvent {
@@ -78,6 +79,16 @@ export function generateLayoutHash(layouts: ResponsiveLayouts | null): string {
   
   return hashParts.join(';');
 }
+
+/**
+ * PHASE B: Check if a layout change is stale based on version comparison
+ * @param origin The origin of the layout change
+ * @param currentVersion The current committed version
+ * @returns true if the change is stale and should be ignored
+ */
+export const isStaleLayoutChange = (origin: LayoutChangeOrigin, currentVersion: number): boolean => {
+  return origin.version !== undefined && origin.version < currentVersion;
+};
 
 /**
  * Layout Change Manager - handles debouncing, deduplication, and origin tracking

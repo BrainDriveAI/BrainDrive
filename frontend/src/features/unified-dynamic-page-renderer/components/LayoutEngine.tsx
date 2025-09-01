@@ -50,6 +50,84 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   const layoutEngineRenderCount = useRef(0);
   layoutEngineRenderCount.current++;
   
+  // ========== PHASE A: VERSIONED DOUBLE-BUFFER CONTROLLER ==========
+  // A1: Add Feature Flag Support
+  const ENABLE_LAYOUT_CONTROLLER_V2 = import.meta.env.VITE_LAYOUT_CONTROLLER_V2 === 'true' || false;
+  
+  // A2: Implement Controller State
+  // Double-buffer refs for layout state
+  const workingLayoutsRef = useRef<ResponsiveLayouts | null>(null);
+  const canonicalLayoutsRef = useRef<ResponsiveLayouts | null>(null);
+  
+  // Controller state machine
+  type ControllerState = 'idle' | 'resizing' | 'dragging' | 'grace' | 'commit';
+  const controllerStateRef = useRef<ControllerState>('idle');
+  
+  // Version tracking for stale update prevention
+  const lastVersionRef = useRef<number>(0);
+  
+  // Force update function for controller state changes
+  const [, forceUpdate] = useState({});
+  const triggerUpdate = useCallback(() => forceUpdate({}), []);
+  
+  // A5: Add Development Logging
+  const logControllerState = useCallback((action: string, data?: any) => {
+    if (import.meta.env.MODE === 'development' && ENABLE_LAYOUT_CONTROLLER_V2) {
+      console.log(`[LayoutController V2] ${action}`, {
+        state: controllerStateRef.current,
+        version: lastVersionRef.current,
+        workingLayouts: !!workingLayoutsRef.current,
+        canonicalLayouts: !!canonicalLayoutsRef.current,
+        timestamp: performance.now().toFixed(2),
+        ...data
+      });
+    }
+  }, [ENABLE_LAYOUT_CONTROLLER_V2]);
+  
+  // ========== PHASE C1: Complete State Machine Transitions ==========
+  // State transition function with validation and logging
+  const transitionToState = useCallback((newState: ControllerState, data?: any) => {
+    if (!ENABLE_LAYOUT_CONTROLLER_V2) return;
+    
+    const oldState = controllerStateRef.current;
+    
+    // Validate state transitions
+    const validTransitions: Record<ControllerState, ControllerState[]> = {
+      'idle': ['resizing', 'dragging'],
+      'resizing': ['grace', 'idle'], // Can abort to idle
+      'dragging': ['grace', 'idle'], // Can abort to idle
+      'grace': ['commit', 'idle'], // Can abort to idle
+      'commit': ['idle']
+    };
+    
+    if (!validTransitions[oldState].includes(newState)) {
+      logControllerState('INVALID_STATE_TRANSITION', {
+        from: oldState,
+        to: newState,
+        allowed: validTransitions[oldState],
+        ...data
+      });
+      return;
+    }
+    
+    controllerStateRef.current = newState;
+    logControllerState(`STATE_TRANSITION: ${oldState} -> ${newState}`, data);
+    
+    // Trigger re-render to update displayedLayouts
+    triggerUpdate();
+  }, [ENABLE_LAYOUT_CONTROLLER_V2, logControllerState, triggerUpdate]);
+  // ========== END PHASE C1 ==========
+  
+  // Log controller initialization
+  useEffect(() => {
+    if (ENABLE_LAYOUT_CONTROLLER_V2) {
+      logControllerState('CONTROLLER_INITIALIZED', {
+        featureFlag: ENABLE_LAYOUT_CONTROLLER_V2,
+        environment: import.meta.env.MODE
+      });
+    }
+  }, [ENABLE_LAYOUT_CONTROLLER_V2, logControllerState]);
+  // ========== END PHASE A CONTROLLER ==========
 
   // Use unified layout state management with stable reference
   const unifiedLayoutState = useUnifiedLayoutState({
@@ -89,6 +167,119 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     
     return stableLayoutsRef.current;
   }, [unifiedLayoutState.layouts]);
+
+  // A3: Implement Display Logic - Controller decides what layouts to display
+  const displayedLayouts = useMemo(() => {
+    if (!ENABLE_LAYOUT_CONTROLLER_V2) {
+      return currentLayouts; // Fallback to existing logic
+    }
+    
+    const state = controllerStateRef.current;
+    
+    // During operations and grace period, show working buffer
+    if (state === 'resizing' || state === 'dragging' || state === 'grace') {
+      logControllerState('DISPLAY_WORKING_BUFFER', { state });
+      return workingLayoutsRef.current || currentLayouts;
+    }
+    
+    // When idle or committed, always prefer currentLayouts to ensure fresh data
+    // The buffers are just for operation management, not for caching page data
+    logControllerState('DISPLAY_CANONICAL_BUFFER', {
+      state,
+      usingCurrentLayouts: true
+    });
+    return currentLayouts;
+  }, [currentLayouts, ENABLE_LAYOUT_CONTROLLER_V2, logControllerState]);
+
+  // Initialize buffers when layouts change externally
+  useEffect(() => {
+    if (ENABLE_LAYOUT_CONTROLLER_V2) {
+      // Only update buffers when idle to avoid disrupting ongoing operations
+      if (controllerStateRef.current === 'idle') {
+        // Always sync buffers with current layouts when idle
+        // This ensures page changes are reflected immediately
+        canonicalLayoutsRef.current = currentLayouts;
+        workingLayoutsRef.current = currentLayouts;
+        logControllerState('BUFFERS_SYNCED', {
+          source: 'external_update',
+          state: controllerStateRef.current,
+          itemCount: currentLayouts?.desktop?.length || 0
+        });
+      } else {
+        // Log that we're skipping update due to ongoing operation
+        logControllerState('BUFFER_SYNC_SKIPPED', {
+          reason: 'operation_in_progress',
+          state: controllerStateRef.current
+        });
+      }
+    }
+  }, [currentLayouts, ENABLE_LAYOUT_CONTROLLER_V2, logControllerState]);
+
+  // ========== PHASE C2: Single Debounced Commit Process ==========
+  // Track operation IDs for proper state management (moved up for use in commitLayoutChanges)
+  const currentOperationId = useRef<string | null>(null);
+  
+  // Debounced commit timer ref
+  const commitTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Unified commit function for all operations
+  const commitLayoutChanges = useCallback(() => {
+    if (!ENABLE_LAYOUT_CONTROLLER_V2 || !workingLayoutsRef.current) {
+      logControllerState('COMMIT_SKIPPED', {
+        reason: !workingLayoutsRef.current ? 'No working layouts' : 'Controller disabled'
+      });
+      return;
+    }
+    
+    const version = lastVersionRef.current;
+    const layouts = workingLayoutsRef.current;
+    
+    logControllerState('COMMIT_START', {
+      version,
+      layoutsPresent: !!layouts,
+      currentState: controllerStateRef.current
+    });
+    
+    // Transition to commit state
+    transitionToState('commit', { version });
+    
+    // Create origin with version
+    const origin: LayoutChangeOrigin = {
+      source: controllerStateRef.current === 'resizing' ? 'user-resize' : 'user-drag',
+      version,
+      timestamp: Date.now(),
+      operationId: currentOperationId.current || `commit-${Date.now()}`
+    };
+    
+    // Persist the changes
+    unifiedLayoutState.updateLayouts(layouts, origin);
+    
+    // Update canonical buffer
+    canonicalLayoutsRef.current = JSON.parse(JSON.stringify(layouts));
+    
+    // Transition back to idle after a short delay
+    setTimeout(() => {
+      transitionToState('idle', { version, source: 'commit_complete' });
+      logControllerState('COMMIT_COMPLETE', { version });
+    }, 50);
+  }, [ENABLE_LAYOUT_CONTROLLER_V2, unifiedLayoutState, logControllerState, transitionToState]);
+  
+  // Schedule a debounced commit
+  const scheduleCommit = useCallback((delayMs: number = 150) => {
+    // Clear any existing timer
+    if (commitTimerRef.current) {
+      clearTimeout(commitTimerRef.current);
+    }
+    
+    // Schedule new commit
+    commitTimerRef.current = setTimeout(() => {
+      commitLayoutChanges();
+      commitTimerRef.current = null;
+    }, delayMs);
+    
+    logControllerState('COMMIT_SCHEDULED', { delayMs });
+  }, [commitLayoutChanges, logControllerState]);
+  // ========== END PHASE C2 ==========
 
   // Local UI state
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
@@ -140,8 +331,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     }
   }, [showControls]);
   
-  // Track operation IDs for proper state management
-  const currentOperationId = useRef<string | null>(null);
+  // Track page ID for proper state management
   const pageIdRef = useRef<string | undefined>(pageId);
   
   // Operation deduplication tracking
@@ -200,7 +390,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     });
   }, [layouts, pageId, isDragging, isResizing, unifiedLayoutState]);
 
-  // Handle layout change - convert from react-grid-layout format to our format
+  // Handle layout change - Enhanced with controller V2
   const handleLayoutChange = useCallback((layout: any[], allLayouts: any) => {
     const operationId = currentOperationId.current;
     
@@ -212,6 +402,69 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       allLayoutsKeys: Object.keys(allLayouts || {}),
       layoutData: layout?.map(item => ({ i: item.i, x: item.x, y: item.y, w: item.w, h: item.h }))
     });
+
+    // Controller V2: Handle layout changes based on controller state
+    if (ENABLE_LAYOUT_CONTROLLER_V2) {
+      const state = controllerStateRef.current;
+      
+      // During resize/drag operations, update working buffer only
+      if (state === 'resizing' || state === 'dragging') {
+        // Convert to ResponsiveLayouts format
+        const convertedLayouts: ResponsiveLayouts = {
+          mobile: [],
+          tablet: [],
+          desktop: [],
+          wide: [],
+        };
+
+        const breakpointMap: Record<string, keyof ResponsiveLayouts> = {
+          xs: 'mobile',
+          sm: 'tablet',
+          lg: 'desktop',
+          xl: 'wide',
+          xxl: 'wide'
+        };
+
+        Object.entries(allLayouts).forEach(([gridBreakpoint, gridLayout]: [string, any]) => {
+          const ourBreakpoint = breakpointMap[gridBreakpoint];
+          if (ourBreakpoint && Array.isArray(gridLayout)) {
+            convertedLayouts[ourBreakpoint] = gridLayout as LayoutItem[];
+          }
+        });
+        
+        // Update working buffer only
+        workingLayoutsRef.current = convertedLayouts;
+        logControllerState('WORKING_BUFFER_UPDATE', {
+          state,
+          operationId,
+          layoutItemCount: layout?.length,
+          version: lastVersionRef.current  // PHASE B: Include version in logs
+        });
+        
+        // Don't persist during operations
+        return;
+      }
+      
+      // During grace period, ignore all layout changes
+      if (state === 'grace') {
+        logControllerState('GRACE_PERIOD_IGNORE', {
+          reason: 'Layout change during grace period',
+          operationId,
+          version: lastVersionRef.current  // PHASE B: Include version in logs
+        });
+        return;
+      }
+      
+      // During commit state, also ignore
+      if (state === 'commit') {
+        logControllerState('COMMIT_STATE_IGNORE', {
+          reason: 'Layout change during commit',
+          operationId,
+          version: lastVersionRef.current  // PHASE B: Include version in logs
+        });
+        return;
+      }
+    }
 
     // EARLY BOUNCE DETECTION: Block suspicious layout changes immediately
     if (!operationId && !isResizing && !isDragging && layout && layout.length > 0) {
@@ -370,11 +623,12 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       }
     });
 
-    // Determine the origin based on current operation
+    // PHASE B: Determine the origin with version information
     const origin: LayoutChangeOrigin = {
       source: isDragging ? 'user-drag' : isResizing ? 'user-resize' : 'external-sync',
       timestamp: Date.now(),
-      operationId: currentOperationId.current || `late-${Date.now()}`
+      operationId: currentOperationId.current || `late-${Date.now()}`,
+      version: ENABLE_LAYOUT_CONTROLLER_V2 ? lastVersionRef.current : undefined
     };
 
     debugLog(`Processing layout change from ${origin.source}`, {
@@ -411,36 +665,94 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     }
   }, [isDragging, isResizing, unifiedLayoutState, debugLog]);
 
-  // Handle drag start
+  // ========== PHASE C3: Enhanced Drag Operation Support ==========
+  // Handle drag start - Enhanced with controller V2 and Phase C improvements
   const handleDragStart = useCallback(() => {
     const operationId = `drag-${Date.now()}`;
     currentOperationId.current = operationId;
     setIsDragging(true);
+    
+    // Controller V2: Use state transition function
+    if (ENABLE_LAYOUT_CONTROLLER_V2) {
+      transitionToState('dragging', { operationId });
+      workingLayoutsRef.current = JSON.parse(JSON.stringify(canonicalLayoutsRef.current || currentLayouts));
+      logControllerState('DRAG_OPERATION_STARTED', {
+        operationId,
+        copiedCanonicalToWorking: true,
+        version: lastVersionRef.current
+      });
+    }
+    
     unifiedLayoutState.startOperation(operationId);
-  }, [unifiedLayoutState]);
+  }, [unifiedLayoutState, ENABLE_LAYOUT_CONTROLLER_V2, logControllerState, currentLayouts, transitionToState]);
 
-  // Handle drag stop
+  // Handle drag stop - Enhanced with controller V2 and Phase C improvements
   const handleDragStop = useCallback((layout: any[]) => {
     if (currentOperationId.current) {
+      const operationId = currentOperationId.current;
+      
+      // Controller V2: Use unified commit process
+      if (ENABLE_LAYOUT_CONTROLLER_V2) {
+        lastVersionRef.current += 1;
+        transitionToState('grace', {
+          operationId,
+          newVersion: lastVersionRef.current
+        });
+        
+        // Schedule debounced commit
+        scheduleCommit(150); // 150ms grace period as specified in plan
+      }
+      
       unifiedLayoutState.stopOperation(currentOperationId.current);
-      currentOperationId.current = null;
+      
+      // Delay clearing operation ID to catch late events
+      setTimeout(() => {
+        if (currentOperationId.current === operationId) {
+          currentOperationId.current = null;
+        }
+      }, 200);
     }
     setIsDragging(false);
-  }, [unifiedLayoutState]);
+  }, [unifiedLayoutState, ENABLE_LAYOUT_CONTROLLER_V2, transitionToState, scheduleCommit]);
 
-  // Handle resize start
+  // Handle resize start - Enhanced with controller V2 and Phase C improvements
   const handleResizeStart = useCallback(() => {
     const operationId = `resize-${Date.now()}`;
     currentOperationId.current = operationId;
     setIsResizing(true);
+    
+    // Controller V2: Use state transition function
+    if (ENABLE_LAYOUT_CONTROLLER_V2) {
+      transitionToState('resizing', { operationId });
+      workingLayoutsRef.current = JSON.parse(JSON.stringify(canonicalLayoutsRef.current || currentLayouts));
+      logControllerState('RESIZE_OPERATION_STARTED', {
+        operationId,
+        copiedCanonicalToWorking: true,
+        version: lastVersionRef.current
+      });
+    }
+    
     unifiedLayoutState.startOperation(operationId);
     debugLog('RESIZE START', { operationId, isResizing: true });
-  }, [unifiedLayoutState, debugLog]);
+  }, [unifiedLayoutState, debugLog, ENABLE_LAYOUT_CONTROLLER_V2, logControllerState, currentLayouts, transitionToState]);
 
-  // Handle resize stop
+  // Handle resize stop - Enhanced with controller V2 and Phase C improvements
   const handleResizeStop = useCallback(() => {
     if (currentOperationId.current) {
       const operationId = currentOperationId.current;
+      
+      // Controller V2: Use unified commit process
+      if (ENABLE_LAYOUT_CONTROLLER_V2) {
+        lastVersionRef.current += 1;
+        transitionToState('grace', {
+          operationId,
+          newVersion: lastVersionRef.current
+        });
+        
+        // Schedule debounced commit
+        scheduleCommit(150); // 150ms grace period as specified in plan
+      }
+      
       unifiedLayoutState.stopOperation(operationId);
       debugLog('RESIZE STOP - Starting grace period', { operationId });
       
@@ -463,7 +775,8 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     }
     setIsResizing(false);
     debugLog('RESIZE STATE SET TO FALSE');
-  }, [unifiedLayoutState, debugLog]);
+  }, [unifiedLayoutState, debugLog, ENABLE_LAYOUT_CONTROLLER_V2, transitionToState, scheduleCommit]);
+  // ========== END PHASE C3 ==========
 
   // Handle drag over for drop zone functionality
   const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
@@ -542,8 +855,9 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       
       console.log('Adding new item to layout:', newItem);
       
-      // Add the item to the current layouts
-      const updatedLayouts = { ...currentLayouts };
+      // Add the item to the current layouts - use displayedLayouts for consistency
+      const layoutsToUpdate = ENABLE_LAYOUT_CONTROLLER_V2 ? displayedLayouts : currentLayouts;
+      const updatedLayouts = { ...layoutsToUpdate };
       Object.keys(updatedLayouts).forEach(breakpoint => {
         const currentLayout = updatedLayouts[breakpoint as keyof ResponsiveLayouts];
         if (currentLayout) {
@@ -588,12 +902,15 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   // Handle item removal
   const handleItemRemove = useCallback((itemId: string) => {
     
+    // Use displayedLayouts for consistency with controller V2
+    const layoutsToUpdate = ENABLE_LAYOUT_CONTROLLER_V2 ? displayedLayouts : currentLayouts;
+    
     // Create new layouts with the item removed from all breakpoints
     const updatedLayouts: ResponsiveLayouts = {
-      mobile: currentLayouts.mobile?.filter((item: LayoutItem) => item.i !== itemId) || [],
-      tablet: currentLayouts.tablet?.filter((item: LayoutItem) => item.i !== itemId) || [],
-      desktop: currentLayouts.desktop?.filter((item: LayoutItem) => item.i !== itemId) || [],
-      wide: currentLayouts.wide?.filter((item: LayoutItem) => item.i !== itemId) || []
+      mobile: layoutsToUpdate.mobile?.filter((item: LayoutItem) => item.i !== itemId) || [],
+      tablet: layoutsToUpdate.tablet?.filter((item: LayoutItem) => item.i !== itemId) || [],
+      desktop: layoutsToUpdate.desktop?.filter((item: LayoutItem) => item.i !== itemId) || [],
+      wide: layoutsToUpdate.wide?.filter((item: LayoutItem) => item.i !== itemId) || []
     };
 
     // Update through unified state management
@@ -602,6 +919,13 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       timestamp: Date.now(),
       operationId: `remove-${itemId}-${Date.now()}`
     });
+    
+    // Controller V2: Update buffers when removing items
+    if (ENABLE_LAYOUT_CONTROLLER_V2) {
+      canonicalLayoutsRef.current = updatedLayouts;
+      workingLayoutsRef.current = updatedLayouts;
+      logControllerState('ITEM_REMOVED', { itemId });
+    }
 
     // Clear selection if the removed item was selected
     if (selectedItem === itemId) {
@@ -610,7 +934,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
 
     // Call the external callback if provided
     onItemRemove?.(itemId);
-  }, [currentLayouts, unifiedLayoutState, selectedItem, onItemRemove]);
+  }, [currentLayouts, displayedLayouts, unifiedLayoutState, selectedItem, onItemRemove, ENABLE_LAYOUT_CONTROLLER_V2, logControllerState]);
 
   // Create ultra-stable module map with deep comparison
   const stableModuleMapRef = useRef<Record<string, ModuleConfig>>({});
@@ -632,9 +956,9 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     return stableModuleMapRef.current;
   }, [modules]);
 
-  // Render grid items
+  // Render grid items - Use displayedLayouts instead of currentLayouts
   const renderGridItems = useCallback(() => {
-    const currentLayout = currentLayouts[currentBreakpoint as keyof ResponsiveLayouts] || currentLayouts.desktop || [];
+    const currentLayout = displayedLayouts[currentBreakpoint as keyof ResponsiveLayouts] || displayedLayouts.desktop || [];
     
     
     
@@ -793,7 +1117,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       );
     });
   }, [
-    unifiedLayoutState.layouts,
+    displayedLayouts,  // Changed from unifiedLayoutState.layouts
     currentBreakpoint,
     moduleMap,
     selectedItem,
@@ -805,11 +1129,11 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     onItemConfig,
   ]);
 
-  // Grid layout props - convert ResponsiveLayouts to react-grid-layout Layouts format
+  // Grid layout props - A4: Use displayedLayouts instead of currentLayouts
   const gridProps = useMemo(() => {
     // Convert ResponsiveLayouts to the format expected by react-grid-layout
     const reactGridLayouts: any = {};
-    Object.entries(currentLayouts).forEach(([breakpoint, layout]) => {
+    Object.entries(displayedLayouts).forEach(([breakpoint, layout]) => {
       if (layout && Array.isArray(layout) && layout.length > 0) {
         // Map breakpoint names to react-grid-layout breakpoint names
         const breakpointMap: Record<string, string> = {
@@ -844,7 +1168,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       transformScale: 1,
       ...defaultGridConfig,
     };
-  }, [currentLayouts, mode, showControls, handleLayoutChange, handleDragStart, handleDragStop, handleResizeStart, handleResizeStop]);
+  }, [displayedLayouts, mode, showControls, handleLayoutChange, handleDragStart, handleDragStop, handleResizeStart, handleResizeStop]);
 
   // Memoize the rendered grid items with minimal stable dependencies
   const gridItems = useMemo(() => {
@@ -852,7 +1176,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     return renderGridItems();
   }, [
     // Only include the most essential dependencies that should trigger re-render
-    currentLayouts,
+    displayedLayouts,  // Changed from currentLayouts
     currentBreakpoint,
     moduleMap,
     selectedItem,

@@ -1,11 +1,12 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { ResponsiveLayouts, LayoutItem } from '../types';
-import { 
-  LayoutChangeManager, 
-  LayoutChangeEvent, 
+import {
+  LayoutChangeManager,
+  LayoutChangeEvent,
   LayoutChangeOrigin,
   compareLayoutsSemanticaly,
-  generateLayoutHash
+  generateLayoutHash,
+  isStaleLayoutChange
 } from '../utils/layoutChangeManager';
 
 export interface UnifiedLayoutStateOptions {
@@ -56,6 +57,9 @@ export function useUnifiedLayoutState(options: UnifiedLayoutStateOptions = {}): 
   const lastPersistedHashRef = useRef<string | null>(null);
   const initializationCompleteRef = useRef(false);
   const stableLayoutsRef = useRef<ResponsiveLayouts | null>(initialLayouts);
+  
+  // PHASE B: Add version tracking for stale update prevention
+  const lastCommittedVersionRef = useRef<number>(0);
 
   // Stable refs for callbacks to prevent recreation
   const onLayoutPersistRef = useRef(onLayoutPersist);
@@ -72,7 +76,15 @@ export function useUnifiedLayoutState(options: UnifiedLayoutStateOptions = {}): 
 
   // Handle processed layout changes - now stable!
   const handleLayoutChangeEvent = useCallback((event: LayoutChangeEvent) => {
-    
+    // PHASE B: Check if this is a stale update based on version
+    if (event.origin.version !== undefined && event.origin.version < lastCommittedVersionRef.current) {
+      console.log('[useUnifiedLayoutState] Ignoring stale layout change', {
+        eventVersion: event.origin.version,
+        currentVersion: lastCommittedVersionRef.current,
+        source: event.origin.source
+      });
+      return;
+    }
     
     setIsLayoutChanging(true);
     
@@ -98,6 +110,11 @@ export function useUnifiedLayoutState(options: UnifiedLayoutStateOptions = {}): 
       try {
         onLayoutPersistRef.current(event.layouts, event.origin);
         lastPersistedHashRef.current = event.hash;
+        
+        // PHASE B: Update committed version when persisting user changes
+        if (event.origin.version !== undefined) {
+          lastCommittedVersionRef.current = event.origin.version;
+        }
       } catch (error) {
         console.error('[useUnifiedLayoutState] Error persisting layout:', error);
         onErrorRef.current?.(error as Error);

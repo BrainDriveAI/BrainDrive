@@ -71,6 +71,8 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
 }) => {
   // Get Material-UI theme for dark mode support
   const theme = useTheme();
+  // Get dev mode features - MUST be called before any conditional returns
+  const { features: devModeFeatures } = usePluginStudioDevMode();
   // State for converted data
   const [convertedPageData, setConvertedPageData] = useState<PageData | null>(null);
   const [conversionError, setConversionError] = useState<Error | null>(null);
@@ -453,53 +455,16 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
     return previewMode ? RenderMode.PREVIEW : RenderMode.STUDIO;
   }, [previewMode]);
 
-  // Show loading state during conversion
-  if (isConverting) {
-    return (
-      <Box 
-        display="flex" 
-        justifyContent="center" 
-        alignItems="center" 
-        height="100%" 
-        p={3}
-      >
-        <div>Converting Plugin Studio data...</div>
-      </Box>
-    );
-  }
-
-  // Show error state if conversion failed
-  if (conversionError || !convertedPageData) {
-    return (
-      <Box 
-        display="flex" 
-        flexDirection="column"
-        justifyContent="center" 
-        alignItems="center" 
-        height="100%" 
-        p={3}
-        color="error.main"
-      >
-        <div>Failed to convert Plugin Studio data</div>
-        {conversionError && (
-          <div style={{ marginTop: 8, fontSize: '0.875rem' }}>
-            {conversionError.message}
-          </div>
-        )}
-      </Box>
-    );
-  }
-
-  // Handle save functionality for the GridToolbar
-  const handleSave = async (pageId?: string) => {
+  // Handle save functionality for the GridToolbar - MUST be defined before conditional returns
+  const handleSave = useCallback(async (pageId?: string) => {
     if (!page || !convertedPageData) {
       console.error('[PluginStudioAdapter] Cannot save - missing page or convertedPageData');
       return;
     }
     
     try {
-      console.log('[PluginStudioAdapter] Starting save operation for page:', pageId || page.id);
-      console.log('[PluginStudioAdapter] Current convertedPageData layouts:', convertedPageData.layouts);
+      console.log('[PluginStudioAdapter] Starting save operation for page:', pageId || page?.id);
+      console.log('[PluginStudioAdapter] Current convertedPageData layouts:', convertedPageData?.layouts);
       
       // Convert the current unified layouts back to Plugin Studio format for saving
       const convertUnifiedToPluginStudio = (items: LayoutItem[] = []): (PluginStudioGridItem | any)[] => {
@@ -529,9 +494,9 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
       };
 
       const pluginStudioLayouts: PluginStudioLayouts = {
-        desktop: convertUnifiedToPluginStudio(convertedPageData.layouts.desktop),
-        tablet: convertUnifiedToPluginStudio(convertedPageData.layouts.tablet),
-        mobile: convertUnifiedToPluginStudio(convertedPageData.layouts.mobile)
+        desktop: convertUnifiedToPluginStudio(convertedPageData!.layouts.desktop),
+        tablet: convertUnifiedToPluginStudio(convertedPageData!.layouts.tablet),
+        mobile: convertUnifiedToPluginStudio(convertedPageData!.layouts.mobile)
       };
 
       console.log('[PluginStudioAdapter] Converted layouts for save:', pluginStudioLayouts);
@@ -539,13 +504,13 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
       // 🔧 FIX: Call onLayoutChange to update the Plugin Studio state
       if (onLayoutChange) {
         console.log('[PluginStudioAdapter] Calling onLayoutChange to update state');
-        onLayoutChange(convertedPageData.layouts.desktop, pluginStudioLayouts);
+        onLayoutChange(convertedPageData!.layouts.desktop, pluginStudioLayouts);
       }
       
       // 🔧 FIX: Call onSave to actually save to backend
       if (onSave) {
         console.log('[PluginStudioAdapter] Calling onSave to persist to backend');
-        await onSave(pageId || page.id);
+        await onSave(pageId || page!.id);
         console.log('[PluginStudioAdapter] Backend save completed');
       } else {
         console.error('[PluginStudioAdapter] onSave callback is missing - cannot save to backend!');
@@ -556,7 +521,44 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
       console.error('[PluginStudioAdapter] Save failed:', error);
       onError?.(error as Error);
     }
-  };
+  }, [page, convertedPageData, onLayoutChange, onSave, onError]);
+
+  // Show loading state during conversion
+  if (isConverting) {
+    return (
+      <Box
+        display="flex"
+        justifyContent="center"
+        alignItems="center"
+        height="100%"
+        p={3}
+      >
+        <div>Converting Plugin Studio data...</div>
+      </Box>
+    );
+  }
+
+  // Show error state if conversion failed
+  if (conversionError || !convertedPageData) {
+    return (
+      <Box
+        display="flex"
+        flexDirection="column"
+        justifyContent="center"
+        alignItems="center"
+        height="100%"
+        p={3}
+        color="error.main"
+      >
+        <div>Failed to convert Plugin Studio data</div>
+        {conversionError && (
+          <div style={{ marginTop: 8, fontSize: '0.875rem' }}>
+            {conversionError.message}
+          </div>
+        )}
+      </Box>
+    );
+  }
 
   return (
     <div
@@ -826,29 +828,26 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
       </div>
 
       {/* Performance overlay in development */}
-      {performanceMonitoring && import.meta.env.MODE === 'development' && (() => {
-        const { features } = usePluginStudioDevMode();
-        return features.debugPanels && (
-          <div style={{
-            position: 'fixed',
-            bottom: 10,
-            right: 10,
-            background: 'rgba(0,0,0,0.8)',
-            color: 'white',
-            padding: '8px 12px',
-            borderRadius: '4px',
-            fontSize: '12px',
-            zIndex: 9999,
-            fontFamily: 'monospace'
-          }}>
-            <div>Plugin Studio Adapter</div>
-            <div>Conversion: {performanceMetrics.conversionTime?.toFixed(2)}ms</div>
-            <div>Render: {performanceMetrics.renderTime?.toFixed(2)}ms</div>
-            <div>Mode: {renderMode}</div>
-            <div>Items: {convertedPageData.layouts.desktop.length}</div>
-          </div>
-        );
-      })()}
+      {performanceMonitoring && import.meta.env.MODE === 'development' && devModeFeatures.debugPanels && (
+        <div style={{
+          position: 'fixed',
+          bottom: 10,
+          right: 10,
+          background: 'rgba(0,0,0,0.8)',
+          color: 'white',
+          padding: '8px 12px',
+          borderRadius: '4px',
+          fontSize: '12px',
+          zIndex: 9999,
+          fontFamily: 'monospace'
+        }}>
+          <div>Plugin Studio Adapter</div>
+          <div>Conversion: {performanceMetrics.conversionTime?.toFixed(2)}ms</div>
+          <div>Render: {performanceMetrics.renderTime?.toFixed(2)}ms</div>
+          <div>Mode: {renderMode}</div>
+          <div>Items: {convertedPageData.layouts.desktop.length}</div>
+        </div>
+      )}
     </div>
   );
 };

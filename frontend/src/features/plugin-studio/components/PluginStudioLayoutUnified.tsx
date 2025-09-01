@@ -60,6 +60,9 @@ export const PluginStudioLayoutUnified: React.FC = () => {
     import.meta.env.MODE === 'development' // Enable by default in development
   );
   const [unifiedError, setUnifiedError] = useState<Error | null>(null);
+  
+  // Get dev mode features - MUST be called before any conditional returns
+  const { features: devModeFeatures } = usePluginStudioDevMode();
 
   // Handle unified renderer errors and fallback to legacy
   const handleUnifiedError = (error: Error) => {
@@ -103,37 +106,32 @@ export const PluginStudioLayoutUnified: React.FC = () => {
         <PluginToolbar />
         
         {/* Migration Control Panel (Development Only) */}
-        {import.meta.env.MODE === 'development' && (
+        {import.meta.env.MODE === 'development' && devModeFeatures.rendererSwitch && (
           <Box sx={{
             p: 2,
             borderTop: 1,
             borderColor: 'divider',
             bgcolor: 'background.default'
           }}>
-            {(() => {
-              const { features } = usePluginStudioDevMode();
-              return features.rendererSwitch && (
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={useUnifiedRenderer}
-                      onChange={(e) => {
-                        setUseUnifiedRenderer(e.target.checked);
-                        setUnifiedError(null);
-                      }}
-                      size="small"
-                    />
-                  }
-                  label={
-                    <Tooltip title="Toggle between unified renderer and legacy Plugin Studio">
-                      <span style={{ fontSize: '0.75rem' }}>
-                        Unified Renderer
-                      </span>
-                    </Tooltip>
-                  }
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={useUnifiedRenderer}
+                  onChange={(e) => {
+                    setUseUnifiedRenderer(e.target.checked);
+                    setUnifiedError(null);
+                  }}
+                  size="small"
                 />
-              );
-            })()}
+              }
+              label={
+                <Tooltip title="Toggle between unified renderer and legacy Plugin Studio">
+                  <span style={{ fontSize: '0.75rem' }}>
+                    Unified Renderer
+                  </span>
+                </Tooltip>
+              }
+            />
             
             {unifiedError && (
               <Box sx={{ 
@@ -181,26 +179,23 @@ export const PluginStudioLayoutUnified: React.FC = () => {
         </ErrorBoundary>
         
         {/* Renderer Status Indicator (Plugin Studio Dev Mode Only) */}
-        {import.meta.env.MODE === 'development' && (() => {
-          const { features } = usePluginStudioDevMode();
-          return features.unifiedIndicator && (
-            <Box sx={{
-              position: 'absolute',
-              top: 8,
-              left: 8,
-              bgcolor: useUnifiedRenderer ? 'success.main' : 'warning.main',
-              color: 'white',
-              px: 1,
-              py: 0.5,
-              borderRadius: 1,
-              fontSize: '0.75rem',
-              fontWeight: 'bold',
-              zIndex: 1000
-            }}>
-              {useUnifiedRenderer ? 'UNIFIED' : 'LEGACY'}
-            </Box>
-          );
-        })()}
+        {import.meta.env.MODE === 'development' && devModeFeatures.unifiedIndicator && (
+          <Box sx={{
+            position: 'absolute',
+            top: 8,
+            left: 8,
+            bgcolor: useUnifiedRenderer ? 'success.main' : 'warning.main',
+            color: 'white',
+            px: 1,
+            py: 0.5,
+            borderRadius: 1,
+            fontSize: '0.75rem',
+            fontWeight: 'bold',
+            zIndex: 1000
+          }}>
+            {useUnifiedRenderer ? 'UNIFIED' : 'LEGACY'}
+          </Box>
+        )}
       </Box>
       
       {/* Dialogs - These remain unchanged */}
