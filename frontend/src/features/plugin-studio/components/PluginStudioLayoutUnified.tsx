@@ -40,18 +40,33 @@ export const PluginStudioLayoutUnified: React.FC = () => {
     pageManagementOpen,
     setPageManagementOpen,
     routeManagementOpen,
-    setRouteManagementOpen
+    setRouteManagementOpen,
+    flushLayoutChanges // Phase 3: Get flush method from context
   } = usePluginStudio();
 
   // Wrapper function to match the adapter's expected signature
-  const handleSave = async (pageId: string): Promise<void> => {
-    console.log('[PluginStudioLayoutUnified] handleSave called with pageId:', pageId);
+  // QUICK MITIGATION: Accept options parameter with layoutOverride
+  const handleSave = async (pageId: string, options?: { layoutOverride?: any }): Promise<void> => {
+    console.log('[PluginStudioLayoutUnified] handleSave called with pageId:', pageId, 'options:', options);
     try {
-      await savePage(pageId);
+      await savePage(pageId, options);
       console.log('[PluginStudioLayoutUnified] Save completed successfully');
     } catch (error) {
       console.error('[PluginStudioLayoutUnified] Save failed:', error);
       throw error;
+    }
+  };
+  
+  // Phase 3: Use the actual flush method from the layout hook
+  const handleLayoutChangeFlush = async (): Promise<void> => {
+    console.log('[PluginStudioLayoutUnified] Layout change flush requested');
+    if (flushLayoutChanges) {
+      await flushLayoutChanges();
+      console.log('[PluginStudioLayoutUnified] Layout changes flushed');
+    } else {
+      // Fallback: Wait a bit to allow debounced updates to complete
+      console.log('[PluginStudioLayoutUnified] No flush method available, using timeout fallback');
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
   };
 
@@ -162,6 +177,7 @@ export const PluginStudioLayoutUnified: React.FC = () => {
               page={currentPage}
               layouts={layouts}
               onLayoutChange={handleLayoutChange}
+              onLayoutChangeFlush={handleLayoutChangeFlush}
               onSave={handleSave}
               previewMode={previewMode}
               selectedItem={selectedItem}

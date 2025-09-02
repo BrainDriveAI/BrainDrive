@@ -98,6 +98,10 @@ export class LayoutChangeManager {
   private lastProcessedHash: string | null = null;
   private debounceTimeouts = new Map<string, NodeJS.Timeout>();
   private activeOperations = new Set<string>();
+  // Phase 3: Add promise tracking for flush operations
+  private pendingPromises = new Map<string, { resolve: () => void; reject: (error: Error) => void }>();
+  private flushPromise: Promise<void> | null = null;
+  private flushResolve: (() => void) | null = null;
   
   constructor(
     private onLayoutChange: (event: LayoutChangeEvent) => void,
@@ -135,6 +139,13 @@ export class LayoutChangeManager {
       clearTimeout(existingTimeout);
     }
     
+    // Phase 3: Create flush promise if not exists
+    if (!this.flushPromise) {
+      this.flushPromise = new Promise<void>((resolve) => {
+        this.flushResolve = resolve;
+      });
+    }
+    
     // Set new debounced timeout
     const timeout = setTimeout(() => {
       this.processPendingChange(debounceKey);
@@ -162,7 +173,21 @@ export class LayoutChangeManager {
     this.pendingChanges.delete(debounceKey);
     this.debounceTimeouts.delete(debounceKey);
     
+    // Phase 3: Resolve pending promise for this key
+    const pendingPromise = this.pendingPromises.get(debounceKey);
+    if (pendingPromise) {
+      pendingPromise.resolve();
+      this.pendingPromises.delete(debounceKey);
+    }
+    
     this.onLayoutChange(event);
+    
+    // Phase 3: Check if all pending changes are processed
+    if (this.pendingChanges.size === 0 && this.flushResolve) {
+      this.flushResolve();
+      this.flushPromise = null;
+      this.flushResolve = null;
+    }
   }
 
   /**
@@ -199,16 +224,34 @@ export class LayoutChangeManager {
   }
 
   /**
-   * Force process all pending changes (useful for cleanup)
+   * Force process all pending changes and return a promise that resolves when done
+   * Phase 3: Enhanced flush with promise support
    */
-  flush(): void {
-    for (const [key] of this.pendingChanges) {
+  flush(): Promise<void> {
+    // If no pending changes, resolve immediately
+    if (this.pendingChanges.size === 0) {
+      return Promise.resolve();
+    }
+    
+    // Process all pending changes immediately
+    const keys = Array.from(this.pendingChanges.keys());
+    for (const key of keys) {
       const timeout = this.debounceTimeouts.get(key);
       if (timeout) {
         clearTimeout(timeout);
       }
       this.processPendingChange(key);
     }
+    
+    // Return the flush promise or resolve immediately if all processed
+    return this.flushPromise || Promise.resolve();
+  }
+  
+  /**
+   * Get pending change keys (for debugging)
+   */
+  getPending(): string[] {
+    return Array.from(this.pendingChanges.keys());
   }
 
   /**

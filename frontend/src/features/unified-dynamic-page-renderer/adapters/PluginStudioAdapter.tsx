@@ -6,6 +6,7 @@ import { LayoutEngine } from '../components/LayoutEngine';
 import { PageProvider } from '../contexts/PageContext';
 import { RenderMode, PageData, ResponsiveLayouts, LayoutItem, ModuleConfig } from '../types';
 import { usePluginStudioDevMode } from '../../../hooks/usePluginStudioDevMode';
+import { generateLayoutHash } from '../utils/layoutChangeManager';
 
 // Import Plugin Studio types and components
 import {
@@ -26,9 +27,10 @@ export interface PluginStudioAdapterProps {
   
   // Studio functionality
   onLayoutChange?: (layout: any[], newLayouts: PluginStudioLayouts) => void;
+  onLayoutChangeFlush?: () => Promise<void>; // Quick Mitigation: Add flush callback
   onPageLoad?: (page: PageData) => void;
   onError?: (error: Error) => void;
-  onSave?: (pageId: string) => Promise<void>; // Add save callback
+  onSave?: (pageId: string, options?: { layoutOverride?: PluginStudioLayouts }) => Promise<void>; // Quick Mitigation: Add options parameter
   
   // UI state
   previewMode?: boolean;
@@ -56,6 +58,7 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
   page,
   layouts,
   onLayoutChange,
+  onLayoutChangeFlush,
   onPageLoad,
   onError,
   onSave,
@@ -73,6 +76,9 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
   const theme = useTheme();
   // Get dev mode features - MUST be called before any conditional returns
   const { features: devModeFeatures } = usePluginStudioDevMode();
+  
+  // Phase 1: Add debug mode flag
+  const isDebugMode = import.meta.env.VITE_LAYOUT_DEBUG === 'true';
   // State for converted data
   const [convertedPageData, setConvertedPageData] = useState<PageData | null>(null);
   const [conversionError, setConversionError] = useState<Error | null>(null);
@@ -80,6 +86,9 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
 
   // Safeguard to prevent infinite loops during module updates
   const isUpdatingModulesRef = useRef(false);
+  
+  // Quick Mitigation: Add ref to store unified layout state
+  const unifiedLayoutStateRef = useRef<any>(null);
 
   // Performance tracking
   const [performanceMetrics, setPerformanceMetrics] = useState<{
@@ -271,19 +280,31 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
    * Following the same pattern as the working legacy GridContainer
    */
   const handleUnifiedLayoutChange = useCallback((
-    unifiedLayouts: ResponsiveLayouts
+    unifiedLayouts: ResponsiveLayouts,
+    metadata?: { version?: number; hash?: string; origin?: any }
   ) => {
     if (!onLayoutChange) return;
 
     try {
-      // Optimized: Only update converted page data if layouts actually changed
+      // Phase 1: Log conversion event
+      const hash = metadata?.hash || generateLayoutHash(unifiedLayouts);
+      const version = metadata?.version || 0;
+      
+      if (isDebugMode) {
+        console.log(`[PluginStudioAdapter] Convert v${version} hash:${hash}`, {
+          origin: metadata?.origin,
+          timestamp: Date.now()
+        });
+      }
+      // Phase 5: Always update converted page data with new layouts to ensure saves use latest state
+      // The UnifiedLayoutState already handles deduplication, so we should trust its updates
       setConvertedPageData(prev => {
         if (!prev) return prev;
         
-        // Check if layouts are actually different
-        const layoutsChanged = JSON.stringify(prev.layouts) !== JSON.stringify(unifiedLayouts);
-        if (!layoutsChanged) {
-          return prev; // No change, return same reference
+        // Always update layouts when we receive a change event
+        // This ensures convertedPageData stays in sync with the actual layout state
+        if (isDebugMode) {
+          console.log('[PluginStudioAdapter] Updating convertedPageData with new layouts');
         }
         
         return {
@@ -353,11 +374,25 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
 
       // Call onLayoutChange immediately to persist changes
       onLayoutChange(unifiedLayouts.desktop, pluginStudioLayouts);
+      
+      // Phase 1: Log successful conversion
+      if (isDebugMode) {
+        // Generate hash using JSON stringify for Plugin Studio layouts
+        const layoutStr = JSON.stringify(pluginStudioLayouts);
+        let hash = 0;
+        for (let i = 0; i < layoutStr.length; i++) {
+          const char = layoutStr.charCodeAt(i);
+          hash = ((hash << 5) - hash) + char;
+          hash = hash & hash;
+        }
+        const convertedHash = Math.abs(hash).toString(16).padStart(8, '0');
+        console.log(`[PluginStudioAdapter] Conversion complete hash:${convertedHash}`);
+      }
     } catch (error) {
       console.error('[PluginStudioAdapter] Failed to convert layout changes:', error);
       onError?.(error as Error);
     }
-  }, [onLayoutChange, layouts, onError]);
+  }, [onLayoutChange, layouts, onError, isDebugMode]);
 
   /**
    * Handle unified page load events
@@ -455,6 +490,49 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
     return previewMode ? RenderMode.PREVIEW : RenderMode.STUDIO;
   }, [previewMode]);
 
+  // Phase 3: Add method to get committed Plugin Studio layouts
+  const getCommittedPluginStudioLayouts = useCallback((): PluginStudioLayouts | null => {
+    // Get committed layouts from unified state if available
+    const committedLayouts = unifiedLayoutStateRef.current?.getCommittedLayouts?.();
+    if (!committedLayouts) {
+      console.warn('[PluginStudioAdapter] No committed layouts available from unified state');
+      return null;
+    }
+    
+    // Convert unified layouts to Plugin Studio format
+    const convertUnifiedToPluginStudio = (items: LayoutItem[] = []): (PluginStudioGridItem | any)[] => {
+      return items.map(item => {
+        // Try to restore original item properties
+        const originalItem = item.config?._originalItem;
+        
+        return {
+          ...originalItem,
+          i: item.i,
+          x: item.x,
+          y: item.y,
+          w: item.w,
+          h: item.h,
+          minW: item.minW,
+          minH: item.minH,
+          pluginId: item.pluginId,
+          args: {
+            ...originalItem?.args,
+            ...item.config,
+            // Remove internal properties
+            _pluginStudioItem: undefined,
+            _originalItem: undefined
+          }
+        };
+      });
+    };
+    
+    return {
+      desktop: convertUnifiedToPluginStudio(committedLayouts.desktop),
+      tablet: convertUnifiedToPluginStudio(committedLayouts.tablet),
+      mobile: convertUnifiedToPluginStudio(committedLayouts.mobile)
+    };
+  }, []);
+
   // Handle save functionality for the GridToolbar - MUST be defined before conditional returns
   const handleSave = useCallback(async (pageId?: string) => {
     if (!page || !convertedPageData) {
@@ -464,7 +542,41 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
     
     try {
       console.log('[PluginStudioAdapter] Starting save operation for page:', pageId || page?.id);
-      console.log('[PluginStudioAdapter] Current convertedPageData layouts:', convertedPageData?.layouts);
+      
+      // RECODE V2 BLOCK: Get committed layouts directly from unified state for accurate dimensions
+      let layoutsToSave = convertedPageData.layouts;
+      
+      // Try to get the committed layouts from unified state
+      const committedLayouts = getCommittedPluginStudioLayouts();
+      if (committedLayouts) {
+        layoutsToSave = committedLayouts as any; // Type cast to match expected format
+        console.log('[RECODE_V2_BLOCK] Using committed layouts from unified state for save');
+      } else {
+        console.log('[RECODE_V2_BLOCK] Fallback to convertedPageData layouts for save');
+      }
+      
+      // RECODE V2 BLOCK: Log item dimensions at save time
+      const desktopItems = layoutsToSave?.desktop || [];
+      console.log('[RECODE_V2_BLOCK] PluginStudioAdapter save - item dimensions', {
+        pageId: pageId || page?.id,
+        source: committedLayouts ? 'committed' : 'convertedPageData',
+        desktopItemDimensions: desktopItems.map((item: any) => ({
+          id: item.i,
+          dimensions: { w: item.w, h: item.h, x: item.x, y: item.y }
+        })),
+        timestamp: Date.now()
+      });
+      
+      // Phase 5: Generate hash for save tracing
+      const layoutStr = JSON.stringify(layoutsToSave);
+      let hash = 0;
+      for (let i = 0; i < layoutStr.length; i++) {
+        const char = layoutStr.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
+      }
+      const saveHash = Math.abs(hash).toString(16).padStart(8, '0');
+      console.log(`[PluginStudioAdapter] Save serialization - hash:${saveHash}`);
       
       // Convert the current unified layouts back to Plugin Studio format for saving
       const convertUnifiedToPluginStudio = (items: LayoutItem[] = []): (PluginStudioGridItem | any)[] => {
@@ -494,23 +606,39 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
       };
 
       const pluginStudioLayouts: PluginStudioLayouts = {
-        desktop: convertUnifiedToPluginStudio(convertedPageData!.layouts.desktop),
-        tablet: convertUnifiedToPluginStudio(convertedPageData!.layouts.tablet),
-        mobile: convertUnifiedToPluginStudio(convertedPageData!.layouts.mobile)
+        desktop: convertUnifiedToPluginStudio(layoutsToSave.desktop),
+        tablet: convertUnifiedToPluginStudio(layoutsToSave.tablet),
+        mobile: convertUnifiedToPluginStudio(layoutsToSave.mobile)
       };
 
       console.log('[PluginStudioAdapter] Converted layouts for save:', pluginStudioLayouts);
 
-      // 🔧 FIX: Call onLayoutChange to update the Plugin Studio state
+      // Phase 5: The layouts are already committed through handleUnifiedLayoutChange
+      // No need to flush here as the convertedPageData is already up-to-date
+      console.log('[PluginStudioAdapter] Layouts already committed and synced');
+
+      // Update Plugin Studio state with the committed layouts
       if (onLayoutChange) {
-        console.log('[PluginStudioAdapter] Calling onLayoutChange to update state');
-        onLayoutChange(convertedPageData!.layouts.desktop, pluginStudioLayouts);
+        console.log('[PluginStudioAdapter] Calling onLayoutChange to sync state before save');
+        onLayoutChange(layoutsToSave.desktop, pluginStudioLayouts);
       }
       
-      // 🔧 FIX: Call onSave to actually save to backend
+      // Wait for layout changes to flush through the Plugin Studio system
+      // This ensures the Plugin Studio state is fully updated before saving
+      if (onLayoutChangeFlush) {
+        console.log('[PluginStudioAdapter] Awaiting onLayoutChangeFlush to ensure state sync');
+        await onLayoutChangeFlush();
+      } else {
+        // Fallback: Wait a bit to allow debounced updates to complete
+        console.log('[PluginStudioAdapter] No onLayoutChangeFlush available, using timeout fallback');
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+      
+      // Pass the layoutOverride to savePage
+      // This ensures we save exactly what we converted, bypassing any stale state
       if (onSave) {
-        console.log('[PluginStudioAdapter] Calling onSave to persist to backend');
-        await onSave(pageId || page!.id);
+        console.log('[PluginStudioAdapter] Calling onSave with layoutOverride');
+        await onSave(pageId || page!.id, { layoutOverride: pluginStudioLayouts });
         console.log('[PluginStudioAdapter] Backend save completed');
       } else {
         console.error('[PluginStudioAdapter] onSave callback is missing - cannot save to backend!');
@@ -521,7 +649,7 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
       console.error('[PluginStudioAdapter] Save failed:', error);
       onError?.(error as Error);
     }
-  }, [page, convertedPageData, onLayoutChange, onSave, onError]);
+  }, [page, convertedPageData, onLayoutChange, onSave, onError, onLayoutChangeFlush]);
 
   // Show loading state during conversion
   if (isConverting) {

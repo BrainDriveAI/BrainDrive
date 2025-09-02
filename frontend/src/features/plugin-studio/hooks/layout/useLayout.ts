@@ -13,6 +13,9 @@ export const useLayout = (
 ) => {
   const [layouts, setLayouts] = useState<Layouts | null>(initialPage?.layouts || null);
   
+  // Phase 1: Add debug mode flag
+  const isDebugMode = import.meta.env.VITE_LAYOUT_DEBUG === 'true';
+  
   // Track performance metrics
   const performanceMetricsRef = useRef<{ lastUpdate: number }>({ lastUpdate: 0 });
   
@@ -129,8 +132,31 @@ export const useLayout = (
     }
   }, [initialPage]);
   
-  const handleLayoutChange = useCallback((layout: any[], newLayouts: Layouts) => {
+  const handleLayoutChange = useCallback((layout: any[], newLayouts: Layouts, metadata?: { version?: number; hash?: string; origin?: any }) => {
+    // Phase 1: Log layout change event
+    if (isDebugMode && metadata) {
+      const version = metadata.version || 0;
+      const hash = metadata.hash || '';
+      console.log(`[useLayout] Apply v${version} hash:${hash}`, {
+        origin: metadata.origin,
+        timestamp: Date.now()
+      });
+    }
     
+    // RECODE V2 BLOCK: Log item dimensions when applying layout changes
+    if (metadata?.origin?.source === 'user-resize') {
+      const desktopItems = newLayouts?.desktop || [];
+      console.log('[RECODE_V2_BLOCK] useLayout apply - resize dimensions', {
+        source: metadata.origin.source,
+        version: metadata.version,
+        hash: metadata.hash,
+        desktopItemDimensions: desktopItems.map((item: any) => ({
+          id: item.i,
+          dimensions: { w: item.w, h: item.h, x: item.x, y: item.y }
+        })),
+        timestamp: Date.now()
+      });
+    }
     
     // Create a stable hash of the new layouts for comparison
     const newLayoutsHash = JSON.stringify(newLayouts);
@@ -177,7 +203,7 @@ export const useLayout = (
       }
       layoutUpdateTimeoutRef.current = null;
     }, debounceTime);
-  }, [processLayoutChange]);
+  }, [processLayoutChange, isDebugMode]);
   
   // Cleanup timeouts on unmount
   useEffect(() => {
@@ -552,6 +578,42 @@ export const useLayout = (
     }, 200);
   }, []);
   
+  /**
+   * Phase 3: Flush pending layout changes
+   * Returns a promise that resolves when all pending layout changes have been processed
+   */
+  const flush = useCallback((): Promise<void> => {
+    return new Promise((resolve) => {
+      // If there's a pending layout update, wait for it to complete
+      if (layoutUpdateTimeoutRef.current) {
+        // Clear the existing timeout
+        clearTimeout(layoutUpdateTimeoutRef.current);
+        
+        // Process the pending layout immediately if there is one
+        if (pendingLayoutRef.current) {
+          const { layout: pendingLayout, newLayouts: pendingNewLayouts } = pendingLayoutRef.current;
+          const pendingHash = JSON.stringify(pendingNewLayouts);
+          
+          // Only process if it's different from the last processed layout
+          if (pendingHash !== lastProcessedLayoutRef.current) {
+            lastProcessedLayoutRef.current = pendingHash;
+            processLayoutChange(pendingLayout, pendingNewLayouts);
+          }
+          
+          pendingLayoutRef.current = null;
+        }
+        
+        layoutUpdateTimeoutRef.current = null;
+        
+        // Wait a bit to ensure the change has propagated
+        setTimeout(resolve, 50);
+      } else {
+        // No pending changes, resolve immediately
+        resolve();
+      }
+    });
+  }, [processLayoutChange]);
+  
   return {
     layouts,
     setLayouts,
@@ -561,6 +623,7 @@ export const useLayout = (
     addItem,
     updateItem,
     handleResizeStart,
-    handleResizeStop
+    handleResizeStop,
+    flush // Phase 3: Expose flush method
   };
 };
