@@ -42,12 +42,17 @@ class LayoutCommitTracker {
 
     this.lastCommit = metadata;
     
-    // Resolve any pending flush promises for this hash
-    const pending = this.pendingCommits.get(metadata.hash);
-    if (pending) {
-      pending.resolve();
-      this.pendingCommits.delete(metadata.hash);
+    // Resolve any pending flush promises for this hash or older versions
+    // In practice the debounced pipeline may change the final hash; consider
+    // the commit authoritative and resolve all <= version entries.
+    const toResolve: string[] = [];
+    for (const [hash, pending] of this.pendingCommits.entries()) {
+      if (pending.version <= metadata.version || hash === metadata.hash) {
+        pending.resolve();
+        toResolve.push(hash);
+      }
     }
+    toResolve.forEach(hash => this.pendingCommits.delete(hash));
 
     this.log(`Commit recorded: v${metadata.version} hash:${metadata.hash}`);
   }

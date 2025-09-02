@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Box, useTheme } from '@mui/material';
+import { LayoutCommitBadge } from '../components/LayoutCommitBadge';
 import { UnifiedPageRenderer } from '../components/UnifiedPageRenderer';
 import { ResponsiveContainer } from '../components/ResponsiveContainer';
 import { LayoutEngine } from '../components/LayoutEngine';
@@ -366,14 +367,20 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
       };
 
       // Convert using original layouts to preserve properties
+      // Plugin Studio has no 'wide' breakpoint; map unified 'wide' into 'desktop' when needed
+      const desktopUnified = (unifiedLayouts.desktop && unifiedLayouts.desktop.length > 0)
+        ? unifiedLayouts.desktop
+        : (unifiedLayouts.wide || []);
+
       const pluginStudioLayouts: PluginStudioLayouts = {
-        desktop: convertUnifiedToPluginStudio(unifiedLayouts.desktop, layouts?.desktop),
+        desktop: convertUnifiedToPluginStudio(desktopUnified, layouts?.desktop),
         tablet: convertUnifiedToPluginStudio(unifiedLayouts.tablet, layouts?.tablet),
         mobile: convertUnifiedToPluginStudio(unifiedLayouts.mobile, layouts?.mobile)
       };
 
       // Call onLayoutChange immediately to persist changes
-      onLayoutChange(unifiedLayouts.desktop, pluginStudioLayouts);
+      // Pass the layout for the active PS breakpoint (desktop), using 'wide' as fallback
+      onLayoutChange(desktopUnified, pluginStudioLayouts);
       
       // Phase 1: Log successful conversion
       if (isDebugMode) {
@@ -605,8 +612,13 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
         });
       };
 
+      // Plugin Studio has no 'wide' breakpoint; map unified 'wide' into 'desktop' when needed
+      const desktopSaveSource = (layoutsToSave.desktop && layoutsToSave.desktop.length > 0)
+        ? layoutsToSave.desktop
+        : (layoutsToSave.wide || []);
+
       const pluginStudioLayouts: PluginStudioLayouts = {
-        desktop: convertUnifiedToPluginStudio(layoutsToSave.desktop),
+        desktop: convertUnifiedToPluginStudio(desktopSaveSource),
         tablet: convertUnifiedToPluginStudio(layoutsToSave.tablet),
         mobile: convertUnifiedToPluginStudio(layoutsToSave.mobile)
       };
@@ -620,7 +632,7 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
       // Update Plugin Studio state with the committed layouts
       if (onLayoutChange) {
         console.log('[PluginStudioAdapter] Calling onLayoutChange to sync state before save');
-        onLayoutChange(layoutsToSave.desktop, pluginStudioLayouts);
+        onLayoutChange(desktopSaveSource, pluginStudioLayouts);
       }
       
       // Wait for layout changes to flush through the Plugin Studio system
@@ -776,11 +788,13 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
               border-color: ${theme.palette.mode === 'dark' ? '#666666' : '#c0c0c0'} !important;
             }
 
-            /* Selected module styling */
+            /* Selected module styling - keep subtle to avoid "mode switch" look */
             .unified-page-renderer .react-grid-item.selected,
             .unified-page-renderer .react-grid-item.layout-item--selected {
-              border: 2px solid ${theme.palette.primary.main} !important;
-              box-shadow: 0 4px 16px ${theme.palette.primary.main}4D !important;
+              border: 1px solid ${theme.palette.divider} !important;
+              box-shadow: ${theme.palette.mode === 'dark'
+                ? '0 2px 4px rgba(0, 0, 0, 0.3)'
+                : '0 2px 4px rgba(0, 0, 0, 0.1)'} !important;
             }
 
             /* Resize handles - only show when selected */
@@ -845,13 +859,15 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
               display: none !important;
             }
 
-            /* Maintain selection state during drag and resize operations */
+            /* Maintain subtle selection during drag and resize operations */
             .layout-engine-container--dragging .react-grid-item.selected,
             .layout-engine-container--resizing .react-grid-item.selected,
             .layout-engine-container--dragging .react-grid-item.layout-item--selected,
             .layout-engine-container--resizing .react-grid-item.layout-item--selected {
-              border: 2px solid ${theme.palette.primary.main} !important;
-              box-shadow: 0 4px 16px ${theme.palette.primary.main}4D !important;
+              border: 1px solid ${theme.palette.divider} !important;
+              box-shadow: ${theme.palette.mode === 'dark'
+                ? '0 2px 6px rgba(0, 0, 0, 0.35)'
+                : '0 2px 6px rgba(0, 0, 0, 0.12)'} !important;
             }
 
             /* Enhanced visual feedback during operations */
@@ -945,6 +961,9 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
           mode={renderMode}
           allowUnpublished={true}
           responsive={true}
+          // Plugin Studio editing: disable container queries to avoid accidental
+          // breakpoint flips on first interaction due to container reflow.
+          containerQueries={false}
           lazyLoading={true}
           onPageLoad={handleUnifiedPageLoad}
           onLayoutChange={handleUnifiedLayoutChange}
@@ -975,6 +994,11 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
           <div>Mode: {renderMode}</div>
           <div>Items: {convertedPageData.layouts.desktop.length}</div>
         </div>
+      )}
+
+      {/* Dev: Layout commit status badge for unified path as well */}
+      {import.meta.env.VITE_LAYOUT_DEBUG === 'true' && (
+        <LayoutCommitBadge position="bottom-left" />
       )}
     </div>
   );

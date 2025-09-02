@@ -8,6 +8,7 @@ import { GridItemControls } from '../../plugin-studio/components/canvas/GridItem
 import { useUnifiedLayoutState } from '../hooks/useUnifiedLayoutState';
 import { LayoutChangeOrigin, generateLayoutHash } from '../utils/layoutChangeManager';
 import { useControlVisibility } from '../../../hooks/useControlVisibility';
+import { getLayoutCommitTracker } from '../utils/layoutCommitTracker';
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
@@ -262,12 +263,38 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
         return map[bp];
       };
       
+      // Helper: normalize an RGL layout array to include moduleId/pluginId
+      const normalizeItems = (items: any[] = []): LayoutItem[] => {
+        return (items || []).map((it: any) => {
+          const id = it?.i ?? '';
+          let pluginId = it?.pluginId;
+          if (!pluginId && typeof id === 'string' && id.includes('_')) {
+            pluginId = id.split('_')[0];
+          }
+          return {
+            i: id,
+            x: it?.x ?? 0,
+            y: it?.y ?? 0,
+            w: it?.w ?? 2,
+            h: it?.h ?? 2,
+            moduleId: it?.moduleId || id,
+            pluginId: pluginId || 'unknown',
+            minW: it?.minW,
+            minH: it?.minH,
+            isDraggable: it?.isDraggable ?? true,
+            isResizable: it?.isResizable ?? true,
+            static: it?.static ?? false,
+            config: it?.config
+          } as LayoutItem;
+        });
+      };
+
       // Use the current breakpoint's layout from finalLayout (has the latest changes)
       // Use the breakpoint parameter passed in
       if (finalLayout && breakpoint) {
         const ourBreakpoint = toOurBreakpoint(breakpoint);
         if (ourBreakpoint) {
-          convertedLayouts[ourBreakpoint] = finalLayout as LayoutItem[];
+          convertedLayouts[ourBreakpoint] = normalizeItems(finalLayout as any[]);
           
           console.log('[RECODE_V2_BLOCK] commitLayoutChanges - using finalLayout for commit', {
             breakpoint: ourBreakpoint,
@@ -287,7 +314,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
         if (ourBreakpoint && Array.isArray(gridLayout)) {
           // Only use allLayouts if we haven't already set this breakpoint from the current layout
           if (toOurBreakpoint(gridBreakpoint) !== toOurBreakpoint(breakpoint || '') || !finalLayout) {
-            convertedLayouts[ourBreakpoint] = gridLayout as LayoutItem[];
+            convertedLayouts[ourBreakpoint] = normalizeItems(gridLayout as any[]);
           }
         }
       });
@@ -801,6 +828,38 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       ultrawide: []
     };
 
+    // Helper: normalize an RGL layout array to include moduleId/pluginId
+    const extractPluginId = (compositeId: string): string => {
+      if (!compositeId) return 'unknown';
+      const tokens = compositeId.split('_');
+      if (tokens.length === 1) return tokens[0];
+      const idx = tokens.findIndex(t => /^(?:[0-9a-f]{24,}|\d{12,})$/i.test(t));
+      const boundary = idx > 0 ? idx : 2; // heuristic: often 2 tokens like ServiceExample_Theme
+      return tokens.slice(0, boundary).join('_');
+    };
+
+    const normalizeItems = (items: any[] = []): LayoutItem[] => {
+      return (items || []).map((it: any) => {
+        const id = it?.i ?? '';
+        const pluginId = it?.pluginId || extractPluginId(typeof id === 'string' ? id : '');
+        return {
+          i: id,
+          x: it?.x ?? 0,
+          y: it?.y ?? 0,
+          w: it?.w ?? 2,
+          h: it?.h ?? 2,
+          moduleId: it?.moduleId || id,
+          pluginId: pluginId || 'unknown',
+          minW: it?.minW,
+          minH: it?.minH,
+          isDraggable: it?.isDraggable ?? true,
+          isResizable: it?.isResizable ?? true,
+          static: it?.static ?? false,
+          config: it?.config
+        } as LayoutItem;
+      });
+    };
+
     // Map react-grid-layout breakpoints back to our breakpoint names
     const breakpointMap: Record<string, keyof ResponsiveLayouts> = {
       xs: 'mobile',
@@ -815,7 +874,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     if (layout && currentBreakpoint) {
       const ourBreakpoint = breakpointMap[currentBreakpoint];
       if (ourBreakpoint) {
-        convertedLayouts[ourBreakpoint] = layout as LayoutItem[];
+        convertedLayouts[ourBreakpoint] = normalizeItems(layout as any[]);
         
         // RECODE V2 BLOCK: Enhanced item-level dimension tracking
         if (isResizing || operationId?.includes('resize')) {
@@ -852,13 +911,13 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     // Fill in other breakpoints from allLayouts
     Object.entries(allLayouts).forEach(([gridBreakpoint, gridLayout]: [string, any]) => {
       const ourBreakpoint = breakpointMap[gridBreakpoint];
-      if (ourBreakpoint && Array.isArray(gridLayout)) {
-        // Only use allLayouts if we haven't already set this breakpoint from the current layout
-        if (gridBreakpoint !== currentBreakpoint || !layout) {
-          convertedLayouts[ourBreakpoint] = gridLayout as LayoutItem[];
+        if (ourBreakpoint && Array.isArray(gridLayout)) {
+          // Only use allLayouts if we haven't already set this breakpoint from the current layout
+          if (gridBreakpoint !== currentBreakpoint || !layout) {
+            convertedLayouts[ourBreakpoint] = normalizeItems(gridLayout as any[]);
+          }
         }
-      }
-    });
+      });
 
     // PHASE B: Determine the origin with version information
     const origin: LayoutChangeOrigin = {
@@ -936,8 +995,40 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
           newVersion: lastVersionRef.current
         });
         
-        // Schedule debounced commit
-        scheduleCommit(150); // 150ms grace period as specified in plan
+        // RECODE V2 BLOCK: Pass the final layout data to scheduleCommit for accurate positions
+        // Build allLayouts object with current breakpoint's layout (include alias)
+        const allLayouts: any = {};
+        const toGridAlias = (name: string): string => {
+          const m: Record<string, string> = { mobile: 'xs', tablet: 'sm', desktop: 'lg', wide: 'xl', ultrawide: 'xxl' };
+          return m[name] || name;
+        };
+        if (currentBreakpoint) {
+          allLayouts[currentBreakpoint] = layout;
+          const semanticToGrid: Record<string, string> = { mobile: 'xs', tablet: 'sm', desktop: 'lg', wide: 'xl', ultrawide: 'xxl' };
+          const gridKey = semanticToGrid[currentBreakpoint];
+          if (gridKey) {
+            allLayouts[gridKey] = layout;
+          }
+        }
+        
+        // Update working buffer for the active breakpoint with final drag positions
+        if (layout && currentBreakpoint) {
+          const toOurBreakpoint = (bp: string): keyof ResponsiveLayouts | undefined => {
+            const map: Record<string, keyof ResponsiveLayouts> = {
+              xs: 'mobile', sm: 'tablet', lg: 'desktop', xl: 'wide', xxl: 'ultrawide',
+              mobile: 'mobile', tablet: 'tablet', desktop: 'desktop', wide: 'wide', ultrawide: 'ultrawide'
+            };
+            return map[bp];
+          };
+          const ourBreakpoint = toOurBreakpoint(currentBreakpoint);
+          if (ourBreakpoint && workingLayoutsRef.current) {
+            workingLayoutsRef.current[ourBreakpoint] = layout as LayoutItem[];
+          }
+        }
+
+        // Schedule debounced commit with final layout data and normalized breakpoint
+        const normalizedBreakpoint = currentBreakpoint ? toGridAlias(currentBreakpoint) : currentBreakpoint;
+        scheduleCommit(150, layout, allLayouts, normalizedBreakpoint);
       }
       
       unifiedLayoutState.stopOperation(currentOperationId.current);
@@ -1143,8 +1234,26 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       
       // Parse the module data
       const moduleData = JSON.parse(moduleDataStr);
-      console.log('Parsed module data:', moduleData);
+      if (isDebugMode) {
+        console.log('[AddTrace] Parsed module data', moduleData);
+      }
       
+      // DEBUG: Log controller + commit tracker state prior to add
+      if (isDebugMode) {
+        const tracker = getLayoutCommitTracker();
+        const pending = tracker.getPendingCommits();
+        const last = unifiedLayoutState.getLastCommitMeta?.();
+        const committed = unifiedLayoutState.getCommittedLayouts?.();
+        const committedCounts = committed ? Object.fromEntries(Object.entries(committed).map(([bp, arr]) => [bp, (arr as any[])?.length || 0])) : {};
+        console.log('[AddTrace] Pre-Add State', {
+          controllerState: controllerStateRef.current,
+          hasCommitTimer: !!commitTimerRef.current,
+          pendingCommits: pending.length,
+          lastCommit: last,
+          committedCounts
+        });
+      }
+
       // Phase 3: Commit barrier - await any pending commits before adding
       if (ENABLE_LAYOUT_CONTROLLER_V2) {
         const state = controllerStateRef.current;
@@ -1160,6 +1269,13 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
           
           // Await the flush to ensure we're working with committed layouts
           await unifiedLayoutState.flush();
+          
+          if (isDebugMode) {
+            const committed = unifiedLayoutState.getCommittedLayouts?.();
+            const committedCounts = committed ? Object.fromEntries(Object.entries(committed).map(([bp, arr]) => [bp, (arr as any[])?.length || 0])) : {};
+            const last = unifiedLayoutState.getLastCommitMeta?.();
+            console.log('[AddTrace] Post-Flush State', { lastCommit: last, committedCounts });
+          }
           
           if (isDebugMode) {
             console.log('[LayoutEngine] Flush complete, proceeding with drop-add');
@@ -1191,14 +1307,31 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
         config: {
           moduleId: moduleData.moduleId,
           displayName: moduleData.displayName || moduleData.moduleName,
-          ...moduleData.config
+          ...moduleData.config,
+          // Preserve original item identity for adapter round-trips
+          _originalItem: {
+            i: uniqueId,
+            pluginId: moduleData.pluginId,
+            moduleId: moduleData.moduleId,
+            args: moduleData.config || {}
+          }
         },
         isDraggable: true,
         isResizable: true,
         static: false
       };
       
-      console.log('Adding new item to layout:', newItem);
+      if (isDebugMode) {
+        console.log('[AddTrace] Adding new item to layout', {
+          id: newItem.i,
+          pluginId: newItem.pluginId,
+          moduleId: newItem.moduleId,
+          x: newItem.x,
+          y: newItem.y,
+          w: newItem.w,
+          h: newItem.h
+        });
+      }
       
       // Phase 3: Use committed layouts as the base for adding new items
       const layoutsToUpdate = unifiedLayoutState.getCommittedLayouts() || currentLayouts;
@@ -1217,6 +1350,11 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       const version = lastVersionRef.current + 1;
       lastVersionRef.current = version;
       
+      if (isDebugMode) {
+        const counts = Object.fromEntries(Object.entries(updatedLayouts).map(([bp, arr]) => [bp, (arr as any[])?.length || 0]));
+        console.log('[AddTrace] Committing layouts after drop', { counts });
+      }
+
       unifiedLayoutState.updateLayouts(updatedLayouts, {
         source: 'drop-add',
         timestamp: Date.now(),
@@ -1307,29 +1445,31 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
 
   // Render grid items - Use displayedLayouts instead of currentLayouts
   const renderGridItems = useCallback(() => {
-    const currentLayout = displayedLayouts[currentBreakpoint as keyof ResponsiveLayouts] || displayedLayouts.desktop || [];
+    const currentLayout =
+      displayedLayouts[currentBreakpoint as keyof ResponsiveLayouts] ||
+      displayedLayouts.desktop ||
+      displayedLayouts.wide ||
+      [];
     
     
     
+    if (isDebugMode) {
+      const preview = currentLayout.map((i: any) => ({ i: i.i, pluginId: i.pluginId, moduleId: i.moduleId, x: i.x, y: i.y, w: i.w, h: i.h }));
+      console.log('[AddTrace] Render pass items', { breakpoint: currentBreakpoint, count: preview.length, items: preview });
+    }
+
     return currentLayout.map((item: LayoutItem) => {
       // Try to find the module by moduleId with multiple strategies
       let module = moduleMap[item.moduleId];
       
-      // If direct lookup fails, try alternative matching strategies
+      // If direct lookup fails, try a conservative fallback only (avoid cross-binding by pluginId)
+      let resolvedVia: 'direct' | 'sanitized' | 'fallback' | 'none' = module ? 'direct' : 'none';
       if (!module) {
-        // Strategy 1: Try without underscores (sanitized version)
-        const sanitizedModuleId = item.moduleId.replace(/_/g, '');
-        module = moduleMap[sanitizedModuleId];
-        
-        if (module) {
-        } else {
-          // Strategy 2: Try finding by pluginId match
-          for (const [moduleId, moduleConfig] of Object.entries(moduleMap)) {
-            if (moduleConfig.pluginId === item.pluginId) {
-              module = moduleConfig;
-              break;
-            }
-          }
+        // Try without underscores (sanitized id) once
+        if (item.moduleId && typeof item.moduleId === 'string') {
+          const sanitizedModuleId = item.moduleId.replace(/_/g, '');
+          module = moduleMap[sanitizedModuleId];
+          if (module) resolvedVia = 'sanitized';
         }
       }
       
@@ -1346,23 +1486,16 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
         if (!fallbackPluginId || fallbackPluginId === 'unknown') {
           // Try to extract plugin ID from the module ID pattern
           // e.g., "BrainDriveChat_1830586da8834501bea1ef1d39c3cbe8_BrainDriveChat_BrainDriveChat_1754404718788"
-          const moduleIdParts = item.moduleId.split('_');
-          if (moduleIdParts.length > 0) {
-            const potentialPluginId = moduleIdParts[0];
-            // Check if this matches any available plugin
-            const availablePluginIds = ['BrainDriveBasicAIChat', 'BrainDriveChat', 'BrainDriveSettings'];
-            if (availablePluginIds.includes(potentialPluginId)) {
-              fallbackPluginId = potentialPluginId;
-              
-            }
-          }
+          const potentialPluginId = extractPluginId(item.moduleId || '');
+          fallbackPluginId = potentialPluginId || fallbackPluginId;
         }
 
-        // Extract simple module ID from complex ID - calculate directly to avoid useMemo in render loop
-        // Pattern: BrainDriveBasicAIChat_59898811a4b34d9097615ed6698d25f6_1754507768265
-        // We want: 59898811a4b34d9097615ed6698d25f6
-        const parts = item.moduleId.split('_');
-        const extractedModuleId = parts.length >= 6 ? parts[5] : item.moduleId;
+        // Extract moduleId more robustly
+        const parts = (item.moduleId || '').split('_');
+        const isTimestamp = (s: string) => /^\d{12,}$/.test(s);
+        const extractedModuleId = (item.config as any)?.moduleId
+          || parts.reverse().find(p => p && !isTimestamp(p) && p !== fallbackPluginId)
+          || item.moduleId;
 
         // Create stable breakpoint object
         const breakpointConfig = {
@@ -1374,6 +1507,15 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
           containerWidth: 1200,
           containerHeight: 800,
         };
+
+        if (isDebugMode) {
+          console.log('[AddTrace] Resolve item (fallback path)', {
+            itemId: item.i,
+            pluginId: fallbackPluginId,
+            requestedModuleId: item.moduleId,
+            extractedModuleId
+          });
+        }
 
         return (
           <div
@@ -1391,12 +1533,12 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
                 onRemove={() => handleItemRemove(item.i)}
               />
             )}
-            <LegacyModuleAdapter
-              pluginId={fallbackPluginId}
-              moduleId={extractedModuleId}
-              moduleName={undefined}
-              moduleProps={item.config || {}}
-              useUnifiedRenderer={true}
+          <LegacyModuleAdapter
+            pluginId={fallbackPluginId}
+            moduleId={extractedModuleId}
+            moduleName={undefined}
+            moduleProps={item.config || {}}
+            useUnifiedRenderer={true}
               mode={mode === RenderMode.STUDIO ? 'studio' : 'published'}
               breakpoint={breakpointConfig}
               lazyLoading={lazyLoading}
@@ -1411,6 +1553,16 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
 
       const isSelected = selectedItem === item.i;
       const isStudioMode = showControls; // Use control visibility instead of just mode check
+
+      if (isDebugMode) {
+        console.log('[AddTrace] Resolve item', {
+          itemId: item.i,
+          requestedPluginId: item.pluginId,
+          requestedModuleId: item.moduleId,
+          resolvedModuleKey: module?.id || '(legacy)',
+          via: resolvedVia
+        });
+      }
 
       return (
         <div
@@ -1431,18 +1583,14 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
           
           <LegacyModuleAdapter
             pluginId={item.pluginId}
-            moduleId={module._legacy?.moduleId || (() => {
-              // Extract simple module ID from complex ID
-              // Pattern: ServiceExample_Theme_userId_ServiceExample_Theme_actualModuleId_timestamp
-              // Example: ServiceExample_Theme_c34bfc30de004813ad5b5d3a4ab9df34_ServiceExample_Theme_ThemeDisplay_1756311722722
-              // We want: ThemeDisplay (or ThemeController)
-              const parts = item.moduleId.split('_');
-              if (parts.length >= 6) {
-                // The actual module ID is the sixth part (after ServiceExample_Theme_userId_ServiceExample_Theme)
-                return parts[5];
-              }
-              return item.moduleId; // fallback to original if pattern doesn't match
-            })()}
+            moduleId={module._legacy?.moduleId || ((() => {
+              const cfgId = (module._legacy?.moduleId) || (item.config as any)?.moduleId;
+              if (cfgId) return cfgId as string;
+              const tokens = (item.moduleId || '').split('_');
+              const isTs = (s: string) => /^\d{12,}$/.test(s);
+              const candidate = tokens.reverse().find(p => p && !isTs(p) && p !== item.pluginId);
+              return candidate || item.moduleId;
+            })())}
             moduleName={module._legacy?.moduleName}
             moduleProps={module._legacy?.originalConfig || item.config}
             useUnifiedRenderer={true}

@@ -226,6 +226,13 @@ export function useUnifiedLayoutState(options: UnifiedLayoutStateOptions = {}): 
 
     // Phase 1: Track pending commit
     const hash = generateLayoutHash(newLayouts);
+    // If this matches the last persisted hash, it will be dropped by the pipeline; avoid tracking pending
+    if (lastPersistedHashRef.current === hash) {
+      if (isDebugMode) {
+        console.log('[UnifiedLayoutState] Skipping update equal to last persisted hash');
+      }
+      return;
+    }
     const version = origin.version || lastCommittedVersionRef.current + 1;
     layoutCommitTracker.trackPending(version, hash);
     

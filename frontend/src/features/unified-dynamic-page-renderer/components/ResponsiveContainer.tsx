@@ -39,8 +39,10 @@ export const ResponsiveContainer: React.FC<ResponsiveContainerProps> = ({
   const responsiveState = useResponsive({
     containerRef,
     breakpoints,
+    // Only enable container queries when both supported and requested
     containerQueries: containerQueries && supportsContainerQueries,
-    fallbackToViewport: !supportsContainerQueries,
+    // Fall back to viewport when container queries are unsupported OR disabled via prop
+    fallbackToViewport: !supportsContainerQueries || !containerQueries,
   });
 
   // Handle breakpoint changes

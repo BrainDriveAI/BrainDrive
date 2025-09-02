@@ -71,9 +71,12 @@ export const PluginStudioLayoutUnified: React.FC = () => {
   };
 
   // Migration control state
-  const [useUnifiedRenderer, setUseUnifiedRenderer] = useState(
-    import.meta.env.MODE === 'development' // Enable by default in development
-  );
+  // Default: unified if VITE_USE_UNIFIED_RENDERER=true, otherwise dev default is unified, prod default is legacy
+  const [useUnifiedRenderer, setUseUnifiedRenderer] = useState(() => {
+    const flag = (import.meta as any).env?.VITE_USE_UNIFIED_RENDERER;
+    if (typeof flag === 'string') return flag === 'true';
+    return import.meta.env.MODE === 'development';
+  });
   const [unifiedError, setUnifiedError] = useState<Error | null>(null);
   
   // Get dev mode features - MUST be called before any conditional returns
