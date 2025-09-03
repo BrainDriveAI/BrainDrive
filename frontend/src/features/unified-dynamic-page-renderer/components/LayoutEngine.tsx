@@ -431,6 +431,8 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  // Stabilize module identities to avoid transient incomplete IDs during operations
+  const stableIdentityRef = useRef<Map<string, { pluginId: string; moduleId: string }>>(new Map());
 
   const { currentBreakpoint } = useBreakpoint();
   
@@ -1582,13 +1584,60 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
               onRemove={() => handleItemRemove(item.i)}
             />
           )}
-          
-          <ModuleRenderer
-            pluginId={item.pluginId}
-            moduleId={(item.config as any)?.moduleId || item.moduleId}
-            additionalProps={item.config}
-            fallback={<div style={{ padding: 8 }}>Loading module...</div>}
-          />
+          {(() => {
+            // Normalize current candidates
+            const candidatePluginId =
+              (item as any)?.config?._originalItem?.pluginId ||
+              (item.pluginId && item.pluginId !== 'unknown' && item.pluginId.includes('_')
+                ? item.pluginId
+                : extractPluginId(item.moduleId || (item as any)?.config?._originalItem?.moduleId || (item.i || '')));
+            const candidateModuleId = (item.config as any)?.moduleId || (item as any)?.config?._originalItem?.moduleId || item.moduleId;
+
+            // Use last known-good identity if it is more specific/complete
+            const prev = stableIdentityRef.current.get(item.i);
+            let effectivePluginId = candidatePluginId;
+            let effectiveModuleId = candidateModuleId;
+
+            if (prev) {
+              // Prefer composite plugin ids with an underscore
+              const prevIsComposite = prev.pluginId && prev.pluginId.includes('_');
+              const candIsComposite = effectivePluginId && effectivePluginId.includes('_');
+              if (prevIsComposite && !candIsComposite) {
+                effectivePluginId = prev.pluginId;
+              }
+              // Prefer previously known moduleId if current is empty/falsy
+              if (!effectiveModuleId && prev.moduleId) {
+                effectiveModuleId = prev.moduleId;
+              }
+            }
+
+            // Update cache only when both values look usable
+            if (effectivePluginId && effectiveModuleId) {
+              stableIdentityRef.current.set(item.i, {
+                pluginId: effectivePluginId,
+                moduleId: effectiveModuleId,
+              });
+            }
+
+            if (isDebugMode) {
+              console.log('[ModuleRenderTrace] Identity', {
+                id: item.i,
+                candidatePluginId,
+                candidateModuleId,
+                effectivePluginId,
+                effectiveModuleId,
+              });
+            }
+
+            return (
+              <ModuleRenderer
+                pluginId={effectivePluginId}
+                moduleId={effectiveModuleId}
+                additionalProps={item.config}
+                fallback={<div style={{ padding: 8 }}>Loading module...</div>}
+              />
+            );
+          })()}
         </div>
       );
     });

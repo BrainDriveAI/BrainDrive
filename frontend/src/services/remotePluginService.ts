@@ -482,6 +482,13 @@ class RemotePluginService {
   }
 
   /**
+   * List IDs of all loaded plugins
+   */
+  listLoadedPluginIds(): string[] {
+    return Array.from(this.loadedPlugins.keys());
+  }
+
+  /**
    * Get a specific module from a loaded plugin
    * @param pluginId The ID of the plugin
    * @param moduleId The ID or name of the module to retrieve
@@ -494,6 +501,19 @@ class RemotePluginService {
     return plugin.loadedModules.find(
       module => module.id === moduleId || module.name === moduleId
     );
+  }
+
+  /**
+   * Find a loaded plugin that contains a module with the given id or name
+   */
+  findLoadedPluginByModuleId(moduleId: string): { plugin: LoadedRemotePlugin; module: LoadedModule } | undefined {
+    const norm = (s: string) => (s || '').toLowerCase();
+    const target = norm(moduleId);
+    for (const plugin of this.loadedPlugins.values()) {
+      const mod = plugin.loadedModules.find(m => norm(m.id) === target || norm(m.name) === target);
+      if (mod) return { plugin, module: mod };
+    }
+    return undefined;
   }
 
   /**

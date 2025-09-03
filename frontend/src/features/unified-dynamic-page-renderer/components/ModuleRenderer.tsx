@@ -154,9 +154,51 @@ const UnifiedModuleRenderer: React.FC<UnifiedModuleRendererProps> = ({
         }
         
         // Load the plugin module using the same logic as PluginModuleRenderer
-        const remotePlugin = remotePluginService.getLoadedPlugin(pluginId);
+        // Attempt direct lookup; if missing, try to resolve a compatible loaded plugin id
+        let normalizedPluginId = pluginId;
+        let remotePlugin = remotePluginService.getLoadedPlugin(normalizedPluginId);
         if (!remotePlugin) {
-          throw new Error(`Plugin ${pluginId} not found or not loaded`);
+          const candidates = remotePluginService.listLoadedPluginIds();
+          const variations = [
+            normalizedPluginId,
+            normalizedPluginId.replace(/-/g, '_'),
+            normalizedPluginId.replace(/_/g, '-'),
+          ];
+          const foundId =
+            candidates.find(id => variations.includes(id)) ||
+            candidates.find(id => id.includes(normalizedPluginId)) ||
+            candidates.find(id => normalizedPluginId.includes(id));
+          if (foundId) {
+            normalizedPluginId = foundId;
+            if (process.env.NODE_ENV === 'development') {
+              console.debug(`[ModuleRenderer] Resolved pluginId '${pluginId}' -> '${normalizedPluginId}' (loaded)`);
+            }
+            remotePlugin = remotePluginService.getLoadedPlugin(normalizedPluginId)!;
+          }
+        }
+        // Lazy-load plugin by manifest if still missing
+        if (!remotePlugin) {
+          const manifest = await remotePluginService.getRemotePluginManifest();
+          // Prefer manifest entries where id includes pluginId and module list includes moduleId
+          const byModules = manifest.filter(m =>
+            (m.id && (m.id.includes(normalizedPluginId) || normalizedPluginId.includes(m.id))) &&
+            Array.isArray(m.modules) && m.modules.some(mod => mod.id === moduleId || mod.name === moduleId)
+          );
+          const byId = manifest.filter(m => m.id && (m.id.includes(normalizedPluginId) || normalizedPluginId.includes(m.id)));
+          const candidateManifest = byModules[0] || byId[0] || manifest.find(m => m.id === normalizedPluginId);
+          if (candidateManifest) {
+            const loaded = await remotePluginService.loadRemotePlugin(candidateManifest);
+            if (loaded) {
+              normalizedPluginId = loaded.id;
+              remotePlugin = loaded;
+              if (process.env.NODE_ENV === 'development') {
+                console.debug(`[ModuleRenderer] Lazy-loaded plugin '${normalizedPluginId}' for ${moduleId}`);
+              }
+            }
+          }
+        }
+        if (!remotePlugin) {
+          throw new Error(`Plugin ${normalizedPluginId} not found or not loaded`);
         }
 
         // Use loadedModules instead of modules - same as PluginModuleRenderer
@@ -176,10 +218,23 @@ const UnifiedModuleRenderer: React.FC<UnifiedModuleRendererProps> = ({
           if (!foundModule && baseModuleId) {
             foundModule = remotePlugin.loadedModules.find(m => m.id === baseModuleId);
           }
-        } else if (moduleName) {
+        }
+        if (!foundModule && moduleName) {
           foundModule = remotePlugin.loadedModules.find(m => m.name === moduleName);
-        } else {
-          // Default to first module
+        }
+        // Cross-plugin fallback: search all loaded plugins for this module id/name if still not found
+        if (!foundModule && moduleId) {
+          const cross = remotePluginService.findLoadedPluginByModuleId(moduleId);
+          if (cross) {
+            if (process.env.NODE_ENV === 'development') {
+              console.debug(`[ModuleRenderer] Resolved module '${moduleId}' in plugin '${cross.plugin.id}'`);
+            }
+            remotePlugin = cross.plugin;
+            foundModule = cross.module;
+          }
+        }
+        if (!foundModule && !moduleId && !moduleName) {
+          // Default to first module if still nothing specified
           foundModule = remotePlugin.loadedModules[0];
         }
 
