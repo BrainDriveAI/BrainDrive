@@ -512,7 +512,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       });
       unifiedLayoutState.resetLayouts(layouts);
       pageIdRef.current = pageId;
-      
+
       // Clear bounce detection tracking when page changes
       previousPositionsRef.current.clear();
       intendedPositionsRef.current.clear();
@@ -869,12 +869,23 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       xxl: 'ultrawide'
     };
 
-    // Phase 5: Use the current breakpoint's layout if available (it has the latest changes)
-    // The 'layout' parameter contains the current breakpoint's updated layout during resize/drag
+    // Phase 5: Preserve identity for ACTIVE breakpoint only to avoid legacy/blank flash
+    // The 'layout' parameter contains the active breakpoint's updated layout during drag/resize
     if (layout && currentBreakpoint) {
       const ourBreakpoint = breakpointMap[currentBreakpoint];
       if (ourBreakpoint) {
-        convertedLayouts[ourBreakpoint] = normalizeItems(layout as any[]);
+        // Build a lookup of existing items so we can copy identity/config
+        const source = (workingLayoutsRef.current || canonicalLayoutsRef.current || currentLayouts) as ResponsiveLayouts;
+        const existing: LayoutItem[] = (source?.[ourBreakpoint] as LayoutItem[]) || [];
+        const existingMap = new Map(existing.map(it => [it.i, it]));
+
+        convertedLayouts[ourBreakpoint] = (layout as any[]).map((it: any) => {
+          const id = it?.i ?? '';
+          const pos = { x: it?.x ?? 0, y: it?.y ?? 0, w: it?.w ?? 2, h: it?.h ?? 2 };
+          const base = existingMap.get(id);
+          // Keep identity/config from base; only update position/size
+          return base ? ({ ...base, ...pos } as LayoutItem) : normalizeItems([it])[0];
+        });
         
         // RECODE V2 BLOCK: Enhanced item-level dimension tracking
         if (isResizing || operationId?.includes('resize')) {
@@ -908,16 +919,15 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       }
     }
 
-    // Fill in other breakpoints from allLayouts
+    // Fill in other breakpoints from allLayouts (no merge to avoid display regressions)
     Object.entries(allLayouts).forEach(([gridBreakpoint, gridLayout]: [string, any]) => {
-      const ourBreakpoint = breakpointMap[gridBreakpoint];
-        if (ourBreakpoint && Array.isArray(gridLayout)) {
-          // Only use allLayouts if we haven't already set this breakpoint from the current layout
-          if (gridBreakpoint !== currentBreakpoint || !layout) {
-            convertedLayouts[ourBreakpoint] = normalizeItems(gridLayout as any[]);
-          }
+      const ourBp = breakpointMap[gridBreakpoint];
+      if (ourBp && Array.isArray(gridLayout)) {
+        if (gridBreakpoint !== currentBreakpoint || !layout) {
+          convertedLayouts[ourBp] = normalizeItems(gridLayout as any[]);
         }
-      });
+      }
+    });
 
     // PHASE B: Determine the origin with version information
     const origin: LayoutChangeOrigin = {
@@ -1533,20 +1543,12 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
                 onRemove={() => handleItemRemove(item.i)}
               />
             )}
-          <LegacyModuleAdapter
+          <ModuleRenderer
             pluginId={fallbackPluginId}
             moduleId={extractedModuleId}
-            moduleName={undefined}
-            moduleProps={item.config || {}}
-            useUnifiedRenderer={true}
-              mode={mode === RenderMode.STUDIO ? 'studio' : 'published'}
-              breakpoint={breakpointConfig}
-              lazyLoading={lazyLoading}
-              priority={preloadPlugins.includes(item.pluginId) ? 'high' : 'normal'}
-              enableMigrationWarnings={process.env.NODE_ENV === 'development'}
-              fallbackStrategy="on-error"
-              performanceMonitoring={process.env.NODE_ENV === 'development'}
-            />
+            additionalProps={item.config || {}}
+            fallback={<div style={{ padding: 8 }}>Loading module...</div>}
+          />
           </div>
         );
       }
@@ -1581,34 +1583,11 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
             />
           )}
           
-          <LegacyModuleAdapter
+          <ModuleRenderer
             pluginId={item.pluginId}
-            moduleId={module._legacy?.moduleId || ((() => {
-              const cfgId = (module._legacy?.moduleId) || (item.config as any)?.moduleId;
-              if (cfgId) return cfgId as string;
-              const tokens = (item.moduleId || '').split('_');
-              const isTs = (s: string) => /^\d{12,}$/.test(s);
-              const candidate = tokens.reverse().find(p => p && !isTs(p) && p !== item.pluginId);
-              return candidate || item.moduleId;
-            })())}
-            moduleName={module._legacy?.moduleName}
-            moduleProps={module._legacy?.originalConfig || item.config}
-            useUnifiedRenderer={true}
-            mode={mode === RenderMode.STUDIO ? 'studio' : 'published'}
-            breakpoint={{
-              name: currentBreakpoint,
-              width: 0,
-              height: 0,
-              orientation: 'landscape',
-              pixelRatio: 1,
-              containerWidth: 1200,
-              containerHeight: 800,
-            }}
-            lazyLoading={lazyLoading}
-            priority={preloadPlugins.includes(item.pluginId) ? 'high' : 'normal'}
-            enableMigrationWarnings={process.env.NODE_ENV === 'development'}
-            fallbackStrategy="on-error"
-            performanceMonitoring={process.env.NODE_ENV === 'development'}
+            moduleId={(item.config as any)?.moduleId || item.moduleId}
+            additionalProps={item.config}
+            fallback={<div style={{ padding: 8 }}>Loading module...</div>}
           />
         </div>
       );
