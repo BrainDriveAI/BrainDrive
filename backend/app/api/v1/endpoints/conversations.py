@@ -327,6 +327,7 @@ async def get_conversation_with_persona(
     """Get a conversation with full persona details."""
     from app.schemas.conversation_schemas import ConversationWithPersona
     from app.models.persona import Persona
+    from app.services.persona_service import PersonaService
     
     conversation = await Conversation.get_by_id(db, conversation_id)
     if not conversation:
@@ -345,28 +346,43 @@ async def get_conversation_with_persona(
     # Get persona details if persona_id exists
     persona = None
     if conversation.persona_id:
-        persona = await Persona.get_by_id(db, conversation.persona_id)
-        # Ensure the persona belongs to the same user
-        if persona and str(persona.user_id).replace('-', '') != current_user_id:
-            persona = None  # Don't return persona if it doesn't belong to the user
+        try:
+            persona = await Persona.get_by_id(db, conversation.persona_id)
+            # Ensure the persona belongs to the same user
+            if persona and str(persona.user_id).replace('-', '') != current_user_id:
+                persona = None  # Don't return persona if it doesn't belong to the user
+        except Exception as e:
+            # Log error but don't fail the request - graceful degradation
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error fetching persona {conversation.persona_id}: {e}")
+            persona = None
     
     # Return the conversation with persona details
+    persona_data = None
+    if persona:
+        # Use PersonaService to properly parse JSON fields
+        persona_data = PersonaService.parse_persona_response(persona)
+    
     return {
         **conversation.__dict__,
         "tags": tags,
-        "persona": persona.__dict__ if persona else None
+        "persona": persona_data
     }
 
 
 @router.put("/conversations/{conversation_id}/persona", response_model=ConversationSchema)
 async def update_conversation_persona(
     conversation_id: str,
-    persona_id: Optional[str] = Body(None, description="ID of the persona to assign to this conversation"),
+    request_body: dict = Body(..., description="Request body containing persona_id"),
     db: AsyncSession = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
     """Update a conversation's persona."""
     from app.models.persona import Persona
+    
+    # Extract persona_id from request body
+    persona_id = request_body.get("persona_id")
     
     conversation = await Conversation.get_by_id(db, conversation_id)
     if not conversation:
