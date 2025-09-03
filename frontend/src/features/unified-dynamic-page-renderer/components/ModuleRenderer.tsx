@@ -206,25 +206,46 @@ const UnifiedModuleRenderer: React.FC<UnifiedModuleRendererProps> = ({
           throw new Error(`Plugin ${pluginId} has no loaded modules`);
         }
 
-        // Extract the base moduleId from the custom moduleId (e.g., "component-display" from "component-display-2")
+        // Extract additional normalized forms of moduleId for robust matching
+        const normalize = (s?: string) => (s || '').toLowerCase().replace(/[_-]/g, '');
+        const lastToken = (s?: string) => {
+          const t = (s || '').split('_');
+          return t[t.length - 1] || s || '';
+        };
         const baseModuleId = moduleId ? moduleId.replace(/-\d+$/, '') : null;
         
         // Find the module by ID first, then by base ID, then by name - same logic as PluginModuleRenderer
         let foundModule: LoadedModule | undefined;
         
         if (moduleId) {
+          // Exact id match
           foundModule = remotePlugin.loadedModules.find(m => m.id === moduleId);
-          // If not found by exact moduleId, try with the base moduleId
+          // Base-id match (strip numeric suffix)
           if (!foundModule && baseModuleId) {
             foundModule = remotePlugin.loadedModules.find(m => m.id === baseModuleId);
           }
+          // Last token of composite id (e.g., ServiceExample_Theme_ThemeDisplay -> ThemeDisplay)
+          if (!foundModule) {
+            const lt = lastToken(moduleId);
+            foundModule = remotePlugin.loadedModules.find(m => m.id === lt || m.name === lt);
+          }
+          // Loose normalized comparison (ignore case and _-/)
+          if (!foundModule) {
+            const target = normalize(moduleId);
+            foundModule = remotePlugin.loadedModules.find(m => normalize(m.id) === target || normalize(m.name) === target);
+          }
         }
         if (!foundModule && moduleName) {
-          foundModule = remotePlugin.loadedModules.find(m => m.name === moduleName);
+          // Try by name, including loose normalized comparison
+          foundModule = remotePlugin.loadedModules.find(m => m.name === moduleName)
+            || remotePlugin.loadedModules.find(m => normalize(m.name) === normalize(moduleName));
         }
         // Cross-plugin fallback: search all loaded plugins for this module id/name if still not found
         if (!foundModule && moduleId) {
-          const cross = remotePluginService.findLoadedPluginByModuleId(moduleId);
+          // Cross-plugin fallback: allow loose matching by id/name and last token
+          const cross = remotePluginService.findLoadedPluginByModuleId(moduleId)
+            || remotePluginService.findLoadedPluginByModuleId(baseModuleId || '')
+            || remotePluginService.findLoadedPluginByModuleId(lastToken(moduleId));
           if (cross) {
             if (process.env.NODE_ENV === 'development') {
               console.debug(`[ModuleRenderer] Resolved module '${moduleId}' in plugin '${cross.plugin.id}'`);
@@ -337,7 +358,13 @@ const UnifiedModuleRenderer: React.FC<UnifiedModuleRendererProps> = ({
         }
       } catch (err) {
         console.error(`[ModuleRenderer] Error loading module ${pluginId}:${moduleId}:`, err);
-        setError(err instanceof Error ? err.message : 'Unknown error loading module');
+        // Sticky: If we had a previously loaded module, keep rendering it and suppress the error UI
+        if (prevModuleRef.current) {
+          setError(null);
+          setModule(prevModuleRef.current);
+        } else {
+          setError(err instanceof Error ? err.message : 'Unknown error loading module');
+        }
         if (onError && err instanceof Error) {
           onError(err);
         }
@@ -367,7 +394,7 @@ const UnifiedModuleRenderer: React.FC<UnifiedModuleRendererProps> = ({
   }, [pluginId, moduleId, moduleName, isLocal, createServiceBridgesWithMemo, additionalProps, serviceContext, onError, mountedRef]);
 
   // Loading state
-  if (loading) {
+  if (loading && !prevModuleRef.current && !module) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', p: 2 }}>
         <CircularProgress size={24} />
@@ -378,8 +405,8 @@ const UnifiedModuleRenderer: React.FC<UnifiedModuleRendererProps> = ({
     );
   }
 
-  // Error state
-  if (error) {
+  // Error state (only when no previous successful module rendered)
+  if (error && !prevModuleRef.current && !module) {
     return (
       <Box sx={{ p: 2, border: '1px solid #f44336', borderRadius: 1, bgcolor: '#ffebee' }}>
         <Typography variant="h6" color="error">Module Load Error</Typography>

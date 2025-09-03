@@ -144,27 +144,20 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
   ): LayoutItem => {
     // Extract module definition if available
     const moduleDefinition = moduleDefinitions?.[item.i];
-    
-    // Extract pluginId from the item ID if not directly available
-    // Plugin Studio item IDs are typically in format: "PluginId_moduleId_timestamp"
-    let pluginId = item.pluginId;
-    if (!pluginId && item.i) {
-      const parts = item.i.split('_');
-      if (parts.length >= 1) {
-        pluginId = parts[0]; // First part is usually the plugin ID
-      }
-    }
-    
-    // Also try to get pluginId from module definition
-    if (!pluginId && moduleDefinition?.pluginId) {
-      pluginId = moduleDefinition.pluginId;
-    }
-    
-    // Fallback to a safe default if still no pluginId found
-    if (!pluginId) {
-      console.warn('[PluginStudioAdapter] No pluginId found for item:', item.i, 'item:', item);
-      pluginId = 'unknown';
-    }
+    // Prefer pluginId from module definition or original item
+    const originalPluginId = item?.args?._originalItem?.pluginId;
+    const extractComposite = (s?: string): string => {
+      if (!s) return '';
+      const parts = String(s).split('_');
+      if (parts.length >= 2) return `${parts[0]}_${parts[1]}`;
+      return parts[0] || '';
+    };
+    let pluginId: string = moduleDefinition?.pluginId
+      || originalPluginId
+      || (item.pluginId && item.pluginId !== 'unknown' ? item.pluginId : '')
+      || extractComposite(item.i)
+      || extractComposite(item.moduleId)
+      || 'unknown';
     
     return {
       i: item.i,
@@ -174,7 +167,7 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
       h: item.h,
       minW: item.minW,
       minH: item.minH,
-      moduleId: item.i,
+      moduleId: item.i, // keep PS identity for module map lookups
       pluginId: pluginId,
       config: {
         ...item.args,
