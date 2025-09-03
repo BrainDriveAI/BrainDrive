@@ -844,13 +844,23 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       return (items || []).map((it: any) => {
         const id = it?.i ?? '';
         const pluginId = it?.pluginId || extractPluginId(typeof id === 'string' ? id : '');
+        
+        // CRITICAL: Preserve moduleId from config if available (from args)
+        let moduleId = it?.moduleId;
+        if (!moduleId && it?.config?.moduleId) {
+          moduleId = it.config.moduleId;
+        }
+        if (!moduleId) {
+          moduleId = id; // Last resort fallback
+        }
+        
         return {
           i: id,
           x: it?.x ?? 0,
           y: it?.y ?? 0,
           w: it?.w ?? 2,
           h: it?.h ?? 2,
-          moduleId: it?.moduleId || id,
+          moduleId: moduleId,
           pluginId: pluginId || 'unknown',
           minW: it?.minW,
           minH: it?.minH,
@@ -1493,21 +1503,57 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
         const isSelected = selectedItem === item.i;
         const isStudioMode = showControls; // Use control visibility instead of just mode check
 
+        // Helper function to extract plugin ID from composite ID
+        const extractPluginIdFromComposite = (compositeId: string): string => {
+          if (!compositeId) return 'unknown';
+          const tokens = compositeId.split('_');
+          if (tokens.length === 1) return tokens[0];
+          const idx = tokens.findIndex(t => /^(?:[0-9a-f]{24,}|\d{12,})$/i.test(t));
+          const boundary = idx > 0 ? idx : 2;
+          return tokens.slice(0, boundary).join('_');
+        };
+
         // Try to extract pluginId from moduleId if item.pluginId is 'unknown'
         let fallbackPluginId = item.pluginId;
         if (!fallbackPluginId || fallbackPluginId === 'unknown') {
           // Try to extract plugin ID from the module ID pattern
           // e.g., "BrainDriveChat_1830586da8834501bea1ef1d39c3cbe8_BrainDriveChat_BrainDriveChat_1754404718788"
-          const potentialPluginId = extractPluginId(item.moduleId || '');
+          const potentialPluginId = extractPluginIdFromComposite(item.moduleId || '');
           fallbackPluginId = potentialPluginId || fallbackPluginId;
         }
 
         // Extract moduleId more robustly
-        const parts = (item.moduleId || '').split('_');
-        const isTimestamp = (s: string) => /^\d{12,}$/.test(s);
-        const extractedModuleId = (item.config as any)?.moduleId
-          || parts.reverse().find(p => p && !isTimestamp(p) && p !== fallbackPluginId)
-          || item.moduleId;
+        // First check if moduleId is in config (from args in database)
+        let extractedModuleId = (item.config as any)?.moduleId;
+        
+        // CRITICAL FIX: If item.moduleId is just the module name (not composite), use it directly
+        if (item.moduleId && !item.moduleId.includes('_')) {
+          extractedModuleId = item.moduleId;
+          console.log('[LayoutEngine] Using simple moduleId directly:', item.moduleId);
+        }
+        
+        console.log('[LayoutEngine] Module extraction for fallback path:', {
+          itemId: item.i,
+          itemModuleId: item.moduleId,
+          configModuleId: (item.config as any)?.moduleId,
+          config: item.config,
+          pluginId: fallbackPluginId,
+          extractedSoFar: extractedModuleId
+        });
+        
+        // If not in config and item.moduleId looks like a composite ID, try to extract
+        if (!extractedModuleId && item.moduleId && item.moduleId.includes('_')) {
+          const parts = item.moduleId.split('_');
+          const isTimestamp = (s: string) => /^\d{12,}$/.test(s);
+          extractedModuleId = parts.reverse().find(p => p && !isTimestamp(p) && p !== fallbackPluginId);
+        }
+        
+        // Otherwise use item.moduleId as-is
+        if (!extractedModuleId) {
+          extractedModuleId = item.moduleId;
+        }
+        
+        console.log('[LayoutEngine] Final extracted moduleId:', extractedModuleId);
 
         // Create stable breakpoint object
         const breakpointConfig = {
@@ -1585,12 +1631,22 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
             />
           )}
           {(() => {
+            // Helper function to extract plugin ID (local copy)
+            const extractPluginIdLocal = (compositeId: string): string => {
+              if (!compositeId) return 'unknown';
+              const tokens = compositeId.split('_');
+              if (tokens.length === 1) return tokens[0];
+              const idx = tokens.findIndex(t => /^(?:[0-9a-f]{24,}|\d{12,})$/i.test(t));
+              const boundary = idx > 0 ? idx : 2;
+              return tokens.slice(0, boundary).join('_');
+            };
+
             // Normalize current candidates
             const candidatePluginId =
               (item as any)?.config?._originalItem?.pluginId ||
               (item.pluginId && item.pluginId !== 'unknown' && item.pluginId.includes('_')
                 ? item.pluginId
-                : extractPluginId(item.moduleId || (item as any)?.config?._originalItem?.moduleId || (item.i || '')));
+                : extractPluginIdLocal(item.moduleId || (item as any)?.config?._originalItem?.moduleId || (item.i || '')));
             const candidateModuleId = (item.config as any)?.moduleId || (item as any)?.config?._originalItem?.moduleId || item.moduleId;
 
             // Use last known-good identity if it is more specific/complete

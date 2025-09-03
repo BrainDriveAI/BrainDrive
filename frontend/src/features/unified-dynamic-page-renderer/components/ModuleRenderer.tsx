@@ -235,6 +235,18 @@ const UnifiedModuleRenderer: React.FC<UnifiedModuleRendererProps> = ({
             foundModule = remotePlugin.loadedModules.find(m => normalize(m.id) === target || normalize(m.name) === target);
           }
         }
+        
+        // Special handling for BrainDriveChat plugin
+        if (!foundModule && pluginId === 'BrainDriveChat') {
+          // BrainDriveChat has a single module that should be used regardless of moduleId
+          if (remotePlugin.loadedModules.length > 0) {
+            foundModule = remotePlugin.loadedModules[0];
+            if (process.env.NODE_ENV === 'development') {
+              console.debug(`[ModuleRenderer] Using first module for BrainDriveChat plugin`);
+            }
+          }
+        }
+        
         if (!foundModule && moduleName) {
           // Try by name, including loose normalized comparison
           foundModule = remotePlugin.loadedModules.find(m => m.name === moduleName)

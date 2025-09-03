@@ -13,6 +13,7 @@ import { defaultPageService } from '../services/defaultPageService';
 import { usePageState } from '../contexts/PageStateContext';
 import { useModuleState } from '../contexts/ModuleStateContext';
 import { pageContextService } from '../services/PageContextService';
+import { clearPageCache } from '../utils/clearPageCache';
 
 // Declare global interface for backward compatibility
 declare global {
@@ -96,21 +97,49 @@ function useUnifiedPageLoader(options: {
 
     // Helper function to convert a layout item
     const convertLayoutItem = (item: any) => {
-      const moduleId = ('moduleUniqueId' in item) ? item.moduleUniqueId : item.i;
-      let pluginId = ('pluginId' in item) ? item.pluginId :
-                     (legacyPage.modules?.[moduleId]?.pluginId);
+      // The layout item key is a unique instance id; use it to look up the module definition
+      const layoutKey = ('moduleUniqueId' in item) ? item.moduleUniqueId : item.i;
+      const moduleDef = legacyPage.modules?.[layoutKey];
       
-      // If no direct pluginId, try to extract from moduleId
-      if (!pluginId && moduleId) {
-        pluginId = extractPluginIdFromModuleId(moduleId);
-        // console.log(`[DynamicPageRenderer] Extracted pluginId '${pluginId}' from moduleId '${moduleId}'`);
+      // Check if item has args property (new format from database)
+      const hasArgs = item.args && typeof item.args === 'object';
+      
+      // Prefer pluginId from item directly, then from args, then from module definition
+      let pluginId = item.pluginId || (hasArgs ? item.pluginId : undefined) || moduleDef?.pluginId;
+      if (!pluginId && layoutKey) {
+        pluginId = extractPluginIdFromModuleId(layoutKey) || undefined as any;
       }
-      
-      // Skip items without a valid pluginId to prevent infinite loops
       if (!pluginId || pluginId === 'unknown') {
-        console.warn(`[DynamicPageRenderer] Skipping layout item with missing pluginId:`, { item, moduleId, pluginId });
+        console.warn(`[DynamicPageRenderer] Skipping layout item with missing pluginId:`, { item, layoutKey, pluginId });
         return null;
       }
+      
+      // Extract moduleId from args if available, otherwise use module definition or layout key
+      let baseModuleId;
+      if (hasArgs && item.args.moduleId) {
+        baseModuleId = item.args.moduleId;
+        console.log('[DynamicPageRenderer] Using moduleId from args:', baseModuleId);
+      } else {
+        baseModuleId = moduleDef?.moduleId || moduleDef?.moduleName || layoutKey;
+        console.log('[DynamicPageRenderer] Using moduleId from moduleDef or layoutKey:', baseModuleId);
+      }
+      
+      // Merge config from module definition and args
+      // IMPORTANT: Include moduleId in config for LayoutEngine to use
+      const config = {
+        ...(moduleDef?.config || {}),
+        ...(hasArgs ? item.args : {}),
+        moduleId: baseModuleId  // Ensure moduleId is in config
+      };
+      
+      console.log('[DynamicPageRenderer] Converted layout item:', {
+        itemId: item.i,
+        pluginId,
+        moduleId: baseModuleId,
+        hasArgs,
+        args: item.args,
+        config
+      });
       
       return {
         i: item.i,
@@ -125,9 +154,9 @@ function useUnifiedPageLoader(options: {
         static: ('static' in item) ? item.static : false,
         isDraggable: ('isDraggable' in item) ? item.isDraggable !== false : true,
         isResizable: ('isResizable' in item) ? item.isResizable !== false : true,
-        moduleId,
+        moduleId: baseModuleId,
         pluginId,
-        config: legacyPage.modules?.[moduleId]?.config || {},
+        config,
       };
     };
 
@@ -145,9 +174,11 @@ function useUnifiedPageLoader(options: {
     // Convert modules to unified format
     const modules: ModuleConfig[] = [];
     if (legacyPage.modules) {
-      Object.entries(legacyPage.modules).forEach(([moduleId, moduleDefinition]) => {
+      Object.entries(legacyPage.modules).forEach(([layoutKey, moduleDefinition]) => {
+        // Prefer the plugin's declared module id or name for unified ids
+        const unifiedModuleId = moduleDefinition.moduleId || moduleDefinition.moduleName || layoutKey;
         modules.push({
-          id: moduleId,
+          id: unifiedModuleId,
           pluginId: moduleDefinition.pluginId,
           type: 'component',
           ...moduleDefinition.config,
@@ -186,6 +217,13 @@ function useUnifiedPageLoader(options: {
         setError(null);
 
         const cacheKey = getCacheKey();
+        
+        // TEMPORARY: Clear cache for AI Chat page to ensure fresh data
+        if (route === 'ai-chat-1756310855' || location.pathname.includes('ai-chat')) {
+          clearPageCache('0c8f4dc670a4409c87030c3000779e14');
+          clearPageCache('ai-chat');
+          console.log('[DynamicPageRenderer] Cleared cache for AI Chat page');
+        }
         
         // Check cache first
         const cachedPage = getCachedPage(cacheKey);
