@@ -9,9 +9,6 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.settings import SettingDefinition, SettingInstance, SettingScope
 from app.models.user import User
-from app.models.page import Page
-# Import all models to ensure they're registered with SQLAlchemy
-from app.models import *
 from app.schemas.settings import (
     SettingDefinitionCreate,
     SettingDefinitionUpdate,
@@ -27,6 +24,71 @@ from sqlalchemy import text, func
 
 router = APIRouter(prefix="/settings")
 logger = logging.getLogger(__name__)
+
+def mask_sensitive_data(definition_id: str, value: any) -> any:
+    """
+    Mask sensitive data in settings values to prevent exposure to frontend.
+    Currently handles OpenAI, OpenRouter, and Claude API keys.
+    """
+    if not value:
+        return value
+    
+    # Handle OpenAI API keys
+    if definition_id == "openai_api_keys_settings":
+        if isinstance(value, dict) and "api_key" in value:
+            api_key = value["api_key"]
+            if api_key and len(api_key) >= 11:
+                # Mask the API key (first 7 + last 4 characters)
+                masked_key = api_key[:7] + "..." + api_key[-4:]
+                return {
+                    **value,
+                    "api_key": masked_key,
+                    "_has_key": bool(api_key.strip()),
+                    "_key_valid": bool(api_key.startswith('sk-') and len(api_key) >= 23)
+                }
+    
+    # Handle OpenRouter API keys
+    if definition_id == "openrouter_api_keys_settings":
+        if isinstance(value, dict) and "api_key" in value:
+            api_key = value["api_key"]
+            if api_key and len(api_key) >= 11:
+                # Mask the API key (first 7 + last 4 characters)
+                masked_key = api_key[:7] + "..." + api_key[-4:]
+                return {
+                    **value,
+                    "api_key": masked_key,
+                    "_has_key": bool(api_key.strip()),
+                    "_key_valid": bool(api_key.startswith('sk-or-') and len(api_key) >= 26)
+                }
+    
+    # Handle Claude API keys
+    if definition_id == "claude_api_keys_settings":
+        if isinstance(value, dict) and "api_key" in value:
+            api_key = value["api_key"]
+            if api_key and len(api_key) >= 11:
+                # Mask the API key (first 7 + last 4 characters)
+                masked_key = api_key[:7] + "..." + api_key[-4:]
+                return {
+                    **value,
+                    "api_key": masked_key,
+                    "_has_key": bool(api_key.strip()),
+                    "_key_valid": bool(api_key.startswith('sk-ant-') and len(api_key) >= 26)
+                }
+    
+    if definition_id == "groq_api_keys_settings":
+        if isinstance(value, dict) and "api_key" in value:
+            api_key = value["api_key"]
+            if api_key and len(api_key) >= 11:
+                # Mask the API key (first 4 + last 4 characters for gsk_ format)
+                masked_key = api_key[:4] + "..." + api_key[-4:]
+                return {
+                    **value,
+                    "api_key": masked_key,
+                    "_has_key": bool(api_key.strip()),
+                    "_key_valid": bool(api_key.startswith('gsk_') and len(api_key) >= 24)
+                }
+    
+    return value
 
 async def get_definition_by_id(db, definition_id: str):
     """Helper function to get a setting definition by ID using direct SQL."""
@@ -710,11 +772,6 @@ async def create_setting_instance(
                     detail=f"Error updating instance: {str(e)}"
                 )
         
-        # Handle special case for 'current' user_id BEFORE duplicate check
-        if instance_data.user_id == 'current' and current_user:
-            logger.info(f"Resolving 'current' user_id to actual user ID: {current_user.id}")
-            instance_data.user_id = str(current_user.id)
-        
         # Ensure user context is set correctly
         if instance_data.scope == SettingScope.USER or instance_data.scope == SettingScope.USER_PAGE:
             if not instance_data.user_id and current_user:
@@ -879,11 +936,9 @@ async def create_setting_instance(
                 user_id_value = str(current_user.id)
             
             # Convert value to JSON string if it's not already
-            value_data = instance_data.value
-            if not isinstance(value_data, str):
-                value_json = json.dumps(value_data)
-            else:
-                value_json = value_data
+            value_json = instance_data.value
+            if not isinstance(value_json, str):
+                value_json = json.dumps(value_json)
             
             # Convert scope to string if it's an enum
             scope_value = instance_data.scope
@@ -911,50 +966,34 @@ async def create_setting_instance(
             else:
                 scope_enum = scope_value
             
-            # Use raw SQL to bypass SQLAlchemy foreign key resolution issues
-            from datetime import datetime
+            # Create new instance using SQLAlchemy model
+            new_instance = SettingInstance(
+                id=instance_id,
+                definition_id=instance_data.definition_id,
+                name=instance_data.name,
+                value=instance_data.value,  # This will be automatically encrypted
+                scope=scope_enum,
+                user_id=user_id_value,
+                page_id=instance_data.page_id
+            )
             
-            # Prepare the values for raw SQL insertion
-            now = datetime.utcnow()
-            # Use the already converted value_json from above
-            scope_str = scope_enum.value if hasattr(scope_enum, 'value') else str(scope_enum)
-            
-            # Insert using raw SQL
-            insert_query = text("""
-                INSERT INTO settings_instances
-                (id, definition_id, name, value, scope, user_id, page_id, created_at, updated_at)
-                VALUES (:id, :definition_id, :name, :value, :scope, :user_id, :page_id, :created_at, :updated_at)
-            """)
-            
-            await db.execute(insert_query, {
-                'id': instance_id,
-                'definition_id': instance_data.definition_id,
-                'name': instance_data.name,
-                'value': value_json,
-                'scope': scope_str,
-                'user_id': user_id_value,
-                'page_id': instance_data.page_id,
-                'created_at': now,
-                'updated_at': now
-            })
-            
+            # Add and commit the instance
+            db.add(new_instance)
             await db.commit()
+            await db.refresh(new_instance)
             
-            # Create a response object manually
-            new_instance = {
-                'id': instance_id,
-                'definition_id': instance_data.definition_id,
-                'name': instance_data.name,
-                'value': instance_data.value,
-                'scope': scope_str,
-                'user_id': user_id_value,
-                'page_id': instance_data.page_id,
-                'created_at': now,
-                'updated_at': now
+            # Convert to dict for response
+            created_instance = {
+                "id": new_instance.id,
+                "definition_id": new_instance.definition_id,
+                "name": new_instance.name,
+                "value": new_instance.value,  # This will be automatically decrypted
+                "scope": new_instance.scope.value if hasattr(new_instance.scope, 'value') else new_instance.scope,
+                "user_id": new_instance.user_id,
+                "page_id": new_instance.page_id,
+                "created_at": new_instance.created_at,
+                "updated_at": new_instance.updated_at
             }
-            
-            # new_instance is already a dict, so use it directly as the response
-            created_instance = new_instance
             
             logger.info(f"Created setting instance: {instance_id}")
             return created_instance
@@ -1082,11 +1121,14 @@ async def get_setting_instances(
                     logger.error(f"Failed to parse value as JSON for instance {row[0]}: {json_error}")
                     decrypted_value = None
             
+            # Mask sensitive data before sending to frontend
+            masked_value = mask_sensitive_data(row[1], decrypted_value)
+            
             instance = {
                 "id": row[0],
                 "definition_id": row[1],
                 "name": row[2],
-                "value": decrypted_value,
+                "value": masked_value,
                 "scope": row[4],
                 "user_id": row[5],
                 "page_id": row[6],
@@ -1141,12 +1183,30 @@ async def get_setting_instance(
                 detail=f"Setting instance {instance_id} not found"
             )
         
+        # Decrypt the value using our encrypted column type
+        from app.core.encrypted_column import EncryptedJSON
+        encrypted_column = EncryptedJSON("settings_instances", "value")
+        
+        try:
+            decrypted_value = encrypted_column.process_result_value(row[3], None)
+        except Exception as e:
+            # If decryption fails, try parsing as plain JSON (for backward compatibility)
+            logger.warning(f"Failed to decrypt value for instance {row[0]}, trying plain JSON: {e}")
+            try:
+                decrypted_value = json.loads(row[3]) if row[3] else None
+            except Exception as json_error:
+                logger.error(f"Failed to parse value as JSON for instance {row[0]}: {json_error}")
+                decrypted_value = None
+        
+        # Mask sensitive data before sending to frontend
+        masked_value = mask_sensitive_data(row[1], decrypted_value)
+        
         # Convert row to dict
         instance = {
             "id": row[0],
             "definition_id": row[1],
             "name": row[2],
-            "value": json.loads(row[3]) if row[3] else None,
+            "value": masked_value,
             "scope": row[4],
             "user_id": row[5],
             "page_id": row[6],

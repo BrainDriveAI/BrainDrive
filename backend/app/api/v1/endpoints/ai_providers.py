@@ -13,9 +13,12 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from app.core.database import get_db
+from app.core.security import get_current_user
 from app.models.settings import SettingDefinition, SettingScope, SettingInstance
+from app.models.user import User
 from app.ai_providers.registry import provider_registry
 from app.ai_providers.ollama import OllamaProvider
+from app.utils.json_parsing import safe_encrypted_json_parse, validate_ollama_settings_format, create_default_ollama_settings
 from app.schemas.ai_providers import (
     TextGenerationRequest,
     ChatCompletionRequest,
@@ -39,6 +42,12 @@ async def get_provider_instance_from_request(request, db):
         user_id = user_id.replace("-", "")
     
     logger = logging.getLogger(__name__)
+    print(f"🚀 PROVIDER REQUEST RECEIVED")
+    print(f"📊 Provider: {request.provider}")
+    print(f"📊 Settings ID: {request.settings_id}")
+    print(f"📊 Server ID: {request.server_id}")
+    print(f"📊 Model: {getattr(request, 'model', 'N/A')}")
+    print(f"📊 User ID: {user_id}")
     logger.info(f"Getting provider instance for: settings_id={request.settings_id}, user_id={user_id}")
     logger.info(f"Original user_id from request: {request.user_id}")
     
@@ -92,88 +101,196 @@ async def get_provider_instance_from_request(request, db):
         
         # Use the first setting found
         setting = settings[0]
-        logger.info(f"Using setting with ID: {setting['id'] if isinstance(setting, dict) else setting.id}")
+        logger.debug(f"Using setting with ID: {setting['id'] if isinstance(setting, dict) else setting.id}")
         
-        # Extract servers from settings value
-        # Parse the JSON string if value is a string
+        # Extract configuration from settings value using robust parsing
         setting_value = setting['value'] if isinstance(setting, dict) else setting.value
+        setting_id = setting['id'] if isinstance(setting, dict) else setting.id
         
-        if isinstance(setting_value, str):
-            try:
-                # First parse
-                logger.info("Parsing settings value as JSON string")
-                value_dict = json.loads(setting_value)
-                logger.debug(f"Parsed JSON string into: {value_dict}")
-                
-                # Check if the result is still a string (double-encoded JSON)
-                if isinstance(value_dict, str):
-                    logger.info("Value is double-encoded JSON, parsing again")
-                    value_dict = json.loads(value_dict)
-                    logger.debug(f"Parsed double-encoded JSON into: {value_dict}")
-                
-                # Now value_dict should be a dictionary
-                if not isinstance(value_dict, dict):
-                    logger.error(f"Error: value_dict is not a dictionary: {type(value_dict)}")
-                    raise HTTPException(
-                        status_code=500,
-                        detail=f"Error parsing settings value: expected dict, got {type(value_dict)}. "
-                               f"Please check the format of your settings."
-                    )
-                
-                servers = value_dict.get("servers", [])
-            except json.JSONDecodeError as e:
-                logger.error(f"Error parsing JSON string: {e}")
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Error parsing settings value: {str(e)}. "
-                           f"Please ensure the settings value is valid JSON."
-                )
-        else:
-            logger.info("Settings value is already a dictionary")
-            servers = setting_value.get("servers", [])
-        
-        logger.info(f"Found {len(servers)} servers in settings")
-        
-        # Find the specific server by ID
-        logger.info(f"Looking for server with ID: {request.server_id}")
-        server = next((s for s in servers if s.get("id") == request.server_id), None)
-        if not server and servers:
-            # If the requested server ID is not found but there are servers available,
-            # use the first server as a fallback
-            logger.warning(f"Server with ID {request.server_id} not found, using first available server as fallback")
-            server = servers[0]
-            logger.info(f"Using fallback server: {server.get('serverName')} ({server.get('id')})")
-        
-        if not server:
-            logger.error(f"No server found with ID: {request.server_id} and no fallback available")
-            raise HTTPException(
-                status_code=404,
-                detail=f"Server not found with ID: {request.server_id}. "
-                       f"Please check your server configuration or use a different server ID."
-            )
-        
-        logger.info(f"Found server: {server.get('serverName')}")
-        
-        # Create provider configuration from server details
-        server_url = server.get("serverAddress")
-        if not server_url:
-            logger.error(f"Server URL is missing for server: {server.get('id')}")
-            raise HTTPException(
-                status_code=400,
-                detail=f"Server URL is missing for server: {server.get('id')}. "
-                       f"Please update your server configuration with a valid URL."
+        # Use our robust JSON parsing utility that handles encryption issues
+        try:
+            value_dict = safe_encrypted_json_parse(
+                setting_value,
+                context=f"settings_id={request.settings_id}, user_id={user_id}",
+                setting_id=setting_id,
+                definition_id=request.settings_id
             )
             
-        config = {
-            "server_url": server_url,
-            "api_key": server.get("apiKey", ""),
-            "server_name": server.get("serverName", "Unknown Server")
-        }
+            # Ensure we have a dictionary
+            if not isinstance(value_dict, dict):
+                logger.error(f"Parsed value is not a dictionary: {type(value_dict)}")
+                # For Ollama settings, provide a default structure
+                if 'ollama' in request.settings_id.lower():
+                    logger.warning("Creating default Ollama settings structure")
+                    value_dict = create_default_ollama_settings()
+                else:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Settings value must be a dictionary, got {type(value_dict)}. "
+                               f"Setting ID: {setting_id}"
+                    )
+            
+            logger.debug(f"Successfully parsed settings value for {request.settings_id}")
+            
+        except ValueError as e:
+            logger.error(f"Failed to parse encrypted settings: {e}")
+            # For Ollama settings, provide helpful error message and fallback
+            if 'ollama' in request.settings_id.lower():
+                logger.info("Ollama settings parsing failed, using fallback configuration")
+                value_dict = create_default_ollama_settings()
+            else:
+                raise HTTPException(
+                    status_code=500,
+                    detail=str(e)
+                )
+        except Exception as e:
+            logger.error(f"Unexpected error parsing settings: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Unexpected error parsing settings: {str(e)}. Setting ID: {setting_id}"
+            )
         
-        logger.info(f"Created config with server_url: {config['server_url']}")
+        # Add specific validation for Ollama settings
+        if 'ollama' in request.settings_id.lower():
+            logger.info("Validating Ollama settings format")
+            if not validate_ollama_settings_format(value_dict):
+                logger.warning("Ollama settings format validation failed, using default structure")
+                value_dict = create_default_ollama_settings()
+            else:
+                logger.info("Ollama settings format validation passed")
+        
+        # Handle different provider configurations
+        if request.provider == "openai":
+            # OpenAI uses simple api_key structure
+            logger.info("Processing OpenAI provider configuration")
+            api_key = value_dict.get("api_key", "")
+            if not api_key:
+                logger.error("OpenAI API key is missing")
+                raise HTTPException(
+                    status_code=400,
+                    detail="OpenAI API key is required. Please configure your OpenAI API key in settings."
+                )
+            
+            # For OpenAI, we create a virtual server configuration
+            config = {
+                "api_key": api_key,
+                "server_url": "https://api.openai.com/v1",  # Default OpenAI API URL
+                "server_name": "OpenAI API"
+            }
+            logger.info(f"Created OpenAI config with API key")
+        elif request.provider == "openrouter":
+            # OpenRouter uses simple api_key structure (similar to OpenAI)
+            logger.info("Processing OpenRouter provider configuration")
+            api_key = value_dict.get("api_key", "")
+            if not api_key:
+                logger.error("OpenRouter API key is missing")
+                raise HTTPException(
+                    status_code=400,
+                    detail="OpenRouter API key is required. Please configure your OpenRouter API key in settings."
+                )
+            
+            # For OpenRouter, we create a virtual server configuration
+            config = {
+                "api_key": api_key,
+                "server_url": "https://openrouter.ai/api/v1",  # OpenRouter API URL
+                "server_name": "OpenRouter API"
+            }
+            logger.info(f"Created OpenRouter config with API key")
+        elif request.provider == "claude":
+            # Claude uses simple api_key structure (similar to OpenAI)
+            logger.info("Processing Claude provider configuration")
+            api_key = value_dict.get("api_key", "")
+            if not api_key:
+                logger.error("Claude API key is missing")
+                raise HTTPException(
+                    status_code=400,
+                    detail="Claude API key is required. Please configure your Claude API key in settings."
+                )
+            
+            # For Claude, we create a virtual server configuration
+            config = {
+                "api_key": api_key,
+                "server_url": "https://api.anthropic.com",  # Claude API URL
+                "server_name": "Claude API"
+            }
+            logger.info(f"Created Claude config with API key")
+        elif request.provider == "groq":
+            # Groq uses simple api_key structure (similar to OpenAI)
+            logger.info("Processing Groq provider configuration")
+            api_key = value_dict.get("api_key", "")
+            if not api_key:
+                logger.error("Groq API key is missing")
+                raise HTTPException(
+                    status_code=400,
+                    detail="Groq API key is required. Please configure your Groq API key in settings."
+                )
+            
+            # For Groq, we create a virtual server configuration
+            config = {
+                "api_key": api_key,
+                "server_url": "https://api.groq.com",  # Groq API URL
+                "server_name": "Groq API"
+            }
+            logger.info(f"Created Groq config with API key")
+        else:
+            # Other providers (like Ollama) use servers array
+            logger.debug("Processing server-based provider configuration")
+            servers = value_dict.get("servers", [])
+            logger.debug(f"Found {len(servers)} servers in settings")
+            
+            logger.debug("Processing server-based provider configuration")
+            servers = value_dict.get("servers", [])
+            logger.debug(f"Found {len(servers)} servers in settings")
+            
+            # Find the specific server by ID
+            logger.debug(f"Looking for server with ID: '{request.server_id}'")
+            server = next((s for s in servers if s.get("id") == request.server_id), None)
+            
+            if not server:
+                # Provide detailed error message about available servers
+                if servers:
+                    available_servers = [f"{s.get('serverName', 'Unknown')} (ID: {s.get('id', 'Unknown')})" for s in servers]
+                    available_list = ", ".join(available_servers)
+                    logger.error(f"❌ Server with ID '{request.server_id}' not found")
+                    logger.error(f"📋 Available servers: {available_list}")
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Ollama server '{request.server_id}' not found. "
+                               f"Available servers: {available_list}. "
+                               f"Please select a valid server from your Ollama settings."
+                    )
+                else:
+                    logger.error(f"❌ No Ollama servers configured")
+                    raise HTTPException(
+                        status_code=404,
+                        detail="No Ollama servers are configured. "
+                               "Please add at least one Ollama server in your settings before using this provider."
+                    )
+            
+            logger.debug(f"Found server: {server.get('serverName')} (ID: {server.get('id')})")
+            
+            # Create provider configuration from server details
+            server_url = server.get("serverAddress")
+            logger.debug(f"Server URL from settings: '{server_url}'")
+            
+            if not server_url:
+                logger.error(f"Server URL is missing for server: {server.get('id')}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Server URL is missing for server: {server.get('id')}. "
+                           f"Please update your server configuration with a valid URL."
+                )
+                
+            config = {
+                "server_url": server_url,
+                "api_key": server.get("apiKey", ""),
+                "server_name": server.get("serverName", "Unknown Server")
+            }
+            
+            logger.debug(f"Created server config: {config.get('server_name')} -> {config.get('server_url')}")
         
         # Get provider instance
-        logger.info(f"Getting provider instance for: {request.provider}, {request.server_id}")
+        logger.debug(f"Getting provider instance for: {request.provider}, {request.server_id}")
         provider_instance = await provider_registry.get_provider(
             request.provider,
             request.server_id,
@@ -228,13 +345,19 @@ async def get_models(
     settings_id: str = Query(..., description="Settings ID"),
     server_id: str = Query(..., description="Server ID"),
     user_id: Optional[str] = Query("current", description="User ID"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user)
 ):
     """Get available models from a provider."""
     try:
+        # Resolve user_id from authentication if "current" is specified
+        if user_id == "current":
+            if not current_user:
+                raise HTTPException(status_code=401, detail="Authentication required")
+            user_id = str(current_user.id)
+        
         # Normalize user_id by removing hyphens if present
-        if user_id != "current":
-            user_id = user_id.replace("-", "")
+        user_id = user_id.replace("-", "")
             
         print(f"Getting models for: provider={provider}, settings_id={settings_id}, server_id={server_id}, user_id={user_id}")
         
@@ -254,56 +377,95 @@ async def get_models(
         # Use the first setting found
         setting = settings[0]
         
-        # Extract servers from settings value
+        # Extract configuration from settings value
         # Parse the JSON string if value is a string
         setting_value = setting['value'] if isinstance(setting, dict) else setting.value
-        
         if isinstance(setting_value, str):
             try:
-                # First parse
                 value_dict = json.loads(setting_value)
-                print(f"Parsed JSON string into: {value_dict}")
-                
-                # Check if the result is still a string (double-encoded JSON)
-                if isinstance(value_dict, str):
-                    print("Value is double-encoded JSON, parsing again")
-                    value_dict = json.loads(value_dict)
-                    print(f"Parsed double-encoded JSON into: {value_dict}")
-                
-                # Now value_dict should be a dictionary
-                if not isinstance(value_dict, dict):
-                    print(f"Error: value_dict is not a dictionary: {type(value_dict)}")
-                    raise HTTPException(status_code=500, detail=f"Error parsing settings value: expected dict, got {type(value_dict)}")
-                
-                servers = value_dict.get("servers", [])
-            except json.JSONDecodeError as e:
-                print(f"Error parsing JSON string: {e}")
-                raise HTTPException(status_code=500, detail=f"Error parsing settings value: {str(e)}")
+            except json.JSONDecodeError:
+                raise HTTPException(status_code=400, detail="Invalid settings value format")
         else:
-            servers = setting_value.get("servers", [])
+            value_dict = setting_value
         
-        print(f"Found {len(servers)} servers in settings")
+        print(f"Parsed settings value: {value_dict}")
         
-        # Find the specific server by ID
-        server = next((s for s in servers if s.get("id") == server_id), None)
-        if not server and servers:
-            # If the requested server ID is not found but there are servers available,
-            # use the first server as a fallback
-            print(f"Server with ID {server_id} not found, using first available server as fallback")
-            server = servers[0]
-            print(f"Using fallback server: {server.get('serverName')} ({server.get('id')})")
-        
-        if not server:
-            raise HTTPException(status_code=404, detail=f"Server not found with ID: {server_id}")
-        
-        print(f"Found server: {server.get('serverName')}")
-        
-        # Create provider configuration from server details
-        config = {
-            "server_url": server.get("serverAddress"),
-            "api_key": server.get("apiKey", ""),
-            "server_name": server.get("serverName")
-        }
+        # Handle different provider configurations
+        if provider == "openai":
+            # OpenAI uses simple api_key structure
+            api_key = value_dict.get("api_key", "")
+            if not api_key:
+                raise HTTPException(status_code=400, detail="OpenAI API key is required")
+            
+            config = {
+                "api_key": api_key,
+                "server_url": "https://api.openai.com/v1",  # Default OpenAI API URL
+                "server_name": "OpenAI API"
+            }
+            print(f"Created OpenAI config with API key")
+        elif provider == "openrouter":
+            # OpenRouter uses simple api_key structure
+            api_key = value_dict.get("api_key", "")
+            if not api_key:
+                raise HTTPException(status_code=400, detail="OpenRouter API key is required")
+            
+            config = {
+                "api_key": api_key,
+                "server_url": "https://openrouter.ai/api/v1",  # OpenRouter API URL
+                "server_name": "OpenRouter API"
+            }
+            print(f"Created OpenRouter config with API key")
+        elif provider == "claude":
+            # Claude uses simple api_key structure (similar to OpenAI)
+            api_key = value_dict.get("api_key", "")
+            if not api_key:
+                raise HTTPException(status_code=400, detail="Claude API key is required")
+            
+            # For Claude, we create a virtual server configuration
+            config = {
+                "api_key": api_key,
+                "server_url": "https://api.anthropic.com",  # Claude API URL
+                "server_name": "Claude API"
+            }
+            print(f"Created Claude config with API key")
+        elif provider == "groq":
+            # Groq uses simple api_key structure (similar to OpenAI)
+            api_key = value_dict.get("api_key", "")
+            if not api_key:
+                raise HTTPException(status_code=400, detail="Groq API key is required")
+            
+            # For Groq, we create a virtual server configuration
+            config = {
+                "api_key": api_key,
+                "server_url": "https://api.groq.com",  # Groq API URL
+                "server_name": "Groq API"
+            }
+            print(f"Created Groq config with API key")
+        else:
+            # Other providers (like Ollama) use servers array
+            servers = value_dict.get("servers", [])
+            print(f"Found {len(servers)} servers in settings")
+            
+            # Find the specific server by ID
+            server = next((s for s in servers if s.get("id") == server_id), None)
+            if not server and servers:
+                # If the requested server ID is not found but there are servers available,
+                # use the first server as a fallback
+                print(f"Server with ID {server_id} not found, using first available server as fallback")
+                server = servers[0]
+                print(f"Using fallback server: {server.get('serverName')} ({server.get('id')})")
+            
+            if not server:
+                raise HTTPException(status_code=404, detail=f"Server not found with ID: {server_id}")
+            
+            print(f"Found server: {server.get('serverName')}")
+            
+            # Create provider configuration from server details
+            config = {
+                "server_url": server.get("serverAddress"),
+                "api_key": server.get("apiKey", ""),
+                "server_name": server.get("serverName")
+            }
         
         print(f"Created config with server_url: {config['server_url']}")
         
@@ -325,6 +487,211 @@ async def get_models(
         }
     except Exception as e:
         print(f"Error in get_models: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/all-models")
+async def get_all_models(
+    user_id: Optional[str] = Query("current", description="User ID"),
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user)
+):
+    """Get models from ALL connected providers for a user."""
+    try:
+        # Resolve user_id from authentication if "current" is specified
+        if user_id == "current":
+            if not current_user:
+                raise HTTPException(status_code=401, detail="Authentication required")
+            user_id = str(current_user.id)
+        
+        # Normalize user_id by removing hyphens if present
+        user_id = user_id.replace("-", "")
+        
+        print(f"Getting all models for user: {user_id}")
+        
+        # Define all possible provider settings
+        provider_settings = [
+            {
+                "provider": "openai",
+                "settings_id": "openai_api_keys_settings",
+                "server_id": "openai_default_server"
+            },
+            {
+                "provider": "openrouter", 
+                "settings_id": "openrouter_api_keys_settings",
+                "server_id": "openrouter_default_server"
+            },
+            {
+                "provider": "claude",
+                "settings_id": "claude_api_keys_settings", 
+                "server_id": "claude_default_server"
+            },
+            {
+                "provider": "groq",
+                "settings_id": "groq_api_keys_settings",
+                "server_id": "groq_default_server"
+            },
+            {
+                "provider": "ollama",
+                "settings_id": "ollama_servers_settings",
+                "server_id": None  # Ollama uses dynamic server IDs
+            }
+        ]
+        
+        all_models = []
+        errors = []
+        successful_providers = 0
+        
+        # Process each provider
+        for provider_config in provider_settings:
+            try:
+                provider = provider_config["provider"]
+                settings_id = provider_config["settings_id"]
+                server_id = provider_config["server_id"]
+                
+                print(f"Processing provider: {provider}")
+                
+                # Get settings for this provider
+                settings = await SettingInstance.get_all_parameterized(
+                    db,
+                    definition_id=settings_id,
+                    scope=SettingScope.USER.value,
+                    user_id=user_id
+                )
+                
+                if not settings or len(settings) == 0:
+                    print(f"No settings found for {provider}, skipping")
+                    continue
+                
+                # Use the first setting found
+                setting = settings[0]
+                setting_value = setting['value'] if isinstance(setting, dict) else setting.value
+                
+                if isinstance(setting_value, str):
+                    try:
+                        value_dict = json.loads(setting_value)
+                    except json.JSONDecodeError:
+                        print(f"Invalid JSON for {provider}, skipping")
+                        continue
+                else:
+                    value_dict = setting_value
+                
+                # Check if provider has valid configuration
+                if provider == "ollama":
+                    # Ollama needs servers array
+                    if not value_dict.get("servers") or len(value_dict["servers"]) == 0:
+                        print(f"No servers configured for {provider}, skipping")
+                        continue
+                else:
+                    # Other providers need API key
+                    if not value_dict.get("api_key"):
+                        print(f"No API key for {provider}, skipping")
+                        continue
+                
+                # Get provider instance and models
+                if provider == "ollama":
+                    # Handle Ollama servers dynamically
+                    for server in value_dict["servers"]:
+                        try:
+                            config = {
+                                "server_url": server.get("serverAddress"),
+                                "api_key": server.get("apiKey", ""),
+                                "server_name": server.get("serverName", "Unknown Server")
+                            }
+                            
+                            provider_instance = await provider_registry.get_provider(
+                                provider,
+                                server["id"],
+                                config
+                            )
+                            
+                            models = await provider_instance.get_models()
+                            for model in models:
+                                model["provider"] = provider
+                                model["server_id"] = server["id"]
+                                model["server_name"] = server.get("serverName", "Unknown Server")
+                                all_models.append(model)
+                            
+                            successful_providers += 1
+                            print(f"Successfully loaded {len(models)} models from {provider} server: {server['id']}")
+                            
+                        except Exception as e:
+                            error_msg = f"Failed to load models from {provider} server {server.get('id', 'unknown')}: {str(e)}"
+                            errors.append(error_msg)
+                            print(f"Error: {error_msg}")
+                else:
+                    # Handle API key-based providers
+                    try:
+                        if provider == "openai":
+                            config = {
+                                "api_key": value_dict["api_key"],
+                                "server_url": "https://api.openai.com/v1",
+                                "server_name": "OpenAI API"
+                            }
+                        elif provider == "openrouter":
+                            config = {
+                                "api_key": value_dict["api_key"],
+                                "server_url": "https://openrouter.ai/api/v1",
+                                "server_name": "OpenRouter API"
+                            }
+                        elif provider == "claude":
+                            config = {
+                                "api_key": value_dict["api_key"],
+                                "server_url": "https://api.anthropic.com",
+                                "server_name": "Claude API"
+                            }
+                        elif provider == "groq":
+                            config = {
+                                "api_key": value_dict["api_key"],
+                                "server_url": "https://api.groq.com",
+                                "server_name": "Groq API"
+                            }
+                        
+                        provider_instance = await provider_registry.get_provider(
+                            provider,
+                            server_id,
+                            config
+                        )
+                        
+                        models = await provider_instance.get_models()
+                        for model in models:
+                            model["provider"] = provider
+                            model["server_id"] = server_id
+                            model["server_name"] = config["server_name"]
+                            all_models.append(model)
+                        
+                        successful_providers += 1
+                        print(f"Successfully loaded {len(models)} models from {provider}")
+                        
+                    except Exception as e:
+                        error_msg = f"Failed to load models from {provider}: {str(e)}"
+                        errors.append(error_msg)
+                        print(f"Error: {error_msg}")
+                
+            except Exception as e:
+                error_msg = f"Error processing {provider}: {str(e)}"
+                errors.append(error_msg)
+                print(f"Error: {error_msg}")
+        
+        print(f"Total models loaded: {len(all_models)} from {successful_providers} providers")
+        
+        return {
+            "models": all_models,
+            "total_count": len(all_models),
+            "successful_providers": successful_providers,
+            "errors": errors,
+            "summary": {
+                "total_providers_checked": len(provider_settings),
+                "successful_providers": successful_providers,
+                "failed_providers": len(errors),
+                "total_models": len(all_models)
+            }
+        }
+        
+    except Exception as e:
+        print(f"Error in get_all_models: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -389,6 +756,13 @@ async def chat_completion(request: ChatCompletionRequest, db: AsyncSession = Dep
     """
     logger = logging.getLogger(__name__)
     try:
+        print(f"🎯 CHAT COMPLETION ENDPOINT CALLED")
+        print(f"📊 Provider: {request.provider}")
+        print(f"📊 Settings ID: {request.settings_id}")
+        print(f"📊 Server ID: {request.server_id}")
+        print(f"📊 Model: {request.model}")
+        print(f"📊 User ID: {request.user_id}")
+        print(f"📊 Stream: {request.stream}")
         logger.info(f"Production chat endpoint called with: provider={request.provider}, settings_id={request.settings_id}, server_id={request.server_id}, model={request.model}")
         logger.debug(f"Messages: {request.messages}")
         logger.debug(f"Params: {request.params}")

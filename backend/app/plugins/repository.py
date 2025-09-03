@@ -6,7 +6,8 @@ from sqlalchemy import select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
-from app.models.plugin import Plugin, Module
+from app.models.plugin import Plugin, Module, PluginServiceRuntime
+from app.dto.plugin import PluginServiceRuntimeDTO
 
 logger = structlog.get_logger()
 
@@ -85,7 +86,7 @@ class PluginRepository:
             plugin_dicts = []
             for plugin in plugins:
                 plugin_dict = plugin.to_dict()
-                
+
                 # Get modules for this plugin
                 modules_query = select(Module).where(Module.plugin_id == plugin.id)
                 
@@ -103,6 +104,25 @@ class PluginRepository:
             return plugin_dicts
         except Exception as e:
             logger.error("Error getting plugins with modules", error=str(e))
+            raise
+
+    async def get_all_service_runtimes(self) -> List[PluginServiceRuntimeDTO]:
+        """
+        Get all plugin service runtimes for startup and return them as DTOs.
+        """
+        try:
+            query = select(PluginServiceRuntime).where(
+                PluginServiceRuntime.status.in_(["pending", "stopped", "running"])
+            )
+            
+            result = await self.db.execute(query)
+            services = result.scalars().all()
+            
+            # Convert SQLAlchemy models to Pydantic DTOs for a typed return
+            return [PluginServiceRuntimeDTO(**service.to_dict()) for service in services]
+            
+        except Exception as e:
+            logger.error("Error getting service runtimes", error=str(e))
             raise
             
     async def get_plugin(self, plugin_id: str) -> Optional[Dict[str, Any]]:

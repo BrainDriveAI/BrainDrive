@@ -14,9 +14,23 @@ class OllamaProvider(AIProvider):
         return "ollama"
 
     async def initialize(self, config: Dict[str, Any]) -> bool:
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Debug logging for server URL resolution
+        logger.info(f"🔧 Ollama provider initializing with config: {config}")
+        
         self.server_url = config.get("server_url", "http://localhost:11434")
         self.api_key = config.get("api_key", "")
         self.server_name = config.get("server_name", "Default Ollama Server")
+        
+        # Log what URL we're actually using
+        if self.server_url == "http://localhost:11434" and "server_url" not in config:
+            logger.warning(f"⚠️  Ollama provider defaulting to localhost! Config was: {config}")
+        else:
+            logger.info(f"✅ Ollama provider using server_url: {self.server_url}")
+            
+        logger.info(f"🎯 Ollama provider initialized - server_name: {self.server_name}, server_url: {self.server_url}")
         return True
 
     async def get_models(self) -> List[Dict[str, Any]]:
@@ -41,13 +55,12 @@ class OllamaProvider(AIProvider):
             yield chunk
 
     async def chat_completion(self, messages: List[Dict[str, Any]], model: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        print(f"Ollama chat_completion received {len(messages)} messages")
-        print(f"DETAILED MESSAGE INSPECTION:")
-        for i, msg in enumerate(messages):
-            print(f"  Message {i+1}: role={msg.get('role', 'unknown')}, content={msg.get('content', '')}")
-        
+        print(f"🤖 OLLAMA CHAT_COMPLETION CALLED")
+        print(f"📊 Server URL: {self.server_url}")
+        print(f"📊 Server Name: {self.server_name}")
+        print(f"📊 Model: {model}")
+        print(f"📊 Messages: {len(messages)} messages")
         prompt = self._format_chat_messages(messages)
-        print(f"Formatted prompt (full):\n{prompt}")
         
         result = await self._call_ollama_api(prompt, model, params, is_streaming=False)
         if "error" not in result:
@@ -61,13 +74,7 @@ class OllamaProvider(AIProvider):
         return result
 
     async def chat_completion_stream(self, messages: List[Dict[str, Any]], model: str, params: Dict[str, Any]) -> AsyncGenerator[Dict[str, Any], None]:
-        print(f"Ollama chat_completion_stream received {len(messages)} messages")
-        print(f"DETAILED MESSAGE INSPECTION (STREAMING):")
-        for i, msg in enumerate(messages):
-            print(f"  Message {i+1}: role={msg.get('role', 'unknown')}, content={msg.get('content', '')}")
-        
         prompt = self._format_chat_messages(messages)
-        print(f"Formatted prompt (full):\n{prompt}")
         
         async for chunk in self._stream_ollama_api(prompt, model, params):
             if "error" not in chunk:
@@ -81,6 +88,9 @@ class OllamaProvider(AIProvider):
             yield chunk
 
     async def _call_ollama_api(self, prompt: str, model: str, params: Dict[str, Any], is_streaming: bool = False) -> Dict[str, Any]:
+        import logging
+        logger = logging.getLogger(__name__)
+        
         payload_params = params.copy() if params else {}
         payload_params["stream"] = False
         payload = {"model": model, "prompt": prompt, **payload_params}
@@ -88,9 +98,13 @@ class OllamaProvider(AIProvider):
         if self.api_key:
             headers['Authorization'] = f'Bearer {self.api_key}'
 
+        # Log the actual URL being called
+        api_url = f"{self.server_url}/api/generate"
+        logger.debug(f"Making Ollama API call to: {api_url}")
+
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(f"{self.server_url}/api/generate", json=payload, headers=headers)
+                response = await client.post(api_url, json=payload, headers=headers)
                 response.raise_for_status()
                 result = response.json()
                 return {
@@ -99,6 +113,36 @@ class OllamaProvider(AIProvider):
                     "model": model,
                     "metadata": result,
                     "finish_reason": result.get("done") and "stop" or None
+                }
+        except httpx.ConnectError as e:
+            logger.error(f"❌ Cannot connect to Ollama server at {api_url}")
+            return {
+                "error": f"Cannot connect to Ollama server at {self.server_url}. "
+                        f"Please check if the server is running and accessible.",
+                "provider": "ollama",
+                "model": model,
+                "server_name": self.server_name,
+                "server_url": self.server_url
+            }
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                logger.error(f"❌ Model '{model}' not found on server {self.server_name}")
+                return {
+                    "error": f"Model '{model}' not found on Ollama server '{self.server_name}'. "
+                            f"Please check if the model is installed or use a different model.",
+                    "provider": "ollama",
+                    "model": model,
+                    "server_name": self.server_name,
+                    "server_url": self.server_url
+                }
+            else:
+                logger.error(f"❌ HTTP error {e.response.status_code} from server {self.server_name}")
+                return {
+                    "error": f"HTTP {e.response.status_code} error from Ollama server '{self.server_name}': {e.response.text}",
+                    "provider": "ollama",
+                    "model": model,
+                    "server_name": self.server_name,
+                    "server_url": self.server_url
                 }
         except Exception as e:
             return self._format_error(e, model)

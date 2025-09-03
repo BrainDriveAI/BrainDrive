@@ -9,8 +9,9 @@ Each plugin should inherit from UserInitializerBase and register itself.
 from . import settings_initializer
 from . import components_initializer
 from . import navigation_initializer
-from . import pages_initializer
-from . import brain_drive_basic_ai_chat_initializer
-from . import brain_drive_settings_initializer
+from . import github_plugin_initializer  # GitHub plugin installer (runs first for plugins)
+from . import pages_initializer  # Pages initializer (updated for BrainDriveChat)
+# from . import brain_drive_basic_ai_chat_initializer  # Replaced by GitHub installer
+# from . import brain_drive_settings_initializer  # Replaced by GitHub installer
 
 # Add more imports as needed when new initializers are created

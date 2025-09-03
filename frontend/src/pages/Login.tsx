@@ -1,16 +1,16 @@
-import { useState } from 'react';
-import { 
-  Box, 
-  Button, 
-  TextField, 
-  Typography, 
-  Paper, 
-  Alert, 
-  Tabs, 
-  Tab, 
-  Grid, 
-  useMediaQuery, 
-  useTheme, 
+import { useState, useEffect } from 'react';
+import {
+  Box,
+  Button,
+  TextField,
+  Typography,
+  Paper,
+  Alert,
+  Tabs,
+  Tab,
+  Grid,
+  useMediaQuery,
+  useTheme,
   Divider,
   Card,
   CardContent,
@@ -20,6 +20,17 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { Visibility, VisibilityOff } from '@mui/icons-material';
+import {
+  getLoginErrorMessage,
+  getRegistrationErrorMessage,
+  validateEmail,
+  validatePassword,
+  validateUsername,
+  validatePasswordConfirmation,
+  AuthError
+} from '../utils/authErrorHandler';
+import EnhancedErrorDisplay from '../components/auth/EnhancedErrorDisplay';
+import PasswordStrengthIndicator from '../components/auth/PasswordStrengthIndicator';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -63,26 +74,52 @@ const Login = () => {
   const [fullName, setFullName] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
+  const [authError, setAuthError] = useState<AuthError | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [focusedField, setFocusedField] = useState<string | null>(null);
+  
+  // Real-time validation states
+  const [emailValidation, setEmailValidation] = useState<{ isValid: boolean; message?: string } | null>(null);
+  const [usernameValidation, setUsernameValidation] = useState<{ isValid: boolean; message?: string } | null>(null);
+  const [passwordValidation, setPasswordValidation] = useState<any>(null);
+  const [confirmPasswordValidation, setConfirmPasswordValidation] = useState<{ isValid: boolean; message?: string } | null>(null);
   
   // Configuration option: Set to true to show the Full Name field in registration form
   // This can be easily toggled when full name collection is needed in the future
   const [showFullNameField] = useState<boolean>(false);
   
-  const { login, register } = useAuth();
+  const { login, register, user } = useAuth();
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
+  // Prevent error clearing during auth context operations
+  useEffect(() => {
+    // If user becomes authenticated, clear any error states
+    if (user) {
+      setError('');
+      setAuthError(null);
+    }
+  }, [user]);
+
   const handleTabChange = (_event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
-    setError('');
+    // Only clear errors when explicitly switching tabs, not during other operations
+    if (newValue !== tabValue) {
+      setError('');
+      setAuthError(null);
+      // Clear validation states when switching tabs
+      setEmailValidation(null);
+      setUsernameValidation(null);
+      setPasswordValidation(null);
+      setConfirmPasswordValidation(null);
+    }
   };
 
   const handleLogin = async (event: React.FormEvent) => {
     event.preventDefault();
     setError('');
+    setAuthError(null);
     setIsSubmitting(true);
     console.log('Login submission started - disabling button');
     
@@ -90,7 +127,15 @@ const Login = () => {
       await login(email, password);
       navigate('/');
     } catch (err: any) {
-      // Provide more user-friendly error messages
+      console.log('Login error occurred - re-enabling button', err);
+      
+      // Create enhanced error message
+      const enhancedError = getLoginErrorMessage(err);
+      
+      // Set both error states to ensure persistence
+      setAuthError(enhancedError);
+      
+      // Keep the old error for backward compatibility if needed
       if (err.response && err.response.status === 401) {
         setError('Invalid email or password. Please try again.');
       } else if (err.response && err.response.status === 404) {
@@ -100,7 +145,14 @@ const Login = () => {
       } else {
         setError(err instanceof Error ? err.message : 'Failed to login. Please try again later.');
       }
-      console.log('Login error occurred - re-enabling button');
+      
+      // Ensure error persists by preventing any automatic clearing
+      setTimeout(() => {
+        if (!user) { // Only keep error if user is still not logged in
+          setAuthError(enhancedError);
+        }
+      }, 100);
+      
     } finally {
       setIsSubmitting(false);
     }
@@ -109,10 +161,20 @@ const Login = () => {
   const handleRegister = async (event: React.FormEvent) => {
     event.preventDefault();
     setError('');
+    setAuthError(null);
     setIsSubmitting(true);
     console.log('Registration submission started - disabling button');
 
+    // Validate passwords match
     if (password !== confirmPassword) {
+      const passwordError: AuthError = {
+        code: 'PASSWORD_MISMATCH',
+        message: 'Passwords do not match',
+        suggestions: ['Make sure both password fields contain the same password'],
+        actionable: true,
+        field: 'confirmPassword'
+      };
+      setAuthError(passwordError);
       setError('Passwords do not match');
       setIsSubmitting(false);
       return;
@@ -127,7 +189,11 @@ const Login = () => {
       });
       navigate('/');
     } catch (err: any) {
-      // Provide more user-friendly error messages for registration
+      console.log('Registration error occurred - re-enabling button');
+      const enhancedError = getRegistrationErrorMessage(err);
+      setAuthError(enhancedError);
+      
+      // Keep the old error for backward compatibility if needed
       if (err.response && err.response.status === 400) {
         if (err.response.data && err.response.data.detail) {
           if (err.response.data.detail.includes('Email already registered')) {
@@ -147,7 +213,6 @@ const Login = () => {
       } else {
         setError(err instanceof Error ? err.message : 'Failed to register. Please try again later.');
       }
-      console.log('Registration error occurred - re-enabling button');
     } finally {
       setIsSubmitting(false);
     }
@@ -163,6 +228,53 @@ const Login = () => {
 
   const handleFieldBlur = () => {
     setFocusedField(null);
+  };
+
+  // Real-time validation handlers
+  const handleEmailChange = (value: string) => {
+    setEmail(value);
+    if (value) {
+      const validation = validateEmail(value);
+      setEmailValidation(validation);
+    } else {
+      setEmailValidation(null);
+    }
+  };
+
+  const handleUsernameChange = (value: string) => {
+    setUsername(value);
+    if (value) {
+      const validation = validateUsername(value);
+      setUsernameValidation(validation);
+    } else {
+      setUsernameValidation(null);
+    }
+  };
+
+  const handlePasswordChange = (value: string) => {
+    setPassword(value);
+    if (value) {
+      const validation = validatePassword(value);
+      setPasswordValidation(validation);
+    } else {
+      setPasswordValidation(null);
+    }
+    
+    // Also validate confirm password if it exists
+    if (confirmPassword) {
+      const confirmValidation = validatePasswordConfirmation(value, confirmPassword);
+      setConfirmPasswordValidation(confirmValidation);
+    }
+  };
+
+  const handleConfirmPasswordChange = (value: string) => {
+    setConfirmPassword(value);
+    if (value) {
+      const validation = validatePasswordConfirmation(password, value);
+      setConfirmPasswordValidation(validation);
+    } else {
+      setConfirmPasswordValidation(null);
+    }
   };
 
   // Helper function to get field-specific help text
@@ -181,6 +293,13 @@ const Login = () => {
       default:
         return "";
     }
+  };
+
+  // Helper function to handle switching to registration tab
+  const handleSwitchToRegister = () => {
+    setTabValue(1);
+    setAuthError(null);
+    setError('');
   };
 
   return (
@@ -254,7 +373,16 @@ const Login = () => {
               <Tab label="Register" {...a11yProps(1)} />
             </Tabs>
 
-            {error && (
+            {/* Enhanced Error Display */}
+            <EnhancedErrorDisplay
+              error={authError}
+              onAction={authError?.code === 'ACCOUNT_NOT_FOUND' ? handleSwitchToRegister : undefined}
+              actionLabel={authError?.code === 'ACCOUNT_NOT_FOUND' ? 'Create Account' : undefined}
+              showSuggestions={true}
+            />
+
+            {/* Fallback to old error display if enhanced error is not available */}
+            {error && !authError && (
               <Alert severity="error" sx={{ mt: 2 }}>
                 {error}
               </Alert>
@@ -270,17 +398,25 @@ const Login = () => {
                   type="email"
                   required
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => handleEmailChange(e.target.value)}
                   onFocus={() => handleFieldFocus('email')}
                   onBlur={handleFieldBlur}
                   autoComplete="username"
-                  error={!!error && error.toLowerCase().includes('email')}
+                  error={
+                    (!!error && error.toLowerCase().includes('email')) ||
+                    (!!authError && authError.field === 'email') ||
+                    (!!emailValidation && !emailValidation.isValid)
+                  }
                   helperText={
                     focusedField === 'email'
                       ? getFieldHelpText('email')
-                      : error && error.toLowerCase().includes('email')
-                        ? error
-                        : " "
+                      : emailValidation && !emailValidation.isValid
+                        ? emailValidation.message
+                        : authError && authError.field === 'email'
+                          ? "Please check your email address"
+                          : error && error.toLowerCase().includes('email')
+                            ? "Please check your email address"
+                            : " "
                   }
                 />
                 <TextField
@@ -291,17 +427,22 @@ const Login = () => {
                   type={showPassword ? 'text' : 'password'}
                   required
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => handlePasswordChange(e.target.value)}
                   onFocus={() => handleFieldFocus('password')}
                   onBlur={handleFieldBlur}
                   autoComplete="current-password"
-                  error={!!error && error.toLowerCase().includes('password')}
+                  error={
+                    (!!error && error.toLowerCase().includes('password')) ||
+                    (!!authError && authError.field === 'password')
+                  }
                   helperText={
                     focusedField === 'password'
                       ? getFieldHelpText('password')
-                      : error && error.toLowerCase().includes('password')
-                        ? error
-                        : " "
+                      : authError && authError.field === 'password'
+                        ? "Please check your password"
+                        : error && error.toLowerCase().includes('password')
+                          ? "Please check your password"
+                          : " "
                   }
                   InputProps={{
                     endAdornment: (
@@ -368,17 +509,25 @@ const Login = () => {
                   variant="outlined"
                   required
                   value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  onChange={(e) => handleUsernameChange(e.target.value)}
                   onFocus={() => handleFieldFocus('username')}
                   onBlur={handleFieldBlur}
                   autoComplete="username"
-                  error={!!error && error.toLowerCase().includes('username')}
+                  error={
+                    (!!error && error.toLowerCase().includes('username')) ||
+                    (!!authError && authError.field === 'username') ||
+                    (!!usernameValidation && !usernameValidation.isValid)
+                  }
                   helperText={
                     focusedField === 'username'
                       ? getFieldHelpText('username')
-                      : error && error.toLowerCase().includes('username')
-                        ? error
-                        : " "
+                      : usernameValidation && !usernameValidation.isValid
+                        ? usernameValidation.message
+                        : authError && authError.field === 'username'
+                          ? authError.message
+                          : error && error.toLowerCase().includes('username')
+                            ? error
+                            : " "
                   }
                 />
                 <TextField
@@ -389,17 +538,25 @@ const Login = () => {
                   type="email"
                   required
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => handleEmailChange(e.target.value)}
                   onFocus={() => handleFieldFocus('email')}
                   onBlur={handleFieldBlur}
                   autoComplete="username"
-                  error={!!error && error.toLowerCase().includes('email')}
+                  error={
+                    (!!error && error.toLowerCase().includes('email')) ||
+                    (!!authError && authError.field === 'email') ||
+                    (!!emailValidation && !emailValidation.isValid)
+                  }
                   helperText={
                     focusedField === 'email'
                       ? getFieldHelpText('email')
-                      : error && error.toLowerCase().includes('email')
-                        ? error
-                        : " "
+                      : emailValidation && !emailValidation.isValid
+                        ? emailValidation.message
+                        : authError && authError.field === 'email'
+                          ? authError.message
+                          : error && error.toLowerCase().includes('email')
+                            ? error
+                            : " "
                   }
                 />
                 <TextField
@@ -410,17 +567,25 @@ const Login = () => {
                   type={showPassword ? 'text' : 'password'}
                   required
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => handlePasswordChange(e.target.value)}
                   onFocus={() => handleFieldFocus('password')}
                   onBlur={handleFieldBlur}
                   autoComplete="new-password"
-                  error={!!error && error.toLowerCase().includes('password')}
+                  error={
+                    (!!error && error.toLowerCase().includes('password')) ||
+                    (!!authError && authError.field === 'password') ||
+                    (!!passwordValidation && !passwordValidation.isValid)
+                  }
                   helperText={
                     focusedField === 'password'
                       ? getFieldHelpText('password')
-                      : error && error.toLowerCase().includes('password')
-                        ? error
-                        : " "
+                      : passwordValidation && !passwordValidation.isValid
+                        ? passwordValidation.message
+                        : authError && authError.field === 'password'
+                          ? authError.message
+                          : error && error.toLowerCase().includes('password')
+                            ? error
+                            : " "
                   }
                   InputProps={{
                     endAdornment: (
@@ -436,6 +601,16 @@ const Login = () => {
                     )
                   }}
                 />
+                
+                {/* Password Strength Indicator */}
+                {password && tabValue === 1 && (
+                  <PasswordStrengthIndicator
+                    password={password}
+                    showDetails={focusedField === 'password'}
+                    compact={focusedField !== 'password'}
+                  />
+                )}
+                
                 <TextField
                   fullWidth
                   label="Confirm Password"
@@ -444,17 +619,25 @@ const Login = () => {
                   type={showPassword ? 'text' : 'password'}
                   required
                   value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  onChange={(e) => handleConfirmPasswordChange(e.target.value)}
                   onFocus={() => handleFieldFocus('confirmPassword')}
                   onBlur={handleFieldBlur}
                   autoComplete="new-password"
-                  error={!!error && error.toLowerCase().includes('password')}
+                  error={
+                    (!!error && error.toLowerCase().includes('password')) ||
+                    (!!authError && authError.field === 'confirmPassword') ||
+                    (!!confirmPasswordValidation && !confirmPasswordValidation.isValid)
+                  }
                   helperText={
                     focusedField === 'confirmPassword'
                       ? getFieldHelpText('confirmPassword')
-                      : error && error.toLowerCase().includes('password') && error.toLowerCase().includes('match')
-                        ? error
-                        : " "
+                      : confirmPasswordValidation && !confirmPasswordValidation.isValid
+                        ? confirmPasswordValidation.message
+                        : authError && authError.field === 'confirmPassword'
+                          ? authError.message
+                          : error && error.toLowerCase().includes('password') && error.toLowerCase().includes('match')
+                            ? error
+                            : " "
                   }
                   InputProps={{
                     endAdornment: (

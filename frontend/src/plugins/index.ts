@@ -10,8 +10,6 @@ const localPluginConfigs: Record<string, DynamicPluginConfig> = {};
 // Initialize with an empty object to prevent loading local plugins
 let pluginConfigs: Record<string, DynamicPluginConfig> = {}; // Empty object instead of { ...localPluginConfigs }
 
-
-
 // Plugin instance registry - maps instance IDs to plugin type IDs
 // Local plugin mappings removed to prevent loading local plugins
 const pluginInstances: Record<string, string> = {
@@ -20,29 +18,30 @@ const pluginInstances: Record<string, string> = {
 
 // Get plugin config for an instance
 export const getPluginConfigForInstance = (instanceId: string): DynamicPluginConfig | undefined => {
-  // console.log('getPluginConfigForInstance - instanceId:', instanceId);
-  // console.log('getPluginConfigForInstance - pluginInstances:', pluginInstances);
+  console.log('getPluginConfigForInstance - instanceId:', instanceId);
+  console.log('getPluginConfigForInstance - pluginInstances:', pluginInstances);
+  console.log('getPluginConfigForInstance - available pluginConfigs:', Object.keys(pluginConfigs));
   
   // Try direct mapping first
   let pluginId = pluginInstances[instanceId];
   
   // If no mapping exists, try to use the instanceId as a direct plugin ID
   if (!pluginId) {
-    // console.log(`No mapping found for instance ${instanceId}, trying as direct plugin ID`);
+    console.log(`No mapping found for instance ${instanceId}, trying as direct plugin ID`);
     pluginId = instanceId;
   }
   
-  // console.log('getPluginConfigForInstance - resolved pluginId:', pluginId);
+  console.log('getPluginConfigForInstance - resolved pluginId:', pluginId);
   
   const config = pluginConfigs[pluginId];
   
   if (!config) {
     console.error(`Plugin config not found for instance ${instanceId}, pluginId: ${pluginId}`);
-    // console.log('Available plugin configs:', Object.keys(pluginConfigs));
+    console.log('Available plugin configs:', Object.keys(pluginConfigs));
     return undefined;
   }
   
-  // console.log('getPluginConfigForInstance - config:', config);
+  console.log('getPluginConfigForInstance - config found:', config);
   
   return config;
 };
@@ -243,6 +242,8 @@ export const onPluginRegistryChange = (listener: () => void) => {
 
 // Register a remote plugin
 export const registerRemotePlugin = (plugin: LoadedRemotePlugin) => {
+  // console.log('[registerRemotePlugin] Registering plugin:', plugin);
+  
   // Convert LoadedRemotePlugin to DynamicPluginConfig format
   const pluginConfig: DynamicPluginConfig = {
     id: plugin.id,
@@ -250,10 +251,8 @@ export const registerRemotePlugin = (plugin: LoadedRemotePlugin) => {
     description: plugin.description,
     version: plugin.version,
     author: plugin.author,
-    homepage: plugin.homepage,
     icon: plugin.icon || 'extension',
     islocal: false,
-    component: plugin.component,
     // Create modules array from loadedModules if available
     modules: plugin.loadedModules ? plugin.loadedModules.map(module => ({
       id: module.id || module.name,
@@ -273,14 +272,16 @@ export const registerRemotePlugin = (plugin: LoadedRemotePlugin) => {
     })) : []
   };
   
+  // console.log('[registerRemotePlugin] Created plugin config:', pluginConfig);
+  
   // Register in the plugin registry
   pluginConfigs[plugin.id] = pluginConfig;
+  // console.log('[registerRemotePlugin] Plugin registered. Current pluginConfigs keys:', Object.keys(pluginConfigs));
   
   // Notify listeners of the change
   notifyPluginRegistryChange();
   
-  // Log successful registration
-  // console.log(`Remote plugin registered: ${plugin.id}`);
+  // console.log(`[registerRemotePlugin] Remote plugin registered successfully: ${plugin.id}`);
 };
 
 // Register multiple remote plugins

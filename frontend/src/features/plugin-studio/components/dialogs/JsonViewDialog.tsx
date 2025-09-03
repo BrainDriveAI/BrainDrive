@@ -10,7 +10,8 @@ import {
   IconButton,
   Tabs,
   Tab,
-  Paper
+  Paper,
+  useTheme
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
@@ -28,6 +29,7 @@ interface JsonViewDialogProps {
  */
 export const JsonViewDialog: React.FC<JsonViewDialogProps> = ({ open, onClose }) => {
   const { currentPage } = usePluginStudio();
+  const theme = useTheme();
   const [tabValue, setTabValue] = useState(0);
   const [copied, setCopied] = useState(false);
   
@@ -100,7 +102,7 @@ export const JsonViewDialog: React.FC<JsonViewDialogProps> = ({ open, onClose })
               p: 2,
               height: '100%',
               overflow: 'auto',
-              backgroundColor: '#f5f5f5',
+              backgroundColor: theme.palette.mode === 'dark' ? '#2d2d2d' : '#f5f5f5',
               borderRadius: 0
             }}
           >
@@ -110,7 +112,8 @@ export const JsonViewDialog: React.FC<JsonViewDialogProps> = ({ open, onClose })
                 fontFamily: 'monospace',
                 fontSize: '0.875rem',
                 whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word'
+                wordBreak: 'break-word',
+                color: theme.palette.mode === 'dark' ? '#e0e0e0' : '#000000'
               }}
             >
               {getJsonContent()}

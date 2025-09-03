@@ -13,10 +13,126 @@ from app.schemas.navigation import (
     NavigationRouteResponse,
     NavigationRouteUpdate,
     NavigationRouteDetailResponse,
-    NavigationRouteListResponse
+    NavigationRouteListResponse,
+    NavigationRouteTree,
+    NavigationRouteMove,
+    NavigationRouteBatchUpdate
 )
 
 router = APIRouter()
+
+@router.get("/tree", response_model=List[NavigationRouteTree])
+async def get_navigation_tree(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get navigation routes as a tree structure"""
+    try:
+        # Get all navigation routes for the user (flat list)
+        result = await db.execute(
+            select(NavigationRoute)
+            .where(NavigationRoute.creator_id == current_user.id)
+            .order_by(NavigationRoute.display_order.asc())
+        )
+        all_routes = result.scalars().all()
+        
+        # Build tree structure manually without accessing SQLAlchemy relationships
+        def build_tree_response(parent_id: str = None, depth: int = 0) -> List[NavigationRouteTree]:
+            result = []
+            # Find all routes with the given parent_id
+            children = [route for route in all_routes if route.parent_id == parent_id]
+            # Sort by display_order
+            children.sort(key=lambda x: x.display_order or 0)
+            
+            for route in children:
+                route_dict = {
+                    "id": route.id,
+                    "name": route.name,
+                    "route": route.route,
+                    "icon": route.icon,
+                    "description": route.description,
+                    "order": route.order,
+                    "is_visible": route.is_visible,
+                    "creator_id": route.creator_id,
+                    "is_system_route": route.is_system_route,
+                    "default_component_id": route.default_component_id,
+                    "default_page_id": route.default_page_id,
+                    "can_change_default": route.can_change_default,
+                    "parent_id": route.parent_id,
+                    "display_order": route.display_order,
+                    "is_collapsible": route.is_collapsible,
+                    "is_expanded": route.is_expanded,
+                    "created_at": route.created_at.isoformat() if route.created_at else None,
+                    "updated_at": route.updated_at.isoformat() if route.updated_at else None,
+                    "depth_level": depth,
+                    "children": build_tree_response(route.id, depth + 1)
+                }
+                result.append(NavigationRouteTree(**route_dict))
+            return result
+        
+        # Start with root nodes (parent_id is None)
+        return build_tree_response(None, 0)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get navigation tree: {str(e)}"
+        )
+
+@router.post("/batch-update", response_model=List[NavigationRouteResponse])
+async def batch_update_navigation_routes(
+    updates: List[NavigationRouteBatchUpdate],
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update multiple navigation routes in a single operation"""
+    try:
+        updated_routes = []
+        
+        for update in updates:
+            route = await NavigationRoute.get_by_id(db, update.id)
+            if not route:
+                continue  # Skip non-existent routes
+            
+            # Check permissions
+            if str(route.creator_id).replace('-', '') != str(current_user.id).replace('-', ''):
+                continue  # Skip routes user doesn't own
+            
+            # Apply updates
+            if update.parent_id is not None:
+                route.parent_id = update.parent_id
+            if update.display_order is not None:
+                route.display_order = update.display_order
+            if update.is_expanded is not None:
+                route.is_expanded = update.is_expanded
+            
+            await route.save(db)
+            updated_routes.append(NavigationRouteResponse(
+                id=route.id,
+                name=route.name,
+                route=route.route,
+                icon=route.icon,
+                description=route.description,
+                order=route.order,
+                is_visible=route.is_visible,
+                creator_id=route.creator_id,
+                is_system_route=route.is_system_route,
+                default_component_id=route.default_component_id,
+                default_page_id=route.default_page_id,
+                can_change_default=route.can_change_default,
+                parent_id=route.parent_id,
+                display_order=route.display_order,
+                is_collapsible=route.is_collapsible,
+                is_expanded=route.is_expanded,
+                created_at=route.created_at.isoformat() if route.created_at else None,
+                updated_at=route.updated_at.isoformat() if route.updated_at else None
+            ))
+        
+        return updated_routes
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to batch update navigation routes: {str(e)}"
+        )
 
 @router.get("", response_model=List[NavigationRouteResponse])
 async def get_navigation_routes(
@@ -80,7 +196,12 @@ async def get_navigation_routes(
                         "is_system_route": route.is_system_route if hasattr(route, 'is_system_route') else False,
                         "default_component_id": route.default_component_id if hasattr(route, 'default_component_id') else None,
                         "default_page_id": str(route.default_page_id) if hasattr(route, 'default_page_id') and route.default_page_id else None,
-                        "can_change_default": route.can_change_default if hasattr(route, 'can_change_default') else False
+                        "can_change_default": route.can_change_default if hasattr(route, 'can_change_default') else False,
+                        # Hierarchical fields
+                        "parent_id": route.parent_id if hasattr(route, 'parent_id') else None,
+                        "display_order": route.display_order if hasattr(route, 'display_order') else 0,
+                        "is_collapsible": route.is_collapsible if hasattr(route, 'is_collapsible') else True,
+                        "is_expanded": route.is_expanded if hasattr(route, 'is_expanded') else True
                     }
                     routes_list.append(route_dict)
                 except Exception as e:
@@ -128,7 +249,12 @@ async def create_navigation_route(
             creator_id=current_user.id,
             can_change_default=route_data.can_change_default,
             default_component_id=route_data.default_component_id,
-            default_page_id=str(route_data.default_page_id) if route_data.default_page_id is not None else None
+            default_page_id=str(route_data.default_page_id) if route_data.default_page_id is not None else None,
+            # Hierarchical fields
+            parent_id=route_data.parent_id,
+            display_order=route_data.display_order,
+            is_collapsible=route_data.is_collapsible,
+            is_expanded=route_data.is_expanded
         )
         
         await new_route.save(db)
@@ -148,7 +274,12 @@ async def create_navigation_route(
             "is_system_route": new_route.is_system_route if hasattr(new_route, 'is_system_route') else False,
             "default_component_id": new_route.default_component_id if hasattr(new_route, 'default_component_id') else None,
             "default_page_id": str(new_route.default_page_id) if hasattr(new_route, 'default_page_id') and new_route.default_page_id else None,
-            "can_change_default": new_route.can_change_default if hasattr(new_route, 'can_change_default') else False
+            "can_change_default": new_route.can_change_default if hasattr(new_route, 'can_change_default') else False,
+            # Hierarchical fields
+            "parent_id": new_route.parent_id if hasattr(new_route, 'parent_id') else None,
+            "display_order": new_route.display_order if hasattr(new_route, 'display_order') else 0,
+            "is_collapsible": new_route.is_collapsible if hasattr(new_route, 'is_collapsible') else True,
+            "is_expanded": new_route.is_expanded if hasattr(new_route, 'is_expanded') else True
         }
     except HTTPException:
         raise
@@ -156,6 +287,63 @@ async def create_navigation_route(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create navigation route: {str(e)}"
+        )
+
+@router.put("/{route_id}/move", response_model=NavigationRouteResponse)
+async def move_navigation_route(
+    route_id: str,
+    move_data: NavigationRouteMove,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Move a navigation route to a different parent or position"""
+    try:
+        route = await NavigationRoute.get_by_id(db, route_id)
+        if not route:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Navigation route not found"
+            )
+        
+        # Check permissions
+        if str(route.creator_id).replace('-', '') != str(current_user.id).replace('-', ''):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to modify this route"
+            )
+        
+        # Move the route
+        await route.move_to_parent(db, move_data.parent_id, move_data.display_order)
+        
+        return NavigationRouteResponse(
+            id=route.id,
+            name=route.name,
+            route=route.route,
+            icon=route.icon,
+            description=route.description,
+            order=route.order,
+            is_visible=route.is_visible,
+            creator_id=route.creator_id,
+            is_system_route=route.is_system_route,
+            default_component_id=route.default_component_id,
+            default_page_id=route.default_page_id,
+            can_change_default=route.can_change_default,
+            parent_id=route.parent_id,
+            display_order=route.display_order,
+            is_collapsible=route.is_collapsible,
+            is_expanded=route.is_expanded,
+            created_at=route.created_at.isoformat() if route.created_at else None,
+            updated_at=route.updated_at.isoformat() if route.updated_at else None
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to move navigation route: {str(e)}"
         )
 
 @router.get("/{route_id}", response_model=NavigationRouteDetailResponse)
@@ -191,6 +379,11 @@ async def get_navigation_route(
             "default_component_id": route.default_component_id if hasattr(route, 'default_component_id') else None,
             "default_page_id": str(route.default_page_id) if hasattr(route, 'default_page_id') and route.default_page_id else None,
             "can_change_default": route.can_change_default if hasattr(route, 'can_change_default') else False,
+            # Hierarchical fields
+            "parent_id": route.parent_id if hasattr(route, 'parent_id') else None,
+            "display_order": route.display_order if hasattr(route, 'display_order') else 0,
+            "is_collapsible": route.is_collapsible if hasattr(route, 'is_collapsible') else True,
+            "is_expanded": route.is_expanded if hasattr(route, 'is_expanded') else True,
             "creator": {
                 "id": str(route.creator.id),
                 "username": route.creator.username,
@@ -297,6 +490,21 @@ async def update_navigation_route(
         if route_data.can_change_default is not None:
             print(f"Updating can_change_default from '{route.can_change_default}' to '{route_data.can_change_default}'")
             route.can_change_default = route_data.can_change_default
+        
+        # Update hierarchical fields
+        if route_data.parent_id is not None:
+            print(f"Updating parent_id from '{route.parent_id}' to '{route_data.parent_id}'")
+            route.parent_id = route_data.parent_id
+        if route_data.display_order is not None:
+            print(f"Updating display_order from '{route.display_order}' to '{route_data.display_order}'")
+            route.display_order = route_data.display_order
+        if route_data.is_collapsible is not None:
+            print(f"Updating is_collapsible from '{route.is_collapsible}' to '{route_data.is_collapsible}'")
+            route.is_collapsible = route_data.is_collapsible
+        if route_data.is_expanded is not None:
+            print(f"Updating is_expanded from '{route.is_expanded}' to '{route_data.is_expanded}'")
+            route.is_expanded = route_data.is_expanded
+        
         # Special handling for system routes
         if route.is_system_route:
             print("This is a system route - applying special validation")
@@ -333,7 +541,12 @@ async def update_navigation_route(
             "is_system_route": route.is_system_route if hasattr(route, 'is_system_route') else False,
             "default_component_id": route.default_component_id if hasattr(route, 'default_component_id') else None,
             "default_page_id": str(route.default_page_id) if hasattr(route, 'default_page_id') and route.default_page_id else None,
-            "can_change_default": route.can_change_default if hasattr(route, 'can_change_default') else False
+            "can_change_default": route.can_change_default if hasattr(route, 'can_change_default') else False,
+            # Hierarchical fields
+            "parent_id": route.parent_id if hasattr(route, 'parent_id') else None,
+            "display_order": route.display_order if hasattr(route, 'display_order') else 0,
+            "is_collapsible": route.is_collapsible if hasattr(route, 'is_collapsible') else True,
+            "is_expanded": route.is_expanded if hasattr(route, 'is_expanded') else True
         }
     except HTTPException:
         raise
@@ -405,3 +618,5 @@ async def delete_navigation_route(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete navigation route: {str(e)}"
         )
+
+

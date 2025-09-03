@@ -59,6 +59,7 @@ export const PageManagementDialog: React.FC<PageManagementDialogProps> = ({ open
   const [editingPageId, setEditingPageId] = useState<string | null>(null);
   const [editingPageName, setEditingPageName] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [autoSaving, setAutoSaving] = useState<string | null>(null); // Track which page is being auto-saved
   
   // Reset state when dialog opens
   React.useEffect(() => {
@@ -67,6 +68,7 @@ export const PageManagementDialog: React.FC<PageManagementDialogProps> = ({ open
       setEditingPageId(null);
       setEditingPageName('');
       setError(null);
+      setAutoSaving(null);
     }
   }, [open]);
   
@@ -135,12 +137,40 @@ export const PageManagementDialog: React.FC<PageManagementDialogProps> = ({ open
   
   // Handle publishing/unpublishing a page
   const handlePublishPage = async (pageId: string, publish: boolean) => {
+    console.log('🚀 handlePublishPage called:', { pageId, publish, currentPageId: currentPage?.id });
+    
     try {
-      await publishPage(pageId, publish);
       setError(null);
+      
+      // Auto-save if publishing the current page (always save to ensure latest changes are published)
+      if (publish && currentPage && pageId === currentPage.id) {
+        console.log('🔄 Auto-saving page before publishing...', { pageId, currentPageId: currentPage.id });
+        setAutoSaving(pageId);
+        
+        try {
+          console.log('💾 Calling savePage...');
+          await savePage(pageId);
+          console.log('✅ Auto-save completed successfully');
+        } catch (saveErr) {
+          console.error('❌ Auto-save failed:', saveErr);
+          setAutoSaving(null);
+          setError('Failed to auto-save page before publishing. Please save manually first.');
+          return; // Don't proceed with publishing if auto-save fails
+        }
+        
+        setAutoSaving(null);
+      } else {
+        console.log('⏭️ Skipping auto-save:', { publish, hasCurrentPage: !!currentPage, isCurrentPage: pageId === currentPage?.id });
+      }
+      
+      // Proceed with publish/unpublish
+      console.log('📤 Calling publishPage...');
+      await publishPage(pageId, publish);
+      console.log('✅ Publish completed successfully');
     } catch (err) {
+      console.error('❌ Publish failed:', err);
+      setAutoSaving(null);
       setError(`Failed to ${publish ? 'publish' : 'unpublish'} page`);
-      console.error(err);
     }
   };
   
@@ -238,7 +268,7 @@ export const PageManagementDialog: React.FC<PageManagementDialogProps> = ({ open
         
         {/* Page List */}
         <Typography variant="subtitle1" gutterBottom>
-          Your Pages
+          Your Pages 3
         </Typography>
         
         <List>
@@ -297,6 +327,9 @@ export const PageManagementDialog: React.FC<PageManagementDialogProps> = ({ open
                   ) : (
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       {page.name}
+                      {autoSaving === page.id && (
+                        <Chip size="small" label="Saving before publish..." color="info" />
+                      )}
                       {page.is_local && (
                         <Chip size="small" label="Local" color="warning" />
                       )}
@@ -312,7 +345,7 @@ export const PageManagementDialog: React.FC<PageManagementDialogProps> = ({ open
                       Route: {page.route || 'None'}
                     </Typography>
                     <Typography variant="caption" component="div">
-                      Last Updated: {formatDate(page.updated_at as string)}
+                      Last Updated: {formatDate((page as any).updated_at)}
                     </Typography>
                     {page.backup_date && (
                       <Typography variant="caption" component="div">
@@ -367,23 +400,30 @@ export const PageManagementDialog: React.FC<PageManagementDialogProps> = ({ open
                       
                       {/* Publish/Unpublish Button */}
                       {!page.is_local && (
-                        <Tooltip title={page.is_published ? "Unpublish" : "Publish"}>
-                          <IconButton
-                            edge="end"
-                            aria-label={page.is_published ? "unpublish" : "publish"}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handlePublishPage(page.id, !page.is_published);
-                            }}
-                            size="small"
-                            color={page.is_published ? "success" : "primary"}
-                          >
-                            {page.is_published ? (
-                              <UnpublishedIcon fontSize="small" />
-                            ) : (
-                              <PublishIcon fontSize="small" />
-                            )}
-                          </IconButton>
+                        <Tooltip title={
+                          autoSaving === page.id
+                            ? "Saving current changes before publish..."
+                            : page.is_published ? "Unpublish" : "Publish"
+                        }>
+                          <span>
+                            <IconButton
+                              edge="end"
+                              aria-label={page.is_published ? "unpublish" : "publish"}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handlePublishPage(page.id, !page.is_published);
+                              }}
+                              size="small"
+                              color={page.is_published ? "success" : "primary"}
+                              disabled={autoSaving === page.id}
+                            >
+                              {page.is_published ? (
+                                <UnpublishedIcon fontSize="small" />
+                              ) : (
+                                <PublishIcon fontSize="small" />
+                              )}
+                            </IconButton>
+                          </span>
                         </Tooltip>
                       )}
                       

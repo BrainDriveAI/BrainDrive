@@ -60,7 +60,7 @@ export const DynamicRoutes: React.FC<DynamicRoutesProps> = ({ basePath = '' }) =
       {/* Index route for the pages section */}
       <Route index element={
         <BannerPage 
-          routeName="Your Pages"
+          routeName="Your Pages 1"
           routeDescription="This is where you can view and manage your pages."
           showHelp={false}
         />

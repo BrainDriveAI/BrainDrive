@@ -49,7 +49,9 @@ export const PluginStudioProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const {
     layouts,
     handleLayoutChange,
-    removeItem
+    removeItem,
+    handleResizeStart,
+    handleResizeStop
   } = useLayout(currentPage, getModuleById);
   // View mode state
   const {
@@ -90,6 +92,8 @@ export const PluginStudioProvider: React.FC<{ children: React.ReactNode }> = ({ 
     layouts,
     handleLayoutChange,
     removeItem,
+    handleResizeStart,
+    handleResizeStop,
     
     // Plugin state
     availablePlugins,
@@ -123,7 +127,7 @@ export const PluginStudioProvider: React.FC<{ children: React.ReactNode }> = ({ 
     savePage, publishPage, backupPage, restorePage, updatePage,
     
     // Layout state
-    layouts, handleLayoutChange, removeItem,
+    layouts, handleLayoutChange, removeItem, handleResizeStart, handleResizeStop,
     
     // Plugin state
     availablePlugins,
