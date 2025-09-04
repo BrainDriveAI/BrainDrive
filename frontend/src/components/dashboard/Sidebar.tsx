@@ -8,6 +8,7 @@ import {
 import { useEffect, useState, useCallback } from 'react';
 import { PageNavigation } from '../PageNavigation';
 import { usePages } from '../../hooks/usePages';
+import { useSettings } from '../../contexts/ServiceContext';
 
 interface SidebarProps {
   open: boolean;
@@ -21,6 +22,14 @@ const Sidebar = ({ open, onClose, drawerWidth }: SidebarProps) => {
   const [mounted, setMounted] = useState(false);
   const { refreshPages } = usePages();
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const settingsService = useSettings();
+
+  type PoweredBy = { text: string; link: string };
+  const defaultPoweredBy: PoweredBy = {
+    text: 'Powered by BrainDrive',
+    link: 'https://community.braindrive.ai',
+  };
+  const [poweredBy, setPoweredBy] = useState<PoweredBy>(defaultPoweredBy);
 
   // Function to force a refresh of the sidebar
   const refreshSidebar = useCallback(() => {
@@ -48,6 +57,44 @@ const Sidebar = ({ open, onClose, drawerWidth }: SidebarProps) => {
     setMounted(true);
   }, []);
 
+  // Load Powered By settings
+  useEffect(() => {
+    let isActive = true;
+    (async () => {
+      try {
+        const value = await settingsService.getSetting<any>('powered_by_settings');
+        if (!isActive) return;
+        if (value) {
+          if (typeof value === 'string') {
+            try {
+              const parsed = JSON.parse(value);
+              setPoweredBy({
+                text: parsed?.text || defaultPoweredBy.text,
+                link: parsed?.link || defaultPoweredBy.link,
+              });
+            } catch {
+              setPoweredBy(defaultPoweredBy);
+            }
+          } else if (typeof value === 'object') {
+            setPoweredBy({
+              text: value?.text || defaultPoweredBy.text,
+              link: value?.link || defaultPoweredBy.link,
+            });
+          }
+        } else {
+          setPoweredBy(defaultPoweredBy);
+        }
+      } catch {
+        setPoweredBy(defaultPoweredBy);
+      }
+    })();
+    return () => {
+      isActive = false;
+    };
+    // We intentionally run once after mount and service ready
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   if (!mounted) {
     return null;
   }
@@ -57,25 +104,48 @@ const Sidebar = ({ open, onClose, drawerWidth }: SidebarProps) => {
       <Toolbar /> {/* Spacer for header */}
       <Box
         sx={{
-          overflow: 'auto',
+          display: 'flex',
+          flexDirection: 'column',
           height: '100%',
-          '&::-webkit-scrollbar': {
-            width: '8px',
-          },
-          '&::-webkit-scrollbar-track': {
-            background: 'transparent',
-          },
-          '&::-webkit-scrollbar-thumb': {
-            background: (theme) => theme.palette.divider,
-            borderRadius: '4px',
-          },
-          '&::-webkit-scrollbar-thumb:hover': {
-            background: (theme) => theme.palette.action.hover,
-          }
         }}
       >
-        {/* Unified Navigation - Core routes and published pages in one component */}
-        <PageNavigation key={`page-nav-${refreshTrigger}`} />
+        <Box
+          sx={{
+            flexGrow: 1,
+            overflow: 'auto',
+            '&::-webkit-scrollbar': { width: '8px' },
+            '&::-webkit-scrollbar-track': { background: 'transparent' },
+            '&::-webkit-scrollbar-thumb': {
+              background: (theme) => theme.palette.divider,
+              borderRadius: '4px',
+            },
+            '&::-webkit-scrollbar-thumb:hover': {
+              background: (theme) => theme.palette.action.hover,
+            },
+          }}
+        >
+          {/* Unified Navigation - Core routes and published pages in one component */}
+          <PageNavigation key={`page-nav-${refreshTrigger}`} />
+        </Box>
+        <Box
+          component="footer"
+          sx={{
+            borderTop: `1px solid ${theme.palette.divider}`,
+            color: 'text.secondary',
+            typography: 'caption',
+            p: 1,
+            textAlign: 'center',
+          }}
+        >
+          <a
+            href={poweredBy.link}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: 'inherit', textDecoration: 'none' }}
+          >
+            {poweredBy.text}
+          </a>
+        </Box>
       </Box>
     </>
   );
