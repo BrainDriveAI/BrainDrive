@@ -43,6 +43,18 @@ class SettingsInitializer(UserInitializerBase):
             "tags": '["auto_generated"]'
         },
         {
+            "id": "powered_by_settings",
+            "name": "Powered By",
+            "description": "Text and URL for the Sidebar footer tag",
+            "category": "ui",
+            "type": "object",
+            "default_value": '{"text": "Powered by BrainDrive", "link": "https://community.braindrive.ai"}',
+            "allowed_scopes": '["system", "user"]',
+            "validation": None,
+            "is_multiple": False,
+            "tags": '["auto_generated", "ui"]'
+        },
+        {
             "id": "ollama_servers_settings",
             "name": "Ollama Servers Settings",
             "description": "Auto-generated definition for Ollama Servers Settings",
@@ -74,6 +86,13 @@ class SettingsInitializer(UserInitializerBase):
             "definition_id": "theme_settings",
             "name": "Theme Settings",
             "value": '{"theme": "dark", "useSystemTheme": false}',
+            "scope": "user",
+            "page_id": None
+        },
+        {
+            "definition_id": "powered_by_settings",
+            "name": "Powered By",
+            "value": '{"text": "Powered by BrainDrive", "link": "https://community.braindrive.ai"}',
             "scope": "user",
             "page_id": None
         },
