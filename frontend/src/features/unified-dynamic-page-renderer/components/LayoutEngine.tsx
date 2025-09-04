@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Responsive, WidthProvider } from 'react-grid-layout';
+import { useTheme, Box } from '@mui/material';
 import { RenderMode, ResponsiveLayouts, LayoutItem, ModuleConfig } from '../types';
 import { ModuleRenderer } from './ModuleRenderer';
 import { LegacyModuleAdapter } from '../adapters/LegacyModuleAdapter';
@@ -47,6 +48,8 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   onItemSelect,
   onItemConfig,
 }) => {
+  const theme = useTheme();
+  
   // Debug: Track component re-renders
   const layoutEngineRenderCount = useRef(0);
   layoutEngineRenderCount.current++;
@@ -1576,12 +1579,23 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
         }
 
         return (
-          <div
+          <Box
             key={item.i}
             className={`layout-item react-grid-item ${isSelected ? 'layout-item--selected selected' : ''} ${isStudioMode ? 'layout-item--studio' : ''}`}
             onClick={() => handleItemClick(item.i)}
             data-grid={item}
-            style={{ position: 'relative' }}
+            sx={{
+              position: 'relative',
+              backgroundColor: theme.palette.background.paper,
+              border: `1px solid ${theme.palette.divider}`,
+              borderRadius: 1,
+              overflow: 'hidden',
+              transition: 'background-color 0.3s ease, border-color 0.3s ease',
+              ...(isSelected && {
+                borderColor: theme.palette.primary.main,
+                boxShadow: `0 0 0 2px ${theme.palette.primary.main}20`
+              })
+            }}
           >
             {/* Use the legacy GridItemControls component for consistent behavior */}
             {showControls && (
@@ -1597,8 +1611,8 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
             additionalProps={item.config || {}}
             fallback={<div style={{ padding: 8 }}>Loading module...</div>}
           />
-          </div>
-        );
+        </Box>
+      );
       }
 
       const isSelected = selectedItem === item.i;
@@ -1615,12 +1629,23 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       }
 
       return (
-        <div
+        <Box
           key={item.i}
           className={`layout-item react-grid-item ${isSelected ? 'layout-item--selected selected' : ''} ${isStudioMode ? 'layout-item--studio' : ''}`}
           onClick={() => handleItemClick(item.i)}
           data-grid={item}
-          style={{ position: 'relative' }}
+          sx={{
+            position: 'relative',
+            backgroundColor: theme.palette.background.paper,
+            border: `1px solid ${theme.palette.divider}`,
+            borderRadius: 1,
+            overflow: 'hidden',
+            transition: 'background-color 0.3s ease, border-color 0.3s ease',
+            ...(isSelected && {
+              borderColor: theme.palette.primary.main,
+              boxShadow: `0 0 0 2px ${theme.palette.primary.main}20`
+            })
+          }}
         >
           {/* Use the legacy GridItemControls component for consistent behavior */}
           {showControls && (
@@ -1694,7 +1719,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
               />
             );
           })()}
-        </div>
+        </Box>
       );
     });
   }, [

@@ -138,10 +138,26 @@
 /* Layout Items */
 .layout-item {
   position: relative;
-  background: white;
-  border: 1px solid #e5e7eb;
+  background: var(--mui-palette-background-paper, #ffffff);
+  border: 1px solid var(--mui-palette-divider, #e5e7eb);
   border-radius: 0.375rem;
   overflow: hidden;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+/* Dark theme support */
+@media (prefers-color-scheme: dark) {
+  .layout-item {
+    background: #1e1e1e;
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+}
+
+/* When inside a dark theme container */
+[data-mui-color-scheme="dark"] .layout-item,
+.MuiPaper-root[data-mui-color-scheme="dark"] .layout-item {
+  background: #1e1e1e;
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
 .layout-item--selected {
@@ -279,10 +295,25 @@
 /* Module Placeholder */
 .module-placeholder {
   padding: 1rem;
-  background: #f9fafb;
-  border: 1px dashed #d1d5db;
+  background: var(--mui-palette-background-default, #f9fafb);
+  border: 1px dashed var(--mui-palette-divider, #d1d5db);
   border-radius: 0.375rem;
   text-align: center;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+/* Dark theme support for placeholder */
+@media (prefers-color-scheme: dark) {
+  .module-placeholder {
+    background: #121212;
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+}
+
+[data-mui-color-scheme="dark"] .module-placeholder,
+.MuiPaper-root[data-mui-color-scheme="dark"] .module-placeholder {
+  background: #121212;
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
 .module-placeholder--studio {
