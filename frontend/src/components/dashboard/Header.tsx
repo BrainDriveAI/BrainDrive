@@ -15,6 +15,7 @@ import MenuIcon from '@mui/icons-material/Menu';
 import MenuOpenIcon from '@mui/icons-material/MenuOpen';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLocation } from 'react-router-dom';
+import { useSettings } from '../../contexts/ServiceContext';
 
 // Declare a global interface for the Window object
 declare global {
@@ -35,6 +36,15 @@ const Header = ({ onToggleSidebar, rightContent, sidebarOpen }: HeaderProps) => 
   const theme = useTheme();
   const { user, logout } = useAuth();
   const location = useLocation();
+  const settingsService = useSettings();
+
+  type BrandingLogo = { light: string; dark: string; alt?: string };
+  const defaultBranding: BrandingLogo = {
+    light: '/braindrive/braindrive-light.svg',
+    dark: '/braindrive/braindrive-dark.svg',
+    alt: 'BrainDrive',
+  };
+  const [branding, setBranding] = useState<BrandingLogo>(defaultBranding);
   
   // State to track the global variables
   const [pageTitle, setPageTitle] = useState<string>('');
@@ -94,6 +104,45 @@ const Header = ({ onToggleSidebar, rightContent, sidebarOpen }: HeaderProps) => 
     return () => clearInterval(intervalId);
   }, [pageTitle, isStudioPage, location.pathname]);
 
+  // Load branding logo settings
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const value = await settingsService.getSetting<any>('branding_logo_settings');
+        if (!active) return;
+        if (value) {
+          if (typeof value === 'string') {
+            try {
+              const parsed = JSON.parse(value);
+              setBranding({
+                light: parsed?.light || defaultBranding.light,
+                dark: parsed?.dark || defaultBranding.dark,
+                alt: parsed?.alt || defaultBranding.alt,
+              });
+            } catch {
+              setBranding(defaultBranding);
+            }
+          } else if (typeof value === 'object') {
+            setBranding({
+              light: value?.light || defaultBranding.light,
+              dark: value?.dark || defaultBranding.dark,
+              alt: value?.alt || defaultBranding.alt,
+            });
+          }
+        } else {
+          setBranding(defaultBranding);
+        }
+      } catch {
+        setBranding(defaultBranding);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleMenu = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
   };
@@ -131,11 +180,8 @@ const Header = ({ onToggleSidebar, rightContent, sidebarOpen }: HeaderProps) => 
           }}
         >
           <img 
-            src={theme.palette.mode === 'dark' 
-              ? '/braindrive/braindrive-dark.svg' 
-              : '/braindrive/braindrive-light.svg'
-            } 
-            alt="BrainDrive.ai Plugin Studio"
+            src={theme.palette.mode === 'dark' ? branding.dark : branding.light}
+            alt={branding.alt || 'BrainDrive'}
             style={{
               height: '32px',
               width: 'auto',

@@ -55,6 +55,30 @@ class SettingsInitializer(UserInitializerBase):
             "tags": '["auto_generated", "ui"]'
         },
         {
+            "id": "branding_logo_settings",
+            "name": "Branding Logo Settings",
+            "description": "Light/dark logo URLs and alt text",
+            "category": "ui",
+            "type": "object",
+            "default_value": '{"light": "/braindrive/braindrive-light.svg", "dark": "/braindrive/braindrive-dark.svg", "alt": "BrainDrive"}',
+            "allowed_scopes": '["system", "user"]',
+            "validation": None,
+            "is_multiple": False,
+            "tags": '["auto_generated", "ui"]'
+        },
+        {
+            "id": "copyright_settings",
+            "name": "Copyright",
+            "description": "Footer copyright line content",
+            "category": "ui",
+            "type": "object",
+            "default_value": '{"text": "© 2025 BrainDrive"}',
+            "allowed_scopes": '["system", "user"]',
+            "validation": None,
+            "is_multiple": False,
+            "tags": '["auto_generated", "ui"]'
+        },
+        {
             "id": "ollama_servers_settings",
             "name": "Ollama Servers Settings",
             "description": "Auto-generated definition for Ollama Servers Settings",
@@ -93,6 +117,20 @@ class SettingsInitializer(UserInitializerBase):
             "definition_id": "powered_by_settings",
             "name": "Powered By",
             "value": '{"text": "Powered by BrainDrive", "link": "https://community.braindrive.ai"}',
+            "scope": "user",
+            "page_id": None
+        },
+        {
+            "definition_id": "branding_logo_settings",
+            "name": "Branding Logo Settings",
+            "value": '{"light": "/braindrive/braindrive-light.svg", "dark": "/braindrive/braindrive-dark.svg", "alt": "BrainDrive"}',
+            "scope": "user",
+            "page_id": None
+        },
+        {
+            "definition_id": "copyright_settings",
+            "name": "Copyright",
+            "value": '{"text": "© 2025 BrainDrive"}',
             "scope": "user",
             "page_id": None
         },
