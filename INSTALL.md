@@ -78,7 +78,7 @@ In the **first terminal window**:
 
 ```bash
 cd BrainDrive/backend
-uvicorn main:app --reload --host localhost --port 8005
+uvicorn main:app --host localhost --port 8005
 ```
 
 ---
@@ -108,7 +108,7 @@ copy .env.example .env     # Windows
 ```env
 # API Configuration
 VITE_API_URL=http://localhost:8005
-VITE_API_TIMEOUT=10000
+VITE_API_TIMEOUT=30000
 
 # Environment
 NODE_ENV=development
