@@ -6,8 +6,6 @@ import json
 import asyncio
 from typing import Dict, List, Any, AsyncGenerator
 from .base import AIProvider
-from app.services.request_tracker import request_tracker
-
 
 class OllamaProvider(AIProvider):
     @property
@@ -74,49 +72,22 @@ class OllamaProvider(AIProvider):
             }]
         return result
 
-    async def cancel_generation(self, conversation_id: str) -> bool:
-        """Cancel ongoing generation for a conversation."""
-        try:
-            # Use the request tracker to cancel the request
-            cancelled = await request_tracker.cancel_conversation_requests(
-                conversation_id, 
-                "User cancelled generation"
-            )
-            
-            if cancelled:
-                print(f"Cancelled generation for conversation: {conversation_id}")
-            else:
-                print(f"No active generation found for conversation: {conversation_id}")
-            
-            return cancelled
-        except Exception as e:
-            print(f"Error cancelling generation: {e}")
-            return False
-
     async def chat_completion_stream(self, messages: List[Dict[str, Any]], model: str, params: Dict[str, Any]) -> AsyncGenerator[Dict[str, Any], None]:
         prompt = self._format_chat_messages(messages)
         
-        # For now, we'll implement basic cancellation support
-        # In a full implementation, you'd want to track the actual HTTP request
-        # and cancel it at the httpx level
+        # TODO: implement full cancellation support
+        # track the actual HTTP request and cancel it at the httpx level
         
-        try:
-            async for chunk in self._stream_ollama_api(prompt, model, params):
-                if "error" not in chunk:
-                    chunk["choices"] = [{
-                        "delta": {
-                            "role": "assistant",
-                            "content": chunk.get("text", "")
-                        },
-                        "finish_reason": chunk.get("finish_reason")
-                    }]
-                yield chunk
-        except asyncio.CancelledError:
-            print("Streaming was cancelled")
-            raise
-        except Exception as e:
-            print(f"Error in streaming: {e}")
-            raise
+        async for chunk in self._stream_ollama_api(prompt, model, params):
+            if "error" not in chunk:
+                chunk["choices"] = [{
+                    "delta": {
+                        "role": "assistant",
+                        "content": chunk.get("text", "")
+                    },
+                    "finish_reason": chunk.get("finish_reason")
+                }]
+            yield chunk
 
     async def _call_ollama_api(self, prompt: str, model: str, params: Dict[str, Any], is_streaming: bool = False) -> Dict[str, Any]:
         import logging

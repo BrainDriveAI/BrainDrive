@@ -747,64 +747,15 @@ async def generate_text(request: TextGenerationRequest, db: AsyncSession = Depen
 
 
 @router.post("/cancel")
-async def cancel_generation(
-    request: dict = Body(...),
-    db: AsyncSession = Depends(get_db)
-):
+async def cancel_generation(request: dict = Body(...)):
     """Cancel ongoing generation for a conversation."""
-    try:
-        conversation_id = request.get("conversation_id")
-        if not conversation_id:
-            raise HTTPException(status_code=400, detail="conversation_id is required")
-        
-        logger = logging.getLogger(__name__)
-        logger.info(f"Cancelling generation for conversation: {conversation_id}")
-        
-        # Import the request tracker
-        from app.services.request_tracker import request_tracker
-        
-        try:
-            # Cancel the request using the request tracker
-            cancelled = await request_tracker.cancel_conversation_requests(
-                conversation_id, 
-                "User cancelled generation"
-            )
-            
-            if cancelled:
-                logger.info(f"Successfully cancelled generation for conversation: {conversation_id}")
-                return {
-                    "status": "success",
-                    "message": "Generation cancelled successfully",
-                    "conversation_id": conversation_id,
-                    "cancelled": True
-                }
-            else:
-                logger.info(f"No active generation found for conversation: {conversation_id}")
-                return {
-                    "status": "success",
-                    "message": "No active generation to cancel",
-                    "conversation_id": conversation_id,
-                    "cancelled": False
-                }
-                
-        except Exception as provider_error:
-            logger.error(f"Error cancelling generation via request tracker: {provider_error}")
-            # Fall back to basic cancellation
-            return {
-                "status": "success",
-                "message": "Generation cancellation requested (basic mode)",
-                "conversation_id": conversation_id,
-                "cancelled": True
-            }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error in cancel_generation: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error cancelling generation: {str(e)}"
-        )
+    # TODO: Complete backend cancellation logic here
+    return {
+            "status": "success",
+            "message": "Generation cancellation requested (basic mode)",
+            # "conversation_id": conversation_id,
+            "cancelled": True
+        }
 
 @router.post("/chat")
 async def chat_completion(request: ChatCompletionRequest, db: AsyncSession = Depends(get_db)):
