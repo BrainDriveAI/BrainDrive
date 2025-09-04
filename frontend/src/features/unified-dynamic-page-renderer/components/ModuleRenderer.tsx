@@ -154,9 +154,51 @@ const UnifiedModuleRenderer: React.FC<UnifiedModuleRendererProps> = ({
         }
         
         // Load the plugin module using the same logic as PluginModuleRenderer
-        const remotePlugin = remotePluginService.getLoadedPlugin(pluginId);
+        // Attempt direct lookup; if missing, try to resolve a compatible loaded plugin id
+        let normalizedPluginId = pluginId;
+        let remotePlugin = remotePluginService.getLoadedPlugin(normalizedPluginId);
         if (!remotePlugin) {
-          throw new Error(`Plugin ${pluginId} not found or not loaded`);
+          const candidates = remotePluginService.listLoadedPluginIds();
+          const variations = [
+            normalizedPluginId,
+            normalizedPluginId.replace(/-/g, '_'),
+            normalizedPluginId.replace(/_/g, '-'),
+          ];
+          const foundId =
+            candidates.find(id => variations.includes(id)) ||
+            candidates.find(id => id.includes(normalizedPluginId)) ||
+            candidates.find(id => normalizedPluginId.includes(id));
+          if (foundId) {
+            normalizedPluginId = foundId;
+            if (process.env.NODE_ENV === 'development') {
+              console.debug(`[ModuleRenderer] Resolved pluginId '${pluginId}' -> '${normalizedPluginId}' (loaded)`);
+            }
+            remotePlugin = remotePluginService.getLoadedPlugin(normalizedPluginId)!;
+          }
+        }
+        // Lazy-load plugin by manifest if still missing
+        if (!remotePlugin) {
+          const manifest = await remotePluginService.getRemotePluginManifest();
+          // Prefer manifest entries where id includes pluginId and module list includes moduleId
+          const byModules = manifest.filter(m =>
+            (m.id && (m.id.includes(normalizedPluginId) || normalizedPluginId.includes(m.id))) &&
+            Array.isArray(m.modules) && m.modules.some(mod => mod.id === moduleId || mod.name === moduleId)
+          );
+          const byId = manifest.filter(m => m.id && (m.id.includes(normalizedPluginId) || normalizedPluginId.includes(m.id)));
+          const candidateManifest = byModules[0] || byId[0] || manifest.find(m => m.id === normalizedPluginId);
+          if (candidateManifest) {
+            const loaded = await remotePluginService.loadRemotePlugin(candidateManifest);
+            if (loaded) {
+              normalizedPluginId = loaded.id;
+              remotePlugin = loaded;
+              if (process.env.NODE_ENV === 'development') {
+                console.debug(`[ModuleRenderer] Lazy-loaded plugin '${normalizedPluginId}' for ${moduleId}`);
+              }
+            }
+          }
+        }
+        if (!remotePlugin) {
+          throw new Error(`Plugin ${normalizedPluginId} not found or not loaded`);
         }
 
         // Use loadedModules instead of modules - same as PluginModuleRenderer
@@ -164,22 +206,68 @@ const UnifiedModuleRenderer: React.FC<UnifiedModuleRendererProps> = ({
           throw new Error(`Plugin ${pluginId} has no loaded modules`);
         }
 
-        // Extract the base moduleId from the custom moduleId (e.g., "component-display" from "component-display-2")
+        // Extract additional normalized forms of moduleId for robust matching
+        const normalize = (s?: string) => (s || '').toLowerCase().replace(/[_-]/g, '');
+        const lastToken = (s?: string) => {
+          const t = (s || '').split('_');
+          return t[t.length - 1] || s || '';
+        };
         const baseModuleId = moduleId ? moduleId.replace(/-\d+$/, '') : null;
         
         // Find the module by ID first, then by base ID, then by name - same logic as PluginModuleRenderer
         let foundModule: LoadedModule | undefined;
         
         if (moduleId) {
+          // Exact id match
           foundModule = remotePlugin.loadedModules.find(m => m.id === moduleId);
-          // If not found by exact moduleId, try with the base moduleId
+          // Base-id match (strip numeric suffix)
           if (!foundModule && baseModuleId) {
             foundModule = remotePlugin.loadedModules.find(m => m.id === baseModuleId);
           }
-        } else if (moduleName) {
-          foundModule = remotePlugin.loadedModules.find(m => m.name === moduleName);
-        } else {
-          // Default to first module
+          // Last token of composite id (e.g., ServiceExample_Theme_ThemeDisplay -> ThemeDisplay)
+          if (!foundModule) {
+            const lt = lastToken(moduleId);
+            foundModule = remotePlugin.loadedModules.find(m => m.id === lt || m.name === lt);
+          }
+          // Loose normalized comparison (ignore case and _-/)
+          if (!foundModule) {
+            const target = normalize(moduleId);
+            foundModule = remotePlugin.loadedModules.find(m => normalize(m.id) === target || normalize(m.name) === target);
+          }
+        }
+        
+        // Special handling for BrainDriveChat plugin
+        if (!foundModule && pluginId === 'BrainDriveChat') {
+          // BrainDriveChat has a single module that should be used regardless of moduleId
+          if (remotePlugin.loadedModules.length > 0) {
+            foundModule = remotePlugin.loadedModules[0];
+            if (process.env.NODE_ENV === 'development') {
+              console.debug(`[ModuleRenderer] Using first module for BrainDriveChat plugin`);
+            }
+          }
+        }
+        
+        if (!foundModule && moduleName) {
+          // Try by name, including loose normalized comparison
+          foundModule = remotePlugin.loadedModules.find(m => m.name === moduleName)
+            || remotePlugin.loadedModules.find(m => normalize(m.name) === normalize(moduleName));
+        }
+        // Cross-plugin fallback: search all loaded plugins for this module id/name if still not found
+        if (!foundModule && moduleId) {
+          // Cross-plugin fallback: allow loose matching by id/name and last token
+          const cross = remotePluginService.findLoadedPluginByModuleId(moduleId)
+            || remotePluginService.findLoadedPluginByModuleId(baseModuleId || '')
+            || remotePluginService.findLoadedPluginByModuleId(lastToken(moduleId));
+          if (cross) {
+            if (process.env.NODE_ENV === 'development') {
+              console.debug(`[ModuleRenderer] Resolved module '${moduleId}' in plugin '${cross.plugin.id}'`);
+            }
+            remotePlugin = cross.plugin;
+            foundModule = cross.module;
+          }
+        }
+        if (!foundModule && !moduleId && !moduleName) {
+          // Default to first module if still nothing specified
           foundModule = remotePlugin.loadedModules[0];
         }
 
@@ -282,7 +370,13 @@ const UnifiedModuleRenderer: React.FC<UnifiedModuleRendererProps> = ({
         }
       } catch (err) {
         console.error(`[ModuleRenderer] Error loading module ${pluginId}:${moduleId}:`, err);
-        setError(err instanceof Error ? err.message : 'Unknown error loading module');
+        // Sticky: If we had a previously loaded module, keep rendering it and suppress the error UI
+        if (prevModuleRef.current) {
+          setError(null);
+          setModule(prevModuleRef.current);
+        } else {
+          setError(err instanceof Error ? err.message : 'Unknown error loading module');
+        }
         if (onError && err instanceof Error) {
           onError(err);
         }
@@ -312,7 +406,7 @@ const UnifiedModuleRenderer: React.FC<UnifiedModuleRendererProps> = ({
   }, [pluginId, moduleId, moduleName, isLocal, createServiceBridgesWithMemo, additionalProps, serviceContext, onError, mountedRef]);
 
   // Loading state
-  if (loading) {
+  if (loading && !prevModuleRef.current && !module) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', p: 2 }}>
         <CircularProgress size={24} />
@@ -323,8 +417,8 @@ const UnifiedModuleRenderer: React.FC<UnifiedModuleRendererProps> = ({
     );
   }
 
-  // Error state
-  if (error) {
+  // Error state (only when no previous successful module rendered)
+  if (error && !prevModuleRef.current && !module) {
     return (
       <Box sx={{ p: 2, border: '1px solid #f44336', borderRadius: 1, bgcolor: '#ffebee' }}>
         <Typography variant="h6" color="error">Module Load Error</Typography>

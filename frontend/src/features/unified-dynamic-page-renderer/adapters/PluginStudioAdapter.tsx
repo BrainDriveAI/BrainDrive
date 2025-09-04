@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Box, useTheme } from '@mui/material';
+import { LayoutCommitBadge } from '../components/LayoutCommitBadge';
 import { UnifiedPageRenderer } from '../components/UnifiedPageRenderer';
 import { ResponsiveContainer } from '../components/ResponsiveContainer';
 import { LayoutEngine } from '../components/LayoutEngine';
 import { PageProvider } from '../contexts/PageContext';
 import { RenderMode, PageData, ResponsiveLayouts, LayoutItem, ModuleConfig } from '../types';
 import { usePluginStudioDevMode } from '../../../hooks/usePluginStudioDevMode';
+import { generateLayoutHash } from '../utils/layoutChangeManager';
 
 // Import Plugin Studio types and components
 import {
@@ -26,9 +28,10 @@ export interface PluginStudioAdapterProps {
   
   // Studio functionality
   onLayoutChange?: (layout: any[], newLayouts: PluginStudioLayouts) => void;
+  onLayoutChangeFlush?: () => Promise<void>; // Quick Mitigation: Add flush callback
   onPageLoad?: (page: PageData) => void;
   onError?: (error: Error) => void;
-  onSave?: (pageId: string) => Promise<void>; // Add save callback
+  onSave?: (pageId: string, options?: { layoutOverride?: PluginStudioLayouts }) => Promise<void>; // Quick Mitigation: Add options parameter
   
   // UI state
   previewMode?: boolean;
@@ -56,6 +59,7 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
   page,
   layouts,
   onLayoutChange,
+  onLayoutChangeFlush,
   onPageLoad,
   onError,
   onSave,
@@ -71,6 +75,11 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
 }) => {
   // Get Material-UI theme for dark mode support
   const theme = useTheme();
+  // Get dev mode features - MUST be called before any conditional returns
+  const { features: devModeFeatures } = usePluginStudioDevMode();
+  
+  // Phase 1: Add debug mode flag
+  const isDebugMode = import.meta.env.VITE_LAYOUT_DEBUG === 'true';
   // State for converted data
   const [convertedPageData, setConvertedPageData] = useState<PageData | null>(null);
   const [conversionError, setConversionError] = useState<Error | null>(null);
@@ -78,6 +87,9 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
 
   // Safeguard to prevent infinite loops during module updates
   const isUpdatingModulesRef = useRef(false);
+  
+  // Quick Mitigation: Add ref to store unified layout state
+  const unifiedLayoutStateRef = useRef<any>(null);
 
   // Performance tracking
   const [performanceMetrics, setPerformanceMetrics] = useState<{
@@ -132,27 +144,20 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
   ): LayoutItem => {
     // Extract module definition if available
     const moduleDefinition = moduleDefinitions?.[item.i];
-    
-    // Extract pluginId from the item ID if not directly available
-    // Plugin Studio item IDs are typically in format: "PluginId_moduleId_timestamp"
-    let pluginId = item.pluginId;
-    if (!pluginId && item.i) {
-      const parts = item.i.split('_');
-      if (parts.length >= 1) {
-        pluginId = parts[0]; // First part is usually the plugin ID
-      }
-    }
-    
-    // Also try to get pluginId from module definition
-    if (!pluginId && moduleDefinition?.pluginId) {
-      pluginId = moduleDefinition.pluginId;
-    }
-    
-    // Fallback to a safe default if still no pluginId found
-    if (!pluginId) {
-      console.warn('[PluginStudioAdapter] No pluginId found for item:', item.i, 'item:', item);
-      pluginId = 'unknown';
-    }
+    // Prefer pluginId from module definition or original item
+    const originalPluginId = item?.args?._originalItem?.pluginId;
+    const extractComposite = (s?: string): string => {
+      if (!s) return '';
+      const parts = String(s).split('_');
+      if (parts.length >= 2) return `${parts[0]}_${parts[1]}`;
+      return parts[0] || '';
+    };
+    let pluginId: string = moduleDefinition?.pluginId
+      || originalPluginId
+      || (item.pluginId && item.pluginId !== 'unknown' ? item.pluginId : '')
+      || extractComposite(item.i)
+      || extractComposite(item.moduleId)
+      || 'unknown';
     
     return {
       i: item.i,
@@ -162,7 +167,7 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
       h: item.h,
       minW: item.minW,
       minH: item.minH,
-      moduleId: item.i,
+      moduleId: item.i, // keep PS identity for module map lookups
       pluginId: pluginId,
       config: {
         ...item.args,
@@ -254,7 +259,7 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
           conversionTime,
           lastUpdate: Date.now()
         }));
-        console.log(`[PluginStudioAdapter] Page conversion took ${conversionTime.toFixed(2)}ms`);
+        
       }
 
       return pageData;
@@ -269,19 +274,31 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
    * Following the same pattern as the working legacy GridContainer
    */
   const handleUnifiedLayoutChange = useCallback((
-    unifiedLayouts: ResponsiveLayouts
+    unifiedLayouts: ResponsiveLayouts,
+    metadata?: { version?: number; hash?: string; origin?: any }
   ) => {
     if (!onLayoutChange) return;
 
     try {
-      // Optimized: Only update converted page data if layouts actually changed
+      // Phase 1: Log conversion event
+      const hash = metadata?.hash || generateLayoutHash(unifiedLayouts);
+      const version = metadata?.version || 0;
+      
+      if (isDebugMode) {
+        console.log(`[PluginStudioAdapter] Convert v${version} hash:${hash}`, {
+          origin: metadata?.origin,
+          timestamp: Date.now()
+        });
+      }
+      // Phase 5: Always update converted page data with new layouts to ensure saves use latest state
+      // The UnifiedLayoutState already handles deduplication, so we should trust its updates
       setConvertedPageData(prev => {
         if (!prev) return prev;
         
-        // Check if layouts are actually different
-        const layoutsChanged = JSON.stringify(prev.layouts) !== JSON.stringify(unifiedLayouts);
-        if (!layoutsChanged) {
-          return prev; // No change, return same reference
+        // Always update layouts when we receive a change event
+        // This ensures convertedPageData stays in sync with the actual layout state
+        if (isDebugMode) {
+          console.log('[PluginStudioAdapter] Updating convertedPageData with new layouts');
         }
         
         return {
@@ -343,19 +360,39 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
       };
 
       // Convert using original layouts to preserve properties
+      // Plugin Studio has no 'wide' breakpoint; map unified 'wide' into 'desktop' when needed
+      const desktopUnified = (unifiedLayouts.desktop && unifiedLayouts.desktop.length > 0)
+        ? unifiedLayouts.desktop
+        : (unifiedLayouts.wide || []);
+
       const pluginStudioLayouts: PluginStudioLayouts = {
-        desktop: convertUnifiedToPluginStudio(unifiedLayouts.desktop, layouts?.desktop),
+        desktop: convertUnifiedToPluginStudio(desktopUnified, layouts?.desktop),
         tablet: convertUnifiedToPluginStudio(unifiedLayouts.tablet, layouts?.tablet),
         mobile: convertUnifiedToPluginStudio(unifiedLayouts.mobile, layouts?.mobile)
       };
 
       // Call onLayoutChange immediately to persist changes
-      onLayoutChange(unifiedLayouts.desktop, pluginStudioLayouts);
+      // Pass the layout for the active PS breakpoint (desktop), using 'wide' as fallback
+      onLayoutChange(desktopUnified, pluginStudioLayouts);
+      
+      // Phase 1: Log successful conversion
+      if (isDebugMode) {
+        // Generate hash using JSON stringify for Plugin Studio layouts
+        const layoutStr = JSON.stringify(pluginStudioLayouts);
+        let hash = 0;
+        for (let i = 0; i < layoutStr.length; i++) {
+          const char = layoutStr.charCodeAt(i);
+          hash = ((hash << 5) - hash) + char;
+          hash = hash & hash;
+        }
+        const convertedHash = Math.abs(hash).toString(16).padStart(8, '0');
+        console.log(`[PluginStudioAdapter] Conversion complete hash:${convertedHash}`);
+      }
     } catch (error) {
       console.error('[PluginStudioAdapter] Failed to convert layout changes:', error);
       onError?.(error as Error);
     }
-  }, [onLayoutChange, layouts, onError]);
+  }, [onLayoutChange, layouts, onError, isDebugMode]);
 
   /**
    * Handle unified page load events
@@ -453,53 +490,93 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
     return previewMode ? RenderMode.PREVIEW : RenderMode.STUDIO;
   }, [previewMode]);
 
-  // Show loading state during conversion
-  if (isConverting) {
-    return (
-      <Box 
-        display="flex" 
-        justifyContent="center" 
-        alignItems="center" 
-        height="100%" 
-        p={3}
-      >
-        <div>Converting Plugin Studio data...</div>
-      </Box>
-    );
-  }
+  // Phase 3: Add method to get committed Plugin Studio layouts
+  const getCommittedPluginStudioLayouts = useCallback((): PluginStudioLayouts | null => {
+    // Get committed layouts from unified state if available
+    const committedLayouts = unifiedLayoutStateRef.current?.getCommittedLayouts?.();
+    if (!committedLayouts) {
+      console.warn('[PluginStudioAdapter] No committed layouts available from unified state');
+      return null;
+    }
+    
+    // Convert unified layouts to Plugin Studio format
+    const convertUnifiedToPluginStudio = (items: LayoutItem[] = []): (PluginStudioGridItem | any)[] => {
+      return items.map(item => {
+        // Try to restore original item properties
+        const originalItem = item.config?._originalItem;
+        
+        return {
+          ...originalItem,
+          i: item.i,
+          x: item.x,
+          y: item.y,
+          w: item.w,
+          h: item.h,
+          minW: item.minW,
+          minH: item.minH,
+          pluginId: item.pluginId,
+          args: {
+            ...originalItem?.args,
+            ...item.config,
+            // Remove internal properties
+            _pluginStudioItem: undefined,
+            _originalItem: undefined
+          }
+        };
+      });
+    };
+    
+    return {
+      desktop: convertUnifiedToPluginStudio(committedLayouts.desktop),
+      tablet: convertUnifiedToPluginStudio(committedLayouts.tablet),
+      mobile: convertUnifiedToPluginStudio(committedLayouts.mobile)
+    };
+  }, []);
 
-  // Show error state if conversion failed
-  if (conversionError || !convertedPageData) {
-    return (
-      <Box 
-        display="flex" 
-        flexDirection="column"
-        justifyContent="center" 
-        alignItems="center" 
-        height="100%" 
-        p={3}
-        color="error.main"
-      >
-        <div>Failed to convert Plugin Studio data</div>
-        {conversionError && (
-          <div style={{ marginTop: 8, fontSize: '0.875rem' }}>
-            {conversionError.message}
-          </div>
-        )}
-      </Box>
-    );
-  }
-
-  // Handle save functionality for the GridToolbar
-  const handleSave = async (pageId?: string) => {
+  // Handle save functionality for the GridToolbar - MUST be defined before conditional returns
+  const handleSave = useCallback(async (pageId?: string) => {
     if (!page || !convertedPageData) {
       console.error('[PluginStudioAdapter] Cannot save - missing page or convertedPageData');
       return;
     }
     
     try {
-      console.log('[PluginStudioAdapter] Starting save operation for page:', pageId || page.id);
-      console.log('[PluginStudioAdapter] Current convertedPageData layouts:', convertedPageData.layouts);
+      console.log('[PluginStudioAdapter] Starting save operation for page:', pageId || page?.id);
+      
+      // RECODE V2 BLOCK: Get committed layouts directly from unified state for accurate dimensions
+      let layoutsToSave = convertedPageData.layouts;
+      
+      // Try to get the committed layouts from unified state
+      const committedLayouts = getCommittedPluginStudioLayouts();
+      if (committedLayouts) {
+        layoutsToSave = committedLayouts as any; // Type cast to match expected format
+        console.log('[RECODE_V2_BLOCK] Using committed layouts from unified state for save');
+      } else {
+        console.log('[RECODE_V2_BLOCK] Fallback to convertedPageData layouts for save');
+      }
+      
+      // RECODE V2 BLOCK: Log item dimensions at save time
+      const desktopItems = layoutsToSave?.desktop || [];
+      console.log('[RECODE_V2_BLOCK] PluginStudioAdapter save - item dimensions', {
+        pageId: pageId || page?.id,
+        source: committedLayouts ? 'committed' : 'convertedPageData',
+        desktopItemDimensions: desktopItems.map((item: any) => ({
+          id: item.i,
+          dimensions: { w: item.w, h: item.h, x: item.x, y: item.y }
+        })),
+        timestamp: Date.now()
+      });
+      
+      // Phase 5: Generate hash for save tracing
+      const layoutStr = JSON.stringify(layoutsToSave);
+      let hash = 0;
+      for (let i = 0; i < layoutStr.length; i++) {
+        const char = layoutStr.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
+      }
+      const saveHash = Math.abs(hash).toString(16).padStart(8, '0');
+      console.log(`[PluginStudioAdapter] Save serialization - hash:${saveHash}`);
       
       // Convert the current unified layouts back to Plugin Studio format for saving
       const convertUnifiedToPluginStudio = (items: LayoutItem[] = []): (PluginStudioGridItem | any)[] => {
@@ -528,24 +605,45 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
         });
       };
 
+      // Plugin Studio has no 'wide' breakpoint; map unified 'wide' into 'desktop' when needed
+      const desktopSaveSource = (layoutsToSave.desktop && layoutsToSave.desktop.length > 0)
+        ? layoutsToSave.desktop
+        : (layoutsToSave.wide || []);
+
       const pluginStudioLayouts: PluginStudioLayouts = {
-        desktop: convertUnifiedToPluginStudio(convertedPageData.layouts.desktop),
-        tablet: convertUnifiedToPluginStudio(convertedPageData.layouts.tablet),
-        mobile: convertUnifiedToPluginStudio(convertedPageData.layouts.mobile)
+        desktop: convertUnifiedToPluginStudio(desktopSaveSource),
+        tablet: convertUnifiedToPluginStudio(layoutsToSave.tablet),
+        mobile: convertUnifiedToPluginStudio(layoutsToSave.mobile)
       };
 
       console.log('[PluginStudioAdapter] Converted layouts for save:', pluginStudioLayouts);
 
-      // 🔧 FIX: Call onLayoutChange to update the Plugin Studio state
+      // Phase 5: The layouts are already committed through handleUnifiedLayoutChange
+      // No need to flush here as the convertedPageData is already up-to-date
+      console.log('[PluginStudioAdapter] Layouts already committed and synced');
+
+      // Update Plugin Studio state with the committed layouts
       if (onLayoutChange) {
-        console.log('[PluginStudioAdapter] Calling onLayoutChange to update state');
-        onLayoutChange(convertedPageData.layouts.desktop, pluginStudioLayouts);
+        console.log('[PluginStudioAdapter] Calling onLayoutChange to sync state before save');
+        onLayoutChange(desktopSaveSource, pluginStudioLayouts);
       }
       
-      // 🔧 FIX: Call onSave to actually save to backend
+      // Wait for layout changes to flush through the Plugin Studio system
+      // This ensures the Plugin Studio state is fully updated before saving
+      if (onLayoutChangeFlush) {
+        console.log('[PluginStudioAdapter] Awaiting onLayoutChangeFlush to ensure state sync');
+        await onLayoutChangeFlush();
+      } else {
+        // Fallback: Wait a bit to allow debounced updates to complete
+        console.log('[PluginStudioAdapter] No onLayoutChangeFlush available, using timeout fallback');
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+      
+      // Pass the layoutOverride to savePage
+      // This ensures we save exactly what we converted, bypassing any stale state
       if (onSave) {
-        console.log('[PluginStudioAdapter] Calling onSave to persist to backend');
-        await onSave(pageId || page.id);
+        console.log('[PluginStudioAdapter] Calling onSave with layoutOverride');
+        await onSave(pageId || page!.id, { layoutOverride: pluginStudioLayouts });
         console.log('[PluginStudioAdapter] Backend save completed');
       } else {
         console.error('[PluginStudioAdapter] onSave callback is missing - cannot save to backend!');
@@ -556,7 +654,44 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
       console.error('[PluginStudioAdapter] Save failed:', error);
       onError?.(error as Error);
     }
-  };
+  }, [page, convertedPageData, onLayoutChange, onSave, onError, onLayoutChangeFlush]);
+
+  // Show loading state during conversion
+  if (isConverting) {
+    return (
+      <Box
+        display="flex"
+        justifyContent="center"
+        alignItems="center"
+        height="100%"
+        p={3}
+      >
+        <div>Converting Plugin Studio data...</div>
+      </Box>
+    );
+  }
+
+  // Show error state if conversion failed
+  if (conversionError || !convertedPageData) {
+    return (
+      <Box
+        display="flex"
+        flexDirection="column"
+        justifyContent="center"
+        alignItems="center"
+        height="100%"
+        p={3}
+        color="error.main"
+      >
+        <div>Failed to convert Plugin Studio data</div>
+        {conversionError && (
+          <div style={{ marginTop: 8, fontSize: '0.875rem' }}>
+            {conversionError.message}
+          </div>
+        )}
+      </Box>
+    );
+  }
 
   return (
     <div
@@ -646,11 +781,13 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
               border-color: ${theme.palette.mode === 'dark' ? '#666666' : '#c0c0c0'} !important;
             }
 
-            /* Selected module styling */
+            /* Selected module styling - keep subtle to avoid "mode switch" look */
             .unified-page-renderer .react-grid-item.selected,
             .unified-page-renderer .react-grid-item.layout-item--selected {
-              border: 2px solid ${theme.palette.primary.main} !important;
-              box-shadow: 0 4px 16px ${theme.palette.primary.main}4D !important;
+              border: 1px solid ${theme.palette.divider} !important;
+              box-shadow: ${theme.palette.mode === 'dark'
+                ? '0 2px 4px rgba(0, 0, 0, 0.3)'
+                : '0 2px 4px rgba(0, 0, 0, 0.1)'} !important;
             }
 
             /* Resize handles - only show when selected */
@@ -715,13 +852,15 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
               display: none !important;
             }
 
-            /* Maintain selection state during drag and resize operations */
+            /* Maintain subtle selection during drag and resize operations */
             .layout-engine-container--dragging .react-grid-item.selected,
             .layout-engine-container--resizing .react-grid-item.selected,
             .layout-engine-container--dragging .react-grid-item.layout-item--selected,
             .layout-engine-container--resizing .react-grid-item.layout-item--selected {
-              border: 2px solid ${theme.palette.primary.main} !important;
-              box-shadow: 0 4px 16px ${theme.palette.primary.main}4D !important;
+              border: 1px solid ${theme.palette.divider} !important;
+              box-shadow: ${theme.palette.mode === 'dark'
+                ? '0 2px 6px rgba(0, 0, 0, 0.35)'
+                : '0 2px 6px rgba(0, 0, 0, 0.12)'} !important;
             }
 
             /* Enhanced visual feedback during operations */
@@ -815,6 +954,9 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
           mode={renderMode}
           allowUnpublished={true}
           responsive={true}
+          // Plugin Studio editing: disable container queries to avoid accidental
+          // breakpoint flips on first interaction due to container reflow.
+          containerQueries={false}
           lazyLoading={true}
           onPageLoad={handleUnifiedPageLoad}
           onLayoutChange={handleUnifiedLayoutChange}
@@ -826,29 +968,31 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
       </div>
 
       {/* Performance overlay in development */}
-      {performanceMonitoring && import.meta.env.MODE === 'development' && (() => {
-        const { features } = usePluginStudioDevMode();
-        return features.debugPanels && (
-          <div style={{
-            position: 'fixed',
-            bottom: 10,
-            right: 10,
-            background: 'rgba(0,0,0,0.8)',
-            color: 'white',
-            padding: '8px 12px',
-            borderRadius: '4px',
-            fontSize: '12px',
-            zIndex: 9999,
-            fontFamily: 'monospace'
-          }}>
-            <div>Plugin Studio Adapter</div>
-            <div>Conversion: {performanceMetrics.conversionTime?.toFixed(2)}ms</div>
-            <div>Render: {performanceMetrics.renderTime?.toFixed(2)}ms</div>
-            <div>Mode: {renderMode}</div>
-            <div>Items: {convertedPageData.layouts.desktop.length}</div>
-          </div>
-        );
-      })()}
+      {performanceMonitoring && import.meta.env.MODE === 'development' && devModeFeatures.debugPanels && (
+        <div style={{
+          position: 'fixed',
+          bottom: 10,
+          right: 10,
+          background: 'rgba(0,0,0,0.8)',
+          color: 'white',
+          padding: '8px 12px',
+          borderRadius: '4px',
+          fontSize: '12px',
+          zIndex: 9999,
+          fontFamily: 'monospace'
+        }}>
+          <div>Plugin Studio Adapter</div>
+          <div>Conversion: {performanceMetrics.conversionTime?.toFixed(2)}ms</div>
+          <div>Render: {performanceMetrics.renderTime?.toFixed(2)}ms</div>
+          <div>Mode: {renderMode}</div>
+          <div>Items: {convertedPageData.layouts.desktop.length}</div>
+        </div>
+      )}
+
+      {/* Dev: Layout commit status badge for unified path as well */}
+      {import.meta.env.VITE_LAYOUT_DEBUG === 'true' && (
+        <LayoutCommitBadge position="bottom-left" />
+      )}
     </div>
   );
 };

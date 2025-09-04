@@ -12,7 +12,10 @@ export interface PluginStudioContextType {
   createPage: (pageName: string) => Promise<Page | null>;
   deletePage: (pageId: string) => Promise<void>;
   renamePage: (pageId: string, newName: string) => Promise<void>;
-  savePage: (pageId: string) => Promise<Page | null>;
+  savePage: (pageId: string, options?: {
+    layoutOverride?: any;
+    awaitCommit?: boolean;
+  }) => Promise<Page | null>;
   publishPage: (pageId: string, publish: boolean) => Promise<void>;
   backupPage: (pageId: string) => Promise<void>;
   restorePage: (pageId: string) => Promise<void>;
@@ -24,6 +27,7 @@ export interface PluginStudioContextType {
   removeItem: (id: string) => void;
   handleResizeStart: () => void;
   handleResizeStop: () => void;
+  flushLayoutChanges?: () => Promise<void>; // Phase 3: Add flush method
   
   // Plugin state
   availablePlugins: DynamicPluginConfig[];

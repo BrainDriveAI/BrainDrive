@@ -1,12 +1,14 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { ResponsiveLayouts, LayoutItem } from '../types';
-import { 
-  LayoutChangeManager, 
-  LayoutChangeEvent, 
+import {
+  LayoutChangeManager,
+  LayoutChangeEvent,
   LayoutChangeOrigin,
   compareLayoutsSemanticaly,
-  generateLayoutHash
+  generateLayoutHash,
+  isStaleLayoutChange
 } from '../utils/layoutChangeManager';
+import { getLayoutCommitTracker, CommitMetadata } from '../utils/layoutCommitTracker';
 
 export interface UnifiedLayoutStateOptions {
   initialLayouts?: ResponsiveLayouts | null;
@@ -31,6 +33,11 @@ export interface UnifiedLayoutState {
   // Utility functions
   getLayoutHash: () => string;
   compareWithCurrent: (layouts: ResponsiveLayouts) => boolean;
+  
+  // Phase 1 & 3: Commit tracking and barrier
+  getLastCommitMeta: () => CommitMetadata | null;
+  flush: () => Promise<{ version: number; hash: string }>;
+  getCommittedLayouts: () => ResponsiveLayouts | null;
 }
 
 /**
@@ -56,6 +63,14 @@ export function useUnifiedLayoutState(options: UnifiedLayoutStateOptions = {}): 
   const lastPersistedHashRef = useRef<string | null>(null);
   const initializationCompleteRef = useRef(false);
   const stableLayoutsRef = useRef<ResponsiveLayouts | null>(initialLayouts);
+  
+  // PHASE B: Add version tracking for stale update prevention
+  const lastCommittedVersionRef = useRef<number>(0);
+  
+  // Phase 1: Add commit tracking
+  const committedLayoutsRef = useRef<ResponsiveLayouts | null>(initialLayouts);
+  const layoutCommitTracker = getLayoutCommitTracker();
+  const isDebugMode = import.meta.env.VITE_LAYOUT_DEBUG === 'true';
 
   // Stable refs for callbacks to prevent recreation
   const onLayoutPersistRef = useRef(onLayoutPersist);
@@ -72,14 +87,33 @@ export function useUnifiedLayoutState(options: UnifiedLayoutStateOptions = {}): 
 
   // Handle processed layout changes - now stable!
   const handleLayoutChangeEvent = useCallback((event: LayoutChangeEvent) => {
-    console.log(`[useUnifiedLayoutState] Processing layout change from ${event.origin.source}`);
+    // PHASE B: Check if this is a stale update based on version
+    if (event.origin.version !== undefined && event.origin.version < lastCommittedVersionRef.current) {
+      if (isDebugMode) {
+        console.log('[useUnifiedLayoutState] Ignoring stale layout change', {
+          eventVersion: event.origin.version,
+          currentVersion: lastCommittedVersionRef.current,
+          source: event.origin.source
+        });
+      }
+      return;
+    }
+    
+    // Phase 1: Log the persist event
+    const version = event.origin.version || lastCommittedVersionRef.current + 1;
+    if (isDebugMode) {
+      console.log(`[UnifiedLayoutState] Persist v${version} hash:${event.hash}`, {
+        source: event.origin.source,
+        operationId: event.origin.operationId
+      });
+    }
     
     setIsLayoutChanging(true);
     
     // Update the layouts state only if different
     setLayouts(prevLayouts => {
       if (compareLayoutsSemanticaly(prevLayouts, event.layouts)) {
-        console.log('[useUnifiedLayoutState] Layouts are identical, skipping state update');
+        
         setIsLayoutChanging(false); // Reset immediately if no change
         return prevLayouts; // Return same reference to prevent re-render
       }
@@ -89,15 +123,54 @@ export function useUnifiedLayoutState(options: UnifiedLayoutStateOptions = {}): 
       return event.layouts;
     });
     
-    // Persist the change if it's from a user action and different from last persisted
-    if (
-      onLayoutPersistRef.current &&
-      (event.origin.source === 'user-drag' || event.origin.source === 'user-resize' || event.origin.source === 'user-remove' || event.origin.source === 'drop-add') &&
-      event.hash !== lastPersistedHashRef.current
-    ) {
+    // RECODE V2 BLOCK: Strengthen commit barrier - always persist resize operations
+    const isUserAction = event.origin.source === 'user-drag' ||
+                         event.origin.source === 'user-resize' ||
+                         event.origin.source === 'user-remove' ||
+                         event.origin.source === 'drop-add';
+    
+    // For resize operations, force persist even if hash appears same (dimensions might differ)
+    const shouldPersist = onLayoutPersistRef.current &&
+                         isUserAction &&
+                         (event.hash !== lastPersistedHashRef.current || event.origin.source === 'user-resize');
+    
+    if (shouldPersist) {
       try {
-        onLayoutPersistRef.current(event.layouts, event.origin);
+        // RECODE V2 BLOCK: Enhanced logging for resize operations
+        if (event.origin.source === 'user-resize') {
+          const desktopItems = event.layouts.desktop || [];
+          console.log('[RECODE_V2_BLOCK] useUnifiedLayoutState persist - resize dimensions', {
+            source: event.origin.source,
+            version: event.origin.version || lastCommittedVersionRef.current + 1,
+            hash: event.hash,
+            desktopItemDimensions: desktopItems.map((item: any) => ({
+              id: item.i,
+              dimensions: { w: item.w, h: item.h, x: item.x, y: item.y }
+            })),
+            timestamp: Date.now()
+          });
+        }
+        
+        // RECODE V2 BLOCK: Always update committed layouts for user actions
+        committedLayoutsRef.current = JSON.parse(JSON.stringify(event.layouts));
+        
+        // Phase 1: Record commit in tracker
+        const commitMeta: CommitMetadata = {
+          version: event.origin.version || lastCommittedVersionRef.current + 1,
+          hash: event.hash,
+          timestamp: Date.now()
+        };
+        layoutCommitTracker.recordCommit(commitMeta);
+        
+        onLayoutPersistRef.current!(event.layouts, event.origin);
         lastPersistedHashRef.current = event.hash;
+        
+        // PHASE B: Update committed version when persisting user changes
+        if (event.origin.version !== undefined) {
+          lastCommittedVersionRef.current = event.origin.version;
+        } else {
+          lastCommittedVersionRef.current++;
+        }
       } catch (error) {
         console.error('[useUnifiedLayoutState] Error persisting layout:', error);
         onErrorRef.current?.(error as Error);
@@ -128,7 +201,7 @@ export function useUnifiedLayoutState(options: UnifiedLayoutStateOptions = {}): 
   // Handle initial layouts
   useEffect(() => {
     if (initialLayouts && !initializationCompleteRef.current) {
-      console.log('[useUnifiedLayoutState] Setting initial layouts');
+      
       setLayouts(initialLayouts);
       stableLayoutsRef.current = initialLayouts;
       lastPersistedHashRef.current = generateLayoutHash(initialLayouts);
@@ -145,11 +218,23 @@ export function useUnifiedLayoutState(options: UnifiedLayoutStateOptions = {}): 
 
     // Skip if layouts are semantically identical - use stable ref instead of state
     if (compareLayoutsSemanticaly(stableLayoutsRef.current, newLayouts)) {
-      console.log('[useUnifiedLayoutState] Skipping identical layout update');
+      if (isDebugMode) {
+        console.log('[UnifiedLayoutState] Skipping identical layout update');
+      }
       return;
     }
 
-    console.log(`[useUnifiedLayoutState] Queueing layout update from ${origin.source}`);
+    // Phase 1: Track pending commit
+    const hash = generateLayoutHash(newLayouts);
+    // If this matches the last persisted hash, it will be dropped by the pipeline; avoid tracking pending
+    if (lastPersistedHashRef.current === hash) {
+      if (isDebugMode) {
+        console.log('[UnifiedLayoutState] Skipping update equal to last persisted hash');
+      }
+      return;
+    }
+    const version = origin.version || lastCommittedVersionRef.current + 1;
+    layoutCommitTracker.trackPending(version, hash);
     
     // Queue the layout change with appropriate debounce key
     const debounceKey = origin.operationId || origin.source;
@@ -158,7 +243,7 @@ export function useUnifiedLayoutState(options: UnifiedLayoutStateOptions = {}): 
 
   // Reset layouts function (for page changes, etc.)
   const resetLayouts = useCallback((newLayouts: ResponsiveLayouts | null) => {
-    console.log('[useUnifiedLayoutState] Resetting layouts');
+    
     setLayouts(newLayouts);
     stableLayoutsRef.current = newLayouts;
     lastPersistedHashRef.current = newLayouts ? generateLayoutHash(newLayouts) : null;
@@ -190,6 +275,39 @@ export function useUnifiedLayoutState(options: UnifiedLayoutStateOptions = {}): 
   const compareWithCurrent = useCallback((otherLayouts: ResponsiveLayouts) => {
     return compareLayoutsSemanticaly(stableLayoutsRef.current, otherLayouts);
   }, []);
+  
+  // Phase 1: Get last commit metadata
+  const getLastCommitMeta = useCallback(() => {
+    return layoutCommitTracker.getLastCommit();
+  }, []);
+  
+  // Phase 3: Enhanced flush that waits for pending layout changes to complete
+  const flush = useCallback(async (): Promise<{ version: number; hash: string }> => {
+    // First flush any pending changes in the layout change manager and wait for completion
+    if (layoutChangeManagerRef.current) {
+      await layoutChangeManagerRef.current.flush();
+    }
+    
+    // Wait for the commit tracker to process all pending commits
+    await layoutCommitTracker.flush();
+    
+    // Return the last committed metadata
+    const lastCommit = layoutCommitTracker.getLastCommit();
+    if (lastCommit) {
+      return { version: lastCommit.version, hash: lastCommit.hash };
+    }
+    
+    // If no commits yet, return current state
+    return {
+      version: lastCommittedVersionRef.current,
+      hash: generateLayoutHash(stableLayoutsRef.current)
+    };
+  }, []);
+  
+  // Phase 1: Get committed layouts
+  const getCommittedLayouts = useCallback(() => {
+    return committedLayoutsRef.current;
+  }, []);
 
   // Create a stable layouts reference that only changes when layouts actually change
   const stableLayouts = useMemo(() => {
@@ -204,6 +322,9 @@ export function useUnifiedLayoutState(options: UnifiedLayoutStateOptions = {}): 
     startOperation,
     stopOperation,
     getLayoutHash,
-    compareWithCurrent
+    compareWithCurrent,
+    getLastCommitMeta,
+    flush,
+    getCommittedLayouts
   };
 }

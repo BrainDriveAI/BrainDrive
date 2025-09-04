@@ -40,28 +40,23 @@ const Header = ({ onToggleSidebar, rightContent, sidebarOpen }: HeaderProps) => 
   const [pageTitle, setPageTitle] = useState<string>('');
   const [isStudioPage, setIsStudioPage] = useState<boolean>(false);
   
-  // Determine if the current URL is a studio page
-  const isCurrentPathStudioPage = location.pathname.startsWith('/plugin-studio') ||
-                                 location.pathname.startsWith('/pages/');
+  // Determine if the current URL is a page that should show title
+  // This includes studio pages, regular pages, and any page that sets a title
+  const shouldShowPageTitle = location.pathname.startsWith('/plugin-studio') ||
+                              location.pathname.startsWith('/pages/') ||
+                              location.pathname.startsWith('/page/') ||
+                              // Also show for any page that has set a title
+                              Boolean(window.currentPageTitle);
   
   // Effect to reset state when location changes
   useEffect(() => {
-    if (!isCurrentPathStudioPage) {
-      setPageTitle('');
-      setIsStudioPage(false);
-      window.currentPageTitle = undefined;
-      window.isStudioPage = false;
-      console.log('Header - Reset state because not on a studio page');
-    }
-  }, [location.pathname, isCurrentPathStudioPage]);
+    // Reset the page title when navigating away from pages
+    // But don't immediately clear it - let the new page set its title
+    console.log('Header - Location changed to:', location.pathname);
+  }, [location.pathname]);
   
   // Effect to check the global variables periodically
   useEffect(() => {
-    // Only check for updates if we're on a studio page
-    if (!isCurrentPathStudioPage) {
-      return;
-    }
-    
     // Initial check
     if (window.currentPageTitle) {
       setPageTitle(window.currentPageTitle);
@@ -73,14 +68,20 @@ const Header = ({ onToggleSidebar, rightContent, sidebarOpen }: HeaderProps) => 
     console.log('Header - Initial global variables:', {
       currentPageTitle: window.currentPageTitle,
       isStudioPage: window.isStudioPage,
-      isCurrentPathStudioPage
+      pathname: location.pathname
     });
     
     // Set up an interval to check for changes
     const intervalId = setInterval(() => {
-      if (window.currentPageTitle && window.currentPageTitle !== pageTitle) {
-        console.log('Header - Updating page title from global:', window.currentPageTitle);
-        setPageTitle(window.currentPageTitle);
+      // Update page title if it has changed
+      if (window.currentPageTitle !== pageTitle) {
+        if (window.currentPageTitle) {
+          console.log('Header - Updating page title from global:', window.currentPageTitle);
+          setPageTitle(window.currentPageTitle);
+        } else {
+          // Clear the title if it's been unset
+          setPageTitle('');
+        }
       }
       
       if (window.isStudioPage !== undefined && window.isStudioPage !== isStudioPage) {
@@ -91,7 +92,7 @@ const Header = ({ onToggleSidebar, rightContent, sidebarOpen }: HeaderProps) => 
     
     // Clean up the interval when the component unmounts
     return () => clearInterval(intervalId);
-  }, [pageTitle, isStudioPage, isCurrentPathStudioPage]);
+  }, [pageTitle, isStudioPage, location.pathname]);
 
   const handleMenu = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
@@ -156,8 +157,8 @@ const Header = ({ onToggleSidebar, rightContent, sidebarOpen }: HeaderProps) => 
             {sidebarOpen ? <MenuOpenIcon /> : <MenuIcon />}
           </IconButton>
           
-          {/* Display page title for studio pages */}
-          {isStudioPage && isCurrentPathStudioPage ? (
+          {/* Display page title when available */}
+          {pageTitle ? (
             <Typography
               variant="h6"
               sx={{
@@ -166,10 +167,11 @@ const Header = ({ onToggleSidebar, rightContent, sidebarOpen }: HeaderProps) => 
                 alignItems: 'center',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap'
+                whiteSpace: 'nowrap',
+                maxWidth: '400px'
               }}
             >
-              {pageTitle || 'No Title Available'}
+              {pageTitle}
             </Typography>
           ) : null}
         </Box>

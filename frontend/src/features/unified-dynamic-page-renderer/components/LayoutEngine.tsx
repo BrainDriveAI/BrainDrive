@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Responsive, WidthProvider } from 'react-grid-layout';
+import { useTheme, Box } from '@mui/material';
 import { RenderMode, ResponsiveLayouts, LayoutItem, ModuleConfig } from '../types';
 import { ModuleRenderer } from './ModuleRenderer';
 import { LegacyModuleAdapter } from '../adapters/LegacyModuleAdapter';
 import { useBreakpoint } from '../hooks/useBreakpoint';
 import { GridItemControls } from '../../plugin-studio/components/canvas/GridItemControls';
 import { useUnifiedLayoutState } from '../hooks/useUnifiedLayoutState';
-import { LayoutChangeOrigin } from '../utils/layoutChangeManager';
+import { LayoutChangeOrigin, generateLayoutHash } from '../utils/layoutChangeManager';
 import { useControlVisibility } from '../../../hooks/useControlVisibility';
+import { getLayoutCommitTracker } from '../utils/layoutCommitTracker';
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
@@ -46,26 +48,99 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   onItemSelect,
   onItemConfig,
 }) => {
+  const theme = useTheme();
+  
   // Debug: Track component re-renders
   const layoutEngineRenderCount = useRef(0);
   layoutEngineRenderCount.current++;
   
-  if (process.env.NODE_ENV === 'development') {
-    console.log(`[LayoutEngine] COMPONENT RENDER #${layoutEngineRenderCount.current}`, {
-      layoutsKeys: Object.keys(layouts),
-      modulesLength: modules.length,
-      mode,
-      lazyLoading,
-      preloadPluginsLength: preloadPlugins.length,
-    });
-  }
+  // ========== PHASE A: VERSIONED DOUBLE-BUFFER CONTROLLER ==========
+  // A1: Add Feature Flag Support
+  const ENABLE_LAYOUT_CONTROLLER_V2 = import.meta.env.VITE_LAYOUT_CONTROLLER_V2 === 'true' || false;
+  
+  // Phase 1: Add debug mode flag
+  const isDebugMode = import.meta.env.VITE_LAYOUT_DEBUG === 'true';
+  
+  // A2: Implement Controller State
+  // Double-buffer refs for layout state
+  const workingLayoutsRef = useRef<ResponsiveLayouts | null>(null);
+  const canonicalLayoutsRef = useRef<ResponsiveLayouts | null>(null);
+  
+  // Controller state machine
+  type ControllerState = 'idle' | 'resizing' | 'dragging' | 'grace' | 'commit';
+  const controllerStateRef = useRef<ControllerState>('idle');
+  
+  // Version tracking for stale update prevention
+  const lastVersionRef = useRef<number>(0);
+  
+  // Force update function for controller state changes
+  const [, forceUpdate] = useState({});
+  const triggerUpdate = useCallback(() => forceUpdate({}), []);
+  
+  // A5: Add Development Logging
+  const logControllerState = useCallback((action: string, data?: any) => {
+    if (import.meta.env.MODE === 'development' && ENABLE_LAYOUT_CONTROLLER_V2) {
+      console.log(`[LayoutController V2] ${action}`, {
+        state: controllerStateRef.current,
+        version: lastVersionRef.current,
+        workingLayouts: !!workingLayoutsRef.current,
+        canonicalLayouts: !!canonicalLayoutsRef.current,
+        timestamp: performance.now().toFixed(2),
+        ...data
+      });
+    }
+  }, [ENABLE_LAYOUT_CONTROLLER_V2]);
+  
+  // ========== PHASE C1: Complete State Machine Transitions ==========
+  // State transition function with validation and logging
+  const transitionToState = useCallback((newState: ControllerState, data?: any) => {
+    if (!ENABLE_LAYOUT_CONTROLLER_V2) return;
+    
+    const oldState = controllerStateRef.current;
+    
+    // Validate state transitions
+    const validTransitions: Record<ControllerState, ControllerState[]> = {
+      'idle': ['resizing', 'dragging'],
+      'resizing': ['grace', 'idle'], // Can abort to idle
+      'dragging': ['grace', 'idle'], // Can abort to idle
+      'grace': ['commit', 'idle'], // Can abort to idle
+      'commit': ['idle']
+    };
+    
+    if (!validTransitions[oldState].includes(newState)) {
+      logControllerState('INVALID_STATE_TRANSITION', {
+        from: oldState,
+        to: newState,
+        allowed: validTransitions[oldState],
+        ...data
+      });
+      return;
+    }
+    
+    controllerStateRef.current = newState;
+    logControllerState(`STATE_TRANSITION: ${oldState} -> ${newState}`, data);
+    
+    // Trigger re-render to update displayedLayouts
+    triggerUpdate();
+  }, [ENABLE_LAYOUT_CONTROLLER_V2, logControllerState, triggerUpdate]);
+  // ========== END PHASE C1 ==========
+  
+  // Log controller initialization
+  useEffect(() => {
+    if (ENABLE_LAYOUT_CONTROLLER_V2) {
+      logControllerState('CONTROLLER_INITIALIZED', {
+        featureFlag: ENABLE_LAYOUT_CONTROLLER_V2,
+        environment: import.meta.env.MODE
+      });
+    }
+  }, [ENABLE_LAYOUT_CONTROLLER_V2, logControllerState]);
+  // ========== END PHASE A CONTROLLER ==========
 
   // Use unified layout state management with stable reference
   const unifiedLayoutState = useUnifiedLayoutState({
     initialLayouts: layouts,
     debounceMs: 200, // Increase debounce to prevent rapid updates
     onLayoutPersist: (persistedLayouts, origin) => {
-      console.log(`[LayoutEngine] Persisting layout change from ${origin.source}`);
       onLayoutChange?.(persistedLayouts);
     },
     onError: (error) => {
@@ -100,11 +175,267 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     return stableLayoutsRef.current;
   }, [unifiedLayoutState.layouts]);
 
+  // A3: Implement Display Logic - Controller decides what layouts to display
+  const displayedLayouts = useMemo(() => {
+    if (!ENABLE_LAYOUT_CONTROLLER_V2) {
+      return currentLayouts; // Fallback to existing logic
+    }
+    
+    const state = controllerStateRef.current;
+    
+    // During operations and grace period, show working buffer
+    if (state === 'resizing' || state === 'dragging' || state === 'grace') {
+      logControllerState('DISPLAY_WORKING_BUFFER', { state });
+      return workingLayoutsRef.current || currentLayouts;
+    }
+    
+    // When idle or committed, always prefer currentLayouts to ensure fresh data
+    // The buffers are just for operation management, not for caching page data
+    logControllerState('DISPLAY_CANONICAL_BUFFER', {
+      state,
+      usingCurrentLayouts: true
+    });
+    return currentLayouts;
+  }, [currentLayouts, ENABLE_LAYOUT_CONTROLLER_V2, logControllerState]);
+
+  // Initialize buffers when layouts change externally
+  useEffect(() => {
+    if (ENABLE_LAYOUT_CONTROLLER_V2) {
+      // Only update buffers when idle to avoid disrupting ongoing operations
+      if (controllerStateRef.current === 'idle') {
+        // Always sync buffers with current layouts when idle
+        // This ensures page changes are reflected immediately
+        // RECODE V2 BLOCK: Ensure ultrawide field exists
+        const layoutsWithUltrawide = {
+          ...currentLayouts,
+          ultrawide: currentLayouts.ultrawide || []
+        };
+        canonicalLayoutsRef.current = layoutsWithUltrawide;
+        workingLayoutsRef.current = layoutsWithUltrawide;
+        logControllerState('BUFFERS_SYNCED', {
+          source: 'external_update',
+          state: controllerStateRef.current,
+          itemCount: currentLayouts?.desktop?.length || 0,
+          hasUltrawide: !!layoutsWithUltrawide.ultrawide
+        });
+      } else {
+        // Log that we're skipping update due to ongoing operation
+        logControllerState('BUFFER_SYNC_SKIPPED', {
+          reason: 'operation_in_progress',
+          state: controllerStateRef.current
+        });
+      }
+    }
+  }, [currentLayouts, ENABLE_LAYOUT_CONTROLLER_V2, logControllerState]);
+
+  // ========== PHASE C2: Single Debounced Commit Process ==========
+  // Track operation IDs for proper state management (moved up for use in commitLayoutChanges)
+  const currentOperationId = useRef<string | null>(null);
+  
+  // Debounced commit timer ref
+  const commitTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Unified commit function for all operations
+  const commitLayoutChanges = useCallback((finalLayout?: any, finalAllLayouts?: any, breakpoint?: string) => {
+    if (!ENABLE_LAYOUT_CONTROLLER_V2) {
+      logControllerState('COMMIT_SKIPPED', {
+        reason: 'Controller disabled'
+      });
+      return;
+    }
+    
+    const version = lastVersionRef.current;
+    let layouts: ResponsiveLayouts;
+    
+    // RECODE V2 BLOCK: Use finalLayout if provided (from resize/drag stop) for accurate dimensions
+    if (finalLayout && finalAllLayouts) {
+      // Convert the final layout data to ResponsiveLayouts format
+      const convertedLayouts: ResponsiveLayouts = {
+        mobile: [],
+        tablet: [],
+        desktop: [],
+        wide: [],
+        ultrawide: []
+      };
+      // Normalize breakpoint keys from either grid (xs/sm/lg/xl/xxl) or semantic names
+      const toOurBreakpoint = (bp: string): keyof ResponsiveLayouts | undefined => {
+        const map: Record<string, keyof ResponsiveLayouts> = {
+          xs: 'mobile', sm: 'tablet', lg: 'desktop', xl: 'wide', xxl: 'ultrawide',
+          mobile: 'mobile', tablet: 'tablet', desktop: 'desktop', wide: 'wide', ultrawide: 'ultrawide'
+        };
+        return map[bp];
+      };
+      
+      // Helper: normalize an RGL layout array to include moduleId/pluginId
+      const normalizeItems = (items: any[] = []): LayoutItem[] => {
+        return (items || []).map((it: any) => {
+          const id = it?.i ?? '';
+          let pluginId = it?.pluginId;
+          if (!pluginId && typeof id === 'string' && id.includes('_')) {
+            pluginId = id.split('_')[0];
+          }
+          return {
+            i: id,
+            x: it?.x ?? 0,
+            y: it?.y ?? 0,
+            w: it?.w ?? 2,
+            h: it?.h ?? 2,
+            moduleId: it?.moduleId || id,
+            pluginId: pluginId || 'unknown',
+            minW: it?.minW,
+            minH: it?.minH,
+            isDraggable: it?.isDraggable ?? true,
+            isResizable: it?.isResizable ?? true,
+            static: it?.static ?? false,
+            config: it?.config
+          } as LayoutItem;
+        });
+      };
+
+      // Use the current breakpoint's layout from finalLayout (has the latest changes)
+      // Use the breakpoint parameter passed in
+      if (finalLayout && breakpoint) {
+        const ourBreakpoint = toOurBreakpoint(breakpoint);
+        if (ourBreakpoint) {
+          convertedLayouts[ourBreakpoint] = normalizeItems(finalLayout as any[]);
+          
+          console.log('[RECODE_V2_BLOCK] commitLayoutChanges - using finalLayout for commit', {
+            breakpoint: ourBreakpoint,
+            itemDimensions: finalLayout.map((item: any) => ({
+              id: item.i,
+              dimensions: { w: item.w, h: item.h, x: item.x, y: item.y }
+            })),
+            version,
+            timestamp: Date.now()
+          });
+        }
+      }
+      
+      // Fill in other breakpoints from finalAllLayouts
+      Object.entries(finalAllLayouts).forEach(([gridBreakpoint, gridLayout]: [string, any]) => {
+        const ourBreakpoint = toOurBreakpoint(gridBreakpoint);
+        if (ourBreakpoint && Array.isArray(gridLayout)) {
+          // Only use allLayouts if we haven't already set this breakpoint from the current layout
+          if (toOurBreakpoint(gridBreakpoint) !== toOurBreakpoint(breakpoint || '') || !finalLayout) {
+            convertedLayouts[ourBreakpoint] = normalizeItems(gridLayout as any[]);
+          }
+        }
+      });
+      
+      layouts = convertedLayouts;
+      // Also update the working buffer with the final layouts
+      workingLayoutsRef.current = convertedLayouts;
+    } else if (workingLayoutsRef.current) {
+      // Fallback to working buffer if no final layout provided
+      layouts = workingLayoutsRef.current;
+      console.log('[RECODE_V2_BLOCK] commitLayoutChanges - using workingLayoutsRef', {
+        version,
+        hasLayouts: !!workingLayoutsRef.current,
+        breakpoints: Object.keys(workingLayoutsRef.current || {}),
+        itemCounts: Object.entries(workingLayoutsRef.current || {}).map(([bp, items]) => ({
+          breakpoint: bp,
+          count: (items as any[])?.length || 0
+        })),
+        timestamp: Date.now()
+      });
+    } else {
+      console.error('[RECODE_V2_BLOCK] COMMIT SKIPPED - No layouts available!', {
+        hasWorkingBuffer: !!workingLayoutsRef.current,
+        hasCanonicalBuffer: !!canonicalLayoutsRef.current,
+        version
+      });
+      logControllerState('COMMIT_SKIPPED', {
+        reason: 'No layouts available'
+      });
+      return;
+    }
+    
+    const hash = generateLayoutHash(layouts);
+    
+    // RECODE V2 BLOCK: Enhanced commit logging
+    console.log('[RECODE_V2_BLOCK] COMMIT - About to persist layouts', {
+      version,
+      hash,
+      hasLayouts: !!layouts,
+      breakpoints: Object.keys(layouts || {}),
+      itemCounts: Object.entries(layouts || {}).map(([bp, items]) => ({
+        breakpoint: bp,
+        count: (items as any[])?.length || 0,
+        items: (items as any[])?.map((item: any) => ({
+          id: item.i,
+          dimensions: { w: item.w, h: item.h, x: item.x, y: item.y }
+        }))
+      }))
+    });
+    
+    // Phase 1: Log commit event
+    if (isDebugMode) {
+      console.log(`[LayoutEngine] Commit v${version} hash:${hash}`, {
+        source: controllerStateRef.current === 'resizing' ? 'user-resize' : 'user-drag',
+        timestamp: Date.now()
+      });
+    }
+    
+    logControllerState('COMMIT_START', {
+      version,
+      hash,
+      layoutsPresent: !!layouts,
+      currentState: controllerStateRef.current
+    });
+    
+    // Transition to commit state
+    transitionToState('commit', { version });
+    
+    // Create origin with version
+    const origin: LayoutChangeOrigin = {
+      source: controllerStateRef.current === 'resizing' ? 'user-resize' : 'user-drag',
+      version,
+      timestamp: Date.now(),
+      operationId: currentOperationId.current || `commit-${Date.now()}`
+    };
+    
+    // Persist the changes
+    unifiedLayoutState.updateLayouts(layouts, origin);
+    
+    // Update canonical buffer
+    canonicalLayoutsRef.current = JSON.parse(JSON.stringify(layouts));
+    
+    // Transition back to idle after a short delay
+    setTimeout(() => {
+      transitionToState('idle', { version, source: 'commit_complete' });
+      logControllerState('COMMIT_COMPLETE', { version, hash });
+      
+      // Phase 1: Log commit completion
+      if (isDebugMode) {
+        console.log(`[LayoutEngine] Commit complete v${version} hash:${hash}`);
+      }
+    }, 50);
+  }, [ENABLE_LAYOUT_CONTROLLER_V2, unifiedLayoutState, logControllerState, transitionToState, isDebugMode]);
+  
+  // Schedule a debounced commit
+  const scheduleCommit = useCallback((delayMs: number = 150, finalLayout?: any, finalAllLayouts?: any, breakpoint?: string) => {
+    // Clear any existing timer
+    if (commitTimerRef.current) {
+      clearTimeout(commitTimerRef.current);
+    }
+    
+    // Schedule new commit
+    commitTimerRef.current = setTimeout(() => {
+      commitLayoutChanges(finalLayout, finalAllLayouts, breakpoint);
+      commitTimerRef.current = null;
+    }, delayMs);
+    
+    logControllerState('COMMIT_SCHEDULED', { delayMs });
+  }, [commitLayoutChanges, logControllerState]);
+  // ========== END PHASE C2 ==========
+
   // Local UI state
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  // Stabilize module identities to avoid transient incomplete IDs during operations
+  const stableIdentityRef = useRef<Map<string, { pluginId: string; moduleId: string }>>(new Map());
 
   const { currentBreakpoint } = useBreakpoint();
   
@@ -150,13 +481,21 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     }
   }, [showControls]);
   
-  // Track operation IDs for proper state management
-  const currentOperationId = useRef<string | null>(null);
+  // Track page ID for proper state management
   const pageIdRef = useRef<string | undefined>(pageId);
   
   // Operation deduplication tracking
   const processedOperations = useRef<Set<string>>(new Set());
   const operationCleanupTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
+  
+  // Bounce detection tracking
+  const previousPositionsRef = useRef<Map<string, { x: number; y: number; w: number; h: number; timestamp?: number }>>(new Map());
+  
+  // Track intended positions (the position user actually wanted)
+  const intendedPositionsRef = useRef<Map<string, { x: number; y: number; w: number; h: number; timestamp: number }>>(new Map());
+  
+  // Track bounce suppression window
+  const bounceSuppressionRef = useRef<Map<string, number>>(new Map());
   
   // Debug logging for bounce detection
   const debugLog = useCallback((message: string, data?: any) => {
@@ -167,12 +506,28 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
 
   // Handle external layout changes (from props)
   useEffect(() => {
-    // Reset layouts when page changes
-    if (pageId !== pageIdRef.current) {
-      console.log('[LayoutEngine] Page changed, resetting layouts');
+    // Phase 5: More careful page change detection to avoid resetting after save
+    // Only reset if the pageId actually changed (not just the reference)
+    const pageIdChanged = pageId !== pageIdRef.current && pageId !== undefined && pageIdRef.current !== undefined;
+    
+    if (pageIdChanged) {
+      console.log('[LayoutEngine] Page ID changed, resetting layouts', {
+        oldPageId: pageIdRef.current,
+        newPageId: pageId
+      });
       unifiedLayoutState.resetLayouts(layouts);
       pageIdRef.current = pageId;
+
+      // Clear bounce detection tracking when page changes
+      previousPositionsRef.current.clear();
+      intendedPositionsRef.current.clear();
+      debugLog('🔄 Page changed - cleared bounce detection tracking', { newPageId: pageId });
       return;
+    }
+    
+    // Update pageId ref if it was undefined before
+    if (pageIdRef.current === undefined && pageId !== undefined) {
+      pageIdRef.current = pageId;
     }
 
     // Skip if layouts are semantically identical
@@ -197,7 +552,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     });
   }, [layouts, pageId, isDragging, isResizing, unifiedLayoutState]);
 
-  // Handle layout change - convert from react-grid-layout format to our format
+  // Handle layout change - Enhanced with controller V2
   const handleLayoutChange = useCallback((layout: any[], allLayouts: any) => {
     const operationId = currentOperationId.current;
     
@@ -209,6 +564,250 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       allLayoutsKeys: Object.keys(allLayouts || {}),
       layoutData: layout?.map(item => ({ i: item.i, x: item.x, y: item.y, w: item.w, h: item.h }))
     });
+
+    // RECODE V2 BLOCK: Capture layout during resize BEFORE controller checks
+    // Store the layout data immediately if we're resizing
+    if (isResizing && layout && layout.length > 0 && currentBreakpoint) {
+      const breakpointMap: Record<string, keyof ResponsiveLayouts> = {
+        xs: 'mobile',
+        sm: 'tablet',
+        lg: 'desktop',
+        xl: 'wide',
+        xxl: 'ultrawide'
+      };
+      
+      const ourBreakpoint = breakpointMap[currentBreakpoint];
+      if (ourBreakpoint && workingLayoutsRef.current) {
+        // Ensure the working buffer has the structure
+        if (!workingLayoutsRef.current[ourBreakpoint]) {
+          workingLayoutsRef.current[ourBreakpoint] = [];
+        }
+        workingLayoutsRef.current[ourBreakpoint] = layout as LayoutItem[];
+        
+        console.log('[RECODE_V2_BLOCK] IMMEDIATE resize capture in handleLayoutChange', {
+          operationId,
+          breakpoint: ourBreakpoint,
+          itemCount: layout.length,
+          items: layout.map((item: any) => ({
+            id: item.i,
+            dimensions: { w: item.w, h: item.h, x: item.x, y: item.y }
+          }))
+        });
+      }
+    }
+
+    // Controller V2: Handle layout changes based on controller state
+    if (ENABLE_LAYOUT_CONTROLLER_V2) {
+      const state = controllerStateRef.current;
+      
+      // During resize/drag operations, update working buffer only
+      if (state === 'resizing' || state === 'dragging') {
+        // Convert to ResponsiveLayouts format
+        const convertedLayouts: ResponsiveLayouts = {
+          mobile: [],
+          tablet: [],
+          desktop: [],
+          wide: [],
+          ultrawide: []
+        };
+
+        const breakpointMap: Record<string, keyof ResponsiveLayouts> = {
+          xs: 'mobile',
+          sm: 'tablet',
+          lg: 'desktop',
+          xl: 'wide',
+          xxl: 'ultrawide'
+        };
+
+        // RECODE V2 BLOCK: Use the current layout for the active breakpoint during resize
+        // This ensures we capture the actual resized dimensions
+        if (layout && layout.length > 0 && currentBreakpoint) {
+          const ourBreakpoint = breakpointMap[currentBreakpoint];
+          if (ourBreakpoint) {
+            convertedLayouts[ourBreakpoint] = layout as LayoutItem[];
+            console.log('[RECODE_V2_BLOCK] Working buffer update with resize dimensions', {
+              state,
+              breakpoint: ourBreakpoint,
+              itemCount: layout.length,
+              items: layout.map((item: any) => ({
+                id: item.i,
+                dimensions: { w: item.w, h: item.h, x: item.x, y: item.y }
+              }))
+            });
+          }
+        } else {
+          console.warn('[RECODE_V2_BLOCK] No layout data during resize!', {
+            state,
+            hasLayout: !!layout,
+            layoutLength: layout?.length,
+            currentBreakpoint,
+            allLayoutsKeys: Object.keys(allLayouts || {})
+          });
+        }
+
+        // Fill in other breakpoints from allLayouts
+        Object.entries(allLayouts).forEach(([gridBreakpoint, gridLayout]: [string, any]) => {
+          const ourBreakpoint = breakpointMap[gridBreakpoint];
+          if (ourBreakpoint && Array.isArray(gridLayout)) {
+            // Only use allLayouts if we haven't already set this breakpoint from the current layout
+            if (gridBreakpoint !== currentBreakpoint || !layout) {
+              convertedLayouts[ourBreakpoint] = gridLayout as LayoutItem[];
+            }
+          }
+        });
+        
+        // Update working buffer only
+        workingLayoutsRef.current = convertedLayouts;
+        logControllerState('WORKING_BUFFER_UPDATE', {
+          state,
+          operationId,
+          layoutItemCount: layout?.length,
+          version: lastVersionRef.current,  // PHASE B: Include version in logs
+          hasLayouts: Object.values(convertedLayouts).some(l => l.length > 0)
+        });
+        
+        // Don't persist during operations
+        return;
+      }
+      
+      // During grace period, ignore all layout changes
+      if (state === 'grace') {
+        logControllerState('GRACE_PERIOD_IGNORE', {
+          reason: 'Layout change during grace period',
+          operationId,
+          version: lastVersionRef.current  // PHASE B: Include version in logs
+        });
+        return;
+      }
+      
+      // During commit state, also ignore
+      if (state === 'commit') {
+        logControllerState('COMMIT_STATE_IGNORE', {
+          reason: 'Layout change during commit',
+          operationId,
+          version: lastVersionRef.current  // PHASE B: Include version in logs
+        });
+        return;
+      }
+    }
+
+    // EARLY BOUNCE DETECTION: Block suspicious layout changes immediately
+    if (!operationId && !isResizing && !isDragging && layout && layout.length > 0) {
+      // Check if any item is trying to change to a position we've seen before (potential bounce)
+      for (const item of layout) {
+        const itemKey = `${item.i}`;
+        const intendedPos = intendedPositionsRef.current.get(itemKey);
+        
+        if (intendedPos) {
+          const timeSinceIntended = Date.now() - intendedPos.timestamp;
+          const currentPos = { x: item.x, y: item.y, w: item.w, h: item.h };
+          
+          // If this change is happening soon after an intended position was set
+          // and it's different from the intended position, it's likely a bounce
+          if (timeSinceIntended < 1000) {
+            const isDifferentFromIntended = intendedPos.x !== currentPos.x || intendedPos.y !== currentPos.y ||
+                                          intendedPos.w !== currentPos.w || intendedPos.h !== currentPos.h;
+            
+            if (isDifferentFromIntended) {
+              debugLog('🚫 EARLY BOUNCE BLOCK - Rejecting suspicious layout change', {
+                itemId: item.i,
+                currentPosition: currentPos,
+                intendedPosition: intendedPos,
+                timeSinceIntended,
+                reason: 'SUSPICIOUS_CHANGE_AFTER_OPERATION'
+              });
+              
+              // Completely reject this layout change - CRITICAL: This prevents the bounce!
+              return;
+            }
+          }
+        }
+      }
+    }
+
+    // BOUNCE DETECTION: Track position changes to detect visual bounces
+    if (layout && layout.length > 0) {
+      layout.forEach(item => {
+        const currentPos = { x: item.x, y: item.y, w: item.w, h: item.h };
+        const itemKey = `${item.i}`;
+        
+        // Get previous position from ref
+        if (!previousPositionsRef.current) {
+          previousPositionsRef.current = new Map();
+        }
+        
+        const prevPos = previousPositionsRef.current.get(itemKey);
+        
+        if (prevPos) {
+          // Check if position changed
+          const posChanged = prevPos.x !== currentPos.x || prevPos.y !== currentPos.y ||
+                           prevPos.w !== currentPos.w || prevPos.h !== currentPos.h;
+          
+          if (posChanged) {
+            // Check if this is a bounce back to an even earlier position
+            const prevPrevPos = previousPositionsRef.current.get(`${itemKey}_prev`);
+            if (prevPrevPos) {
+              const isBouncingBack = prevPrevPos.x === currentPos.x && prevPrevPos.y === currentPos.y &&
+                                   prevPrevPos.w === currentPos.w && prevPrevPos.h === currentPos.h;
+              
+              if (isBouncingBack) {
+                debugLog('🔴 BOUNCE DETECTED! Item returned to previous position', {
+                  itemId: item.i,
+                  operationId,
+                  isResizing,
+                  isDragging,
+                  previousPosition: prevPos,
+                  currentPosition: currentPos,
+                  bouncedBackTo: prevPrevPos,
+                  timeSinceLastChange: Date.now() - (prevPos.timestamp || 0)
+                });
+                
+                // AGGRESSIVE BOUNCE PREVENTION: Completely block bounce changes
+                const intendedPos = intendedPositionsRef.current.get(itemKey);
+                if (intendedPos && !operationId && !isResizing && !isDragging) {
+                  // This is a bounce occurring after operation completion
+                  const timeSinceIntended = Date.now() - intendedPos.timestamp;
+                  
+                  // Block bounces that occur within 1 second of the intended position being set
+                  if (timeSinceIntended < 1000) {
+                    debugLog('🚫 BLOCKING BOUNCE - Rejecting entire layout change', {
+                      itemId: item.i,
+                      bouncedTo: currentPos,
+                      intendedPosition: intendedPos,
+                      timeSinceIntended,
+                      action: 'REJECTING_LAYOUT_CHANGE'
+                    });
+                    
+                    // COMPLETELY REJECT this layout change by returning early
+                    // This prevents the bounce from being processed at all
+                    return;
+                  }
+                }
+              }
+            }
+            
+            debugLog('📍 POSITION CHANGE', {
+              itemId: item.i,
+              operationId,
+              isResizing,
+              isDragging,
+              from: prevPos,
+              to: currentPos,
+              deltaX: currentPos.x - prevPos.x,
+              deltaY: currentPos.y - prevPos.y,
+              deltaW: currentPos.w - prevPos.w,
+              deltaH: currentPos.h - prevPos.h
+            });
+            
+            // Store previous position as prev_prev for bounce detection
+            previousPositionsRef.current.set(`${itemKey}_prev`, prevPos);
+          }
+        }
+        
+        // Update current position with timestamp
+        previousPositionsRef.current.set(itemKey, { ...currentPos, timestamp: Date.now() });
+      });
+    }
     
     // Check for duplicate processing
     if (operationId && processedOperations.current.has(operationId)) {
@@ -231,6 +830,49 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       tablet: [],
       desktop: [],
       wide: [],
+      ultrawide: []
+    };
+
+    // Helper: normalize an RGL layout array to include moduleId/pluginId
+    const extractPluginId = (compositeId: string): string => {
+      if (!compositeId) return 'unknown';
+      const tokens = compositeId.split('_');
+      if (tokens.length === 1) return tokens[0];
+      const idx = tokens.findIndex(t => /^(?:[0-9a-f]{24,}|\d{12,})$/i.test(t));
+      const boundary = idx > 0 ? idx : 2; // heuristic: often 2 tokens like ServiceExample_Theme
+      return tokens.slice(0, boundary).join('_');
+    };
+
+    const normalizeItems = (items: any[] = []): LayoutItem[] => {
+      return (items || []).map((it: any) => {
+        const id = it?.i ?? '';
+        const pluginId = it?.pluginId || extractPluginId(typeof id === 'string' ? id : '');
+        
+        // CRITICAL: Preserve moduleId from config if available (from args)
+        let moduleId = it?.moduleId;
+        if (!moduleId && it?.config?.moduleId) {
+          moduleId = it.config.moduleId;
+        }
+        if (!moduleId) {
+          moduleId = id; // Last resort fallback
+        }
+        
+        return {
+          i: id,
+          x: it?.x ?? 0,
+          y: it?.y ?? 0,
+          w: it?.w ?? 2,
+          h: it?.h ?? 2,
+          moduleId: moduleId,
+          pluginId: pluginId || 'unknown',
+          minW: it?.minW,
+          minH: it?.minH,
+          isDraggable: it?.isDraggable ?? true,
+          isResizable: it?.isResizable ?? true,
+          static: it?.static ?? false,
+          config: it?.config
+        } as LayoutItem;
+      });
     };
 
     // Map react-grid-layout breakpoints back to our breakpoint names
@@ -239,21 +881,75 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       sm: 'tablet',
       lg: 'desktop',
       xl: 'wide',
-      xxl: 'wide'
+      xxl: 'ultrawide'
     };
 
+    // Phase 5: Preserve identity for ACTIVE breakpoint only to avoid legacy/blank flash
+    // The 'layout' parameter contains the active breakpoint's updated layout during drag/resize
+    if (layout && currentBreakpoint) {
+      const ourBreakpoint = breakpointMap[currentBreakpoint];
+      if (ourBreakpoint) {
+        // Build a lookup of existing items so we can copy identity/config
+        const source = (workingLayoutsRef.current || canonicalLayoutsRef.current || currentLayouts) as ResponsiveLayouts;
+        const existing: LayoutItem[] = (source?.[ourBreakpoint] as LayoutItem[]) || [];
+        const existingMap = new Map(existing.map(it => [it.i, it]));
+
+        convertedLayouts[ourBreakpoint] = (layout as any[]).map((it: any) => {
+          const id = it?.i ?? '';
+          const pos = { x: it?.x ?? 0, y: it?.y ?? 0, w: it?.w ?? 2, h: it?.h ?? 2 };
+          const base = existingMap.get(id);
+          // Keep identity/config from base; only update position/size
+          return base ? ({ ...base, ...pos } as LayoutItem) : normalizeItems([it])[0];
+        });
+        
+        // RECODE V2 BLOCK: Enhanced item-level dimension tracking
+        if (isResizing || operationId?.includes('resize')) {
+          console.log('[RECODE_V2_BLOCK] onLayoutChange during resize - item dimensions', {
+            operationId,
+            breakpoint: ourBreakpoint,
+            isResizing,
+            itemDimensions: layout.map((item: any) => ({
+              id: item.i,
+              dimensions: { w: item.w, h: item.h, x: item.x, y: item.y }
+            }))
+          });
+        }
+        
+        // Enhanced debugging to understand what dimensions we're getting
+        if (isDebugMode) {
+          console.log(`[LayoutEngine] Using current breakpoint layout for ${ourBreakpoint}`, {
+            operationId,
+            isResizing,
+            isDragging,
+            itemCount: layout.length,
+            layoutItems: layout.map((item: any) => ({
+              i: item.i,
+              x: item.x,
+              y: item.y,
+              w: item.w,
+              h: item.h
+            }))
+          });
+        }
+      }
+    }
+
+    // Fill in other breakpoints from allLayouts (no merge to avoid display regressions)
     Object.entries(allLayouts).forEach(([gridBreakpoint, gridLayout]: [string, any]) => {
-      const ourBreakpoint = breakpointMap[gridBreakpoint];
-      if (ourBreakpoint && Array.isArray(gridLayout)) {
-        convertedLayouts[ourBreakpoint] = gridLayout as LayoutItem[];
+      const ourBp = breakpointMap[gridBreakpoint];
+      if (ourBp && Array.isArray(gridLayout)) {
+        if (gridBreakpoint !== currentBreakpoint || !layout) {
+          convertedLayouts[ourBp] = normalizeItems(gridLayout as any[]);
+        }
       }
     });
 
-    // Determine the origin based on current operation
+    // PHASE B: Determine the origin with version information
     const origin: LayoutChangeOrigin = {
       source: isDragging ? 'user-drag' : isResizing ? 'user-resize' : 'external-sync',
       timestamp: Date.now(),
-      operationId: currentOperationId.current || `late-${Date.now()}`
+      operationId: currentOperationId.current || `late-${Date.now()}`,
+      version: ENABLE_LAYOUT_CONTROLLER_V2 ? lastVersionRef.current : undefined
     };
 
     debugLog(`Processing layout change from ${origin.source}`, {
@@ -271,41 +967,231 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     if (operationId) {
       processedOperations.current.add(operationId);
       debugLog('Marked operation as processed', { operationId });
+      
+      // CAPTURE INTENDED POSITIONS: Store the final positions from user operations
+      if (origin.source === 'user-resize' || origin.source === 'user-drag') {
+        layout?.forEach(item => {
+          const itemKey = `${item.i}`;
+          const intendedPos = { x: item.x, y: item.y, w: item.w, h: item.h, timestamp: Date.now() };
+          intendedPositionsRef.current.set(itemKey, intendedPos);
+          
+          debugLog('💾 CAPTURED INTENDED POSITION', {
+            itemId: item.i,
+            operationId,
+            operationType: origin.source,
+            intendedPosition: intendedPos
+          });
+        });
+      }
     }
   }, [isDragging, isResizing, unifiedLayoutState, debugLog]);
 
-  // Handle drag start
+  // ========== PHASE C3: Enhanced Drag Operation Support ==========
+  // Handle drag start - Enhanced with controller V2 and Phase C improvements
   const handleDragStart = useCallback(() => {
     const operationId = `drag-${Date.now()}`;
     currentOperationId.current = operationId;
     setIsDragging(true);
+    
+    // Controller V2: Use state transition function
+    if (ENABLE_LAYOUT_CONTROLLER_V2) {
+      transitionToState('dragging', { operationId });
+      workingLayoutsRef.current = JSON.parse(JSON.stringify(canonicalLayoutsRef.current || currentLayouts));
+      logControllerState('DRAG_OPERATION_STARTED', {
+        operationId,
+        copiedCanonicalToWorking: true,
+        version: lastVersionRef.current
+      });
+    }
+    
     unifiedLayoutState.startOperation(operationId);
-    console.log('[LayoutEngine] Started drag operation:', operationId);
-  }, [unifiedLayoutState]);
+  }, [unifiedLayoutState, ENABLE_LAYOUT_CONTROLLER_V2, logControllerState, currentLayouts, transitionToState]);
 
-  // Handle drag stop
+  // Handle drag stop - Enhanced with controller V2 and Phase C improvements
   const handleDragStop = useCallback((layout: any[]) => {
     if (currentOperationId.current) {
+      const operationId = currentOperationId.current;
+      
+      // Controller V2: Use unified commit process
+      if (ENABLE_LAYOUT_CONTROLLER_V2) {
+        lastVersionRef.current += 1;
+        transitionToState('grace', {
+          operationId,
+          newVersion: lastVersionRef.current
+        });
+        
+        // RECODE V2 BLOCK: Pass the final layout data to scheduleCommit for accurate positions
+        // Build allLayouts object with current breakpoint's layout (include alias)
+        const allLayouts: any = {};
+        const toGridAlias = (name: string): string => {
+          const m: Record<string, string> = { mobile: 'xs', tablet: 'sm', desktop: 'lg', wide: 'xl', ultrawide: 'xxl' };
+          return m[name] || name;
+        };
+        if (currentBreakpoint) {
+          allLayouts[currentBreakpoint] = layout;
+          const semanticToGrid: Record<string, string> = { mobile: 'xs', tablet: 'sm', desktop: 'lg', wide: 'xl', ultrawide: 'xxl' };
+          const gridKey = semanticToGrid[currentBreakpoint];
+          if (gridKey) {
+            allLayouts[gridKey] = layout;
+          }
+        }
+        
+        // Update working buffer for the active breakpoint with final drag positions
+        if (layout && currentBreakpoint) {
+          const toOurBreakpoint = (bp: string): keyof ResponsiveLayouts | undefined => {
+            const map: Record<string, keyof ResponsiveLayouts> = {
+              xs: 'mobile', sm: 'tablet', lg: 'desktop', xl: 'wide', xxl: 'ultrawide',
+              mobile: 'mobile', tablet: 'tablet', desktop: 'desktop', wide: 'wide', ultrawide: 'ultrawide'
+            };
+            return map[bp];
+          };
+          const ourBreakpoint = toOurBreakpoint(currentBreakpoint);
+          if (ourBreakpoint && workingLayoutsRef.current) {
+            workingLayoutsRef.current[ourBreakpoint] = layout as LayoutItem[];
+          }
+        }
+
+        // Schedule debounced commit with final layout data and normalized breakpoint
+        const normalizedBreakpoint = currentBreakpoint ? toGridAlias(currentBreakpoint) : currentBreakpoint;
+        scheduleCommit(150, layout, allLayouts, normalizedBreakpoint);
+      }
+      
       unifiedLayoutState.stopOperation(currentOperationId.current);
-      console.log('[LayoutEngine] Stopped drag operation:', currentOperationId.current);
-      currentOperationId.current = null;
+      
+      // Delay clearing operation ID to catch late events
+      setTimeout(() => {
+        if (currentOperationId.current === operationId) {
+          currentOperationId.current = null;
+        }
+      }, 200);
     }
     setIsDragging(false);
-  }, [unifiedLayoutState]);
+  }, [unifiedLayoutState, ENABLE_LAYOUT_CONTROLLER_V2, transitionToState, scheduleCommit]);
 
-  // Handle resize start
+  // Handle resize start - Enhanced with controller V2 and Phase C improvements
   const handleResizeStart = useCallback(() => {
     const operationId = `resize-${Date.now()}`;
     currentOperationId.current = operationId;
     setIsResizing(true);
+    
+    // Controller V2: Use state transition function
+    if (ENABLE_LAYOUT_CONTROLLER_V2) {
+      transitionToState('resizing', { operationId });
+      // RECODE V2 BLOCK: Ensure proper initialization with all breakpoints including ultrawide
+      const sourceLayouts = canonicalLayoutsRef.current || currentLayouts || {
+        mobile: [],
+        tablet: [],
+        desktop: [],
+        wide: [],
+        ultrawide: []
+      };
+      
+      // Ensure ultrawide field exists
+      if (!sourceLayouts.ultrawide) {
+        sourceLayouts.ultrawide = [];
+      }
+      
+      workingLayoutsRef.current = JSON.parse(JSON.stringify(sourceLayouts));
+      
+      console.log('[RECODE_V2_BLOCK] RESIZE START - Working buffer initialized', {
+        operationId,
+        hasCanonical: !!canonicalLayoutsRef.current,
+        hasCurrent: !!currentLayouts,
+        workingBufferBreakpoints: Object.keys(workingLayoutsRef.current || {}),
+        itemCounts: Object.entries(workingLayoutsRef.current || {}).map(([bp, items]) => ({
+          breakpoint: bp,
+          count: (items as any[])?.length || 0
+        }))
+      });
+      
+      logControllerState('RESIZE_OPERATION_STARTED', {
+        operationId,
+        copiedCanonicalToWorking: true,
+        version: lastVersionRef.current
+      });
+    }
+    
     unifiedLayoutState.startOperation(operationId);
     debugLog('RESIZE START', { operationId, isResizing: true });
-  }, [unifiedLayoutState, debugLog]);
+  }, [unifiedLayoutState, debugLog, ENABLE_LAYOUT_CONTROLLER_V2, logControllerState, currentLayouts, transitionToState]);
 
-  // Handle resize stop
-  const handleResizeStop = useCallback(() => {
+  // Handle resize stop - Enhanced with controller V2 and Phase C improvements
+  const handleResizeStop = useCallback((layout: any, oldItem: any, newItem: any, placeholder: any, e: any, element: any) => {
     if (currentOperationId.current) {
       const operationId = currentOperationId.current;
+      
+      // RECODE V2 BLOCK: Enhanced resize stop logging
+      console.log('[RECODE_V2_BLOCK] RESIZE STOP - Capturing final dimensions', {
+        operationId,
+        itemId: newItem?.i,
+        oldDimensions: oldItem ? { w: oldItem.w, h: oldItem.h, x: oldItem.x, y: oldItem.y } : null,
+        newDimensions: newItem ? { w: newItem.w, h: newItem.h, x: newItem.x, y: newItem.y } : null,
+        layoutItemCount: layout?.length,
+        currentBreakpoint,
+        timestamp: Date.now()
+      });
+      
+      // Controller V2: Use unified commit process
+      if (ENABLE_LAYOUT_CONTROLLER_V2) {
+        lastVersionRef.current += 1;
+        transitionToState('grace', {
+          operationId,
+          newVersion: lastVersionRef.current
+        });
+        
+        // RECODE V2 BLOCK: Pass the final layout data to scheduleCommit for accurate dimensions
+        // Build allLayouts object with current breakpoint's layout (include both semantic and grid aliases)
+        const allLayouts: any = {};
+        const toGridAlias = (name: string): string => {
+          const m: Record<string, string> = { mobile: 'xs', tablet: 'sm', desktop: 'lg', wide: 'xl', ultrawide: 'xxl' };
+          return m[name] || name;
+        };
+        
+        // Add the current breakpoint's final layout
+        if (currentBreakpoint) {
+          // currentBreakpoint might already be a grid key (xs/sm/lg/xl/xxl) or a semantic key
+          allLayouts[currentBreakpoint] = layout;
+          // Also add alias to ensure commit path can normalize either form
+          const semanticToGrid: Record<string, string> = { mobile: 'xs', tablet: 'sm', desktop: 'lg', wide: 'xl', ultrawide: 'xxl' };
+          const gridKey = semanticToGrid[currentBreakpoint];
+          if (gridKey) {
+            allLayouts[gridKey] = layout;
+          }
+        }
+        
+        // RECODE V2 BLOCK: Immediately update working buffer with final layout
+        // This ensures the commit has the correct data
+        if (layout && currentBreakpoint) {
+          const toOurBreakpoint = (bp: string): keyof ResponsiveLayouts | undefined => {
+            const map: Record<string, keyof ResponsiveLayouts> = {
+              xs: 'mobile', sm: 'tablet', lg: 'desktop', xl: 'wide', xxl: 'ultrawide',
+              mobile: 'mobile', tablet: 'tablet', desktop: 'desktop', wide: 'wide', ultrawide: 'ultrawide'
+            };
+            return map[bp];
+          };
+
+          const ourBreakpoint = toOurBreakpoint(currentBreakpoint);
+          if (ourBreakpoint && workingLayoutsRef.current) {
+            workingLayoutsRef.current[ourBreakpoint] = layout as LayoutItem[];
+            console.log('[RECODE_V2_BLOCK] Updated working buffer with final resize dimensions', {
+              operationId,
+              breakpoint: ourBreakpoint,
+              itemCount: layout.length,
+              dimensions: layout.map((item: any) => ({
+                id: item.i,
+                w: item.w,
+                h: item.h
+              }))
+            });
+          }
+        }
+        
+        // Schedule debounced commit with final layout data
+        // Pass a normalized grid alias for breakpoint to maximize compatibility
+        const normalizedBreakpoint = currentBreakpoint ? toGridAlias(currentBreakpoint) : currentBreakpoint;
+        scheduleCommit(150, layout, allLayouts, normalizedBreakpoint);
+      }
+      
       unifiedLayoutState.stopOperation(operationId);
       debugLog('RESIZE STOP - Starting grace period', { operationId });
       
@@ -328,7 +1214,8 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     }
     setIsResizing(false);
     debugLog('RESIZE STATE SET TO FALSE');
-  }, [unifiedLayoutState, debugLog]);
+  }, [unifiedLayoutState, debugLog, ENABLE_LAYOUT_CONTROLLER_V2, transitionToState, scheduleCommit, currentBreakpoint]);
+  // ========== END PHASE C3 ==========
 
   // Handle drag over for drop zone functionality
   const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
@@ -350,7 +1237,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   }, []);
 
   // Handle drop for adding new modules
-  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+  const handleDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragOver(false);
     
@@ -372,7 +1259,54 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       
       // Parse the module data
       const moduleData = JSON.parse(moduleDataStr);
-      console.log('Parsed module data:', moduleData);
+      if (isDebugMode) {
+        console.log('[AddTrace] Parsed module data', moduleData);
+      }
+      
+      // DEBUG: Log controller + commit tracker state prior to add
+      if (isDebugMode) {
+        const tracker = getLayoutCommitTracker();
+        const pending = tracker.getPendingCommits();
+        const last = unifiedLayoutState.getLastCommitMeta?.();
+        const committed = unifiedLayoutState.getCommittedLayouts?.();
+        const committedCounts = committed ? Object.fromEntries(Object.entries(committed).map(([bp, arr]) => [bp, (arr as any[])?.length || 0])) : {};
+        console.log('[AddTrace] Pre-Add State', {
+          controllerState: controllerStateRef.current,
+          hasCommitTimer: !!commitTimerRef.current,
+          pendingCommits: pending.length,
+          lastCommit: last,
+          committedCounts
+        });
+      }
+
+      // Phase 3: Commit barrier - await any pending commits before adding
+      if (ENABLE_LAYOUT_CONTROLLER_V2) {
+        const state = controllerStateRef.current;
+        
+        // If we're in grace or commit state, or have pending commits, wait for flush
+        if (state === 'grace' || state === 'commit' || commitTimerRef.current) {
+          if (isDebugMode) {
+            console.log('[LayoutEngine] Awaiting flush before drop-add', {
+              state,
+              hasPendingCommit: !!commitTimerRef.current
+            });
+          }
+          
+          // Await the flush to ensure we're working with committed layouts
+          await unifiedLayoutState.flush();
+          
+          if (isDebugMode) {
+            const committed = unifiedLayoutState.getCommittedLayouts?.();
+            const committedCounts = committed ? Object.fromEntries(Object.entries(committed).map(([bp, arr]) => [bp, (arr as any[])?.length || 0])) : {};
+            const last = unifiedLayoutState.getLastCommitMeta?.();
+            console.log('[AddTrace] Post-Flush State', { lastCommit: last, committedCounts });
+          }
+          
+          if (isDebugMode) {
+            console.log('[LayoutEngine] Flush complete, proceeding with drop-add');
+          }
+        }
+      }
       
       // Calculate the drop position relative to the grid
       const rect = e.currentTarget.getBoundingClientRect();
@@ -398,17 +1332,35 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
         config: {
           moduleId: moduleData.moduleId,
           displayName: moduleData.displayName || moduleData.moduleName,
-          ...moduleData.config
+          ...moduleData.config,
+          // Preserve original item identity for adapter round-trips
+          _originalItem: {
+            i: uniqueId,
+            pluginId: moduleData.pluginId,
+            moduleId: moduleData.moduleId,
+            args: moduleData.config || {}
+          }
         },
         isDraggable: true,
         isResizable: true,
         static: false
       };
       
-      console.log('Adding new item to layout:', newItem);
+      if (isDebugMode) {
+        console.log('[AddTrace] Adding new item to layout', {
+          id: newItem.i,
+          pluginId: newItem.pluginId,
+          moduleId: newItem.moduleId,
+          x: newItem.x,
+          y: newItem.y,
+          w: newItem.w,
+          h: newItem.h
+        });
+      }
       
-      // Add the item to the current layouts
-      const updatedLayouts = { ...currentLayouts };
+      // Phase 3: Use committed layouts as the base for adding new items
+      const layoutsToUpdate = unifiedLayoutState.getCommittedLayouts() || currentLayouts;
+      const updatedLayouts = { ...layoutsToUpdate };
       Object.keys(updatedLayouts).forEach(breakpoint => {
         const currentLayout = updatedLayouts[breakpoint as keyof ResponsiveLayouts];
         if (currentLayout) {
@@ -419,10 +1371,19 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
         }
       });
       
-      // Update through unified state management
+      // Update through unified state management with version tracking
+      const version = lastVersionRef.current + 1;
+      lastVersionRef.current = version;
+      
+      if (isDebugMode) {
+        const counts = Object.fromEntries(Object.entries(updatedLayouts).map(([bp, arr]) => [bp, (arr as any[])?.length || 0]));
+        console.log('[AddTrace] Committing layouts after drop', { counts });
+      }
+
       unifiedLayoutState.updateLayouts(updatedLayouts, {
         source: 'drop-add',
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        version
       });
       
       onItemAdd?.(newItem);
@@ -452,14 +1413,16 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
 
   // Handle item removal
   const handleItemRemove = useCallback((itemId: string) => {
-    console.log(`[LayoutEngine] Removing item: ${itemId}`);
+    
+    // Use displayedLayouts for consistency with controller V2
+    const layoutsToUpdate = ENABLE_LAYOUT_CONTROLLER_V2 ? displayedLayouts : currentLayouts;
     
     // Create new layouts with the item removed from all breakpoints
     const updatedLayouts: ResponsiveLayouts = {
-      mobile: currentLayouts.mobile?.filter((item: LayoutItem) => item.i !== itemId) || [],
-      tablet: currentLayouts.tablet?.filter((item: LayoutItem) => item.i !== itemId) || [],
-      desktop: currentLayouts.desktop?.filter((item: LayoutItem) => item.i !== itemId) || [],
-      wide: currentLayouts.wide?.filter((item: LayoutItem) => item.i !== itemId) || []
+      mobile: layoutsToUpdate.mobile?.filter((item: LayoutItem) => item.i !== itemId) || [],
+      tablet: layoutsToUpdate.tablet?.filter((item: LayoutItem) => item.i !== itemId) || [],
+      desktop: layoutsToUpdate.desktop?.filter((item: LayoutItem) => item.i !== itemId) || [],
+      wide: layoutsToUpdate.wide?.filter((item: LayoutItem) => item.i !== itemId) || []
     };
 
     // Update through unified state management
@@ -468,6 +1431,13 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       timestamp: Date.now(),
       operationId: `remove-${itemId}-${Date.now()}`
     });
+    
+    // Controller V2: Update buffers when removing items
+    if (ENABLE_LAYOUT_CONTROLLER_V2) {
+      canonicalLayoutsRef.current = updatedLayouts;
+      workingLayoutsRef.current = updatedLayouts;
+      logControllerState('ITEM_REMOVED', { itemId });
+    }
 
     // Clear selection if the removed item was selected
     if (selectedItem === itemId) {
@@ -476,7 +1446,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
 
     // Call the external callback if provided
     onItemRemove?.(itemId);
-  }, [currentLayouts, unifiedLayoutState, selectedItem, onItemRemove]);
+  }, [currentLayouts, displayedLayouts, unifiedLayoutState, selectedItem, onItemRemove, ENABLE_LAYOUT_CONTROLLER_V2, logControllerState]);
 
   // Create ultra-stable module map with deep comparison
   const stableModuleMapRef = useRef<Record<string, ModuleConfig>>({});
@@ -498,89 +1468,95 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     return stableModuleMapRef.current;
   }, [modules]);
 
-  // Render grid items
+  // Render grid items - Use displayedLayouts instead of currentLayouts
   const renderGridItems = useCallback(() => {
-    const currentLayout = currentLayouts[currentBreakpoint as keyof ResponsiveLayouts] || currentLayouts.desktop || [];
+    const currentLayout =
+      displayedLayouts[currentBreakpoint as keyof ResponsiveLayouts] ||
+      displayedLayouts.desktop ||
+      displayedLayouts.wide ||
+      [];
     
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`[LayoutEngine] RENDER TRIGGERED - Rendering ${currentLayout.length} items for breakpoint: ${currentBreakpoint}`, {
-        availableModules: Object.keys(moduleMap),
-        availableModuleDetails: Object.entries(moduleMap).map(([id, mod]) => ({ id, pluginId: mod.pluginId })),
-        layoutItems: currentLayout.map((item: LayoutItem) => ({ i: item.i, moduleId: item.moduleId, pluginId: item.pluginId })),
-        currentLayouts: Object.keys(currentLayouts),
-        currentBreakpoint,
-        stackTrace: new Error().stack?.split('\n').slice(0, 5).join('\n')
-      });
+    
+    
+    if (isDebugMode) {
+      const preview = currentLayout.map((i: any) => ({ i: i.i, pluginId: i.pluginId, moduleId: i.moduleId, x: i.x, y: i.y, w: i.w, h: i.h }));
+      console.log('[AddTrace] Render pass items', { breakpoint: currentBreakpoint, count: preview.length, items: preview });
     }
-    
+
     return currentLayout.map((item: LayoutItem) => {
       // Try to find the module by moduleId with multiple strategies
       let module = moduleMap[item.moduleId];
       
-      // If direct lookup fails, try alternative matching strategies
+      // If direct lookup fails, try a conservative fallback only (avoid cross-binding by pluginId)
+      let resolvedVia: 'direct' | 'sanitized' | 'fallback' | 'none' = module ? 'direct' : 'none';
       if (!module) {
-        // Strategy 1: Try without underscores (sanitized version)
-        const sanitizedModuleId = item.moduleId.replace(/_/g, '');
-        module = moduleMap[sanitizedModuleId];
-        
-        if (module) {
-          if (process.env.NODE_ENV === 'development') {
-            console.log(`[LayoutEngine] Found module using sanitized ID: ${sanitizedModuleId} for original: ${item.moduleId}`);
-          }
-        } else {
-          // Strategy 2: Try finding by pluginId match
-          for (const [moduleId, moduleConfig] of Object.entries(moduleMap)) {
-            if (moduleConfig.pluginId === item.pluginId) {
-              module = moduleConfig;
-              if (process.env.NODE_ENV === 'development') {
-                console.log(`[LayoutEngine] Found module by pluginId match: ${moduleId} for ${item.moduleId}`);
-              }
-              break;
-            }
-          }
+        // Try without underscores (sanitized id) once
+        if (item.moduleId && typeof item.moduleId === 'string') {
+          const sanitizedModuleId = item.moduleId.replace(/_/g, '');
+          module = moduleMap[sanitizedModuleId];
+          if (module) resolvedVia = 'sanitized';
         }
       }
       
       if (!module) {
-        if (process.env.NODE_ENV === 'development') {
-          console.warn(`[LayoutEngine] Module not found for moduleId: ${item.moduleId}`, {
-            availableModules: Object.keys(moduleMap),
-            availableModuleDetails: Object.entries(moduleMap).map(([id, mod]) => ({ id, pluginId: mod.pluginId })),
-            layoutItem: item,
-            searchedModuleId: item.moduleId,
-            itemPluginId: item.pluginId
-          });
-        }
+        
         
         // Instead of returning null, try to render with the layout item data directly
         // This allows the LegacyModuleAdapter to handle the module loading
         const isSelected = selectedItem === item.i;
         const isStudioMode = showControls; // Use control visibility instead of just mode check
 
+        // Helper function to extract plugin ID from composite ID
+        const extractPluginIdFromComposite = (compositeId: string): string => {
+          if (!compositeId) return 'unknown';
+          const tokens = compositeId.split('_');
+          if (tokens.length === 1) return tokens[0];
+          const idx = tokens.findIndex(t => /^(?:[0-9a-f]{24,}|\d{12,})$/i.test(t));
+          const boundary = idx > 0 ? idx : 2;
+          return tokens.slice(0, boundary).join('_');
+        };
+
         // Try to extract pluginId from moduleId if item.pluginId is 'unknown'
         let fallbackPluginId = item.pluginId;
         if (!fallbackPluginId || fallbackPluginId === 'unknown') {
           // Try to extract plugin ID from the module ID pattern
           // e.g., "BrainDriveChat_1830586da8834501bea1ef1d39c3cbe8_BrainDriveChat_BrainDriveChat_1754404718788"
-          const moduleIdParts = item.moduleId.split('_');
-          if (moduleIdParts.length > 0) {
-            const potentialPluginId = moduleIdParts[0];
-            // Check if this matches any available plugin
-            const availablePluginIds = ['BrainDriveBasicAIChat', 'BrainDriveChat', 'BrainDriveSettings'];
-            if (availablePluginIds.includes(potentialPluginId)) {
-              fallbackPluginId = potentialPluginId;
-              if (process.env.NODE_ENV === 'development') {
-                console.log(`[LayoutEngine] Extracted pluginId '${fallbackPluginId}' from moduleId '${item.moduleId}'`);
-              }
-            }
-          }
+          const potentialPluginId = extractPluginIdFromComposite(item.moduleId || '');
+          fallbackPluginId = potentialPluginId || fallbackPluginId;
         }
 
-        // Extract simple module ID from complex ID - calculate directly to avoid useMemo in render loop
-        // Pattern: BrainDriveBasicAIChat_59898811a4b34d9097615ed6698d25f6_1754507768265
-        // We want: 59898811a4b34d9097615ed6698d25f6
-        const parts = item.moduleId.split('_');
-        const extractedModuleId = parts.length >= 6 ? parts[5] : item.moduleId;
+        // Extract moduleId more robustly
+        // First check if moduleId is in config (from args in database)
+        let extractedModuleId = (item.config as any)?.moduleId;
+        
+        // CRITICAL FIX: If item.moduleId is just the module name (not composite), use it directly
+        if (item.moduleId && !item.moduleId.includes('_')) {
+          extractedModuleId = item.moduleId;
+          console.log('[LayoutEngine] Using simple moduleId directly:', item.moduleId);
+        }
+        
+        console.log('[LayoutEngine] Module extraction for fallback path:', {
+          itemId: item.i,
+          itemModuleId: item.moduleId,
+          configModuleId: (item.config as any)?.moduleId,
+          config: item.config,
+          pluginId: fallbackPluginId,
+          extractedSoFar: extractedModuleId
+        });
+        
+        // If not in config and item.moduleId looks like a composite ID, try to extract
+        if (!extractedModuleId && item.moduleId && item.moduleId.includes('_')) {
+          const parts = item.moduleId.split('_');
+          const isTimestamp = (s: string) => /^\d{12,}$/.test(s);
+          extractedModuleId = parts.reverse().find(p => p && !isTimestamp(p) && p !== fallbackPluginId);
+        }
+        
+        // Otherwise use item.moduleId as-is
+        if (!extractedModuleId) {
+          extractedModuleId = item.moduleId;
+        }
+        
+        console.log('[LayoutEngine] Final extracted moduleId:', extractedModuleId);
 
         // Create stable breakpoint object
         const breakpointConfig = {
@@ -593,13 +1569,33 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
           containerHeight: 800,
         };
 
+        if (isDebugMode) {
+          console.log('[AddTrace] Resolve item (fallback path)', {
+            itemId: item.i,
+            pluginId: fallbackPluginId,
+            requestedModuleId: item.moduleId,
+            extractedModuleId
+          });
+        }
+
         return (
-          <div
+          <Box
             key={item.i}
             className={`layout-item react-grid-item ${isSelected ? 'layout-item--selected selected' : ''} ${isStudioMode ? 'layout-item--studio' : ''}`}
             onClick={() => handleItemClick(item.i)}
             data-grid={item}
-            style={{ position: 'relative' }}
+            sx={{
+              position: 'relative',
+              backgroundColor: theme.palette.background.paper,
+              border: `1px solid ${theme.palette.divider}`,
+              borderRadius: 1,
+              overflow: 'hidden',
+              transition: 'background-color 0.3s ease, border-color 0.3s ease',
+              ...(isSelected && {
+                borderColor: theme.palette.primary.main,
+                boxShadow: `0 0 0 2px ${theme.palette.primary.main}20`
+              })
+            }}
           >
             {/* Use the legacy GridItemControls component for consistent behavior */}
             {showControls && (
@@ -609,34 +1605,47 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
                 onRemove={() => handleItemRemove(item.i)}
               />
             )}
-            <LegacyModuleAdapter
-              pluginId={fallbackPluginId}
-              moduleId={extractedModuleId}
-              moduleName={undefined}
-              moduleProps={item.config || {}}
-              useUnifiedRenderer={true}
-              mode={mode === RenderMode.STUDIO ? 'studio' : 'published'}
-              breakpoint={breakpointConfig}
-              lazyLoading={lazyLoading}
-              priority={preloadPlugins.includes(item.pluginId) ? 'high' : 'normal'}
-              enableMigrationWarnings={process.env.NODE_ENV === 'development'}
-              fallbackStrategy="on-error"
-              performanceMonitoring={process.env.NODE_ENV === 'development'}
-            />
-          </div>
-        );
+          <ModuleRenderer
+            pluginId={fallbackPluginId}
+            moduleId={extractedModuleId}
+            additionalProps={item.config || {}}
+            fallback={<div style={{ padding: 8 }}>Loading module...</div>}
+          />
+        </Box>
+      );
       }
 
       const isSelected = selectedItem === item.i;
       const isStudioMode = showControls; // Use control visibility instead of just mode check
 
+      if (isDebugMode) {
+        console.log('[AddTrace] Resolve item', {
+          itemId: item.i,
+          requestedPluginId: item.pluginId,
+          requestedModuleId: item.moduleId,
+          resolvedModuleKey: module?.id || '(legacy)',
+          via: resolvedVia
+        });
+      }
+
       return (
-        <div
+        <Box
           key={item.i}
           className={`layout-item react-grid-item ${isSelected ? 'layout-item--selected selected' : ''} ${isStudioMode ? 'layout-item--studio' : ''}`}
           onClick={() => handleItemClick(item.i)}
           data-grid={item}
-          style={{ position: 'relative' }}
+          sx={{
+            position: 'relative',
+            backgroundColor: theme.palette.background.paper,
+            border: `1px solid ${theme.palette.divider}`,
+            borderRadius: 1,
+            overflow: 'hidden',
+            transition: 'background-color 0.3s ease, border-color 0.3s ease',
+            ...(isSelected && {
+              borderColor: theme.palette.primary.main,
+              boxShadow: `0 0 0 2px ${theme.palette.primary.main}20`
+            })
+          }}
         >
           {/* Use the legacy GridItemControls component for consistent behavior */}
           {showControls && (
@@ -646,45 +1655,75 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
               onRemove={() => handleItemRemove(item.i)}
             />
           )}
-          
-          <LegacyModuleAdapter
-            pluginId={item.pluginId}
-            moduleId={module._legacy?.moduleId || (() => {
-              // Extract simple module ID from complex ID
-              // Pattern: ServiceExample_Theme_userId_ServiceExample_Theme_actualModuleId_timestamp
-              // Example: ServiceExample_Theme_c34bfc30de004813ad5b5d3a4ab9df34_ServiceExample_Theme_ThemeDisplay_1756311722722
-              // We want: ThemeDisplay (or ThemeController)
-              const parts = item.moduleId.split('_');
-              if (parts.length >= 6) {
-                // The actual module ID is the sixth part (after ServiceExample_Theme_userId_ServiceExample_Theme)
-                return parts[5];
+          {(() => {
+            // Helper function to extract plugin ID (local copy)
+            const extractPluginIdLocal = (compositeId: string): string => {
+              if (!compositeId) return 'unknown';
+              const tokens = compositeId.split('_');
+              if (tokens.length === 1) return tokens[0];
+              const idx = tokens.findIndex(t => /^(?:[0-9a-f]{24,}|\d{12,})$/i.test(t));
+              const boundary = idx > 0 ? idx : 2;
+              return tokens.slice(0, boundary).join('_');
+            };
+
+            // Normalize current candidates
+            const candidatePluginId =
+              (item as any)?.config?._originalItem?.pluginId ||
+              (item.pluginId && item.pluginId !== 'unknown' && item.pluginId.includes('_')
+                ? item.pluginId
+                : extractPluginIdLocal(item.moduleId || (item as any)?.config?._originalItem?.moduleId || (item.i || '')));
+            const candidateModuleId = (item.config as any)?.moduleId || (item as any)?.config?._originalItem?.moduleId || item.moduleId;
+
+            // Use last known-good identity if it is more specific/complete
+            const prev = stableIdentityRef.current.get(item.i);
+            let effectivePluginId = candidatePluginId;
+            let effectiveModuleId = candidateModuleId;
+
+            if (prev) {
+              // Prefer composite plugin ids with an underscore
+              const prevIsComposite = prev.pluginId && prev.pluginId.includes('_');
+              const candIsComposite = effectivePluginId && effectivePluginId.includes('_');
+              if (prevIsComposite && !candIsComposite) {
+                effectivePluginId = prev.pluginId;
               }
-              return item.moduleId; // fallback to original if pattern doesn't match
-            })()}
-            moduleName={module._legacy?.moduleName}
-            moduleProps={module._legacy?.originalConfig || item.config}
-            useUnifiedRenderer={true}
-            mode={mode === RenderMode.STUDIO ? 'studio' : 'published'}
-            breakpoint={{
-              name: currentBreakpoint,
-              width: 0,
-              height: 0,
-              orientation: 'landscape',
-              pixelRatio: 1,
-              containerWidth: 1200,
-              containerHeight: 800,
-            }}
-            lazyLoading={lazyLoading}
-            priority={preloadPlugins.includes(item.pluginId) ? 'high' : 'normal'}
-            enableMigrationWarnings={process.env.NODE_ENV === 'development'}
-            fallbackStrategy="on-error"
-            performanceMonitoring={process.env.NODE_ENV === 'development'}
-          />
-        </div>
+              // Prefer previously known moduleId if current is empty/falsy
+              if (!effectiveModuleId && prev.moduleId) {
+                effectiveModuleId = prev.moduleId;
+              }
+            }
+
+            // Update cache only when both values look usable
+            if (effectivePluginId && effectiveModuleId) {
+              stableIdentityRef.current.set(item.i, {
+                pluginId: effectivePluginId,
+                moduleId: effectiveModuleId,
+              });
+            }
+
+            if (isDebugMode) {
+              console.log('[ModuleRenderTrace] Identity', {
+                id: item.i,
+                candidatePluginId,
+                candidateModuleId,
+                effectivePluginId,
+                effectiveModuleId,
+              });
+            }
+
+            return (
+              <ModuleRenderer
+                pluginId={effectivePluginId}
+                moduleId={effectiveModuleId}
+                additionalProps={item.config}
+                fallback={<div style={{ padding: 8 }}>Loading module...</div>}
+              />
+            );
+          })()}
+        </Box>
       );
     });
   }, [
-    unifiedLayoutState.layouts,
+    displayedLayouts,  // Changed from unifiedLayoutState.layouts
     currentBreakpoint,
     moduleMap,
     selectedItem,
@@ -696,11 +1735,11 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     onItemConfig,
   ]);
 
-  // Grid layout props - convert ResponsiveLayouts to react-grid-layout Layouts format
+  // Grid layout props - A4: Use displayedLayouts instead of currentLayouts
   const gridProps = useMemo(() => {
     // Convert ResponsiveLayouts to the format expected by react-grid-layout
     const reactGridLayouts: any = {};
-    Object.entries(currentLayouts).forEach(([breakpoint, layout]) => {
+    Object.entries(displayedLayouts).forEach(([breakpoint, layout]) => {
       if (layout && Array.isArray(layout) && layout.length > 0) {
         // Map breakpoint names to react-grid-layout breakpoint names
         const breakpointMap: Record<string, string> = {
@@ -735,26 +1774,15 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       transformScale: 1,
       ...defaultGridConfig,
     };
-  }, [currentLayouts, mode, showControls, handleLayoutChange, handleDragStart, handleDragStop, handleResizeStart, handleResizeStop]);
+  }, [displayedLayouts, mode, showControls, handleLayoutChange, handleDragStart, handleDragStop, handleResizeStart, handleResizeStop]);
 
   // Memoize the rendered grid items with minimal stable dependencies
   const gridItems = useMemo(() => {
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`[LayoutEngine] MEMO RECALCULATION - gridItems being recalculated`, {
-        currentLayoutsKeys: Object.keys(currentLayouts),
-        currentBreakpoint,
-        moduleMapSize: Object.keys(moduleMap).length,
-        selectedItem,
-        mode,
-        lazyLoading,
-        preloadPluginsLength: preloadPlugins.length,
-        stackTrace: new Error().stack?.split('\n').slice(0, 3).join('\n')
-      });
-    }
+    
     return renderGridItems();
   }, [
     // Only include the most essential dependencies that should trigger re-render
-    currentLayouts,
+    displayedLayouts,  // Changed from currentLayouts
     currentBreakpoint,
     moduleMap,
     selectedItem,
@@ -777,9 +1805,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   );
 }, (prevProps, nextProps) => {
   // Custom comparison function for React.memo
-  if (process.env.NODE_ENV === 'development') {
-    console.log('[LayoutEngine] MEMO COMPARISON - Checking if props are equal');
-  }
+  
   
   // Compare primitive props
   if (
@@ -787,24 +1813,18 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     prevProps.lazyLoading !== nextProps.lazyLoading ||
     prevProps.pageId !== nextProps.pageId
   ) {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[LayoutEngine] MEMO COMPARISON - Primitive props changed, re-rendering');
-    }
+    
     return false;
   }
   
   // Compare arrays by length and content
   if (prevProps.modules.length !== nextProps.modules.length) {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[LayoutEngine] MEMO COMPARISON - Modules length changed, re-rendering');
-    }
+    
     return false;
   }
   
   if ((prevProps.preloadPlugins?.length || 0) !== (nextProps.preloadPlugins?.length || 0)) {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[LayoutEngine] MEMO COMPARISON - PreloadPlugins length changed, re-rendering');
-    }
+    
     return false;
   }
   
@@ -813,18 +1833,14 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   const nextLayoutsStr = JSON.stringify(nextProps.layouts);
   
   if (prevLayoutsStr !== nextLayoutsStr) {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[LayoutEngine] MEMO COMPARISON - Layouts changed, re-rendering');
-    }
+    
     return false;
   }
   
   // Compare modules by ID (assuming modules have stable IDs)
   for (let i = 0; i < prevProps.modules.length; i++) {
     if (prevProps.modules[i].id !== nextProps.modules[i].id) {
-      if (process.env.NODE_ENV === 'development') {
-        console.log('[LayoutEngine] MEMO COMPARISON - Module IDs changed, re-rendering');
-      }
+      
       return false;
     }
   }
@@ -832,9 +1848,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   // Skip callback function comparison - they change frequently but don't affect rendering
   // This is the key optimization: ignore callback prop changes
   
-  if (process.env.NODE_ENV === 'development') {
-    console.log('[LayoutEngine] MEMO COMPARISON - Props are equal, preventing re-render');
-  }
+  
   
   return true; // Props are equal, prevent re-render
 });

@@ -15,6 +15,9 @@ export const usePages = () => {
   const [error, setError] = useState<string | null>(null);
   // Get the clearCache function from PageStateContext
   const { clearCache } = usePageState();
+  
+  // Phase 1: Add debug mode flag
+  const isDebugMode = import.meta.env.VITE_LAYOUT_DEBUG === 'true';
   // Remove hasPendingChanges state since we're not using it anymore
   
   /**
@@ -281,9 +284,16 @@ export const usePages = () => {
   /**
    * Save a page
    * @param pageId The ID of the page to save
+   * @param options Optional save options including layoutOverride
    * @returns The saved page or null if saving failed
    */
-  const savePage = useCallback(async (pageId: string): Promise<Page | null> => {
+  const savePage = useCallback(async (
+    pageId: string,
+    options?: {
+      layoutOverride?: any;
+      awaitCommit?: boolean;
+    }
+  ): Promise<Page | null> => {
     try {
       setIsLoading(true);
       setError(null);
@@ -304,23 +314,35 @@ export const usePages = () => {
         // Create a unique route by adding a timestamp
         const uniquePageSlug = `${pageSlug}-${Date.now()}`;
         
+        // Phase 5: Use layoutOverride if provided for local pages too
+        const layoutsForNewPage = options?.layoutOverride || currentPage.layouts;
+        
         // Create a new page with the current content
         const newPage = await pageService.createPage({
           name: newPageName,
           route: uniquePageSlug,
           description: currentPage.description || '',
           content: {
-            layouts: currentPage.layouts,
+            layouts: layoutsForNewPage,
             modules: currentPage.modules
           }
         });
         
         // Transform the page to match the frontend expected format
+        // Phase 5: Ensure we use the exact layouts that were saved
         const transformedPage = {
           ...newPage,
-          layouts: currentPage.layouts,
+          layouts: layoutsForNewPage,
           modules: currentPage.modules ? normalizeObjectKeys(currentPage.modules) : {}
         };
+        
+        // Phase 5: Ensure content.layouts also matches what we saved
+        if (transformedPage.content) {
+          transformedPage.content = {
+            ...transformedPage.content,
+            layouts: JSON.parse(JSON.stringify(layoutsForNewPage))
+          };
+        }
         
         // Update the local state
         setPages(prev => [...prev, transformedPage]);
@@ -335,11 +357,32 @@ export const usePages = () => {
         return transformedPage;
       } else {
         // Normal case - update existing page
+        // Phase 5: Use layoutOverride if provided (from committed snapshot), otherwise use currentPage.layouts
+        const layoutsToSave = options?.layoutOverride || currentPage.layouts || {};
+        
         // Create deep clones to avoid reference issues
         const content = {
-          layouts: JSON.parse(JSON.stringify(currentPage.layouts || {})),
+          layouts: JSON.parse(JSON.stringify(layoutsToSave)),
           modules: JSON.parse(JSON.stringify(currentPage.modules || {}))
         };
+        
+        // Phase 5: Enhanced logging for save serialization tracking
+        if (isDebugMode) {
+          const layoutStr = JSON.stringify(content.layouts);
+          let hash = 0;
+          for (let i = 0; i < layoutStr.length; i++) {
+            const char = layoutStr.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash;
+          }
+          const layoutHash = Math.abs(hash).toString(16).padStart(8, '0');
+          const source = options?.layoutOverride ? 'layoutOverride (committed snapshot)' : 'currentPage.layouts';
+          console.log(`[savePage] Phase 5 - Serialize from ${source} hash:${layoutHash}`, {
+            pageId,
+            timestamp: Date.now(),
+            awaitCommit: options?.awaitCommit !== false
+          });
+        }
         
         console.log('savePage - Saving content to backend:', content);
         
@@ -366,34 +409,43 @@ export const usePages = () => {
         console.log('savePage - API response:', updatedPage);
         
         // Transform the page to match the frontend expected format
-        // Ensure both content.layouts and layouts are synchronized
+        // Phase 5: Ensure we use the exact layouts we serialized, creating a single source of truth
         const transformedPage = {
           ...updatedPage,
+          // Use the exact layouts we just saved (from committed snapshot or override)
           layouts: JSON.parse(JSON.stringify(content.layouts)),
           modules: content.modules ? normalizeObjectKeys(content.modules) : {}
         };
         
-        // Ensure the layouts property is synchronized with content.layouts
-        if (transformedPage.content && transformedPage.content.layouts) {
-          transformedPage.layouts = JSON.parse(JSON.stringify(transformedPage.content.layouts));
+        // Phase 5: Sync both currentPage.layouts and content.layouts to the same committed snapshot
+        // This ensures consistency across all references to the page's layout state
+        if (transformedPage.content) {
+          transformedPage.content = {
+            ...transformedPage.content,
+            layouts: JSON.parse(JSON.stringify(content.layouts))
+          };
         }
         
-        console.log('Saving page with layouts:', JSON.stringify(transformedPage.layouts));
-        console.log('Saving page with content.layouts:', JSON.stringify(transformedPage.content?.layouts));
+        if (isDebugMode) {
+          console.log('[savePage] Phase 5 - Syncing page state to committed snapshot');
+          console.log('  currentPage.layouts:', JSON.stringify(transformedPage.layouts));
+          console.log('  content.layouts:', JSON.stringify(transformedPage.content?.layouts));
+        }
         
-        // Update the local state
+        // Update the local state with the synchronized snapshot
         setPages(prev =>
           prev.map(p => p.id === pageId ? transformedPage : p)
         );
         
-        // Update the current page
+        // Update the current page to the synchronized state
         setCurrentPage(transformedPage);
         
         // No need to set pending changes flag
         
-        // Clear the page cache to ensure fresh data is loaded next time
-        console.log('Clearing page cache after saving existing page');
-        clearCache();
+        // QUICK MITIGATION: Don't clear cache immediately after save
+        // This was causing the page to reload and reset the layout state
+        // clearCache() should only be called when explicitly needed
+        console.log('Save complete - not clearing cache to preserve layout state');
         
         return transformedPage;
       }
@@ -404,7 +456,7 @@ export const usePages = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [currentPage, clearCache]);
+  }, [currentPage, isDebugMode]);
 
   // savePageImmediately function removed since we're always saving immediately now
   

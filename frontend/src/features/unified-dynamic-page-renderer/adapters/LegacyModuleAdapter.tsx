@@ -118,7 +118,7 @@ const arePropsEqual = (prevProps: LegacyModuleAdapterProps, nextProps: LegacyMod
       for (const key of prevKeys) {
         if (prevProps.moduleProps[key] !== nextProps.moduleProps[key]) {
           if (process.env.NODE_ENV === 'development') {
-            console.log(`[LegacyModuleAdapter] MEMO COMPARISON FAILED - moduleProps.${key} changed for ${moduleKey}`);
+            
           }
           return false;
         }
@@ -155,7 +155,7 @@ const arePropsEqual = (prevProps: LegacyModuleAdapterProps, nextProps: LegacyMod
   }
 
   if (process.env.NODE_ENV === 'development') {
-    console.log(`[LegacyModuleAdapter] MEMO COMPARISON SUCCESS - Props are equal for ${moduleKey}, preventing re-render`);
+    
   }
   return true;
 };
@@ -180,25 +180,7 @@ export const LegacyModuleAdapter: React.FC<LegacyModuleAdapterProps> = React.mem
   const renderCountRef = useRef(0);
   renderCountRef.current++;
   
-  if (process.env.NODE_ENV === 'development') {
-    console.log(`[LegacyModuleAdapter] RENDER #${renderCountRef.current} - Props received for ${pluginId}/${moduleId || moduleName}:`, {
-      pluginId,
-      moduleId,
-      moduleName,
-      useUnifiedRenderer,
-      fallbackStrategy,
-      mode,
-      enableMigrationWarnings,
-      performanceMonitoring,
-      lazyLoading,
-      priority,
-      modulePropsKeys: Object.keys(moduleProps || {}),
-      modulePropsLength: Object.keys(moduleProps || {}).length
-    });
-    
-    // Track what's causing re-renders
-    console.log(`[LegacyModuleAdapter] RENDER #${renderCountRef.current} - Stack trace:`, new Error().stack);
-  }
+  
 
   // State management
   const [shouldUseUnified, setShouldUseUnified] = useState(

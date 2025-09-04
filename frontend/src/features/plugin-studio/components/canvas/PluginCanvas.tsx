@@ -5,6 +5,7 @@ import { GridToolbar } from '../grid-toolbar';
 import { GridContainer } from './GridContainer';
 import { DropZone } from './DropZone';
 import { usePluginStudio, useViewMode } from '../../hooks';
+import { LayoutCommitBadge } from '../../../unified-dynamic-page-renderer/components/LayoutCommitBadge';
 
 /**
  * Component that renders the grid layout where plugins are placed
@@ -103,6 +104,9 @@ export const PluginCanvas: React.FC = () => {
           Failed to save page. Please try again.
         </Alert>
       </Snackbar>
+      
+      {/* Phase 1: Add layout commit badge for debugging - moved to bottom-left to avoid grid overlap */}
+      <LayoutCommitBadge position="bottom-left" />
     </Box>
   );
 };

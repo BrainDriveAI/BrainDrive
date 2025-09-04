@@ -4,6 +4,7 @@ export interface LayoutChangeOrigin {
   source: 'user-drag' | 'user-resize' | 'user-remove' | 'external-sync' | 'initial-load' | 'drop-add';
   timestamp: number;
   operationId?: string;
+  version?: number; // PHASE B: Add version field for stale update detection
 }
 
 export interface LayoutChangeEvent {
@@ -80,6 +81,16 @@ export function generateLayoutHash(layouts: ResponsiveLayouts | null): string {
 }
 
 /**
+ * PHASE B: Check if a layout change is stale based on version comparison
+ * @param origin The origin of the layout change
+ * @param currentVersion The current committed version
+ * @returns true if the change is stale and should be ignored
+ */
+export const isStaleLayoutChange = (origin: LayoutChangeOrigin, currentVersion: number): boolean => {
+  return origin.version !== undefined && origin.version < currentVersion;
+};
+
+/**
  * Layout Change Manager - handles debouncing, deduplication, and origin tracking
  */
 export class LayoutChangeManager {
@@ -87,6 +98,10 @@ export class LayoutChangeManager {
   private lastProcessedHash: string | null = null;
   private debounceTimeouts = new Map<string, NodeJS.Timeout>();
   private activeOperations = new Set<string>();
+  // Phase 3: Add promise tracking for flush operations
+  private pendingPromises = new Map<string, { resolve: () => void; reject: (error: Error) => void }>();
+  private flushPromise: Promise<void> | null = null;
+  private flushResolve: (() => void) | null = null;
   
   constructor(
     private onLayoutChange: (event: LayoutChangeEvent) => void,
@@ -105,13 +120,13 @@ export class LayoutChangeManager {
     
     // Skip if this is the exact same layout we just processed
     if (hash === this.lastProcessedHash) {
-      console.log('[LayoutChangeManager] Skipping duplicate layout change');
+      
       return;
     }
     
     // Skip if there's an active operation that should block this change
     if (this.shouldBlockChange(origin)) {
-      console.log('[LayoutChangeManager] Blocking layout change due to active operation');
+      
       return;
     }
     
@@ -122,6 +137,13 @@ export class LayoutChangeManager {
     const existingTimeout = this.debounceTimeouts.get(debounceKey);
     if (existingTimeout) {
       clearTimeout(existingTimeout);
+    }
+    
+    // Phase 3: Create flush promise if not exists
+    if (!this.flushPromise) {
+      this.flushPromise = new Promise<void>((resolve) => {
+        this.flushResolve = resolve;
+      });
     }
     
     // Set new debounced timeout
@@ -141,17 +163,31 @@ export class LayoutChangeManager {
     
     // Final deduplication check
     if (event.hash === this.lastProcessedHash) {
-      console.log('[LayoutChangeManager] Skipping duplicate in processPendingChange');
+      
       return;
     }
     
-    console.log(`[LayoutChangeManager] Processing layout change from ${event.origin.source}`);
+    
     
     this.lastProcessedHash = event.hash;
     this.pendingChanges.delete(debounceKey);
     this.debounceTimeouts.delete(debounceKey);
     
+    // Phase 3: Resolve pending promise for this key
+    const pendingPromise = this.pendingPromises.get(debounceKey);
+    if (pendingPromise) {
+      pendingPromise.resolve();
+      this.pendingPromises.delete(debounceKey);
+    }
+    
     this.onLayoutChange(event);
+    
+    // Phase 3: Check if all pending changes are processed
+    if (this.pendingChanges.size === 0 && this.flushResolve) {
+      this.flushResolve();
+      this.flushPromise = null;
+      this.flushResolve = null;
+    }
   }
 
   /**
@@ -159,7 +195,7 @@ export class LayoutChangeManager {
    */
   startOperation(operationId: string): void {
     this.activeOperations.add(operationId);
-    console.log(`[LayoutChangeManager] Started operation: ${operationId}`);
+    
   }
 
   /**
@@ -167,7 +203,7 @@ export class LayoutChangeManager {
    */
   stopOperation(operationId: string): void {
     this.activeOperations.delete(operationId);
-    console.log(`[LayoutChangeManager] Stopped operation: ${operationId}`);
+    
   }
 
   /**
@@ -188,16 +224,34 @@ export class LayoutChangeManager {
   }
 
   /**
-   * Force process all pending changes (useful for cleanup)
+   * Force process all pending changes and return a promise that resolves when done
+   * Phase 3: Enhanced flush with promise support
    */
-  flush(): void {
-    for (const [key] of this.pendingChanges) {
+  flush(): Promise<void> {
+    // If no pending changes, resolve immediately
+    if (this.pendingChanges.size === 0) {
+      return Promise.resolve();
+    }
+    
+    // Process all pending changes immediately
+    const keys = Array.from(this.pendingChanges.keys());
+    for (const key of keys) {
       const timeout = this.debounceTimeouts.get(key);
       if (timeout) {
         clearTimeout(timeout);
       }
       this.processPendingChange(key);
     }
+    
+    // Return the flush promise or resolve immediately if all processed
+    return this.flushPromise || Promise.resolve();
+  }
+  
+  /**
+   * Get pending change keys (for debugging)
+   */
+  getPending(): string[] {
+    return Array.from(this.pendingChanges.keys());
   }
 
   /**

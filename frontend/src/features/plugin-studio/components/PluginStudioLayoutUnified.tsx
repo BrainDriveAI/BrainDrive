@@ -40,26 +40,47 @@ export const PluginStudioLayoutUnified: React.FC = () => {
     pageManagementOpen,
     setPageManagementOpen,
     routeManagementOpen,
-    setRouteManagementOpen
+    setRouteManagementOpen,
+    flushLayoutChanges // Phase 3: Get flush method from context
   } = usePluginStudio();
 
   // Wrapper function to match the adapter's expected signature
-  const handleSave = async (pageId: string): Promise<void> => {
-    console.log('[PluginStudioLayoutUnified] handleSave called with pageId:', pageId);
+  // QUICK MITIGATION: Accept options parameter with layoutOverride
+  const handleSave = async (pageId: string, options?: { layoutOverride?: any }): Promise<void> => {
+    console.log('[PluginStudioLayoutUnified] handleSave called with pageId:', pageId, 'options:', options);
     try {
-      await savePage(pageId);
+      await savePage(pageId, options);
       console.log('[PluginStudioLayoutUnified] Save completed successfully');
     } catch (error) {
       console.error('[PluginStudioLayoutUnified] Save failed:', error);
       throw error;
     }
   };
+  
+  // Phase 3: Use the actual flush method from the layout hook
+  const handleLayoutChangeFlush = async (): Promise<void> => {
+    console.log('[PluginStudioLayoutUnified] Layout change flush requested');
+    if (flushLayoutChanges) {
+      await flushLayoutChanges();
+      console.log('[PluginStudioLayoutUnified] Layout changes flushed');
+    } else {
+      // Fallback: Wait a bit to allow debounced updates to complete
+      console.log('[PluginStudioLayoutUnified] No flush method available, using timeout fallback');
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+  };
 
   // Migration control state
-  const [useUnifiedRenderer, setUseUnifiedRenderer] = useState(
-    import.meta.env.MODE === 'development' // Enable by default in development
-  );
+  // Default: unified if VITE_USE_UNIFIED_RENDERER=true, otherwise dev default is unified, prod default is legacy
+  const [useUnifiedRenderer, setUseUnifiedRenderer] = useState(() => {
+    const flag = (import.meta as any).env?.VITE_USE_UNIFIED_RENDERER;
+    if (typeof flag === 'string') return flag === 'true';
+    return import.meta.env.MODE === 'development';
+  });
   const [unifiedError, setUnifiedError] = useState<Error | null>(null);
+  
+  // Get dev mode features - MUST be called before any conditional returns
+  const { features: devModeFeatures } = usePluginStudioDevMode();
 
   // Handle unified renderer errors and fallback to legacy
   const handleUnifiedError = (error: Error) => {
@@ -103,37 +124,32 @@ export const PluginStudioLayoutUnified: React.FC = () => {
         <PluginToolbar />
         
         {/* Migration Control Panel (Development Only) */}
-        {import.meta.env.MODE === 'development' && (
+        {import.meta.env.MODE === 'development' && devModeFeatures.rendererSwitch && (
           <Box sx={{
             p: 2,
             borderTop: 1,
             borderColor: 'divider',
             bgcolor: 'background.default'
           }}>
-            {(() => {
-              const { features } = usePluginStudioDevMode();
-              return features.rendererSwitch && (
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={useUnifiedRenderer}
-                      onChange={(e) => {
-                        setUseUnifiedRenderer(e.target.checked);
-                        setUnifiedError(null);
-                      }}
-                      size="small"
-                    />
-                  }
-                  label={
-                    <Tooltip title="Toggle between unified renderer and legacy Plugin Studio">
-                      <span style={{ fontSize: '0.75rem' }}>
-                        Unified Renderer
-                      </span>
-                    </Tooltip>
-                  }
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={useUnifiedRenderer}
+                  onChange={(e) => {
+                    setUseUnifiedRenderer(e.target.checked);
+                    setUnifiedError(null);
+                  }}
+                  size="small"
                 />
-              );
-            })()}
+              }
+              label={
+                <Tooltip title="Toggle between unified renderer and legacy Plugin Studio">
+                  <span style={{ fontSize: '0.75rem' }}>
+                    Unified Renderer
+                  </span>
+                </Tooltip>
+              }
+            />
             
             {unifiedError && (
               <Box sx={{ 
@@ -164,6 +180,7 @@ export const PluginStudioLayoutUnified: React.FC = () => {
               page={currentPage}
               layouts={layouts}
               onLayoutChange={handleLayoutChange}
+              onLayoutChangeFlush={handleLayoutChangeFlush}
               onSave={handleSave}
               previewMode={previewMode}
               selectedItem={selectedItem}
@@ -181,26 +198,23 @@ export const PluginStudioLayoutUnified: React.FC = () => {
         </ErrorBoundary>
         
         {/* Renderer Status Indicator (Plugin Studio Dev Mode Only) */}
-        {import.meta.env.MODE === 'development' && (() => {
-          const { features } = usePluginStudioDevMode();
-          return features.unifiedIndicator && (
-            <Box sx={{
-              position: 'absolute',
-              top: 8,
-              left: 8,
-              bgcolor: useUnifiedRenderer ? 'success.main' : 'warning.main',
-              color: 'white',
-              px: 1,
-              py: 0.5,
-              borderRadius: 1,
-              fontSize: '0.75rem',
-              fontWeight: 'bold',
-              zIndex: 1000
-            }}>
-              {useUnifiedRenderer ? 'UNIFIED' : 'LEGACY'}
-            </Box>
-          );
-        })()}
+        {import.meta.env.MODE === 'development' && devModeFeatures.unifiedIndicator && (
+          <Box sx={{
+            position: 'absolute',
+            top: 8,
+            left: 8,
+            bgcolor: useUnifiedRenderer ? 'success.main' : 'warning.main',
+            color: 'white',
+            px: 1,
+            py: 0.5,
+            borderRadius: 1,
+            fontSize: '0.75rem',
+            fontWeight: 'bold',
+            zIndex: 1000
+          }}>
+            {useUnifiedRenderer ? 'UNIFIED' : 'LEGACY'}
+          </Box>
+        )}
       </Box>
       
       {/* Dialogs - These remain unchanged */}

@@ -766,14 +766,7 @@ export const PluginModuleRenderer: React.FC<PluginModuleRendererProps> = ({
     );
   }
 
-  console.log(`[PluginModuleRenderer] Rendering module for ${pluginId}:`, {
-    moduleId: module.id,
-    moduleName: module.name,
-    hasComponent: !!module.component,
-    componentType: typeof module.component,
-    componentName: module.component?.name,
-    propsKeys: Object.keys(module.props || {})
-  });
+  
 
   return (
     <ComponentErrorBoundary>
