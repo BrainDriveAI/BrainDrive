@@ -1,7 +1,9 @@
 import uuid
 import logging
-from sqlalchemy import Column, String, Boolean, Text, ForeignKey
+from sqlalchemy import Column, String, Boolean, Text, ForeignKey, select
 from sqlalchemy.orm import relationship
+from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Optional
 from app.models.base import Base
 from app.models.mixins import TimestampMixin
 
@@ -39,3 +41,14 @@ class Persona(Base, TimestampMixin):
 
     def __repr__(self):
         return f"<Persona(id={self.id}, name={self.name}, user_id={self.user_id})>"
+    
+    @classmethod
+    async def get_by_id(cls, db: AsyncSession, persona_id: str) -> Optional['Persona']:
+        """Get a persona by ID."""
+        try:
+            query = select(cls).where(cls.id == persona_id)
+            result = await db.execute(query)
+            return result.scalars().first()
+        except Exception as e:
+            logger.error(f"Error getting persona {persona_id}: {e}")
+            return None

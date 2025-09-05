@@ -30,7 +30,6 @@ TEST_ROUTES_ENABLED = os.getenv("ENABLE_TEST_ROUTES", "True").lower() == "true"
 
 router = APIRouter()
 
-
 # Helper function to get provider instance from request
 async def get_provider_instance_from_request(request, db):
     """Helper function to get provider instance from request."""
@@ -746,6 +745,17 @@ async def generate_text(request: TextGenerationRequest, db: AsyncSession = Depen
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.post("/cancel")
+async def cancel_generation(request: dict = Body(...)):
+    """Cancel ongoing generation for a conversation."""
+    # TODO: Complete backend cancellation logic here
+    return {
+            "status": "success",
+            "message": "Generation cancellation requested (basic mode)",
+            # "conversation_id": conversation_id,
+            "cancelled": True
+        }
 
 @router.post("/chat")
 async def chat_completion(request: ChatCompletionRequest, db: AsyncSession = Depends(get_db)):
