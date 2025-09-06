@@ -105,19 +105,7 @@ copy .env.example .env     # Windows
 
 #### Option B: Manual `.env`
 
-```env
-# API Configuration
-VITE_API_URL=http://localhost:8005
-VITE_API_TIMEOUT=30000
-
-# Environment
-NODE_ENV=development
-
-# Development Auto Login
-VITE_DEV_AUTO_LOGIN=false
-VITE_DEV_EMAIL=your-email@example.com
-VITE_DEV_PASSWORD=your-password
-```
+Look at [/frontend/.env.example](https://github.com/BrainDriveAI/BrainDrive/blob/main/frontend/.env.example) and set as your needs require. 
 
 > ⚠️ **Security Note:** Remove auto-login credentials before production deployment.
 
