@@ -1359,7 +1359,17 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       }
       
       // Phase 3: Use committed layouts as the base for adding new items
-      const layoutsToUpdate = unifiedLayoutState.getCommittedLayouts() || currentLayouts;
+      // Harden against stale committed state after page change: if currentLayouts is empty
+      // but committed has items, prefer currentLayouts (empty) to avoid cross-page bleed.
+      const committedBase = unifiedLayoutState.getCommittedLayouts();
+      const isEmptyLayouts = (l?: ResponsiveLayouts | null) => {
+        if (!l) return true;
+        const keys: (keyof ResponsiveLayouts)[] = ['mobile','tablet','desktop','wide','ultrawide'];
+        return keys.every(k => !Array.isArray((l as any)[k]) || ((l as any)[k] || []).length === 0);
+      };
+      const layoutsToUpdate = (committedBase && !(isEmptyLayouts(currentLayouts) && !isEmptyLayouts(committedBase)))
+        ? committedBase
+        : currentLayouts;
       const updatedLayouts = { ...layoutsToUpdate };
       Object.keys(updatedLayouts).forEach(breakpoint => {
         const currentLayout = updatedLayouts[breakpoint as keyof ResponsiveLayouts];

@@ -243,12 +243,18 @@ export function useUnifiedLayoutState(options: UnifiedLayoutStateOptions = {}): 
 
   // Reset layouts function (for page changes, etc.)
   const resetLayouts = useCallback((newLayouts: ResponsiveLayouts | null) => {
-    
+    // Reset visible and stable state
     setLayouts(newLayouts);
     stableLayoutsRef.current = newLayouts;
     lastPersistedHashRef.current = newLayouts ? generateLayoutHash(newLayouts) : null;
-    
-    // Clear any pending changes
+
+    // ALSO reset committed snapshot and version to avoid cross-page contamination
+    committedLayoutsRef.current = newLayouts;
+    lastCommittedVersionRef.current = 0;
+    // Clear commit tracker (dev instrumentation)
+    layoutCommitTracker.clear();
+
+    // Clear any pending changes in the manager
     if (layoutChangeManagerRef.current) {
       layoutChangeManagerRef.current.flush();
     }

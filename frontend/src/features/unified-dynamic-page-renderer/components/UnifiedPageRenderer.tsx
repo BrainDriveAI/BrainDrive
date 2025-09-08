@@ -223,6 +223,7 @@ export const UnifiedPageRenderer: React.FC<UnifiedPageRendererProps> = ({
                   containerQueries={containerQueries}
                 >
                   <LayoutEngine
+                    key={pageData?.id || pageId || route}
                     layouts={pageData.layouts}
                     modules={pageData.modules}
                     mode={currentMode}
@@ -237,6 +238,7 @@ export const UnifiedPageRenderer: React.FC<UnifiedPageRendererProps> = ({
                 </ResponsiveContainer>
               ) : (
                 <LayoutEngine
+                  key={pageData?.id || pageId || route}
                   layouts={pageData.layouts}
                   modules={pageData.modules}
                   mode={currentMode}
