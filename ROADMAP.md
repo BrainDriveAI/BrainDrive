@@ -63,17 +63,18 @@ Our roadmap is broken into clearly defined versions, each building toward a stab
 - [x] Ollama plugin updated to include server manager
 - [x] User initializer - Plugin install from remote
 - [x] User initializer - Restructure navigation 
-- [ ] Improve Registration
-- [ ] Ollama AI Provider
-- [ ] One-Click Installer - (Windows first)
+- [x] Improve Registration
+- [x] Ollama AI Provider
+- [ ] One-Click Installer - (Optional for Beta Release - Windows first)
 
 ---
 
 ## Version 0.6.0 – Open Beta Issues
 > Goal: Outstanding issues 
 
-- [ ] Unified Dynamic Page Renderer - Bounce
-- [ ] Unified Dynamic Page Renderer - Finetune
+- [x] Unified Dynamic Page Renderer - Bounce
+- [ ] Unified Dynamic Page Renderer - Caching
+- [ ] Unified Dynamic Page Renderer - Responsiveness
 
 ---
 
