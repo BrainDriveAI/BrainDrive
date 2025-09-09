@@ -996,7 +996,18 @@ async def chat_completion(request: ChatCompletionRequest, db: AsyncSession = Dep
                         full_response = ""
                         token_count = 0
                         start_time = time.time()
-                        
+
+                        # Emit the conversation_id early so clients can persist context
+                        try:
+                            initial_evt = {
+                                "type": "conversation",
+                                "conversation_id": conversation.id,
+                            }
+                            yield f"data: {json.dumps(initial_evt)}\n\n"
+                        except Exception as init_evt_error:
+                            # Don't fail the stream if the initial event fails
+                            print(f"Warning: failed to emit initial conversation_id event: {init_evt_error}")
+
                         print(f"Sending {len(combined_messages)} messages to chat_completion_stream")
                         for i, msg in enumerate(combined_messages):
                             print(f"  Message {i+1}: role={msg.get('role', 'unknown')}, content={msg.get('content', '')[:50]}...")
