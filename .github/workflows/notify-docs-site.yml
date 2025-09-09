@@ -1,0 +1,31 @@
+name: Docs — Notify BrainDrive-Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - '**/*.md'
+      - '**/*.mdx'
+      - 'images/**'
+      - 'README.md'
+  workflow_dispatch: {}
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger BrainDrive-Docs deploy
+        env:
+          PAT: ${{ secrets.BD_DOCS_TOKEN }}
+        run: |
+          if [ -z "$PAT" ]; then
+            echo "Missing BD_DOCS_TOKEN secret. Create a classic PAT with 'repo' scope in an org admin account and add as Actions secret." >&2
+            exit 1
+          fi
+          curl -s -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $PAT" \
+            https://api.github.com/repos/BrainDriveAI/BrainDrive-Docs/dispatches \
+            -d '{"event_type":"docs-updated","client_payload":{"source":"'"${{ github.repository }}"'","sha":"'"${{ github.sha }}"'"}}'
+
