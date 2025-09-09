@@ -7,7 +7,6 @@ import asyncio
 from typing import Dict, List, Any, AsyncGenerator
 from .base import AIProvider
 
-
 class OllamaProvider(AIProvider):
     @property
     def provider_name(self) -> str:
@@ -76,6 +75,9 @@ class OllamaProvider(AIProvider):
     async def chat_completion_stream(self, messages: List[Dict[str, Any]], model: str, params: Dict[str, Any]) -> AsyncGenerator[Dict[str, Any], None]:
         prompt = self._format_chat_messages(messages)
         
+        # TODO: implement full cancellation support
+        # track the actual HTTP request and cancel it at the httpx level
+        
         async for chunk in self._stream_ollama_api(prompt, model, params):
             if "error" not in chunk:
                 chunk["choices"] = [{
@@ -92,6 +94,7 @@ class OllamaProvider(AIProvider):
         logger = logging.getLogger(__name__)
         
         payload_params = params.copy() if params else {}
+        # Ensure non-streaming
         payload_params["stream"] = False
         payload = {"model": model, "prompt": prompt, **payload_params}
         headers = {'Content-Type': 'application/json'}
@@ -103,9 +106,15 @@ class OllamaProvider(AIProvider):
         logger.debug(f"Making Ollama API call to: {api_url}")
 
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            # Large models can take a long time to start; increase timeout generously
+            async with httpx.AsyncClient(timeout=300.0) as client:
                 response = await client.post(api_url, json=payload, headers=headers)
-                response.raise_for_status()
+                # If Ollama returns an error, capture the body for details
+                try:
+                    response.raise_for_status()
+                except httpx.HTTPStatusError as http_err:
+                    detail = await self._extract_error_detail(http_err.response)
+                    return self._format_error(f"{http_err} | {detail}", model)
                 result = response.json()
                 return {
                     "text": result.get("response", ""),
@@ -156,26 +165,61 @@ class OllamaProvider(AIProvider):
             headers['Authorization'] = f'Bearer {self.api_key}'
 
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=300.0) as client:
                 async with client.stream("POST", f"{self.server_url}/api/generate", json=payload, headers=headers) as response:
-                    response.raise_for_status()
-                    async for chunk in response.aiter_lines():
-                        if chunk:
-                            try:
-                                data = json.loads(chunk)
-                                yield {
-                                    "text": data.get("response", ""),
-                                    "provider": "ollama",
-                                    "model": model,
-                                    "metadata": data,
-                                    "finish_reason": data.get("done") and "stop" or None,
-                                    "done": data.get("done", False)
-                                }
-                                await asyncio.sleep(0.01)
-                            except json.JSONDecodeError:
-                                continue
+                    try:
+                        response.raise_for_status()
+                    except httpx.HTTPStatusError as http_err:
+                        detail = await self._extract_error_detail(http_err.response)
+                        yield self._format_error(f"{http_err} | {detail}", model, done=True)
+                        return
+                    
+                    try:
+                        async for chunk in response.aiter_lines():
+                            if chunk:
+                                try:
+                                    data = json.loads(chunk)
+                                    yield {
+                                        "text": data.get("response", ""),
+                                        "provider": "ollama",
+                                        "model": model,
+                                        "metadata": data,
+                                        "finish_reason": data.get("done") and "stop" or None,
+                                        "done": data.get("done", False)
+                                    }
+                                    await asyncio.sleep(0.01)
+                                except json.JSONDecodeError:
+                                    continue
+                    except asyncio.CancelledError:
+                        print("Streaming was cancelled at the response level")
+                        # Try to close the response gracefully
+                        try:
+                            response.aclose()
+                        except:
+                            pass
+                        raise
+        except asyncio.CancelledError:
+            print("Streaming was cancelled at the client level")
+            raise
         except Exception as e:
             yield self._format_error(e, model, done=True)
+
+    async def _extract_error_detail(self, response: httpx.Response) -> str:
+        """Extract a human-readable error detail from an HTTP error response."""
+        if response is None:
+            return ""
+        try:
+            # Try JSON first
+            data = response.json()
+            if isinstance(data, dict):
+                return data.get("error") or data.get("message") or json.dumps(data)
+            return str(data)
+        except Exception:
+            try:
+                text = response.text
+                return text.strip()[:1000]  # limit size
+            except Exception:
+                return ""
 
     def _format_error(self, error, model, done=False):
         error_response = {
