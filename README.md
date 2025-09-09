@@ -1,4 +1,4 @@
-![BrainDrive Logo](https://github.com/BrainDriveAI/BrainDrive/blob/main/images/Logo-Light-Mode.png)
+![BrainDrive Logo](./images/Logo-Light-Mode.png)
 
 BrainDrive is the open source ChatGPT alternative you fully own and control. Use, customize, and monetize your BrainDrive however you want. No Big Tech overlords. Just your AI. Your rules.
 
