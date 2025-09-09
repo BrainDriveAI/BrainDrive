@@ -720,13 +720,14 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
               display: none !important;
             }
 
-            /* Remove scrollbars and create expandable canvas like legacy */
+            /* Ensure unified container never exceeds its parent width */
             .unified-page-renderer,
             .unified-page-renderer .layout-engine,
             .unified-page-renderer .responsive-container {
               height: 100% !important;
               width: 100% !important;
-              overflow: visible !important;
+              max-width: 100% !important;
+              overflow-x: hidden !important;
             }
 
             /* Create expandable grid background like legacy Plugin Studio - Theme aware */
@@ -744,7 +745,8 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
               background-color: ${theme.palette.mode === 'dark' ? '#303030' : '#f5f5f5'};
               z-index: -1;
               min-height: 100vh;
-              min-width: 100vw;
+              /* IMPORTANT: limit to container width (not viewport) to prevent right-side dead space */
+              min-width: 100%;
             }
 
             /* Ensure the grid container can expand beyond viewport */
@@ -752,6 +754,8 @@ export const PluginStudioAdapter: React.FC<PluginStudioAdapterProps> = ({
               min-height: 100vh !important;
               position: relative !important;
               width: 100% !important;
+              max-width: 100% !important;
+              overflow-x: hidden !important;
             }
 
             /* Force proper grid layout behavior - CRITICAL for positioning */
