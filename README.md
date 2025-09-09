@@ -24,7 +24,7 @@ A plugin manager to easily search existing, and add new plugins to your BrainDri
 
 A page builder to create custom interfaces using your own and other publicly available plugins:
 
-![Page Builder](https://github.com/BrainDriveAI/BrainDrive/blob/main/images/Page%20Builder%20Screenshot.png)
+![Page Builder](./images/page-builder-screenshot.png)
 
 A [full set of developer resources](https://github.com/BrainDriveAI/BrainDrive/blob/main/DOCUMENTATION_INDEX.md), code examples, and tutorials that make it easy to build on BrainDrive.
 
