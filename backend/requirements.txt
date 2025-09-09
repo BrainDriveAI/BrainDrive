@@ -110,3 +110,5 @@ zstandard==0.23.0
 anthropic
 groq==0.31.0
 beautifulsoup4==4.12.2
+PyPDF2
+pandas
