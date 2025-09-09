@@ -170,8 +170,13 @@ export const PluginStudioLayoutUnified: React.FC = () => {
       {/* Main Content Area */}
       <Box sx={{ 
         flex: 1,
-        overflow: 'auto',
-        position: 'relative'
+        position: 'relative',
+        // Prevent horizontal overflow/dead space while allowing vertical scroll
+        overflowY: 'auto',
+        overflowX: 'hidden',
+        width: '100%',
+        maxWidth: '100%',
+        minWidth: 0
       }}>
         <ErrorBoundary>
           {useUnifiedRenderer && currentPage && layouts ? (
