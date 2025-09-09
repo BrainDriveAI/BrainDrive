@@ -20,7 +20,7 @@ A chat interface for running local and API based AI models:
 
 A plugin manager to easily search existing, and add new plugins to your BrainDrive:
 
-![Plugin Manager](https://github.com/BrainDriveAI/BrainDrive/blob/main/images/Plugin%20Manager%20Screenshot.png)
+![Plugin Manager](./images/plugin-manager-screenshot.png)
 
 A page builder to create custom interfaces using your own and other publicly available plugins:
 
