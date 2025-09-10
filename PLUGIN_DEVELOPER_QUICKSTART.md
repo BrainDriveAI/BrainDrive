@@ -16,12 +16,12 @@ By the end of this guide you will be able to:
 
 ## Step 1: Install BrainDrive
 
-Follow the [Installation Guide](https://github.com/BrainDriveAI/BrainDrive/blob/main/INSTALL.md)
+Follow the [Installation Guide](https://github.com/BrainDriveAI/BrainDrive-Core/blob/main/INSTALL.md)
 
 ## Step 2: Install the Plugin Template
 
 1. Go to BrainDrive Plugin Manager → Install Plugins
-2. Enter URL: `https://github.com/BrainDriveAI/PluginTemplate`
+2. Enter URL: `https://github.com/BrainDriveAI/BrainDrive-PluginTemplate
 3. Click Install
 4. Wait for green success message
 
@@ -42,7 +42,7 @@ Follow the [Installation Guide](https://github.com/BrainDriveAI/BrainDrive/blob/
 **Clone the template:**
 ```bash
 # In your preferred development folder
-git clone https://github.com/BrainDriveAI/PluginTemplate.git MyPlugin
+git clone https://github.com/BrainDriveAI/BrainDrive-PluginTemplate.git MyPlugin
 cd MyPlugin
 npm install
 ```
@@ -58,7 +58,7 @@ npm install
    - Uncomment and update with your backend path:
    ```javascript
    output: {
-     path: path.resolve(__dirname, '/path/to/your/BrainDrive/backend/plugins/shared/PluginTemplate/v1.0.0/dist'),
+     path: path.resolve(__dirname, '/path/to/your/BrainDrive-Core/backend/plugins/shared/PluginTemplate/v1.0.0/dist'),
      // ... rest of config
    }
    ```
@@ -74,7 +74,7 @@ npm install
 
 1. **Edit the plugin:**
    ```bash
-   # Open src/PluginTemplate.tsx
+   # Open src/BrainDrive-PluginTemplate.tsx
    # Change the title to "My Awesome Plugin!!"
    ```
 
@@ -158,4 +158,4 @@ The only limit is your imagination. Your AI. Your Rules.
 
 - 💬 [Developer Forum](https://community.braindrive.ai) - Get help and share plugins
 - 📖 [API Documentation](http://localhost:8005/api/v1/docs) - Backend endpoints (when running locally)
-- 🐛 [Report Issues](https://github.com/BrainDriveAI/BrainDrive/issues) - Use `[plugin]` tag
+- 🐛 [Report Issues](https://github.com/BrainDriveAI/BrainDrive-Core/issues) - Use `[plugin]` tag
