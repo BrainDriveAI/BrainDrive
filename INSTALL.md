@@ -40,8 +40,8 @@ conda activate BrainDriveDev
 In either terminal:
 
 ```bash
-git clone https://github.com/BrainDriveAI/BrainDrive.git
-cd BrainDrive
+git clone https://github.com/BrainDriveAI/BrainDrive-Core.git
+cd BrainDrive-Core
 ```
 ---
 
@@ -68,7 +68,7 @@ copy .env-dev .env     # Windows
 
 #### Option B: Manual `.env` Setup
 
-Look at [/backend/.env-dev](https://github.com/BrainDriveAI/BrainDrive/blob/main/backend/.env-dev) and set as your needs require. 
+Look at [/backend/.env-dev](https://github.com/BrainDriveAI/BrainDrive-Core/blob/main/backend/.env-dev) and set as your needs require. 
 
 ---
 
@@ -77,7 +77,7 @@ Look at [/backend/.env-dev](https://github.com/BrainDriveAI/BrainDrive/blob/main
 In the **first terminal window**:
 
 ```bash
-cd BrainDrive/backend
+cd BrainDrive-Core/backend
 uvicorn main:app --host localhost --port 8005
 ```
 
@@ -88,7 +88,7 @@ uvicorn main:app --host localhost --port 8005
 In the **second terminal window**:
 
 ```bash
-cd BrainDrive/frontend
+cd BrainDrive-Core/frontend
 npm install
 ```
 
@@ -105,7 +105,7 @@ copy .env.example .env     # Windows
 
 #### Option B: Manual `.env`
 
-Look at [/frontend/.env.example](https://github.com/BrainDriveAI/BrainDrive/blob/main/frontend/.env.example) and set as your needs require. 
+Look at [/frontend/.env.example](https://github.com/BrainDriveAI/BrainDrive-Core/blob/main/frontend/.env.example) and set as your needs require. 
 
 > ⚠️ **Security Note:** Remove auto-login credentials before production deployment.
 
@@ -147,14 +147,14 @@ conda activate BrainDriveDev
 ### 3️⃣ Start the Backend Server
 
 ```bash
-cd BrainDrive/backend
+cd BrainDrive-Core/backend
 uvicorn main:app --reload --host localhost --port 8005
 ```
 
 ### 4️⃣ Start the Frontend Server
 
 ```bash
-cd BrainDrive/frontend
+cd BrainDrive-Core/frontend
 npm run dev
 ```
 
