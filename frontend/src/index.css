@@ -40,9 +40,13 @@ body {
   user-select: none;
 }
 
-.react-grid-item:hover {
-  border-color: #999;
-}
+/*
+  Removed hover border effect to avoid white border flash on modules
+  when hovering in published/runtime pages. Styling for hover states in
+  editor contexts is handled by scoped styles under the unified page
+  renderer (e.g., PluginStudioAdapter). Keeping global hover neutral
+  prevents unintended visual changes in dark mode.
+*/
 
 .react-resizable-handle {
   position: absolute;

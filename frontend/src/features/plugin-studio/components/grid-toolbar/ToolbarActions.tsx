@@ -51,6 +51,7 @@ export const ToolbarActions: React.FC<ToolbarActionsProps> = ({
           onClick={() => onPreviewModeChange(!previewMode)}
           color={previewMode ? "primary" : "default"}
           size="small"
+          className="ps-toolbar-icon--hidden"
         >
           {previewMode ? <VisibilityIcon /> : <VisibilityOffIcon />}
         </IconButton>

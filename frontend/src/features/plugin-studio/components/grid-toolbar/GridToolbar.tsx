@@ -4,6 +4,7 @@ import { ViewModeSelector } from './ViewModeSelector';
 import { PageSelector } from './PageSelector';
 import { ToolbarActions } from './ToolbarActions';
 import { usePluginStudio } from '../../hooks';
+import './hidden-icons.css';
 import AddIcon from '@mui/icons-material/Add';
 import WarningIcon from '@mui/icons-material/Warning';
 import SaveIcon from '@mui/icons-material/Save';
