@@ -72,7 +72,7 @@ class SettingsInitializer(UserInitializerBase):
             "description": "Footer copyright line content",
             "category": "ui",
             "type": "object",
-            "default_value": '{"text": "© 2025 BrainDrive"}',
+            "default_value": '{"text": "AIs can make mistakes. Check important info."}',
             "allowed_scopes": '["system", "user"]',
             "validation": None,
             "is_multiple": False,
@@ -130,7 +130,7 @@ class SettingsInitializer(UserInitializerBase):
         {
             "definition_id": "copyright_settings",
             "name": "Copyright",
-            "value": '{"text": "© 2025 BrainDrive"}',
+            "value": '{"text": "AIs can make mistakes. Check important info."}',
             "scope": "user",
             "page_id": None
         },

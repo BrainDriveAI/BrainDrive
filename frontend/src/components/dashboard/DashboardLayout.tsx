@@ -13,7 +13,7 @@ const DashboardLayout = () => {
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
   const settingsService = useSettings();
-  const defaultCopyright = { text: '© 2025 BrainDrive' };
+  const defaultCopyright = { text: 'AIs can make mistakes. Check important info.' };
   const [copyright, setCopyright] = useState(defaultCopyright);
 
   // Update sidebar state when screen size changes

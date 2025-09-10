@@ -47,6 +47,7 @@ export const ViewModeSelector: React.FC<ViewModeSelectorProps> = ({
           onDoubleClick={() => handleViewModeDoubleClick('mobile')}
           color={viewMode.type === 'mobile' ? 'primary' : 'default'}
           size="small"
+          className="ps-toolbar-icon--hidden"
         >
           <SmartphoneIcon />
         </IconButton>
@@ -58,6 +59,7 @@ export const ViewModeSelector: React.FC<ViewModeSelectorProps> = ({
           onDoubleClick={() => handleViewModeDoubleClick('tablet')}
           color={viewMode.type === 'tablet' ? 'primary' : 'default'}
           size="small"
+          className="ps-toolbar-icon--hidden"
         >
           <TabletIcon />
         </IconButton>
@@ -69,6 +71,7 @@ export const ViewModeSelector: React.FC<ViewModeSelectorProps> = ({
           onDoubleClick={() => handleViewModeDoubleClick('desktop')}
           color={viewMode.type === 'desktop' ? 'primary' : 'default'}
           size="small"
+          className="ps-toolbar-icon--hidden"
         >
           <DesktopWindowsIcon />
         </IconButton>

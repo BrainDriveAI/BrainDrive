@@ -1,0 +1,5 @@
+.ps-toolbar-icon--hidden {
+  visibility: hidden; /* keep layout size, hide visuals */
+  pointer-events: none; /* prevent interaction */
+}
+
