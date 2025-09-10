@@ -16,8 +16,6 @@ Up to date list of all BrainDrive repos & corresponding documentation.
 
 * [Backend README](https://github.com/BrainDriveAI/BrainDrive/blob/main/backend/README.md): Setup, API use, data ownership, & deployment.
 
-* [Plugin README](https://github.com/BrainDriveAI/BrainDrive/blob/main/plugins/README.md): Dev workflow & modular architecture overview.
-
 
 **[BrainDrive Plugin Template Repo](https://github.com/BrainDriveAI/PluginTemplate) - Boilerplate to jumpstart your development.**
 
