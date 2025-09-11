@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Box, Toolbar, useMediaQuery, useTheme } from '@mui/material';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import Header from './Header';
 import Sidebar from './Sidebar';
 import { ThemeSelector } from '../ThemeSelector';
@@ -13,6 +13,7 @@ const DashboardLayout = () => {
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
   const settingsService = useSettings();
+  const location = useLocation();
   const defaultCopyright = { text: 'AIs can make mistakes. Check important info.' };
   const [copyright, setCopyright] = useState(defaultCopyright);
 
@@ -59,6 +60,8 @@ const DashboardLayout = () => {
     setSidebarOpen(!sidebarOpen);
   };
 
+  const isDynamicPage = location.pathname.startsWith('/pages/');
+
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
       <Header 
@@ -74,8 +77,12 @@ const DashboardLayout = () => {
       <Box
         component="main"
         sx={{
+          // CSS vars for downstream layout sizing
+          '--app-header-h': { xs: '56px', sm: '64px' },
+          '--app-footer-h': '32px',
           flexGrow: 1,
-          p: { xs: 1, sm: 2 },
+          // Reduce padding for dynamic pages to maximize real estate
+          p: isDynamicPage ? { xs: 0, sm: 0 } : { xs: 1, sm: 2 },
           width: '100%',
           display: 'flex',
           flexDirection: 'column',
