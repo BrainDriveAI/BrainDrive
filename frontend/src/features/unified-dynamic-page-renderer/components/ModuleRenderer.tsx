@@ -467,13 +467,25 @@ const UnifiedModuleRenderer: React.FC<UnifiedModuleRendererProps> = ({
       });
     }
 
-    // Render the component with error boundary - same as DynamicPluginRenderer
+    // Determine layout options (safe defaults)
+    const centerContent: boolean = (additionalProps as any)?.centerContent !== false;
+    const viewportFill: boolean = (additionalProps as any)?.viewportFill === true;
+
+    // Render the component with error boundary and a centering wrapper
     return (
       <ComponentErrorBoundary
         fallback={fallback}
         
       >
-        <Component {...module.props} />
+        <div
+          className={[
+            'module-content',
+            !centerContent && 'module-content--no-center',
+            viewportFill && 'module-content--fill',
+          ].filter(Boolean).join(' ')}
+        >
+          <Component {...module.props} />
+        </div>
       </ComponentErrorBoundary>
     );
   } catch (renderError) {

@@ -117,6 +117,30 @@
   height: 100%;
 }
 
+/* Centering wrappers for balanced grid on wide screens */
+.layout-engine-center {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.layout-engine-inner {
+  width: 100%;
+  max-width: var(--page-max-width, 1440px);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: var(--page-gutter, 16px);
+  padding-right: var(--page-gutter, 16px);
+  height: 100%;
+}
+
+.layout-engine-inner--full {
+  max-width: 100%;
+  padding-left: var(--page-gutter-full, 4px);
+  padding-right: var(--page-gutter-full, 4px);
+}
+
 .layout-engine-container--dragging {
   /* Styles when dragging */
   user-select: none;
@@ -125,6 +149,12 @@
 .layout-engine {
   width: 100%;
   height: 100%;
+}
+
+/* Center the grid canvas in published view */
+.layout-engine-inner .react-grid-layout {
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .layout-engine--studio {
@@ -214,6 +244,30 @@
   width: 100%;
   height: 100%;
   position: relative;
+}
+
+/* Default module content wrapper for centering and stretching */
+.module-content {
+  display: flex;
+  justify-content: center; /* center horizontally */
+  align-items: stretch;     /* allow full height inside cell */
+  width: 100%;
+  height: 100%;
+}
+
+.module-content--no-center {
+  justify-content: flex-start;
+}
+
+.module-content--fill {
+  min-height: 100%;
+}
+
+.module-content--fill > * {
+  flex: 1 1 auto; /* allow child modules to expand */
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
 }
 
 .module-renderer--loading {
@@ -400,11 +454,19 @@
   .responsive-container--mobile {
     /* Mobile specific styles */
   }
+  :root, .unified-page-renderer {
+    --page-max-width: 100%;
+    --page-gutter: 12px;
+  }
 }
 
 @media (min-width: 768px) and (max-width: 1023px) {
   .responsive-container--tablet {
     /* Tablet specific styles */
+  }
+  :root, .unified-page-renderer {
+    --page-max-width: 900px;
+    --page-gutter: 16px;
   }
 }
 
@@ -412,11 +474,19 @@
   .responsive-container--desktop {
     /* Desktop specific styles */
   }
+  :root, .unified-page-renderer {
+    --page-max-width: 1200px;
+    --page-gutter: 20px;
+  }
 }
 
 @media (min-width: 1440px) {
   .responsive-container--wide {
     /* Wide screen styles */
+  }
+  :root, .unified-page-renderer {
+    --page-max-width: 1440px;
+    --page-gutter: 24px;
   }
 }
 
@@ -449,6 +519,30 @@
   .module-placeholder {
     padding: 1rem;
   }
+}
+
+/* Viewport height fill for page containers, using header/footer CSS vars */
+/* Maintain viewport height baseline */
+.unified-page-renderer,
+.responsive-container,
+.layout-engine-container {
+  min-height: calc(100vh - var(--app-header-h, 64px) - var(--app-footer-h, 32px));
+}
+
+/* In published mode, constrain the grid container to the viewport height to
+   improve vertical responsiveness and avoid page scroll bounce */
+.unified-page-renderer--published .layout-engine-container {
+  height: calc(100vh - var(--app-header-h, 64px) - var(--app-footer-h, 32px));
+}
+
+/* When a module opts into viewport fill, prevent outer overflow and allow
+   the module to manage internal scrolling */
+.module-content--fill {
+  overflow: hidden;
+}
+.module-content--fill > * {
+  height: 100%;
+  overflow: auto;
 }
 
 /* Studio Mode Controller Styles */

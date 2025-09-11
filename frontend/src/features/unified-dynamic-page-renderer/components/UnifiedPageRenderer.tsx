@@ -7,6 +7,8 @@ import { ErrorBoundary } from './ErrorBoundary';
 import { PageProvider } from '../contexts/PageContext';
 import { usePageLoader } from '../hooks/usePageLoader';
 import { useErrorHandler } from '../hooks/useErrorHandler';
+// Load renderer styles
+import '../styles/index.css';
 
 export interface UnifiedPageRendererProps {
   // Page identification

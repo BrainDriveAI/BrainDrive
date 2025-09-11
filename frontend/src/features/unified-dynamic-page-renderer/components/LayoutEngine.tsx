@@ -49,6 +49,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   onItemConfig,
 }) => {
   const theme = useTheme();
+  const containerRef = useRef<HTMLDivElement>(null);
   
   // Debug: Track component re-renders
   const layoutEngineRenderCount = useRef(0);
@@ -438,6 +439,63 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   const stableIdentityRef = useRef<Map<string, { pluginId: string; moduleId: string }>>(new Map());
 
   const { currentBreakpoint } = useBreakpoint();
+
+  // --- Adaptive rowHeight calculation (tracks container + viewport height) ---
+  const [computedRowHeight, setComputedRowHeight] = useState<number>(defaultGridConfig.rowHeight);
+  const [containerHeight, setContainerHeight] = useState<number>(0);
+
+  // Observe container size
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const el = containerRef.current;
+    const ro = new ResizeObserver(() => setContainerHeight(el.clientHeight));
+    ro.observe(el);
+    setContainerHeight(el.clientHeight);
+    return () => ro.disconnect();
+  }, []);
+
+  // Recompute on window resize to follow viewport height changes
+  useEffect(() => {
+    const onResize = () => setContainerHeight(containerRef.current ? containerRef.current.clientHeight : window.innerHeight);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  useEffect(() => {
+    try {
+      const bpMap: Record<string, keyof ResponsiveLayouts> = { xs: 'mobile', sm: 'tablet', lg: 'desktop', xl: 'wide', xxl: 'ultrawide' };
+      const ourBp = bpMap[currentBreakpoint || 'lg'] || 'desktop';
+      const items = (displayedLayouts?.[ourBp] || []) as LayoutItem[];
+
+      const wantsFill = items.some(it => (it as any)?.config?.viewportFill === true) || items.length === 1;
+      if (!wantsFill) {
+        if (computedRowHeight !== defaultGridConfig.rowHeight) setComputedRowHeight(defaultGridConfig.rowHeight);
+        return;
+      }
+
+      // Available height: prefer remaining viewport below grid top so the grid
+      // shrinks with browser height; fallback to container clientHeight
+      const el = containerRef.current;
+      const rect = el?.getBoundingClientRect();
+      const viewportAvailable = rect ? Math.max(0, window.innerHeight - rect.top - 8) : 0;
+      const available = viewportAvailable > 0 ? viewportAvailable : containerHeight;
+      if (available <= 0 || items.length === 0) return;
+
+      // Determine effective vertical paddings/margins from grid config
+      const marginY = defaultGridConfig.margin[1];
+      const containerPadY = defaultGridConfig.containerPadding[1];
+
+      const targetRows = Math.max(...items.map(it => it.h || 1));
+      const verticalGutter = marginY * Math.max(0, targetRows - 1);
+      const availableForRows = Math.max(0, available - (containerPadY * 2));
+      const desired = Math.max(24, Math.floor((availableForRows - verticalGutter) / (targetRows || 1)));
+
+      const next = Math.min(140, Math.max(36, desired));
+      if (Number.isFinite(next) && next > 0 && next !== computedRowHeight) setComputedRowHeight(next);
+    } catch {
+      if (computedRowHeight !== defaultGridConfig.rowHeight) setComputedRowHeight(defaultGridConfig.rowHeight);
+    }
+  }, [displayedLayouts, currentBreakpoint, containerHeight]);
   
   // Control visibility based on context
   const { showControls } = useControlVisibility(mode);
@@ -1596,9 +1654,9 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
             data-grid={item}
             sx={{
               position: 'relative',
-              backgroundColor: theme.palette.background.paper,
-              border: `1px solid ${theme.palette.divider}`,
-              borderRadius: 1,
+              backgroundColor: showControls ? theme.palette.background.paper : 'transparent',
+              border: showControls ? `1px solid ${theme.palette.divider}` : 'none',
+              borderRadius: showControls ? 1 : 0,
               overflow: 'hidden',
               transition: 'background-color 0.3s ease, border-color 0.3s ease',
               ...(isSelected && {
@@ -1615,12 +1673,23 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
                 onRemove={() => handleItemRemove(item.i)}
               />
             )}
-          <ModuleRenderer
-            pluginId={fallbackPluginId}
-            moduleId={extractedModuleId}
-            additionalProps={item.config || {}}
-            fallback={<div style={{ padding: 8 }}>Loading module...</div>}
-          />
+          {(() => {
+            const activeLayout =
+              displayedLayouts[currentBreakpoint as keyof ResponsiveLayouts] ||
+              displayedLayouts.desktop || displayedLayouts.wide || [];
+            const wantsFullWidth = !showControls && (
+              (Array.isArray(activeLayout) && activeLayout.length === 1) ||
+              (Array.isArray(activeLayout) && activeLayout.some((it: any) => it?.config?.viewportFill || it?.config?.fullWidth))
+            );
+            return (
+              <ModuleRenderer
+                pluginId={fallbackPluginId}
+                moduleId={extractedModuleId}
+                additionalProps={{ ...(item.config || {}), ...(wantsFullWidth ? { viewportFill: true, centerContent: false } : {}) }}
+                fallback={<div style={{ padding: 8 }}>Loading module...</div>}
+              />
+            );
+          })()}
         </Box>
       );
       }
@@ -1646,9 +1715,9 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
           data-grid={item}
           sx={{
             position: 'relative',
-            backgroundColor: theme.palette.background.paper,
-            border: `1px solid ${theme.palette.divider}`,
-            borderRadius: 1,
+            backgroundColor: showControls ? theme.palette.background.paper : 'transparent',
+            border: showControls ? `1px solid ${theme.palette.divider}` : 'none',
+            borderRadius: showControls ? 1 : 0,
             overflow: 'hidden',
             transition: 'background-color 0.3s ease, border-color 0.3s ease',
             ...(isSelected && {
@@ -1720,11 +1789,15 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
               });
             }
 
+            const wantsFullWidth = !showControls && (
+              (Array.isArray(activeLayout) && activeLayout.length === 1) ||
+              (Array.isArray(activeLayout) && activeLayout.some((it: any) => it?.config?.viewportFill || it?.config?.fullWidth))
+            );
             return (
               <ModuleRenderer
                 pluginId={effectivePluginId}
                 moduleId={effectiveModuleId}
-                additionalProps={item.config}
+                additionalProps={{ ...item.config, ...(wantsFullWidth ? { viewportFill: true, centerContent: false } : {}) }}
                 fallback={<div style={{ padding: 8 }}>Loading module...</div>}
               />
             );
@@ -1749,6 +1822,23 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   const gridProps = useMemo(() => {
     // Convert ResponsiveLayouts to the format expected by react-grid-layout
     const reactGridLayouts: any = {};
+    // Determine if we should present a full-width experience (published mode, single item or explicit flag)
+    const bpMap: Record<string, string> = { mobile: 'xs', tablet: 'sm', desktop: 'lg', wide: 'xl', ultrawide: 'xxl' };
+    const activeLayout =
+      displayedLayouts[currentBreakpoint as keyof ResponsiveLayouts] ||
+      displayedLayouts.desktop || displayedLayouts.wide || [];
+    const wantsFullWidth = !showControls && (
+      (Array.isArray(activeLayout) && activeLayout.length === 1) ||
+      (Array.isArray(activeLayout) && activeLayout.some((it: any) => it?.config?.viewportFill || it?.config?.fullWidth))
+    );
+
+    const adjustForFullWidth = (items: any[], gridBp: string) => {
+      if (!wantsFullWidth || !Array.isArray(items) || items.length === 0) return items;
+      const cols = (defaultGridConfig.cols as any)[gridBp] || 12;
+      // Expand the first item to full width
+      return items.map((it: any, idx: number) => idx === 0 ? { ...it, x: 0, w: cols } : it);
+    };
+
     Object.entries(displayedLayouts).forEach(([breakpoint, layout]) => {
       if (layout && Array.isArray(layout) && layout.length > 0) {
         // Map breakpoint names to react-grid-layout breakpoint names
@@ -1760,7 +1850,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
           ultrawide: 'xxl'
         };
         const gridBreakpoint = breakpointMap[breakpoint] || breakpoint;
-        reactGridLayouts[gridBreakpoint] = layout;
+        reactGridLayouts[gridBreakpoint] = adjustForFullWidth(layout, gridBreakpoint);
       }
     });
 
@@ -1783,8 +1873,17 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       measureBeforeMount: false,
       transformScale: 1,
       ...defaultGridConfig,
+      rowHeight: computedRowHeight,
+      containerPadding: wantsFullWidth
+        ? ([0, defaultGridConfig.containerPadding[1]] as [number, number])
+        : defaultGridConfig.containerPadding,
+      margin: wantsFullWidth
+        ? ([4, defaultGridConfig.margin[1]] as [number, number])
+        : defaultGridConfig.margin,
+      autoSize: false,
+      style: { height: '100%' },
     };
-  }, [displayedLayouts, mode, showControls, handleLayoutChange, handleDragStart, handleDragStop, handleResizeStart, handleResizeStop]);
+  }, [displayedLayouts, mode, showControls, handleLayoutChange, handleDragStart, handleDragStop, handleResizeStart, handleResizeStop, computedRowHeight, currentBreakpoint]);
 
   // Memoize the rendered grid items with minimal stable dependencies
   const gridItems = useMemo(() => {
@@ -1804,13 +1903,30 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   return (
     <div
       className={`layout-engine-container ${isDragging ? 'layout-engine-container--dragging' : ''} ${isResizing ? 'layout-engine-container--resizing' : ''} ${isDragOver ? 'layout-engine-container--drag-over' : ''}`}
+      ref={containerRef}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <ResponsiveGridLayout {...gridProps}>
-        {gridItems}
-      </ResponsiveGridLayout>
+      {/* Centering wrapper to keep the grid balanced on wide screens */}
+      {(() => {
+        const activeLayout =
+          displayedLayouts[currentBreakpoint as keyof ResponsiveLayouts] ||
+          displayedLayouts.desktop || displayedLayouts.wide || [];
+        const wantsFullWidth = !showControls && (
+          (Array.isArray(activeLayout) && activeLayout.length === 1) ||
+          (Array.isArray(activeLayout) && activeLayout.some((it: any) => it?.config?.viewportFill || it?.config?.fullWidth))
+        );
+        return (
+          <div className="layout-engine-center">
+            <div className={`layout-engine-inner ${wantsFullWidth ? 'layout-engine-inner--full' : ''}`}>
+              <ResponsiveGridLayout {...gridProps}>
+                {gridItems}
+              </ResponsiveGridLayout>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }, (prevProps, nextProps) => {
