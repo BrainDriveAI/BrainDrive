@@ -19,6 +19,7 @@ from app.models.user import User
 from app.ai_providers.registry import provider_registry
 from app.ai_providers.ollama import OllamaProvider
 from app.utils.json_parsing import safe_encrypted_json_parse, validate_ollama_settings_format, create_default_ollama_settings
+from app.core.encryption import encryption_service, EncryptionError
 from app.schemas.ai_providers import (
     TextGenerationRequest,
     ChatCompletionRequest,
@@ -429,7 +430,7 @@ async def get_models(
             print(f"Created Claude config with API key")
         elif provider == "groq":
             # Groq uses simple api_key structure (similar to OpenAI)
-            api_key = value_dict.get("api_key", "")
+            api_key = value_dict.get("api_key") or value_dict.get("apiKey") or ""
             if not api_key:
                 raise HTTPException(status_code=400, detail="Groq API key is required")
             
@@ -567,25 +568,48 @@ async def get_all_models(
                 # Use the first setting found
                 setting = settings[0]
                 setting_value = setting['value'] if isinstance(setting, dict) else setting.value
-                
-                if isinstance(setting_value, str):
-                    try:
-                        value_dict = json.loads(setting_value)
-                    except json.JSONDecodeError:
-                        print(f"Invalid JSON for {provider}, skipping")
+                setting_instance_id = setting['id'] if isinstance(setting, dict) else getattr(setting, 'id', '')
+
+                # Robust parse to handle encrypted or malformed values
+                try:
+                    value_dict = None
+                    if isinstance(setting_value, str) and encryption_service.is_encrypted_value(setting_value):
+                        # Decrypt first, then use the decrypted JSON
+                        try:
+                            value_dict = encryption_service.decrypt_field('settings_instances', 'value', setting_value)
+                        except EncryptionError as ee:
+                            raise ValueError(f"Decryption failed for {settings_id}: {str(ee)}")
+                    else:
+                        # Use safe parser which handles multiple JSON edge cases
+                        value_dict = safe_encrypted_json_parse(
+                            setting_value,
+                            context=f"all-models settings_id={settings_id}, user_id={user_id}",
+                            setting_id=setting_instance_id,
+                            definition_id=settings_id,
+                        )
+                except Exception as e:
+                    err = f"Failed to parse settings for {provider}: {str(e)}"
+                    print(err)
+                    errors.append(err)
+                    # For Ollama, attempt a safe default structure; otherwise skip
+                    if provider == "ollama":
+                        value_dict = create_default_ollama_settings()
+                    else:
                         continue
-                else:
-                    value_dict = setting_value
                 
                 # Check if provider has valid configuration
                 if provider == "ollama":
                     # Ollama needs servers array
-                    if not value_dict.get("servers") or len(value_dict["servers"]) == 0:
+                    if not isinstance(value_dict, dict) or not value_dict.get("servers") or len(value_dict["servers"]) == 0:
                         print(f"No servers configured for {provider}, skipping")
                         continue
                 else:
-                    # Other providers need API key
-                    if not value_dict.get("api_key"):
+                    # Other providers need API key (accept both api_key and apiKey)
+                    if not isinstance(value_dict, dict):
+                        print(f"Invalid settings format for {provider}, skipping")
+                        continue
+                    api_key = value_dict.get("api_key") or value_dict.get("apiKey")
+                    if not api_key:
                         print(f"No API key for {provider}, skipping")
                         continue
                 
@@ -625,25 +649,25 @@ async def get_all_models(
                     try:
                         if provider == "openai":
                             config = {
-                                "api_key": value_dict["api_key"],
+                                "api_key": value_dict.get("api_key") or value_dict.get("apiKey"),
                                 "server_url": "https://api.openai.com/v1",
                                 "server_name": "OpenAI API"
                             }
                         elif provider == "openrouter":
                             config = {
-                                "api_key": value_dict["api_key"],
+                                "api_key": value_dict.get("api_key") or value_dict.get("apiKey"),
                                 "server_url": "https://openrouter.ai/api/v1",
                                 "server_name": "OpenRouter API"
                             }
                         elif provider == "claude":
                             config = {
-                                "api_key": value_dict["api_key"],
+                                "api_key": value_dict.get("api_key") or value_dict.get("apiKey"),
                                 "server_url": "https://api.anthropic.com",
                                 "server_name": "Claude API"
                             }
                         elif provider == "groq":
                             config = {
-                                "api_key": value_dict["api_key"],
+                                "api_key": value_dict.get("api_key") or value_dict.get("apiKey"),
                                 "server_url": "https://api.groq.com",
                                 "server_name": "Groq API"
                             }
