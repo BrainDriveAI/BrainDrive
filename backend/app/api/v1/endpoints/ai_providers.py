@@ -19,6 +19,7 @@ from app.models.user import User
 from app.ai_providers.registry import provider_registry
 from app.ai_providers.ollama import OllamaProvider
 from app.utils.json_parsing import safe_encrypted_json_parse, validate_ollama_settings_format, create_default_ollama_settings
+from app.core.encryption import encryption_service, EncryptionError
 from app.schemas.ai_providers import (
     TextGenerationRequest,
     ChatCompletionRequest,
@@ -50,6 +51,21 @@ async def get_provider_instance_from_request(request, db):
     logger.info(f"Getting provider instance for: settings_id={request.settings_id}, user_id={user_id}")
     logger.info(f"Original user_id from request: {request.user_id}")
     
+    # Helper to map provider to API key env var
+    def _get_env_api_key(provider_name: str) -> Optional[str]:
+        env_map = {
+            "openrouter": "OPENROUTER_API_KEY",
+            "openai": "OPENAI_API_KEY",
+            "claude": "ANTHROPIC_API_KEY",
+            "groq": "GROQ_API_KEY",
+        }
+        env_var = env_map.get(provider_name.lower())
+        if env_var:
+            return os.getenv(env_var)
+        return None
+
+    api_key_providers = {"openrouter", "openai", "claude", "groq"}
+
     try:
         # Get settings for the specified user
         logger.info(f"Fetching settings with definition_id={request.settings_id}, user_id={user_id}")
@@ -59,6 +75,15 @@ async def get_provider_instance_from_request(request, db):
             scope=SettingScope.USER.value,
             user_id=user_id
         )
+        # Fallback to legacy direct SQL if ORM returns none (compat with legacy enum storage)
+        if not settings or len(settings) == 0:
+            logger.info("ORM returned no settings; falling back to direct SQL query for settings")
+            settings = await SettingInstance.get_all(
+                db,
+                definition_id=request.settings_id,
+                scope=SettingScope.USER.value,
+                user_id=user_id
+            )
         
         logger.info(f"Found {len(settings)} settings for user_id={user_id}")
         
@@ -90,6 +115,39 @@ async def get_provider_instance_from_request(request, db):
                 logger.info(f"Got provider instance: {provider_instance.provider_name}")
                 
                 return provider_instance
+            elif request.provider in api_key_providers:
+                # Try environment fallback for API-key providers
+                env_key = _get_env_api_key(request.provider)
+                if env_key:
+                    logger.warning(f"Using environment API key for provider '{request.provider}' due to missing settings")
+                    if request.provider == "openai":
+                        config = {"api_key": env_key, "server_url": "https://api.openai.com/v1", "server_name": "OpenAI API"}
+                    elif request.provider == "openrouter":
+                        config = {"api_key": env_key, "server_url": "https://openrouter.ai/api/v1", "server_name": "OpenRouter API"}
+                    elif request.provider == "claude":
+                        config = {"api_key": env_key, "server_url": "https://api.anthropic.com", "server_name": "Claude API"}
+                    elif request.provider == "groq":
+                        config = {"api_key": env_key, "server_url": "https://api.groq.com", "server_name": "Groq API"}
+                    else:
+                        config = {"api_key": env_key}
+
+                    provider_instance = await provider_registry.get_provider(
+                        request.provider,
+                        request.server_id,
+                        config
+                    )
+                    logger.info(f"Got provider instance with env key: {provider_instance.provider_name}")
+                    return provider_instance
+
+                # No settings and no env fallback
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"{request.provider.capitalize()} API key is not configured. "
+                        f"Please add your API key in Settings (definition_id={request.settings_id}) "
+                        f"or set the environment variable {('OPENROUTER_API_KEY' if request.provider=='openrouter' else 'OPENAI_API_KEY' if request.provider=='openai' else 'ANTHROPIC_API_KEY' if request.provider=='claude' else 'GROQ_API_KEY')} and restart."
+                    ),
+                )
             else:
                 # For other providers, raise an error
                 raise HTTPException(
@@ -108,6 +166,17 @@ async def get_provider_instance_from_request(request, db):
         
         # Use our robust JSON parsing utility that handles encryption issues
         try:
+            # If the value appears encrypted (when using direct SQL dict path), try decrypting first
+            if isinstance(setting_value, str):
+                try:
+                    from app.core.encryption import encryption_service as _enc, EncryptionError as _EncErr
+                    if _enc.is_encrypted_value(setting_value):
+                        logger.info("Attempting to decrypt settings value via encryption_service")
+                        decrypted = _enc.decrypt_field('settings_instances', 'value', setting_value)
+                        setting_value = decrypted
+                except Exception as dec_err:
+                    logger.debug(f"Settings decryption attempt failed or not needed: {dec_err}")
+
             value_dict = safe_encrypted_json_parse(
                 setting_value,
                 context=f"settings_id={request.settings_id}, user_id={user_id}",
@@ -122,6 +191,21 @@ async def get_provider_instance_from_request(request, db):
                 if 'ollama' in request.settings_id.lower():
                     logger.warning("Creating default Ollama settings structure")
                     value_dict = create_default_ollama_settings()
+                elif request.provider in api_key_providers:
+                    # Try environment fallback for API-key providers
+                    env_key = _get_env_api_key(request.provider)
+                    if env_key:
+                        logger.warning(f"Using environment API key for provider '{request.provider}' due to non-dict settings value")
+                        value_dict = {"api_key": env_key}
+                    else:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=(
+                                f"{request.provider.capitalize()} API key could not be read from settings. "
+                                f"Please re-enter your key in Settings (definition_id={request.settings_id}) "
+                                f"or set the appropriate environment variable."
+                            )
+                        )
                 else:
                     raise HTTPException(
                         status_code=500,
@@ -137,6 +221,21 @@ async def get_provider_instance_from_request(request, db):
             if 'ollama' in request.settings_id.lower():
                 logger.info("Ollama settings parsing failed, using fallback configuration")
                 value_dict = create_default_ollama_settings()
+            elif request.provider in api_key_providers:
+                # Try environment fallback for API-key providers
+                env_key = _get_env_api_key(request.provider)
+                if env_key:
+                    logger.warning(f"Using environment API key for provider '{request.provider}' due to settings parse failure")
+                    value_dict = {"api_key": env_key}
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"{request.provider.capitalize()} API key could not be decrypted or parsed. "
+                            f"Please re-enter your key in Settings (definition_id={request.settings_id}) "
+                            f"or set the appropriate environment variable and restart."
+                        )
+                    )
             else:
                 raise HTTPException(
                     status_code=500,
@@ -162,7 +261,7 @@ async def get_provider_instance_from_request(request, db):
         if request.provider == "openai":
             # OpenAI uses simple api_key structure
             logger.info("Processing OpenAI provider configuration")
-            api_key = value_dict.get("api_key", "")
+            api_key = value_dict.get("api_key") or value_dict.get("apiKey") or _get_env_api_key("openai") or ""
             if not api_key:
                 logger.error("OpenAI API key is missing")
                 raise HTTPException(
@@ -180,7 +279,7 @@ async def get_provider_instance_from_request(request, db):
         elif request.provider == "openrouter":
             # OpenRouter uses simple api_key structure (similar to OpenAI)
             logger.info("Processing OpenRouter provider configuration")
-            api_key = value_dict.get("api_key", "")
+            api_key = value_dict.get("api_key") or value_dict.get("apiKey") or _get_env_api_key("openrouter") or ""
             if not api_key:
                 logger.error("OpenRouter API key is missing")
                 raise HTTPException(
@@ -198,7 +297,7 @@ async def get_provider_instance_from_request(request, db):
         elif request.provider == "claude":
             # Claude uses simple api_key structure (similar to OpenAI)
             logger.info("Processing Claude provider configuration")
-            api_key = value_dict.get("api_key", "")
+            api_key = value_dict.get("api_key") or value_dict.get("apiKey") or _get_env_api_key("claude") or ""
             if not api_key:
                 logger.error("Claude API key is missing")
                 raise HTTPException(
@@ -216,7 +315,7 @@ async def get_provider_instance_from_request(request, db):
         elif request.provider == "groq":
             # Groq uses simple api_key structure (similar to OpenAI)
             logger.info("Processing Groq provider configuration")
-            api_key = value_dict.get("api_key", "")
+            api_key = value_dict.get("api_key") or value_dict.get("apiKey") or _get_env_api_key("groq") or ""
             if not api_key:
                 logger.error("Groq API key is missing")
                 raise HTTPException(
@@ -429,7 +528,7 @@ async def get_models(
             print(f"Created Claude config with API key")
         elif provider == "groq":
             # Groq uses simple api_key structure (similar to OpenAI)
-            api_key = value_dict.get("api_key", "")
+            api_key = value_dict.get("api_key") or value_dict.get("apiKey") or ""
             if not api_key:
                 raise HTTPException(status_code=400, detail="Groq API key is required")
             
@@ -543,6 +642,19 @@ async def get_all_models(
         errors = []
         successful_providers = 0
         
+        # Helper to map provider to API key env var
+        def _get_env_api_key(provider_name: str) -> Optional[str]:
+            env_map = {
+                "openrouter": "OPENROUTER_API_KEY",
+                "openai": "OPENAI_API_KEY",
+                "claude": "ANTHROPIC_API_KEY",
+                "groq": "GROQ_API_KEY",
+            }
+            env_var = env_map.get(provider_name.lower())
+            if env_var:
+                return os.getenv(env_var)
+            return None
+
         # Process each provider
         for provider_config in provider_settings:
             try:
@@ -561,31 +673,91 @@ async def get_all_models(
                 )
                 
                 if not settings or len(settings) == 0:
-                    print(f"No settings found for {provider}, skipping")
+                    print(f"No settings found for {provider}")
+                    # For API-key providers, try env fallback
+                    if provider in {"openai", "openrouter", "claude", "groq"}:
+                        env_key = _get_env_api_key(provider)
+                        if env_key:
+                            try:
+                                if provider == "openai":
+                                    config = {"api_key": env_key, "server_url": "https://api.openai.com/v1", "server_name": "OpenAI API"}
+                                elif provider == "openrouter":
+                                    config = {"api_key": env_key, "server_url": "https://openrouter.ai/api/v1", "server_name": "OpenRouter API"}
+                                elif provider == "claude":
+                                    config = {"api_key": env_key, "server_url": "https://api.anthropic.com", "server_name": "Claude API"}
+                                elif provider == "groq":
+                                    config = {"api_key": env_key, "server_url": "https://api.groq.com", "server_name": "Groq API"}
+                                else:
+                                    config = {"api_key": env_key}
+
+                                provider_instance = await provider_registry.get_provider(provider, server_id or f"{provider}_default_server", config)
+                                models = await provider_instance.get_models()
+                                for model in models:
+                                    model["provider"] = provider
+                                    model["server_id"] = server_id or f"{provider}_default_server"
+                                    model["server_name"] = config["server_name"]
+                                    all_models.append(model)
+                                successful_providers += 1
+                                print(f"Successfully loaded {len(models)} models from {provider} via env key")
+                            except Exception as e:
+                                error_msg = f"Failed to load models from {provider} via env key: {str(e)}"
+                                errors.append(error_msg)
+                                print(f"Error: {error_msg}")
+                        else:
+                            print(f"No env key for {provider}; skipping")
+                    # Continue to next provider
                     continue
                 
                 # Use the first setting found
                 setting = settings[0]
                 setting_value = setting['value'] if isinstance(setting, dict) else setting.value
-                
-                if isinstance(setting_value, str):
-                    try:
-                        value_dict = json.loads(setting_value)
-                    except json.JSONDecodeError:
-                        print(f"Invalid JSON for {provider}, skipping")
-                        continue
-                else:
-                    value_dict = setting_value
+                setting_instance_id = setting['id'] if isinstance(setting, dict) else getattr(setting, 'id', '')
+
+                # Robust parse to handle encrypted or malformed values
+                try:
+                    value_dict = None
+                    if isinstance(setting_value, str) and encryption_service.is_encrypted_value(setting_value):
+                        # Decrypt first, then use the decrypted JSON
+                        try:
+                            value_dict = encryption_service.decrypt_field('settings_instances', 'value', setting_value)
+                        except EncryptionError as ee:
+                            raise ValueError(f"Decryption failed for {settings_id}: {str(ee)}")
+                    else:
+                        # Use safe parser which handles multiple JSON edge cases
+                        value_dict = safe_encrypted_json_parse(
+                            setting_value,
+                            context=f"all-models settings_id={settings_id}, user_id={user_id}",
+                            setting_id=setting_instance_id,
+                            definition_id=settings_id,
+                        )
+                except Exception as e:
+                    err = f"Failed to parse settings for {provider}: {str(e)}"
+                    print(err)
+                    errors.append(err)
+                    # For Ollama, attempt a safe default structure; otherwise skip
+                    if provider == "ollama":
+                        value_dict = create_default_ollama_settings()
+                    elif provider in {"openai", "openrouter", "claude", "groq"}:
+                        # Try env fallback for API-key providers
+                        env_key = _get_env_api_key(provider)
+                        if env_key:
+                            value_dict = {"api_key": env_key}
+                        else:
+                            continue
                 
                 # Check if provider has valid configuration
                 if provider == "ollama":
                     # Ollama needs servers array
-                    if not value_dict.get("servers") or len(value_dict["servers"]) == 0:
+                    if not isinstance(value_dict, dict) or not value_dict.get("servers") or len(value_dict["servers"]) == 0:
                         print(f"No servers configured for {provider}, skipping")
                         continue
                 else:
-                    # Other providers need API key
-                    if not value_dict.get("api_key"):
+                    # Other providers need API key (accept both api_key and apiKey)
+                    if not isinstance(value_dict, dict):
+                        print(f"Invalid settings format for {provider}, skipping")
+                        continue
+                    api_key = value_dict.get("api_key") or value_dict.get("apiKey")
+                    if not api_key:
                         print(f"No API key for {provider}, skipping")
                         continue
                 
@@ -625,25 +797,25 @@ async def get_all_models(
                     try:
                         if provider == "openai":
                             config = {
-                                "api_key": value_dict["api_key"],
+                                "api_key": value_dict.get("api_key") or value_dict.get("apiKey"),
                                 "server_url": "https://api.openai.com/v1",
                                 "server_name": "OpenAI API"
                             }
                         elif provider == "openrouter":
                             config = {
-                                "api_key": value_dict["api_key"],
+                                "api_key": value_dict.get("api_key") or value_dict.get("apiKey") or _get_env_api_key("openrouter"),
                                 "server_url": "https://openrouter.ai/api/v1",
                                 "server_name": "OpenRouter API"
                             }
                         elif provider == "claude":
                             config = {
-                                "api_key": value_dict["api_key"],
+                                "api_key": value_dict.get("api_key") or value_dict.get("apiKey") or _get_env_api_key("claude"),
                                 "server_url": "https://api.anthropic.com",
                                 "server_name": "Claude API"
                             }
                         elif provider == "groq":
                             config = {
-                                "api_key": value_dict["api_key"],
+                                "api_key": value_dict.get("api_key") or value_dict.get("apiKey") or _get_env_api_key("groq"),
                                 "server_url": "https://api.groq.com",
                                 "server_name": "Groq API"
                             }
@@ -1164,6 +1336,9 @@ async def chat_completion(request: ChatCompletionRequest, db: AsyncSession = Dep
             result["conversation_id"] = conversation.id
             
             return result
+        except HTTPException as he:
+            # Preserve HTTP error codes/details from inner operations (e.g., missing API keys)
+            raise he
         except Exception as inner_e:
             logger.error(f"Inner exception in chat_completion: {inner_e}")
             import traceback

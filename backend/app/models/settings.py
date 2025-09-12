@@ -144,34 +144,26 @@ class SettingInstance(Base):
         if definition_id:
             query = query.where(cls.definition_id == definition_id)
         if scope:
-            # Try direct SQL query first for case-insensitive comparison
+            # Prefer ORM with enum conversion so encrypted columns decrypt automatically
             try:
-                # Fall back to direct SQL query which can handle case-insensitive comparison
-                logger.info(f"Using direct SQL query for case-insensitive scope comparison")
-                # Note: get_all now returns dictionaries instead of SettingInstance objects
-                return await cls.get_all(db, definition_id, scope, user_id, page_id)
-            except Exception as e:
-                logger.error(f"Error in direct SQL query: {e}")
-                # If direct SQL fails, try with enum conversion as a fallback
-                try:
-                    # Try to find the matching enum value (case-insensitive)
-                    enum_scope = None
+                enum_scope = None
+                if isinstance(scope, SettingScope):
+                    enum_scope = scope
+                elif isinstance(scope, str):
                     for s in SettingScope:
                         if s.value.lower() == scope.lower():
                             enum_scope = s
                             break
-                    
-                    if enum_scope:
-                        logger.info(f"Converted scope '{scope}' to enum value '{enum_scope}'")
-                        query = query.where(cls.scope == enum_scope)
-                    else:
-                        logger.warning(f"Could not convert scope '{scope}' to enum value")
-                        # Return empty list if we can't find a matching enum
-                        return []
-                except Exception as e:
-                    logger.error(f"Error converting scope: {e}")
-                    # Return empty list if there's an error
-                    return []
+                if enum_scope:
+                    logger.info(f"Converted scope '{scope}' to enum value '{enum_scope}' for ORM query")
+                    query = query.where(cls.scope == enum_scope)
+                else:
+                    logger.warning(f"Could not convert scope '{scope}' to enum; falling back to direct SQL query")
+                    # Fallback to direct SQL (returns dictionaries; may bypass decryption)
+                    return await cls.get_all(db, definition_id, scope, user_id, page_id)
+            except Exception as e:
+                logger.error(f"Error applying scope filter via ORM: {e}; falling back to direct SQL query")
+                return await cls.get_all(db, definition_id, scope, user_id, page_id)
         if user_id:
             query = query.where(cls.user_id == user_id)
         if page_id:
