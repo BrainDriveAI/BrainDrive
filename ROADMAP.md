@@ -73,7 +73,7 @@ Our roadmap is broken into clearly defined versions, each building toward a stab
 > Goal: Outstanding issues 
 
 - [x] Unified Dynamic Page Renderer - Bounce
-- [ ] Unified Dynamic Page Renderer - Caching
+- [x] Unified Dynamic Page Renderer - Caching
 - [ ] Unified Dynamic Page Renderer - Responsiveness
 
 ---
