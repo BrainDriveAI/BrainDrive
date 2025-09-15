@@ -664,13 +664,21 @@ async def get_all_models(
                 
                 print(f"Processing provider: {provider}")
                 
-                # Get settings for this provider
+                # Get settings for this provider (prefer ORM; fallback to direct SQL if none)
                 settings = await SettingInstance.get_all_parameterized(
                     db,
                     definition_id=settings_id,
                     scope=SettingScope.USER.value,
                     user_id=user_id
                 )
+                if not settings or len(settings) == 0:
+                    print(f"ORM returned no settings for {provider}; falling back to direct SQL")
+                    settings = await SettingInstance.get_all(
+                        db,
+                        definition_id=settings_id,
+                        scope=SettingScope.USER.value,
+                        user_id=user_id
+                    )
                 
                 if not settings or len(settings) == 0:
                     print(f"No settings found for {provider}")
