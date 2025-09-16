@@ -83,11 +83,11 @@ async def install_and_run_required_services(
                 required_vars = service_dto.required_env_vars
 
                 # --- Prerequisite Check ---
-                check_required_env_vars(
-                    service_name=name,
-                    required_vars=required_vars,
-                    root_env_path=root_env_path
-                )
+                # check_required_env_vars(
+                #     service_name=name,
+                #     required_vars=required_vars,
+                #     root_env_path=root_env_path
+                # )
                 
                 target_dir = base_services_dir / f"{plugin_slug}_{name}"
                 
@@ -239,11 +239,11 @@ async def install_plugin_service(service_data: PluginServiceRuntimeDTO, plugin_s
     required_vars = service_data.required_env_vars or []
     
     # Prerequisite Check
-    check_required_env_vars(
-        service_name=service_data.name,
-        required_vars=required_vars,
-        root_env_path=Path(os.getcwd()) / ".env"
-    )
+    # check_required_env_vars(
+    #     service_name=service_data.name,
+    #     required_vars=required_vars,
+    #     root_env_path=Path(os.getcwd()) / ".env"
+    # )
     
     if service_type == 'python':
         await install_python_service(service_data, target_dir)
