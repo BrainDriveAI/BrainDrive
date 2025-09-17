@@ -697,6 +697,56 @@ class ApiService extends AbstractBaseService {
       });
     });
   }
+
+  // Simple SSE GET helper for endpoints like /install/{task_id}/events
+  public async getSse(
+    path: string,
+    onMessage?: (data: string) => void
+  ): Promise<void> {
+    const baseURL = this.api.defaults.baseURL || '';
+    const url = `${baseURL}${path}`;
+    const token = localStorage.getItem('accessToken');
+
+    return new Promise<void>((resolve, reject) => {
+      fetchEventSource(url, {
+        method: 'GET',
+        headers: {
+          'Accept': 'text/event-stream',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        openWhenHidden: true,
+        async onopen(response: Response): Promise<void> {
+          const type = response.headers.get('content-type') || '';
+          // Debug log SSE handshake
+          try { console.debug('SSE GET open:', { status: response.status, type }); } catch {}
+          if (!response.ok || !type.includes('text/event-stream')) {
+            // Surface response text for debugging
+            try { console.error('SSE GET unexpected response', response.status, await response.text()); } catch {}
+            reject(new Error(`Unexpected response: ${response.status} ${type}`));
+            return Promise.resolve();
+          }
+          return Promise.resolve();
+        },
+        onmessage: (event) => {
+          if (event.data) {
+            try {
+              onMessage?.(event.data);
+            } catch (e) {
+              console.warn('SSE onMessage handler error:', e);
+            }
+          }
+        },
+        onerror: (err) => {
+          try { console.error('SSE GET error:', err); } catch {}
+          reject(err);
+        },
+        onclose: () => {
+          try { console.debug('SSE GET closed'); } catch {}
+          resolve();
+        }
+      });
+    });
+  }
   
   
 
