@@ -26,6 +26,7 @@ import {
   Tooltip,
   Alert,
   CircularProgress,
+  Collapse,
 } from '@mui/material';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import LanguageIcon from '@mui/icons-material/Language';
@@ -33,6 +34,8 @@ import StorageIcon from '@mui/icons-material/Storage';
 import AddIcon from '@mui/icons-material/Add';
 import CloseIcon from '@mui/icons-material/Close';
 import SettingsIcon from '@mui/icons-material/Settings';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import { useTheme } from '../contexts/ServiceContext';
 import { getAllModules, getModuleById } from '../plugins';
 import { DynamicModuleConfig } from '../types/index';
@@ -82,6 +85,12 @@ const Settings = () => {
 	const [existingSettings, setExistingSettings] = useState<SettingsData[]>([]);
 	const [isLoading, setIsLoading] = useState<boolean>(true);
 	const [error, setError] = useState<string | null>(null);
+
+	// Collapsed state per plugin panel
+	const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+	const pluginKey = (p: SettingsPlugin) => `${p.pluginId}-${p.moduleId}`;
+	const toggleCollapsed = (key: string) =>
+		setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
 
 	// Handle theme change
 	const handleThemeChange = () => {
@@ -382,6 +391,34 @@ const Settings = () => {
 		);
 	}, [activePlugins, selectedCategory]);
 
+	// Count of active plugins per category for display in Category dropdown
+	const activeCountByCategory = useMemo(() => {
+		const m: Record<string, number> = {};
+		activePlugins.forEach((p) => {
+			m[p.category] = (m[p.category] || 0) + 1;
+		});
+		return m;
+	}, [activePlugins]);
+
+	// Ensure default collapsed state: new plugin panels start collapsed
+	useEffect(() => {
+		setCollapsed((prev) => {
+			const next: Record<string, boolean> = { ...prev };
+			// Add defaults for new active plugins
+			activePlugins.forEach((p) => {
+				const key = pluginKey(p);
+				if (next[key] === undefined) next[key] = true; // collapsed by default
+			});
+			// Clean up keys for plugins no longer active
+			Object.keys(next).forEach((k) => {
+				if (!activePlugins.some((p) => pluginKey(p) === k)) {
+					delete next[k];
+				}
+			});
+			return next;
+		});
+	}, [activePlugins]);
+
 	// Add a plugin to the active list
 	const handleAddPlugin = () => {
 		if (!selectedPlugin) return;
@@ -446,12 +483,15 @@ const Settings = () => {
                 id="category-select"
                 value={selectedCategory}
                 label="Category"
+                renderValue={(value) =>
+                  `${value as string} (${activeCountByCategory[value as string] || 0})`
+                }
                 onChange={(e) => setSelectedCategory(e.target.value)}
                 disabled={isLoading || categories.length === 0}
               >
                 {categories.map((category) => (
                   <MenuItem key={category} value={category}>
-                    {category}
+                    {category} ({activeCountByCategory[category] || 0})
                   </MenuItem>
                 ))}
               </Select>
@@ -522,33 +562,51 @@ const Settings = () => {
                     title={plugin.displayName}
                     subheader={`Priority: ${plugin.priority}`}
                     action={
-                      <Tooltip title="Remove">
-                        <IconButton 
-                          aria-label="remove" 
-                          onClick={() => handleRemovePlugin(plugin)}
-                          size="small"
-                        >
-                          <CloseIcon />
-                        </IconButton>
-                      </Tooltip>
+                      <>
+                        <Tooltip title={collapsed[pluginKey(plugin)] ? 'Expand' : 'Collapse'}>
+                          <IconButton
+                            aria-label="toggle"
+                            aria-expanded={!collapsed[pluginKey(plugin)]}
+                            onClick={() => toggleCollapsed(pluginKey(plugin))}
+                            size="small"
+                          >
+                            {collapsed[pluginKey(plugin)] ? (
+                              <ExpandMoreIcon />
+                            ) : (
+                              <ExpandLessIcon />
+                            )}
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Remove">
+                          <IconButton 
+                            aria-label="remove" 
+                            onClick={() => handleRemovePlugin(plugin)}
+                            size="small"
+                          >
+                            <CloseIcon />
+                          </IconButton>
+                        </Tooltip>
+                      </>
                     }
                     avatar={<SettingsIcon />}
                   />
-                  <CardContent sx={{ flexGrow: 1, overflow: 'auto', minHeight: '200px' }}>
-                    <LegacyModuleAdapter
-                      pluginId={plugin.pluginId}
-                      moduleId={plugin.moduleId}
-                      moduleName={plugin.moduleName}
-                      isLocal={false}
-                      useUnifiedRenderer={true}
-                      mode="published"
-                      lazyLoading={true}
-                      priority="normal"
-                      enableMigrationWarnings={process.env.NODE_ENV === 'development'}
-                      fallbackStrategy="on-error"
-                      performanceMonitoring={process.env.NODE_ENV === 'development'}
-                    />
-                  </CardContent>
+                  <Collapse in={!collapsed[pluginKey(plugin)]} timeout="auto" unmountOnExit>
+                    <CardContent sx={{ flexGrow: 1, overflow: 'auto', minHeight: '200px' }}>
+                      <LegacyModuleAdapter
+                        pluginId={plugin.pluginId}
+                        moduleId={plugin.moduleId}
+                        moduleName={plugin.moduleName}
+                        isLocal={false}
+                        useUnifiedRenderer={true}
+                        mode="published"
+                        lazyLoading={true}
+                        priority="normal"
+                        enableMigrationWarnings={process.env.NODE_ENV === 'development'}
+                        fallbackStrategy="on-error"
+                        performanceMonitoring={process.env.NODE_ENV === 'development'}
+                      />
+                    </CardContent>
+                  </Collapse>
                 </Card>
               </Grid>
             ))
