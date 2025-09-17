@@ -219,6 +219,11 @@ Reports/
 # Plugin Workspace
 PluginBuild/
 Template/
+s
+# App Workspace
+AppBuild/
+Template/
+
 
 # Specific report files
 unused-report.txt
