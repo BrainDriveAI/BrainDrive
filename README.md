@@ -54,7 +54,6 @@ Build for yourself, build for the user-owned AI community, build for customers. 
 
   * Frontend: React + TypeScript + Material UI
   * Backend: Python + FastAPI + SQLite
-  * Core Plugins: Essential system plugins
 
 **Plugin Ecosystem** (separate repos):
 
