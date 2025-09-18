@@ -32,7 +32,6 @@ import DarkModeIcon from '@mui/icons-material/DarkMode';
 import LanguageIcon from '@mui/icons-material/Language';
 import StorageIcon from '@mui/icons-material/Storage';
 import AddIcon from '@mui/icons-material/Add';
-import CloseIcon from '@mui/icons-material/Close';
 import SettingsIcon from '@mui/icons-material/Settings';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
@@ -446,19 +445,6 @@ const Settings = () => {
 		}
 	};
 
-	// Remove a plugin from the active list
-	const handleRemovePlugin = (pluginToRemove: SettingsPlugin) => {
-		const updatedActivePlugins = activePlugins.filter(
-			(plugin) =>
-				!(
-					plugin.pluginId === pluginToRemove.pluginId &&
-					plugin.moduleId === pluginToRemove.moduleId
-				)
-		);
-
-		setActivePlugins(updatedActivePlugins);
-	};
-
   return (
     <Box sx={{ width: '100%', p: 2 }}>
       <Typography variant="h4" gutterBottom>
@@ -562,31 +548,20 @@ const Settings = () => {
                     title={plugin.displayName}
                     subheader={`Priority: ${plugin.priority}`}
                     action={
-                      <>
-                        <Tooltip title={collapsed[pluginKey(plugin)] ? 'Expand' : 'Collapse'}>
-                          <IconButton
-                            aria-label="toggle"
-                            aria-expanded={!collapsed[pluginKey(plugin)]}
-                            onClick={() => toggleCollapsed(pluginKey(plugin))}
-                            size="small"
-                          >
-                            {collapsed[pluginKey(plugin)] ? (
-                              <ExpandMoreIcon />
-                            ) : (
-                              <ExpandLessIcon />
-                            )}
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Remove">
-                          <IconButton 
-                            aria-label="remove" 
-                            onClick={() => handleRemovePlugin(plugin)}
-                            size="small"
-                          >
-                            <CloseIcon />
-                          </IconButton>
-                        </Tooltip>
-                      </>
+                      <Tooltip title={collapsed[pluginKey(plugin)] ? 'Expand' : 'Collapse'}>
+                        <IconButton
+                          aria-label="toggle"
+                          aria-expanded={!collapsed[pluginKey(plugin)]}
+                          onClick={() => toggleCollapsed(pluginKey(plugin))}
+                          size="small"
+                        >
+                          {collapsed[pluginKey(plugin)] ? (
+                            <ExpandMoreIcon />
+                          ) : (
+                            <ExpandLessIcon />
+                          )}
+                        </IconButton>
+                      </Tooltip>
                     }
                     avatar={<SettingsIcon />}
                   />
