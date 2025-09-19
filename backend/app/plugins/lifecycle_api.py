@@ -9,7 +9,7 @@ based on their slug, providing a unified interface for plugin management.
 Now includes remote plugin installation from GitHub repositories.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, status, File, UploadFile, Form
+from fastapi import APIRouter, HTTPException, Depends, status, File, UploadFile, Form, Body, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Dict, Any, Optional, Union
 from pathlib import Path
@@ -419,6 +419,50 @@ remote_installer = RemotePluginInstaller()
 # Import actual dependencies from BrainDrive
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.models.user import User
+from app.plugins.service_installler.plugin_service_manager import restart_plugin_services
+
+
+@router.post("/{plugin_slug}/services/restart")
+async def restart_plugin_service(
+    plugin_slug: str,
+    background_tasks: BackgroundTasks,
+    payload: dict = Body(...),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Restart one or all plugin services using DB-stored environment variables.
+    Requires plugin_slug, definition_id and user_id (body).
+    """
+    service_name = payload.get("service_name")
+    definition_id = payload.get("definition_id")
+    user_id = payload.get("user_id")
+
+    # If user_id is specified but no current user, require authentication
+    if user_id and not current_user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required to access user settings"
+        )
+
+    # If user_id is 'current', use the current user's ID
+    if user_id == "current" and current_user:
+        user_id = str(current_user.id)
+        logger.info(f"Using current user ID: {user_id}")
+    elif user_id == "current" and not current_user:
+        logger.warning("User ID 'current' specified but no current user available")
+        # Return empty list if no current user is available
+        return []
+
+    if not definition_id:
+        raise HTTPException(status_code=400, detail="definition_id is required")
+    
+    async def restart_task():
+        await restart_plugin_services(plugin_slug, definition_id, user_id, service_name)
+
+    background_tasks.add_task(restart_task)
+    return {"success": True, "message": "Restart initiated in the background"}
+
 
 # Local plugin management endpoints
 @router.post("/{plugin_slug}/install")

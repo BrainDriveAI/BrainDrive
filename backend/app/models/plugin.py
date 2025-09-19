@@ -198,6 +198,7 @@ class PluginServiceRuntime(Base):
     install_command = Column(Text)
     start_command = Column(Text)
     healthcheck_url = Column(String)
+    definition_id = Column(String)
     required_env_vars = Column(Text)  # store as JSON string
     status = Column(String, default="pending")
 
@@ -224,6 +225,7 @@ class PluginServiceRuntime(Base):
             "install_command": self.install_command,
             "start_command": self.start_command,
             "healthcheck_url": self.healthcheck_url,
+            "definition_id": self.definition_id,
             "required_env_vars": json.loads(self.required_env_vars) if self.required_env_vars else [],
             "status": self.status,
             "user_id": self.user_id,

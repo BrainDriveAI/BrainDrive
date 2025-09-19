@@ -1,9 +1,58 @@
 import structlog
 from app.core.database import get_db
 from app.plugins.repository import PluginRepository
-from app.plugins.service_installler.plugin_service_manager import start_plugin_services, stop_plugin_services
+from app.plugins.service_installler.plugin_service_manager import (
+    start_plugin_services,
+    stop_plugin_services,
+    restart_plugin_services,
+)
 
 logger = structlog.get_logger()
+
+async def start_plugin_services_from_settings_on_startup():
+    """This is invoked automatically during backend startup/restart to ensure plugin
+    services are restarted with environment variables sourced from DB settings"""
+    try:
+        logger.info("Starting plugin service runtimes...")
+        
+        async for db in get_db():
+            repo = PluginRepository(db)
+            service_runtimes = await repo.get_all_service_runtimes()
+
+            if not service_runtimes:
+                logger.info("No plugin services found in the database to start.")
+                return
+            
+            logger.info(f"Found {len(service_runtimes)} service runtimes to start")
+
+            groups = {}
+            for runtime in service_runtimes:
+                key = (runtime.plugin_slug, runtime.definition_id, runtime.user_id)
+                groups.setdefault(key, []).append(runtime)
+
+            for (plugin_slug, definition_id, user_id), runtimes in groups.items():
+                try:
+                    logger.info(
+                        f"Restarting {len(runtimes)} service(s) "
+                        f"for plugin '{plugin_slug}' with settings '{definition_id}' "
+                        f"(user_id={user_id})"
+                    )
+                    await restart_plugin_services(
+                        plugin_slug,
+                        definition_id,
+                        user_id=user_id
+                    )
+                except Exception as service_error:
+                    logger.error(
+                        f"Failed to restart services for plugin '{plugin_slug}' "
+                        f"(definition_id={definition_id}, user_id={user_id}): {service_error}"
+                    )
+                    continue
+            
+            break
+            
+    except Exception as e:
+        logger.error(f"Error starting plugin services: {e}")
 
 async def start_plugin_services_on_startup():
     """Start all plugin service runtimes on application startup."""
