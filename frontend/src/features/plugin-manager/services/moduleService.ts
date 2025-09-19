@@ -412,6 +412,7 @@ export class ModuleService {
   async checkForUpdates(): Promise<any[]> {
     try {
       const response = await this.apiService.get('/api/v1/plugins/updates/available');
+      console.debug('[ModuleService] checkForUpdates response', response);
       return response.data?.available_updates || [];
     } catch (error) {
       console.error('Failed to check for updates:', error);
@@ -424,3 +425,4 @@ export class ModuleService {
 export const moduleService = ModuleService.getInstance();
 
 export default moduleService;
+
