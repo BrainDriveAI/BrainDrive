@@ -11,16 +11,18 @@ import {
 import { useNavigate } from 'react-router-dom';
 import ExtensionIcon from '@mui/icons-material/Extension';
 import SettingsIcon from '@mui/icons-material/Settings';
-import BuildIcon from '@mui/icons-material/Build'; // Icon for Plugin Manager
+import BuildIcon from '@mui/icons-material/Build';
 import { useAuth } from '../contexts/AuthContext';
+import { PluginUpdatesPanel, usePluginUpdateFeed } from '../features/plugin-manager';
 
 const Dashboard = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const updateFeed = usePluginUpdateFeed();
 
   const cards = [
     {
-      title: 'BrainDrive Studio',
+      title: 'Page Builder',
       description: 'Create and manage your plugins',
       icon: <ExtensionIcon sx={{ fontSize: 40 }} />,
       path: '/plugin-studio',
@@ -53,7 +55,7 @@ const Dashboard = () => {
         </Typography>
       </Paper>
 
-      <Grid container spacing={3}>
+      <Grid container spacing={3} sx={{ mb: 3 }}>
         {cards.map((card) => (
           <Grid item xs={12} sm={6} md={4} key={card.title}>
             <Card>
@@ -87,6 +89,24 @@ const Dashboard = () => {
             </Card>
           </Grid>
         ))}
+      </Grid>
+
+      <Grid container spacing={3}>
+        <Grid item xs={12} md={6}>
+          <PluginUpdatesPanel
+            updates={updateFeed.updates}
+            status={updateFeed.status}
+            error={updateFeed.error}
+            lastChecked={updateFeed.lastChecked}
+            isUpdatingAll={updateFeed.isUpdatingAll}
+            batchProgress={updateFeed.batchProgress}
+            onUpdate={(pluginId) => void updateFeed.triggerUpdate(pluginId)}
+            onUpdateAll={() => void updateFeed.triggerUpdateAll()}
+            onRefresh={() => void updateFeed.refresh()}
+            onDismiss={updateFeed.dismiss}
+            onRetry={() => void updateFeed.retry()}
+          />
+        </Grid>
       </Grid>
     </Box>
   );
