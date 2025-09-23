@@ -77,7 +77,7 @@ Look at [/backend/.env-dev](https://github.com/BrainDriveAI/BrainDrive-Core/blob
 In the **first terminal window**:
 
 ```bash
-cd BrainDrive-Core/backend
+cd backend
 uvicorn main:app --host localhost --port 8005
 ```
 
@@ -88,7 +88,7 @@ uvicorn main:app --host localhost --port 8005
 In the **second terminal window**:
 
 ```bash
-cd BrainDrive-Core/frontend
+cd frontend
 npm install
 ```
 
@@ -147,14 +147,14 @@ conda activate BrainDriveDev
 ### 3️⃣ Start the Backend Server
 
 ```bash
-cd BrainDrive-Core/backend
+cd backend
 uvicorn main:app --reload --host localhost --port 8005
 ```
 
 ### 4️⃣ Start the Frontend Server
 
 ```bash
-cd BrainDrive-Core/frontend
+cd frontend
 npm run dev
 ```
 
