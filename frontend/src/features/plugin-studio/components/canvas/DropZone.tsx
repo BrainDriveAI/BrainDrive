@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
 import { Box, Snackbar, Alert } from '@mui/material';
 import { usePluginStudio } from '../../hooks';
-import { useLayout } from '../../hooks/layout/useLayout';
-import { usePlugins } from '../../hooks/plugin/usePlugins';
 import { DragData } from '../../types';
 import { VIEW_MODE_LAYOUTS } from '../../constants';
 
@@ -17,11 +15,8 @@ interface DropZoneProps {
  * @returns The drop zone component
  */
 export const DropZone: React.FC<DropZoneProps> = ({ children, onNewItem }) => {
-  const { viewMode, currentPage, savePage } = usePluginStudio();
-  const { getModuleById } = usePlugins();
-  const { addItem } = useLayout(currentPage, getModuleById);
+  const { viewMode, currentPage, savePage, addItem } = usePluginStudio();
   const [isDragOver, setIsDragOver] = useState(false);
-  const [newItemId, setNewItemId] = useState<string | null>(null);
   const [warningOpen, setWarningOpen] = useState(false);
   
   /**
@@ -145,9 +140,6 @@ export const DropZone: React.FC<DropZoneProps> = ({ children, onNewItem }) => {
         }
       }, viewMode.type === 'custom' ? 'desktop' : viewMode.type);
       
-      // Set the new item ID for animation
-      setNewItemId(uniqueId);
-      
       // Notify parent component about the new item
       if (onNewItem) {
         onNewItem(uniqueId);
@@ -155,8 +147,6 @@ export const DropZone: React.FC<DropZoneProps> = ({ children, onNewItem }) => {
       
       // Clear the new item ID after animation completes
       setTimeout(() => {
-        setNewItemId(null);
-        
         // Notify parent component that animation is complete
         if (onNewItem) {
           onNewItem(null);

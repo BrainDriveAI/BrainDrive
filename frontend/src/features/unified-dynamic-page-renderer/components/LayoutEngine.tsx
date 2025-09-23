@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Responsive, WidthProvider } from 'react-grid-layout';
-import { useTheme, Box } from '@mui/material';
+import { useTheme, Box, Chip } from '@mui/material';
 import { RenderMode, ResponsiveLayouts, LayoutItem, ModuleConfig } from '../types';
 import { ModuleRenderer } from './ModuleRenderer';
 import { LegacyModuleAdapter } from '../adapters/LegacyModuleAdapter';
@@ -25,6 +25,7 @@ export interface LayoutEngineProps {
   onItemRemove?: (itemId: string) => void;
   onItemSelect?: (itemId: string) => void;
   onItemConfig?: (itemId: string) => void;
+  useSafeCommitSetters?: boolean;
 }
 
 const defaultGridConfig = {
@@ -47,6 +48,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   onItemRemove,
   onItemSelect,
   onItemConfig,
+  useSafeCommitSetters = false,
 }) => {
   const theme = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -61,6 +63,8 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   
   // Phase 1: Add debug mode flag
   const isDebugMode = import.meta.env.VITE_LAYOUT_DEBUG === 'true';
+  const layoutGracePeriod = Number(import.meta.env.VITE_LAYOUT_GRACE_PERIOD ?? 150);
+  const userCommitDelayMs = Math.min(layoutGracePeriod, 40);
   
   // A2: Implement Controller State
   // Double-buffer refs for layout state
@@ -235,9 +239,39 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   
   // Debounced commit timer ref
   const commitTimerRef = useRef<NodeJS.Timeout | null>(null);
-  
+  const awaitingCommitSetterRef = useRef<React.Dispatch<React.SetStateAction<boolean>> | null>(null);
+  const commitHighlightSetterRef = useRef<React.Dispatch<React.SetStateAction<string | null>> | null>(null);
+  const pendingAwaitingCommitRef = useRef<boolean | null>(null);
+  const pendingHighlightRef = useRef<string | null>(null);
+
+  const setIsAwaitingCommitSafe = useCallback((value: boolean) => {
+    if (!useSafeCommitSetters) {
+      setIsAwaitingCommit(value);
+      return;
+    }
+
+    if (awaitingCommitSetterRef.current) {
+      awaitingCommitSetterRef.current(value);
+    } else {
+      pendingAwaitingCommitRef.current = value;
+    }
+  }, [useSafeCommitSetters]);
+
+  const setCommitHighlightSafe = useCallback((value: string | null) => {
+    if (!useSafeCommitSetters) {
+      setCommitHighlightId(value);
+      return;
+    }
+
+    if (commitHighlightSetterRef.current) {
+      commitHighlightSetterRef.current(value);
+    } else {
+      pendingHighlightRef.current = value;
+    }
+  }, [useSafeCommitSetters]);
+
   // Unified commit function for all operations
-  const commitLayoutChanges = useCallback((finalLayout?: any, finalAllLayouts?: any, breakpoint?: string) => {
+  const commitLayoutChanges = useCallback(async (finalLayout?: any, finalAllLayouts?: any, breakpoint?: string, activeItemId?: string) => {
     if (!ENABLE_LAYOUT_CONTROLLER_V2) {
       logControllerState('COMMIT_SKIPPED', {
         reason: 'Controller disabled'
@@ -383,38 +417,121 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       layoutsPresent: !!layouts,
       currentState: controllerStateRef.current
     });
-    
-    // Transition to commit state
+
+    if (activeItemId) {
+      if (typeof setCommitHighlightSafe === 'function') {
+        setCommitHighlightSafe(activeItemId);
+      } else {
+        setCommitHighlightId(activeItemId);
+      }
+      if (commitHighlightTimeoutRef.current) {
+        clearTimeout(commitHighlightTimeoutRef.current);
+      }
+      commitHighlightTimeoutRef.current = setTimeout(() => {
+        if (typeof setCommitHighlightSafe === 'function') {
+          setCommitHighlightSafe(null);
+        } else {
+          setCommitHighlightId(null);
+        }
+        commitHighlightTimeoutRef.current = null;
+      }, 400);
+    }
+
     transitionToState('commit', { version });
-    
-    // Create origin with version
+
     const origin: LayoutChangeOrigin = {
       source: controllerStateRef.current === 'resizing' ? 'user-resize' : 'user-drag',
       version,
       timestamp: Date.now(),
       operationId: currentOperationId.current || `commit-${Date.now()}`
     };
-    
-    // Persist the changes
-    unifiedLayoutState.updateLayouts(layouts, origin);
-    
-    // Update canonical buffer
+
+    const debounceMs = origin.source.startsWith('user-') ? Math.min(userCommitDelayMs, 20) : undefined;
+
+    unifiedLayoutState.updateLayouts(layouts, origin, { debounceMs });
+
     canonicalLayoutsRef.current = JSON.parse(JSON.stringify(layouts));
-    
-    // Transition back to idle after a short delay
-    setTimeout(() => {
-      transitionToState('idle', { version, source: 'commit_complete' });
-      logControllerState('COMMIT_COMPLETE', { version, hash });
-      
-      // Phase 1: Log commit completion
-      if (isDebugMode) {
-        console.log(`[LayoutEngine] Commit complete v${version} hash:${hash}`);
+
+    const commitStart = performance.now();
+    const flushPromise = unifiedLayoutState.flush();
+    const safetyWindowMs = Math.max(layoutGracePeriod * 2, 600);
+
+    if (typeof setIsAwaitingCommitSafe === 'function') {
+      setIsAwaitingCommitSafe(true);
+    } else {
+      setIsAwaitingCommit(true);
+    }
+
+    let flushTimedOut = false;
+    let flushError: unknown = null;
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+    const timeoutPromise = new Promise<void>((resolve) => {
+      timeoutHandle = setTimeout(() => {
+        flushTimedOut = true;
+        resolve();
+      }, safetyWindowMs);
+    });
+
+    try {
+      await Promise.race([
+        flushPromise.catch(error => {
+          flushError = error;
+          return Promise.reject(error);
+        }),
+        timeoutPromise
+      ]);
+
+      if (!flushTimedOut) {
+        try {
+          await flushPromise;
+        } catch (error) {
+          flushError = error;
+        }
       }
-    }, 50);
-  }, [ENABLE_LAYOUT_CONTROLLER_V2, unifiedLayoutState, logControllerState, transitionToState, isDebugMode]);
+    } catch (error) {
+      flushError = error;
+    } finally {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+      if (typeof setIsAwaitingCommitSafe === 'function') {
+        setIsAwaitingCommitSafe(false);
+      } else {
+        setIsAwaitingCommit(false);
+      }
+
+      const flushDuration = Math.round(performance.now() - commitStart);
+      const transitionSource = flushTimedOut ? 'flush_timeout' : flushError ? 'flush_error' : 'commit_complete';
+      transitionToState('idle', { version, source: transitionSource });
+
+      if (flushTimedOut) {
+        console.warn('[LayoutEngine] Commit flush window exceeded, falling back to idle', {
+          version,
+          hash,
+          safetyWindowMs
+        });
+        logControllerState('COMMIT_FLUSH_TIMEOUT', { version, hash, safetyWindowMs });
+      } else if (flushError) {
+        console.error('[LayoutEngine] Commit flush failed', flushError);
+        logControllerState('COMMIT_FLUSH_ERROR', { version, hash, error: (flushError as Error)?.message });
+      } else {
+        logControllerState('COMMIT_COMPLETE', { version, hash, flushDuration });
+      }
+
+      if (isDebugMode) {
+        console.log(`[LayoutEngine] Commit ${transitionSource} v${version} hash:${hash}`, {
+          flushDuration,
+          flushTimedOut,
+          hasError: !!flushError,
+          debounceMs
+        });
+      }
+    }
+  }, [ENABLE_LAYOUT_CONTROLLER_V2, unifiedLayoutState, logControllerState, transitionToState, isDebugMode, layoutGracePeriod, setCommitHighlightSafe, setIsAwaitingCommitSafe, userCommitDelayMs]);
   
   // Schedule a debounced commit
-  const scheduleCommit = useCallback((delayMs: number = 150, finalLayout?: any, finalAllLayouts?: any, breakpoint?: string) => {
+  const scheduleCommit = useCallback((delayMs: number = userCommitDelayMs, finalLayout?: any, finalAllLayouts?: any, breakpoint?: string, activeItemId?: string) => {
     // Clear any existing timer
     if (commitTimerRef.current) {
       clearTimeout(commitTimerRef.current);
@@ -422,12 +539,12 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     
     // Schedule new commit
     commitTimerRef.current = setTimeout(() => {
-      commitLayoutChanges(finalLayout, finalAllLayouts, breakpoint);
       commitTimerRef.current = null;
+      void commitLayoutChanges(finalLayout, finalAllLayouts, breakpoint, activeItemId);
     }, delayMs);
     
-    logControllerState('COMMIT_SCHEDULED', { delayMs });
-  }, [commitLayoutChanges, logControllerState]);
+    logControllerState('COMMIT_SCHEDULED', { delayMs, activeItemId });
+  }, [commitLayoutChanges, logControllerState, userCommitDelayMs]);
   // ========== END PHASE C2 ==========
 
   // Local UI state
@@ -435,8 +552,43 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [isAwaitingCommit, setIsAwaitingCommit] = useState(false);
+  const [commitHighlightId, setCommitHighlightId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!useSafeCommitSetters) {
+      awaitingCommitSetterRef.current = null;
+      commitHighlightSetterRef.current = null;
+      pendingAwaitingCommitRef.current = null;
+      pendingHighlightRef.current = null;
+      return;
+    }
+
+    awaitingCommitSetterRef.current = setIsAwaitingCommit;
+    commitHighlightSetterRef.current = setCommitHighlightId;
+
+    if (pendingAwaitingCommitRef.current !== null) {
+      setIsAwaitingCommit(pendingAwaitingCommitRef.current);
+      pendingAwaitingCommitRef.current = null;
+    }
+
+    if (pendingHighlightRef.current !== null) {
+      setCommitHighlightId(pendingHighlightRef.current);
+      pendingHighlightRef.current = null;
+    }
+
+    return () => {
+      if (awaitingCommitSetterRef.current === setIsAwaitingCommit) {
+        awaitingCommitSetterRef.current = null;
+      }
+      if (commitHighlightSetterRef.current === setCommitHighlightId) {
+        commitHighlightSetterRef.current = null;
+      }
+    };
+  }, [useSafeCommitSetters, setIsAwaitingCommit, setCommitHighlightId]);
   // Stabilize module identities to avoid transient incomplete IDs during operations
   const stableIdentityRef = useRef<Map<string, { pluginId: string; moduleId: string }>>(new Map());
+  const commitHighlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { currentBreakpoint } = useBreakpoint();
 
@@ -452,6 +604,14 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     ro.observe(el);
     setContainerHeight(el.clientHeight);
     return () => ro.disconnect();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (commitHighlightTimeoutRef.current) {
+        clearTimeout(commitHighlightTimeoutRef.current);
+      }
+    };
   }, []);
 
   // Recompute on window resize to follow viewport height changes
@@ -1066,7 +1226,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   }, [unifiedLayoutState, ENABLE_LAYOUT_CONTROLLER_V2, logControllerState, currentLayouts, transitionToState]);
 
   // Handle drag stop - Enhanced with controller V2 and Phase C improvements
-  const handleDragStop = useCallback((layout: any[]) => {
+  const handleDragStop = useCallback((layout: any[], oldItem: any, newItem: any) => {
     if (currentOperationId.current) {
       const operationId = currentOperationId.current;
       
@@ -1111,7 +1271,8 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
 
         // Schedule debounced commit with final layout data and normalized breakpoint
         const normalizedBreakpoint = currentBreakpoint ? toGridAlias(currentBreakpoint) : currentBreakpoint;
-        scheduleCommit(150, layout, allLayouts, normalizedBreakpoint);
+        const activeItemId = newItem?.i || oldItem?.i || null;
+        scheduleCommit(userCommitDelayMs, layout, allLayouts, normalizedBreakpoint, activeItemId || undefined);
       }
       
       unifiedLayoutState.stopOperation(currentOperationId.current);
@@ -1124,7 +1285,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       }, 200);
     }
     setIsDragging(false);
-  }, [unifiedLayoutState, ENABLE_LAYOUT_CONTROLLER_V2, transitionToState, scheduleCommit]);
+  }, [unifiedLayoutState, ENABLE_LAYOUT_CONTROLLER_V2, transitionToState, scheduleCommit, userCommitDelayMs]);
 
   // Handle resize start - Enhanced with controller V2 and Phase C improvements
   const handleResizeStart = useCallback(() => {
@@ -1247,7 +1408,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
         // Schedule debounced commit with final layout data
         // Pass a normalized grid alias for breakpoint to maximize compatibility
         const normalizedBreakpoint = currentBreakpoint ? toGridAlias(currentBreakpoint) : currentBreakpoint;
-        scheduleCommit(150, layout, allLayouts, normalizedBreakpoint);
+        scheduleCommit(userCommitDelayMs, layout, allLayouts, normalizedBreakpoint, newItem?.i);
       }
       
       unifiedLayoutState.stopOperation(operationId);
@@ -1272,7 +1433,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     }
     setIsResizing(false);
     debugLog('RESIZE STATE SET TO FALSE');
-  }, [unifiedLayoutState, debugLog, ENABLE_LAYOUT_CONTROLLER_V2, transitionToState, scheduleCommit, currentBreakpoint]);
+  }, [unifiedLayoutState, debugLog, ENABLE_LAYOUT_CONTROLLER_V2, transitionToState, scheduleCommit, currentBreakpoint, userCommitDelayMs]);
   // ========== END PHASE C3 ==========
 
   // Handle drag over for drop zone functionality
@@ -1518,22 +1679,15 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
 
   // Create ultra-stable module map with deep comparison
   const stableModuleMapRef = useRef<Record<string, ModuleConfig>>({});
-  
+
   const moduleMap = useMemo(() => {
-    const newModuleMap = modules.reduce((map, module) => {
+    const nextMap = modules.reduce<Record<string, ModuleConfig>>((map, module) => {
       map[module.id] = module;
       return map;
-    }, {} as Record<string, ModuleConfig>);
-    
-    // Only update if the actual content has changed (deep comparison)
-    const currentHash = JSON.stringify(stableModuleMapRef.current);
-    const newHash = JSON.stringify(newModuleMap);
-    
-    if (currentHash !== newHash) {
-      stableModuleMapRef.current = newModuleMap;
-    }
-    
-    return stableModuleMapRef.current;
+    }, {});
+
+    stableModuleMapRef.current = nextMap;
+    return nextMap;
   }, [modules]);
 
   // Render grid items - Use displayedLayouts instead of currentLayouts
@@ -1554,6 +1708,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     return currentLayout.map((item: LayoutItem) => {
       // Try to find the module by moduleId with multiple strategies
       let module = moduleMap[item.moduleId];
+      const isCommitHighlighted = commitHighlightId === item.i;
       
       // If direct lookup fails, try a conservative fallback only (avoid cross-binding by pluginId)
       let resolvedVia: 'direct' | 'sanitized' | 'fallback' | 'none' = module ? 'direct' : 'none';
@@ -1649,7 +1804,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
         return (
           <Box
             key={item.i}
-            className={`layout-item react-grid-item ${isSelected ? 'layout-item--selected selected' : ''} ${isStudioMode ? 'layout-item--studio' : ''}`}
+            className={`layout-item react-grid-item ${isSelected ? 'layout-item--selected selected' : ''} ${isStudioMode ? 'layout-item--studio' : ''} ${isCommitHighlighted ? 'layout-item--commit-highlight' : ''}`}
             onClick={() => handleItemClick(item.i)}
             data-grid={item}
             sx={{
@@ -1659,6 +1814,10 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
               borderRadius: showControls ? 1 : 0,
               overflow: 'hidden',
               transition: 'background-color 0.3s ease, border-color 0.3s ease',
+              ...(isCommitHighlighted && {
+                borderColor: theme.palette.success.main,
+                boxShadow: `0 0 0 2px ${theme.palette.success.main}33`
+              }),
               ...(isSelected && {
                 borderColor: theme.palette.primary.main,
                 boxShadow: `0 0 0 2px ${theme.palette.primary.main}20`
@@ -1710,7 +1869,7 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       return (
         <Box
           key={item.i}
-          className={`layout-item react-grid-item ${isSelected ? 'layout-item--selected selected' : ''} ${isStudioMode ? 'layout-item--studio' : ''}`}
+          className={`layout-item react-grid-item ${isSelected ? 'layout-item--selected selected' : ''} ${isStudioMode ? 'layout-item--studio' : ''} ${isCommitHighlighted ? 'layout-item--commit-highlight' : ''}`}
           onClick={() => handleItemClick(item.i)}
           data-grid={item}
           sx={{
@@ -1720,6 +1879,10 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
             borderRadius: showControls ? 1 : 0,
             overflow: 'hidden',
             transition: 'background-color 0.3s ease, border-color 0.3s ease',
+            ...(isCommitHighlighted && {
+              borderColor: theme.palette.success.main,
+              boxShadow: `0 0 0 2px ${theme.palette.success.main}33`
+            }),
             ...(isSelected && {
               borderColor: theme.palette.primary.main,
               boxShadow: `0 0 0 2px ${theme.palette.primary.main}20`
@@ -1895,7 +2058,8 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     currentBreakpoint,
     moduleMap,
     selectedItem,
-    mode
+    mode,
+    commitHighlightId
     // Removed volatile dependencies: lazyLoading, preloadPlugins, callbacks
     // These don't affect the core rendering logic and cause unnecessary recalculations
   ]);
@@ -1907,7 +2071,27 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
+      style={{ position: 'relative' }}
     >
+      {isAwaitingCommit && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 12,
+            right: 12,
+            zIndex: 1200,
+            pointerEvents: 'none',
+            display: 'flex'
+          }}
+        >
+          <Chip
+            label="Saving layout…"
+            size="small"
+            color="info"
+            sx={{ fontWeight: 600, boxShadow: 2, opacity: 0.9 }}
+          />
+        </Box>
+      )}
       {/* Centering wrapper to keep the grid balanced on wide screens */}
       {(() => {
         const activeLayout =

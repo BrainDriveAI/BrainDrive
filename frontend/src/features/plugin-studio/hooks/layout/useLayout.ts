@@ -1,6 +1,17 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { Layouts, LayoutItem, GridItem, Page } from '../../types';
 
+const USER_LAYOUT_ORIGINS = new Set(['user-drag', 'user-resize', 'drop-add']);
+
+type LayoutChangeMetadata = {
+  version?: number;
+  hash?: string;
+  origin?: {
+    source?: string;
+    [key: string]: unknown;
+  } | null;
+};
+
 /**
  * Custom hook for managing layouts
  * @param initialPage The initial page to get layouts from
@@ -56,14 +67,52 @@ export const useLayout = (
    */
   // Use refs to track layout changes and prevent rapid successive updates
   const lastProcessedLayoutRef = useRef<string | null>(null);
-  const pendingLayoutRef = useRef<{ layout: any[], newLayouts: Layouts } | null>(null);
+  const pendingLayoutRef = useRef<{ layout: any[]; newLayouts: Layouts; metadata?: LayoutChangeMetadata } | null>(null);
   const layoutUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isResizingRef = useRef(false);
   const resizeEndTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const pagePersistTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingPersistLayoutsRef = useRef<Layouts | null>(null);
   
-  const processLayoutChange = useCallback((layout: any[], newLayouts: Layouts) => {
-    
-    
+  const commitLayoutsToPage = useCallback((validatedLayouts: Layouts) => {
+    if (!initialPage) {
+      return;
+    }
+
+    const layoutsCopy = JSON.parse(JSON.stringify(validatedLayouts));
+    initialPage.layouts = layoutsCopy;
+
+    if (initialPage.content) {
+      initialPage.content.layouts = layoutsCopy;
+    }
+  }, [initialPage]);
+
+  const schedulePagePersistence = useCallback((validatedLayouts: Layouts, { immediate } = { immediate: false }) => {
+    pendingPersistLayoutsRef.current = validatedLayouts;
+
+    if (pagePersistTimeoutRef.current) {
+      clearTimeout(pagePersistTimeoutRef.current);
+      pagePersistTimeoutRef.current = null;
+    }
+
+    if (immediate) {
+      commitLayoutsToPage(validatedLayouts);
+      pendingPersistLayoutsRef.current = null;
+      return;
+    }
+
+    pagePersistTimeoutRef.current = setTimeout(() => {
+      if (pendingPersistLayoutsRef.current) {
+        commitLayoutsToPage(pendingPersistLayoutsRef.current);
+        pendingPersistLayoutsRef.current = null;
+      }
+      pagePersistTimeoutRef.current = null;
+    }, 120);
+  }, [commitLayoutsToPage]);
+
+  const processLayoutChange = useCallback((_layout: any[], newLayouts: Layouts, options?: { metadata?: LayoutChangeMetadata; forcePersist?: boolean }) => {
+
+
     // Track performance metrics
     performanceMetricsRef.current.lastUpdate = Date.now();
     
@@ -115,24 +164,13 @@ export const useLayout = (
     
     // Validate the layouts
     const validatedLayouts = validateLayouts(newLayouts);
-    
+
     // Update state with validated layouts
     setLayouts(validatedLayouts);
-    
-    // If initialPage is provided, update its layouts as well
-    if (initialPage) {
-      // Create a deep copy for the page object
-      const layoutsCopy = JSON.parse(JSON.stringify(validatedLayouts));
-      initialPage.layouts = layoutsCopy;
-      
-      // Also update content.layouts if it exists
-      if (initialPage.content) {
-        initialPage.content.layouts = layoutsCopy;
-      }
-    }
-  }, [initialPage]);
-  
-  const handleLayoutChange = useCallback((layout: any[], newLayouts: Layouts, metadata?: { version?: number; hash?: string; origin?: any }) => {
+    schedulePagePersistence(validatedLayouts, { immediate: options?.forcePersist ?? false });
+  }, [schedulePagePersistence]);
+
+  const handleLayoutChange = useCallback((layout: any[], newLayouts: Layouts, metadata?: LayoutChangeMetadata) => {
     // Phase 1: Log layout change event
     if (isDebugMode && metadata) {
       const version = metadata.version || 0;
@@ -170,39 +208,51 @@ export const useLayout = (
       return;
     }
     
-    // Store the pending layout update
-    pendingLayoutRef.current = { layout, newLayouts };
-    
-    // Clear any existing timeout
+    const originSource = metadata?.origin?.source;
+    const treatAsUserAction = USER_LAYOUT_ORIGINS.has(originSource || '') || !metadata?.origin;
+
+    if (treatAsUserAction) {
+      if (layoutUpdateTimeoutRef.current) {
+        clearTimeout(layoutUpdateTimeoutRef.current);
+        layoutUpdateTimeoutRef.current = null;
+      }
+      pendingLayoutRef.current = null;
+
+      if (newLayoutsHash === lastProcessedLayoutRef.current) {
+
+        return;
+      }
+
+      lastProcessedLayoutRef.current = newLayoutsHash;
+      processLayoutChange(layout, newLayouts, { metadata });
+      return;
+    }
+
+    // Store the pending layout update for non-user origins
+    pendingLayoutRef.current = { layout, newLayouts, metadata };
+
     if (layoutUpdateTimeoutRef.current) {
       clearTimeout(layoutUpdateTimeoutRef.current);
     }
-    
-    // Use higher debounce to prevent infinite loops
-    const debounceTime = isResizingRef.current ? 300 : 150;
-    
-    // Debounce the layout update to prevent rapid successive updates
+
     layoutUpdateTimeoutRef.current = setTimeout(() => {
       if (pendingLayoutRef.current) {
-        const { layout: pendingLayout, newLayouts: pendingNewLayouts } = pendingLayoutRef.current;
+        const { layout: pendingLayout, newLayouts: pendingNewLayouts, metadata: pendingMetadata } = pendingLayoutRef.current;
         const pendingHash = JSON.stringify(pendingNewLayouts);
-        
-        // Final duplicate check before processing
+
         if (pendingHash === lastProcessedLayoutRef.current) {
-          
+
           pendingLayoutRef.current = null;
           layoutUpdateTimeoutRef.current = null;
           return;
         }
-        
-        // Process the layout change
+
         lastProcessedLayoutRef.current = pendingHash;
-        processLayoutChange(pendingLayout, pendingNewLayouts);
-        
+        processLayoutChange(pendingLayout, pendingNewLayouts, { metadata: pendingMetadata });
         pendingLayoutRef.current = null;
       }
       layoutUpdateTimeoutRef.current = null;
-    }, debounceTime);
+    }, 120);
   }, [processLayoutChange, isDebugMode]);
   
   // Cleanup timeouts on unmount
@@ -213,6 +263,9 @@ export const useLayout = (
       }
       if (resizeEndTimeoutRef.current) {
         clearTimeout(resizeEndTimeoutRef.current);
+      }
+      if (pagePersistTimeoutRef.current) {
+        clearTimeout(pagePersistTimeoutRef.current);
       }
     };
   }, []);
@@ -595,24 +648,41 @@ export const useLayout = (
           const pendingHash = JSON.stringify(pendingNewLayouts);
           
           // Only process if it's different from the last processed layout
-          if (pendingHash !== lastProcessedLayoutRef.current) {
-            lastProcessedLayoutRef.current = pendingHash;
-            processLayoutChange(pendingLayout, pendingNewLayouts);
-          }
-          
-          pendingLayoutRef.current = null;
+        if (pendingHash !== lastProcessedLayoutRef.current) {
+          lastProcessedLayoutRef.current = pendingHash;
+          processLayoutChange(pendingLayout, pendingNewLayouts, { metadata: pendingMetadata, forcePersist: true });
         }
+
+        pendingLayoutRef.current = null;
+      }
         
+        if (pendingPersistLayoutsRef.current) {
+          commitLayoutsToPage(pendingPersistLayoutsRef.current);
+          pendingPersistLayoutsRef.current = null;
+        }
+        if (pagePersistTimeoutRef.current) {
+          clearTimeout(pagePersistTimeoutRef.current);
+          pagePersistTimeoutRef.current = null;
+        }
+
         layoutUpdateTimeoutRef.current = null;
         
         // Wait a bit to ensure the change has propagated
         setTimeout(resolve, 50);
       } else {
+        if (pendingPersistLayoutsRef.current) {
+          commitLayoutsToPage(pendingPersistLayoutsRef.current);
+          pendingPersistLayoutsRef.current = null;
+        }
+        if (pagePersistTimeoutRef.current) {
+          clearTimeout(pagePersistTimeoutRef.current);
+          pagePersistTimeoutRef.current = null;
+        }
         // No pending changes, resolve immediately
         resolve();
       }
     });
-  }, [processLayoutChange]);
+  }, [processLayoutChange, commitLayoutsToPage]);
   
   return {
     layouts,

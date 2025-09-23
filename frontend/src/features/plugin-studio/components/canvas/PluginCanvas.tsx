@@ -17,21 +17,7 @@ export const PluginCanvas: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState(false);
-  const [key, setKey] = useState(0); // Add a key to force re-render
   const [newItemId, setNewItemId] = useState<string | null>(null);
-  
-  // Log layouts whenever they change
-  useEffect(() => {
-    //console.log('PluginCanvas received layouts:', layouts);
-    if (layouts) {
-    //  console.log('Desktop layouts:', layouts.desktop);
-    //  console.log('Tablet layouts:', layouts.tablet);
-    //  console.log('Mobile layouts:', layouts.mobile);
-      
-      // Force a re-render when layouts change
-      setKey(prevKey => prevKey + 1);
-    }
-  }, [layouts]);
   
   // Handle save button click
   const handleSave = async () => {
@@ -65,11 +51,10 @@ export const PluginCanvas: React.FC = () => {
       
       <Box
         ref={containerRef}
-        sx={{ p: 3, flex: 1, overflow: 'auto' }}
+        sx={{ p: 0, flex: 1, overflow: 'auto' }}
       >
         <DropZone onNewItem={setNewItemId}>
           <GridContainer
-            key={key} // Add key to force re-render
             layouts={layouts}
             onLayoutChange={handleLayoutChange}
             onResizeStart={handleResizeStart}

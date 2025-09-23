@@ -1,5 +1,5 @@
 import { createContext } from 'react';
-import { Page, Layouts, ViewModeState, DynamicPluginConfig } from '../types';
+import { Page, Layouts, ViewModeState, DynamicPluginConfig, GridItem, LayoutItem } from '../types';
 
 /**
  * Interface for the PluginStudio context
@@ -23,7 +23,8 @@ export interface PluginStudioContextType {
   
   // Layout state
   layouts: Layouts | null;
-  handleLayoutChange: (layout: any[], newLayouts: Layouts) => void;
+  handleLayoutChange: (layout: any[], newLayouts: Layouts, metadata?: { origin?: { source?: string }; [key: string]: unknown }) => void;
+  addItem: (item: GridItem | LayoutItem, activeDeviceType: keyof Layouts) => void;
   removeItem: (id: string) => void;
   handleResizeStart: () => void;
   handleResizeStop: () => void;

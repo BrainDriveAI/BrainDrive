@@ -12,7 +12,7 @@ const ResponsiveGridLayout = WidthProvider(Responsive);
 
 interface GridContainerProps {
   layouts: Layouts | null;
-  onLayoutChange: (layout: Layout[], newLayouts: Layouts) => void;
+  onLayoutChange: (layout: Layout[], newLayouts: Layouts, metadata?: { origin?: { source?: string } }) => void;
   onResizeStart?: () => void;
   onResizeStop?: () => void;
   viewMode: ViewModeState;
@@ -35,6 +35,59 @@ export const GridContainer: React.FC<GridContainerProps> = ({
   newItemId = null
 }) => {
   const { selectedItem, setSelectedItem, previewMode } = usePluginStudio();
+  const interactionSourceRef = React.useRef<'user-drag' | 'user-resize' | 'drop-add' | null>(null);
+  const interactionResetTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelInteractionReset = React.useCallback(() => {
+    if (interactionResetTimeoutRef.current) {
+      clearTimeout(interactionResetTimeoutRef.current);
+      interactionResetTimeoutRef.current = null;
+    }
+  }, []);
+
+  const scheduleInteractionReset = React.useCallback((delay = 150) => {
+    cancelInteractionReset();
+    interactionResetTimeoutRef.current = setTimeout(() => {
+      interactionSourceRef.current = null;
+      interactionResetTimeoutRef.current = null;
+    }, delay);
+  }, [cancelInteractionReset]);
+
+  const handleDragStart = React.useCallback(() => {
+    cancelInteractionReset();
+    interactionSourceRef.current = 'user-drag';
+  }, [cancelInteractionReset]);
+
+  const handleDragStop = React.useCallback(() => {
+    scheduleInteractionReset();
+  }, [scheduleInteractionReset]);
+
+  const handleResizeStartInternal = React.useCallback(() => {
+    cancelInteractionReset();
+    interactionSourceRef.current = 'user-resize';
+    onResizeStart?.();
+  }, [cancelInteractionReset, onResizeStart]);
+
+  const handleResizeStopInternal = React.useCallback(() => {
+    onResizeStop?.();
+    scheduleInteractionReset();
+  }, [onResizeStop, scheduleInteractionReset]);
+
+  React.useEffect(() => {
+    if (newItemId) {
+      cancelInteractionReset();
+      interactionSourceRef.current = 'drop-add';
+      scheduleInteractionReset(200);
+    }
+  }, [newItemId, cancelInteractionReset, scheduleInteractionReset]);
+
+  React.useEffect(() => {
+    return () => {
+      if (interactionResetTimeoutRef.current) {
+        clearTimeout(interactionResetTimeoutRef.current);
+      }
+    };
+  }, []);
   
   /**
    * Handle item selection
@@ -90,64 +143,58 @@ export const GridContainer: React.FC<GridContainerProps> = ({
   
   // Memoize the layout change handler to prevent unnecessary re-renders
   const handleLayoutChange = React.useCallback((currentLayout: Layout[], allLayouts: ReactGridLayouts) => {
-    // Debounce rapid layout changes from React Grid Layout
-    requestAnimationFrame(() => {
-      // Convert back to our Layouts type, preserving the original GridItem properties
-      const convertLayoutArray = (layouts: Layout[] | undefined, currentLayouts: (GridItemType | LayoutItem)[] | undefined): (GridItemType | LayoutItem)[] => {
-        if (!layouts) return [];
-        
-        return layouts.map(layout => {
-          // Find the original item to preserve its properties
-          const originalItem = currentLayouts?.find(item => item.i === layout.i);
-          
-          if (originalItem) {
-            // Only update if position or size actually changed
-            if (originalItem.x === layout.x &&
-                originalItem.y === layout.y &&
-                originalItem.w === layout.w &&
-                originalItem.h === layout.h) {
-              return originalItem; // No change, return original
-            }
-            
-            // Preserve all properties but update position and size
-            return {
-              ...originalItem,
-              x: layout.x,
-              y: layout.y,
-              w: layout.w,
-              h: layout.h
-            };
-          } else {
-            // If original item not found, create a basic LayoutItem
-            return {
-              moduleUniqueId: layout.i,
-              i: layout.i,
-              x: layout.x,
-              y: layout.y,
-              w: layout.w,
-              h: layout.h
-            } as LayoutItem;
+    const convertLayoutArray = (candidateLayouts: Layout[] | undefined, currentLayouts: (GridItemType | LayoutItem)[] | undefined): (GridItemType | LayoutItem)[] => {
+      if (!candidateLayouts) return [];
+
+      return candidateLayouts.map(layout => {
+        const originalItem = currentLayouts?.find(item => item.i === layout.i);
+
+        if (originalItem) {
+          if (originalItem.x === layout.x &&
+              originalItem.y === layout.y &&
+              originalItem.w === layout.w &&
+              originalItem.h === layout.h) {
+            return originalItem;
           }
-        });
-      };
-      
-      const ourLayouts: Layouts = {
-        desktop: convertLayoutArray(allLayouts.desktop, layouts?.desktop),
-        tablet: convertLayoutArray(allLayouts.tablet, layouts?.tablet),
-        mobile: convertLayoutArray(allLayouts.mobile, layouts?.mobile)
-      };
-      
-      onLayoutChange(currentLayout, ourLayouts);
-    });
+
+          return {
+            ...originalItem,
+            x: layout.x,
+            y: layout.y,
+            w: layout.w,
+            h: layout.h
+          };
+        }
+
+        return {
+          moduleUniqueId: layout.i,
+          i: layout.i,
+          x: layout.x,
+          y: layout.y,
+          w: layout.w,
+          h: layout.h
+        } as LayoutItem;
+      });
+    };
+
+    const ourLayouts: Layouts = {
+      desktop: convertLayoutArray(allLayouts.desktop, layouts?.desktop),
+      tablet: convertLayoutArray(allLayouts.tablet, layouts?.tablet),
+      mobile: convertLayoutArray(allLayouts.mobile, layouts?.mobile)
+    };
+
+    const originSource = interactionSourceRef.current;
+    const metadata = originSource ? { origin: { source: originSource } } : undefined;
+
+    onLayoutChange(currentLayout, ourLayouts, metadata);
   }, [layouts, onLayoutChange]);
   
   return (
     <Box
       sx={{
-        border: '2px dashed rgba(0, 0, 0, 0.1)',
-        borderRadius: 2,
         minHeight: 400,
         width: viewWidth,
+        maxWidth: '100%',
         mx: 'auto'
       }}
     >
@@ -168,8 +215,10 @@ export const GridContainer: React.FC<GridContainerProps> = ({
         margin={currentViewModeConfig.margin}
         containerPadding={currentViewModeConfig.padding}
         onLayoutChange={handleLayoutChange}
-        onResizeStart={onResizeStart}
-        onResizeStop={onResizeStop}
+        onResizeStart={handleResizeStartInternal}
+        onResizeStop={handleResizeStopInternal}
+        onDragStart={handleDragStart}
+        onDragStop={handleDragStop}
         isDraggable={!previewMode}
         isResizable={!previewMode}
         compactType="vertical"
