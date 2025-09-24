@@ -438,22 +438,26 @@ async def restart_plugin_service(
     definition_id = payload.get("definition_id")
     user_id = payload.get("user_id")
 
-    # If user_id is specified but no current user, require authentication
-    if user_id and not current_user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required to access user settings"
-        )
-
-    # If user_id is 'current', use the current user's ID
-    if user_id == "current" and current_user:
-        user_id = str(current_user.id)
-        logger.info(f"Using current user ID: {user_id}")
-    elif user_id == "current" and not current_user:
-        logger.warning("User ID 'current' specified but no current user available")
-        # Return empty list if no current user is available
-        return []
-
+    # If user_id is specified, ensure it matches the current user's ID (if authenticated)
+    if user_id:
+        if user_id == "current":
+            if not current_user:
+                logger.warning("User ID 'current' specified but no current user available")
+                # Return empty list if no current user is available
+                return []
+            user_id = str(current_user.id)
+            logger.info(f"Using current user ID: {user_id}")
+        elif current_user:
+            if str(current_user.id) != str(user_id):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Cannot access settings for another user"
+                )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required to access user settings"
+            )
     if not definition_id:
         raise HTTPException(status_code=400, detail="definition_id is required")
     
