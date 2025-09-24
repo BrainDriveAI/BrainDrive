@@ -16,6 +16,9 @@ from app.plugins.service_installler.docker_manager import install_and_start_dock
 from app.plugins.service_installler.python_manager import install_python_service
 from .prerequisites import check_required_env_vars, convert_to_download_url
 
+from app.plugins.repository import PluginRepository
+from app.core.database import get_db
+
 logger = structlog.get_logger()
 
 def ensure_service_dto(
@@ -310,3 +313,57 @@ async def stop_plugin_services(services_runtime: List[PluginServiceRuntimeDTO], 
             logger.error("Failed to stop service", name=service_data.name, error=str(e))
             # Continue to the next service even if one fails
             continue
+
+
+async def restart_plugin_services(plugin_slug: str, definition_id: str, user_id: str = None, service_name: str = None):
+    """
+    Restart one or all services for a given plugin, using env vars from DB (not .env file).
+    """
+    async for db in get_db():
+        repo = PluginRepository(db)
+
+        # Get plugin id
+        plugin_data = await repo.get_plugin_by_slug(plugin_slug, user_id)
+
+        if not plugin_data:
+            # Raise a standard Python exception instead of HTTPException
+            raise ValueError(f"Plugin {plugin_slug} not found")
+
+        # Extract plugin ID
+        plugin_id = plugin_data["id"]
+
+        # Get all service runtimes for this plugin
+        service_runtimes = await repo.get_service_runtimes_by_plugin_id(plugin_id)
+        if not service_runtimes:
+            raise RuntimeError(f"No services found for plugin {plugin_id}")
+
+        # Get environment variables for this plugin's settings instance
+        env_vars = await repo.get_settings_env_vars(definition_id, user_id) or {}
+
+        results = {}
+        for service_runtime in service_runtimes:
+            if service_name and service_runtime.name != service_name:
+                continue
+
+            target_dir = Path("services_runtime") / f"{service_runtime.plugin_slug}_{service_runtime.name}"
+            service_type = service_runtime.type or "docker-compose"
+
+            try:
+                # stop first
+                if service_type == "docker-compose":
+                    await stop_docker_service(service_runtime, target_dir)
+                    await install_and_start_docker_service(
+                        service_runtime,
+                        target_dir,
+                        env_vars,
+                        service_runtime.required_env_vars or []
+                    )
+                elif service_type == "python":
+                    # implement restart logic for python service
+                    # (stop old process if tracked, then install/start again)
+                    await install_python_service(service_runtime, target_dir)
+                results[service_runtime.name] = "restarted"
+            except Exception as e:
+                results[service_runtime.name] = f"failed: {str(e)}"
+
+        return results

@@ -19,6 +19,7 @@ class PluginServiceRuntimeDTO(BaseModel):
     install_command: Optional[str] = None
     start_command: Optional[str] = None
     healthcheck_url: Optional[str] = None
+    definition_id: Optional[str] = None
     required_env_vars: List[str] = []
     status: Optional[str] = None
     user_id: str
@@ -42,6 +43,7 @@ class PluginServiceRuntimeDTO(BaseModel):
             install_command=service_dict.get('install_command'),
             start_command=service_dict.get('start_command'),
             healthcheck_url=service_dict.get('healthcheck_url'),
+            definition_id=service_dict.get('definition_id'),
             required_env_vars=service_dict.get('required_env_vars', []),
             status='installing',
             created_at=datetime.now(),

@@ -2,7 +2,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple, Union
-from sqlalchemy import select, update, delete
+from sqlalchemy import select, update, delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
@@ -124,7 +124,75 @@ class PluginRepository:
         except Exception as e:
             logger.error("Error getting service runtimes", error=str(e))
             raise
-            
+    
+    async def get_service_runtimes_by_plugin_id(self, plugin_id: str) -> List[PluginServiceRuntimeDTO]:
+        """
+        Get all service runtimes for a specific plugin by its ID.
+        Returns a list of PluginServiceRuntimeDTOs.
+        """
+        try:
+            query = select(PluginServiceRuntime).where(
+                PluginServiceRuntime.plugin_id == plugin_id,
+                PluginServiceRuntime.status.in_(["pending", "stopped", "running"])
+            )
+
+            result = await self.db.execute(query)
+            services = result.scalars().all()
+
+            return [PluginServiceRuntimeDTO(**service.to_dict()) for service in services]
+        except Exception as e:
+            logger.error(
+                "Error getting service runtimes for plugin",
+                plugin_id=plugin_id,
+                error=str(e)
+            )
+            raise
+
+    async def get_settings_env_vars(self, definition_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get environment variables from a settings instance for a given definition_id and user_id.
+
+        This method reads the `value` field from the settings_instances table,
+        parses it as JSON, and returns it as a dictionary suitable for service runtime environment variables.
+
+        Args:
+            definition_id (str): The settings definition ID.
+            user_id (str): The user ID.
+
+        Returns:
+            Optional[Dict[str, Any]]: Parsed environment variables dictionary, or None if no instance exists.
+        """
+        try:
+            result = await self.db.execute(
+                text("SELECT value FROM settings_instances WHERE definition_id = :def_id AND user_id = :user_id"),
+                {"def_id": definition_id, "user_id": user_id}
+            )
+            row = result.fetchone()
+            if not row:
+                return None
+
+            value_str = row[0]
+            try:
+                return json.loads(value_str)
+            except Exception as e:
+                logger.error(
+                    "Failed to parse settings value as JSON",
+                    value=value_str,
+                    definition_id=definition_id,
+                    user_id=user_id,
+                    error=str(e)
+                )
+                return None
+
+        except Exception as e:
+            logger.error(
+                "Error fetching settings env vars",
+                definition_id=definition_id,
+                user_id=user_id,
+                error=str(e)
+            )
+            raise
+
     async def get_plugin(self, plugin_id: str) -> Optional[Dict[str, Any]]:
         """Get a specific plugin by ID."""
         try:
