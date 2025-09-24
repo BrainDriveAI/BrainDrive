@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { RenderMode, PageData, BreakpointConfig } from '../types';
 import { ResponsiveContainer } from './ResponsiveContainer';
-import { LayoutEngine } from './LayoutEngine';
+import { StudioLayoutEngine } from './StudioLayoutEngine';
+import { DisplayLayoutEngine } from './DisplayLayoutEngine';
 import { ModeController } from './ModeController';
 import { ErrorBoundary } from './ErrorBoundary';
 import { PageProvider } from '../contexts/PageContext';
@@ -187,6 +188,20 @@ export const UnifiedPageRenderer: React.FC<UnifiedPageRendererProps> = ({
     );
   }
 
+  const engineKey = pageData?.id || pageId || route;
+  const engineCommonProps = {
+    key: engineKey,
+    layouts: pageData.layouts,
+    modules: pageData.modules,
+    lazyLoading,
+    preloadPlugins,
+    pageId: pageData.id || pageId,
+    onLayoutChange,
+    onItemSelect,
+    onItemConfig,
+    onItemRemove,
+  } as const;
+
 
   return (
     <ErrorBoundary
@@ -224,34 +239,18 @@ export const UnifiedPageRenderer: React.FC<UnifiedPageRendererProps> = ({
                   breakpoints={breakpoints}
                   containerQueries={containerQueries}
                 >
-                  <LayoutEngine
-                    key={pageData?.id || pageId || route}
-                    layouts={pageData.layouts}
-                    modules={pageData.modules}
-                    mode={currentMode}
-                    lazyLoading={lazyLoading}
-                    preloadPlugins={preloadPlugins}
-                    pageId={pageData.id || pageId}
-                    onLayoutChange={onLayoutChange}
-                    onItemSelect={onItemSelect}
-                    onItemConfig={onItemConfig}
-                    onItemRemove={onItemRemove}
-                  />
+                  {currentMode === RenderMode.STUDIO ? (
+                    <StudioLayoutEngine {...engineCommonProps} />
+                  ) : (
+                    <DisplayLayoutEngine {...engineCommonProps} mode={currentMode} />
+                  )}
                 </ResponsiveContainer>
               ) : (
-                <LayoutEngine
-                  key={pageData?.id || pageId || route}
-                  layouts={pageData.layouts}
-                  modules={pageData.modules}
-                  mode={currentMode}
-                  lazyLoading={lazyLoading}
-                  preloadPlugins={preloadPlugins}
-                  pageId={pageData.id || pageId}
-                  onLayoutChange={onLayoutChange}
-                  onItemSelect={onItemSelect}
-                  onItemConfig={onItemConfig}
-                  onItemRemove={onItemRemove}
-                />
+                currentMode === RenderMode.STUDIO ? (
+                  <StudioLayoutEngine {...engineCommonProps} />
+                ) : (
+                  <DisplayLayoutEngine {...engineCommonProps} mode={currentMode} />
+                )
               )}
             </>
           )}
