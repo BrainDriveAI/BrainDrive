@@ -23,7 +23,7 @@ export interface UnifiedLayoutState {
   isLayoutChanging: boolean;
   
   // Layout operations
-  updateLayouts: (layouts: ResponsiveLayouts, origin: LayoutChangeOrigin) => void;
+  updateLayouts: (layouts: ResponsiveLayouts, origin: LayoutChangeOrigin, options?: { debounceMs?: number }) => void;
   resetLayouts: (layouts: ResponsiveLayouts | null) => void;
   
   // Operation tracking
@@ -210,7 +210,7 @@ export function useUnifiedLayoutState(options: UnifiedLayoutStateOptions = {}): 
   }, [initialLayouts]);
 
   // Update layouts function - now stable!
-  const updateLayouts = useCallback((newLayouts: ResponsiveLayouts, origin: LayoutChangeOrigin) => {
+  const updateLayouts = useCallback((newLayouts: ResponsiveLayouts, origin: LayoutChangeOrigin, options?: { debounceMs?: number }) => {
     if (!layoutChangeManagerRef.current) {
       console.warn('[useUnifiedLayoutState] Layout change manager not initialized');
       return;
@@ -238,7 +238,7 @@ export function useUnifiedLayoutState(options: UnifiedLayoutStateOptions = {}): 
     
     // Queue the layout change with appropriate debounce key
     const debounceKey = origin.operationId || origin.source;
-    layoutChangeManagerRef.current.queueLayoutChange(newLayouts, origin, debounceKey);
+    layoutChangeManagerRef.current.queueLayoutChange(newLayouts, origin, debounceKey, options?.debounceMs);
   }, []); // Now has no dependencies - completely stable!
 
   // Reset layouts function (for page changes, etc.)

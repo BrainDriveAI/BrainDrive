@@ -30,12 +30,12 @@ class GitHubPluginInitializer(UserInitializerBase):
     # Default plugins to install for new users
     DEFAULT_PLUGINS = [
         {
-            "repo_url": "https://github.com/DJJones66/BrainDriveSettings",
+            "repo_url": "https://github.com/BrainDriveAI/BrainDrive-Settings-Plugin",
             "version": "latest",
             "name": "BrainDrive Settings"
         },
         {
-            "repo_url": "https://github.com/DJJones66/BrainDriveChat", 
+            "repo_url": "https://github.com/BrainDriveAI/BrainDrive-Chat-Plugin", 
             "version": "latest",
             "name": "BrainDrive Chat"
         }

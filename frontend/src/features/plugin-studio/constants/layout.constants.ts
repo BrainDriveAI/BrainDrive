@@ -26,8 +26,8 @@ export const VIEW_MODE_LAYOUTS: ViewModeConfigs = {
   mobile: {
     cols: 4,
     rowHeight: 50,
-    margin: [4, 4],
-    padding: [8, 8],
+    margin: [0, 0],
+    padding: [0, 0],
     defaultItemSize: {
       w: 4,
       h: 4
@@ -36,8 +36,8 @@ export const VIEW_MODE_LAYOUTS: ViewModeConfigs = {
   tablet: {
     cols: 8,
     rowHeight: 60,
-    margin: [8, 8],
-    padding: [12, 12],
+    margin: [0, 0],
+    padding: [0, 0],
     defaultItemSize: {
       w: 4,
       h: 4
@@ -46,8 +46,8 @@ export const VIEW_MODE_LAYOUTS: ViewModeConfigs = {
   desktop: {
     cols: 12,
     rowHeight: 70,
-    margin: [12, 12],
-    padding: [16, 16],
+    margin: [0, 0],
+    padding: [0, 0],
     defaultItemSize: {
       w: 3,
       h: 4
@@ -56,8 +56,8 @@ export const VIEW_MODE_LAYOUTS: ViewModeConfigs = {
   custom: {
     cols: 12,
     rowHeight: 70,
-    margin: [12, 12],
-    padding: [16, 16],
+    margin: [0, 0],
+    padding: [0, 0],
     defaultItemSize: {
       w: 3,
       h: 4
