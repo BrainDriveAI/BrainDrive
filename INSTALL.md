@@ -88,7 +88,7 @@ uvicorn main:app --host localhost --port 8005
 In the **second terminal window**:
 
 ```bash
-cd frontend
+cd BrainDrive-Core/frontend
 npm install
 ```
 
