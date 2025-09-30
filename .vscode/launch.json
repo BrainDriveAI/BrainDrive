@@ -36,8 +36,8 @@
       {
         "type": "chrome",
         "request": "launch",
-        "name": "Launch Chrome against 10.0.2.149", // SERVER_ADDRESS: Update this name if you change the address below
-        "url": "http://10.0.2.149:5173", // SERVER_ADDRESS: Update this URL with your specific IP
+        "name": "Launch Chrome against 10.1.2.149", // SERVER_ADDRESS: Update this name if you change the address below
+        "url": "http://10.1.2.149:5173", // SERVER_ADDRESS: Update this URL with your specific IP
         "webRoot": "${workspaceFolder}/frontend/src",
         "sourceMaps": true,
         "sourceMapPathOverrides": {
@@ -73,8 +73,8 @@
     ],
     "compounds": [
         {
-            "name": "Full Stack: Backend + Frontend (10.0.2.149)",
-            "configurations": ["BrainDrive Backend", "Debug Vite Dev Server", "Launch Chrome against 10.0.2.149"],
+            "name": "Full Stack: Backend + Frontend (10.1.2.149)",
+            "configurations": ["BrainDrive Backend", "Debug Vite Dev Server", "Launch Chrome against 10.1.2.149"],
             "presentation": {
                 "hidden": false,
                 "group": "fullstack",
