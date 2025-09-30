@@ -47,11 +47,15 @@ class Settings(BaseSettings):
     CORS_EXPOSE_HEADERS: List[str] = []  # e.g., ["X-Request-Id", "X-Total-Count"]
     
     # Development CORS hosts (for regex generation)
-    CORS_DEV_HOSTS: List[str] = ["localhost", "127.0.0.1", "[::1]", "10.0.2.149"]  # IPv6 support + network IP
+    CORS_DEV_HOSTS: List[str] = ["localhost", "127.0.0.1", "[::1]"]  # IPv6 support + network IP
 
     # Allowed hosts
     ALLOWED_HOSTS: List[str] = ["localhost", "127.0.0.1"]
 
+    ENCRYPTION_MASTER_KEY: str = ""
+    ENABLE_TEST_ROUTES: bool = True
+    CORS_METHODS: List[str] = ["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"]
+    CORS_HEADERS: List[str] = ["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"]
     @field_validator("CORS_ORIGINS", "CORS_EXPOSE_HEADERS", "CORS_DEV_HOSTS", mode="before")
     @classmethod
     def parse_cors_list(cls, v):
