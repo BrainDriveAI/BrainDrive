@@ -239,16 +239,18 @@ class RemotePluginInstaller:
             if install_result['success']:
                 logger.info(f"Plugin installation successful: {install_result}")
 
-                service_runtime: list = validation_result.get("service_runtime", [])
-                logger.info(f"\n\n>>>>>>>>SERVICE RUNTIME\n\n: {service_runtime}\n\n>>>>>>>>>>")
-                if service_runtime:
+                service_runtimes: list = validation_result.get("service_runtime", [])
+                logger.info(f"\n\n>>>>>>>>SERVICE RUNTIMES\n\n: {service_runtimes}\n\n>>>>>>>>>>")
+                if service_runtimes:
                     plugin_slug = validation_result["plugin_info"].get("plugin_slug")
+                    plugin_id = install_result['plugin_id']
+                    logger.info(f"PLUGIN ID: {plugin_id}\n\nUser id: {user_id}")
                     # Run service setup in background
                     asyncio.create_task(
                         install_and_run_required_services(
-                            service_runtime,
+                            service_runtimes,
                             plugin_slug,
-                            install_result['plugin_id'],
+                            plugin_id,
                             user_id
                         )
                     )
