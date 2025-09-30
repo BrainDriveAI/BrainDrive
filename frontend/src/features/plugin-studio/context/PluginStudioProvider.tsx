@@ -52,6 +52,7 @@ export const PluginStudioProvider: React.FC<{ children: React.ReactNode }> = ({ 
     removeItem,
     handleResizeStart,
     handleResizeStop,
+    addItem,
     flush: flushLayoutChanges // Phase 3: Get flush method from useLayout
   } = useLayout(currentPage, getModuleById);
   // View mode state
@@ -95,6 +96,7 @@ export const PluginStudioProvider: React.FC<{ children: React.ReactNode }> = ({ 
     removeItem,
     handleResizeStart,
     handleResizeStop,
+    addItem,
     flushLayoutChanges, // Phase 3: Add flush method to context
     
     // Plugin state
@@ -129,7 +131,7 @@ export const PluginStudioProvider: React.FC<{ children: React.ReactNode }> = ({ 
     savePage, publishPage, backupPage, restorePage, updatePage,
     
     // Layout state
-    layouts, handleLayoutChange, removeItem, handleResizeStart, handleResizeStop, flushLayoutChanges,
+    layouts, handleLayoutChange, removeItem, handleResizeStart, handleResizeStop, addItem, flushLayoutChanges,
     
     // Plugin state
     availablePlugins,

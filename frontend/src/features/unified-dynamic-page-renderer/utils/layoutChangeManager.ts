@@ -114,7 +114,8 @@ export class LayoutChangeManager {
   queueLayoutChange(
     layouts: ResponsiveLayouts,
     origin: LayoutChangeOrigin,
-    debounceKey: string = 'default'
+    debounceKey: string = 'default',
+    debounceOverride?: number
   ): void {
     const hash = generateLayoutHash(layouts);
     
@@ -132,25 +133,36 @@ export class LayoutChangeManager {
     
     const event: LayoutChangeEvent = { layouts, origin, hash };
     this.pendingChanges.set(debounceKey, event);
-    
-    // Clear existing timeout for this key
+
+    // Clear existing timeout for this key before scheduling a new one
     const existingTimeout = this.debounceTimeouts.get(debounceKey);
     if (existingTimeout) {
       clearTimeout(existingTimeout);
     }
-    
+
     // Phase 3: Create flush promise if not exists
     if (!this.flushPromise) {
       this.flushPromise = new Promise<void>((resolve) => {
         this.flushResolve = resolve;
       });
     }
-    
+
+    const isUserOrigin = origin.source === 'user-drag' || origin.source === 'user-resize' || origin.source === 'drop-add';
+    const effectiveDebounce = typeof debounceOverride === 'number'
+      ? debounceOverride
+      : (isUserOrigin ? 0 : this.debounceMs);
+
+    if (effectiveDebounce <= 0) {
+      this.debounceTimeouts.delete(debounceKey);
+      this.processPendingChange(debounceKey);
+      return;
+    }
+
     // Set new debounced timeout
     const timeout = setTimeout(() => {
       this.processPendingChange(debounceKey);
-    }, this.debounceMs);
-    
+    }, effectiveDebounce);
+
     this.debounceTimeouts.set(debounceKey, timeout);
   }
 

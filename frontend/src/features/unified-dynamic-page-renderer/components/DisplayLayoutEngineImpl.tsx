@@ -6,14 +6,14 @@ import { ModuleRenderer } from './ModuleRenderer';
 import { LegacyModuleAdapter } from '../adapters/LegacyModuleAdapter';
 import { useBreakpoint } from '../hooks/useBreakpoint';
 import { GridItemControls } from '../../plugin-studio/components/canvas/GridItemControls';
-import { useUnifiedLayoutState } from '../hooks/useUnifiedLayoutState';
-import { LayoutChangeOrigin, generateLayoutHash } from '../utils/layoutChangeManager';
+import { LayoutChangeOrigin } from '../utils/layoutChangeManager';
 import { useControlVisibility } from '../../../hooks/useControlVisibility';
-import { getLayoutCommitTracker } from '../utils/layoutCommitTracker';
+import { useDisplayLayoutController } from './display-controller/useDisplayLayoutController';
+import { useGuardedCommitQueue } from './display-controller/useGuardedCommitQueue';
 
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
-export interface LayoutEngineProps {
+export interface DisplayLayoutEngineProps {
   layouts: ResponsiveLayouts;
   modules: ModuleConfig[];
   mode: RenderMode;
@@ -36,7 +36,7 @@ const defaultGridConfig = {
   breakpoints: { xxl: 1600, xl: 1400, lg: 1024, sm: 768, xs: 0 },
 };
 
-export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
+export const DisplayLayoutEngineImpl: React.FC<DisplayLayoutEngineProps> = React.memo(({
   layouts,
   modules,
   mode,
@@ -57,538 +57,53 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   const layoutEngineRenderCount = useRef(0);
   layoutEngineRenderCount.current++;
   
-  // ========== PHASE A: VERSIONED DOUBLE-BUFFER CONTROLLER ==========
-  // A1: Add Feature Flag Support
-  const ENABLE_LAYOUT_CONTROLLER_V2 = import.meta.env.VITE_LAYOUT_CONTROLLER_V2 === 'true' || false;
-  
-  // Phase 1: Add debug mode flag
-  const isDebugMode = import.meta.env.VITE_LAYOUT_DEBUG === 'true';
-  const layoutGracePeriod = Number(import.meta.env.VITE_LAYOUT_GRACE_PERIOD ?? 150);
-  const userCommitDelayMs = Math.min(layoutGracePeriod, 40);
-  
-  // A2: Implement Controller State
-  // Double-buffer refs for layout state
-  const workingLayoutsRef = useRef<ResponsiveLayouts | null>(null);
-  const canonicalLayoutsRef = useRef<ResponsiveLayouts | null>(null);
-  
-  // Controller state machine
-  type ControllerState = 'idle' | 'resizing' | 'dragging' | 'grace' | 'commit';
-  const controllerStateRef = useRef<ControllerState>('idle');
-  
-  // Version tracking for stale update prevention
-  const lastVersionRef = useRef<number>(0);
-  
-  // Force update function for controller state changes
-  const [, forceUpdate] = useState({});
-  const triggerUpdate = useCallback(() => forceUpdate({}), []);
-  
-  // A5: Add Development Logging
-  const logControllerState = useCallback((action: string, data?: any) => {
-    if (import.meta.env.MODE === 'development' && ENABLE_LAYOUT_CONTROLLER_V2) {
-      console.log(`[LayoutController V2] ${action}`, {
-        state: controllerStateRef.current,
-        version: lastVersionRef.current,
-        workingLayouts: !!workingLayoutsRef.current,
-        canonicalLayouts: !!canonicalLayoutsRef.current,
-        timestamp: performance.now().toFixed(2),
-        ...data
-      });
-    }
-  }, [ENABLE_LAYOUT_CONTROLLER_V2]);
-  
-  // ========== PHASE C1: Complete State Machine Transitions ==========
-  // State transition function with validation and logging
-  const transitionToState = useCallback((newState: ControllerState, data?: any) => {
-    if (!ENABLE_LAYOUT_CONTROLLER_V2) return;
-    
-    const oldState = controllerStateRef.current;
-    
-    // Validate state transitions
-    const validTransitions: Record<ControllerState, ControllerState[]> = {
-      'idle': ['resizing', 'dragging'],
-      'resizing': ['grace', 'idle'], // Can abort to idle
-      'dragging': ['grace', 'idle'], // Can abort to idle
-      'grace': ['commit', 'idle'], // Can abort to idle
-      'commit': ['idle']
-    };
-    
-    if (!validTransitions[oldState].includes(newState)) {
-      logControllerState('INVALID_STATE_TRANSITION', {
-        from: oldState,
-        to: newState,
-        allowed: validTransitions[oldState],
-        ...data
-      });
-      return;
-    }
-    
-    controllerStateRef.current = newState;
-    logControllerState(`STATE_TRANSITION: ${oldState} -> ${newState}`, data);
-    
-    // Trigger re-render to update displayedLayouts
-    triggerUpdate();
-  }, [ENABLE_LAYOUT_CONTROLLER_V2, logControllerState, triggerUpdate]);
-  // ========== END PHASE C1 ==========
-  
-  // Log controller initialization
-  useEffect(() => {
-    if (ENABLE_LAYOUT_CONTROLLER_V2) {
-      logControllerState('CONTROLLER_INITIALIZED', {
-        featureFlag: ENABLE_LAYOUT_CONTROLLER_V2,
-        environment: import.meta.env.MODE
-      });
-    }
-  }, [ENABLE_LAYOUT_CONTROLLER_V2, logControllerState]);
-  // ========== END PHASE A CONTROLLER ==========
-
-  // Use unified layout state management with stable reference
-  const unifiedLayoutState = useUnifiedLayoutState({
-    initialLayouts: layouts,
-    debounceMs: 200, // Increase debounce to prevent rapid updates
-    onLayoutPersist: (persistedLayouts, origin) => {
-      onLayoutChange?.(persistedLayouts);
-    },
+  const {
+    unifiedLayoutState,
+    currentLayouts,
+    displayedLayouts,
+    ENABLE_LAYOUT_CONTROLLER_V2,
+    isDebugMode,
+    layoutGracePeriod,
+    userCommitDelayMs,
+    controllerStateRef,
+    workingLayoutsRef,
+    canonicalLayoutsRef,
+    lastVersionRef,
+    transitionToState,
+    logControllerState,
+  } = useDisplayLayoutController({
+    layouts,
+    onLayoutChange,
+    debounceMs: 200,
     onError: (error) => {
-      console.error('[LayoutEngine] Layout state error:', error);
-    }
+      console.error('[DisplayLayoutEngine] Layout state error:', error);
+    },
   });
 
-  // Create ultra-stable layouts reference using JSON comparison
-  const stableLayoutsRef = useRef<ResponsiveLayouts>({
-    mobile: [],
-    tablet: [],
-    desktop: [],
-    wide: []
+    const currentOperationId = useRef<string | null>(null);
+
+  const { scheduleCommit, isAwaitingCommit, commitHighlightId } = useGuardedCommitQueue({
+    ENABLE_LAYOUT_CONTROLLER_V2,
+    layoutGracePeriod,
+    userCommitDelayMs,
+    isDebugMode,
+    logControllerState,
+    transitionToState,
+    unifiedLayoutState,
+    workingLayoutsRef,
+    canonicalLayoutsRef,
+    lastVersionRef,
+    controllerStateRef,
+    currentOperationIdRef: currentOperationId,
+    useSafeCommitSetters,
   });
-  
-  const currentLayouts = useMemo(() => {
-    const newLayouts = unifiedLayoutState.layouts || {
-      mobile: [],
-      tablet: [],
-      desktop: [],
-      wide: []
-    };
-    
-    // Only update if the actual content has changed (deep comparison)
-    const currentHash = JSON.stringify(stableLayoutsRef.current);
-    const newHash = JSON.stringify(newLayouts);
-    
-    if (currentHash !== newHash) {
-      stableLayoutsRef.current = newLayouts;
-    }
-    
-    return stableLayoutsRef.current;
-  }, [unifiedLayoutState.layouts]);
 
-  // A3: Implement Display Logic - Controller decides what layouts to display
-  const displayedLayouts = useMemo(() => {
-    if (!ENABLE_LAYOUT_CONTROLLER_V2) {
-      return currentLayouts; // Fallback to existing logic
-    }
-    
-    const state = controllerStateRef.current;
-    
-    // During operations and grace period, show working buffer
-    if (state === 'resizing' || state === 'dragging' || state === 'grace') {
-      logControllerState('DISPLAY_WORKING_BUFFER', { state });
-      return workingLayoutsRef.current || currentLayouts;
-    }
-    
-    // When idle or committed, always prefer currentLayouts to ensure fresh data
-    // The buffers are just for operation management, not for caching page data
-    logControllerState('DISPLAY_CANONICAL_BUFFER', {
-      state,
-      usingCurrentLayouts: true
-    });
-    return currentLayouts;
-  }, [currentLayouts, ENABLE_LAYOUT_CONTROLLER_V2, logControllerState]);
-
-  // Initialize buffers when layouts change externally
-  useEffect(() => {
-    if (ENABLE_LAYOUT_CONTROLLER_V2) {
-      // Only update buffers when idle to avoid disrupting ongoing operations
-      if (controllerStateRef.current === 'idle') {
-        // Always sync buffers with current layouts when idle
-        // This ensures page changes are reflected immediately
-        // RECODE V2 BLOCK: Ensure ultrawide field exists
-        const layoutsWithUltrawide = {
-          ...currentLayouts,
-          ultrawide: currentLayouts.ultrawide || []
-        };
-        canonicalLayoutsRef.current = layoutsWithUltrawide;
-        workingLayoutsRef.current = layoutsWithUltrawide;
-        logControllerState('BUFFERS_SYNCED', {
-          source: 'external_update',
-          state: controllerStateRef.current,
-          itemCount: currentLayouts?.desktop?.length || 0,
-          hasUltrawide: !!layoutsWithUltrawide.ultrawide
-        });
-      } else {
-        // Log that we're skipping update due to ongoing operation
-        logControllerState('BUFFER_SYNC_SKIPPED', {
-          reason: 'operation_in_progress',
-          state: controllerStateRef.current
-        });
-      }
-    }
-  }, [currentLayouts, ENABLE_LAYOUT_CONTROLLER_V2, logControllerState]);
-
-  // ========== PHASE C2: Single Debounced Commit Process ==========
-  // Track operation IDs for proper state management (moved up for use in commitLayoutChanges)
-  const currentOperationId = useRef<string | null>(null);
-  
-  // Debounced commit timer ref
-  const commitTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const awaitingCommitSetterRef = useRef<React.Dispatch<React.SetStateAction<boolean>> | null>(null);
-  const commitHighlightSetterRef = useRef<React.Dispatch<React.SetStateAction<string | null>> | null>(null);
-  const pendingAwaitingCommitRef = useRef<boolean | null>(null);
-  const pendingHighlightRef = useRef<string | null>(null);
-
-  const setIsAwaitingCommitSafe = useCallback((value: boolean) => {
-    if (!useSafeCommitSetters) {
-      setIsAwaitingCommit(value);
-      return;
-    }
-
-    if (awaitingCommitSetterRef.current) {
-      awaitingCommitSetterRef.current(value);
-    } else {
-      pendingAwaitingCommitRef.current = value;
-    }
-  }, [useSafeCommitSetters]);
-
-  const setCommitHighlightSafe = useCallback((value: string | null) => {
-    if (!useSafeCommitSetters) {
-      setCommitHighlightId(value);
-      return;
-    }
-
-    if (commitHighlightSetterRef.current) {
-      commitHighlightSetterRef.current(value);
-    } else {
-      pendingHighlightRef.current = value;
-    }
-  }, [useSafeCommitSetters]);
-
-  // Unified commit function for all operations
-  const commitLayoutChanges = useCallback(async (finalLayout?: any, finalAllLayouts?: any, breakpoint?: string, activeItemId?: string) => {
-    if (!ENABLE_LAYOUT_CONTROLLER_V2) {
-      logControllerState('COMMIT_SKIPPED', {
-        reason: 'Controller disabled'
-      });
-      return;
-    }
-    
-    const version = lastVersionRef.current;
-    let layouts: ResponsiveLayouts;
-    
-    // RECODE V2 BLOCK: Use finalLayout if provided (from resize/drag stop) for accurate dimensions
-    if (finalLayout && finalAllLayouts) {
-      // Convert the final layout data to ResponsiveLayouts format
-      const convertedLayouts: ResponsiveLayouts = {
-        mobile: [],
-        tablet: [],
-        desktop: [],
-        wide: [],
-        ultrawide: []
-      };
-      // Normalize breakpoint keys from either grid (xs/sm/lg/xl/xxl) or semantic names
-      const toOurBreakpoint = (bp: string): keyof ResponsiveLayouts | undefined => {
-        const map: Record<string, keyof ResponsiveLayouts> = {
-          xs: 'mobile', sm: 'tablet', lg: 'desktop', xl: 'wide', xxl: 'ultrawide',
-          mobile: 'mobile', tablet: 'tablet', desktop: 'desktop', wide: 'wide', ultrawide: 'ultrawide'
-        };
-        return map[bp];
-      };
-      
-      // Helper: normalize an RGL layout array to include moduleId/pluginId
-      const normalizeItems = (items: any[] = []): LayoutItem[] => {
-        return (items || []).map((it: any) => {
-          const id = it?.i ?? '';
-          let pluginId = it?.pluginId;
-          if (!pluginId && typeof id === 'string' && id.includes('_')) {
-            pluginId = id.split('_')[0];
-          }
-          return {
-            i: id,
-            x: it?.x ?? 0,
-            y: it?.y ?? 0,
-            w: it?.w ?? 2,
-            h: it?.h ?? 2,
-            moduleId: it?.moduleId || id,
-            pluginId: pluginId || 'unknown',
-            minW: it?.minW,
-            minH: it?.minH,
-            isDraggable: it?.isDraggable ?? true,
-            isResizable: it?.isResizable ?? true,
-            static: it?.static ?? false,
-            config: it?.config
-          } as LayoutItem;
-        });
-      };
-
-      // Use the current breakpoint's layout from finalLayout (has the latest changes)
-      // Use the breakpoint parameter passed in
-      if (finalLayout && breakpoint) {
-        const ourBreakpoint = toOurBreakpoint(breakpoint);
-        if (ourBreakpoint) {
-          convertedLayouts[ourBreakpoint] = normalizeItems(finalLayout as any[]);
-          
-          console.log('[RECODE_V2_BLOCK] commitLayoutChanges - using finalLayout for commit', {
-            breakpoint: ourBreakpoint,
-            itemDimensions: finalLayout.map((item: any) => ({
-              id: item.i,
-              dimensions: { w: item.w, h: item.h, x: item.x, y: item.y }
-            })),
-            version,
-            timestamp: Date.now()
-          });
-        }
-      }
-      
-      // Fill in other breakpoints from finalAllLayouts
-      Object.entries(finalAllLayouts).forEach(([gridBreakpoint, gridLayout]: [string, any]) => {
-        const ourBreakpoint = toOurBreakpoint(gridBreakpoint);
-        if (ourBreakpoint && Array.isArray(gridLayout)) {
-          // Only use allLayouts if we haven't already set this breakpoint from the current layout
-          if (toOurBreakpoint(gridBreakpoint) !== toOurBreakpoint(breakpoint || '') || !finalLayout) {
-            convertedLayouts[ourBreakpoint] = normalizeItems(gridLayout as any[]);
-          }
-        }
-      });
-      
-      layouts = convertedLayouts;
-      // Also update the working buffer with the final layouts
-      workingLayoutsRef.current = convertedLayouts;
-    } else if (workingLayoutsRef.current) {
-      // Fallback to working buffer if no final layout provided
-      layouts = workingLayoutsRef.current;
-      console.log('[RECODE_V2_BLOCK] commitLayoutChanges - using workingLayoutsRef', {
-        version,
-        hasLayouts: !!workingLayoutsRef.current,
-        breakpoints: Object.keys(workingLayoutsRef.current || {}),
-        itemCounts: Object.entries(workingLayoutsRef.current || {}).map(([bp, items]) => ({
-          breakpoint: bp,
-          count: (items as any[])?.length || 0
-        })),
-        timestamp: Date.now()
-      });
-    } else {
-      console.error('[RECODE_V2_BLOCK] COMMIT SKIPPED - No layouts available!', {
-        hasWorkingBuffer: !!workingLayoutsRef.current,
-        hasCanonicalBuffer: !!canonicalLayoutsRef.current,
-        version
-      });
-      logControllerState('COMMIT_SKIPPED', {
-        reason: 'No layouts available'
-      });
-      return;
-    }
-    
-    const hash = generateLayoutHash(layouts);
-    
-    // RECODE V2 BLOCK: Enhanced commit logging
-    console.log('[RECODE_V2_BLOCK] COMMIT - About to persist layouts', {
-      version,
-      hash,
-      hasLayouts: !!layouts,
-      breakpoints: Object.keys(layouts || {}),
-      itemCounts: Object.entries(layouts || {}).map(([bp, items]) => ({
-        breakpoint: bp,
-        count: (items as any[])?.length || 0,
-        items: (items as any[])?.map((item: any) => ({
-          id: item.i,
-          dimensions: { w: item.w, h: item.h, x: item.x, y: item.y }
-        }))
-      }))
-    });
-    
-    // Phase 1: Log commit event
-    if (isDebugMode) {
-      console.log(`[LayoutEngine] Commit v${version} hash:${hash}`, {
-        source: controllerStateRef.current === 'resizing' ? 'user-resize' : 'user-drag',
-        timestamp: Date.now()
-      });
-    }
-    
-    logControllerState('COMMIT_START', {
-      version,
-      hash,
-      layoutsPresent: !!layouts,
-      currentState: controllerStateRef.current
-    });
-
-    if (activeItemId) {
-      if (typeof setCommitHighlightSafe === 'function') {
-        setCommitHighlightSafe(activeItemId);
-      } else {
-        setCommitHighlightId(activeItemId);
-      }
-      if (commitHighlightTimeoutRef.current) {
-        clearTimeout(commitHighlightTimeoutRef.current);
-      }
-      commitHighlightTimeoutRef.current = setTimeout(() => {
-        if (typeof setCommitHighlightSafe === 'function') {
-          setCommitHighlightSafe(null);
-        } else {
-          setCommitHighlightId(null);
-        }
-        commitHighlightTimeoutRef.current = null;
-      }, 400);
-    }
-
-    transitionToState('commit', { version });
-
-    const origin: LayoutChangeOrigin = {
-      source: controllerStateRef.current === 'resizing' ? 'user-resize' : 'user-drag',
-      version,
-      timestamp: Date.now(),
-      operationId: currentOperationId.current || `commit-${Date.now()}`
-    };
-
-    const debounceMs = origin.source.startsWith('user-') ? Math.min(userCommitDelayMs, 20) : undefined;
-
-    unifiedLayoutState.updateLayouts(layouts, origin, { debounceMs });
-
-    canonicalLayoutsRef.current = JSON.parse(JSON.stringify(layouts));
-
-    const commitStart = performance.now();
-    const flushPromise = unifiedLayoutState.flush();
-    const safetyWindowMs = Math.max(layoutGracePeriod * 2, 600);
-
-    if (typeof setIsAwaitingCommitSafe === 'function') {
-      setIsAwaitingCommitSafe(true);
-    } else {
-      setIsAwaitingCommit(true);
-    }
-
-    let flushTimedOut = false;
-    let flushError: unknown = null;
-    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-
-    const timeoutPromise = new Promise<void>((resolve) => {
-      timeoutHandle = setTimeout(() => {
-        flushTimedOut = true;
-        resolve();
-      }, safetyWindowMs);
-    });
-
-    try {
-      await Promise.race([
-        flushPromise.catch(error => {
-          flushError = error;
-          return Promise.reject(error);
-        }),
-        timeoutPromise
-      ]);
-
-      if (!flushTimedOut) {
-        try {
-          await flushPromise;
-        } catch (error) {
-          flushError = error;
-        }
-      }
-    } catch (error) {
-      flushError = error;
-    } finally {
-      if (timeoutHandle) {
-        clearTimeout(timeoutHandle);
-      }
-      if (typeof setIsAwaitingCommitSafe === 'function') {
-        setIsAwaitingCommitSafe(false);
-      } else {
-        setIsAwaitingCommit(false);
-      }
-
-      const flushDuration = Math.round(performance.now() - commitStart);
-      const transitionSource = flushTimedOut ? 'flush_timeout' : flushError ? 'flush_error' : 'commit_complete';
-      transitionToState('idle', { version, source: transitionSource });
-
-      if (flushTimedOut) {
-        console.warn('[LayoutEngine] Commit flush window exceeded, falling back to idle', {
-          version,
-          hash,
-          safetyWindowMs
-        });
-        logControllerState('COMMIT_FLUSH_TIMEOUT', { version, hash, safetyWindowMs });
-      } else if (flushError) {
-        console.error('[LayoutEngine] Commit flush failed', flushError);
-        logControllerState('COMMIT_FLUSH_ERROR', { version, hash, error: (flushError as Error)?.message });
-      } else {
-        logControllerState('COMMIT_COMPLETE', { version, hash, flushDuration });
-      }
-
-      if (isDebugMode) {
-        console.log(`[LayoutEngine] Commit ${transitionSource} v${version} hash:${hash}`, {
-          flushDuration,
-          flushTimedOut,
-          hasError: !!flushError,
-          debounceMs
-        });
-      }
-    }
-  }, [ENABLE_LAYOUT_CONTROLLER_V2, unifiedLayoutState, logControllerState, transitionToState, isDebugMode, layoutGracePeriod, setCommitHighlightSafe, setIsAwaitingCommitSafe, userCommitDelayMs]);
-  
-  // Schedule a debounced commit
-  const scheduleCommit = useCallback((delayMs: number = userCommitDelayMs, finalLayout?: any, finalAllLayouts?: any, breakpoint?: string, activeItemId?: string) => {
-    // Clear any existing timer
-    if (commitTimerRef.current) {
-      clearTimeout(commitTimerRef.current);
-    }
-    
-    // Schedule new commit
-    commitTimerRef.current = setTimeout(() => {
-      commitTimerRef.current = null;
-      void commitLayoutChanges(finalLayout, finalAllLayouts, breakpoint, activeItemId);
-    }, delayMs);
-    
-    logControllerState('COMMIT_SCHEDULED', { delayMs, activeItemId });
-  }, [commitLayoutChanges, logControllerState, userCommitDelayMs]);
-  // ========== END PHASE C2 ==========
-
-  // Local UI state
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
-  const [isAwaitingCommit, setIsAwaitingCommit] = useState(false);
-  const [commitHighlightId, setCommitHighlightId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!useSafeCommitSetters) {
-      awaitingCommitSetterRef.current = null;
-      commitHighlightSetterRef.current = null;
-      pendingAwaitingCommitRef.current = null;
-      pendingHighlightRef.current = null;
-      return;
-    }
-
-    awaitingCommitSetterRef.current = setIsAwaitingCommit;
-    commitHighlightSetterRef.current = setCommitHighlightId;
-
-    if (pendingAwaitingCommitRef.current !== null) {
-      setIsAwaitingCommit(pendingAwaitingCommitRef.current);
-      pendingAwaitingCommitRef.current = null;
-    }
-
-    if (pendingHighlightRef.current !== null) {
-      setCommitHighlightId(pendingHighlightRef.current);
-      pendingHighlightRef.current = null;
-    }
-
-    return () => {
-      if (awaitingCommitSetterRef.current === setIsAwaitingCommit) {
-        awaitingCommitSetterRef.current = null;
-      }
-      if (commitHighlightSetterRef.current === setCommitHighlightId) {
-        commitHighlightSetterRef.current = null;
-      }
-    };
-  }, [useSafeCommitSetters, setIsAwaitingCommit, setCommitHighlightId]);
-  // Stabilize module identities to avoid transient incomplete IDs during operations
   const stableIdentityRef = useRef<Map<string, { pluginId: string; moduleId: string }>>(new Map());
-  const commitHighlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { currentBreakpoint } = useBreakpoint();
 
@@ -604,14 +119,6 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
     ro.observe(el);
     setContainerHeight(el.clientHeight);
     return () => ro.disconnect();
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (commitHighlightTimeoutRef.current) {
-        clearTimeout(commitHighlightTimeoutRef.current);
-      }
-    };
   }, []);
 
   // Recompute on window resize to follow viewport height changes
@@ -1491,7 +998,6 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
         const committedCounts = committed ? Object.fromEntries(Object.entries(committed).map(([bp, arr]) => [bp, (arr as any[])?.length || 0])) : {};
         console.log('[AddTrace] Pre-Add State', {
           controllerState: controllerStateRef.current,
-          hasCommitTimer: !!commitTimerRef.current,
           pendingCommits: pending.length,
           lastCommit: last,
           committedCounts
@@ -1503,11 +1009,11 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
         const state = controllerStateRef.current;
         
         // If we're in grace or commit state, or have pending commits, wait for flush
-        if (state === 'grace' || state === 'commit' || commitTimerRef.current) {
+        if (state === 'grace' || state === 'commit') {
           if (isDebugMode) {
             console.log('[LayoutEngine] Awaiting flush before drop-add', {
               state,
-              hasPendingCommit: !!commitTimerRef.current
+              hasPendingCommit: false
             });
           }
           
@@ -2163,4 +1669,4 @@ export const LayoutEngine: React.FC<LayoutEngineProps> = React.memo(({
   return true; // Props are equal, prevent re-render
 });
 
-export default LayoutEngine;
+export default DisplayLayoutEngineImpl;

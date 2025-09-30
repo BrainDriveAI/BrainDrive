@@ -56,8 +56,8 @@ export const useViewMode = () => {
         return DEVICE_BREAKPOINTS.tablet;
       
       case 'desktop':
-        // Desktop view is 1200px or 90% of container width, whichever is smaller
-        return Math.min(DEVICE_BREAKPOINTS.desktop, containerWidth * 0.9);
+        // Desktop view fills the available container width while honoring the minimum
+        return Math.max(MIN_WIDTH, containerWidth);
       
       case 'custom':
       default:

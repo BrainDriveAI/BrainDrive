@@ -1,7 +1,9 @@
 // Main exports for Unified Dynamic Page Renderer
 export { UnifiedPageRenderer } from './components/UnifiedPageRenderer';
 export { ResponsiveContainer } from './components/ResponsiveContainer';
-export { LayoutEngine } from './components/LayoutEngine';
+export { LayoutEngineBase } from './components/LayoutEngineBase';
+export { StudioLayoutEngine } from './components/StudioLayoutEngine';
+export { DisplayLayoutEngine } from './components/DisplayLayoutEngine';
 export { ModuleRenderer } from './components/ModuleRenderer';
 export { ModeController } from './components/ModeController';
 export { ErrorBoundary } from './components/ErrorBoundary';
