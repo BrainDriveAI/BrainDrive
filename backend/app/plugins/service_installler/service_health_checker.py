@@ -2,7 +2,7 @@ import time
 import aiohttp
 import asyncio
 
-async def wait_for_service_health(healthcheck_url: str, timeout: int = 30) -> bool:
+async def wait_for_service_health(healthcheck_url: str, timeout: int = 100) -> bool:
     """
     Wait for a service to become healthy using async HTTP requests
     """
