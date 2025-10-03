@@ -132,7 +132,16 @@ If the frontend cannot reach the backend, confirm both servers are running and t
 
 ---
 
-## 7. Troubleshooting & Tips
+## 7. Next Steps
+
+* **Review** your BrainDrive's [Owners Manual](https://braindriveai.github.io/BrainDrive-Docs/core/OWNER_USER_GUIDE)
+* **Use** the [plugin developer quickstart guide](https://braindriveai.github.io/BrainDrive-Docs/core/PLUGIN_DEVELOPER_QUICKSTART) to build your first plugin.
+* **View** the [BrainDrive Roadmap](https://braindriveai.github.io/BrainDrive-Docs/core/ROADMAP)
+* **Join** the [BrainDrive Community](https://community.braindrive.ai/)
+
+---
+
+## 8. Troubleshooting & Tips
 
 * **Port already in use:** Stop any process occupying ports 8005 or 5173, or update the port in your `.env` files and start commands.
 * **Python packages fail to install:** Make sure `BrainDriveDev` is active and run `pip install --upgrade pip`. For system Python, install dependencies inside a virtual environment.
@@ -141,7 +150,10 @@ If the frontend cannot reach the backend, confirm both servers are running and t
 * **Security reminder:** Example secrets in the provided templates are for local development only. Replace them with strong values before deploying BrainDrive anywhere public.
 * **Directory awareness:** Always confirm you are in the correct directory (`backend` or `frontend`) before running commands. Different operating systems and terminals don’t always behave the same with relative paths, so being explicit with `cd` helps prevent confusion and errors.
 
+---
 
+## 9. Support
 
+Visit the support forum a [community.braindrive.ai](https://community.braindrive.ai). 
 
-
+We're here to build the future of user-owned AI together. 
