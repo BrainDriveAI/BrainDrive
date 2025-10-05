@@ -12,7 +12,11 @@ import traceback
 from dotenv import dotenv_values
 
 from app.dto.plugin import PluginServiceRuntimeDTO
-from app.plugins.service_installler.docker_manager import install_and_start_docker_service, stop_docker_service
+from app.plugins.service_installler.docker_manager import (
+    build_and_start_docker_service,
+    restart_docker_service,
+    stop_docker_service,
+)
 from app.plugins.service_installler.python_manager import install_python_service
 from .prerequisites import check_required_env_vars, convert_to_download_url
 
@@ -109,7 +113,7 @@ async def install_and_run_required_services(
                 if service_type == 'python':
                     await install_python_service(service, target_dir)
                 elif service_type == 'docker-compose':
-                    await install_and_start_docker_service(service_dto, target_dir, env_vars, required_vars)
+                    await build_and_start_docker_service(service_dto, target_dir, env_vars, required_vars)
                 else:
                     raise ValueError(f"Unknown service type: {service_type}")
     except Exception as e:
@@ -251,7 +255,7 @@ async def install_plugin_service(service_data: PluginServiceRuntimeDTO, plugin_s
     if service_type == 'python':
         await install_python_service(service_data, target_dir)
     elif service_type == 'docker-compose':
-        await install_and_start_docker_service(service_data, target_dir, dotenv_values(Path(os.getcwd()) / ".env"), required_vars)
+        await build_and_start_docker_service(service_data, target_dir, dotenv_values(Path(os.getcwd()) / ".env"), required_vars)
     else:
         raise ValueError(f"Unknown service type: {service_type}")
 
@@ -271,7 +275,7 @@ async def start_plugin_services(services_runtime: List[PluginServiceRuntimeDTO],
             logger.info("Attempting to start service", name=service_data.name)
             if service_type == 'docker-compose':
                 # The start_command is the same as the install command for docker
-                await install_and_start_docker_service(
+                await build_and_start_docker_service(
                     service_data,
                     target_dir,
                     dotenv_values(Path(os.getcwd()) / ".env"),
@@ -351,8 +355,9 @@ async def restart_plugin_services(plugin_slug: str, definition_id: str, user_id:
             try:
                 # stop first
                 if service_type == "docker-compose":
+                    logger.info(f"Stopping existing Docker service: {service_runtime.name}")
                     await stop_docker_service(service_runtime, target_dir)
-                    await install_and_start_docker_service(
+                    await restart_docker_service(
                         service_runtime,
                         target_dir,
                         env_vars,

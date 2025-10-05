@@ -86,7 +86,7 @@ async def check_docker_availability():
     logger.info(message)
 
 
-async def install_and_start_docker_service(
+async def build_and_start_docker_service(
     service_data: PluginServiceRuntimeDTO,
     target_dir: Path,
     env_vars: Dict[str, str],
@@ -97,6 +97,54 @@ async def install_and_start_docker_service(
     This includes checking Docker availability, writing env files, and running the service.
     """
     logger.info("Starting Docker service installation process", name=service_data.name)
+
+    await check_docker_availability()
+
+    install_command = service_data.install_command
+    start_command = service_data.start_command
+    healthcheck_url = service_data.healthcheck_url
+
+    if not install_command:
+        raise ValueError("Missing 'install_command' for Docker service.")
+    
+    if not start_command:
+        raise ValueError("Missing 'start_command' for Docker service.")
+
+    # Write environment file
+    write_env_file(target_dir, env_vars, required_vars)
+
+    # Rnu the docker compose build command
+    await _run_docker_compose_command(install_command, target_dir)
+
+    # Run the docker compose run command
+    await _run_docker_compose_command(start_command, target_dir)
+
+    # Wait for the service to become healthy
+    if healthcheck_url:
+        logger.info("Waiting for Docker service to become healthy", url=healthcheck_url)
+        if await wait_for_service_health(healthcheck_url):
+            logger.info("Docker service is healthy.")
+        else:
+            logger.error("Docker service failed to become healthy within timeout.")
+            await _run_docker_compose_command("docker compose down", target_dir)
+            raise RuntimeError("Docker service failed to become healthy.")
+    else:
+        logger.warning("No healthcheck URL provided, assuming service started successfully.")
+
+
+async def restart_docker_service(
+    service_data: PluginServiceRuntimeDTO,
+    target_dir: Path,
+    env_vars: Dict[str, str],
+    required_vars: List[str]
+):
+    """
+    Handles the startup/restart of an **already installed** Docker Compose-based service.
+    It writes the latest environment variables, starts the Docker containers,
+    and checks service health. It explicitly **avoids building images**
+    to ensure fast startup times, relying on pre-built images.
+    """
+    logger.info("Starting Docker service containers", name=service_data.name)
 
     await check_docker_availability()
 
@@ -119,7 +167,7 @@ async def install_and_start_docker_service(
             logger.info("Docker service is healthy.")
         else:
             logger.error("Docker service failed to become healthy within timeout.")
-            await _run_docker_compose_command("docker compose down", target_dir)
+            await _run_docker_compose_command("docker compose stop", target_dir)
             raise RuntimeError("Docker service failed to become healthy.")
     else:
         logger.warning("No healthcheck URL provided, assuming service started successfully.")
