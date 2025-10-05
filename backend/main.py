@@ -65,6 +65,68 @@ structlog.configure(
 # Configure structured logging
 logger = structlog.get_logger()
 
+
+def _resolve_env_candidates(env_file: str) -> list[Path]:
+    env_path = Path(env_file)
+    if env_path.is_absolute():
+        return [env_path]
+    base_dirs = [Path.cwd(), Path(__file__).resolve().parent, Path(__file__).resolve().parent.parent]
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+    for base in base_dirs:
+        candidate = (base / env_path).resolve()
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        candidates.append(candidate)
+    return candidates
+
+
+def _warn_if_env_missing() -> None:
+    env_setting = settings.model_config.get("env_file")
+    if not env_setting:
+        return
+    env_files = env_setting if isinstance(env_setting, (list, tuple)) else [env_setting]
+    found_paths: list[str] = []
+    missing_details: list[tuple[str, list[str]]] = []
+
+    for env_file in env_files:
+        candidates = _resolve_env_candidates(env_file)
+        existing = next((path for path in candidates if path.exists()), None)
+        if existing:
+            found_paths.append(str(existing))
+        else:
+            missing_details.append((env_file, [str(path) for path in candidates]))
+
+    if found_paths:
+        logger.info("Environment file detected", env_files=found_paths)
+    if missing_details:
+        for expected, locations in missing_details:
+            logger.error(
+                "Environment file not found",
+                expected=expected,
+                searched_locations=locations,
+            )
+
+
+def _enforce_encryption_key() -> None:
+    key = settings.ENCRYPTION_MASTER_KEY.strip() if settings.ENCRYPTION_MASTER_KEY else ""
+    if key:
+        if len(key) < 32:
+            logger.warning("ENCRYPTION_MASTER_KEY is shorter than 32 characters", length=len(key))
+        return
+    allowed_empty_envs = {"test"}
+    if settings.APP_ENV.lower() in allowed_empty_envs:
+        logger.warning("ENCRYPTION_MASTER_KEY is empty in test environment")
+        return
+    message = "ENCRYPTION_MASTER_KEY environment variable must be set before starting the API"
+    logger.critical(message)
+    raise RuntimeError(message)
+
+
+_warn_if_env_missing()
+_enforce_encryption_key()
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for the FastAPI application."""
