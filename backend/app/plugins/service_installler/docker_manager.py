@@ -119,7 +119,7 @@ async def install_and_start_docker_service(
             logger.info("Docker service is healthy.")
         else:
             logger.error("Docker service failed to become healthy within timeout.")
-            await _run_docker_compose_command("down", target_dir)
+            await _run_docker_compose_command("docker compose down", target_dir)
             raise RuntimeError("Docker service failed to become healthy.")
     else:
         logger.warning("No healthcheck URL provided, assuming service started successfully.")
