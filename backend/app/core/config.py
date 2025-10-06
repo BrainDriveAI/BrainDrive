@@ -1,8 +1,35 @@
 # app/core/config.py
 import json
-from typing import List, Optional
+from pathlib import Path
+from typing import List, Optional, Tuple, Union
 from pydantic_settings import BaseSettings
 from pydantic import field_validator
+
+def _env_file_candidates() -> Tuple[Union[str, Path], ...]:
+    """Build a prioritized list of .env files for cross-platform support."""
+    base_dir = Path(__file__).resolve().parent.parent
+    project_root = base_dir.parent
+    candidates: List[Union[str, Path]] = [
+        base_dir / ".env",
+        base_dir / ".env.dev",
+        base_dir / ".env.local",
+        project_root / ".env",
+        project_root / ".env.local",
+        project_root / ".env.dev",
+        ".env",  # fallback to previous behavior
+    ]
+
+    # Preserve order while removing duplicates
+    unique_candidates: List[Union[str, Path]] = []
+    seen = set()
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_candidates.append(candidate)
+    return tuple(unique_candidates)
+
 
 class Settings(BaseSettings):
     # Application
@@ -85,7 +112,7 @@ class Settings(BaseSettings):
         return v
 
     model_config = {
-        "env_file": ".env",
+        "env_file": _env_file_candidates(),
         "env_file_encoding": "utf-8",
         "case_sensitive": True,
         "extra": "ignore",
