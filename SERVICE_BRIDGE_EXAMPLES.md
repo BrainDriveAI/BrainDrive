@@ -24,7 +24,7 @@ Each service bridge has working examples with visual demonstrations and full doc
 
 **How to explore:**
 
-1. Follow the [plugin developer quick start](https://github.com/BrainDriveAI/BrainDrive/blob/main/PLUGIN_DEVELOPER_QUICKSTART.md) to get up and running
+1. Follow the [plugin developer quick start](https://github.com/BrainDriveAI/BrainDrive-Core/blob/main/PLUGIN_DEVELOPER_QUICKSTART.md) to get up and running
 2. Install any of the above service bridge examples through BrainDrive's Plugin Manager
 3. Add the demo modules to a page using drag & drop
 4. Interact with the components to see the service in action

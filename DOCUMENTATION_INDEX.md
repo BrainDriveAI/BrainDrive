@@ -2,19 +2,19 @@ Up to date list of all BrainDrive repos & corresponding documentation.
 
 ## Start here: 
 
-[Plugin Developer Quick Start Guide](https://github.com/BrainDriveAI/BrainDrive/blob/main/PLUGIN_DEVELOPER_QUICKSTART.md) - Start building plugins for your BrainDrive, fast.
+[Plugin Developer Quick Start Guide](https://github.com/BrainDriveAI/BrainDrive-Core/blob/main/PLUGIN_DEVELOPER_QUICKSTART.md) - Start building plugins for your BrainDrive, fast.
 
 ## All Docs:
 
-**[BrainDrive Core Repo](https://github.com/BrainDriveAI/BrainDrive) - Front End, Backend, and Plugin System**
+**[BrainDrive Core Repo](https://github.com/BrainDriveAI/BrainDrive-Core) - Front End, Backend, and Plugin System**
 
-* [README](https://github.com/BrainDriveAI/BrainDrive/blob/main/README.md): What BrainDrive is, how it works, & why it matters
+* [README](https://github.com/BrainDriveAI/BrainDrive-Core/blob/main/README.md): What BrainDrive is, how it works, & why it matters
 
-* [Install Guide](https://github.com/BrainDriveAI/BrainDrive/blob/main/INSTALL.md): Windows, macOS, & Linux.
+* [Install Guide](https://github.com/BrainDriveAI/BrainDrive-Core/blob/main/INSTALL.md): Windows, macOS, & Linux.
 
-* [Frontend README](https://github.com/BrainDriveAI/BrainDrive/blob/main/frontend/README.md): Architecture, stack, features, & UI dev guidelines.
+* [Frontend README](https://github.com/BrainDriveAI/BrainDrive-Core/blob/main/frontend/README.md): Architecture, stack, features, & UI dev guidelines.
 
-* [Backend README](https://github.com/BrainDriveAI/BrainDrive/blob/main/backend/README.md): Setup, API use, data ownership, & deployment.
+* [Backend README](https://github.com/BrainDriveAI/BrainDrive-Core/blob/main/backend/README.md): Setup, API use, data ownership, & deployment.
 
 
 **[BrainDrive Plugin Template Repo](https://github.com/BrainDriveAI/PluginTemplate) - Boilerplate to jumpstart your development.**

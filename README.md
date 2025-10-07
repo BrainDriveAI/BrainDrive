@@ -14,7 +14,7 @@ BrainDrive is the open source ChatGPT alternative you fully own and control. Use
 
 🚀 Ready to get started? [Install Guide](INSTALL.md)  
 
-🔨Ready to start building? [Developer Quick Start Guide](https://github.com/BrainDriveAI/BrainDrive/blob/main/PLUGIN_DEVELOPER_QUICKSTART.md)
+🔨Ready to start building? [Developer Quick Start Guide](https://docs.braindrive.ai/core/PLUGIN_DEVELOPER_QUICKSTART)
 
 ## BrainDrive Gives You:
 
@@ -99,7 +99,7 @@ Build for yourself, build for the user-owned AI community, build for customers. 
 
 ## Developer Quick Start
 
- * [Developer Quick Start Guide](https://github.com/BrainDriveAI/BrainDrive/blob/main/PLUGIN_DEVELOPER_QUICKSTART.md) - designed to get you up and running building plugins in 30 minutes or less. 
+ * [Developer Quick Start Guide](https://docs.braindrive.ai/core/PLUGIN_DEVELOPER_QUICKSTART) - designed to get you up and running building plugins in 30 minutes or less.
 
 ## Community & Support
 - [User and Developer Forum](https://community.braindrive.ai) - Get support and discuss the future of user-owned AI
