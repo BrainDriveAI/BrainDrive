@@ -1,96 +1,179 @@
-# Contributing to BrainDrive
+BrainDrive's mission is to build a superior, **user-owned** alternative to Big Tech AI systems.
 
-Welcome, and thank you for your interest in contributing to BrainDrive!
+This is why BrainDrive-Core is **MIT licensed** and built on four pillars:
 
-**BrainDrive is an open-source personal AI system designed for ownership, freedom, empowerment, and sustainability.**  
-Our mission is to make it easy for anyone to build, control, and benefit from their own AI system—free from Big Tech’s restrictions.
+1. **Ownership** — You own your AI system  
+2. **Freedom** — Your AI system is not restricted  
+3. **Empowerment** — Your AI system is easy to use, customize, and build on  
+4. **Sustainability** — Value flows to those who create it
 
-We’re early in our development journey and still laying the foundation. Right now, we’re inviting early technical users to explore, provide feedback, and help shape what’s coming next.
+If this mission resonates, we want to build with you:
+
+* [**Roadmap**](https://docs.braindrive.ai/core/ROADMAP) — our 5-phase execution plan  
+* [**GitHub Project**](https://github.com/orgs/BrainDriveAI/projects/1) — day-to-day priorities  
+* [**Community Forum**](https://community.braindrive.ai/) — discuss ideas, get support, share plugins  
+* [**Weekly dev livestream**](https://community.braindrive.ai/t/braindrive-development-progress-updates/92/33) — working sessions with the core team every Monday at 10am EST
+
+## **Ways to Contribute**
+
+### 1. Build Plugins (recommended)
+
+BrainDrive-Core provides the foundation. [Plugins](https://docs.braindrive.ai/plugins/intro) provide the **freedom:**
+
+Build whatever you want. Deploy it yourself. Share it if you choose.
+
+* **No PR required** — No waiting for maintainer approval, no merge conflicts, no coordination overhead.  
+* **You control deployment** — Host your plugin on your GitHub. Install with one click from BrainDrive's plugin manager.  
+* **Save weeks of work** — Don't rebuild authentication, chat UI, model connections, or database layers. Focus only on your features.  
+* **Your choice to share** — Keep plugins private, or share with the community. It's your choice.
+
+Want a roleplay system? An expert assistant? A custom interface? **Build it as a plugin.**
+
+Each plugin is a separate repository that loads dynamically via Webpack Module Federation. 
+
+You own the code, the repo, and the distribution. No Big Tech lockin.
+
+Ready to start building? **Start here:** [Plugin Developer QuickStart](https://docs.braindrive.ai/core/PLUGIN_DEVELOPER_QUICKSTART)
+
+### 2. Improve Core (experienced developers)
+
+Most features belong in plugins. Core contributions are the exception, not the rule.
+
+**What Belongs in Core?**
+
+* **Security** or **auth** improvements  
+* New [**Service Bridges**]()   
+* **Settings surfaces** that multiple plugins need
+
+**What Doesn't belong in Core?**
+
+* UI for your specific feature  
+* Domain logic for your use case  
+* Anything that can live in a plugin
+
+**API Contributions**
+
+Most core work is adding endpoints. Before you write custom docs:
+
+1. Check the auto-generated docs at `localhost:8005/api/v1/docs`  
+2. Look at existing [Service Bridges](https://docs.braindrive.ai/services/intro) as examples  
+3. Follow the same patterns
+
+We use standard approaches wherever possible. For example, if Ollama has a de facto standard for model communication, we use it. Same for image providers, audio providers, etc.
+
+**PR Guidelines**
+
+* **Small and focused** — one thing per PR  
+* **Link to an issue** (or create one first)  
+* **Tests/docs** if you're touching core behavior  
+* **Screenshots** for UI changes  
+* Use **Conventional Commits**: `feat(core): add ComfyUI service bridge`
+
+We'll review within 2 business days (best effort while we're small). PRs aligned with the current roadmap phase get priority.
+
+### 3. Docs, Examples & Issues
+
+* Add plain-English explanations to developer guides  
+* Contribute example personas and plugin samples  
+* File bugs with clear repro steps, environment details, and logs
+
+**Note:** We're building a one-click Debug Snapshot tool in Phase 2\. Until then, include version/commit, OS, browser, and relevant logs manually.
+
+## **Current Reality Check**
+
+We’re just now opening up to contributors. You'll be pioneering. Here's what that means:
+
+* We're currently targeting experienced developers who can work independently  
+* Limited bandwidth for hand-holding (Phase 3 of BrainDrive’s Roadmap will change this)  
+* The process will evolve based on real contributor needs  
+* Expect direct feedback, rapid iteration, learning together
+
+If you're a new developer or need mentoring, bookmark us. We'll have infrastructure to support everyone in Phase 3 of the BrainDrive Roadmap.
+
+## **Local Development**
+
+See [install guide here](https://docs.braindrive.ai/core/INSTALL). 
+
+### Quick Start
+
+\# Backend  
+cd backend  
+python3 \-m venv .venv && source .venv/bin/activate  
+pip install \-r requirements.txt  
+uvicorn main:app \--host localhost \--port 8005
+
+\# Frontend (new terminal)  
+cd frontend  
+npm install  
+cp .env.example .env  
+npm run dev
+
+**URLs:**
+
+* Frontend: http://localhost:5173  
+* API docs: http://localhost:8005/api/v1/docs (← your API reference)
+
+**When things break:** `git clean -xfd`, reinstall everything, try again.
 
 ---
 
-## 🙋‍♂️ Who Should Contribute Right Now?
+## Roadmap
 
-We're currently in a **developer beta** phase, which means we're:
-- Actively updating the core system
-- Making changes that may break early plugin or extension development
-- Prioritizing **usability**, **feedback**, and **installation experience**
+See the [full BrainDrive Roadmap here](https://docs.braindrive.ai/core/ROADMAP). 
 
-That said, if you’re technically inclined and share our vision, your help is welcome!
+Here's a brief summary of the BrainDrive roadmap phases:
 
----
+**Phase 0: License Selection \- MIT** ✓ Complete
 
-## 🔧 How You Can Help Now
+* Established MIT license to ensure user ownership and maximum freedom
 
-1. **Test the Install Process**
-   - Follow the instructions in our [Setup Guide](https://github.com/BrainDriveAI/BrainDrive/blob/main/INSTALL.md)
-   - Try getting BrainDrive running locally
-   - Note any confusing steps or issues you encounter
+**Phase 1: Foundation** (Current Focus)
 
-2. **Give Feedback**
-   - What worked?
-   - What didn’t?
-   - What would you expect or improve?
+* Cross-platform installation and first local AI chat experience with Ollama integration
 
-You can share your findings directly in our [Community Forum](https://community.braindrive.ai/t/braindrive-developer-feedback/104), where we also post weekly dev updates.
+**Phase 2: Developer Beta Release**
 
-3. **Help Others**
-   - If you get it working, share your tips and tricks in the feeback thread above.
-  
----
+* Enable developers to build custom persona-based chat experiences and plugins with enhanced documentation
 
-## 🚀 What's Coming Soon
+**Phase 3: Developer Release**
 
-We’re just getting started.
+* Polish core system with clean code, refined UX, comprehensive documentation, and bug-free stability
 
-Very soon, we’ll be opening BrainDrive up for broader contributions—both to the core system and through plugins. Whether you want to improve the software that powers every BrainDrive or build something brand new that others can use, there’s a place for you here.
+**Phase 4: V1.0 Release**
 
-In the coming weeks, we’ll share:
+* Make BrainDrive accessible to non-developers with one-click installers and GUI-based plugin marketplace
 
-- Clear contribution pathways for improving the core system
-- Tools and templates to help you build your own plugins
-- A plugin marketplace where you can share or sell what you’ve built
-- If you're an early contributor, you’re not just writing code—you’re helping shape the future of personal AI.
+**Phase 5: Community Acceleration**
 
-👉 Follow this repository for updates and be the first to know when contribution paths open up.
+* Transition to community-driven development with advanced plugin ecosystem, multi-user capabilities, and sustainable, mission-aligned business models
 
----
+Each phase builds toward the ultimate goal: a superior, user-owned alternative to Big Tech AI systems built on ownership, freedom, empowerment, and sustainability.
 
-## ⚠️ Development Warning
+## What We Need Right Now
 
-We’re actively improving core components—including the renderer and plugin system.  
-That means:
-- Features may change rapidly
-- Plugin development may be unstable
-- Internal architecture may not be final
+We’re about to move into Phase 2 of our roadmap. The goal of Phase 2 is for Developers to be able to easily build chat-based, role-playing experiences on their BrainDrive. We are looking for devs to help us:
 
-We're not quite ready for general-purpose contributions or plugin development just yet—but we're getting close.
+* Identify and report bugs across BrainDrive-Core and Default plugins  
+* Build persona-based experiences and share them  
+* Contribute to BrainDrive’s first 3 community plugins  
+* Improve documentation based on your learning journey
 
-If you'd like to be notified when the project is ready for wider contribution, keep an eye on the [Forum](https://forum.braindrive.ai) or watch this GitHub repo.
+**Use Cases We're Targeting:**
 
----
+We're focused on personal assistant experiences across diverse use cases. Think: research assistant, writing coach, domain expert consultants etc.
 
-## 🤝 Long-Term Vision
+## Communication
 
-BrainDrive LLC is currently stewarding the project. Our goal is to decentralize over time as the ecosystem matures. Eventually, we want BrainDrive to be built by its owners, builders, and entrepreneurs—not just us.
+* **Questions?** Post them in the [support forum](https://community.braindrive.ai/c/support-help/14).  
+* **Found a bug?** Create an issue on the repo. Include: version/commit, OS, minimal repro steps, logs  
+* **Security issue?** See [SECURITY.md](SECURITY.md) (private disclosure only)
 
----
+We aim to respond to issues within 1 business day.
 
-## ✨ Guiding Principles
+## License
 
-We evaluate all contributions through the lens of our four core pillars:
+All BrainDrive-Core contributions are MIT-licensed. By submitting a PR, you agree to these terms.
 
-- **Ownership** – You own your BrainDrive.
-- **Freedom** – We never introduce lock-ins or coercive restrictions
-- **Empowerment** – All documentation should make BrainDrive easier for others to use
-- **Sustainability** – We prioritize value-creating contributions that help the ecosystem thrive
+## Thank you for building with BrainDrive
 
----
-
-## 📬 Questions?
-
-Reach out in our [Forum](https://forum.braindrive.ai) or open a GitHub Issue if you’re unsure where to start.
-
-Thanks for being here. We’re building something big—and it starts with you.
-
-**Your AI. Your Rules.**
+If you're unsure whether something is a plugin or core, [ask in the forum](https://community.braindrive.ai/c/support-help/14). We'll help you ship the simplest thing that works.
