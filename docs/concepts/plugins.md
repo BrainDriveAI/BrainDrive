@@ -26,7 +26,7 @@ All under your ownership and control.
 
 ## BrainDrive 1 Click Plugin Install
 
-![Plugin Manager](../../images/images/plugin-manager.png)
+![Plugin Manager](../../images/plugin-manager.png)
 
 Installing plugins in BrainDrive is designed to be simple and fast. No complex setup, no command-line tools, no technical expertise required.
 
