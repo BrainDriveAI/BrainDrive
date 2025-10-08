@@ -12,9 +12,9 @@ BrainDrive is the open source ChatGPT alternative you fully own and control. Use
 
 **Think WordPress for AI**: Install BrainDrive → Add your plugin → Ship your AI powered feature.
 
-🚀 Ready to get started? [Install Guide](INSTALL.md)  
+🚀 Ready to get started? [Install Guide](/docs/getting-started/install.md)  
 
-🔨Ready to start building? [Developer Quick Start Guide](https://github.com/BrainDriveAI/BrainDrive/blob/main/PLUGIN_DEVELOPER_QUICKSTART.md)
+🔨Ready to start building? [Developer Quick Start Guide](/docs/getting-started/plugin-developer-quickstart.md)
 
 ## BrainDrive Gives You:
 
@@ -30,7 +30,7 @@ A page builder to create custom interfaces using your own and other publicly ava
 
 ![Page Builder](./images/page-builder-screenshot.png)
 
-A [full set of developer resources](https://github.com/BrainDriveAI/BrainDrive/blob/main/DOCUMENTATION_INDEX.md), code examples, and tutorials that make it easy to build on BrainDrive.
+A [full set of developer resources](https://docs.braindrive.ai/), code examples, and tutorials that make it easy to build on BrainDrive.
 
 Use BrainDrive as your personal AI system and/or build AI-powered products and services to offer to others. 
 
@@ -95,7 +95,7 @@ Build for yourself, build for the user-owned AI community, build for customers. 
 
 ### Installation and Setup
 
-  * [Installation Guide](INSTALL.md) - Complete instructions how to setup your BrainDrive
+  * [Installation Guide](/docs/getting-started/install.md) - Complete instructions how to setup your BrainDrive
 
 ## Developer Quick Start
 
@@ -112,10 +112,10 @@ We welcome & appreciate contributions. See [Contributing Guidelines](CONTRIBUTIN
 
 ## Documentation
 
-  * [Plugin Development Quick Start Guide](PLUGIN_DEVELOPER_QUICKSTART.md) - Start building plugins
+  * [Plugin Development Quick Start Guide](/docs/getting-started/plugin-developer-quickstart.md) - Start building plugins
   * [Plugin Template](https://github.com/BrainDriveAI/PluginTemplate) - Boilerplate
   * [Lifecycle Manager Primers](https://github.com/BrainDriveAI/PluginTemplate/tree/main/references) - Customization primers
-  * [Service Bridge Examples](https://github.com/BrainDriveAI/BrainDrive/blob/main/SERVICE_BRIDGE_EXAMPLES.md) - working examples and up to date documentation
+  * [Service Bridge Examples](/docs/how-to/use-service-bridges.md) - working examples and up to date documentation
   * [Frontend Documentation](frontend/README.md) - React application details
   * [Backend Documentation](backend/README.md) - Python API details
   * [Full Documentation Index](https://github.com/BrainDriveAI/BrainDrive/blob/main/DOCUMENTATION_INDEX.md) - Links to all repos and corresponding documentation. 
