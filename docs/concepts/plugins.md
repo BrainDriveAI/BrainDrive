@@ -4,7 +4,7 @@ Freedom from Big Tech's extractive AI platforms no longer requires building your
 
 BrainDrive-Core provides your AI system's foundation. Plugins provide the freedom.
 
-![plugin manager sidebar highlight](../../images/installing-plugin.png)
+![plugin manager sidebar highlight](../../images/plugin-manager.png)
 
 ## The 4 Pillars of BrainDrive
 
@@ -26,7 +26,7 @@ All under your ownership and control.
 
 ## BrainDrive 1 Click Plugin Install
 
-![Plugin Manager](../../images/installing-plugin.png)
+![Plugin Manager](../../images/images/plugin-manager.png)
 
 Installing plugins in BrainDrive is designed to be simple and fast. No complex setup, no command-line tools, no technical expertise required.
 
