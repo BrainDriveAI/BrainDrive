@@ -16,7 +16,7 @@ By the end of this guide you will be able to:
 
 ## Step 1: Install BrainDrive
 
-Follow the [Installation Guide](https://github.com/BrainDriveAI/BrainDrive-Core/blob/main/INSTALL.md)
+Follow the [Installation Guide](../../install.md)
 
 ## Step 2: Install the Plugin Template
 
@@ -25,17 +25,17 @@ Follow the [Installation Guide](https://github.com/BrainDriveAI/BrainDrive-Core/
 3. Click Install
 4. Wait for green success message
 
-![BrainDrive Plugin Manager](https://github.com/BrainDriveAI/BrainDrive/blob/main/images/Plugin%20Manager%20Install.png)
+![BrainDrive Plugin Manager](../../images/installing-plugin.png)
 
 ## Step 3: Test the Template
 
-1. Go to BrainDrive Studio 
+1. Go to BrainDrive Page Builder 
 2. Create New Page
 3. Drag "Plugin Template" from left panel to canvas
 4. Click Publish
 5. Navigate to your page - you should see the working plugin
 
-![BrainDrive Stuido](https://github.com/BrainDriveAI/BrainDrive/blob/main/images/Install%20Plugin%20Template.png)
+![adding the plugin template to a page](../../images/adding-plugin-template-to-page.png)
 
 ## Step 4: Set Up Fast Development Environment
 
@@ -104,12 +104,12 @@ Each bridge comes with an example plugin you can install and full documentation.
 
 | **Bridge**       | **Purpose**               | **Example Use**                        | **Learn by Doing**     |
 |------------------|---------------------------|----------------------------------------|-------------------------|
-| `API`            | Backend communication     | `await services.api.get('/data')`      | [API Example](https://github.com/DJJones66/ServiceExample_API)        |
-| `Event`          | Plugin messaging          | `services.event.emit('myEvent', data)` | [Events Example](https://github.com/DJJones66/ServiceExample_Events)     |
-| `Theme`          | Light/dark mode switching | `services.theme.getCurrentTheme()`     | [Theme Example](https://github.com/DJJones66/ServiceExample_Theme)      |
-| `Settings`       | User preferences          | `services.settings.getSetting('myKey') | [Settings Example](https://github.com/DJJones66/ServiceExample_Settings)   |
-| `Page Context`   | Current page info         | `services.pageContext.getContext()`    | [Context Example](https://github.com/DJJones66/ServiceExample_PageContext)    |
-| `Plugin State`   | Data persistence          | `services.pluginState.save(data)`      | [State Example](https://github.com/DJJones66/ServiceExample_PluginState)      |
+| `API`            | Backend communication     | `await services.api.get('/data')`      | [API Example](https://github.com/BrainDriveAI/BrainDrive-API-Service-Bridge-Example-Plugin)        |
+| `Event`          | Plugin messaging          | `services.event.emit('myEvent', data)` | [Events Example](https://github.com/BrainDriveAI/BrainDrive-Events-Service-Bridge-Example-Plugin)     |
+| `Theme`          | Light/dark mode switching | `services.theme.getCurrentTheme()`     | [Theme Example](https://github.com/BrainDriveAI/BrainDrive-Theme-Service-Bridge-Example-Plugin)      |
+| `Settings`       | User preferences          | `services.settings.getSetting('myKey') | [Settings Example](https://github.com/BrainDriveAI/BrainDrive-Settings-Service-Bridge-Example-Plugin)   |
+| `Page Context`   | Current page info         | `services.pageContext.getContext()`    | [Context Example](https://github.com/BrainDriveAI/BrainDrive-Page-Context-Service-Bridge-Example-Plugin)    |
+| `Plugin State`   | Data persistence          | `services.pluginState.save(data)`      | [State Example](https://github.com/BrainDriveAI/BrainDrive-Plugin-State-Service-Bridge-Example-Plugin)      |
 
 
 ## Step 7: Build Something Simple
