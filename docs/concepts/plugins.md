@@ -40,7 +40,7 @@ Installing plugins in BrainDrive is designed to be simple and fast. No complex s
 
 BrainDrive automatically downloads, verifies, and registers the plugin—making it available instantly without restart. You can now use your plugin to create a page in Your BrainDrive's Page Builder
 
-![Plugins in Page Builder](../../images/installing-plugin.png)
+![Plugins in Page Builder](../../images/adding-plugin-template-to-page.png)
 
 ### Safe and Reversible
 
