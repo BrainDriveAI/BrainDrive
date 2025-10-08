@@ -1,8 +1,7 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="./images/Logo Dark Mode (1).png" />
-  <source media="(prefers-color-scheme: light)" srcset="./images/Logo-Light-Mode.png" />
-  <img alt="BrainDrive Logo" src="./images/Logo-Light-Mode.png" />
-</picture>
+<p align="center">
+  <img src="./images/logo-light-mode.png#gh-light-mode-only" alt="BrainDrive Logo" />
+  <img src="./images/logo-dark-mode.png#gh-dark-mode-only"  alt="BrainDrive Logo" />
+</p>
 
 BrainDrive is the open source ChatGPT alternative you fully own and control. Use, customize, and monetize your BrainDrive however you want. No Big Tech overlords. Just your AI. Your rules.
 
