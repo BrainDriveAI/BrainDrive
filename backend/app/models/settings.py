@@ -156,7 +156,12 @@ class SettingInstance(Base):
                             break
                 if enum_scope:
                     logger.info(f"Converted scope '{scope}' to enum value '{enum_scope}' for ORM query")
-                    query = query.where(cls.scope == enum_scope)
+                    if isinstance(enum_scope, SettingScope) and enum_scope == SettingScope.USER:
+                        logger.info("Legacy data stores 'user' in lowercase; using direct SQL fallback for USER scope")
+                        return await cls.get_all(db, definition_id, scope, user_id, page_id)
+                    scope_value = enum_scope.value if isinstance(enum_scope, SettingScope) else enum_scope
+                    logger.debug(f"Filtering settings by scope value '{scope_value}'")
+                    query = query.where(cls.scope == scope_value)
                 else:
                     logger.warning(f"Could not convert scope '{scope}' to enum; falling back to direct SQL query")
                     # Fallback to direct SQL (returns dictionaries; may bypass decryption)

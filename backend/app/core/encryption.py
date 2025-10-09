@@ -208,8 +208,10 @@ class UniversalEncryptionService:
             return False
             
         try:
-            # Try to decode as base64
-            decoded = base64.b64decode(value.encode('ascii'))
+            # Strip whitespace that may legitimately surround encoded data
+            candidate = value.strip()
+            # Strict validation so JSON/plaintext does not masquerade as ciphertext
+            decoded = base64.b64decode(candidate.encode('ascii'), validate=True)
             # Encrypted values should be at least 28 bytes (12 IV + 16 tag)
             return len(decoded) >= 28
         except Exception:

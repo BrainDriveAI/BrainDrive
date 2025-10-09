@@ -470,22 +470,46 @@ async def get_models(
         print(f"Found {len(settings)} settings for user_id={user_id}")
         
         if not settings or len(settings) == 0:
+            print("ORM returned no settings; falling back to direct SQL query")
+            settings = await SettingInstance.get_all(
+                db,
+                definition_id=settings_id,
+                scope=SettingScope.USER.value,
+                user_id=user_id
+            )
+
+        if not settings or len(settings) == 0:
             raise HTTPException(status_code=404, detail=f"Provider settings not found for user_id={user_id}")
-        
+
         # Use the first setting found
         setting = settings[0]
-        
+
         # Extract configuration from settings value
-        # Parse the JSON string if value is a string
-        setting_value = setting['value'] if isinstance(setting, dict) else setting.value
-        if isinstance(setting_value, str):
-            try:
-                value_dict = json.loads(setting_value)
-            except json.JSONDecodeError:
-                raise HTTPException(status_code=400, detail="Invalid settings value format")
-        else:
+        setting_id = setting['id'] if isinstance(setting, dict) else getattr(setting, 'id', '')
+        setting_value = setting['value'] if isinstance(setting, dict) else getattr(setting, 'value', None)
+
+        if isinstance(setting_value, (dict, list)):
             value_dict = setting_value
-        
+        else:
+            raw_value = setting_value
+            try:
+                if isinstance(raw_value, str) and encryption_service.is_encrypted_value(raw_value):
+                    raw_value = encryption_service.decrypt_field('settings_instances', 'value', raw_value)
+
+                value_dict = safe_encrypted_json_parse(
+                    raw_value,
+                    context=f"provider={provider}, settings_id={settings_id}, user_id={user_id}",
+                    setting_id=setting_id,
+                    definition_id=settings_id,
+                )
+
+                if isinstance(value_dict, str):
+                    # Some legacy rows stored the API key directly as a string
+                    value_dict = {"api_key": value_dict}
+
+            except Exception as parse_err:
+                raise HTTPException(status_code=400, detail="Invalid settings value format") from parse_err
+
         print(f"Parsed settings value: {value_dict}")
         
         # Handle different provider configurations
@@ -503,7 +527,7 @@ async def get_models(
             print(f"Created OpenAI config with API key")
         elif provider == "openrouter":
             # OpenRouter uses simple api_key structure
-            api_key = value_dict.get("api_key", "")
+            api_key = value_dict.get("api_key") or value_dict.get("apiKey") or ""
             if not api_key:
                 raise HTTPException(status_code=400, detail="OpenRouter API key is required")
             

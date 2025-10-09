@@ -1,14 +1,41 @@
 """
 SQLAlchemy encrypted column type for automatic field encryption/decryption
 """
+import hashlib
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, Iterable
+from itertools import islice
 from sqlalchemy import TypeDecorator, Text
 from sqlalchemy.engine import Dialect
 
 from .encryption import encryption_service, EncryptionError
 
 logger = logging.getLogger(__name__)
+
+
+def _summarize_value(value: Any) -> str:
+    """Return a sanitised summary of a value for debug logging."""
+    try:
+        if value is None:
+            return "None"
+        if isinstance(value, str):
+            preview = value
+            if len(value) > 12:
+                preview = f"{value[:4]}…{value[-4:]}"
+            digest = hashlib.sha256(value.encode('utf-8')).hexdigest()[:8]
+            return f"str(len={len(value)},preview='{preview}',hash={digest})"
+        if isinstance(value, dict):
+            keys = list(value.keys())[:5]
+            return f"dict(keys={keys},len={len(value)})"
+        if isinstance(value, Iterable) and not isinstance(value, (bytes, bytearray, str)):
+            iterator = iter(value)
+            sample = list(islice(iterator, 3))
+            length = getattr(value, "__len__", None)
+            length_repr = length() if callable(length) else (len(value) if hasattr(value, "__len__") else "unknown")
+            return f"iterable(sample={sample},len={length_repr},type={type(value).__name__})"
+        return f"{type(value).__name__}"
+    except Exception as exc:  # pragma: no cover - defensive logging helper
+        return f"unprintable({type(value).__name__}):{exc}"
 
 class EncryptedType(TypeDecorator):
     """
@@ -66,7 +93,13 @@ class EncryptedType(TypeDecorator):
             return encrypted_value
             
         except EncryptionError as e:
-            logger.error(f"Failed to encrypt {self.table_name}.{self.field_name}: {e}")
+            logger.exception(
+                "Failed to encrypt %s.%s (storing plaintext fallback). Reason: %s | value=%s",
+                self.table_name,
+                self.field_name,
+                e,
+                _summarize_value(value),
+            )
             # In production, you might want to raise the error
             # For now, we'll store the value unencrypted as fallback
             import json
@@ -111,20 +144,43 @@ class EncryptedType(TypeDecorator):
                 return decrypted_value
             else:
                 # Value is not encrypted (legacy data or encryption disabled)
-                # Try to parse as JSON
+                logger.warning(
+                    "Expected encrypted value for %s.%s but received plaintext. value=%s",
+                    self.table_name,
+                    self.field_name,
+                    _summarize_value(value),
+                )
                 try:
                     import json
                     return json.loads(value)
                 except (json.JSONDecodeError, TypeError):
+                    try:
+                        stripped = str(value).strip()
+                        if stripped.startswith('{') or stripped.startswith('['):
+                            return json.loads(stripped)
+                    except Exception:
+                        pass
                     return value
                     
         except EncryptionError as e:
-            logger.error(f"Failed to decrypt {self.table_name}.{self.field_name}: {e}")
+            logger.exception(
+                "Failed to decrypt %s.%s. Returning raw value. Reason: %s | value=%s",
+                self.table_name,
+                self.field_name,
+                e,
+                _summarize_value(value),
+            )
             # Return the raw value as fallback
             try:
                 import json
                 return json.loads(value)
             except (json.JSONDecodeError, TypeError):
+                try:
+                    stripped = str(value).strip()
+                    if stripped.startswith('{') or stripped.startswith('['):
+                        return json.loads(stripped)
+                except Exception:
+                    pass
                 return value
 
 class EncryptedJSON(EncryptedType):
