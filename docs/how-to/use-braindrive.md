@@ -13,15 +13,15 @@ Think **WordPress but for AI**: Install BrainDrive-Core, then add or develop plu
 
 1. A web‑based Chat interface for interacting with AI models
 
-![BrainDrive chat interface with plugin manager and page builder panes](../static/img/screenshots/AI-Chat-Interface.png)
+![BrainDrive chat interface with plugin manager and page builder panes](../../images/chat-interface.png)
 
 2. A built‑in Plugin Manager to install/manage extensions
 
- ![BrainDrive Plugin Manager Screenshot](../static/img/screenshots/plugin-manager.png)
+ ![BrainDrive Plugin Manager Screenshot](../../images/plugin-manager.png)
 
 3. A Page Builder for creating custom UIs without code
 
-  ![BrainDrive Page Builder Screenshot](../static/img/screenshots/Page-Builder.png)
+  ![BrainDrive Page Builder Screenshot](../../images/Page-Builder.png)
   
  4. Example plugins, tutorials, and developer resources
 
@@ -61,11 +61,11 @@ To use the Ollama Plugin to run local AI models:
 1. Install Ollama from Ollama.com
 3. Go to BrainDrive Settings & Install Your Preferred Model(s):
 
-![BrainDrive Ollama Settings Page](../static/img/screenshots/ollama-settings-screebshot.png)
+![BrainDrive Ollama Settings Page](../../images/ollama-settings-page.png)
 
 4. Chat Locally — All conversations stay on your machine:
 
-![chatting with an Ollama model in BrainDrive](../static/img/screenshots/choosing-a-model.png)
+![chatting with an Ollama model in BrainDrive](../../images/chat-with-ollama-model.png)
 
 ### Option B: API-Based Models via BrainDrive's OpenRouter Plugin:
 
@@ -75,10 +75,10 @@ To use OpenRouter models in your BrainDrive:
 
 1. Signup at OpenRouter.com
 2. Generate an OpenRouter API Key
-![OpenRouter API key generation](../static/img/screenshots/openrouter-api-keys-page.png)
+![OpenRouter API key generation](../../images/openrouter-api-keys-page.png)
 3. Add in Settings → AI Providers 
    * Enter your API key  
- ![Enter your API key](../static/img/screenshots/adding-openrouter-api-key-to-braindrive.png)
+ ![Enter your API key](../../images/adding-openrouter-api-key-to-braindrive.png)
 4. Now your models will show in the model dropdown on your AI Chat Page
 
 ### Option C: Build Your Own Model Serving Plugin for the provider of your choice. 
@@ -87,7 +87,7 @@ To use OpenRouter models in your BrainDrive:
 * Use the BrainDrive OpenRouter plugin as a template for building another API model serving plugin for the provider of your choice.
 * Keep your plugin private or share with the BrainDrive community via the plugin marketplace.
 
-See [plugin developer quickstart guide here](https://docs.braindrive.ai/core/PLUGIN_DEVELOPER_QUICKSTART/).
+See [plugin developer quickstart guide here](https://docs.braindrive.ai/core/getting-started/plugin-developer-quickstart).
 
 ## Building Your First Custom Page
 
@@ -98,13 +98,14 @@ The **Page Builder** is where BrainDrive's modularity shines. Create task-specif
 ### Creating Your First Page
 
 1. **Navigate** to Page Builder → New Page
-3. **Name** your page (e.g., "Research Workspace")  
-4. **Add Components**:  
+2. **Name** your page (e.g., "Research Workspace")  
+3. **Add Components**:  
    * Drag a **Chat** component 
-5. **Arrange and Resize** components to fit your workflow  
-6. **Publish** your layout
+4. **Arrange and Resize** components to fit your workflow  
+5. **Publish** your layout
+6. **View** Your New Page
 
-![Building a page in BrainDrive](../static/img/screenshots/building-a-page.png)
+![Building a page in BrainDrive](../../images/building-a-page.png)
 
 ### Future Page Ideas for Different Workflows
 
@@ -126,7 +127,7 @@ BrainDrive's plugin system is designed for safety and simplicity. All plugins ar
 3. **Install**: Plugin Manager → Install Plugin → Paste URL → Confirm  
 4. **Use Components**: New components appear immediately in the Page Builder
 
-![installing a plugin in BrainDrive](../static/img/screenshots/installing-plugin.png)
+![installing a plugin in BrainDrive](../../images/installing-plugin.png)
 
 ### Plugin Management
 
@@ -145,7 +146,7 @@ Personas allow you to easily customize the behavior of the AI models you use in 
 
 Personas can be easily used across any AI chat, and allow you to control the system prompt, temperature, top P, and more. 
 
-![BrainDrive Personas](../static/img/screenshots/personas.png)
+![BrainDrive Personas](../../images/pirate-persona.png)
 
 ## Building on BrainDrive
 
@@ -165,7 +166,7 @@ BrainDrive's decoupled modular archetecture is designed so that you can make you
 * **Combine** blocks (multiple plugins working together)
 * **Share blocks** (distribute through marketplace or independently)
 
-Ready to get started building? Be up and running in minutes with BrainDrive's [Plugin Developer Quickstart Guide](https://docs.braindrive.ai/core/PLUGIN_DEVELOPER_QUICKSTART/).
+Ready to get started building? Be up and running in minutes with BrainDrive's [Plugin Developer Quickstart Guide](https://docs.braindrive.ai/core/getting-started/plugin-developer-quickstart).
 
 ## **Community and Ecosystem**
 
@@ -253,7 +254,7 @@ BrainDrive aims for a world where:
 1. **Complete Setup**: Ensure BrainDrive runs smoothly on your system  
 2. **Install Core Plugins**: Add essential functionality for your workflow  
 3. **Create Your First Custom Page**: Build a workspace that matches your needs  
-4. **Join the Community**: Connect with other owners and builders  
+4. **Join the Community**: Connect with other owners and builders: [community.braindrive.ai](community.braindrive.ai)  
 5. **Start building**: The only limit is your imagination.
 
 ## **Conclusion**
