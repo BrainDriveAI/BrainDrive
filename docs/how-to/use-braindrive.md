@@ -1,3 +1,5 @@
+# BrainDrive Owner's Manual
+
 BrainDrive is your open-source, self-hosted ChatGPT alternative that's easy to use and build on.
 
 The 4 pillars of BrainDrive:
