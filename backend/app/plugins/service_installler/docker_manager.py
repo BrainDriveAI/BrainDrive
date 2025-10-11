@@ -113,10 +113,16 @@ async def build_and_start_docker_service(
     # Write environment file
     write_env_file(target_dir, env_vars, required_vars)
 
+    # Clean up previous containers to avoid name conflicts
+    await _run_docker_compose_command("docker compose down --remove-orphans", target_dir)
+
     # Rnu the docker compose build command
     await _run_docker_compose_command(install_command, target_dir)
 
     # Run the docker compose run command
+    # Start containers with force recreate
+    if "up" in start_command and "--force-recreate" not in start_command:
+        start_command += " --force-recreate"
     await _run_docker_compose_command(start_command, target_dir)
 
     # Wait for the service to become healthy
