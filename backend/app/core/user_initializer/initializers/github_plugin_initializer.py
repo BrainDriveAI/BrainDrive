@@ -38,6 +38,11 @@ class GitHubPluginInitializer(UserInitializerBase):
             "repo_url": "https://github.com/BrainDriveAI/BrainDrive-Chat-Plugin", 
             "version": "latest",
             "name": "BrainDrive Chat"
+        },
+        {
+            "repo_url": "https://github.com/BrainDriveAI/BrainDrive-Ollama-Plugin", 
+            "version": "latest",
+            "name": "BrainDrive Ollama"
         }
     ]
     
