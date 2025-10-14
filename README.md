@@ -3,6 +3,8 @@
   <img src="./images/logo-dark-mode.png#gh-dark-mode-only"  alt="BrainDrive Logo" />
 </p>
 
+[![License](https://img.shields.io/badge/License-MIT%20License-green.svg)](LICENSE)
+
 BrainDrive is the open source ChatGPT alternative you fully own and control. Use, customize, and monetize your BrainDrive however you want. No Big Tech overlords. Just your AI. Your rules.
 
 * **Own:** MIT Licensed & Self-Hosted
