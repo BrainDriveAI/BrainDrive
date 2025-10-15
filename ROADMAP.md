@@ -75,7 +75,7 @@ Phase 1 is complete when you can install BrainDrive, reach the chat window, type
 * **Help** by providing [Feedback](https://community.braindrive.ai/t/have-braindrive-feedback-for-us-post-it-here/104)
 * **Join** the [BrainDrive Community](http://community.braindrive.ai) 
 
-## Phase 2: BrainDrive Owner Release (V.1)
+## Phase 2: BrainDrive Owner Release
 
 **Goal:** Build on Phase 1 foundation with personalization features and functionality. Receive feedback from 25 individuals who have installed and tried out BrainDrive.
 
@@ -127,7 +127,7 @@ Phase 2 is about getting the word out & building on the foundation laid in phase
 * **Contribute to BrainDrive’s first 3 community plugins**  
 * **Improve documentation** based on your learning journey
 
-## **Phase 3: BrainDrive Builder Release**
+## **Phase 3: BrainDrive Builder Release** (Build)
 
 **Goal:** Make it easy to build on BrainDrive.
 
