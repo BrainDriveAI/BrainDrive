@@ -1,156 +1,419 @@
-# Plugins Overview
+# How BrainDrive Plugins Work
 
-Freedom from Big Tech's extractive AI platforms no longer requires building your own system from scratch.
+This document provides a comprehensive overview of the BrainDrive plugin system. It's designed to help you understand how plugins integrate with BrainDrive, whether you're using an existing plugin or building your own.
 
-BrainDrive-Core provides your AI system's foundation. Plugins provide the freedom.
+## What is a BrainDrive Plugin?
 
-![plugin manager sidebar highlight](../../images/plugin-manager.png)
+A BrainDrive plugin is a self-contained module that extends BrainDrive's functionality. Plugins can add:
 
-## The 4 Pillars of BrainDrive
+- New UI components for the Page Builder
+- AI-powered features and capabilities
+- Backend services and data processing
+- Integration with external systems
+- Custom workflows and automation
 
-BrainDrive's plugin based archetecture rests on these 4 pillars:
+The plugin architecture follows a philosophy similar to WordPress for AI: install the BrainDrive core, then add plugins to quickly ship new features.
 
-1. **Ownership:** You own your BrainDrive, and any plugins you create.  
-2. **Freedom:** Use and/or build any plugin you want in your BrainDrive. Deploy locally or on the cloud of your choice.  
-3. **Empowerment:** Your BrainDrive is designed to help you realize your vision, not someone else's.  
-4. **Sustainability:** Your BrainDrive's lean core + plugin driven ecosystem ensures value flows to those that create it, instead of distant shareholders.
+## Plugin Architecture Overview
 
-## Your BrainDrive's Plugin Based Architecture empowers you to:
+BrainDrive uses a modular, plugin-based architecture with two main parts:
 
-* **Connect to New AI Models:** Integrate your BrainDrive with local providers like Ollama or API-based services like OpenRouter.
-* **Add UI Components:** Introduce new tools directly into your BrainDrive's Page Builder, like custom chat interfaces and data visualization widgets.
-* **Integrate External Services:** Connect your BrainDrive to other applications, data sources, and APIs.
-* **Create Agents & Workflows:** Build automations that use your data and intelligence to act on your behalf.
+### Frontend (UI Components)
 
-All under your ownership and control.
+- Built with **React 18** and **TypeScript**
+- Uses **Webpack Module Federation** to load plugins dynamically at runtime
+- Plugins expose UI components that can be dragged onto pages in the Page Builder
+- Components are loaded on-demand without requiring a full application reload
 
-## BrainDrive 1 Click Plugin Install
+### Backend (Server-Side Logic)
 
-![Plugin Manager](../../images/plugin-manager.png)
+- Uses **Python** with **FastAPI**
+- Plugins can include optional server-side logic via a **Lifecycle Manager**
+- Backend handles plugin installation, configuration, and data persistence
+- Provides universal REST API endpoints for plugin management
 
-Installing plugins in BrainDrive is designed to be simple and fast. No complex setup, no command-line tools, no technical expertise required.
+## Plugin Structure
 
-1. Find a plugin you want to use (from the community forum, GitHub, or recommendations)
-2. Copy the GitHub repository URL (e.g., `https://github.com/BrainDriveAI/BrainDrive-PluginTemplate`)
-3. Open Plugin Manager in your BrainDrive interface
-4. Paste the URL and click "Install"
-5. **Done** — Components appear in Page Builder, models show in chat, and settings are ready to configure
+A typical BrainDrive plugin repository has the following structure:
 
-![Installing a Plugin](../../images/installing-plugin.png)
+```
+MyPlugin/
+├── package.json              # Metadata and dependencies
+├── src/                      # Source code (React components)
+│   ├── index.tsx            # Main entry point
+│   └── components/          # Plugin components
+├── dist/                     # Built files
+│   └── remoteEntry.js       # Module Federation entry point
+├── lifecycle_manager.py      # (Optional) Backend lifecycle manager
+├── webpack.config.js         # Build configuration
+└── README.md                # Plugin documentation
+```
 
-BrainDrive automatically downloads, verifies, and registers the plugin—making it available instantly without restart. You can now use your plugin to create a page in Your BrainDrive's Page Builder
+### Key Files
 
-![Plugins in Page Builder](../../images/adding-plugin-template-to-page.png)
+**package.json**
+- Defines plugin metadata (name, version, description)
+- Lists frontend dependencies
+- Includes build scripts
 
-### Safe and Reversible
+**lifecycle_manager.py** (Optional)
+- Python class implementing plugin lifecycle methods
+- Handles installation, removal, and status checks
+- Must end with `LifecycleManager` (e.g., `MyPluginLifecycleManager`)
+- Defines what components the plugin provides
 
-* **Safe:** Error boundaries prevent plugin failures from crashing your system
-* **Reversible:** Uninstall as easily as you installed—no core modifications ever, and your plugins are user-scoped (won't affect other users in multi-user setups)
+**remoteEntry.js**
+- Generated by Webpack Module Federation during build
+- Exposes plugin modules to the BrainDrive core
+- Automatically served by the backend when plugin is installed
 
-**Try it yourself:** Install the BrainDrive Plugin Template: `https://github.com/BrainDriveAI/BrainDrive-PluginTemplate`
+## Plugin Lifecycle
 
-## BrainDrive Default Plugins
+### Installation
 
-Your BrainDrive-Core install includes several default plugins designed to give you a fully working AI system from day one.
+When a user installs a plugin through the Plugin Manager:
 
-### AI Chat Plugin
-Your default chat interface for conversing with AI models. Even this is modular—replace it, customize it, or run multiple chat interfaces side by side.
+1. **User provides GitHub URL** - The plugin repository URL is entered in the Plugin Manager UI
+2. **Backend downloads plugin** - BrainDrive clones or downloads the plugin repository
+3. **Lifecycle manager runs** - If present, the plugin's `install_plugin(user_id, db)` method is called
+4. **Setup tasks execute** - The plugin can initialize databases, create default settings, etc.
+5. **Plugin registered** - The plugin is added to the user's installed plugins list
+6. **Frontend updated** - Plugin components become available in the Page Builder
 
-### Settings Plugin with Ollama
-Default settings interface plus integration with Ollama for running AI models locally. Gives you a working, privacy-first AI system immediately—no API keys, no external services, all conversations stay on your machine. Once you've downloaded models, you don't even need an internet connection.
+![BrainDRive Plugin Manager Install](../../images/installing-plugin.png)
 
-### OpenRouter Plugin
-Connects to 100+ AI models from multiple providers through a single API. Instant access to cutting-edge models from Anthropic, OpenAI, Google, and more.
+### Usage
 
-### Removing Default Plugins
-All BrainDrive default plugins are MIT licensed and easy to remove. Don't like a default plugin? Remove with 1 click via the plugin manager, or fork and customize a new plugin to your liking.
+Once installed:
 
-## Community Plugins
+- Plugin components appear in the **Page Builder component library**
+- Users can drag components onto pages and configure them
+- Components use **Service Bridges** to interact with BrainDrive
+- Plugin state and data persist across sessions
 
-The strength of BrainDrive is not BrainDrive-Core. It's what it enables:
+[Adding Plugin to Page](../../images/adding-plugin-template-to-page.png)
 
-* **Ownership** over your AI system. You're a BrainDrive owner, not a user.  
-* **Freedom** to do whatever you want with your BrainDrive.  
-* **Power** to easily customize and build whatever you want.  
-* **Sustainability** through community-driven development where value flows to creators, not Big Tech.
+### Updates
 
-### Why This Matters
+- BrainDrive tracks plugin versions from the repository
+- Users can update plugins through the Plugin Manager
+- Updates are user-scoped (each user controls their plugin versions)
+- Update process follows similar steps to installation
 
-**Big Tech platforms extract value.** You build on their platform, they own the user relationship, and they capture the economic value you create.
+### Removal
 
-**BrainDrive distributes value.** Build a plugin, own it, keep the value. When individuals can choose and combine solutions freely, better products win and prosperity flows far and wide. This is how we out-compete Big Tech—thousands of builders creating solutions that collectively serve everyone better.
+When a plugin is uninstalled:
 
-### We're Just Getting Started
+1. **User clicks uninstall** in the Plugin Manager
+2. **Lifecycle manager runs** - The `delete_plugin(user_id, db)` method is called
+3. **Cleanup occurs** - Plugin removes its data, settings, and files
+4. **Plugin unregistered** - Removed from user's installed plugins
+5. **Components removed** - No longer available in Page Builder
 
-The first community plugins are designed to help you start building. They're invitations to join the movement and create the future of user-owned AI.
+![Delete Plugin](../../images/delete-plugin.png)
 
-### Plugin Template
+## Universal Plugin API
 
-**What it does:** A complete, working example of how to build a BrainDrive plugin.
+BrainDrive provides a standardized REST API for all plugins. These endpoints work automatically for any plugin following the lifecycle interface:
 
-**Why it matters:** Lowers the barrier to plugin development by providing a fully documented starting point. Clone it, modify it, and you're building plugins in minutes instead of hours.
+```
+POST   /api/plugins/{plugin_slug}/install     # Install plugin
+DELETE /api/plugins/{plugin_slug}/uninstall   # Uninstall plugin
+GET    /api/plugins/{plugin_slug}/status      # Check if installed
+GET    /api/plugins/{plugin_slug}/info        # Get metadata
+POST   /api/plugins/{plugin_slug}/repair      # Repair/reinstall
+GET    /api/plugins/available                 # List all plugins
+```
 
-**What you get:**
-* Complete plugin structure and configuration
-* Example components and UI elements
-* Lifecycle Manager implementation
-* Service Bridge usage examples
-* Build and deployment setup
-* Comprehensive inline documentation
+This universal API means plugin developers don't need to create custom endpoints for basic plugin management.
 
-**Repository:** [https://github.com/BrainDriveAI/BrainDrive-PluginTemplate](https://github.com/BrainDriveAI/BrainDrive-PluginTemplate)
+## Service Bridges
 
-### Service Bridge Example Plugins
+BrainDrive provides six core [service bridges](https://docs.braindrive.ai/core/how-to/use-service-bridges) that plugins use to interact with the system. These services are available via `this.props.services` in React components:
 
-Service Bridges are stable APIs that let your plugins access core features (settings, storage, themes, etc.) without tight coupling—reducing development time and ensuring compatibility as BrainDrive evolves.
+### 1. API Bridge
+Make HTTP requests to backend APIs
+```typescript
+await services.api.get('/some_endpoint')
+await services.api.post('/data', { key: 'value' })
+```
 
-**What they do:** Demonstrate how to use each of BrainDrive's six Service Bridges in real, working code.
+### 2. Event Bridge
+Send and listen for cross-plugin events
+```typescript
+services.event.emit('eventName', data)
+services.event.on('eventName', handler)
+```
 
-**Why they matter:** These examples eliminate guesswork and accelerate development. See exactly how to integrate your plugin with BrainDrive's core features.
+### 3. Theme Bridge
+Access and react to theme changes
+```typescript
+const theme = services.theme.getCurrentTheme()
+services.theme.subscribe(newTheme => {
+  // React to theme change
+})
+```
 
-**The six Service Bridges:**
+### 4. Settings Bridge
+Get and set user preferences
+```typescript
+const value = await services.settings.getSetting('myKey')
+await services.settings.setSetting('myKey', 'value')
+```
 
-Each example plugin demonstrates best practices for integrating with BrainDrive's core features:
+### 5. Page Context Bridge
+Access current page and route information
+```typescript
+const context = services.pageContext.getContext()
+// Returns: { currentPage, route, params, etc. }
+```
 
-* **API Bridge** — Making backend API calls. [Repository](https://github.com/BrainDriveAI/BrainDrive-API-Service-Bridge-Example-Plugin)
-* **Event Bridge** — Cross-plugin communication. [Repository](https://github.com/BrainDriveAI/BrainDrive-Events-Service-Bridge-Example-Plugin)
-* **Theme Bridge** — Responding to light/dark mode changes. [Repository](https://github.com/BrainDriveAI/BrainDrive-Theme-Service-Bridge-Example-Plugin)
-* **Settings Bridge** — Storing and retrieving user preferences. [Repository](https://github.com/BrainDriveAI/BrainDrive-Settings-Service-Bridge-Example-Plugin)
-* **Page Context Bridge** — Understanding current page/route context. [Repository](https://github.com/BrainDriveAI/BrainDrive-Page-Context-Service-Bridge-Example-Plugin)
-* **Plugin State Bridge** — Persistent plugin-specific storage. [Repository](https://github.com/BrainDriveAI/BrainDrive-Plugin-State-Service-Bridge-Example-Plugin)
+### 6. Plugin State Bridge
+Persistent key-value storage for your plugin
+```typescript
+await services.pluginState.save({ myData: 'value' })
+const data = await services.pluginState.load()
+```
 
-## Building Your Own Plugins
+### Why Service Bridges?
 
-Ready to build something new? Whether you're solving your own problem or building for the community, BrainDrive makes plugin development straightforward.
+Service Bridges provide several benefits:
 
-**Get Started:**
+- **Loose coupling** - Plugins don't depend on core internals
+- **Forward compatibility** - Core changes won't break plugins
+- **Simplified development** - No need to manage your own database or API
+- **Consistent patterns** - All plugins interact with BrainDrive the same way
 
-1. Review the Plugin Template and Service Bridge Examples above
-2. Follow the [Plugin Developer Quickstart](https://docs.braindrive.ai/core/PLUGIN_DEVELOPER_QUICKSTART) guide
-3. Build, test, and deploy your plugin
-4. Share with the community (optional)
+## Plugin Discovery
 
-You'll be creating functional plugins in minutes, not hours.
+BrainDrive automatically discovers plugins in the `backend/plugins/` directory:
 
-### Contributing Your Plugins
+```
+backend/plugins/
+├── shared/           # Plugin files shared across users
+│   └── MyPlugin/
+│       └── v1.0.0/
+│           ├── dist/
+│           └── lifecycle_manager.py
+└── user_{id}/        # User-specific plugin data
+    └── MyPlugin/
+        └── data/
+```
 
-The community welcomes and values your contributions:
+Plugins are:
+- **User-scoped** - Each user has their own set of installed plugins
+- **Version-tracked** - Multiple versions can coexist
+- **Sandboxed** - User data is isolated from the shared plugin code
 
-* **Ownership:** You own what you build
-* **Impact:** Help others solve similar problems
-* **Value:** Monetize your work and/or build your reputation
-* **Community:** Connect with other builders and users
+## Development Workflow
 
-We're developing an open, community-driven plugin marketplace for easier discovery and distribution. Until then, share and discover plugins at [community.braindrive.ai](https://community.braindrive.ai).
+### Setting Up
 
-## The Growing Ecosystem
+1. **Use the Plugin Template** - Start with the official [BrainDrive Plugin Template](https://github.com/BrainDriveAI/BrainDrive-PluginTemplate)
+2. **Clone locally** - Clone the template to begin development
+3. **Install dependencies** - Run `npm install` to get started
+4. **Configure output** - Point build output to BrainDrive's plugin directory
 
-As the BrainDrive community expands, so does the plugin ecosystem. Today's community plugins become tomorrow's essential tools. By building and sharing, you're helping create a thriving alternative to Big Tech AI platforms.
+### Rapid Iteration
 
-Your contributions matter. Every plugin you create strengthens the user-owned AI movement.
+For fast development (1-minute cycle):
 
-## Conclusion
+1. **Configure build output** - Set webpack output to `backend/plugins/shared/[YourPlugin]/[version]/dist`
+2. **Make changes** - Edit your plugin code
+3. **Build** - Run `npm run build`
+4. **Refresh** - Reload BrainDrive in browser (disable cache in dev tools)
+5. **See changes** - Updates appear immediately without reinstalling
 
-Thank you for joining us on the movement away from Big Tech extraction, and towards individual freedom and empowerment.
+This eliminates the 10+ minute cycle of uninstalling and reinstalling the plugin after each change.
 
-**Your AI. Your Rules.**
+### Testing
+
+- Use the **Page Builder** to add your plugin component to a test page
+- Use browser dev tools to debug React components
+- Check backend console for lifecycle manager logs
+- Use Service Bridges for consistent interaction patterns
+
+## Plugin Manifest
+
+Each plugin defines metadata in its lifecycle manager that tells BrainDrive what the plugin provides:
+
+```python
+class MyPluginLifecycleManager:
+    def get_plugin_info(self):
+        return {
+            "name": "My Plugin",
+            "slug": "my-plugin",
+            "version": "1.0.0",
+            "description": "Does something useful",
+            "components": [
+                {
+                    "id": "my-component",
+                    "name": "My Component",
+                    "category": "widgets"
+                }
+            ]
+        }
+```
+
+This information drives:
+- Plugin Manager UI
+- Page Builder component library
+- Component configuration panels
+- Plugin documentation
+
+## Multi-User Support
+
+BrainDrive is designed to support multiple users on the same installation:
+
+- **User-scoped installations** - Each user has their own plugin list
+- **Shared code** - Plugin code is shared, but data is isolated
+- **Independent updates** - Users update plugins independently
+- **Permission-based** - Users only see and manage their own plugins
+
+## Best Practices
+
+### For Plugin Developers
+
+1. **Follow the template** - Use the official Plugin Template as your starting point
+2. **Use Service Bridges** - Don't bypass them to access core internals
+3. **Keep plugins focused** - Each plugin should do one thing well
+4. **Document thoroughly** - Include clear README with usage examples
+5. **Version properly** - Use semantic versioning and maintain changelog
+6. **Test in isolation** - Ensure plugin works independently of others
+7. **Handle errors gracefully** - Provide helpful error messages to users
+
+### For Plugin Users
+
+1. **Install from trusted sources** - Only install plugins from known repositories
+2. **Keep plugins updated** - Update regularly for bug fixes and features
+3. **Monitor performance** - Remove plugins that slow down your system
+4. **Report issues** - Help developers improve by reporting bugs
+5. **Share feedback** - Let developers know what works and what doesn't
+
+## Security Considerations
+
+- Plugins run with the same permissions as the BrainDrive core
+- Only install plugins from sources you trust
+- Review plugin code before installing if possible
+- Plugin lifecycle managers have database access
+- Plugins can make network requests
+- BrainDrive provides sandboxing for user data, not plugin code
+
+## Common Patterns
+
+### Creating a Simple Widget
+
+```typescript
+import React from 'react';
+
+const MyWidget = ({ services }) => {
+  const [data, setData] = React.useState(null);
+
+  React.useEffect(() => {
+    // Load plugin state
+    services.pluginState.load().then(setData);
+  }, []);
+
+  return (
+    <div>
+      <h2>My Widget</h2>
+      <p>{data?.message || 'Hello, World!'}</p>
+    </div>
+  );
+};
+
+export default MyWidget;
+```
+
+### Calling an AI Model
+
+```typescript
+const response = await services.api.post('/api/chat/completions', {
+  messages: [{ role: 'user', content: 'Hello!' }],
+  model: 'default'
+});
+```
+
+### Saving User Settings
+
+```typescript
+// Save a setting
+await services.settings.setSetting('myPlugin.preference', 'dark');
+
+// Load a setting
+const pref = await services.settings.getSetting('myPlugin.preference');
+```
+
+### Cross-Plugin Communication
+
+```typescript
+// Plugin A emits an event
+services.event.emit('dataUpdated', { newValue: 42 });
+
+// Plugin B listens for the event
+services.event.on('dataUpdated', (data) => {
+  console.log('Data changed:', data.newValue);
+});
+```
+
+## Troubleshooting
+
+### Plugin Won't Install
+
+- Verify the GitHub URL is correct and accessible
+- Check that the repository has a proper build/release
+- Look at backend console for error messages during install
+- Ensure the plugin structure follows the expected format
+
+### Components Don't Appear
+
+- Verify the plugin is installed (check Plugin Manager)
+- Ensure the plugin is enabled for your user
+- Check that `remoteEntry.js` exists in the plugin's dist folder
+- Look for browser console errors indicating loading issues
+
+### Changes Not Showing
+
+- Disable browser cache in dev tools during development
+- Verify both backend and frontend servers are running
+- Check that build output is going to the correct directory
+- Clear browser cache and hard refresh (Ctrl+Shift+R)
+
+### Service Bridge Errors
+
+- Verify you're accessing services via `this.props.services`
+- Check that the service method exists and is spelled correctly
+- Ensure you're awaiting async service calls
+- Look for error messages in browser console
+
+## Resources
+
+- **[Plugin Template](https://github.com/BrainDriveAI/BrainDrive-PluginTemplate)**: Official starter template with examples
+- **[BrainDrive Documentation](https://docs.braindrive.ai)**: Comprehensive guides and references
+- **[Community Forum](community.braindrive.ai)**: Get help and share ideas
+- **GitHub Issues**: Report bugs and request features
+- **[Example Plugins](https://docs.braindrive.ai/plugins/intro)**: Reference implementations for common patterns
+
+## Getting Help
+
+If you need assistance with plugin development or usage:
+
+1. **Check the documentation** - Most questions are answered in the official docs
+2. **Search the forum** - Someone may have already solved your problem
+3. **Ask the community** - Post on community.braindrive.ai
+4. **Open an issue** - For bugs, open a GitHub issue on the relevant repository
+5. **Review examples** - Study existing plugins to see how they work
+
+## Contributing
+
+BrainDrive is open source and welcomes contributions:
+
+- **Report bugs** - Help improve quality by reporting issues
+- **Suggest features** - Share ideas for new capabilities
+- **Improve docs** - Help make documentation clearer
+- **Build plugins** - Extend the ecosystem with new plugins
+- **Share knowledge** - Help others on the forum
+
+---
+
+**Remember**: The plugin system is designed to be simple and powerful. When in doubt, refer to the Plugin Template and use the Service Bridges. The BrainDrive community is here to help you succeed!
