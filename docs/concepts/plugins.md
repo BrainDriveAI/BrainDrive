@@ -91,7 +91,7 @@ Once installed:
 - Components use **Service Bridges** to interact with BrainDrive
 - Plugin state and data persist across sessions
 
-[Adding Plugin to Page](../../images/adding-plugin-template-to-page.png)
+![Adding Plugin to Page](../../images/adding-plugin-template-to-page.png)
 
 ### Updates
 
