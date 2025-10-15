@@ -22,10 +22,6 @@ If this resonates, we’d love to build with you.
 
 ## Phase 0: License Selection - (DONE - MIT License Chosen)
 
-**Goal**: Choose the best license for BrainDrive.
-
-**Decision**
-
 The 4 pillars of BrainDrive make the **MIT license** the obvious choice:
 
 1. **Ownership:** Once you install BrainDrive, it's yours forever.
