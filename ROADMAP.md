@@ -147,7 +147,6 @@ Owning your AI system is the first step to building a superior, user-owned alter
 * **Community Plugin listing** procedures and discoverability.
 * **Code Quality:** Refactored, well-commented, follows best practices  
 * **UX Polish:** Intuitive, consistent, accessible  
-* **Documentation:** Complete, clear, with examples and tutorials  
 * **Bug Remediation:** All known bugs resolved, edge cases handled  
 * **JSON Marketplace:** For plugin discovery, sharing, & 3rd party marketplace creation.
 * **BrainDrive Code Concierge:** A BrainDrive tuned coding assistant that makes building BrainDrive plugins easy.
