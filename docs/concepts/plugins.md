@@ -56,10 +56,9 @@ MyPlugin/
 - Lists frontend dependencies
 - Includes build scripts
 
-**lifecycle_manager.py** (Optional)
+**lifecycle_manager.py**
 - Python class implementing plugin lifecycle methods
 - Handles installation, removal, and status checks
-- Must end with `LifecycleManager` (e.g., `MyPluginLifecycleManager`)
 - Defines what components the plugin provides
 
 **remoteEntry.js**
