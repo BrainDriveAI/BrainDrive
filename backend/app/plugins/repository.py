@@ -172,17 +172,24 @@ class PluginRepository:
                 return None
 
             value_str = row[0]
+
+            # Convert rows to dictionaries with proper decryption
+            from app.core.encrypted_column import EncryptedJSON
+            encrypted_column = EncryptedJSON("settings_instances", "value")
+            
+            # Decrypt the value using our encrypted column type
             try:
-                return json.loads(value_str)
+                decrypted_value = encrypted_column.process_result_value(value_str, None)
             except Exception as e:
-                logger.error(
-                    "Failed to parse settings value as JSON",
-                    value=value_str,
-                    definition_id=definition_id,
-                    user_id=user_id,
-                    error=str(e)
-                )
-                return None
+                # If decryption fails, try parsing as plain JSON (for backward compatibility)
+                logger.warning(f"Failed to decrypt value for instance {value_str}, trying plain JSON: {e}")
+                try:
+                    decrypted_value = json.loads(value_str) if value_str else None
+                except Exception as json_error:
+                    logger.error(f"Failed to parse value as JSON for instance {value_str}: {json_error}")
+                    decrypted_value = None
+                
+            return decrypted_value
 
         except Exception as e:
             logger.error(
