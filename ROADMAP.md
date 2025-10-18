@@ -1,5 +1,3 @@
-# **BrainDrive Roadmap**
-
 We’re on a mission to build a superior, **user-owned** alternative to Big Tech AI systems. 
 
 An AI system built on the following 4 pillars:
