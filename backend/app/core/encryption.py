@@ -14,6 +14,8 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.backends import default_backend
 from cryptography.exceptions import InvalidTag
 
+from .config import settings
+
 from .encryption_config import encryption_config
 
 logger = logging.getLogger(__name__)
@@ -34,7 +36,7 @@ class UniversalEncryptionService:
         """Get or derive the master encryption key"""
         if self._master_key is None:
             # Get master key from environment
-            master_key_str = os.getenv('ENCRYPTION_MASTER_KEY')
+            master_key_str = settings.ENCRYPTION_MASTER_KEY or os.getenv('ENCRYPTION_MASTER_KEY')
             if not master_key_str:
                 raise EncryptionError(
                     "ENCRYPTION_MASTER_KEY environment variable not set. "

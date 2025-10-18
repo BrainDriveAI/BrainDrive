@@ -88,13 +88,6 @@ async def install_and_run_required_services(
                 source_url = service_dto.source_url
                 service_type = service_dto.type
                 required_vars = service_dto.required_env_vars
-
-                # --- Prerequisite Check ---
-                # check_required_env_vars(
-                #     service_name=name,
-                #     required_vars=required_vars,
-                #     root_env_path=root_env_path
-                # )
                 
                 target_dir = base_services_dir / f"{plugin_slug}_{name}"
                 
