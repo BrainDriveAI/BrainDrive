@@ -4,12 +4,12 @@
 
 Linux/macOS/WSL:
 
-    cd /home/hex/Project/BrainDrive-MVP/builds/typescript
+    cd <repo-root>/builds/typescript
     bash ./scripts/new-user-setup.sh
 
 Windows PowerShell:
 
-    cd $HOME/Project/BrainDrive-MVP/builds/typescript
+    cd <repo-root>\builds\typescript
     powershell -ExecutionPolicy Bypass -File .\scripts\new-user-setup.ps1
 
 After setup:

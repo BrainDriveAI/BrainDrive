@@ -10,12 +10,12 @@ This guide is the clean-start onboarding path for BrainDrive-MVP.
 
 ## Fast Path (Recommended, Linux/macOS/WSL)
 
-    cd /home/hex/Project/BrainDrive-MVP/builds/typescript
+    cd <repo-root>/builds/typescript
     bash ./scripts/new-user-setup.sh
 
 ## Fast Path (Recommended, Windows PowerShell)
 
-    cd $HOME/Project/BrainDrive-MVP/builds/typescript
+    cd <repo-root>\builds\typescript
     powershell -ExecutionPolicy Bypass -File .\scripts\new-user-setup.ps1
 
 The setup scripts:
@@ -40,7 +40,7 @@ Then open:
 
 ## Manual Startup (Optional)
 
-    cd /home/hex/Project/BrainDrive-MVP/builds/typescript
+    cd <repo-root>/builds/typescript
     docker compose up -d --build
 
 ## Quick Troubleshooting

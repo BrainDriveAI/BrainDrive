@@ -17,12 +17,12 @@ Minimal runnable BrainDrive MVP for local onboarding with:
 
 Linux/macOS/WSL:
 
-    cd /home/hex/Project/BrainDrive-MVP/builds/typescript
+    cd <repo-root>/builds/typescript
     bash ./scripts/new-user-setup.sh
 
 Windows PowerShell:
 
-    cd $HOME/Project/BrainDrive-MVP/builds/typescript
+    cd <repo-root>\builds\typescript
     powershell -ExecutionPolicy Bypass -File .\scripts\new-user-setup.ps1
 
 Then open http://127.0.0.1:5073.
