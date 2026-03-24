@@ -1,0 +1,101 @@
+name: braindrive_mvp
+
+services:
+  mcp-memory:
+    build:
+      context: ../mcp_release
+      dockerfile: Dockerfile
+    environment:
+      SERVER_KIND: memory
+      HOST: 0.0.0.0
+      PORT: 8911
+      MEMORY_ROOT: /data/memory
+    ports:
+      - "127.0.0.1:8911:8911"
+    volumes:
+      - ${PAA_LIBRARY_HOST_PATH:-./your-memory}:/data/memory
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8911/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+
+  mcp-auth:
+    build:
+      context: ../mcp_release
+      dockerfile: Dockerfile
+    environment:
+      SERVER_KIND: auth
+      HOST: 0.0.0.0
+      PORT: 8912
+      MEMORY_ROOT: /data/memory
+    ports:
+      - "127.0.0.1:8912:8912"
+    volumes:
+      - ${PAA_LIBRARY_HOST_PATH:-./your-memory}:/data/memory
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8912/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+
+  mcp-project:
+    build:
+      context: ../mcp_release
+      dockerfile: Dockerfile
+    environment:
+      SERVER_KIND: project
+      HOST: 0.0.0.0
+      PORT: 8913
+      MEMORY_ROOT: /data/memory
+    ports:
+      - "127.0.0.1:8913:8913"
+    volumes:
+      - ${PAA_LIBRARY_HOST_PATH:-./your-memory}:/data/memory
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8913/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+
+  paa-runtime:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["node", "dist/gateway/server.js"]
+    environment:
+      MCP_SERVERS_FILE: ${MCP_SERVERS_FILE:-mcp/servers.full-mcp.docker.json}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      PAA_SECRETS_HOME: /run/paa-secrets
+      PAA_SECRETS_MASTER_KEY_B64: ${PAA_SECRETS_MASTER_KEY_B64}
+      PAA_SECRETS_MASTER_KEY_ID: ${PAA_SECRETS_MASTER_KEY_ID}
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - ${PAA_LIBRARY_HOST_PATH:-./your-memory}:/app/your-memory
+      - ${PAA_SECRETS_HOST_PATH:-./.paa-secrets}:/run/paa-secrets
+    depends_on:
+      mcp-memory:
+        condition: service_healthy
+      mcp-auth:
+        condition: service_healthy
+      mcp-project:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+
+  paa-web:
+    build:
+      context: ./client_web
+      dockerfile: Dockerfile
+    environment:
+      VITE_GATEWAY_PROXY_TARGET: http://paa-runtime:8787
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "0.0.0.0:5073:5073"
+    depends_on:
+      paa-runtime:
+        condition: service_healthy

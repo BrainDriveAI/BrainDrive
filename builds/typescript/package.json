@@ -1,0 +1,33 @@
+{
+  "name": "paa-mvp-build",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev:server": "tsx gateway/server.ts",
+    "dev:cli": "tsx client/repl.ts",
+    "dev:web": "npm --prefix client_web run dev",
+    "memory:init": "tsx scripts/memory-init.ts",
+    "secrets": "tsx secrets/cli.ts",
+    "start": "node dist/main.js",
+    "start:server": "node dist/gateway/server.js",
+    "start:cli": "node dist/client/repl.js",
+    "test": "vitest run",
+    "web:install": "npm --prefix client_web ci",
+    "web:typecheck": "npm --prefix client_web run typecheck",
+    "web:test": "npm --prefix client_web run test",
+    "web:build": "npm --prefix client_web run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "fastify": "^5.2.1",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.8"
+  }
+}

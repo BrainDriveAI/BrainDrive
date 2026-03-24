@@ -1,0 +1,10 @@
+{
+  "memory_root": "./your-memory",
+  "provider_adapter": "openai-compatible",
+  "conversation_store": "markdown",
+  "auth_mode": "local-owner",
+  "tool_sources": [
+    "mcp/servers.full-mcp.json"
+  ],
+  "bind_address": "0.0.0.0"
+}

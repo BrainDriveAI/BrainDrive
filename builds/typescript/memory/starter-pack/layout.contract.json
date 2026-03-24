@@ -1,0 +1,21 @@
+{
+  "layout_version": 1,
+  "required_directories": [
+    "conversations",
+    "documents",
+    "preferences",
+    "exports",
+    "skills"
+  ],
+  "required_files": [
+    "AGENT.md",
+    "preferences/default.json",
+    "documents/projects.json",
+    "skills/registry.json"
+  ],
+  "default_project_template_files": [
+    "AGENT.md",
+    "spec.md",
+    "plan.md"
+  ]
+}

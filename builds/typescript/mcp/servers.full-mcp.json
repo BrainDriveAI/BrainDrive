@@ -1,0 +1,53 @@
+{
+  "servers": [
+    {
+      "id": "memory",
+      "transport": "streamable-http",
+      "url": "http://127.0.0.1:8911/mcp",
+      "tool_name_prefix": "",
+      "enabled": true,
+      "timeout_ms": 10000,
+      "read_only_tools": [
+        "memory_read",
+        "memory_list",
+        "memory_search",
+        "memory_history",
+        "memory_export"
+      ],
+      "source_kind": "system_shipped",
+      "trust_level": "first_party",
+      "isolation": "container",
+      "required": true
+    },
+    {
+      "id": "auth",
+      "transport": "streamable-http",
+      "url": "http://127.0.0.1:8912/mcp",
+      "tool_name_prefix": "",
+      "enabled": true,
+      "timeout_ms": 10000,
+      "read_only_tools": [
+        "auth_whoami",
+        "auth_check",
+        "auth_export"
+      ],
+      "source_kind": "system_shipped",
+      "trust_level": "first_party",
+      "isolation": "container",
+      "required": true
+    },
+    {
+      "id": "project",
+      "transport": "streamable-http",
+      "url": "http://127.0.0.1:8913/mcp",
+      "tool_name_prefix": "",
+      "enabled": true,
+      "timeout_ms": 10000,
+      "read_only_tools": ["project_list"],
+      "source_kind": "system_shipped",
+      "trust_level": "first_party",
+      "isolation": "container",
+      "required": true
+    }
+  ]
+}

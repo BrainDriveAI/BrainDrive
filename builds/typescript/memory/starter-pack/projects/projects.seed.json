@@ -1,0 +1,32 @@
+[
+  {
+    "id": "braindrive-plus-one",
+    "name": "BrainDrive+1",
+    "icon": "sparkles"
+  },
+  {
+    "id": "career",
+    "name": "Career",
+    "icon": "briefcase"
+  },
+  {
+    "id": "relationships",
+    "name": "Relationships",
+    "icon": "users"
+  },
+  {
+    "id": "fitness",
+    "name": "Fitness",
+    "icon": "dumbbell"
+  },
+  {
+    "id": "finance",
+    "name": "Finance",
+    "icon": "dollar-sign"
+  },
+  {
+    "id": "new-project",
+    "name": "Your New Project",
+    "icon": "folder-plus"
+  }
+]

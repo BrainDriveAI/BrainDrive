@@ -1,0 +1,200 @@
+@import "tailwindcss";
+@import "highlight.js/styles/atom-one-dark.min.css";
+
+@font-face {
+  font-family: "Montserrat";
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+  src: url("/fonts/Montserrat-SemiBold.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Montserrat";
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: url("/fonts/Montserrat-Bold.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Questrial";
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url("/fonts/Questrial-Regular.ttf") format("truetype");
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-bd-bg-primary: var(--bd-bg-primary);
+  --color-bd-bg-secondary: var(--bd-bg-secondary);
+  --color-bd-bg-tertiary: var(--bd-bg-tertiary);
+  --color-bd-bg-hover: var(--bd-bg-hover);
+  --color-bd-bg-chat: var(--bd-bg-chat);
+  --color-bd-text-primary: var(--bd-text-primary);
+  --color-bd-text-secondary: var(--bd-text-secondary);
+  --color-bd-text-muted: var(--bd-text-muted);
+  --color-bd-text-heading: var(--bd-text-heading);
+  --color-bd-amber: var(--bd-amber);
+  --color-bd-amber-hover: var(--bd-amber-hover);
+  --color-bd-amber-light: var(--bd-amber-light);
+  --color-bd-steel: var(--bd-steel);
+  --color-bd-sky: var(--bd-sky);
+  --color-bd-border: var(--bd-border);
+  --color-bd-success: var(--bd-success);
+  --color-bd-danger: var(--bd-danger);
+  --spacing-sidebar: var(--bd-sidebar);
+  --spacing-sidebar-collapsed: var(--bd-sidebar-collapsed);
+  --spacing-chat-lane: var(--bd-chat-lane);
+  --font-heading: var(--bd-font-heading);
+  --font-body: var(--bd-font-body);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --app-height: 100vh;
+  --keyboard-inset: 0px;
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
+  --bd-bg-primary: #03050A;
+  --bd-bg-secondary: #0A152A;
+  --bd-bg-tertiary: #1E2A3B;
+  --bd-bg-hover: #253448;
+  --bd-bg-chat: #010208;
+  --bd-text-primary: #C5DAED;
+  --bd-text-secondary: #7CA7D1;
+  --bd-text-muted: #4A6A8A;
+  --bd-text-heading: #FFFFFF;
+  --bd-amber: #F5A623;
+  --bd-amber-hover: #D4891C;
+  --bd-amber-light: #FDF0D5;
+  --bd-steel: #325D87;
+  --bd-sky: #7CA7D1;
+  --bd-border: #162840;
+  --bd-success: #2DCE89;
+  --bd-danger: #F5365C;
+  --bd-danger-bg: rgba(245, 54, 92, 0.1);
+  --bd-danger-border: rgba(245, 54, 92, 0.3);
+  --bd-sidebar: 300px;
+  --bd-sidebar-collapsed: 48px;
+  --bd-chat-lane: 780px;
+  --bd-font-heading: "Montserrat", sans-serif;
+  --bd-font-body: "Questrial", sans-serif;
+  --radius: 12px;
+  --background: #03050A;
+  --foreground: #C5DAED;
+  --card: #0A152A;
+  --card-foreground: #C5DAED;
+  --popover: #0A152A;
+  --popover-foreground: #C5DAED;
+  --primary: #F5A623;
+  --primary-foreground: #03050A;
+  --secondary: #1E2A3B;
+  --secondary-foreground: #C5DAED;
+  --muted: #1E2A3B;
+  --muted-foreground: #4A6A8A;
+  --accent: #0A152A;
+  --accent-foreground: #C5DAED;
+  --destructive: #F5365C;
+  --border: #162840;
+  --input: #1E2A3B;
+  --ring: #F5A623;
+  color-scheme: dark;
+  background-color: #03050A;
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --app-height: 100dvh;
+  }
+}
+
+.dark {
+  --bd-bg-primary: #03050A;
+  --bd-bg-secondary: #0A152A;
+  --bd-bg-tertiary: #1E2A3B;
+  --bd-bg-hover: #253448;
+  --bd-bg-chat: #010208;
+  --bd-text-primary: #C5DAED;
+  --bd-text-secondary: #7CA7D1;
+  --bd-text-muted: #4A6A8A;
+  --bd-text-heading: #FFFFFF;
+  --bd-amber: #F5A623;
+  --bd-amber-hover: #D4891C;
+  --bd-amber-light: #FDF0D5;
+  --bd-steel: #325D87;
+  --bd-sky: #7CA7D1;
+  --bd-border: #162840;
+  --bd-success: #2DCE89;
+  --bd-danger: #F5365C;
+  --bd-danger-bg: rgba(245, 54, 92, 0.1);
+  --bd-danger-border: rgba(245, 54, 92, 0.3);
+  --bd-sidebar: 300px;
+  --bd-sidebar-collapsed: 48px;
+  --bd-chat-lane: 780px;
+  --bd-font-heading: "Montserrat", sans-serif;
+  --bd-font-body: "Questrial", sans-serif;
+  --radius: 12px;
+  --background: #03050A;
+  --foreground: #C5DAED;
+  --card: #0A152A;
+  --card-foreground: #C5DAED;
+  --popover: #0A152A;
+  --popover-foreground: #C5DAED;
+  --primary: #F5A623;
+  --primary-foreground: #03050A;
+  --secondary: #1E2A3B;
+  --secondary-foreground: #C5DAED;
+  --muted: #1E2A3B;
+  --muted-foreground: #4A6A8A;
+  --accent: #0A152A;
+  --accent-foreground: #C5DAED;
+  --destructive: #F5365C;
+  --border: #162840;
+  --input: #1E2A3B;
+  --ring: #F5A623;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+body {
+  min-width: 320px;
+  min-height: var(--app-height);
+  background-color: #03050A;
+  color: var(--foreground);
+  font-family: "Questrial", sans-serif;
+}

@@ -1,0 +1,13 @@
+# Node artifacts
+**/node_modules/
+**/dist/
+
+# Local runtime data
+builds/typescript/.env
+builds/typescript/.env.*
+builds/typescript/.paa-secrets/
+builds/typescript/your-memory/
+
+# Logs
+*.log
+builds/typescript/.your-memory.root-owned.backup/
