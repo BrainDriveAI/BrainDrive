@@ -1,9 +1,13 @@
 # Finance Plan
 
+This is your action plan — the concrete steps that move you toward your financial goals.
+
+It starts empty because a good plan needs to come from your spec. Once we've talked through what you want and where you are, I'll generate a practical plan with clear next steps. As you make progress, this plan evolves with you.
+
 ## Today
 
-1. Complete one action that improves cash control.
+*To be defined after spec is complete.*
 
 ## This Week
 
-1. Build a short sequence to stabilize and improve.
+*To be defined after spec is complete.*

@@ -1,9 +1,13 @@
-# New Project Plan
+# Project Plan
+
+This is your action plan — the concrete steps that move your project forward.
+
+It starts empty because a good plan needs to come from your spec. Once we've talked through what you want and where things stand, I'll generate a practical plan with clear next steps. As you make progress, this plan evolves with you.
 
 ## Today
 
-1. Take one concrete action that creates momentum.
+*To be defined after spec is complete.*
 
 ## This Week
 
-1. Break the project into practical next steps.
+*To be defined after spec is complete.*
