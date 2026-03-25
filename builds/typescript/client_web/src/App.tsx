@@ -1,6 +1,7 @@
 ﻿import { useEffect, useState } from "react";
 
 import { updateProviderCredential, getOnboardingStatus } from "@/api/gateway-adapter";
+import { resetGatewayChatRuntime } from "@/api/useGatewayChat";
 import type { GatewayCredentialUpdateRequest, GatewayOnboardingStatus } from "@/api/types";
 import AuthFlow from "@/components/auth/AuthFlow";
 import AppShell from "@/components/layout/AppShell";
@@ -62,6 +63,7 @@ export default function App() {
     try {
       const response = await updateProviderCredential(payload);
       setOnboardingStatus(response.onboarding);
+      resetGatewayChatRuntime();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setOnboardingError(message);

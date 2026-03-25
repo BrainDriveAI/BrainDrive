@@ -111,7 +111,10 @@ describe("gateway-adapter settings models", () => {
     expect(payload.models).toEqual([{ id: "openai/gpt-4o-mini" }]);
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/settings/models?provider_profile=openrouter",
-      expect.objectContaining({ headers: expect.any(Object) })
+      expect.objectContaining({
+        headers: expect.any(Object),
+        cache: "no-store",
+      })
     );
   });
 });
@@ -153,7 +156,10 @@ describe("gateway-adapter onboarding settings", () => {
     expect(payload.onboarding_required).toBe(true);
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/settings/onboarding-status",
-      expect.objectContaining({ headers: expect.any(Object) })
+      expect.objectContaining({
+        headers: expect.any(Object),
+        cache: "no-store",
+      })
     );
   });
 

@@ -17,6 +17,7 @@ const EMPTY_MESSAGES: Message[] = [];
 const EMPTY_ACTIVITY: ActivityEvent[] = [];
 const EMPTY_APPROVALS: PendingApproval[] = [];
 const MAX_ACTIVITY_EVENTS = 30;
+const GATEWAY_CHAT_RUNTIME_RESET_EVENT = "braindrive:gateway-chat-runtime-reset";
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
@@ -49,6 +50,19 @@ const backgroundStates = new Map<string, ConversationState>();
 
 // Active background streams — update their cached state as events arrive
 const backgroundStreams = new Map<string, { requestToken: number }>();
+
+export function resetGatewayChatRuntime(): void {
+  for (const state of backgroundStates.values()) {
+    state.abortController?.abort();
+  }
+
+  backgroundStates.clear();
+  backgroundStreams.clear();
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(GATEWAY_CHAT_RUNTIME_RESET_EVENT));
+  }
+}
 
 type UseGatewayChatOptions = {
   conversationId?: string | null;
@@ -103,6 +117,29 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
   useEffect(() => {
     projectIdRef.current = externalProjectId;
   }, [externalProjectId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    function handleRuntimeReset() {
+      requestTokenRef.current += 1;
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = null;
+
+      setIsLoading(false);
+      setError(null);
+      setToolStatus(null);
+      setPendingApprovals([]);
+      setActivity([]);
+    }
+
+    window.addEventListener(GATEWAY_CHAT_RUNTIME_RESET_EVENT, handleRuntimeReset);
+    return () => {
+      window.removeEventListener(GATEWAY_CHAT_RUNTIME_RESET_EVENT, handleRuntimeReset);
+    };
+  }, []);
 
   // When conversation changes: save current state to background, restore new state
   useEffect(() => {

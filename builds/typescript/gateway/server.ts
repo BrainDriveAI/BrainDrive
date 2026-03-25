@@ -236,7 +236,7 @@ export async function buildServer(rootDir = process.cwd()) {
 
     reply.raw.writeHead(200, {
       "content-type": "text/event-stream",
-      "cache-control": "no-cache",
+      "cache-control": "no-store",
       connection: "keep-alive",
       "x-conversation-id": conversationId,
     });
@@ -464,15 +464,17 @@ export async function buildServer(rootDir = process.cwd()) {
     },
   }));
 
-  app.get("/settings", async (request) => {
+  app.get("/settings", async (request, reply) => {
     authorize(request.authContext, "administration");
     const currentPreferences = await loadPreferences(runtimeConfig.memory_root);
+    reply.header("cache-control", "no-store");
     return buildSettingsPayload(adapterConfig, currentPreferences);
   });
 
-  app.get("/settings/onboarding-status", async (request) => {
+  app.get("/settings/onboarding-status", async (request, reply) => {
     authorize(request.authContext, "administration");
     const currentPreferences = await loadPreferences(runtimeConfig.memory_root);
+    reply.header("cache-control", "no-store");
     return buildOnboardingStatusPayload(adapterConfig, currentPreferences);
   });
 
@@ -543,6 +545,7 @@ export async function buildServer(rootDir = process.cwd()) {
       }
     }
 
+    reply.header("cache-control", "no-store");
     reply.send({
       provider_profile: selectedProfile,
       provider_id: selectedAdapterConfig.provider_id ?? selectedProfile,
@@ -647,6 +650,7 @@ export async function buildServer(rootDir = process.cwd()) {
       secret_ref: secretRef,
     });
 
+    reply.header("cache-control", "no-store");
     reply.send({
       settings: buildSettingsPayload(adapterConfig, nextPreferences),
       onboarding: onboardingStatus,
