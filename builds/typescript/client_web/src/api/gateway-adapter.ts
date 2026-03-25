@@ -514,6 +514,7 @@ export async function submitApprovalDecision(
 export async function getSettings(): Promise<GatewaySettings> {
   const response = await fetch(`${GATEWAY_BASE_URL}/settings`, {
     headers: withLocalOwnerHeaders(),
+    cache: "no-store",
   });
 
   if (!response.ok) {
@@ -542,6 +543,7 @@ export async function updateSettings(
 export async function getOnboardingStatus(): Promise<GatewayOnboardingStatus> {
   const response = await fetch(`${GATEWAY_BASE_URL}/settings/onboarding-status`, {
     headers: withLocalOwnerHeaders(),
+    cache: "no-store",
   });
 
   if (!response.ok) {
@@ -575,6 +577,7 @@ export async function getProviderModels(
     : "";
   const response = await fetch(`${GATEWAY_BASE_URL}/settings/models${query}`, {
     headers: withLocalOwnerHeaders(),
+    cache: "no-store",
   });
 
   if (!response.ok) {

@@ -19,6 +19,7 @@ import {
   updateProviderCredential as updateGatewayProviderCredential,
   updateSettings as updateGatewaySettings,
 } from "@/api/gateway-adapter";
+import { resetGatewayChatRuntime } from "@/api/useGatewayChat";
 import type {
   GatewayCredentialUpdateRequest,
   GatewayModelCatalog,
@@ -182,6 +183,7 @@ export default function SettingsModal({ mode = "local", onClose }: SettingsModal
     const updated = await updateGatewayProviderCredential(patch);
     setSettings(updated.settings);
     setSettingsError(null);
+    resetGatewayChatRuntime();
   }
 
   async function handleDownloadExport(): Promise<void> {

@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 
 import type { ChatEvent } from "./types";
-import { useGatewayChat } from "./useGatewayChat";
+import { resetGatewayChatRuntime, useGatewayChat } from "./useGatewayChat";
 
 const sendMessageMock = vi.fn<
   (
@@ -290,5 +290,36 @@ describe("useGatewayChat", () => {
     expect(updateProjectSkillsMock).toHaveBeenCalledWith("project-1", ["plan"], "slash");
     expect(sendMessageMock).not.toHaveBeenCalled();
     expect(result.current.messages[1]?.content).toBe("Project skills updated:\n- plan");
+  });
+
+  it("clears transient chat runtime state when credentials are refreshed", async () => {
+    sendMessageMock.mockImplementation(() =>
+      streamEvents([
+        {
+          type: "error",
+          code: "provider_error",
+          message: "Provider credentials were rejected",
+        },
+      ])
+    );
+
+    const { result } = renderHook(() => useGatewayChat());
+
+    act(() => {
+      result.current.append("hello");
+    });
+
+    await waitFor(() => {
+      expect(result.current.error?.message).toBe("Provider credentials were rejected");
+    });
+
+    act(() => {
+      resetGatewayChatRuntime();
+    });
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.pendingApprovals).toEqual([]);
+    expect(result.current.activity).toEqual([]);
   });
 });
