@@ -6,15 +6,9 @@ type ProjectIntro = {
 
 const PROJECT_INTROS: Record<string, ProjectIntro> = {
   "braindrive-plus-one": {
-    heading: "What would you like to work on?",
+    heading: "I'm BrainDrive+1 — your personal assistant",
     description:
-      "Pick something on your mind right now — a goal, a problem, a decision — and let's make progress on it in the next five minutes.",
-    suggestions: [
-      "I want to get my finances in order but I don't know where to start",
-      "I'm thinking about changing careers and need to figure out my next move",
-      "My fitness has slipped and I want a realistic plan to get back on track",
-      "Help me think through a tough conversation I need to have"
-    ]
+      "You've got some projects ready to go in the sidebar, or we can work on whatever you'd like right here."
   },
   finance: {
     heading: "Your financial life, organized",

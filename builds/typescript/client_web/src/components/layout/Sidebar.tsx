@@ -158,12 +158,22 @@ export default function Sidebar({
     );
   }
 
-  const isProjectView = selectedProject !== null;
+  const isProjectView = selectedProject !== null && selectedProject.id !== "braindrive-plus-one";
 
   return (
     <aside className="flex h-dvh w-[300px] flex-col border-r border-bd-border bg-bd-bg-secondary transition-all duration-200 md:w-sidebar">
       <div className="flex items-center justify-between gap-3 px-4 py-4">
-        <img src="/braindrive-logo.svg" alt="BrainDrive" className="h-7 w-auto" />
+        <button
+          type="button"
+          aria-label="Go to BrainDrive+1 home"
+          onClick={() => {
+            onSelectProject("braindrive-plus-one");
+            onClose?.();
+          }}
+          className="transition-opacity duration-200 hover:opacity-80"
+        >
+          <img src="/braindrive-logo.svg" alt="BrainDrive" className="h-7 w-auto" />
+        </button>
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -191,8 +201,8 @@ export default function Sidebar({
           <div className="flex items-center gap-2 px-4 pb-3 pt-2">
             <button
               type="button"
-              aria-label="Back to project list"
-              onClick={onDeselectProject}
+              aria-label="Back to home"
+              onClick={() => onSelectProject("braindrive-plus-one")}
               className="flex h-7 w-7 items-center justify-center rounded-md text-bd-text-secondary transition-colors duration-200 hover:bg-bd-bg-hover hover:text-bd-text-primary"
             >
               <ChevronLeft size={16} strokeWidth={1.5} />

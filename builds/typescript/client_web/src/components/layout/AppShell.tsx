@@ -40,8 +40,7 @@ export default function AppShell({ children, deploymentMode = "local", onLogout 
     renameProject
   } = useProjects();
 
-  const messageMetadata =
-    selectedProjectId !== null ? { project: selectedProjectId } : undefined;
+  const messageMetadata = { project: selectedProjectId ?? "braindrive-plus-one" };
 
   useEffect(() => {
     setActiveFile(null);

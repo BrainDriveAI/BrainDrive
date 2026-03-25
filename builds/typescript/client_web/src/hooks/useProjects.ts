@@ -67,6 +67,14 @@ export function useProjects(): {
         }
 
         setProjects(nextProjects);
+
+        // Auto-select BD+1 as landing page if no project is selected
+        if (!selectedProjectId) {
+          const bdPlusOne = nextProjects.find(p => p.id === "braindrive-plus-one");
+          if (bdPlusOne) {
+            setSelectedProjectId("braindrive-plus-one");
+          }
+        }
       } catch (error) {
         if (projectsRequestIdRef.current !== requestId) {
           return;
