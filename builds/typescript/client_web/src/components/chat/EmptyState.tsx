@@ -1,7 +1,7 @@
 type ProjectIntro = {
   heading: string;
   description: string;
-  suggestions: string[];
+  suggestions?: string[];
 };
 
 const PROJECT_INTROS: Record<string, ProjectIntro> = {
@@ -106,7 +106,7 @@ export default function EmptyState({ projectId, onSuggestionClick }: EmptyStateP
         {intro.description}
       </p>
 
-      <div className="mt-8 flex flex-wrap justify-center gap-2">
+      {intro.suggestions?.length ? <div className="mt-8 flex flex-wrap justify-center gap-2">
         {intro.suggestions.map((suggestion) => (
           <button
             key={suggestion}
@@ -117,7 +117,7 @@ export default function EmptyState({ projectId, onSuggestionClick }: EmptyStateP
             {suggestion}
           </button>
         ))}
-      </div>
+      </div> : null}
     </div>
   );
 }
