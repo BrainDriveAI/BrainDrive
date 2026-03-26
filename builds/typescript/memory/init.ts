@@ -72,7 +72,7 @@ const FALLBACK_LOCAL_DEV_PREFERENCES = {
 };
 
 const FALLBACK_OPENROUTER_SECRET_REF_PREFERENCES = {
-  default_model: "openai/gpt-4o-mini",
+  default_model: "anthropic/claude-sonnet-4.6",
   approval_mode: "ask-on-write",
   active_provider_profile: "openrouter",
   provider_credentials: {
