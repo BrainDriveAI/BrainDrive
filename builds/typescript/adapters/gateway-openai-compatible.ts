@@ -7,7 +7,7 @@ const messageRequestSchema = z.object({
   content: z.string().min(1),
   metadata: z
     .object({
-      client: z.string().min(1),
+      client: z.string().min(1).optional(),
       project: z.string().min(1).optional(),
     })
     .strict()
