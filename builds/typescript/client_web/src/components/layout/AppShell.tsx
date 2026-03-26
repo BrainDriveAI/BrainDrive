@@ -166,7 +166,14 @@ export default function AppShell({ children, deploymentMode = "local", onLogout 
             >
               <Menu size={18} strokeWidth={1.5} />
             </button>
-            <img src="/braindrive-logo.svg" alt="BrainDrive" className="h-5 w-auto" />
+            <button
+              type="button"
+              aria-label="Go to BrainDrive home"
+              onClick={() => selectProject("braindrive-plus-one")}
+              className="cursor-pointer bg-transparent p-0"
+            >
+              <img src="/braindrive-logo.svg" alt="BrainDrive" className="h-5 w-auto" />
+            </button>
           </div>
         </div>,
         document.body

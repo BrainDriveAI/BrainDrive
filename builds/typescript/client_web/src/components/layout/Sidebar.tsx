@@ -1,4 +1,4 @@
-import { ChevronLeft, FileText, MoreHorizontal, Pencil, Plus, Trash2, X } from "lucide-react";
+import { ChevronLeft, FileText, MoreHorizontal, Pencil, Plus, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { getSession } from "@/api/auth-adapter";
@@ -158,12 +158,20 @@ export default function Sidebar({
     );
   }
 
-  const isProjectView = selectedProject !== null;
+  const isBdPlusOne = selectedProjectId === "braindrive-plus-one";
+  const isProjectView = selectedProject !== null && !isBdPlusOne;
 
   return (
     <aside className="flex h-dvh w-[300px] flex-col border-r border-bd-border bg-bd-bg-secondary transition-all duration-200 md:w-sidebar">
       <div className="flex items-center justify-between gap-3 px-4 py-4">
-        <img src="/braindrive-logo.svg" alt="BrainDrive" className="h-7 w-auto" />
+        <button
+          type="button"
+          aria-label="Go to BrainDrive home"
+          onClick={() => onSelectProject("braindrive-plus-one")}
+          className="cursor-pointer bg-transparent p-0 hover:opacity-80"
+        >
+          <img src="/braindrive-logo.svg" alt="BrainDrive" className="h-7 w-auto" />
+        </button>
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -240,10 +248,31 @@ export default function Sidebar({
             </div>
           ) : (
             <div className="space-y-1 px-2">
-              {projects.map((project) => {
+              <div
+                className={[
+                  "group relative flex w-full items-center gap-3 rounded-xl py-2 pl-4 pr-3 text-left transition-all duration-200 hover:bg-bd-bg-hover",
+                  isBdPlusOne &&
+                    "border-l-2 border-bd-amber bg-bd-bg-tertiary pl-[14px]"
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSelectProject("braindrive-plus-one");
+                    onClose?.();
+                  }}
+                  className="flex min-w-0 flex-1 items-center gap-3"
+                >
+                  <Sparkles size={17} strokeWidth={1.5} className="shrink-0 text-bd-text-secondary" />
+                  <span className="truncate text-[14px] text-bd-text-primary">BrainDrive+1</span>
+                </button>
+              </div>
+
+              {projects.filter((p) => p.id !== "braindrive-plus-one").map((project) => {
                 const Icon = getProjectIcon(project.icon);
                 const isActive = project.id === selectedProjectId;
-                const isProtected = project.id === "braindrive-plus-one";
                 const isMenuOpen = menuOpenForProject === project.id;
                 const isRenaming = renamingProjectId === project.id;
 
@@ -304,7 +333,7 @@ export default function Sidebar({
                       <Icon size={17} strokeWidth={1.5} className="shrink-0 text-bd-text-secondary" />
                       <span className="truncate text-[14px] text-bd-text-primary">{project.name}</span>
                     </button>
-                    {!isProtected && (onRemoveProject || onRenameProject) ? (
+                    {(onRemoveProject || onRenameProject) ? (
                       <div ref={isMenuOpen ? projectMenuRef : undefined} className="relative">
                         <button
                           type="button"
