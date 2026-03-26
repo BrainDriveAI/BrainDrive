@@ -1,5 +1,8 @@
 node_modules
+client_web/node_modules
+client_web/.vite
 dist
 *.log
+.reset-backups
 your-memory/conversations/*.db-wal
 your-memory/conversations/*.db-shm

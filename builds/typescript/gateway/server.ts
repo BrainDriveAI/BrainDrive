@@ -9,6 +9,19 @@ import type { ProviderModel } from "../adapters/base.js";
 import { authorize, authorizeApprovalDecision } from "../auth/authorize.js";
 import { authMiddleware } from "../auth/middleware.js";
 import {
+  AccountAlreadyInitializedError,
+  AccountInitializationLockedError,
+  toBootstrapStatus,
+  withSignupLock,
+} from "../auth/account-store.js";
+import {
+  createLocalJwtAuthService,
+  InvalidCredentialsError,
+  InvalidRefreshTokenError,
+  RefreshReplayDetectedError,
+} from "../auth/local-jwt-auth.js";
+import { evaluateSignupBootstrapAccess } from "../auth/signup-bootstrap.js";
+import {
   loadAdapterConfig,
   loadPreferences,
   loadRuntimeConfig,
@@ -23,7 +36,7 @@ import { formatSseEvent } from "../engine/stream.js";
 import { ToolExecutor } from "../engine/tool-executor.js";
 import { ensureGitReady } from "../git.js";
 import { auditLog } from "../logger.js";
-import { ensureAuthState } from "../memory/auth-state.js";
+import { ensureAuthState, saveAuthState } from "../memory/auth-state.js";
 import type { ConversationRepository } from "../memory/conversation-repository.js";
 import { MarkdownConversationStore } from "../memory/conversation-store-markdown.js";
 import { exportMemory } from "../memory/export.js";
@@ -126,6 +139,23 @@ const settingsCredentialsUpdateSchema = z
     }
   });
 
+const authCredentialsSchema = z
+  .object({
+    identifier: z.string().trim().min(1),
+    password: z.string().min(8),
+  })
+  .strict();
+
+const REFRESH_COOKIE_NAME = "paa_refresh_token";
+const PUBLIC_ROUTES = new Set([
+  "/health",
+  "/config",
+  "/auth/bootstrap-status",
+  "/auth/signup",
+  "/auth/login",
+  "/auth/refresh",
+]);
+
 export async function buildServer(rootDir = process.cwd()) {
   auditLog("startup.phase", { phase: "runtime-config" });
   const runtimeConfig = await loadRuntimeConfig(rootDir);
@@ -142,7 +172,7 @@ export async function buildServer(rootDir = process.cwd()) {
 
   auditLog("startup.phase", { phase: "preferences" });
   const preferences = await loadPreferences(runtimeConfig.memory_root);
-  const authState = await ensureAuthState(runtimeConfig.memory_root);
+  let authState = await ensureAuthState(runtimeConfig.memory_root, { mode: runtimeConfig.auth_mode });
   const systemPrompt = await readBootstrapPrompt(runtimeConfig.memory_root);
   auditLog("startup.phase", { phase: "secrets" });
   const startupAdapterConfig = resolveAdapterConfigForPreferences(adapterConfig, preferences);
@@ -177,15 +207,195 @@ export async function buildServer(rootDir = process.cwd()) {
   const conversations = new GatewayConversationService(createConversationRepository(runtimeConfig));
   const projects = new GatewayProjectService(runtimeConfig.memory_root, { rootDir });
   const skills = new GatewaySkillService(runtimeConfig.memory_root);
+  const signupRateLimiter = new FixedWindowRateLimiter(5, 5 * 60 * 1000);
+  const loginRateLimiter = new FixedWindowRateLimiter(10, 5 * 60 * 1000);
+  const refreshRateLimiter = new FixedWindowRateLimiter(30, 5 * 60 * 1000);
+  const signupBootstrapToken = process.env.PAA_AUTH_BOOTSTRAP_TOKEN?.trim();
+  const persistAuthState = async (nextState: typeof authState): Promise<void> => {
+    authState = await saveAuthState(runtimeConfig.memory_root, nextState);
+  };
+  const localJwtAuthService =
+    runtimeConfig.auth_mode === "local"
+      ? createLocalJwtAuthService({
+          memoryRoot: runtimeConfig.memory_root,
+          getAuthState: () => authState,
+          persistAuthState,
+        })
+      : null;
 
   app.get("/health", async () => ({ status: "ok" }));
 
-  app.addHook("preHandler", async (request, reply) => {
-    if (request.url === "/health") {
+  app.get("/auth/bootstrap-status", async () => toBootstrapStatus(authState));
+
+  app.post("/auth/signup", async (request, reply) => {
+    if (!localJwtAuthService) {
+      reply.code(404).send({ error: "Not found" });
       return;
     }
 
-    await authMiddleware(request, reply, authState);
+    if (!signupRateLimiter.allow(request.ip)) {
+      reply.code(429).send({ error: "too_many_requests" });
+      return;
+    }
+
+    if (!authState.account_initialized) {
+      const signupAccess = evaluateSignupBootstrapAccess(
+        {
+          ip: request.ip,
+          headers: request.headers as Record<string, unknown>,
+        },
+        signupBootstrapToken
+      );
+      if (!signupAccess.allowed) {
+        auditLog("auth.signup.denied", {
+          reason: signupAccess.reason,
+          ip: request.ip,
+        });
+        reply.code(403).send({ error: signupAccess.reason });
+        return;
+      }
+    }
+
+    const parsed = authCredentialsSchema.safeParse(request.body);
+    if (!parsed.success) {
+      sendInvalidRequest(reply, "/auth/signup", parsed.error.issues.length);
+      return;
+    }
+
+    try {
+      const tokens = await withSignupLock(runtimeConfig.memory_root, async () =>
+        localJwtAuthService.signup(parsed.data)
+      );
+      reply.header(
+        "set-cookie",
+        serializeRefreshCookie(tokens.refreshToken, tokens.refreshMaxAgeSeconds, isSecureRequest(request))
+      );
+      reply.code(201).send({
+        access_token: tokens.accessToken,
+        token_type: "Bearer",
+        expires_at: tokens.accessTokenExpiresAt,
+      });
+    } catch (error) {
+      if (error instanceof AccountAlreadyInitializedError || error instanceof AccountInitializationLockedError) {
+        auditLog("auth.signup.denied", { reason: "account_already_initialized" });
+        reply.code(409).send({ error: "account_already_initialized" });
+        return;
+      }
+
+      if (error instanceof InvalidCredentialsError) {
+        auditLog("auth.signup.denied", { reason: "invalid_credentials" });
+        reply.code(400).send({ error: "invalid_credentials" });
+        return;
+      }
+
+      throw error;
+    }
+  });
+
+  app.post("/auth/login", async (request, reply) => {
+    if (!localJwtAuthService) {
+      reply.code(404).send({ error: "Not found" });
+      return;
+    }
+
+    if (!loginRateLimiter.allow(request.ip)) {
+      reply.code(429).send({ error: "too_many_requests" });
+      return;
+    }
+
+    const parsed = authCredentialsSchema.safeParse(request.body);
+    if (!parsed.success) {
+      sendInvalidRequest(reply, "/auth/login", parsed.error.issues.length);
+      return;
+    }
+
+    try {
+      const tokens = await localJwtAuthService.login(parsed.data);
+      reply.header(
+        "set-cookie",
+        serializeRefreshCookie(tokens.refreshToken, tokens.refreshMaxAgeSeconds, isSecureRequest(request))
+      );
+      reply.send({
+        access_token: tokens.accessToken,
+        token_type: "Bearer",
+        expires_at: tokens.accessTokenExpiresAt,
+      });
+    } catch (error) {
+      if (error instanceof InvalidCredentialsError) {
+        reply.code(401).send({ error: "invalid_credentials" });
+        return;
+      }
+
+      throw error;
+    }
+  });
+
+  app.post("/auth/refresh", async (request, reply) => {
+    if (!localJwtAuthService) {
+      reply.code(404).send({ error: "Not found" });
+      return;
+    }
+
+    if (!refreshRateLimiter.allow(request.ip)) {
+      reply.code(429).send({ error: "too_many_requests" });
+      return;
+    }
+
+    const refreshToken = readRefreshTokenFromRequest(request.headers.cookie);
+    if (!refreshToken) {
+      reply.code(401).send({ error: "invalid_refresh_token" });
+      return;
+    }
+
+    try {
+      const tokens = await localJwtAuthService.refresh(refreshToken);
+      reply.header(
+        "set-cookie",
+        serializeRefreshCookie(tokens.refreshToken, tokens.refreshMaxAgeSeconds, isSecureRequest(request))
+      );
+      reply.send({
+        access_token: tokens.accessToken,
+        token_type: "Bearer",
+        expires_at: tokens.accessTokenExpiresAt,
+      });
+    } catch (error) {
+      if (error instanceof RefreshReplayDetectedError) {
+        reply.header("set-cookie", serializeRefreshCookieClear(isSecureRequest(request)));
+        reply.code(401).send({ error: "refresh_replay_detected" });
+        return;
+      }
+
+      if (error instanceof InvalidRefreshTokenError) {
+        reply.code(401).send({ error: "invalid_refresh_token" });
+        return;
+      }
+
+      throw error;
+    }
+  });
+
+  app.post("/auth/logout", async (request, reply) => {
+    if (localJwtAuthService) {
+      await localJwtAuthService.logout();
+      reply.header("set-cookie", serializeRefreshCookieClear(isSecureRequest(request)));
+    }
+
+    reply.send({ ok: true });
+  });
+
+  app.addHook("preHandler", async (request, reply) => {
+    const requestPath = stripQueryString(request.url);
+    if (isPublicRoute(requestPath)) {
+      return;
+    }
+
+    await authMiddleware(request, reply, {
+      mode: runtimeConfig.auth_mode,
+      getAuthState: () => authState,
+      authenticateLocalJwtAccessToken: localJwtAuthService
+        ? async (accessToken: string) => localJwtAuthService.authenticateAccessToken(accessToken)
+        : undefined,
+    });
   });
 
   app.post("/message", async (request, reply) => {
@@ -236,7 +446,7 @@ export async function buildServer(rootDir = process.cwd()) {
 
     reply.raw.writeHead(200, {
       "content-type": "text/event-stream",
-      "cache-control": "no-store",
+      "cache-control": "no-cache",
       connection: "keep-alive",
       "x-conversation-id": conversationId,
     });
@@ -444,7 +654,7 @@ export async function buildServer(rootDir = process.cwd()) {
   });
 
   app.get("/config", async () => ({
-    mode: "local",
+    mode: runtimeConfig.auth_mode === "managed" ? "managed" : "local",
     gateway_url: "/api",
     features: {
       approvals: true,
@@ -454,27 +664,25 @@ export async function buildServer(rootDir = process.cwd()) {
   }));
 
   app.get("/session", async (request) => ({
-    mode: "local",
+    mode: runtimeConfig.auth_mode === "managed" ? "managed" : "local",
     user: {
       id: request.authContext.actorId,
-      name: "Local Owner",
-      initials: "LO",
-      email: "owner@local.paa",
+      name: authState.account_username ?? "Local Owner",
+      initials: toInitials(authState.account_username ?? "Local Owner"),
+      email: `${(authState.account_username ?? "owner").toLowerCase()}@local.paa`,
       role: request.authContext.actorType,
     },
   }));
 
-  app.get("/settings", async (request, reply) => {
+  app.get("/settings", async (request) => {
     authorize(request.authContext, "administration");
     const currentPreferences = await loadPreferences(runtimeConfig.memory_root);
-    reply.header("cache-control", "no-store");
     return buildSettingsPayload(adapterConfig, currentPreferences);
   });
 
-  app.get("/settings/onboarding-status", async (request, reply) => {
+  app.get("/settings/onboarding-status", async (request) => {
     authorize(request.authContext, "administration");
     const currentPreferences = await loadPreferences(runtimeConfig.memory_root);
-    reply.header("cache-control", "no-store");
     return buildOnboardingStatusPayload(adapterConfig, currentPreferences);
   });
 
@@ -545,7 +753,6 @@ export async function buildServer(rootDir = process.cwd()) {
       }
     }
 
-    reply.header("cache-control", "no-store");
     reply.send({
       provider_profile: selectedProfile,
       provider_id: selectedAdapterConfig.provider_id ?? selectedProfile,
@@ -650,7 +857,6 @@ export async function buildServer(rootDir = process.cwd()) {
       secret_ref: secretRef,
     });
 
-    reply.header("cache-control", "no-store");
     reply.send({
       settings: buildSettingsPayload(adapterConfig, nextPreferences),
       onboarding: onboardingStatus,
@@ -940,6 +1146,121 @@ export async function buildServer(rootDir = process.cwd()) {
     adapterConfig,
     rootDir,
   };
+}
+
+function isPublicRoute(urlPath: string): boolean {
+  return PUBLIC_ROUTES.has(urlPath);
+}
+
+function stripQueryString(url: string): string {
+  const index = url.indexOf("?");
+  return index >= 0 ? url.slice(0, index) : url;
+}
+
+function readRefreshTokenFromRequest(cookieHeader: unknown): string | undefined {
+  if (typeof cookieHeader !== "string" || cookieHeader.trim().length === 0) {
+    return undefined;
+  }
+
+  const cookies = cookieHeader.split(";");
+  for (const cookie of cookies) {
+    const [rawName, ...rawValue] = cookie.split("=");
+    if (!rawName || rawValue.length === 0) {
+      continue;
+    }
+
+    if (rawName.trim() !== REFRESH_COOKIE_NAME) {
+      continue;
+    }
+
+    const serializedValue = rawValue.join("=").trim();
+    if (serializedValue.length === 0) {
+      continue;
+    }
+
+    return decodeURIComponent(serializedValue);
+  }
+
+  return undefined;
+}
+
+function serializeRefreshCookie(refreshToken: string, maxAgeSeconds: number, secure: boolean): string {
+  const expires = new Date(Date.now() + maxAgeSeconds * 1000).toUTCString();
+  return [
+    `${REFRESH_COOKIE_NAME}=${encodeURIComponent(refreshToken)}`,
+    "HttpOnly",
+    "SameSite=Strict",
+    "Path=/",
+    `Max-Age=${maxAgeSeconds}`,
+    `Expires=${expires}`,
+    secure ? "Secure" : "",
+  ]
+    .filter((segment) => segment.length > 0)
+    .join("; ");
+}
+
+function serializeRefreshCookieClear(secure: boolean): string {
+  return [
+    `${REFRESH_COOKIE_NAME}=`,
+    "HttpOnly",
+    "SameSite=Strict",
+    "Path=/",
+    "Max-Age=0",
+    "Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+    secure ? "Secure" : "",
+  ]
+    .filter((segment) => segment.length > 0)
+    .join("; ");
+}
+
+function isSecureRequest(request: { headers: Record<string, unknown> }): boolean {
+  const forwardedProto = request.headers["x-forwarded-proto"];
+  if (typeof forwardedProto === "string" && forwardedProto.toLowerCase().includes("https")) {
+    return true;
+  }
+
+  return process.env.NODE_ENV === "production";
+}
+
+function toInitials(value: string): string {
+  const parts = value
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  if (parts.length === 0) {
+    return "LO";
+  }
+
+  const first = parts[0]?.[0] ?? "L";
+  const second = parts[1]?.[0] ?? (parts[0]?.[1] ?? "O");
+  return `${first}${second}`.toUpperCase();
+}
+
+class FixedWindowRateLimiter {
+  private readonly records = new Map<string, { count: number; resetAt: number }>();
+
+  constructor(private readonly limit: number, private readonly windowMs: number) {}
+
+  allow(key: string | undefined): boolean {
+    const normalizedKey = key?.trim() || "unknown";
+    const now = Date.now();
+    const current = this.records.get(normalizedKey);
+    if (!current || current.resetAt <= now) {
+      this.records.set(normalizedKey, {
+        count: 1,
+        resetAt: now + this.windowMs,
+      });
+      return true;
+    }
+
+    if (current.count >= this.limit) {
+      return false;
+    }
+
+    current.count += 1;
+    this.records.set(normalizedKey, current);
+    return true;
+  }
 }
 
 function createConversationRepository(runtimeConfig: RuntimeConfig): ConversationRepository {

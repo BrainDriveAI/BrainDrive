@@ -10,7 +10,7 @@ const runtimeConfigSchema = z.object({
   memory_root: z.string().min(1),
   provider_adapter: z.string().min(1),
   conversation_store: z.literal("markdown").optional(),
-  auth_mode: z.literal("local-owner"),
+  auth_mode: z.enum(["local-owner", "local", "managed"]),
   tool_sources: z.array(z.string()),
   bind_address: z.string().min(1).optional(),
   safety_iteration_limit: z.number().int().positive().optional(),

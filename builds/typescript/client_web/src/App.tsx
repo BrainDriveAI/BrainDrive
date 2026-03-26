@@ -1,7 +1,7 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
+import { logout } from "@/api/auth-adapter";
 import { updateProviderCredential, getOnboardingStatus } from "@/api/gateway-adapter";
-import { resetGatewayChatRuntime } from "@/api/useGatewayChat";
 import type { GatewayCredentialUpdateRequest, GatewayOnboardingStatus } from "@/api/types";
 import AuthFlow from "@/components/auth/AuthFlow";
 import AppShell from "@/components/layout/AppShell";
@@ -11,11 +11,7 @@ type AppScreen = "auth" | "main";
 
 export default function App() {
   const [screen, setScreen] = useState<AppScreen>("auth");
-  // In production, mode comes from GET /api/config (see v1-api-contract-recommendations.md).
-  // Hardcoded here with a dev toggle until the backend is wired.
-  const [deploymentMode, setDeploymentMode] = useState<"local" | "managed">(
-    "local"
-  );
+  const [deploymentMode, setDeploymentMode] = useState<"local" | "managed">("local");
   const [onboardingStatus, setOnboardingStatus] = useState<GatewayOnboardingStatus | null>(null);
   const [isLoadingOnboarding, setIsLoadingOnboarding] = useState(false);
   const [isSavingOnboarding, setIsSavingOnboarding] = useState(false);
@@ -63,7 +59,6 @@ export default function App() {
     try {
       const response = await updateProviderCredential(payload);
       setOnboardingStatus(response.onboarding);
-      resetGatewayChatRuntime();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setOnboardingError(message);
@@ -73,14 +68,13 @@ export default function App() {
     }
   }
 
-  /* Dev-only mode toggle - remove before production */
   const modeToggle = (
     <div className="fixed bottom-4 right-4 z-50 hidden items-center gap-2 rounded-lg border border-bd-border bg-bd-bg-secondary px-3 py-2 text-xs shadow-lg md:flex">
       <span className="text-bd-text-muted">Mode:</span>
       <button
         type="button"
         onClick={() =>
-          setDeploymentMode((m) => (m === "local" ? "managed" : "local"))
+          setDeploymentMode((currentMode) => (currentMode === "local" ? "managed" : "local"))
         }
         className="rounded-md bg-bd-bg-tertiary px-2 py-1 text-bd-text-secondary transition-colors hover:bg-bd-bg-hover"
       >
@@ -92,10 +86,7 @@ export default function App() {
   if (screen === "auth") {
     return (
       <>
-        <AuthFlow
-          mode={deploymentMode}
-          onAuthenticated={() => setScreen("main")}
-        />
+        <AuthFlow mode={deploymentMode} onAuthenticated={() => setScreen("main")} />
         {modeToggle}
       </>
     );
@@ -109,7 +100,11 @@ export default function App() {
     <>
       <AppShell
         deploymentMode={deploymentMode}
-        onLogout={() => setScreen("auth")}
+        onLogout={() => {
+          void logout().finally(() => {
+            setScreen("auth");
+          });
+        }}
       />
       {deploymentMode === "local" && shouldShowOnboarding && (
         <ProviderCredentialsOnboarding

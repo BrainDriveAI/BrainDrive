@@ -1,6 +1,6 @@
 import type { Project, ProjectFile } from "@/types/ui";
 
-import { buildLocalOwnerHeaders } from "./local-auth";
+import { authenticatedFetch } from "./auth-adapter";
 import { parseSSE } from "./sse-parser";
 import {
   GatewayError,
@@ -224,7 +224,7 @@ export async function* sendMessage(
     headers["x-conversation-id"] = conversationId;
   }
 
-  const response = await fetch(`${GATEWAY_BASE_URL}/message`, {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/message`, {
     method: "POST",
     headers,
     body: JSON.stringify({
@@ -244,7 +244,7 @@ export async function* sendMessage(
 }
 
 export async function listConversations(): Promise<Conversation[]> {
-  const response = await fetch(`${GATEWAY_BASE_URL}/conversations`, {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/conversations`, {
     headers: withLocalOwnerHeaders(),
   });
 
@@ -257,7 +257,7 @@ export async function listConversations(): Promise<Conversation[]> {
 }
 
 export async function getConversation(id: string): Promise<ConversationDetail> {
-  const response = await fetch(
+  const response = await authenticatedFetch(
     `${GATEWAY_BASE_URL}/conversations/${encodeURIComponent(id)}`,
     { headers: withLocalOwnerHeaders() }
   );
@@ -270,7 +270,7 @@ export async function getConversation(id: string): Promise<ConversationDetail> {
 }
 
 export async function listProjects(): Promise<Project[]> {
-  const response = await fetch(`${GATEWAY_BASE_URL}/projects`, {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/projects`, {
     headers: withLocalOwnerHeaders(),
   });
 
@@ -290,7 +290,7 @@ export async function listProjects(): Promise<Project[]> {
 }
 
 export async function listSkills(): Promise<GatewaySkillSummary[]> {
-  const response = await fetch(`${GATEWAY_BASE_URL}/skills`, {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/skills`, {
     headers: withLocalOwnerHeaders(),
   });
   if (!response.ok) {
@@ -302,7 +302,7 @@ export async function listSkills(): Promise<GatewaySkillSummary[]> {
 }
 
 export async function getConversationSkills(conversationId: string): Promise<string[]> {
-  const response = await fetch(
+  const response = await authenticatedFetch(
     `${GATEWAY_BASE_URL}/conversations/${encodeURIComponent(conversationId)}/skills`,
     { headers: withLocalOwnerHeaders() }
   );
@@ -319,7 +319,7 @@ export async function updateConversationSkills(
   skillIds: string[],
   source: GatewaySkillBinding["source"] = "ui"
 ): Promise<string[]> {
-  const response = await fetch(
+  const response = await authenticatedFetch(
     `${GATEWAY_BASE_URL}/conversations/${encodeURIComponent(conversationId)}/skills`,
     {
       method: "PUT",
@@ -339,7 +339,7 @@ export async function updateConversationSkills(
 }
 
 export async function getProjectSkills(projectId: string): Promise<string[]> {
-  const response = await fetch(
+  const response = await authenticatedFetch(
     `${GATEWAY_BASE_URL}/projects/${encodeURIComponent(projectId)}/skills`,
     { headers: withLocalOwnerHeaders() }
   );
@@ -356,7 +356,7 @@ export async function updateProjectSkills(
   skillIds: string[],
   source: GatewaySkillBinding["source"] = "ui"
 ): Promise<string[]> {
-  const response = await fetch(
+  const response = await authenticatedFetch(
     `${GATEWAY_BASE_URL}/projects/${encodeURIComponent(projectId)}/skills`,
     {
       method: "PUT",
@@ -376,7 +376,7 @@ export async function updateProjectSkills(
 }
 
 export async function getProjectFiles(projectId: string): Promise<ProjectFile[]> {
-  const response = await fetch(
+  const response = await authenticatedFetch(
     `${GATEWAY_BASE_URL}/projects/${encodeURIComponent(projectId)}/files`,
     { headers: withLocalOwnerHeaders() }
   );
@@ -391,7 +391,7 @@ export async function getProjectFiles(projectId: string): Promise<ProjectFile[]>
 
 export async function readFileContent(projectId: string, filePath: string): Promise<string> {
   const params = new URLSearchParams({ path: filePath });
-  const response = await fetch(
+  const response = await authenticatedFetch(
     `${GATEWAY_BASE_URL}/projects/${encodeURIComponent(projectId)}/file-content?${params.toString()}`,
     { headers: withLocalOwnerHeaders() }
   );
@@ -414,7 +414,7 @@ export async function writeFileContent(
   content: string
 ): Promise<void> {
   const params = new URLSearchParams({ path: filePath });
-  const response = await fetch(
+  const response = await authenticatedFetch(
     `${GATEWAY_BASE_URL}/projects/${encodeURIComponent(projectId)}/file-content?${params.toString()}`,
     {
       method: "PUT",
@@ -431,7 +431,7 @@ export async function writeFileContent(
 }
 
 export async function createProject(name: string, icon = "folder"): Promise<Project> {
-  const response = await fetch(`${GATEWAY_BASE_URL}/projects`, {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/projects`, {
     method: "POST",
     headers: withLocalOwnerHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ name, icon })
@@ -452,7 +452,7 @@ export async function createProject(name: string, icon = "folder"): Promise<Proj
 }
 
 export async function renameProject(id: string, name: string): Promise<void> {
-  const response = await fetch(
+  const response = await authenticatedFetch(
     `${GATEWAY_BASE_URL}/projects/${encodeURIComponent(id)}`,
     {
       method: "PATCH",
@@ -467,7 +467,7 @@ export async function renameProject(id: string, name: string): Promise<void> {
 }
 
 export async function deleteProject(id: string): Promise<void> {
-  const response = await fetch(
+  const response = await authenticatedFetch(
     `${GATEWAY_BASE_URL}/projects/${encodeURIComponent(id)}`,
     { method: "DELETE", headers: withLocalOwnerHeaders() }
   );
@@ -478,7 +478,7 @@ export async function deleteProject(id: string): Promise<void> {
 }
 
 export async function deleteConversation(id: string): Promise<void> {
-  const response = await fetch(
+  const response = await authenticatedFetch(
     `${GATEWAY_BASE_URL}/conversations/${encodeURIComponent(id)}`,
     {
       method: "DELETE",
@@ -495,7 +495,7 @@ export async function submitApprovalDecision(
   requestId: string,
   decision: ApprovalDecision
 ): Promise<ApprovalDecisionResponse> {
-  const response = await fetch(
+  const response = await authenticatedFetch(
     `${GATEWAY_BASE_URL}/approvals/${encodeURIComponent(requestId)}`,
     {
       method: "POST",
@@ -512,9 +512,8 @@ export async function submitApprovalDecision(
 }
 
 export async function getSettings(): Promise<GatewaySettings> {
-  const response = await fetch(`${GATEWAY_BASE_URL}/settings`, {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/settings`, {
     headers: withLocalOwnerHeaders(),
-    cache: "no-store",
   });
 
   if (!response.ok) {
@@ -527,7 +526,7 @@ export async function getSettings(): Promise<GatewaySettings> {
 export async function updateSettings(
   patch: Partial<Pick<GatewaySettings, "default_model" | "active_provider_profile">>
 ): Promise<GatewaySettings> {
-  const response = await fetch(`${GATEWAY_BASE_URL}/settings`, {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/settings`, {
     method: "PUT",
     headers: withLocalOwnerHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(patch),
@@ -541,9 +540,8 @@ export async function updateSettings(
 }
 
 export async function getOnboardingStatus(): Promise<GatewayOnboardingStatus> {
-  const response = await fetch(`${GATEWAY_BASE_URL}/settings/onboarding-status`, {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/settings/onboarding-status`, {
     headers: withLocalOwnerHeaders(),
-    cache: "no-store",
   });
 
   if (!response.ok) {
@@ -556,7 +554,7 @@ export async function getOnboardingStatus(): Promise<GatewayOnboardingStatus> {
 export async function updateProviderCredential(
   payload: GatewayCredentialUpdateRequest
 ): Promise<GatewayCredentialUpdateResponse> {
-  const response = await fetch(`${GATEWAY_BASE_URL}/settings/credentials`, {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/settings/credentials`, {
     method: "PUT",
     headers: withLocalOwnerHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(payload),
@@ -575,9 +573,8 @@ export async function getProviderModels(
   const query = providerProfile && providerProfile.trim().length > 0
     ? `?provider_profile=${encodeURIComponent(providerProfile)}`
     : "";
-  const response = await fetch(`${GATEWAY_BASE_URL}/settings/models${query}`, {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/settings/models${query}`, {
     headers: withLocalOwnerHeaders(),
-    cache: "no-store",
   });
 
   if (!response.ok) {
@@ -588,7 +585,7 @@ export async function getProviderModels(
 }
 
 export async function downloadLibraryExport(): Promise<ExportDownload> {
-  const response = await fetch(`${GATEWAY_BASE_URL}/export`, {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/export`, {
     headers: withLocalOwnerHeaders(),
   });
 
@@ -624,7 +621,6 @@ function extractExportFilename(contentDisposition: string | null): string {
 
 function withLocalOwnerHeaders(headers?: Record<string, string>): Record<string, string> {
   return {
-    ...buildLocalOwnerHeaders(),
     ...(headers ?? {}),
   };
 }
@@ -640,3 +636,4 @@ export {
   type GatewayOnboardingStatus,
   type GatewaySettings
 };
+

@@ -6,6 +6,10 @@ Primary command:
 
     bash ./scripts/new-user-setup.sh
 
+Security note:
+
+1. Set `PAA_AUTH_BOOTSTRAP_TOKEN` for internet-exposed deployments before first signup.
+
 Web UI:
 
 1. http://127.0.0.1:5073

@@ -2,9 +2,11 @@ import { useState } from "react";
 
 type LoginPageProps = {
   mode: "local" | "managed";
-  onLogin: (credentials: { identifier: string; password: string }) => void;
+  onLogin: (credentials: { identifier: string; password: string }) => Promise<void> | void;
   onNavigateToSignup: () => void;
   onNavigateToForgotPassword: () => void;
+  showSignupAction?: boolean;
+  isSubmitting?: boolean;
   error?: string | null;
 };
 
@@ -13,6 +15,8 @@ export default function LoginPage({
   onLogin,
   onNavigateToSignup,
   onNavigateToForgotPassword,
+  showSignupAction = true,
+  isSubmitting = false,
   error
 }: LoginPageProps) {
   const [identifier, setIdentifier] = useState("");
@@ -99,23 +103,25 @@ export default function LoginPage({
 
           <button
             type="submit"
-            disabled={!identifier.trim() || !password}
+            disabled={!identifier.trim() || !password || isSubmitting}
             className="h-11 w-full rounded-xl bg-bd-amber text-sm font-medium text-bd-bg-primary transition-colors duration-200 hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Sign in
+            {isSubmitting ? "Signing in..." : "Sign in"}
           </button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-bd-text-muted">
-          Don't have an account?{" "}
-          <button
-            type="button"
-            onClick={onNavigateToSignup}
-            className="text-bd-amber transition-colors hover:text-bd-amber-hover"
-          >
-            Create account
-          </button>
-        </p>
+        {showSignupAction && (
+          <p className="mt-6 text-center text-sm text-bd-text-muted">
+            Don't have an account?{" "}
+            <button
+              type="button"
+              onClick={onNavigateToSignup}
+              className="text-bd-amber transition-colors hover:text-bd-amber-hover"
+            >
+              Create account
+            </button>
+          </p>
+        )}
       </div>
     </div>
   );
