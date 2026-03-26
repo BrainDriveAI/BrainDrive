@@ -41,7 +41,7 @@ export default function AppShell({ children, deploymentMode = "local", onLogout 
   } = useProjects();
 
   const messageMetadata =
-    selectedProjectId !== null ? { project: selectedProjectId } : undefined;
+    selectedProjectId !== null ? { client: "web", project: selectedProjectId } : { client: "web" };
 
   useEffect(() => {
     setActiveFile(null);

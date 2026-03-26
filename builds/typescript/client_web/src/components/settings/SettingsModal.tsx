@@ -481,6 +481,12 @@ function ProviderSection({
   const [isSavingCredential, setIsSavingCredential] = useState(false);
   const [credentialError, setCredentialError] = useState<string | null>(null);
   const [credentialSuccess, setCredentialSuccess] = useState<string | null>(null);
+  const activeProfile = settings?.provider_profiles.find((profile) => profile.id === selectedProfile) ??
+    settings?.provider_profiles[0] ?? null;
+  const canUsePlainCredentialMode = activeProfile?.credential_mode === "plain" ||
+    activeProfile?.provider_id?.toLowerCase() === "ollama";
+
+  const [showApiKeyInput, setShowApiKeyInput] = useState(!canUsePlainCredentialMode);
 
   useEffect(() => {
     if (!settings) {
@@ -489,12 +495,16 @@ function ProviderSection({
     setSelectedProfile(settings.active_provider_profile ?? settings.default_provider_profile ?? "");
   }, [settings]);
 
+  useEffect(() => {
+    setShowApiKeyInput(!canUsePlainCredentialMode);
+  }, [canUsePlainCredentialMode]);
+
   if (mode === "managed") {
     return (
       <div className="space-y-6">
         <div>
           <h3 className="font-heading text-base font-semibold text-bd-text-heading">
-            Model Provider
+            AI Model Provider
           </h3>
           <p className="mt-1 text-sm text-bd-text-muted">
             Your AI model access is included with your subscription.
@@ -520,7 +530,7 @@ function ProviderSection({
   if (isLoadingSettings) {
     return (
       <div className="space-y-3">
-        <h3 className="font-heading text-base font-semibold text-bd-text-heading">Model Provider</h3>
+        <h3 className="font-heading text-base font-semibold text-bd-text-heading">AI Model Provider</h3>
         <p className="text-sm text-bd-text-muted">Loading provider settings...</p>
       </div>
     );
@@ -529,7 +539,7 @@ function ProviderSection({
   if (settingsError) {
     return (
       <div className="space-y-3">
-        <h3 className="font-heading text-base font-semibold text-bd-text-heading">Model Provider</h3>
+        <h3 className="font-heading text-base font-semibold text-bd-text-heading">AI Model Provider</h3>
         <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2.5 text-sm text-bd-text-primary">
           {settingsError}
         </div>
@@ -541,209 +551,185 @@ function ProviderSection({
     return null;
   }
 
-  const activeProfile = settings.provider_profiles.find((profile) => profile.id === selectedProfile) ??
-    settings.provider_profiles[0];
-  const canUsePlainCredentialMode = activeProfile?.credential_mode === "plain" ||
-    activeProfile?.provider_id?.toLowerCase() === "ollama";
-
   return (
-    <form
-      className="space-y-6"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (!selectedProfile) {
-          return;
-        }
-
-        setIsSaving(true);
-        setSaveError(null);
-        setSaveSuccess(null);
-        void onSaveSettings({ active_provider_profile: selectedProfile })
-          .then(() => {
-            setSaveSuccess("Provider preference saved.");
-          })
-          .catch((error) => {
-            setSaveError(error instanceof Error ? error.message : String(error));
-          })
-          .finally(() => {
-            setIsSaving(false);
-          });
-      }}
-    >
+    <div className="space-y-6">
       <div>
         <h3 className="font-heading text-base font-semibold text-bd-text-heading">
-          Model Provider
+          AI Model Provider
         </h3>
         <p className="mt-1 text-sm text-bd-text-muted">
-          Choose which configured provider profile should back new requests.
+          Connect BrainDrive to your AI model provider.
         </p>
       </div>
 
       <div className="space-y-4">
         <div>
-          <label
-            htmlFor="provider-profile"
-            className="mb-1.5 block text-sm font-medium text-bd-text-secondary"
-          >
-            Active Provider Profile
-          </label>
-          <select
-            id="provider-profile"
-            value={selectedProfile}
-            onChange={(event) => setSelectedProfile(event.target.value)}
-            className="h-10 w-full rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
-          >
-            {settings.provider_profiles.map((profile) => (
-              <option key={profile.id} value={profile.id}>
-                {profile.id}
-              </option>
-            ))}
-          </select>
-        </div>
+          <div className="space-y-2">
+            {settings.provider_profiles.map((profile) => {
+              const isSelected = selectedProfile === profile.id;
+              const isOllama = profile.provider_id?.toLowerCase() === "ollama";
+              const profileCanUsePlain = profile.credential_mode === "plain" || isOllama;
+              const showKeyForProfile = isSelected && showApiKeyInput;
 
-        {activeProfile && (
-          <div className="rounded-lg border border-bd-border p-4 text-sm text-bd-text-muted">
-            <div className="mb-2 text-sm font-medium text-bd-text-secondary">
-              {activeProfile.provider_id}
-            </div>
-            <div>Base URL: {activeProfile.base_url || "Inherited from runtime adapter"}</div>
-            <div className="mt-1">Profile model: {activeProfile.model}</div>
-            <div className="mt-1">
-              Credential mode: {activeProfile.credential_mode}
-              {activeProfile.credential_ref ? ` (${activeProfile.credential_ref})` : ""}
-            </div>
-          </div>
-        )}
-
-        {activeProfile && (
-          <div className="space-y-3 rounded-lg border border-bd-border bg-bd-bg-tertiary p-4">
-            <div>
-              <label
-                htmlFor="provider-api-key"
-                className="mb-1.5 block text-sm font-medium text-bd-text-secondary"
-              >
-                Provider API Key
-              </label>
-              <input
-                id="provider-api-key"
-                type="password"
-                autoComplete="off"
-                value={providerApiKey}
-                onChange={(event) => {
-                  setProviderApiKey(event.target.value);
-                  setCredentialError(null);
-                  setCredentialSuccess(null);
-                }}
-                placeholder={`Set key for ${activeProfile.provider_id}`}
-                className="h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
-              />
-              <p className="mt-1 text-xs text-bd-text-muted">
-                Saved keys are encrypted in the vault and referenced by `secret_ref`.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                disabled={isSavingCredential || providerApiKey.trim().length === 0}
-                onClick={() => {
-                  setIsSavingCredential(true);
-                  setCredentialError(null);
-                  setCredentialSuccess(null);
-                  void onSaveCredential({
-                    provider_profile: activeProfile.id,
-                    mode: "secret_ref",
-                    api_key: providerApiKey.trim(),
-                    secret_ref: activeProfile.credential_ref ?? undefined,
-                    required: true,
-                    set_active_provider: true,
-                  })
-                    .then(() => {
-                      setCredentialSuccess("Provider key saved.");
+              return (
+                <div key={profile.id} className="space-y-0">
+                  <button
+                    type="button"
+                    disabled={isSaving}
+                    onClick={() => {
+                      setSelectedProfile(profile.id);
+                      setCredentialError(null);
                       setProviderApiKey("");
-                    })
-                    .catch((error) => {
-                      setCredentialError(error instanceof Error ? error.message : String(error));
-                    })
-                    .finally(() => {
-                      setIsSavingCredential(false);
-                    });
-                }}
-                className="rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isSavingCredential ? "Saving key..." : "Save API Key"}
-              </button>
+                      setIsSaving(true);
+                      setSaveError(null);
+                      void onSaveSettings({ active_provider_profile: profile.id })
+                        .then(() => {})
+                        .catch((error) => {
+                          setSaveError(error instanceof Error ? error.message : String(error));
+                        })
+                        .finally(() => {
+                          setIsSaving(false);
+                        });
+                    }}
+                    className={[
+                      "flex w-full items-center gap-3 border px-4 py-3 text-left transition-all duration-200",
+                      isSelected
+                        ? "rounded-t-lg border-bd-amber border-b-0 bg-bd-bg-tertiary"
+                        : "rounded-lg border-bd-border hover:border-bd-border hover:bg-bd-bg-hover"
+                    ].join(" ")}
+                  >
+                    <div className={[
+                      "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2",
+                      isSelected ? "border-bd-amber" : "border-bd-border"
+                    ].join(" ")}>
+                      {isSelected && <div className="h-2 w-2 rounded-full bg-bd-amber" />}
+                    </div>
+                    <div>
+                      <div className={[
+                        "text-sm font-medium",
+                        isSelected ? "text-bd-text-primary" : "text-bd-text-secondary"
+                      ].join(" ")}>
+                        {isOllama ? "Ollama" : "OpenRouter"}
+                      </div>
+                      <div className="text-xs text-bd-text-muted">
+                        {isOllama
+                          ? <>Runs on your computer, free — <a href="https://ollama.com" target="_blank" rel="noopener noreferrer" className="text-bd-text-muted hover:text-bd-text-secondary hover:underline" onClick={(e) => e.stopPropagation()}>ollama.com</a></>
+                          : <>Cloud-based, requires API key — <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="text-bd-text-muted hover:text-bd-text-secondary hover:underline" onClick={(e) => e.stopPropagation()}>openrouter.ai/keys</a></>}
+                      </div>
+                    </div>
+                  </button>
 
-              {canUsePlainCredentialMode && (
-                <button
-                  type="button"
-                  disabled={isSavingCredential}
-                  onClick={() => {
-                    setIsSavingCredential(true);
-                    setCredentialError(null);
-                    setCredentialSuccess(null);
-                    void onSaveCredential({
-                      provider_profile: activeProfile.id,
-                      mode: "plain",
-                      required: false,
-                      set_active_provider: true,
-                    })
-                      .then(() => {
-                        setCredentialSuccess("Provider configured without API key.");
-                        setProviderApiKey("");
-                      })
-                      .catch((error) => {
-                        setCredentialError(error instanceof Error ? error.message : String(error));
-                      })
-                      .finally(() => {
-                        setIsSavingCredential(false);
-                      });
-                  }}
-                  className="rounded-lg border border-bd-border px-3 py-1.5 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Use Without API Key
-                </button>
-              )}
-            </div>
+                  {isSelected && (
+                    <div className={[
+                      "border border-t-0 border-bd-amber bg-bd-bg-tertiary px-4 pb-3 pt-2 rounded-b-lg"
+                    ].join(" ")}>
+                      {!showKeyForProfile ? (
+                        <button
+                          type="button"
+                          onClick={() => setShowApiKeyInput(true)}
+                          className="text-xs text-bd-text-muted transition-colors hover:text-bd-text-secondary hover:underline"
+                        >
+                          {profileCanUsePlain
+                            ? `Optional: set API key for remote ${isOllama ? "Ollama" : profile.provider_id}`
+                            : profile.credential_mode === "secret_ref" ? "Update API key" : "Set API key"}
+                        </button>
+                      ) : (
+                        <div className="space-y-3">
+                          <div>
+                            <label
+                              htmlFor="provider-api-key"
+                              className="mb-1.5 block text-sm font-medium text-bd-text-secondary"
+                            >
+                              API Key
+                            </label>
+                            {profile.credential_mode === "secret_ref" && (
+                              <div className="mb-2 flex items-center gap-2 text-xs text-bd-text-muted">
+                                <Check size={14} strokeWidth={1.5} className="shrink-0 text-bd-success" />
+                                API key configured — enter a new key below to replace it
+                              </div>
+                            )}
+                            <input
+                              id="provider-api-key"
+                              type="password"
+                              autoComplete="off"
+                              value={providerApiKey}
+                              onChange={(event) => {
+                                setProviderApiKey(event.target.value);
+                                setCredentialError(null);
+                              }}
+                              placeholder={profile.credential_mode === "secret_ref" ? "Enter new key to replace existing" : `Paste your ${profile.provider_id} API key`}
+                              className="h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+                            />
+                          </div>
 
-            {credentialError && (
-              <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
-                {credentialError}
-              </div>
-            )}
-            {credentialSuccess && (
-              <div className="rounded-lg bg-bd-bg-secondary px-3 py-2 text-sm text-bd-text-secondary">
-                {credentialSuccess}
-              </div>
-            )}
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              disabled={isSavingCredential || providerApiKey.trim().length === 0}
+                              onClick={() => {
+                                setIsSavingCredential(true);
+                                setCredentialError(null);
+                                void onSaveCredential({
+                                  provider_profile: profile.id,
+                                  mode: "secret_ref",
+                                  api_key: providerApiKey.trim(),
+                                  secret_ref: profile.credential_ref ?? undefined,
+                                  required: true,
+                                  set_active_provider: true,
+                                })
+                                  .then(() => {
+                                    setProviderApiKey("");
+                                    setShowApiKeyInput(false);
+                                  })
+                                  .catch((error) => {
+                                    setCredentialError(error instanceof Error ? error.message : String(error));
+                                  })
+                                  .finally(() => {
+                                    setIsSavingCredential(false);
+                                  });
+                              }}
+                              className="rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {isSavingCredential ? "Saving key..." : "Save API Key"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowApiKeyInput(false);
+                                setProviderApiKey("");
+                                setCredentialError(null);
+                              }}
+                              className="rounded-lg border border-bd-border px-3 py-1.5 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+
+                          {credentialError && (
+                            <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
+                              {credentialError}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
-        )}
+        </div>
 
         {saveError && (
           <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2.5 text-sm text-bd-text-primary">
             {saveError}
           </div>
         )}
-        {saveSuccess && (
-          <div className="rounded-lg bg-bd-bg-tertiary px-3 py-2.5 text-sm text-bd-text-secondary">
-            {saveSuccess}
-          </div>
-        )}
-
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-xs text-bd-text-muted">
-            Provider credentials remain vault/env managed. No secret values are persisted here.
-          </p>
-          <button
-            type="submit"
-            disabled={isSaving || !selectedProfile}
-            className="rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isSaving ? "Saving..." : "Save"}
-          </button>
-        </div>
+        <p className="text-xs text-bd-text-muted">
+          Your API key is encrypted and stored locally.
+        </p>
       </div>
-    </form>
+    </div>
   );
 }
 
@@ -820,7 +806,7 @@ function ModelSection({
           Default Model
         </h3>
         <p className="mt-1 text-sm text-bd-text-muted">
-          Choose which model your AI partner uses for conversations.
+          Choose the AI model your BrainDrive uses for conversations.
         </p>
       </div>
 
@@ -839,159 +825,123 @@ function ModelSection({
           </div>
         )}
         {mode === "local" && !isLoadingSettings && !settingsError && settings && (
-          <form
-            className="space-y-3"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const trimmed = defaultModel.trim();
-              if (trimmed.length === 0) {
-                return;
-              }
+          <div className="space-y-3">
+            <div className="flex items-center justify-between rounded-lg border border-bd-amber bg-bd-bg-tertiary px-4 py-3">
+              <div>
+                <div className="text-sm font-medium text-bd-text-primary">{defaultModel || "Not set"}</div>
+                <div className="text-xs text-bd-text-muted">Current model</div>
+              </div>
+              <div className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 border-bd-amber">
+                <div className="h-2 w-2 rounded-full bg-bd-amber" />
+              </div>
+            </div>
 
-              setIsSaving(true);
-              setSaveError(null);
-              setSaveSuccess(null);
-              void onSaveSettings({ default_model: trimmed })
-                .then(() => {
-                  setSaveSuccess("Default model saved.");
-                })
-                .catch((error) => {
-                  setSaveError(error instanceof Error ? error.message : String(error));
-                })
-                .finally(() => {
-                  setIsSaving(false);
-                });
-            }}
-          >
-            <label
-              htmlFor="default-model"
-              className="block text-sm font-medium text-bd-text-secondary"
-            >
-              Default model ID
-            </label>
-            <input
-              id="default-model"
-              type="text"
-              value={defaultModel}
-              onChange={(event) => setDefaultModel(event.target.value)}
-              className="h-10 w-full rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
-            />
             <button
               type="button"
-              onClick={() => setIsCatalogOpen((isOpen) => !isOpen)}
+              onClick={() => setIsCatalogOpen((open) => !open)}
               className="w-full rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-left text-sm text-bd-text-secondary transition-colors hover:bg-bd-bg-hover"
             >
-              {isCatalogOpen ? "Hide provider model catalog" : `Browse provider model catalog (${allCatalogModels.length})`}
+              {isCatalogOpen ? "Hide model catalog" : "Browse model catalog"}
             </button>
+
             {isCatalogOpen && (
-              <div className="space-y-2 rounded-lg border border-bd-border bg-bd-bg-tertiary p-3">
-                <label
-                  htmlFor={catalogSearchId}
-                  className="block text-xs font-medium uppercase tracking-wide text-bd-text-muted"
-                >
-                  Search provider models
-                </label>
+              <div className="space-y-2">
                 <input
                   id={catalogSearchId}
                   type="text"
                   value={catalogQuery}
                   onChange={(event) => setCatalogQuery(event.target.value)}
-                  placeholder='Type to filter, for example: "free"'
-                  className="h-9 w-full rounded-md border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+                  placeholder="Search models..."
+                  className="h-10 w-full rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
                 />
-                <div className="max-h-60 space-y-1 overflow-y-auto">
-                  {filteredCatalogModels.length === 0 ? (
-                    <p className="rounded-md px-3 py-2 text-xs text-bd-text-muted">
-                      No models match "{catalogQuery}".
-                    </p>
-                  ) : (
-                    filteredCatalogModels.map((model) => {
-                      const isSelected = defaultModel.trim() === model.id;
-                      const freeTag = model.is_free || (model.tags ?? []).includes("free");
-                      return (
-                        <button
-                          key={model.id}
-                          type="button"
-                          onClick={() => {
-                            setDefaultModel(model.id);
-                            setSaveSuccess(null);
-                            setSaveError(null);
-                          }}
-                          className={[
-                            "w-full rounded-md border px-3 py-2 text-left transition-colors",
-                            isSelected
-                              ? "border-bd-amber bg-bd-bg-hover"
-                              : "border-transparent hover:border-bd-border hover:bg-bd-bg-hover",
-                          ].join(" ")}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="truncate text-sm text-bd-text-primary">{model.id}</span>
-                            <div className="flex shrink-0 items-center gap-1">
-                              {freeTag && (
-                                <span className="rounded bg-bd-success/20 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-bd-success">
-                                  free
-                                </span>
-                              )}
-                              {(model.tags ?? [])
-                                .filter((tag) => tag.toLowerCase() !== "free")
-                                .slice(0, 2)
-                                .map((tag) => (
-                                  <span
-                                    key={`${model.id}:${tag}`}
-                                    className="rounded bg-bd-bg-secondary px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-bd-text-muted"
-                                  >
-                                    {tag}
-                                  </span>
-                                ))}
-                            </div>
-                          </div>
-                          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-bd-text-muted">
-                            {model.name && <span>{model.name}</span>}
-                            {model.provider && <span>{model.provider}</span>}
-                            {typeof model.context_length === "number" && (
-                              <span>{model.context_length.toLocaleString()} ctx</span>
-                            )}
-                          </div>
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-            )}
-            {isLoadingModelCatalog && (
-              <p className="text-xs text-bd-text-muted">
-                Loading models from provider catalog...
-              </p>
-            )}
-            {modelCatalogError && (
-              <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-xs text-bd-text-muted">
-                {modelCatalogError}
-              </div>
-            )}
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-xs text-bd-text-muted">
-                Applies on the next message request without restarting the runtime.
-              </p>
-              <button
-                type="submit"
-                disabled={isSaving || defaultModel.trim().length === 0}
-                className="rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isSaving ? "Saving..." : "Save"}
-              </button>
+
+                <div className="max-h-72 space-y-1 overflow-y-auto rounded-lg border border-bd-border bg-bd-bg-tertiary p-2">
+                  {isLoadingModelCatalog ? (
+                    <p className="px-3 py-2 text-sm text-bd-text-muted">Loading models...</p>
+                  ) : filteredCatalogModels.length === 0 ? (
+                <p className="px-3 py-2 text-xs text-bd-text-muted">
+                  No models match "{catalogQuery}".
+                </p>
+              ) : (
+                filteredCatalogModels.map((model) => {
+                  const isSelected = defaultModel.trim() === model.id;
+                  const freeTag = model.is_free || (model.tags ?? []).includes("free");
+                  return (
+                    <button
+                      key={model.id}
+                      type="button"
+                      disabled={isSaving}
+                      onClick={() => {
+                        setDefaultModel(model.id);
+                        setIsSaving(true);
+                        setSaveError(null);
+                        void onSaveSettings({ default_model: model.id })
+                          .catch((error) => {
+                            setSaveError(error instanceof Error ? error.message : String(error));
+                          })
+                          .finally(() => {
+                            setIsSaving(false);
+                          });
+                      }}
+                      className={[
+                        "w-full rounded-md border px-3 py-2 text-left transition-colors",
+                        isSelected
+                          ? "border-bd-amber bg-bd-bg-hover"
+                          : "border-transparent hover:border-bd-border hover:bg-bd-bg-hover",
+                      ].join(" ")}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-sm text-bd-text-primary">{model.id}</span>
+                        <div className="flex shrink-0 items-center gap-1">
+                          {freeTag && (
+                            <span className="rounded bg-bd-success/20 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-bd-success">
+                              free
+                            </span>
+                          )}
+                          {(model.tags ?? [])
+                            .filter((tag) => tag.toLowerCase() !== "free")
+                            .slice(0, 2)
+                            .map((tag) => (
+                              <span
+                                key={`${model.id}:${tag}`}
+                                className="rounded bg-bd-bg-secondary px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-bd-text-muted"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                        </div>
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-bd-text-muted">
+                        {model.name && <span>{model.name}</span>}
+                        {model.provider && <span>{model.provider}</span>}
+                        {typeof model.context_length === "number" && (
+                          <span>{model.context_length.toLocaleString()} ctx</span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })
+              )}
             </div>
+
+                {modelCatalogError && (
+                  <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-xs text-bd-text-muted">
+                    {modelCatalogError}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <p className="text-xs text-bd-text-muted">
+              Model changes take effect on your next message.
+            </p>
+
             {saveError && (
               <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2.5 text-sm text-bd-text-primary">
                 {saveError}
               </div>
             )}
-            {saveSuccess && (
-              <div className="rounded-lg bg-bd-bg-tertiary px-3 py-2.5 text-sm text-bd-text-secondary">
-                {saveSuccess}
-              </div>
-            )}
-          </form>
+          </div>
         )}
         {mode === "managed" && (
           <div className="rounded-lg border border-bd-border p-4">
