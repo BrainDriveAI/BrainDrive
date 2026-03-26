@@ -2,12 +2,14 @@ export type RuntimeConfig = {
   memory_root: string;
   provider_adapter: string;
   conversation_store: "markdown";
-  auth_mode: "local-owner";
+  auth_mode: AuthMode;
   tool_sources: string[];
   bind_address: string;
   safety_iteration_limit?: number;
   port?: number;
 };
+
+export type AuthMode = "local-owner" | "local" | "managed";
 
 export type AdapterConfig = {
   base_url: string;
@@ -38,7 +40,15 @@ export type AuthState = {
   actor_id: string;
   actor_type: "owner";
   permissions: PermissionSet;
-  mode: "local-owner";
+  mode: AuthMode;
+  account_initialized?: boolean;
+  account_username?: string;
+  account_created_at?: string;
+  credential_ref?: string;
+  session_policy?: {
+    access_ttl_seconds: number;
+    refresh_ttl_seconds: number;
+  };
   created_at: string;
   updated_at: string;
 };
@@ -47,7 +57,7 @@ export type AuthContext = {
   actorId: string;
   actorType: "owner";
   permissions: PermissionSet;
-  mode: "local-owner";
+  mode: AuthMode;
 };
 
 export type ClientMessageRequest = {

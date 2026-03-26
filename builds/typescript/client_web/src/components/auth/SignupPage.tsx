@@ -6,8 +6,9 @@ type SignupPageProps = {
     username?: string;
     email?: string;
     password: string;
-  }) => void;
+  }) => Promise<void> | void;
   onNavigateToLogin: () => void;
+  isSubmitting?: boolean;
   error?: string | null;
 };
 
@@ -15,6 +16,7 @@ export default function SignupPage({
   mode,
   onSignup,
   onNavigateToLogin,
+  isSubmitting = false,
   error
 }: SignupPageProps) {
   const [username, setUsername] = useState("");
@@ -158,10 +160,10 @@ export default function SignupPage({
 
           <button
             type="submit"
-            disabled={!isValid}
+            disabled={!isValid || isSubmitting}
             className="h-11 w-full rounded-xl bg-bd-amber text-sm font-medium text-bd-bg-primary transition-colors duration-200 hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Create account
+            {isSubmitting ? "Creating account..." : "Create account"}
           </button>
         </form>
 

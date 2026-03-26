@@ -4,7 +4,7 @@ import type { AuthContext, AuthState } from "../contracts.js";
 import { auditLog } from "../logger.js";
 import { parsePermissionHeaders } from "./headers.js";
 
-export function buildAuthContext(request: FastifyRequest, authState: AuthState): AuthContext {
+function buildLocalOwnerAuthContext(request: FastifyRequest, authState: AuthState): AuthContext {
   const headerContext = parsePermissionHeaders(request.headers as Record<string, unknown>);
 
   if (
@@ -24,13 +24,20 @@ export function buildAuthContext(request: FastifyRequest, authState: AuthState):
   };
 }
 
+export type AuthMiddlewareOptions = {
+  mode: AuthState["mode"];
+  getAuthState: () => AuthState;
+  authenticateLocalJwtAccessToken?: (accessToken: string) => Promise<AuthContext>;
+};
+
 export async function authMiddleware(
   request: FastifyRequest,
   reply: FastifyReply,
-  authState: AuthState
+  options: AuthMiddlewareOptions
 ): Promise<void> {
   try {
-    request.authContext = buildAuthContext(request, authState);
+    const authState = options.getAuthState();
+    request.authContext = await buildAuthContext(request, authState, options);
     auditLog("auth.authorized", {
       actor_id: request.authContext.actorId,
       method: request.method,
@@ -43,4 +50,51 @@ export async function authMiddleware(
     });
     reply.code(401).send({ error: "Unauthorized" });
   }
+}
+
+async function buildAuthContext(
+  request: FastifyRequest,
+  authState: AuthState,
+  options: AuthMiddlewareOptions
+): Promise<AuthContext> {
+  if (options.mode === "local-owner") {
+    return buildLocalOwnerAuthContext(request, authState);
+  }
+
+  if (options.mode === "local") {
+    if (!options.authenticateLocalJwtAccessToken) {
+      throw new Error("Local JWT auth provider is not configured");
+    }
+
+    const accessToken = readBearerToken(request.headers.authorization);
+    return options.authenticateLocalJwtAccessToken(accessToken);
+  }
+
+  throw new Error("Managed auth mode is not implemented");
+}
+
+function readBearerToken(headerValue: unknown): string {
+  const value = firstHeaderValue(headerValue);
+  if (!value) {
+    throw new Error("Missing authorization header");
+  }
+
+  const [scheme, token] = value.split(/\s+/, 2);
+  if (scheme?.toLowerCase() !== "bearer" || !token) {
+    throw new Error("Malformed authorization header");
+  }
+
+  return token;
+}
+
+function firstHeaderValue(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (Array.isArray(value) && typeof value[0] === "string") {
+    return value[0];
+  }
+
+  return undefined;
 }
