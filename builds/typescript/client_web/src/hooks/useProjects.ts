@@ -82,9 +82,25 @@ export function useProjects(): {
     })();
   }
 
+  const hasAutoSelectedRef = useRef(false);
+
   useEffect(() => {
     refreshProjects();
   }, []);
+
+  useEffect(() => {
+    if (
+      projects.length > 0 &&
+      selectedProjectId === null &&
+      !hasAutoSelectedRef.current
+    ) {
+      const bdPlusOne = projects.find((p) => p.id === "braindrive-plus-one");
+      if (bdPlusOne) {
+        hasAutoSelectedRef.current = true;
+        selectProject(bdPlusOne.id);
+      }
+    }
+  }, [projects]);
 
   function selectProject(id: string) {
     setSelectedProjectId(id);
