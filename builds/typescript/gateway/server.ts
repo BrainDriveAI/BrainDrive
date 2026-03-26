@@ -201,7 +201,7 @@ export async function buildServer(rootDir = process.cwd()) {
 
   auditLog("startup.phase", { phase: "ready" });
 
-  const app = Fastify({ logger: false });
+  const app = Fastify({ logger: false, trustProxy: true });
   const approvalStore = new ApprovalStore();
   const toolExecutor = new ToolExecutor(tools);
   const conversations = new GatewayConversationService(createConversationRepository(runtimeConfig));

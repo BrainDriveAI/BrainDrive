@@ -1,4 +1,4 @@
-import { ChevronRight, Settings } from "lucide-react";
+import { ChevronRight, Settings, Sparkles } from "lucide-react";
 
 import type { Project } from "@/types/ui";
 
@@ -21,10 +21,37 @@ export default function SidebarCollapsed({
 }: SidebarCollapsedProps) {
   return (
     <aside className="flex h-dvh w-[48px] flex-col items-center border-r border-bd-border bg-bd-bg-secondary py-3 transition-all duration-200">
-      <img src="/braindrive-icon.svg" alt="BrainDrive" className="h-7 w-7" />
+      <button
+        type="button"
+        aria-label="Go to BrainDrive home"
+        onClick={() => {
+          onSelectProject("braindrive-plus-one");
+          onToggle();
+        }}
+        className="cursor-pointer bg-transparent p-0 hover:opacity-80"
+      >
+        <img src="/braindrive-icon.svg" alt="BrainDrive" className="h-7 w-7" />
+      </button>
 
       <div className="mt-4 flex min-h-0 w-full flex-1 flex-col items-center gap-2 overflow-y-auto px-1 pb-3">
-        {projects.map((project) => {
+        <button
+          type="button"
+          onClick={() => {
+            onSelectProject("braindrive-plus-one");
+            onToggle();
+          }}
+          className={[
+            "flex h-8 w-8 cursor-pointer items-center justify-center rounded-full transition-colors duration-200 hover:bg-bd-amber/80 hover:text-bd-bg-primary",
+            selectedProjectId === "braindrive-plus-one"
+              ? "bg-bd-amber text-bd-bg-primary"
+              : "bg-bd-bg-tertiary text-bd-text-primary"
+          ].join(" ")}
+          title="BrainDrive+1"
+          aria-label="BrainDrive+1"
+        >
+          <Sparkles size={16} strokeWidth={1.8} />
+        </button>
+        {projects.filter((p) => p.id !== "braindrive-plus-one").map((project) => {
           const Icon = getProjectIcon(project.icon);
           const isActive = project.id === selectedProjectId;
 

@@ -20,6 +20,7 @@ export default defineConfig({
         target: gatewayProxyTarget,
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ""),
+        headers: { "X-Forwarded-For": "127.0.0.1" },
       },
     },
   },

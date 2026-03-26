@@ -1,88 +1,59 @@
 type ProjectIntro = {
   heading: string;
   description: string;
-  suggestions: string[];
+  cta?: string;
+  suggestions?: string[];
 };
 
 const PROJECT_INTROS: Record<string, ProjectIntro> = {
   "braindrive-plus-one": {
-    heading: "What would you like to work on?",
+    heading: "Welcome to BrainDrive",
     description:
       "Pick something on your mind right now — a goal, a problem, a decision — and let's make progress on it in the next five minutes.",
     suggestions: [
-      "I want to get my finances in order but I don't know where to start",
-      "I'm thinking about changing careers and need to figure out my next move",
-      "My fitness has slipped and I want a realistic plan to get back on track",
-      "Help me think through a tough conversation I need to have"
+      "I want to get my finances in order",
+      "I'm thinking about changing careers",
+      "My fitness has slipped and I want a plan",
+      "Help me think through a tough conversation"
     ]
   },
   finance: {
-    heading: "Your financial life, organized",
+    heading: "Let's get your finances organized",
     description:
-      "Whether you're budgeting, saving, investing, or just trying to understand where your money goes — everything we work on lives here.",
-    suggestions: [
-      "Help me build a budget based on my actual spending",
-      "I want to save $10K in the next 12 months — what's the plan?",
-      "Walk me through whether I should pay off debt or invest",
-      "Update my income — I'm starting a new job at $85K"
-    ]
+      "We'll spend about 5 minutes figuring out where you are and where you want to be. Then we'll build a spec and action plan together.",
+    cta: "Let's get started"
   },
   fitness: {
-    heading: "Your health and fitness goals",
+    heading: "Let's build a plan for your health",
     description:
-      "I have context on everything we've discussed here — your history, your constraints, what's worked and what hasn't.",
-    suggestions: [
-      "Build me a 3-day-a-week workout I can do at a gym",
-      "I've been eating terribly — help me plan meals for the week",
-      "I want to run a half marathon in six months. Am I crazy?",
-      "Update my plan — I tweaked my knee and can't do squats for a few weeks"
-    ]
+      "We'll spend about 5 minutes talking through your situation and goals. Then we'll put together a spec and action plan.",
+    cta: "Let's get started"
   },
   career: {
-    heading: "Your career strategy",
+    heading: "Let's map out your career",
     description:
-      "Job search, skill development, salary negotiation, long-term planning — whatever you're navigating, we'll work through it together.",
-    suggestions: [
-      "I have an interview Thursday — help me prepare",
-      "Review my resume and tell me what's weak",
-      "I'm torn between two job offers — help me think through the tradeoffs",
-      "I want to move into management in the next two years. What should I be doing now?"
-    ]
+      "We'll spend about 5 minutes on what's happening and what you're aiming for. Then we'll build a strategy together.",
+    cta: "Let's get started"
   },
   relationships: {
-    heading: "The people in your life matter",
+    heading: "Let's invest in the people who matter",
     description:
-      "This is where we work on communication, navigate tough situations, and make sure you're investing in the relationships that matter most.",
-    suggestions: [
-      "I need to have a hard conversation with my partner about money",
-      "Help me plan something meaningful for my dad's birthday",
-      "I've been neglecting friendships — help me build a plan to reconnect",
-      "My team at work has a conflict I need to mediate. Walk me through it."
-    ]
+      "We'll spend about 5 minutes on what's on your mind. Then we'll put together a plan to make progress.",
+    cta: "Let's get started"
   },
   "new-project": {
-    heading: "A blank canvas",
+    heading: "What are you working on?",
     description:
-      "Tell me what you're working on and we'll build it out together — goals, a plan, whatever structure helps you make progress.",
-    suggestions: [
-      "I'm planning a kitchen renovation and need to organize everything",
-      "I want to write a book — help me figure out the scope",
-      "I'm starting a side business and need to think through the first steps",
-      "Help me plan a two-week trip to Japan"
-    ]
+      "Tell me what this is about. We'll spend a few minutes getting clear on the goal, then build a spec and plan together.",
+    cta: "Let's figure it out"
   }
 };
 
 const DEFAULT_INTRO: ProjectIntro = {
   heading: "What would you like to work on?",
   description:
-    "Your BrainDrive remembers everything — conversations, decisions, and context compound over time.",
-  suggestions: [
-    "Get to know your BrainDrive",
-    "Help me plan my week",
-    "Review my career goals",
-    "Process a meeting transcript"
-  ]
+    "Tell me what's on your mind and I'll help you make progress.",
+  cta: "Let's get started"
 };
 
 type EmptyStateProps = {
@@ -112,18 +83,28 @@ export default function EmptyState({ projectId, onSuggestionClick }: EmptyStateP
         {intro.description}
       </p>
 
-      <div className="mt-8 flex flex-wrap justify-center gap-2">
-        {intro.suggestions.map((suggestion) => (
-          <button
-            key={suggestion}
-            type="button"
-            onClick={() => onSuggestionClick?.(suggestion)}
-            className="rounded-xl border border-bd-border bg-bd-bg-secondary px-4 py-2.5 text-sm text-bd-text-secondary transition-all duration-200 hover:border-bd-amber/40 hover:bg-bd-bg-tertiary"
-          >
-            {suggestion}
-          </button>
-        ))}
-      </div>
+      {intro.suggestions ? (
+        <div className="mt-8 flex flex-wrap justify-center gap-2">
+          {intro.suggestions.map((suggestion) => (
+            <button
+              key={suggestion}
+              type="button"
+              onClick={() => onSuggestionClick?.(suggestion)}
+              className="rounded-xl border border-bd-border bg-bd-bg-secondary px-4 py-2.5 text-sm text-bd-text-secondary transition-all duration-200 hover:border-bd-amber/40 hover:bg-bd-bg-tertiary"
+            >
+              {suggestion}
+            </button>
+          ))}
+        </div>
+      ) : intro.cta ? (
+        <button
+          type="button"
+          onClick={() => onSuggestionClick?.(intro.cta!)}
+          className="mt-8 rounded-xl bg-bd-amber px-6 py-3 text-sm font-medium text-bd-bg-primary transition-colors duration-200 hover:bg-bd-amber-hover"
+        >
+          {intro.cta}
+        </button>
+      ) : null}
     </div>
   );
 }
