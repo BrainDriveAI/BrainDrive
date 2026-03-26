@@ -136,11 +136,7 @@ export function useProjects(): {
   }
 
   function deselectProject() {
-    filesRequestIdRef.current += 1;
-    setSelectedProjectId(null);
-    setProjectFiles([]);
-    setFilesError(null);
-    setIsLoadingFiles(false);
+    selectProject("braindrive-plus-one");
   }
 
   async function addProject(name: string) {
