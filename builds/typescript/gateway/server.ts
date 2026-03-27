@@ -108,6 +108,12 @@ const settingsUpdateSchema = z
   .object({
     default_model: z.string().trim().min(1).optional(),
     active_provider_profile: z.union([z.string().trim().min(1), z.null()]).optional(),
+    provider_base_url: z
+      .object({
+        provider_profile: z.string().trim().min(1),
+        base_url: z.string().trim().url(),
+      })
+      .optional(),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, {
@@ -842,7 +848,7 @@ export async function buildServer(rootDir = process.cwd()) {
     if (typeof modelAdapter.listModels === "function") {
       try {
         const listed = await modelAdapter.listModels();
-        models = mergeProviderModels(listed, fallbackModels);
+        models = listed.length > 0 ? listed : fallbackModels;
         source = "provider";
       } catch (error) {
         if (!warning) {
@@ -865,6 +871,187 @@ export async function buildServer(rootDir = process.cwd()) {
     });
   });
 
+  const modelPullSchema = z
+    .object({
+      model: z.string().trim().min(1),
+      provider_profile: z.string().trim().min(1).optional(),
+    })
+    .strict();
+
+  app.post("/settings/models/pull", async (request, reply) => {
+    authorize(request.authContext, "administration");
+    const parsed = modelPullSchema.safeParse(request.body);
+    if (!parsed.success) {
+      sendInvalidRequest(reply, "/settings/models/pull", parsed.error.issues.length);
+      return;
+    }
+
+    const currentPreferences = await loadPreferences(runtimeConfig.memory_root);
+    const profileId = parsed.data.provider_profile ??
+      currentPreferences.active_provider_profile ??
+      adapterConfig.default_provider_profile ??
+      "";
+
+    if (!isKnownProviderProfile(adapterConfig, profileId)) {
+      sendInvalidRequest(reply, "/settings/models/pull", 1);
+      return;
+    }
+
+    const scopedPreferences: Preferences = {
+      ...currentPreferences,
+      active_provider_profile: profileId,
+    };
+    const selectedAdapterConfig = resolveAdapterConfigForPreferences(adapterConfig, scopedPreferences);
+    const providerBaseUrl = selectedAdapterConfig.base_url;
+
+    let ollamaOrigin: string;
+    try {
+      ollamaOrigin = new URL(providerBaseUrl).origin;
+    } catch {
+      reply.code(400).send({ error: "Invalid provider base URL" });
+      return;
+    }
+
+    try {
+      const pullResponse = await fetch(`${ollamaOrigin}/api/pull`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: parsed.data.model, stream: true }),
+      });
+
+      if (!pullResponse.ok) {
+        const errorText = await pullResponse.text().catch(() => "Unknown error");
+        auditLog("provider.model_pull_error", {
+          provider_profile: profileId,
+          model: parsed.data.model,
+          status: pullResponse.status,
+          message: errorText,
+        });
+        reply.code(502).send({ error: `Ollama pull failed: ${errorText}` });
+        return;
+      }
+
+      if (!pullResponse.body) {
+        reply.code(502).send({ error: "No response body from Ollama" });
+        return;
+      }
+
+      reply.raw.writeHead(200, {
+        "Content-Type": "application/x-ndjson",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      });
+
+      const reader = pullResponse.body.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+
+      while (!done) {
+        const chunk = await reader.read();
+        done = chunk.done;
+        if (chunk.value) {
+          reply.raw.write(decoder.decode(chunk.value, { stream: true }));
+        }
+      }
+
+      reply.raw.end();
+
+      auditLog("provider.model_pull_success", {
+        provider_profile: profileId,
+        model: parsed.data.model,
+      });
+    } catch (error) {
+      auditLog("provider.model_pull_error", {
+        provider_profile: profileId,
+        model: parsed.data.model,
+        message: error instanceof Error ? error.message : "fetch failed",
+      });
+      if (!reply.raw.headersSent) {
+        reply.code(502).send({
+          error: error instanceof Error ? error.message : "Failed to reach Ollama",
+        });
+      } else {
+        reply.raw.end();
+      }
+    }
+  });
+
+  const modelDeleteSchema = z
+    .object({
+      model: z.string().trim().min(1),
+      provider_profile: z.string().trim().min(1).optional(),
+    })
+    .strict();
+
+  app.post("/settings/models/delete", async (request, reply) => {
+    authorize(request.authContext, "administration");
+    const parsed = modelDeleteSchema.safeParse(request.body);
+    if (!parsed.success) {
+      sendInvalidRequest(reply, "/settings/models/delete", parsed.error.issues.length);
+      return;
+    }
+
+    const currentPreferences = await loadPreferences(runtimeConfig.memory_root);
+    const profileId = parsed.data.provider_profile ??
+      currentPreferences.active_provider_profile ??
+      adapterConfig.default_provider_profile ??
+      "";
+
+    if (!isKnownProviderProfile(adapterConfig, profileId)) {
+      sendInvalidRequest(reply, "/settings/models/delete", 1);
+      return;
+    }
+
+    const scopedPreferences: Preferences = {
+      ...currentPreferences,
+      active_provider_profile: profileId,
+    };
+    const selectedAdapterConfig = resolveAdapterConfigForPreferences(adapterConfig, scopedPreferences);
+
+    let ollamaOrigin: string;
+    try {
+      ollamaOrigin = new URL(selectedAdapterConfig.base_url).origin;
+    } catch {
+      reply.code(400).send({ error: "Invalid provider base URL" });
+      return;
+    }
+
+    try {
+      const deleteResponse = await fetch(`${ollamaOrigin}/api/delete`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: parsed.data.model }),
+      });
+
+      if (!deleteResponse.ok) {
+        const errorText = await deleteResponse.text().catch(() => "Unknown error");
+        auditLog("provider.model_delete_error", {
+          provider_profile: profileId,
+          model: parsed.data.model,
+          status: deleteResponse.status,
+          message: errorText,
+        });
+        reply.code(502).send({ error: `Ollama delete failed: ${errorText}` });
+        return;
+      }
+
+      auditLog("provider.model_delete_success", {
+        provider_profile: profileId,
+        model: parsed.data.model,
+      });
+      reply.send({ status: "success", model: parsed.data.model });
+    } catch (error) {
+      auditLog("provider.model_delete_error", {
+        provider_profile: profileId,
+        model: parsed.data.model,
+        message: error instanceof Error ? error.message : "fetch failed",
+      });
+      reply.code(502).send({
+        error: error instanceof Error ? error.message : "Failed to reach Ollama",
+      });
+    }
+  });
+
   app.put("/settings", async (request, reply) => {
     authorize(request.authContext, "administration");
     const parsed = settingsUpdateSchema.safeParse(request.body);
@@ -879,6 +1066,15 @@ export async function buildServer(rootDir = process.cwd()) {
 
     if (body.default_model !== undefined) {
       nextPreferences.default_model = body.default_model;
+      const activeProfile =
+        (body.active_provider_profile ?? nextPreferences.active_provider_profile) ||
+        adapterConfig.default_provider_profile ||
+        listProviderProfiles(adapterConfig)[0]?.id;
+      if (activeProfile) {
+        const models = { ...nextPreferences.provider_default_models };
+        models[activeProfile] = body.default_model;
+        nextPreferences.provider_default_models = models;
+      }
     }
 
     if (body.active_provider_profile !== undefined) {
@@ -890,6 +1086,17 @@ export async function buildServer(rootDir = process.cwd()) {
       } else {
         nextPreferences.active_provider_profile = body.active_provider_profile;
       }
+    }
+
+    if (body.provider_base_url !== undefined) {
+      const { provider_profile, base_url } = body.provider_base_url;
+      if (!isKnownProviderProfile(adapterConfig, provider_profile)) {
+        sendInvalidRequest(reply, "/settings", 1);
+        return;
+      }
+      const urls = { ...nextPreferences.provider_base_urls };
+      urls[provider_profile] = base_url;
+      nextPreferences.provider_base_urls = urls;
     }
 
     await savePreferences(runtimeConfig.memory_root, nextPreferences);
@@ -1454,23 +1661,38 @@ function buildSettingsPayload(
         : credential?.mode === "plain"
           ? "plain"
           : "unset";
+    const baseUrlOverride = preferences.provider_base_urls?.[profile.id];
     return {
       ...profile,
+      ...(baseUrlOverride ? { base_url: baseUrlOverride } : {}),
       credential_mode: credentialMode,
       credential_ref: credential?.mode === "secret_ref" ? credential.secret_ref : null,
     };
   });
 
+  const activeProfileId =
+    preferences.active_provider_profile ??
+    adapterConfig.default_provider_profile ??
+    profiles[0]?.id ??
+    null;
+  const activeProfileEntry = activeProfileId
+    ? providerProfilePayload.find((p) => p.id === activeProfileId)
+    : null;
+  const effectiveDefaultModel =
+    (activeProfileId ? preferences.provider_default_models?.[activeProfileId] : undefined) ??
+    activeProfileEntry?.model ??
+    preferences.default_model;
+
   const availableModels = Array.from(
     new Set(
-      [preferences.default_model, ...providerProfilePayload.map((profile) => profile.model)].filter(
-        (value) => value.trim().length > 0
+      [effectiveDefaultModel].filter(
+        (value): value is string => typeof value === "string" && value.trim().length > 0
       )
     )
   );
 
   return {
-    default_model: preferences.default_model,
+    default_model: effectiveDefaultModel,
     approval_mode: preferences.approval_mode,
     active_provider_profile: preferences.active_provider_profile ?? null,
     default_provider_profile: adapterConfig.default_provider_profile ?? null,

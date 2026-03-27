@@ -8,14 +8,17 @@ import {
   UserCog,
   X,
   Check,
-  AlertCircle
+  AlertCircle,
+  Trash2
 } from "lucide-react";
 
 import { getSession } from "@/api/auth-adapter";
 import {
+  deleteProviderModel,
   downloadLibraryExport,
   getProviderModels,
   getSettings as getGatewaySettings,
+  pullProviderModel,
   updateProviderCredential as updateGatewayProviderCredential,
   updateSettings as updateGatewaySettings,
 } from "@/api/gateway-adapter";
@@ -27,6 +30,10 @@ import type {
   GatewaySettings,
 } from "@/api/types";
 import type { UserProfile } from "@/types/ui";
+
+type SettingsPatch = Partial<Pick<GatewaySettings, "default_model" | "active_provider_profile">> & {
+  provider_base_url?: { provider_profile: string; base_url: string };
+};
 
 type SettingsModalProps = {
   mode?: "local" | "managed";
@@ -59,6 +66,7 @@ export default function SettingsModal({ mode = "local", onClose }: SettingsModal
   const [modelCatalogError, setModelCatalogError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [catalogRefreshKey, setCatalogRefreshKey] = useState(0);
   const overlayRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -168,10 +176,11 @@ export default function SettingsModal({ mode = "local", onClose }: SettingsModal
     isLoadingSettings,
     settingsError,
     settings,
+    catalogRefreshKey,
   ]);
 
   async function saveSettings(
-    patch: Partial<Pick<GatewaySettings, "default_model" | "active_provider_profile">>
+    patch: SettingsPatch
   ): Promise<GatewaySettings> {
     const updated = await updateGatewaySettings(patch);
     setSettings(updated);
@@ -268,6 +277,7 @@ export default function SettingsModal({ mode = "local", onClose }: SettingsModal
               onDownloadExport={handleDownloadExport}
               isExporting={isExporting}
               exportError={exportError}
+              onRefreshCatalog={() => setCatalogRefreshKey((k) => k + 1)}
             />
           </div>
         </div>
@@ -384,7 +394,7 @@ type SettingsDataProps = {
   isLoadingSettings: boolean;
   settingsError: string | null;
   onSaveSettings: (
-    patch: Partial<Pick<GatewaySettings, "default_model" | "active_provider_profile">>
+    patch: SettingsPatch
   ) => Promise<GatewaySettings>;
   onSaveCredential: (patch: GatewayCredentialUpdateRequest) => Promise<void>;
 };
@@ -403,6 +413,7 @@ function TabContent({
   onDownloadExport,
   isExporting,
   exportError,
+  onRefreshCatalog,
 }: {
   tab: SettingsTab;
   mode: "local" | "managed";
@@ -413,12 +424,13 @@ function TabContent({
   isLoadingModelCatalog: boolean;
   modelCatalogError: string | null;
   onSaveSettings: (
-    patch: Partial<Pick<GatewaySettings, "default_model" | "active_provider_profile">>
+    patch: SettingsPatch
   ) => Promise<GatewaySettings>;
   onSaveCredential: (patch: GatewayCredentialUpdateRequest) => Promise<void>;
   onDownloadExport: () => Promise<void>;
   isExporting: boolean;
   exportError: string | null;
+  onRefreshCatalog: () => void;
 }) {
   switch (tab) {
     case "provider":
@@ -443,6 +455,7 @@ function TabContent({
           isLoadingModelCatalog={isLoadingModelCatalog}
           modelCatalogError={modelCatalogError}
           onSaveSettings={onSaveSettings}
+          onRefreshCatalog={onRefreshCatalog}
         />
       );
     case "profile":
@@ -481,6 +494,9 @@ function ProviderSection({
   const [isSavingCredential, setIsSavingCredential] = useState(false);
   const [credentialError, setCredentialError] = useState<string | null>(null);
   const [credentialSuccess, setCredentialSuccess] = useState<string | null>(null);
+  const [ollamaUrl, setOllamaUrl] = useState("");
+  const [isSavingUrl, setIsSavingUrl] = useState(false);
+  const [urlError, setUrlError] = useState<string | null>(null);
   const activeProfile = settings?.provider_profiles.find((profile) => profile.id === selectedProfile) ??
     settings?.provider_profiles[0] ?? null;
   const canUsePlainCredentialMode = activeProfile?.credential_mode === "plain" ||
@@ -493,6 +509,12 @@ function ProviderSection({
       return;
     }
     setSelectedProfile(settings.active_provider_profile ?? settings.default_provider_profile ?? "");
+    const ollamaProfile = settings.provider_profiles.find(
+      (p) => p.provider_id?.toLowerCase() === "ollama"
+    );
+    if (ollamaProfile) {
+      setOllamaUrl(ollamaProfile.base_url ?? "");
+    }
   }, [settings]);
 
   useEffect(() => {
@@ -623,6 +645,59 @@ function ProviderSection({
                     <div className={[
                       "border border-t-0 border-bd-amber bg-bd-bg-tertiary px-4 pb-3 pt-2 rounded-b-lg"
                     ].join(" ")}>
+                      {isOllama && (
+                        <div className="mb-3 space-y-1.5">
+                          <label
+                            htmlFor="ollama-server-url"
+                            className="block text-sm font-medium text-bd-text-secondary"
+                          >
+                            Server URL
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <input
+                              id="ollama-server-url"
+                              type="url"
+                              autoComplete="off"
+                              value={ollamaUrl}
+                              onChange={(event) => {
+                                setOllamaUrl(event.target.value);
+                                setUrlError(null);
+                              }}
+                              placeholder="http://localhost:11434/v1"
+                              className="h-10 flex-1 rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+                            />
+                            <button
+                              type="button"
+                              disabled={isSavingUrl || ollamaUrl.trim().length === 0}
+                              onClick={() => {
+                                setIsSavingUrl(true);
+                                setUrlError(null);
+                                void onSaveSettings({
+                                  provider_base_url: {
+                                    provider_profile: profile.id,
+                                    base_url: ollamaUrl.trim(),
+                                  },
+                                })
+                                  .then(() => {})
+                                  .catch((error) => {
+                                    setUrlError(error instanceof Error ? error.message : String(error));
+                                  })
+                                  .finally(() => {
+                                    setIsSavingUrl(false);
+                                  });
+                              }}
+                              className="rounded-lg bg-bd-amber px-3 py-2 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {isSavingUrl ? "Saving..." : "Save"}
+                            </button>
+                          </div>
+                          {urlError && (
+                            <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
+                              {urlError}
+                            </div>
+                          )}
+                        </div>
+                      )}
                       {!showKeyForProfile ? (
                         <button
                           type="button"
@@ -742,6 +817,7 @@ function ModelSection({
   isLoadingModelCatalog,
   modelCatalogError,
   onSaveSettings,
+  onRefreshCatalog,
 }: {
   mode: "local" | "managed";
   settings: GatewaySettings | null;
@@ -751,8 +827,9 @@ function ModelSection({
   isLoadingModelCatalog: boolean;
   modelCatalogError: string | null;
   onSaveSettings: (
-    patch: Partial<Pick<GatewaySettings, "default_model" | "active_provider_profile">>
+    patch: SettingsPatch
   ) => Promise<GatewaySettings>;
+  onRefreshCatalog: () => void;
 }) {
   const managedModels = [
     { name: "Claude Sonnet 4.6", provider: "Anthropic" },
@@ -766,7 +843,20 @@ function ModelSection({
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [pullModelName, setPullModelName] = useState("");
+  const [isPulling, setIsPulling] = useState(false);
+  const [pullError, setPullError] = useState<string | null>(null);
+  const [pullSuccess, setPullSuccess] = useState<string | null>(null);
+  const [pullStatus, setPullStatus] = useState("");
+  const [pullProgress, setPullProgress] = useState<{ total: number; completed: number } | null>(null);
+  const [deletingModel, setDeletingModel] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const catalogSearchId = useId();
+
+  const activeProfile = settings?.provider_profiles.find(
+    (p) => p.id === (settings.active_provider_profile ?? settings.default_provider_profile)
+  ) ?? settings?.provider_profiles[0] ?? null;
+  const isOllama = activeProfile?.provider_id?.toLowerCase() === "ollama";
 
   useEffect(() => {
     if (!settings) {
@@ -806,7 +896,9 @@ function ModelSection({
           Default Model
         </h3>
         <p className="mt-1 text-sm text-bd-text-muted">
-          Choose the AI model your BrainDrive uses for conversations.
+          {isOllama
+            ? "Choose from the models installed on your computer."
+            : "Choose the AI model your BrainDrive uses for conversations."}
         </p>
       </div>
 
@@ -841,7 +933,9 @@ function ModelSection({
               onClick={() => setIsCatalogOpen((open) => !open)}
               className="w-full rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-left text-sm text-bd-text-secondary transition-colors hover:bg-bd-bg-hover"
             >
-              {isCatalogOpen ? "Hide model catalog" : "Browse model catalog"}
+              {isCatalogOpen
+                ? isOllama ? "Hide installed models" : "Hide model catalog"
+                : isOllama ? "Show installed models" : "Browse model catalog"}
             </button>
 
             {isCatalogOpen && (
@@ -865,68 +959,207 @@ function ModelSection({
               ) : (
                 filteredCatalogModels.map((model) => {
                   const isSelected = defaultModel.trim() === model.id;
+                  const isDeleting = deletingModel === model.id;
                   const freeTag = model.is_free || (model.tags ?? []).includes("free");
                   return (
-                    <button
+                    <div
                       key={model.id}
-                      type="button"
-                      disabled={isSaving}
-                      onClick={() => {
-                        setDefaultModel(model.id);
-                        setIsSaving(true);
-                        setSaveError(null);
-                        void onSaveSettings({ default_model: model.id })
-                          .catch((error) => {
-                            setSaveError(error instanceof Error ? error.message : String(error));
-                          })
-                          .finally(() => {
-                            setIsSaving(false);
-                          });
-                      }}
                       className={[
-                        "w-full rounded-md border px-3 py-2 text-left transition-colors",
+                        "flex items-center gap-1 rounded-md border transition-colors",
                         isSelected
                           ? "border-bd-amber bg-bd-bg-hover"
                           : "border-transparent hover:border-bd-border hover:bg-bd-bg-hover",
                       ].join(" ")}
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="truncate text-sm text-bd-text-primary">{model.id}</span>
-                        <div className="flex shrink-0 items-center gap-1">
-                          {freeTag && (
-                            <span className="rounded bg-bd-success/20 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-bd-success">
-                              free
-                            </span>
-                          )}
-                          {(model.tags ?? [])
-                            .filter((tag) => tag.toLowerCase() !== "free")
-                            .slice(0, 2)
-                            .map((tag) => (
-                              <span
-                                key={`${model.id}:${tag}`}
-                                className="rounded bg-bd-bg-secondary px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-bd-text-muted"
-                              >
-                                {tag}
+                      <button
+                        type="button"
+                        disabled={isSaving || isDeleting}
+                        onClick={() => {
+                          setDefaultModel(model.id);
+                          setIsSaving(true);
+                          setSaveError(null);
+                          void onSaveSettings({ default_model: model.id })
+                            .catch((error) => {
+                              setSaveError(error instanceof Error ? error.message : String(error));
+                            })
+                            .finally(() => {
+                              setIsSaving(false);
+                            });
+                        }}
+                        className="flex-1 px-3 py-2 text-left"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate text-sm text-bd-text-primary">{model.id}</span>
+                          <div className="flex shrink-0 items-center gap-1">
+                            {freeTag && (
+                              <span className="rounded bg-bd-success/20 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-bd-success">
+                                free
                               </span>
-                            ))}
+                            )}
+                            {(model.tags ?? [])
+                              .filter((tag) => tag.toLowerCase() !== "free")
+                              .slice(0, 2)
+                              .map((tag) => (
+                                <span
+                                  key={`${model.id}:${tag}`}
+                                  className="rounded bg-bd-bg-secondary px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-bd-text-muted"
+                                >
+                                  {tag}
+                                </span>
+                              ))}
+                          </div>
                         </div>
-                      </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-bd-text-muted">
-                        {model.name && <span>{model.name}</span>}
-                        {model.provider && <span>{model.provider}</span>}
-                        {typeof model.context_length === "number" && (
-                          <span>{model.context_length.toLocaleString()} ctx</span>
-                        )}
-                      </div>
-                    </button>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-bd-text-muted">
+                          {model.name && <span>{model.name}</span>}
+                          {model.provider && <span>{model.provider}</span>}
+                          {typeof model.context_length === "number" && (
+                            <span>{model.context_length.toLocaleString()} ctx</span>
+                          )}
+                        </div>
+                      </button>
+                      {isOllama && (
+                        <button
+                          type="button"
+                          disabled={isDeleting || isSaving}
+                          title={`Remove ${model.id}`}
+                          onClick={() => {
+                            setDeletingModel(model.id);
+                            setDeleteError(null);
+                            void deleteProviderModel(model.id, activeProfile?.id)
+                              .then(() => {
+                                if (defaultModel === model.id) {
+                                  setDefaultModel("");
+                                }
+                                onRefreshCatalog();
+                              })
+                              .catch((error) => {
+                                setDeleteError(error instanceof Error ? error.message : String(error));
+                              })
+                              .finally(() => {
+                                setDeletingModel(null);
+                              });
+                          }}
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-bd-text-muted transition-colors hover:bg-bd-danger-bg hover:text-bd-danger disabled:opacity-40"
+                        >
+                          <Trash2 size={14} strokeWidth={1.5} />
+                        </button>
+                      )}
+                    </div>
                   );
                 })
               )}
             </div>
 
+                {deleteError && (
+                  <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
+                    {deleteError}
+                  </div>
+                )}
                 {modelCatalogError && (
                   <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-xs text-bd-text-muted">
                     {modelCatalogError}
+                  </div>
+                )}
+
+                {isOllama && (
+                  <div className="space-y-2 rounded-lg border border-bd-border bg-bd-bg-tertiary p-3">
+                    <div className="text-sm font-medium text-bd-text-secondary">
+                      Pull a new model
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={pullModelName}
+                        onChange={(event) => {
+                          setPullModelName(event.target.value);
+                          setPullError(null);
+                          setPullSuccess(null);
+                        }}
+                        placeholder="e.g. llama3.2, gemma2, mistral"
+                        disabled={isPulling}
+                        className="h-10 flex-1 rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber disabled:opacity-60"
+                      />
+                      <button
+                        type="button"
+                        disabled={isPulling || pullModelName.trim().length === 0}
+                        onClick={() => {
+                          const modelToPull = pullModelName.trim();
+                          setIsPulling(true);
+                          setPullError(null);
+                          setPullSuccess(null);
+                          setPullStatus("Starting download...");
+                          setPullProgress(null);
+                          void pullProviderModel(modelToPull, activeProfile?.id, (progress) => {
+                            setPullStatus(progress.status);
+                            if (typeof progress.total === "number" && progress.total > 0) {
+                              setPullProgress({ total: progress.total, completed: progress.completed ?? 0 });
+                            }
+                          })
+                            .then(() => {
+                              setPullSuccess(`${modelToPull} installed successfully.`);
+                              setPullModelName("");
+                              setPullProgress(null);
+                              setPullStatus("");
+                              onRefreshCatalog();
+                            })
+                            .catch((error) => {
+                              setPullError(error instanceof Error ? error.message : String(error));
+                              setPullProgress(null);
+                              setPullStatus("");
+                            })
+                            .finally(() => {
+                              setIsPulling(false);
+                            });
+                        }}
+                        className="rounded-lg bg-bd-amber px-3 py-2 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {isPulling ? "Pulling..." : "Pull"}
+                      </button>
+                    </div>
+                    {isPulling && (
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between text-xs text-bd-text-muted">
+                          <span>{pullStatus || "Preparing..."}</span>
+                          {pullProgress && pullProgress.total > 0 && (
+                            <span>
+                              {Math.round((pullProgress.completed / pullProgress.total) * 100)}%
+                            </span>
+                          )}
+                        </div>
+                        <div className="h-2 w-full overflow-hidden rounded-full bg-bd-bg-secondary">
+                          <div
+                            className="h-full rounded-full bg-bd-amber transition-all duration-300"
+                            style={{
+                              width: pullProgress && pullProgress.total > 0
+                                ? `${Math.round((pullProgress.completed / pullProgress.total) * 100)}%`
+                                : "0%",
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    {pullError && (
+                      <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
+                        {pullError}
+                      </div>
+                    )}
+                    {pullSuccess && (
+                      <div className="flex items-center gap-2 text-xs text-bd-success">
+                        <Check size={14} strokeWidth={1.5} className="shrink-0" />
+                        {pullSuccess}
+                      </div>
+                    )}
+                    <p className="text-xs text-bd-text-muted">
+                      Browse available models at{" "}
+                      <a
+                        href="https://ollama.com/library"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-bd-text-muted hover:text-bd-text-secondary hover:underline"
+                      >
+                        ollama.com/library
+                      </a>
+                    </p>
                   </div>
                 )}
               </div>

@@ -66,6 +66,7 @@ services:
     environment:
       MCP_SERVERS_FILE: ${MCP_SERVERS_FILE:-mcp/servers.full-mcp.docker.json}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
       PAA_SECRETS_HOME: /run/paa-secrets
       PAA_SECRETS_MASTER_KEY_B64: ${PAA_SECRETS_MASTER_KEY_B64}
       PAA_SECRETS_MASTER_KEY_ID: ${PAA_SECRETS_MASTER_KEY_ID}

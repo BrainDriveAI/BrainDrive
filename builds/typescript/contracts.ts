@@ -175,6 +175,8 @@ export type Preferences = {
   approval_mode: "ask-on-write";
   active_provider_profile?: string;
   provider_credentials?: Record<string, ProviderCredentialPreference>;
+  provider_base_urls?: Record<string, string>;
+  provider_default_models?: Record<string, string>;
   secret_resolution?: SecretResolutionPreference;
 };
 

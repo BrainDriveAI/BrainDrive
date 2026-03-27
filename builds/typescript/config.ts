@@ -121,6 +121,8 @@ const preferencesSchema = z
     approval_mode: z.literal("ask-on-write"),
     active_provider_profile: z.string().min(1).optional(),
     provider_credentials: z.record(providerCredentialSchema).optional(),
+    provider_base_urls: z.record(z.string().url()).optional(),
+    provider_default_models: z.record(z.string().min(1)).optional(),
     secret_resolution: secretResolutionSchema.optional(),
   })
   .strict()
@@ -168,7 +170,28 @@ export async function loadAdapterConfig(rootDir: string, adapterName: string): P
     throw error;
   }
 
-  return adapterConfigSchema.parse(JSON.parse(raw));
+  const config = adapterConfigSchema.parse(JSON.parse(raw));
+  return applyAdapterEnvironmentOverrides(config);
+}
+
+function applyAdapterEnvironmentOverrides(config: AdapterConfig): AdapterConfig {
+  if (!config.provider_profiles) {
+    return config;
+  }
+
+  const profiles = { ...config.provider_profiles };
+  let changed = false;
+
+  for (const [id, profile] of Object.entries(profiles)) {
+    const envKey = `${(profile.provider_id ?? id).toUpperCase()}_BASE_URL`;
+    const envValue = process.env[envKey]?.trim();
+    if (envValue) {
+      profiles[id] = { ...profile, base_url: envValue };
+      changed = true;
+    }
+  }
+
+  return changed ? { ...config, provider_profiles: profiles } : config;
 }
 
 export async function ensureMemoryLayout(rootDir: string, memoryRoot: string): Promise<void> {

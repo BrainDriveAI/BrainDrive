@@ -524,7 +524,9 @@ export async function getSettings(): Promise<GatewaySettings> {
 }
 
 export async function updateSettings(
-  patch: Partial<Pick<GatewaySettings, "default_model" | "active_provider_profile">>
+  patch: Partial<Pick<GatewaySettings, "default_model" | "active_provider_profile">> & {
+    provider_base_url?: { provider_profile: string; base_url: string };
+  }
 ): Promise<GatewaySettings> {
   const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/settings`, {
     method: "PUT",
@@ -582,6 +584,94 @@ export async function getProviderModels(
   }
 
   return (await response.json()) as GatewayModelCatalog;
+}
+
+export type PullProgressCallback = (progress: {
+  status: string;
+  total?: number;
+  completed?: number;
+}) => void;
+
+export async function pullProviderModel(
+  model: string,
+  providerProfile?: string,
+  onProgress?: PullProgressCallback
+): Promise<void> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/settings/models/pull`, {
+    method: "POST",
+    headers: withLocalOwnerHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({
+      model,
+      ...(providerProfile ? { provider_profile: providerProfile } : {}),
+    }),
+  });
+
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+
+  if (!response.body) {
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.length === 0) continue;
+      try {
+        const parsed = JSON.parse(trimmed) as { status?: string; total?: number; completed?: number };
+        onProgress?.({
+          status: parsed.status ?? "",
+          total: parsed.total,
+          completed: parsed.completed,
+        });
+      } catch {
+        // skip malformed lines
+      }
+    }
+  }
+
+  if (buffer.trim().length > 0) {
+    try {
+      const parsed = JSON.parse(buffer.trim()) as { status?: string; total?: number; completed?: number };
+      onProgress?.({
+        status: parsed.status ?? "",
+        total: parsed.total,
+        completed: parsed.completed,
+      });
+    } catch {
+      // skip
+    }
+  }
+}
+
+export async function deleteProviderModel(
+  model: string,
+  providerProfile?: string
+): Promise<void> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/settings/models/delete`, {
+    method: "POST",
+    headers: withLocalOwnerHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({
+      model,
+      ...(providerProfile ? { provider_profile: providerProfile } : {}),
+    }),
+  });
+
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
 }
 
 export async function downloadLibraryExport(): Promise<ExportDownload> {
