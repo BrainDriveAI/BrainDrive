@@ -1,0 +1,11 @@
+﻿# syntax=docker/dockerfile:1.7
+
+FROM node:22-bookworm-slim AS build-web
+WORKDIR /src/builds/typescript/client_web
+COPY builds/typescript/client_web/package.json builds/typescript/client_web/package-lock.json ./
+RUN npm ci
+COPY builds/typescript/client_web/ ./
+RUN npm run build
+
+FROM caddy:2.8-alpine
+COPY --from=build-web /src/builds/typescript/client_web/dist /usr/share/caddy
