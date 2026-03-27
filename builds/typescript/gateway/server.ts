@@ -451,10 +451,18 @@ export async function buildServer(rootDir = process.cwd()) {
       truncated: promptWithSkills.truncated,
     });
 
+    // Inject project context so the AI knows which project it's operating in.
+    // Without this, the AI sees the base prompt but doesn't know which project
+    // files to read — it would read all projects and behave like BD+1.
+    const projectContext = projectId
+      ? `\n\n## Active Project\n\nYou are currently in the **${projectId}** project. Read this project's AGENT.md, spec.md, and plan.md from the documents/${projectId}/ folder. Stay focused on this domain — do not read or reference other projects unless the conversation specifically calls for cross-domain connections.`
+      : "";
+    const finalPrompt = promptWithSkills.prompt + projectContext;
+
     const engineRequest = gatewayAdapter.buildEngineRequest({
       conversationId,
       correlationId: crypto.randomUUID(),
-      messages: conversations.buildConversationMessages(conversationId, promptWithSkills.prompt),
+      messages: conversations.buildConversationMessages(conversationId, finalPrompt),
       ...(body.metadata ? { clientMetadata: body.metadata } : {}),
     });
 
@@ -990,6 +998,18 @@ export async function buildServer(rootDir = process.cwd()) {
         return;
       } else {
         nextPreferences.active_provider_profile = body.active_provider_profile;
+        // When switching providers, sync default_model to the new provider's
+        // per-provider default so display stays consistent. Model IDs are
+        // provider-specific — the global default_model should reflect the
+        // active provider's selection.
+        if (body.default_model === undefined) {
+          const newProviderModel = nextPreferences.provider_default_models?.[body.active_provider_profile];
+          const profileConfig = adapterConfig.provider_profiles?.[body.active_provider_profile];
+          const effectiveModel = newProviderModel ?? profileConfig?.model;
+          if (effectiveModel) {
+            nextPreferences.default_model = effectiveModel;
+          }
+        }
       }
     }
 
