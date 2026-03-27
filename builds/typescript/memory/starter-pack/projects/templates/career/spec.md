@@ -1,13 +1,39 @@
 # Career Spec
 
-## Goal
+*This is where your career picture comes together. Right now it's a starting point — we'll build it out together through conversation.*
 
-- Define the career outcome the owner wants.
+## What You Want
 
-## Current Reality
+Your career goals as user stories — what you want, why it matters, and how you'll know you've made it. Each goal gets its own story. These get defined and refined through conversation.
 
-- Current role, compensation, constraints.
+*Example of what this looks like when filled in:*
 
-## Gaps
+> *### I want to move into engineering management*
+> *As a senior engineer who's been leading projects informally, I want a clear path to a management role, so that I can grow my career without feeling stuck at the IC ceiling.*
+> ***Success looks like:** I'm in a management role with direct reports, doing work I find meaningful.*
 
-- Skills, opportunities, blockers.
+*To be filled through conversation.*
+
+## Where You Are
+
+Your full career landscape: role, industry, tenure, income, skills, satisfaction, trajectory. Not just the thing that triggered this — the whole picture. Where are you thriving? Where are you stagnating? Including the parts you're not sure about.
+
+*To be filled through conversation.*
+
+## What's In The Way
+
+What's holding you back? Fear, unclear next step, golden handcuffs, skill gaps, impostor syndrome? Career decisions often involve stories people tell themselves — some true, some worth questioning.
+
+*To be filled through conversation.*
+
+## The Plan
+
+One concrete next step to start building momentum. See plan.md for the full action plan.
+
+*To be filled through conversation.*
+
+## What's Still Missing
+
+What we haven't explored yet. Timeline, manager conversations, skill gaps, financial runway — every gap we fill makes the plan more actionable.
+
+*To be filled through conversation.*
