@@ -34,13 +34,6 @@ import { runAgentLoop } from "../engine/loop.js";
 import { classifyProviderError } from "../engine/errors.js";
 import { formatSseEvent } from "../engine/stream.js";
 import { ToolExecutor } from "../engine/tool-executor.js";
-import {
-  appendIntentGuidance,
-  createPassThroughIntentPlan,
-  resolveIntentLayer,
-  WorkflowLockStore,
-} from "../intent_layer/index.js";
-import { loadIntentLayerConfig } from "../intent_layer/config.js";
 import { ensureGitReady } from "../git.js";
 import { auditLog } from "../logger.js";
 import { ensureAuthState, saveAuthState } from "../memory/auth-state.js";
@@ -220,7 +213,6 @@ export async function buildServer(rootDir = process.cwd()) {
   const conversations = new GatewayConversationService(createConversationRepository(runtimeConfig));
   const projects = new GatewayProjectService(runtimeConfig.memory_root, { rootDir });
   const skills = new GatewaySkillService(runtimeConfig.memory_root);
-  const workflowLockStore = new WorkflowLockStore();
   const signupRateLimiter = new FixedWindowRateLimiter(5, 5 * 60 * 1000);
   const loginRateLimiter = new FixedWindowRateLimiter(10, 5 * 60 * 1000);
   const refreshRateLimiter = new FixedWindowRateLimiter(30, 5 * 60 * 1000);
@@ -449,113 +441,20 @@ export async function buildServer(rootDir = process.cwd()) {
     }
     const conversationSkillIds = conversations.getConversationSkills(conversationId) ?? [];
     const projectSkillIds = projectId ? (await projects.getProjectSkills(projectId)) ?? [] : [];
-    const persistedSkillIds = dedupeStrings([...projectSkillIds, ...conversationSkillIds]);
-
-    const intentConfigResult = await loadIntentLayerConfig(runtimeConfig.memory_root);
-    if (intentConfigResult.error) {
-      auditLog("intent.config.fallback", {
-        path: intentConfigResult.path,
-        reason: intentConfigResult.error,
-      });
-    }
-
-    const intentConfig = intentConfigResult.config;
-    const intentEnabled = intentConfig.enabled && intentConfig.mode !== "off";
-    const lockSnapshot =
-      intentEnabled && intentConfig.workflow_lock.enabled
-        ? workflowLockStore.loadForTurn(conversationId, intentConfig.workflow_lock)
-        : { lock: null, expired: false };
-
-    if (lockSnapshot.expired) {
-      auditLog("intent.workflow_lock.expired", {
-        conversation_id: conversationId,
-      });
-    }
-
-    const availableSkills = (await skills.listSkills()).skills;
-    const intentResult = intentEnabled
-      ? resolveIntentLayer(
-          {
-            conversationId,
-            userMessage: body.content,
-            skills: availableSkills,
-            activeLock: lockSnapshot.lock,
-            availableToolNames: tools.map((tool) => tool.name),
-          },
-          intentConfig
-        )
-      : {
-          plan: createPassThroughIntentPlan(body.content),
-          candidates: [],
-        };
-
-    if (intentEnabled) {
-      auditLog("intent.detected", {
-        conversation_id: conversationId,
-        action_category: intentResult.plan.action_category,
-        workflow_profile: intentResult.plan.workflow_profile?.id ?? null,
-        confidence: intentResult.plan.confidence,
-      });
-      auditLog("intent.plan.generated", {
-        conversation_id: conversationId,
-        policy: intentResult.plan.policy,
-        transient_skill_ids: intentResult.plan.transient_skill_ids,
-        candidate_count: intentResult.candidates.length,
-      });
-
-      if (intentResult.plan.policy === "confirm_first") {
-        auditLog("intent.policy.confirm_required", {
-          conversation_id: conversationId,
-          action_category: intentResult.plan.action_category,
-        });
-      }
-    }
-
-    if (intentEnabled && intentConfig.mode === "active" && intentConfig.workflow_lock.enabled) {
-      const lockUpdate = workflowLockStore.applyPlan(conversationId, intentResult.plan.workflow_lock, intentConfig.workflow_lock);
-      if (lockUpdate.event === "set") {
-        auditLog("intent.workflow_lock.set", {
-          conversation_id: conversationId,
-          profile_id: lockUpdate.state?.profileId ?? null,
-          reason: lockUpdate.reason,
-        });
-      } else if (lockUpdate.event === "renewed") {
-        auditLog("intent.workflow_lock.renewed", {
-          conversation_id: conversationId,
-          profile_id: lockUpdate.state?.profileId ?? null,
-          remaining_turns: lockUpdate.state?.remainingTurns ?? null,
-          reason: lockUpdate.reason,
-        });
-      } else if (lockUpdate.event === "cleared") {
-        auditLog("intent.workflow_lock.cleared", {
-          conversation_id: conversationId,
-          reason: lockUpdate.reason,
-        });
-      }
-    }
-
-    const transientSkillIds =
-      intentEnabled && intentConfig.mode === "active" ? intentResult.plan.transient_skill_ids : [];
-    const composedSkillIds = dedupeStrings([...persistedSkillIds, ...transientSkillIds]);
-    const promptWithSkills = await skills.composePromptWithSkills(systemPrompt, composedSkillIds);
-    const promptWithIntent =
-      intentEnabled && intentConfig.mode === "active" ? appendIntentGuidance(promptWithSkills.prompt, intentResult.plan) : promptWithSkills.prompt;
-    const appliedTransientSkillIds = promptWithSkills.applied.filter((skillId) => transientSkillIds.includes(skillId));
+    const promptWithSkills = await skills.composePromptWithSkills(systemPrompt, [...projectSkillIds, ...conversationSkillIds]);
 
     auditLog("skills.apply", {
       conversation_id: conversationId,
       project_id: projectId,
       applied_skill_ids: promptWithSkills.applied,
-      applied_transient_skill_ids: appliedTransientSkillIds,
       missing_skill_ids: promptWithSkills.missing,
       truncated: promptWithSkills.truncated,
-      intent_policy: intentResult.plan.policy,
     });
 
     const engineRequest = gatewayAdapter.buildEngineRequest({
       conversationId,
       correlationId: crypto.randomUUID(),
-      messages: conversations.buildConversationMessages(conversationId, promptWithIntent),
+      messages: conversations.buildConversationMessages(conversationId, promptWithSkills.prompt),
       ...(body.metadata ? { clientMetadata: body.metadata } : {}),
     });
 
@@ -1586,20 +1485,6 @@ class FixedWindowRateLimiter {
     this.records.set(normalizedKey, current);
     return true;
   }
-}
-
-function dedupeStrings(values: string[]): string[] {
-  const seen = new Set<string>();
-  const deduped: string[] = [];
-  for (const value of values) {
-    const normalized = value.trim();
-    if (!normalized || seen.has(normalized)) {
-      continue;
-    }
-    seen.add(normalized);
-    deduped.push(normalized);
-  }
-  return deduped;
 }
 
 function createConversationRepository(runtimeConfig: RuntimeConfig): ConversationRepository {
