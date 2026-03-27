@@ -225,6 +225,7 @@ export async function buildServer(rootDir = process.cwd()) {
   const loginRateLimiter = new FixedWindowRateLimiter(10, 5 * 60 * 1000);
   const refreshRateLimiter = new FixedWindowRateLimiter(30, 5 * 60 * 1000);
   const signupBootstrapToken = process.env.PAA_AUTH_BOOTSTRAP_TOKEN?.trim();
+  const allowFirstSignupFromAnyIp = readBooleanEnv(process.env.PAA_AUTH_ALLOW_FIRST_SIGNUP_ANY_IP, false);
   const persistAuthState = async (nextState: typeof authState): Promise<void> => {
     authState = await saveAuthState(runtimeConfig.memory_root, nextState);
   };
@@ -252,7 +253,7 @@ export async function buildServer(rootDir = process.cwd()) {
       return;
     }
 
-    if (!authState.account_initialized) {
+    if (!authState.account_initialized && !allowFirstSignupFromAnyIp) {
       const signupAccess = evaluateSignupBootstrapAccess(
         {
           ip: request.ip,
@@ -268,6 +269,11 @@ export async function buildServer(rootDir = process.cwd()) {
         reply.code(403).send({ error: signupAccess.reason });
         return;
       }
+    } else if (!authState.account_initialized && allowFirstSignupFromAnyIp) {
+      auditLog("auth.signup.bootstrap_override", {
+        reason: "allow_first_signup_any_ip",
+        ip: request.ip,
+      });
     }
 
     const parsed = authCredentialsSchema.safeParse(request.body);
@@ -1521,6 +1527,15 @@ function serializeRefreshCookieClear(secure: boolean): string {
   ]
     .filter((segment) => segment.length > 0)
     .join("; ");
+}
+
+function readBooleanEnv(value: string | undefined, defaultValue = false): boolean {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) {
+    return defaultValue;
+  }
+
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
 }
 
 function isSecureRequest(request: { headers: Record<string, unknown> }): boolean {

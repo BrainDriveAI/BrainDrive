@@ -1,0 +1,50 @@
+﻿name: braindrive_local
+
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: installer/docker/Dockerfile.app
+    image: ${BRAINDRIVE_APP_IMAGE_LOCAL:-braindrive-app:local}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 8787
+      MCP_SERVERS_FILE: mcp/servers.full-mcp.json
+      PAA_MEMORY_ROOT: /data/memory
+      PAA_SECRETS_HOME: /run/paa-secrets
+      PAA_SECRETS_MASTER_KEY_B64: ${PAA_SECRETS_MASTER_KEY_B64}
+      PAA_SECRETS_MASTER_KEY_ID: ${PAA_SECRETS_MASTER_KEY_ID:-owner-master-v1}
+      PAA_AUTH_BOOTSTRAP_TOKEN: ${PAA_AUTH_BOOTSTRAP_TOKEN:-}
+      PAA_AUTH_ALLOW_FIRST_SIGNUP_ANY_IP: ${PAA_AUTH_ALLOW_FIRST_SIGNUP_ANY_IP:-true}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - braindrive_memory:/data/memory
+      - braindrive_secrets:/run/paa-secrets
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  edge:
+    build:
+      context: ../..
+      dockerfile: installer/docker/Dockerfile.edge
+    image: ${BRAINDRIVE_EDGE_IMAGE_LOCAL:-braindrive-edge:local}
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:80"
+    volumes:
+      - ./Caddyfile.local:/etc/caddy/Caddyfile:ro
+
+volumes:
+  braindrive_memory:
+    name: braindrive_memory
+  braindrive_secrets:
+    name: braindrive_secrets

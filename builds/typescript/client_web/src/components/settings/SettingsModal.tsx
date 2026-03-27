@@ -489,7 +489,6 @@ function ProviderSection({
   const [selectedProfile, setSelectedProfile] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [providerApiKey, setProviderApiKey] = useState("");
   const [isSavingCredential, setIsSavingCredential] = useState(false);
   const [credentialError, setCredentialError] = useState<string | null>(null);
