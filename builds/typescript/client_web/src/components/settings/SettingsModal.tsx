@@ -332,6 +332,7 @@ export default function SettingsModal({ mode = "local", onClose }: SettingsModal
             isLoadingModelCatalog={isLoadingModelCatalog}
             modelCatalogError={modelCatalogError}
             onSaveSettings={saveSettings}
+            onRefreshCatalog={() => setCatalogRefreshKey((k) => k + 1)}
             onSaveCredential={saveCredential}
             onDownloadExport={handleDownloadExport}
             isExporting={isExporting}
@@ -492,7 +493,6 @@ function ProviderSection({
   const [providerApiKey, setProviderApiKey] = useState("");
   const [isSavingCredential, setIsSavingCredential] = useState(false);
   const [credentialError, setCredentialError] = useState<string | null>(null);
-  const [credentialSuccess, setCredentialSuccess] = useState<string | null>(null);
   const [ollamaUrl, setOllamaUrl] = useState("");
   const [isSavingUrl, setIsSavingUrl] = useState(false);
   const [urlError, setUrlError] = useState<string | null>(null);
@@ -841,7 +841,6 @@ function ModelSection({
   const [catalogQuery, setCatalogQuery] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [pullModelName, setPullModelName] = useState("");
   const [isPulling, setIsPulling] = useState(false);
   const [pullError, setPullError] = useState<string | null>(null);
