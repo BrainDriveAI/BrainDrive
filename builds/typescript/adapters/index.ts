@@ -14,7 +14,14 @@ export function createModelAdapter(
 ): ModelAdapter {
   const selectedAdapterConfig = resolveAdapterConfigForPreferences(adapterConfig, preferences);
   const legacyBootstrapModel = "llama3.1";
-  const preferenceModel = preferences.default_model.trim();
+  const activeProfile =
+    preferences.active_provider_profile?.trim() ||
+    adapterConfig.default_provider_profile?.trim() ||
+    "";
+  const providerModel = activeProfile
+    ? preferences.provider_default_models?.[activeProfile]?.trim()
+    : undefined;
+  const preferenceModel = (providerModel ?? preferences.default_model).trim();
   const useAdapterModel =
     preferenceModel.length === 0 ||
     (preferenceModel === legacyBootstrapModel && selectedAdapterConfig.model !== legacyBootstrapModel);
@@ -55,8 +62,11 @@ export function resolveAdapterConfigForPreferences(
     throw new Error(`Unsupported provider profile: ${selectedProfile}`);
   }
 
+  const baseUrlOverride = preferences.provider_base_urls?.[selectedProfile];
+
   return {
     ...profileConfig,
+    ...(baseUrlOverride ? { base_url: baseUrlOverride } : {}),
     provider_profiles: profiles,
     default_provider_profile: adapterConfig.default_provider_profile,
   };
