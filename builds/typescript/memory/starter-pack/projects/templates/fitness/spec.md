@@ -34,6 +34,14 @@ One realistic first move — not a complete overhaul, just the next step. See pl
 
 ## What's Still Missing
 
-What we haven't explored yet. Sleep, stress, nutrition, past injuries — every gap we fill makes the plan more realistic.
+### Before the plan is complete
+
+Gaps that could change the direction. If we fill these in and the answer is different from what we assumed, the plan shifts. These are the next conversations worth having.
+
+*To be filled through conversation.*
+
+### Worth exploring later
+
+Interesting threads that won't change the current plan. Future conversations when the time is right.
 
 *To be filled through conversation.*
