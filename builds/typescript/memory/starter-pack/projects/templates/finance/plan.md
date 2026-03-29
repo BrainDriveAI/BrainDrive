@@ -10,7 +10,7 @@ One thing you can do this week to start making progress. Not a complete financia
 
 ## The Roadmap
 
-The phased journey toward your financial goals. The first phases are detailed — specific actions, milestones, and timelines. Later phases are high-level and get filled in as you progress and we learn more. The plan adapts as your situation changes.
+The phased journey toward your financial goals. Lead each phase with what life looks like when it's done — the pull — before listing the steps. The first phases are detailed. Later phases are high-level and get filled in as you progress. The plan adapts as your situation changes.
 
 *Example of what this looks like when filled in:*
 - *Weeks 1-4: Get the real numbers — track spending, know your debt rates, find out about employer benefits*
@@ -22,12 +22,12 @@ The phased journey toward your financial goals. The first phases are detailed �
 
 ## The Destination
 
-Where this is all heading — and what life looks like when you get there. Not just "debt-free" but what that changes about how you live, decide, and feel about money.
+Where this is all heading — and what life looks like when you get there. Not just "debt-free" but what that changes about how you live, decide, and feel about money. Use the owner's own words and success criteria — don't editorialize or reframe.
 
 *To be filled as goals get more specific.*
 
 ## What Needs More Work
 
-What the plan can't cover yet because we need more information. Each gap here connects to a gap in the spec — filling one sharpens the other.
+What the plan can't cover yet because we need more information. Only include gaps the spec flagged as "Before the plan is complete." Items marked "Worth exploring later" stay in the spec, not here.
 
 *To be filled through conversation.*

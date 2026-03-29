@@ -10,7 +10,7 @@ One small, meaningful thing you can do tonight or tomorrow. Not "fix the relatio
 
 ## The Roadmap
 
-The phased journey toward stronger relationships. The first phases are detailed — specific conversations, habits, and skills to build. Later phases are high-level and get filled in as patterns shift and relationships evolve.
+The phased journey toward stronger relationships. Lead each phase with what life looks like when it's done — the pull — before listing the steps. The first phases are detailed. Later phases are high-level and get filled in as patterns shift and relationships evolve.
 
 *Example of what this looks like when filled in:*
 - *Weeks 1-4: See the patterns — notice your reactions, practice stating what you need in low-stakes moments, have one honest conversation*
@@ -22,12 +22,12 @@ The phased journey toward stronger relationships. The first phases are detailed 
 
 ## The Destination
 
-Where this is all heading — what do healthier relationships look and feel like for you? Not perfection, but what's different when things are working.
+Where this is all heading — what do healthier relationships look and feel like for you? Not perfection, but what's different when things are working. Use the owner's own words and success criteria — don't editorialize or reframe.
 
 *To be filled as goals get more specific.*
 
 ## What Needs More Work
 
-What the plan can't cover yet because we need more information. Patterns, history, the other person's perspective — filling these gaps helps us see the real picture.
+What the plan can't cover yet because we need more information. Only include gaps the spec flagged as "Before the plan is complete." Items marked "Worth exploring later" stay in the spec, not here.
 
 *To be filled through conversation.*
