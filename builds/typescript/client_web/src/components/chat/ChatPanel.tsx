@@ -172,13 +172,12 @@ export default function ChatPanel({
 
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
   const hasStartedAssistantReply = isLoading && lastMessage?.role === "assistant";
-  const isTyping = isLoading && (!hasStartedAssistantReply || !!toolStatus);
+  const isWaitingForReply = isLoading && !hasStartedAssistantReply;
+  const showTypingFeedback = isLoading;
   const typingStatus = isLoading
     ? toolStatus
       ? formatToolStatus(toolStatus)
-      : hasStartedAssistantReply
-        ? undefined
-        : "Thinking..."
+      : "Thinking..."
     : undefined;
   const chatError = historyError ?? error?.message ?? null;
   const visibleChatError =
@@ -273,7 +272,7 @@ export default function ChatPanel({
     onRemoveAttachment: () => setAttachment(null),
     fileError,
     onClearFileError: () => setFileError(null),
-    isStreaming: isTyping,
+    isStreaming: isWaitingForReply,
     onStop: stop
   };
 
@@ -340,7 +339,7 @@ export default function ChatPanel({
           ) : (
             <MessageList
               messages={messages}
-              isTyping={isTyping}
+              isTyping={showTypingFeedback}
               typingStatus={typingStatus}
             >
               {visibleChatError && (
