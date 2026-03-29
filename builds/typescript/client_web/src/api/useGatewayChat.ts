@@ -181,9 +181,10 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
       conversationIdRef.current = restored.conversationId;
       backgroundStates.delete(cacheKey);
     } else {
-      // For draft conversations (no external ID), always start empty — externalMessages
-      // may be stale from the previous project's history that hasn't cleared yet.
-      setMessages(externalConversationId ? externalMessages : EMPTY_MESSAGES);
+      // Always start empty when switching conversations — externalMessages may be stale
+      // from the previous project's history that hasn't cleared yet. The secondary effect
+      // (below) will apply the correct history once it arrives from the async fetch.
+      setMessages(EMPTY_MESSAGES);
       setIsLoading(false);
       setError(null);
       setToolStatus(null);
