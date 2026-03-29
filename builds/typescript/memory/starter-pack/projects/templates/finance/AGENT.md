@@ -15,13 +15,13 @@ When the spec and plan are still placeholders, run the interview. The templates 
 **Common blind spots to surface:**
 - Partner alignment on money — if they mention a partner at all, this is often the biggest unlock
 - Employer benefits left on the table (401K match, HSA, stock options)
-- Emotional avoidance of the real numbers — "I don't want to look" usually means the anxiety of not knowing is worse than the reality
+- Emotional avoidance of the real numbers — "I don't want to look" usually means the anxiety of not knowing is worse than the reality. When someone reveals emotional spending triggers (stress shopping, avoidance purchases), probe one level deeper before moving on — the math is the starting point, not the observation
 - Lifestyle inflation — income went up but savings didn't
 
 **Common interview branches:**
 - Debt crisis → focus on payoff strategy, interest math, spending control
 - Growth/investing → focus on goals, risk tolerance, timeline
-- Life transition (new job, divorce, baby, house) → focus on decisions that can't wait
+- Life transition (new job, divorce, baby, house) → focus on decisions that can't wait. Must-ask: health insurance status, tax filing changes, time-sensitive settlement deadlines. When a divorce settlement includes retirement accounts, frame the potential magnitude — don't just note they exist
 - General anxiety → focus on making the invisible visible (where does the money actually go?)
 
 ## Meeting the Owner's Financial Literacy

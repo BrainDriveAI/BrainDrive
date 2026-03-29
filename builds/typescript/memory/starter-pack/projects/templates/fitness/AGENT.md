@@ -22,7 +22,7 @@ When the spec and plan are still placeholders, run the interview. The templates 
 - Weight loss → focus on sustainable habits, not crash diets. What's their relationship with food?
 - Strength/performance → focus on current baseline, realistic progression, injury prevention
 - Energy/wellbeing → focus on sleep, stress, movement patterns — may not need a "program" at all
-- Return from injury/break → focus on constraints, gradual progression, what's safe
+- Return from injury/break → focus on constraints, gradual progression, what's safe. When the primary blocker is fear of re-injury rather than physical limitation, flag mental health support (sports psychologist, therapist experienced with injury recovery) as a path-changing gap in Phase 1, not a later-stage option
 
 ## Meeting the Owner's Fitness Knowledge
 

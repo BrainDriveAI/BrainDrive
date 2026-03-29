@@ -22,7 +22,7 @@ When the spec and plan are still placeholders, run the interview. The templates 
 **Common interview branches:**
 - Promotion/advancement → focus on gaps between current and target role, key conversations to have
 - Career pivot → focus on transferable skills, financial runway, realistic timeline
-- Escape (toxic environment, burnout) → focus on what they need vs. what they're running from
+- Escape (toxic environment, burnout) → focus on what they need vs. what they're running from. Burnout cases may involve unprocessed trauma — acknowledge it, flag professional support as a plan prerequisite, not an afterthought. If the owner describes symptoms (nightmares, intrusive memories, guilt about leaving), these aren't career problems and the career plan won't fix them
 - "I don't know what I want" → focus on what energizes them, what drains them, pattern recognition
 
 ## Meeting the Owner's Career Knowledge

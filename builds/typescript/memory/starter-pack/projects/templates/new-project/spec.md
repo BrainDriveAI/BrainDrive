@@ -4,7 +4,7 @@
 
 ## What You Want
 
-Your project goals as user stories — what you want, why it matters, and how you'll know you're done. Each goal gets its own story. These get defined and refined through conversation.
+Your project goals as user stories — what you want, why it matters, and how you'll know you're done. Each goal gets its own story. Use the owner's exact words when they name what they want — quote, don't paraphrase.
 
 *Example of what this looks like when filled in:*
 
