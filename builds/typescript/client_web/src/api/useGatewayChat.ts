@@ -237,9 +237,12 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
   }
 
   async function resolveApproval(requestId: string, decision: ApprovalDecision): Promise<void> {
+    // Capture the tool name before removing the approval so we can show
+    // a user-friendly status ("Writing to your library...") instead of "Approval approved"
+    const approvalToolName = pendingApprovals.find((a) => a.requestId === requestId)?.toolName;
     await submitApprovalDecision(requestId, decision);
     setPendingApprovals((current) => current.filter((approval) => approval.requestId !== requestId));
-    setToolStatus(`Approval ${decision}`);
+    setToolStatus(decision === "approved" && approvalToolName ? approvalToolName : null);
     setActivity((current) =>
       appendActivity(current, {
         id: nextActivityId(),
@@ -512,9 +515,9 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
                 message: `Approval required for ${humanizeToolName(event.tool_name)}`,
               });
               if (isActive()) {
-                setToolStatus(`Approval required: ${event.tool_name}`);
+                setToolStatus(event.tool_name);
               } else {
-                updateBackground(() => ({ toolStatus: `Approval required: ${event.tool_name}` }));
+                updateBackground(() => ({ toolStatus: event.tool_name }));
               }
               break;
             case "approval-result":
@@ -524,11 +527,8 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
                 message: `Approval ${event.decision}`,
                 status: event.decision,
               });
-              if (isActive()) {
-                setToolStatus(`Approval ${event.decision}`);
-              } else {
-                updateBackground(() => ({ toolStatus: `Approval ${event.decision}` }));
-              }
+              // Don't set toolStatus here — resolveApproval already set it to the
+              // tool name (so it shows "Writing to your library..." not "Approval approved")
               break;
           }
         }
