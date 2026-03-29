@@ -1,12 +1,12 @@
 ﻿# BrainDrive Production Docker Installer
 
-This directory contains the production-oriented Docker setup described in `production-docker-plan.md`.
+This directory contains the production-oriented Docker setup for BrainDrive.
 
 ## Supported launch points
 You can run installer commands from any of these directories:
-- Repo root: `/home/hex/Project/BrainDrive-Test-01`
-- Installer root: `/home/hex/Project/BrainDrive-Test-01/installer`
-- Docker installer dir: `/home/hex/Project/BrainDrive-Test-01/installer/docker`
+- Repo root (e.g. `./scripts/install.sh local`)
+- Installer root (e.g. `./installer/scripts/install.sh local`)
+- This directory (e.g. `./scripts/install.sh local`)
 
 ## What users run (production)
 1. From repo root:
