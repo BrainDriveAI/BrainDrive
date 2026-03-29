@@ -10,7 +10,7 @@ One small, meaningful thing you can do tonight or tomorrow. Not "fix the relatio
 
 ## The Roadmap
 
-The phased journey toward stronger relationships. Lead each phase with what life looks like when it's done — the pull — before listing the steps. The first phases are detailed. Later phases are high-level and get filled in as patterns shift and relationships evolve.
+The phased journey toward stronger relationships. Lead each phase with what life looks like when it's done — the pull — before listing the steps. Only build phases that serve the user stories in the spec. If the spec flagged something as "Worth exploring later," it doesn't get a phase here. The first phases are detailed. Later phases are high-level and get filled in as patterns shift and relationships evolve.
 
 *Example of what this looks like when filled in:*
 - *Weeks 1-4: See the patterns — notice your reactions, practice stating what you need in low-stakes moments, have one honest conversation*
@@ -22,7 +22,7 @@ The phased journey toward stronger relationships. Lead each phase with what life
 
 ## The Destination
 
-Where this is all heading — what do healthier relationships look and feel like for you? Not perfection, but what's different when things are working. Use the owner's own words and success criteria — don't editorialize or reframe.
+Where this is all heading — what do healthier relationships look and feel like for you? Not perfection, but what's different when things are working. Use the owner's own words and success criteria from their user stories — quote them back, don't rewrite in your voice.
 
 *To be filled as goals get more specific.*
 

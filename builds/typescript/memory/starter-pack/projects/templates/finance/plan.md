@@ -10,7 +10,7 @@ One thing you can do this week to start making progress. Not a complete financia
 
 ## The Roadmap
 
-The phased journey toward your financial goals. Lead each phase with what life looks like when it's done — the pull — before listing the steps. The first phases are detailed. Later phases are high-level and get filled in as you progress. The plan adapts as your situation changes.
+The phased journey toward your financial goals. Lead each phase with what life looks like when it's done — the pull — before listing the steps. Only build phases that serve the user stories in the spec. If the spec flagged something as "Worth exploring later," it doesn't get a phase here. The first phases are detailed. Later phases are high-level and get filled in as you progress. The plan adapts as your situation changes.
 
 *Example of what this looks like when filled in:*
 - *Weeks 1-4: Get the real numbers — track spending, know your debt rates, find out about employer benefits*
@@ -22,7 +22,7 @@ The phased journey toward your financial goals. Lead each phase with what life l
 
 ## The Destination
 
-Where this is all heading — and what life looks like when you get there. Not just "debt-free" but what that changes about how you live, decide, and feel about money. Use the owner's own words and success criteria — don't editorialize or reframe.
+Where this is all heading — and what life looks like when you get there. Not just "debt-free" but what that changes about how you live, decide, and feel about money. Use the owner's own words and success criteria from their user stories — quote them back, don't rewrite in your voice.
 
 *To be filled as goals get more specific.*
 

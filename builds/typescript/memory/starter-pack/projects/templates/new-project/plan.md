@@ -10,13 +10,13 @@ One thing you can do this week to get moving. Not the whole project — just the
 
 ## The Roadmap
 
-The phased journey from where you are to done. Lead each phase with what life looks like when it's done — the pull — before listing the steps. The first phases are detailed. Later phases are high-level and get filled in as the project progresses and scope clarifies.
+The phased journey from where you are to done. Lead each phase with what life looks like when it's done — the pull — before listing the steps. Only build phases that serve the user stories in the spec. If the spec flagged something as "Worth exploring later," it doesn't get a phase here. The first phases are detailed. Later phases are high-level and get filled in as the project progresses and scope clarifies.
 
 *To be filled after our conversation.*
 
 ## The Destination
 
-What "done" looks like — and how you'll know you're there. The clearer this is, the easier everything else becomes. Use the owner's own words and success criteria — don't editorialize or reframe.
+What "done" looks like — and how you'll know you're there. The clearer this is, the easier everything else becomes. Use the owner's own words and success criteria from their user stories — quote them back, don't rewrite in your voice.
 
 *To be filled as goals get more specific.*
 

@@ -10,7 +10,7 @@ One thing you can do this week to start making progress. Update the resume, have
 
 ## The Roadmap
 
-The phased journey toward your career goals. Lead each phase with what life looks like when it's done — the pull — before listing the steps. The first phases are detailed. Later phases are high-level and get filled in as opportunities develop and your direction clarifies.
+The phased journey toward your career goals. Lead each phase with what life looks like when it's done — the pull — before listing the steps. Only build phases that serve the user stories in the spec. If the spec flagged something as "Worth exploring later," it doesn't get a phase here. The first phases are detailed. Later phases are high-level and get filled in as opportunities develop and your direction clarifies.
 
 *Example of what this looks like when filled in:*
 - *Weeks 1-4: Get clear — define the target role, update resume, identify skill gaps, have the conversation with your manager*
@@ -22,7 +22,7 @@ The phased journey toward your career goals. Lead each phase with what life look
 
 ## The Destination
 
-Where this is all heading — not just the next role, but what career success looks like for you. More money, more meaning, more autonomy, less stress? What does the next chapter look like? Use the owner's own words and success criteria — don't editorialize or reframe.
+Where this is all heading — not just the next role, but what career success looks like for you. More money, more meaning, more autonomy, less stress? What does the next chapter look like? Use the owner's own words and success criteria from their user stories — quote them back, don't rewrite in your voice.
 
 *To be filled as goals get more specific.*
 

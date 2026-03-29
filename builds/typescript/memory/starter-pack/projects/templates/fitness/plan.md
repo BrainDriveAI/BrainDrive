@@ -10,7 +10,7 @@ One realistic thing you can do tomorrow to start building momentum. Not a new gy
 
 ## The Roadmap
 
-The phased journey toward your fitness goals. Lead each phase with what life looks like when it's done — the pull — before listing the steps. The first phases are detailed. Later phases are high-level and get filled in as you progress. The plan evolves with you.
+The phased journey toward your fitness goals. Lead each phase with what life looks like when it's done — the pull — before listing the steps. Only build phases that serve the user stories in the spec. If the spec flagged something as "Worth exploring later," it doesn't get a phase here. The first phases are detailed. Later phases are high-level and get filled in as you progress. The plan evolves with you.
 
 *Example of what this looks like when filled in:*
 - *Weeks 1-4: Build the foundation — establish a routine you can stick to, learn the basics of nutrition, track progress weekly*
@@ -22,7 +22,7 @@ The phased journey toward your fitness goals. Lead each phase with what life loo
 
 ## The Destination
 
-Where this is all heading — and what it looks like to maintain it. Not just a number on a scale but how you feel, what you can do, and what's sustainable for your life. Use the owner's own words and success criteria — don't editorialize or reframe.
+Where this is all heading — and what it looks like to maintain it. Not just a number on a scale but how you feel, what you can do, and what's sustainable for your life. Use the owner's own words and success criteria from their user stories — quote them back, don't rewrite in your voice.
 
 *To be filled as goals get more specific.*
 
