@@ -1,8 +1,19 @@
 {
   "name": "braindrive-client",
+  "description": "BrainDrive web client",
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BrainDriveAI/braindrive.git",
+    "directory": "builds/typescript/client_web"
+  },
+  "homepage": "https://braindrive.ai",
+  "bugs": {
+    "url": "https://github.com/BrainDriveAI/braindrive/issues"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
