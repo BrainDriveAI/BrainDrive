@@ -34,6 +34,14 @@ One concrete next step you can take this week, plus the direction we're heading.
 
 ## What's Still Missing
 
-What we haven't explored yet. Every gap is a future conversation — and filling them makes everything above sharper.
+### Before the plan is complete
+
+Gaps that could change the direction. If we fill these in and the answer is different from what we assumed, the plan shifts. These are the next conversations worth having.
+
+*To be filled through conversation.*
+
+### Worth exploring later
+
+Interesting threads that won't change the current plan. Future conversations when the time is right.
 
 *To be filled through conversation.*

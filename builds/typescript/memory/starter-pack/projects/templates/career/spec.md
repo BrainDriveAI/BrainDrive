@@ -34,6 +34,14 @@ One concrete next step to start building momentum. See plan.md for the full acti
 
 ## What's Still Missing
 
-What we haven't explored yet. Timeline, manager conversations, skill gaps, financial runway — every gap we fill makes the plan more actionable.
+### Before the plan is complete
+
+Gaps that could change the direction. If we fill these in and the answer is different from what we assumed, the plan shifts. These are the next conversations worth having.
+
+*To be filled through conversation.*
+
+### Worth exploring later
+
+Interesting threads that won't change the current plan. Future conversations when the time is right.
 
 *To be filled through conversation.*

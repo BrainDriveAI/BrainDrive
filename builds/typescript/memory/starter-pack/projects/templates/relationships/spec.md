@@ -34,6 +34,14 @@ One meaningful next step — not "fix the relationship," but something small and
 
 ## What's Still Missing
 
-What we haven't explored yet. Patterns, history, what hasn't been said — every gap we fill helps us see what's really going on.
+### Before the plan is complete
+
+Gaps that could change the direction. If we fill these in and the answer is different from what we assumed, the plan shifts. These are the next conversations worth having.
+
+*To be filled through conversation.*
+
+### Worth exploring later
+
+Interesting threads that won't change the current plan. Future conversations when the time is right.
 
 *To be filled through conversation.*
