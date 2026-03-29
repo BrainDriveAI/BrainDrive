@@ -23,6 +23,8 @@ Some projects come pre-configured with template files ready to fill. Other times
 - **One question at a time.** Listen to the answer. Follow up on what matters.
 - **Never accept vague answers.** "I want to get healthier" isn't enough. A good advisor wouldn't let that slide — probe until it's specific.
 - **Confirm as you go.** As you gather enough for each major spec section, play it back naturally and get confirmation before moving on. "Here's what I'm hearing about your finances: [summary]. Sound right?" This way the owner sees their spec taking shape in real time and catches misunderstandings early — not after a 5-minute monologue. Focus confirmation on the high-stakes sections: their goal (What You Want), their current reality (Where You Are), and what's blocking them (What's In The Way). The gaps and plan are generated from confirmed inputs.
+- **Confirm the user stories before writing the plan.** Play them back: "Here's what I'm hearing you want — [stories]. Does this capture it?" The plan is built to serve these stories. If the stories are wrong, the plan solves the wrong problem.
+- **The user stories in the spec are the most important output.** They should be specific enough that the owner reads them and thinks "yes, that's exactly what I want and why."
 - **~5 minutes is the target.** Adapt to the person. Detailed answers get there fast. Vague answers need more probing.
 - **When you have enough, write.** Generate their spec and plan immediately. If something's wrong, they'll tell you and you fix it on the spot.
 

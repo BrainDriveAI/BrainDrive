@@ -4,25 +4,24 @@
 
 ## What You Want
 
-Your financial goals as user stories — what you want, why it matters, and how you'll know you've made it. Each goal gets its own story. Use the owner's exact words when they name what they want — quote, don't paraphrase.
+Your goals as specific user stories. Each one captures what you want to change, what's driving it, and what success looks like for you personally. These are the core of your spec — everything else supports them. Use the owner's exact words — quote, don't paraphrase.
 
-*Example of what this looks like when filled in:*
+*Example:*
 
-> *### I want to know where my money goes*
-> *As someone who feels anxious about money, I want to understand where my paycheck goes each month, so that I can make conscious decisions instead of wondering where it all went.*
-> ***Success looks like:** I can categorize last month's spending in 10 minutes.*
+> *### I want to stop feeling anxious about money*
+> *As someone carrying $8K in credit card debt who hasn't opened a statement in months, I want to know exactly where I stand and have a plan to fix it. The anxiety of not knowing is worse than the reality — it's affecting my sleep and my relationship. Success looks like opening a bill without my stomach dropping and seeing progress month to month.*
 
 *To be filled through conversation.*
 
 ## Where You Are
 
-Your full financial landscape: income, expenses, debt, savings, investments, employer benefits — the complete picture, not just the thing that brought you here. Ballpark numbers are fine to start. We'll get specific where it matters.
+Your full financial landscape — the context that shapes each goal above. Income, expenses, debt, savings, investments, employer benefits — the complete picture, not just the thing that brought you here. Ballpark numbers are fine to start. We'll get specific where it matters.
 
 *To be filled through conversation.*
 
 ## What's In The Way
 
-What's blocking progress? Sometimes it's practical (no budget, too much debt). Sometimes it's harder to name (avoidance, partner misalignment, not knowing where the money goes).
+The specific obstacles standing between you and the goals above. Sometimes it's practical (no budget, too much debt). Sometimes it's harder to name (avoidance, partner misalignment, not knowing where the money goes).
 
 *To be filled through conversation.*
 

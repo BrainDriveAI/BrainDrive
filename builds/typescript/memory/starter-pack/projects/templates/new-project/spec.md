@@ -4,25 +4,24 @@
 
 ## What You Want
 
-Your project goals as user stories — what you want, why it matters, and how you'll know you're done. Each goal gets its own story. Use the owner's exact words when they name what they want — quote, don't paraphrase.
+Your goals as specific user stories. Each one captures what you want to change, what's driving it, and what success looks like for you personally. These are the core of your spec — everything else supports them. Use the owner's exact words — quote, don't paraphrase.
 
-*Example of what this looks like when filled in:*
+*Example:*
 
-> *### I want to finish renovating my kitchen*
-> *As someone who's been cooking in a half-finished kitchen for 6 months, I want to complete the renovation within budget, so that we can actually use the space and stop eating takeout.*
-> ***Success looks like:** Kitchen is fully functional, everything works, came in within 10% of budget.*
+> *### I want to finish writing my novel*
+> *As someone who's been working on a manuscript for 2 years with 3 chapters and an outline but no forward momentum, I want a completed first draft I can show someone. Writing this book is the thing I care about most outside of work, and I'm afraid that if I don't finish it, I'll always be the person who "was going to write a novel." Success looks like a finished first draft — rough, imperfect, but done.*
 
 *To be filled through conversation.*
 
 ## Where You Are
 
-The full picture: what exists already, what resources you have, who else is involved, and how this fits into everything else going on. Have you started or is this from scratch? What do you know, and what are you still figuring out?
+The full picture — the context that shapes each goal above. What exists already, what resources you have, who else is involved, and how this fits into everything else going on. Have you started or is this from scratch? What do you know, and what are you still figuring out?
 
 *To be filled through conversation.*
 
 ## What's In The Way
 
-What could go wrong or slow you down? Scope creep, unclear goals, other people's timelines, perfectionism, not knowing where to start?
+The specific obstacles standing between you and the goals above. Scope creep, unclear goals, other people's timelines, perfectionism, not knowing where to start?
 
 *To be filled through conversation.*
 
