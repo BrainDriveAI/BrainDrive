@@ -92,7 +92,6 @@ export default function ChatPanel({
     conversationId,
     toolStatus,
     pendingApprovals,
-    activity,
     append,
     resolveApproval,
     stop
@@ -173,11 +172,13 @@ export default function ChatPanel({
 
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
   const hasStartedAssistantReply = isLoading && lastMessage?.role === "assistant";
-  const isTyping = isLoading && !hasStartedAssistantReply;
-  const typingStatus = isTyping
+  const isTyping = isLoading && (!hasStartedAssistantReply || !!toolStatus);
+  const typingStatus = isLoading
     ? toolStatus
       ? formatToolStatus(toolStatus)
-      : "Thinking..."
+      : hasStartedAssistantReply
+        ? undefined
+        : "Thinking..."
     : undefined;
   const chatError = historyError ?? error?.message ?? null;
   const visibleChatError =
@@ -412,26 +413,6 @@ export default function ChatPanel({
                         </article>
                       );
                     })}
-                  </div>
-                </section>
-              )}
-              {activity.length > 0 && (
-                <section className="rounded-xl border border-bd-border bg-bd-bg-secondary p-4">
-                  <div className="mb-3 text-sm font-medium text-bd-text-secondary">
-                    Action Timeline
-                  </div>
-                  <div className="space-y-2">
-                    {activity.slice(-8).map((item) => (
-                      <div
-                        key={item.id}
-                        className="flex items-center justify-between gap-3 rounded-md bg-bd-bg-tertiary px-3 py-2 text-xs"
-                      >
-                        <span className="text-bd-text-secondary">{item.message}</span>
-                        <span className="shrink-0 uppercase tracking-wide text-bd-text-muted">
-                          {item.type}
-                        </span>
-                      </div>
-                    ))}
                   </div>
                 </section>
               )}
