@@ -47,8 +47,8 @@ type TabDef = { id: SettingsTab; label: string; icon: typeof Key; managedOnly?: 
 // Account and Billing only show for managed hosting (D35).
 // Provider and Model sections adapt their content based on mode.
 const allTabs: TabDef[] = [
-  { id: "provider", label: "Model Provider", icon: Key },
   { id: "model", label: "Default Model", icon: Cpu },
+  { id: "provider", label: "Model Providers", icon: Key },
   { id: "profile", label: "Owner Profile", icon: User },
   { id: "account", label: "Account", icon: UserCog, managedOnly: true },
   { id: "billing", label: "Billing", icon: CreditCard, managedOnly: true },
@@ -57,7 +57,7 @@ const allTabs: TabDef[] = [
 
 export default function SettingsModal({ mode = "local", onClose }: SettingsModalProps) {
   const tabs = allTabs.filter((tab) => !tab.managedOnly || mode === "managed");
-  const [activeTab, setActiveTab] = useState<SettingsTab>("provider");
+  const [activeTab, setActiveTab] = useState<SettingsTab>("model");
   const [settings, setSettings] = useState<GatewaySettings | null>(null);
   const [isLoadingSettings, setIsLoadingSettings] = useState(mode === "local");
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -433,20 +433,16 @@ function TabContent({
   exportError: string | null;
   onRefreshCatalog: () => void;
 }) {
+  const activeProfile = settings?.provider_profiles.find(
+    (p) => p.id === (settings?.active_provider_profile ?? settings?.default_provider_profile)
+  );
+  const isBrainDriveActive = activeProfile?.provider_id?.toLowerCase() === "braindrive-models";
+
   switch (tab) {
-    case "provider":
-      return (
-        <ProviderSection
-          mode={mode}
-          settings={settings}
-          isLoadingSettings={isLoadingSettings}
-          settingsError={settingsError}
-          onSaveSettings={onSaveSettings}
-          onSaveCredential={onSaveCredential}
-        />
-      );
     case "model":
-      return (
+      return isBrainDriveActive ? (
+        <BrainDriveDefaultSection settings={settings} isLoadingSettings={isLoadingSettings} settingsError={settingsError} />
+      ) : (
         <ModelSection
           mode={mode}
           settings={settings}
@@ -457,6 +453,17 @@ function TabContent({
           modelCatalogError={modelCatalogError}
           onSaveSettings={onSaveSettings}
           onRefreshCatalog={onRefreshCatalog}
+        />
+      );
+    case "provider":
+      return (
+        <ProviderSection
+          mode={mode}
+          settings={settings}
+          isLoadingSettings={isLoadingSettings}
+          settingsError={settingsError}
+          onSaveSettings={onSaveSettings}
+          onSaveCredential={onSaveCredential}
         />
       );
     case "profile":
@@ -475,6 +482,81 @@ function TabContent({
         />
       );
   }
+}
+
+function BrainDriveDefaultSection({
+  settings,
+  isLoadingSettings,
+  settingsError,
+}: {
+  settings: GatewaySettings | null;
+  isLoadingSettings: boolean;
+  settingsError: string | null;
+}) {
+  if (isLoadingSettings) {
+    return <div className="py-8 text-center text-sm text-bd-text-muted">Loading...</div>;
+  }
+  if (settingsError) {
+    return (
+      <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-4 py-3 text-sm text-bd-text-primary">
+        {settingsError}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="font-heading text-base font-semibold text-bd-text-heading">
+          Default Model
+        </h3>
+        <p className="mt-1 text-sm text-bd-text-muted">
+          BrainDrive Default — powered by Claude Sonnet 4.6
+        </p>
+      </div>
+
+      <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary p-4 space-y-4">
+        <div className="flex items-baseline justify-between">
+          <div>
+            <div className="text-2xl font-semibold text-bd-text-primary">$0.00</div>
+            <div className="text-xs text-bd-text-muted">remaining</div>
+          </div>
+          <div className="text-right">
+            <div className="text-sm text-bd-text-secondary">$0.00</div>
+            <div className="text-xs text-bd-text-muted">total spent</div>
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-2 text-xs font-medium text-bd-text-secondary">Add credits</div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="flex-1 rounded-lg bg-bd-amber px-3 py-2.5 text-sm font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover"
+            >
+              $5
+            </button>
+            <button
+              type="button"
+              className="flex-1 rounded-lg border border-bd-amber px-3 py-2.5 text-sm font-medium text-bd-amber transition-colors hover:bg-bd-amber hover:text-bd-bg-primary"
+            >
+              $10
+            </button>
+            <button
+              type="button"
+              className="flex-1 rounded-lg border border-bd-amber px-3 py-2.5 text-sm font-medium text-bd-amber transition-colors hover:bg-bd-amber hover:text-bd-bg-primary"
+            >
+              $25
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <p className="text-xs text-bd-text-muted">
+        Ask your BrainDrive "what's my balance?" anytime during a conversation.
+      </p>
+    </div>
+  );
 }
 
 function ProviderSection({
@@ -525,7 +607,7 @@ function ProviderSection({
       <div className="space-y-6">
         <div>
           <h3 className="font-heading text-base font-semibold text-bd-text-heading">
-            AI Model Provider
+            Model Providers
           </h3>
           <p className="mt-1 text-sm text-bd-text-muted">
             Your AI model access is included with your subscription.
@@ -551,7 +633,7 @@ function ProviderSection({
   if (isLoadingSettings) {
     return (
       <div className="space-y-3">
-        <h3 className="font-heading text-base font-semibold text-bd-text-heading">AI Model Provider</h3>
+        <h3 className="font-heading text-base font-semibold text-bd-text-heading">Model Providers</h3>
         <p className="text-sm text-bd-text-muted">Loading provider settings...</p>
       </div>
     );
@@ -560,7 +642,7 @@ function ProviderSection({
   if (settingsError) {
     return (
       <div className="space-y-3">
-        <h3 className="font-heading text-base font-semibold text-bd-text-heading">AI Model Provider</h3>
+        <h3 className="font-heading text-base font-semibold text-bd-text-heading">Model Providers</h3>
         <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2.5 text-sm text-bd-text-primary">
           {settingsError}
         </div>
@@ -576,7 +658,7 @@ function ProviderSection({
     <div className="space-y-6">
       <div>
         <h3 className="font-heading text-base font-semibold text-bd-text-heading">
-          AI Model Provider
+          Model Providers
         </h3>
         <p className="mt-1 text-sm text-bd-text-muted">
           Choose how BrainDrive connects to AI models.
@@ -648,45 +730,8 @@ function ProviderSection({
                       "border border-t-0 border-bd-amber bg-bd-bg-tertiary px-4 pb-3 pt-2 rounded-b-lg"
                     ].join(" ")}>
                       {isBrainDriveModels ? (
-                        <div className="space-y-3">
-                          <div className="text-xs text-bd-text-muted">
-                            Powered by Claude Sonnet 4.6
-                          </div>
-
-                          <div className="flex items-baseline justify-between">
-                            <div>
-                              <div className="text-lg font-semibold text-bd-text-primary">$0.00</div>
-                              <div className="text-xs text-bd-text-muted">remaining</div>
-                            </div>
-                            <div className="text-right">
-                              <div className="text-sm text-bd-text-secondary">$0.00</div>
-                              <div className="text-xs text-bd-text-muted">total spent</div>
-                            </div>
-                          </div>
-
-                          <div>
-                            <div className="mb-1.5 text-xs font-medium text-bd-text-secondary">Add credits</div>
-                            <div className="flex gap-2">
-                              <button
-                                type="button"
-                                className="flex-1 rounded-lg bg-bd-amber px-3 py-2 text-sm font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover"
-                              >
-                                $5
-                              </button>
-                              <button
-                                type="button"
-                                className="flex-1 rounded-lg border border-bd-amber px-3 py-2 text-sm font-medium text-bd-amber transition-colors hover:bg-bd-amber hover:text-bd-bg-primary"
-                              >
-                                $10
-                              </button>
-                              <button
-                                type="button"
-                                className="flex-1 rounded-lg border border-bd-amber px-3 py-2 text-sm font-medium text-bd-amber transition-colors hover:bg-bd-amber hover:text-bd-bg-primary"
-                              >
-                                $25
-                              </button>
-                            </div>
-                          </div>
+                        <div className="text-xs text-bd-text-muted">
+                          Powered by Claude Sonnet 4.6. Manage credits in the Default Model tab.
                         </div>
                       ) : (
                         <>
@@ -847,9 +892,6 @@ function ProviderSection({
             {saveError}
           </div>
         )}
-        <p className="text-xs text-bd-text-muted">
-          Your API key is encrypted and stored locally.
-        </p>
       </div>
     </div>
   );
