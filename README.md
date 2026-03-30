@@ -1,7 +1,6 @@
 # BrainDrive
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![GitHub Stars](https://img.shields.io/github/stars/BrainDriveAI/BrainDrive)](https://github.com/BrainDriveAI/BrainDrive/stargazers)
 
 **A personal AI system that helps you define, set, and reach your goals. Self-hosted and MIT licensed.**
 
