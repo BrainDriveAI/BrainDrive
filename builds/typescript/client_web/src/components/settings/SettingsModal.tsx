@@ -516,15 +516,9 @@ function BrainDriveDefaultSection({
       </div>
 
       <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary p-4 space-y-4">
-        <div className="flex items-baseline justify-between">
-          <div>
-            <div className="text-2xl font-semibold text-bd-text-primary">$0.00</div>
-            <div className="text-xs text-bd-text-muted">remaining</div>
-          </div>
-          <div className="text-right">
-            <div className="text-sm text-bd-text-secondary">$0.00</div>
-            <div className="text-xs text-bd-text-muted">total spent</div>
-          </div>
+        <div>
+          <div className="text-2xl font-semibold text-bd-text-primary">$0.00</div>
+          <div className="text-xs text-bd-text-muted">remaining</div>
         </div>
 
         <div>
