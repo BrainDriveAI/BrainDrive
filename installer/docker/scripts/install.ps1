@@ -100,6 +100,15 @@ if ($Mode -eq "prod") {
   if (-not $domain -or $domain -eq "app.example.com") {
     throw "Please set DOMAIN in .env to your real DNS hostname before prod install."
   }
+
+  $appRef = Get-EnvValue -Key "BRAINDRIVE_APP_REF"
+  $edgeRef = Get-EnvValue -Key "BRAINDRIVE_EDGE_REF"
+  if ($appRef -and -not $edgeRef) {
+    throw "BRAINDRIVE_APP_REF is set but BRAINDRIVE_EDGE_REF is missing. Set both refs or neither."
+  }
+  if ($edgeRef -and -not $appRef) {
+    throw "BRAINDRIVE_EDGE_REF is set but BRAINDRIVE_APP_REF is missing. Set both refs or neither."
+  }
 }
 
 if ($Mode -eq "local") {
