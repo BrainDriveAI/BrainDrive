@@ -647,147 +647,192 @@ function ProviderSection({
                     <div className={[
                       "border border-t-0 border-bd-amber bg-bd-bg-tertiary px-4 pb-3 pt-2 rounded-b-lg"
                     ].join(" ")}>
-                      {isOllama && (
-                        <div className="mb-3 space-y-1.5">
-                          <label
-                            htmlFor="ollama-server-url"
-                            className="block text-sm font-medium text-bd-text-secondary"
-                          >
-                            Server URL
-                          </label>
-                          <div className="flex items-center gap-2">
-                            <input
-                              id="ollama-server-url"
-                              type="url"
-                              autoComplete="off"
-                              value={ollamaUrl}
-                              onChange={(event) => {
-                                setOllamaUrl(event.target.value);
-                                setUrlError(null);
-                              }}
-                              placeholder="http://localhost:11434/v1"
-                              className="h-10 flex-1 rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
-                            />
-                            <button
-                              type="button"
-                              disabled={isSavingUrl || ollamaUrl.trim().length === 0}
-                              onClick={() => {
-                                setIsSavingUrl(true);
-                                setUrlError(null);
-                                void onSaveSettings({
-                                  provider_base_url: {
-                                    provider_profile: profile.id,
-                                    base_url: ollamaUrl.trim(),
-                                  },
-                                })
-                                  .then(() => {})
-                                  .catch((error) => {
-                                    setUrlError(error instanceof Error ? error.message : String(error));
-                                  })
-                                  .finally(() => {
-                                    setIsSavingUrl(false);
-                                  });
-                              }}
-                              className="rounded-lg bg-bd-amber px-3 py-2 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              {isSavingUrl ? "Saving..." : "Save"}
-                            </button>
-                          </div>
-                          {urlError && (
-                            <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
-                              {urlError}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      {!showKeyForProfile ? (
-                        <button
-                          type="button"
-                          onClick={() => setShowApiKeyInput(true)}
-                          className="text-xs text-bd-text-muted transition-colors hover:text-bd-text-secondary hover:underline"
-                        >
-                          {profileCanUsePlain
-                            ? `Optional: set API key for remote ${isOllama ? "Ollama" : profile.provider_id}`
-                            : profile.credential_mode === "secret_ref" ? "Update API key" : "Set API key"}
-                        </button>
-                      ) : (
+                      {isBrainDriveModels ? (
                         <div className="space-y-3">
+                          <div className="text-xs text-bd-text-muted">
+                            Powered by Claude Sonnet 4.6
+                          </div>
+
+                          <div className="flex items-baseline justify-between">
+                            <div>
+                              <div className="text-lg font-semibold text-bd-text-primary">$0.00</div>
+                              <div className="text-xs text-bd-text-muted">remaining</div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-sm text-bd-text-secondary">$0.00</div>
+                              <div className="text-xs text-bd-text-muted">total spent</div>
+                            </div>
+                          </div>
+
                           <div>
-                            <label
-                              htmlFor="provider-api-key"
-                              className="mb-1.5 block text-sm font-medium text-bd-text-secondary"
-                            >
-                              API Key
-                            </label>
-                            {profile.credential_mode === "secret_ref" && (
-                              <div className="mb-2 flex items-center gap-2 text-xs text-bd-text-muted">
-                                <Check size={14} strokeWidth={1.5} className="shrink-0 text-bd-success" />
-                                API key configured — enter a new key below to replace it
+                            <div className="mb-1.5 text-xs font-medium text-bd-text-secondary">Add credits</div>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                className="flex-1 rounded-lg bg-bd-amber px-3 py-2 text-sm font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover"
+                              >
+                                $5
+                              </button>
+                              <button
+                                type="button"
+                                className="flex-1 rounded-lg border border-bd-amber px-3 py-2 text-sm font-medium text-bd-amber transition-colors hover:bg-bd-amber hover:text-bd-bg-primary"
+                              >
+                                $10
+                              </button>
+                              <button
+                                type="button"
+                                className="flex-1 rounded-lg border border-bd-amber px-3 py-2 text-sm font-medium text-bd-amber transition-colors hover:bg-bd-amber hover:text-bd-bg-primary"
+                              >
+                                $25
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          {isOllama && (
+                            <div className="mb-3 space-y-1.5">
+                              <label
+                                htmlFor="ollama-server-url"
+                                className="block text-sm font-medium text-bd-text-secondary"
+                              >
+                                Server URL
+                              </label>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  id="ollama-server-url"
+                                  type="url"
+                                  autoComplete="off"
+                                  value={ollamaUrl}
+                                  onChange={(event) => {
+                                    setOllamaUrl(event.target.value);
+                                    setUrlError(null);
+                                  }}
+                                  placeholder="http://localhost:11434/v1"
+                                  className="h-10 flex-1 rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+                                />
+                                <button
+                                  type="button"
+                                  disabled={isSavingUrl || ollamaUrl.trim().length === 0}
+                                  onClick={() => {
+                                    setIsSavingUrl(true);
+                                    setUrlError(null);
+                                    void onSaveSettings({
+                                      provider_base_url: {
+                                        provider_profile: profile.id,
+                                        base_url: ollamaUrl.trim(),
+                                      },
+                                    })
+                                      .then(() => {})
+                                      .catch((error) => {
+                                        setUrlError(error instanceof Error ? error.message : String(error));
+                                      })
+                                      .finally(() => {
+                                        setIsSavingUrl(false);
+                                      });
+                                  }}
+                                  className="rounded-lg bg-bd-amber px-3 py-2 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {isSavingUrl ? "Saving..." : "Save"}
+                                </button>
                               </div>
-                            )}
-                            <input
-                              id="provider-api-key"
-                              type="password"
-                              autoComplete="off"
-                              value={providerApiKey}
-                              onChange={(event) => {
-                                setProviderApiKey(event.target.value);
-                                setCredentialError(null);
-                              }}
-                              placeholder={profile.credential_mode === "secret_ref" ? "Enter new key to replace existing" : `Paste your ${profile.provider_id} API key`}
-                              className="h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
-                            />
-                          </div>
-
-                          <div className="flex flex-wrap items-center gap-2">
-                            <button
-                              type="button"
-                              disabled={isSavingCredential || providerApiKey.trim().length === 0}
-                              onClick={() => {
-                                setIsSavingCredential(true);
-                                setCredentialError(null);
-                                void onSaveCredential({
-                                  provider_profile: profile.id,
-                                  mode: "secret_ref",
-                                  api_key: providerApiKey.trim(),
-                                  secret_ref: profile.credential_ref ?? undefined,
-                                  required: true,
-                                  set_active_provider: true,
-                                })
-                                  .then(() => {
-                                    setProviderApiKey("");
-                                    setShowApiKeyInput(false);
-                                  })
-                                  .catch((error) => {
-                                    setCredentialError(error instanceof Error ? error.message : String(error));
-                                  })
-                                  .finally(() => {
-                                    setIsSavingCredential(false);
-                                  });
-                              }}
-                              className="rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              {isSavingCredential ? "Saving key..." : "Save API Key"}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setShowApiKeyInput(false);
-                                setProviderApiKey("");
-                                setCredentialError(null);
-                              }}
-                              className="rounded-lg border border-bd-border px-3 py-1.5 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-
-                          {credentialError && (
-                            <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
-                              {credentialError}
+                              {urlError && (
+                                <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
+                                  {urlError}
+                                </div>
+                              )}
                             </div>
                           )}
-                        </div>
+                          {!showKeyForProfile ? (
+                            <button
+                              type="button"
+                              onClick={() => setShowApiKeyInput(true)}
+                              className="text-xs text-bd-text-muted transition-colors hover:text-bd-text-secondary hover:underline"
+                            >
+                              {profileCanUsePlain
+                                ? `Optional: set API key for remote ${isOllama ? "Ollama" : profile.provider_id}`
+                                : profile.credential_mode === "secret_ref" ? "Update API key" : "Set API key"}
+                            </button>
+                          ) : (
+                            <div className="space-y-3">
+                              <div>
+                                <label
+                                  htmlFor="provider-api-key"
+                                  className="mb-1.5 block text-sm font-medium text-bd-text-secondary"
+                                >
+                                  API Key
+                                </label>
+                                {profile.credential_mode === "secret_ref" && (
+                                  <div className="mb-2 flex items-center gap-2 text-xs text-bd-text-muted">
+                                    <Check size={14} strokeWidth={1.5} className="shrink-0 text-bd-success" />
+                                    API key configured — enter a new key below to replace it
+                                  </div>
+                                )}
+                                <input
+                                  id="provider-api-key"
+                                  type="password"
+                                  autoComplete="off"
+                                  value={providerApiKey}
+                                  onChange={(event) => {
+                                    setProviderApiKey(event.target.value);
+                                    setCredentialError(null);
+                                  }}
+                                  placeholder={profile.credential_mode === "secret_ref" ? "Enter new key to replace existing" : `Paste your ${profile.provider_id} API key`}
+                                  className="h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+                                />
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  disabled={isSavingCredential || providerApiKey.trim().length === 0}
+                                  onClick={() => {
+                                    setIsSavingCredential(true);
+                                    setCredentialError(null);
+                                    void onSaveCredential({
+                                      provider_profile: profile.id,
+                                      mode: "secret_ref",
+                                      api_key: providerApiKey.trim(),
+                                      secret_ref: profile.credential_ref ?? undefined,
+                                      required: true,
+                                      set_active_provider: true,
+                                    })
+                                      .then(() => {
+                                        setProviderApiKey("");
+                                        setShowApiKeyInput(false);
+                                      })
+                                      .catch((error) => {
+                                        setCredentialError(error instanceof Error ? error.message : String(error));
+                                      })
+                                      .finally(() => {
+                                        setIsSavingCredential(false);
+                                      });
+                                  }}
+                                  className="rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {isSavingCredential ? "Saving key..." : "Save API Key"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowApiKeyInput(false);
+                                    setProviderApiKey("");
+                                    setCredentialError(null);
+                                  }}
+                                  className="rounded-lg border border-bd-border px-3 py-1.5 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+
+                              {credentialError && (
+                                <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
+                                  {credentialError}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                   )}
