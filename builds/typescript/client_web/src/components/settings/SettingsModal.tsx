@@ -526,7 +526,7 @@ function BrainDriveDefaultSection({
           <div className="flex gap-2">
             <button
               type="button"
-              className="flex-1 rounded-lg bg-bd-amber px-3 py-2.5 text-sm font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover"
+              className="flex-1 rounded-lg border border-bd-amber px-3 py-2.5 text-sm font-medium text-bd-amber transition-colors hover:bg-bd-amber hover:text-bd-bg-primary"
             >
               $5
             </button>
@@ -543,6 +543,12 @@ function BrainDriveDefaultSection({
               $25
             </button>
           </div>
+          <button
+            type="button"
+            className="mt-2 text-xs text-bd-text-muted transition-colors hover:text-bd-text-secondary hover:underline"
+          >
+            Custom amount
+          </button>
         </div>
       </div>
 
