@@ -4,9 +4,11 @@
 
 **A personal AI system that helps you define, set, and reach your goals. Self-hosted and MIT licensed.**
 
-[Website](https://braindrive.ai) | [Community](https://community.braindrive.ai) | [Architecture](https://github.com/BrainDriveAI/personal-ai-architecture)
-
 ![BrainDrive — checking in on fitness goals](docs/images/braindrive-screenshot.png)
+
+<p align="center">
+  <a href="https://braindrive.ai">Website</a> · <a href="https://community.braindrive.ai">Community</a> · <a href="https://github.com/BrainDriveAI/personal-ai-architecture">Architecture</a>
+</p>
 
 ## What Is BrainDrive?
 
