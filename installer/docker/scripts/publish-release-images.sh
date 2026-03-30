@@ -17,8 +17,8 @@ EDGE_IMAGE="${EDGE_IMAGE:-${REGISTRY}/braindrive-edge}"
 docker push "${APP_IMAGE}:${VERSION}"
 docker push "${EDGE_IMAGE}:${VERSION}"
 
-APP_DIGEST="$(docker buildx imagetools inspect "${APP_IMAGE}:${VERSION}" | awk '/Digest:/ {print $2; exit}')"
-EDGE_DIGEST="$(docker buildx imagetools inspect "${EDGE_IMAGE}:${VERSION}" | awk '/Digest:/ {print $2; exit}')"
+APP_DIGEST="$(docker buildx imagetools inspect "${APP_IMAGE}:${VERSION}" | awk '/Digest:/ && !digest {digest=$2} END {print digest}')"
+EDGE_DIGEST="$(docker buildx imagetools inspect "${EDGE_IMAGE}:${VERSION}" | awk '/Digest:/ && !digest {digest=$2} END {print digest}')"
 
 if [[ -z "${APP_DIGEST}" || -z "${EDGE_DIGEST}" ]]; then
   echo "Could not resolve image digest(s). Ensure docker buildx is available." >&2

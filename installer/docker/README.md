@@ -83,6 +83,7 @@ Optional manifest-driven digest resolution (for upgrades):
 If refs are not set and a manifest is configured, upgrade scripts resolve
 `BRAINDRIVE_APP_REF` and `BRAINDRIVE_EDGE_REF` from the manifest.
 If signature verification is required, upgrade scripts run `cosign verify-blob` before apply.
+Current helper scripts use key-pair signature verification (trusted public key) without transparency log lookup.
 
 ## Operations
 - Start (no rebuild): `./scripts/start.sh local`
@@ -128,6 +129,8 @@ These are in `installer/docker/scripts` and intended for release operations.
 - Smoke test:
   - `./scripts/smoke-test-release.sh https://<DOMAIN>`
   - `./scripts/smoke-test-release.ps1 -BaseUrl https://<DOMAIN>`
+- Monday release operator checklist:
+  - `installer/docker/MONDAY-RELEASE-OPERATOR-CHECKLIST.md`
 
 Cosign key setup (one-time per release signing identity):
 - Generate key pair:

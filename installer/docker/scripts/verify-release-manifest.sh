@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 # Verify releases.json signature.
@@ -25,6 +25,12 @@ if ! command -v cosign >/dev/null 2>&1; then
   exit 1
 fi
 
-cosign verify-blob --key "${PUBLIC_KEY_PATH}" --signature "${SIGNATURE_PATH}" "${MANIFEST_PATH}" >/dev/null
+# Signature files are detached/base64 payload signatures (not bundles).
+cosign verify-blob \
+  --new-bundle-format=false \
+  --insecure-ignore-tlog=true \
+  --key "${PUBLIC_KEY_PATH}" \
+  --signature "${SIGNATURE_PATH}" \
+  "${MANIFEST_PATH}" >/dev/null
 
 echo "Manifest signature verification passed"
