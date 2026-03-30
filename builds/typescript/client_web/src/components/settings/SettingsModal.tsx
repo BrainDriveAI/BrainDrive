@@ -579,7 +579,7 @@ function ProviderSection({
           AI Model Provider
         </h3>
         <p className="mt-1 text-sm text-bd-text-muted">
-          Connect BrainDrive to your AI model provider.
+          Choose how BrainDrive connects to AI models.
         </p>
       </div>
 
@@ -589,6 +589,7 @@ function ProviderSection({
             {settings.provider_profiles.map((profile) => {
               const isSelected = selectedProfile === profile.id;
               const isOllama = profile.provider_id?.toLowerCase() === "ollama";
+              const isBrainDriveModels = profile.provider_id?.toLowerCase() === "braindrive-models";
               const profileCanUsePlain = profile.credential_mode === "plain" || isOllama;
               const showKeyForProfile = isSelected && showApiKeyInput;
 
@@ -630,10 +631,12 @@ function ProviderSection({
                         "text-sm font-medium",
                         isSelected ? "text-bd-text-primary" : "text-bd-text-secondary"
                       ].join(" ")}>
-                        {isOllama ? "Ollama" : "OpenRouter"}
+                        {isBrainDriveModels ? "BrainDrive Models" : isOllama ? "Ollama" : "OpenRouter"}
                       </div>
                       <div className="text-xs text-bd-text-muted">
-                        {isOllama
+                        {isBrainDriveModels
+                          ? <>Built-in AI models — add $5 to start chatting</>
+                          : isOllama
                           ? <>Runs on your computer, free — <a href="https://ollama.com" target="_blank" rel="noopener noreferrer" className="text-bd-text-muted hover:text-bd-text-secondary hover:underline" onClick={(e) => e.stopPropagation()}>ollama.com</a></>
                           : <>Cloud-based, requires API key — <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="text-bd-text-muted hover:text-bd-text-secondary hover:underline" onClick={(e) => e.stopPropagation()}>openrouter.ai/keys</a></>}
                       </div>
