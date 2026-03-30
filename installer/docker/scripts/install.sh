@@ -73,7 +73,7 @@ PY
   exit 1
 }
 
-require_cmd docke
+require_cmd docker
 
 if ! docker compose version >/dev/null 2>&1; then
   echo "Docker Compose plugin is required (docker compose)." >&2
