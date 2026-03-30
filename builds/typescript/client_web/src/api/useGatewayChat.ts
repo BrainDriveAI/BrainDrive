@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 
 import type { Message } from "@/types/ui";
 
@@ -45,10 +45,10 @@ type ConversationState = {
   activityCounter: number;
 };
 
-// Background conversation states — persists across hook re-renders
+// Background conversation states â€” persists across hook re-renders
 const backgroundStates = new Map<string, ConversationState>();
 
-// Active background streams — update their cached state as events arrive
+// Active background streams â€” update their cached state as events arrive
 const backgroundStreams = new Map<string, { requestToken: number }>();
 
 export function resetGatewayChatRuntime(): void {
@@ -181,9 +181,9 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
       conversationIdRef.current = restored.conversationId;
       backgroundStates.delete(cacheKey);
     } else {
-      // Always start empty when switching conversations — externalMessages may be stale
-      // from the previous project's history that hasn't cleared yet. The secondary effect
-      // (below) will apply the correct history once it arrives from the async fetch.
+      // Start empty when switching conversations; externalMessages can be stale
+      // from the previous project's history that has not cleared yet. A later
+      // effect repopulates the correct history once async fetch completes.
       setMessages(EMPTY_MESSAGES);
       setIsLoading(false);
       setError(null);
@@ -527,7 +527,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
                 message: `Approval ${event.decision}`,
                 status: event.decision,
               });
-              // Don't set toolStatus here — resolveApproval already set it to the
+              // Don't set toolStatus here â€” resolveApproval already set it to the
               // tool name (so it shows "Writing to your library..." not "Approval approved")
               break;
           }
@@ -731,3 +731,4 @@ function dedupeStrings(values: string[]): string[] {
   }
   return deduped;
 }
+
