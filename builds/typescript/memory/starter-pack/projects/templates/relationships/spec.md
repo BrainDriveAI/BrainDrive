@@ -1,13 +1,46 @@
 # Relationships Spec
 
-## What Matters Most
+*This is where your relationship picture comes together. Right now it's a starting point — we'll build it out together through conversation.*
 
-- Key people and desired outcomes.
+## What You Want
 
-## Current Dynamic
+Your goals as specific user stories. Each one captures what you want to change, what's driving it, and what success looks like for you personally. These are the core of your spec — everything else supports them. Use the owner's exact words — quote, don't paraphrase.
 
-- Current friction, patterns, constraints.
+*Example:*
 
-## What Needs Work
+> *### I want to feel like a team with my partner again*
+> *As someone whose relationship has gone flat — we don't fight, but we don't really talk either — I want to reconnect before the distance becomes permanent. I still love him, but I'm scared that if I don't do something, we'll drift into being roommates. Success looks like more nights where I go to bed feeling like "yeah, there he is" — the person I moved in with.*
 
-- Missing conversations, boundaries, commitments.
+*To be filled through conversation.*
+
+## Where You Are
+
+Your full relationship landscape — the context that shapes each goal above. Partner, family, kids, friends, colleagues — who matters to you and how those relationships are going. Not just the one situation that brought you here — the whole map. What's working, what isn't, and what patterns show up across relationships.
+
+*To be filled through conversation.*
+
+## What's In The Way
+
+The specific obstacles standing between you and the goals above. Sometimes it's obvious (conflict, distance). Sometimes it's underneath (unspoken expectations, avoidance, patterns that keep repeating). Often the surface issue isn't the real one.
+
+*To be filled through conversation.*
+
+## The Plan
+
+One meaningful next step — not "fix the relationship," but something small and concrete. See plan.md for the full action plan.
+
+*To be filled through conversation.*
+
+## What's Still Missing
+
+### Before the plan is complete
+
+Gaps that could change the direction. If we fill these in and the answer is different from what we assumed, the plan shifts. These are the next conversations worth having.
+
+*To be filled through conversation.*
+
+### Worth exploring later
+
+Interesting threads that won't change the current plan. Future conversations when the time is right.
+
+*To be filled through conversation.*

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 
 import type { Message } from "@/types/ui";
 
@@ -45,10 +45,10 @@ type ConversationState = {
   activityCounter: number;
 };
 
-// Background conversation states — persists across hook re-renders
+// Background conversation states â€” persists across hook re-renders
 const backgroundStates = new Map<string, ConversationState>();
 
-// Active background streams — update their cached state as events arrive
+// Active background streams â€” update their cached state as events arrive
 const backgroundStreams = new Map<string, { requestToken: number }>();
 
 export function resetGatewayChatRuntime(): void {
@@ -181,7 +181,10 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
       conversationIdRef.current = restored.conversationId;
       backgroundStates.delete(cacheKey);
     } else {
-      setMessages(externalMessages);
+      // Start empty when switching conversations; externalMessages can be stale
+      // from the previous project's history that has not cleared yet. A later
+      // effect repopulates the correct history once async fetch completes.
+      setMessages(EMPTY_MESSAGES);
       setIsLoading(false);
       setError(null);
       setToolStatus(null);
@@ -234,9 +237,12 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
   }
 
   async function resolveApproval(requestId: string, decision: ApprovalDecision): Promise<void> {
+    // Capture the tool name before removing the approval so we can show
+    // a user-friendly status ("Writing to your library...") instead of "Approval approved"
+    const approvalToolName = pendingApprovals.find((a) => a.requestId === requestId)?.toolName;
     await submitApprovalDecision(requestId, decision);
     setPendingApprovals((current) => current.filter((approval) => approval.requestId !== requestId));
-    setToolStatus(`Approval ${decision}`);
+    setToolStatus(decision === "approved" && approvalToolName ? approvalToolName : null);
     setActivity((current) =>
       appendActivity(current, {
         id: nextActivityId(),
@@ -509,9 +515,9 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
                 message: `Approval required for ${humanizeToolName(event.tool_name)}`,
               });
               if (isActive()) {
-                setToolStatus(`Approval required: ${event.tool_name}`);
+                setToolStatus(event.tool_name);
               } else {
-                updateBackground(() => ({ toolStatus: `Approval required: ${event.tool_name}` }));
+                updateBackground(() => ({ toolStatus: event.tool_name }));
               }
               break;
             case "approval-result":
@@ -521,11 +527,8 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
                 message: `Approval ${event.decision}`,
                 status: event.decision,
               });
-              if (isActive()) {
-                setToolStatus(`Approval ${event.decision}`);
-              } else {
-                updateBackground(() => ({ toolStatus: `Approval ${event.decision}` }));
-              }
+              // Don't set toolStatus here â€” resolveApproval already set it to the
+              // tool name (so it shows "Writing to your library..." not "Approval approved")
               break;
           }
         }
@@ -728,3 +731,4 @@ function dedupeStrings(values: string[]): string[] {
   }
   return deduped;
 }
+

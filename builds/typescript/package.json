@@ -1,8 +1,19 @@
 {
-  "name": "paa-mvp-build",
+  "name": "braindrive",
   "version": "0.1.0",
+  "description": "BrainDrive core runtime: gateway, engine, auth, memory, and web client",
   "private": true,
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BrainDriveAI/braindrive.git",
+    "directory": "builds/typescript"
+  },
+  "homepage": "https://braindrive.ai",
+  "bugs": {
+    "url": "https://github.com/BrainDriveAI/braindrive/issues"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev:server": "tsx gateway/server.ts",

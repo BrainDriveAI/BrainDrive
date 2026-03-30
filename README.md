@@ -1,28 +1,84 @@
-# BrainDrive-MVP
+# BrainDrive
 
-Minimal runnable BrainDrive MVP for local onboarding with:
+**AI that works for you, not Big Tech.**
 
-1. OpenRouter credential onboarding in the web UI
-2. Core runtime (paa-runtime)
-3. Required first-party MCP services (mcp-memory, mcp-auth, mcp-project)
-4. Web client (paa-web)
+BrainDrive is a personal AI system you own and control. Bring any model, keep Your Memory on your machine, extend with any tool. One install, no lock-in.
 
-## Repository Structure
+[Website](https://braindrive.ai) | [Docs](https://docs.braindrive.ai) | [Community](https://community.braindrive.ai) | [Architecture](https://github.com/BrainDriveAI/personal-ai-architecture)
 
-- builds/typescript - runtime + web app + onboarding scripts
-- builds/mcp_release - first-party MCP service implementation used by compose
-- docs/onboarding/getting-started-testing-openrouter-docker.md - clean start instructions
+## What You Get
 
-## Fast Start
+- **Your data stays yours** -- conversations, Your Memory, and files live on your machine
+- **Any AI model** -- OpenRouter for cloud models, Ollama for local, or both
+- **A web interface that grows with you** -- chat, projects, tools, and onboarding built in
+- **One command to install** -- runs in Docker on Linux, macOS, and WSL
+- **MIT-licensed and open source** -- fork it, extend it, make it yours
 
-Linux/macOS/WSL:
+## Quick Start
 
-    cd <repo-root>/builds/typescript
-    bash ./scripts/new-user-setup.sh
+Prerequisites: [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker Engine + Compose on Linux).
 
-Windows PowerShell:
+```bash
+git clone https://github.com/BrainDriveAI/braindrive.git
+cd braindrive
+./scripts/install.sh local
+```
 
-    cd <repo-root>\builds\typescript
-    powershell -ExecutionPolicy Bypass -File .\scripts\new-user-setup.ps1
+Open [http://127.0.0.1:8080](http://127.0.0.1:8080), create your account, and start chatting.
 
-Then open http://127.0.0.1:5073.
+> **Windows:** Use `.\scripts\install.ps1 local` in PowerShell.
+
+## How It Works
+
+BrainDrive implements the [Personal AI Architecture](https://github.com/BrainDriveAI/personal-ai-architecture) (PAA) -- an open spec for user-owned AI systems. Every component is swappable. Your Memory is the foundation; everything else can be replaced.
+
+```
+You --> Web Client --> Gateway (Fastify) --> Agent Loop --> Models
+                          |                     |
+                          +-- Auth               +-- Tools (MCP)
+                          |
+                          +-- Your Memory
+                              (files on your machine)
+```
+
+The system runs as two Docker containers: an app server (Gateway + tools) and an edge proxy (web client + Caddy). Your Memory is stored as plain files in a Docker volume -- fully portable, fully yours.
+
+## Lifecycle Commands
+
+| Command | What it does |
+|---------|-------------|
+| `./scripts/install.sh local` | First-time setup -- builds images and starts everything |
+| `./scripts/start.sh` | Start after stopping |
+| `./scripts/stop.sh` | Stop without removing data |
+| `./scripts/upgrade.sh local` | Rebuild from latest source |
+| `./scripts/backup.sh` | Back up Your Memory and secrets |
+| `./scripts/restore.sh memory <file>` | Restore from backup |
+
+See [`installer/docker/README.md`](installer/docker/README.md) for production deployment, Windows equivalents, and advanced operations.
+
+## Project Structure
+
+```
+braindrive/
++-- builds/typescript/       # Core: gateway, engine, auth, memory, web client
++-- builds/mcp_release/      # MCP tool services
++-- installer/docker/        # Docker compose, Dockerfiles, Caddy config
++-- scripts/                 # Top-level lifecycle commands
++-- docs/                    # Documentation
+```
+
+## Built With
+
+- [Personal AI Architecture](https://github.com/BrainDriveAI/personal-ai-architecture) -- the foundation spec
+- TypeScript, Fastify, React, Tailwind CSS
+- Docker and Caddy for deployment
+- [MCP](https://modelcontextprotocol.io/) for tool integration
+- OpenRouter and Ollama for model access
+
+## Contributing
+
+We welcome contributions. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to get started, or join the discussion at [community.braindrive.ai](https://community.braindrive.ai).
+
+## License
+
+MIT -- see [LICENSE](LICENSE).

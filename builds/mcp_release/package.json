@@ -1,8 +1,19 @@
 {
-  "name": "paa-mcp-release",
+  "name": "braindrive-mcp",
   "version": "1.0.0",
+  "description": "BrainDrive MCP tool services",
   "private": true,
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BrainDriveAI/braindrive.git",
+    "directory": "builds/mcp_release"
+  },
+  "homepage": "https://braindrive.ai",
+  "bugs": {
+    "url": "https://github.com/BrainDriveAI/braindrive/issues"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/index.ts",

@@ -18,10 +18,13 @@ export function createModelAdapter(
     preferences.active_provider_profile?.trim() ||
     adapterConfig.default_provider_profile?.trim() ||
     "";
+  // Model resolution: per-provider default takes priority. If no per-provider
+  // default exists, use the adapter profile's built-in model — never fall back
+  // to the global default_model, since model IDs are provider-specific.
   const providerModel = activeProfile
     ? preferences.provider_default_models?.[activeProfile]?.trim()
     : undefined;
-  const preferenceModel = (providerModel ?? preferences.default_model).trim();
+  const preferenceModel = providerModel ?? "";
   const useAdapterModel =
     preferenceModel.length === 0 ||
     (preferenceModel === legacyBootstrapModel && selectedAdapterConfig.model !== legacyBootstrapModel);
