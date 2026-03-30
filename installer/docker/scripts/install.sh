@@ -73,7 +73,7 @@ PY
   exit 1
 }
 
-require_cmd docker
+require_cmd docke
 
 if ! docker compose version >/dev/null 2>&1; then
   echo "Docker Compose plugin is required (docker compose)." >&2
@@ -104,6 +104,19 @@ if [[ "${MODE}" == "prod" ]]; then
   DOMAIN_VALUE="$(get_env_value DOMAIN | tr -d '"')"
   if [[ -z "${DOMAIN_VALUE}" || "${DOMAIN_VALUE}" == "app.example.com" ]]; then
     echo "Please set DOMAIN in .env to your real DNS hostname before prod install." >&2
+    exit 1
+  fi
+
+  APP_REF_VALUE="$(get_env_value BRAINDRIVE_APP_REF | tr -d '"')"
+  EDGE_REF_VALUE="$(get_env_value BRAINDRIVE_EDGE_REF | tr -d '"')"
+  if [[ -n "${APP_REF_VALUE}" && -z "${EDGE_REF_VALUE}" ]]; then
+    echo "BRAINDRIVE_APP_REF is set but BRAINDRIVE_EDGE_REF is missing." >&2
+    echo "Set both refs or neither." >&2
+    exit 1
+  fi
+  if [[ -n "${EDGE_REF_VALUE}" && -z "${APP_REF_VALUE}" ]]; then
+    echo "BRAINDRIVE_EDGE_REF is set but BRAINDRIVE_APP_REF is missing." >&2
+    echo "Set both refs or neither." >&2
     exit 1
   fi
 fi

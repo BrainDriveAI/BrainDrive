@@ -65,11 +65,32 @@ docker push ghcr.io/braindrive-ai/braindrive-edge:v0.1.0
 Then set in `.env`:
 - `BRAINDRIVE_TAG=v0.1.0`
 
+Optional (recommended for production): pin immutable image refs by digest in `.env`:
+- `BRAINDRIVE_APP_REF=ghcr.io/braindrive-ai/braindrive-app@sha256:<digest>`
+- `BRAINDRIVE_EDGE_REF=ghcr.io/braindrive-ai/braindrive-edge@sha256:<digest>`
+
+If you set one `*_REF`, set both.
+When refs are set, compose uses them instead of `BRAINDRIVE_*_IMAGE + BRAINDRIVE_TAG`.
+
+Optional manifest-driven digest resolution (for upgrades):
+- `BRAINDRIVE_RELEASE_MANIFEST=./releases.json`
+- `BRAINDRIVE_RELEASE_MANIFEST_SIG=./releases.json.sig`
+- `BRAINDRIVE_RELEASE_PUBLIC_KEY=./cosign.pub`
+- `BRAINDRIVE_RELEASE_CHANNEL=stable`
+- `BRAINDRIVE_RELEASE_VERSION=` (optional explicit version override)
+- `BRAINDRIVE_REQUIRE_MANIFEST_SIGNATURE=true`
+
+If refs are not set and a manifest is configured, upgrade scripts resolve
+`BRAINDRIVE_APP_REF` and `BRAINDRIVE_EDGE_REF` from the manifest.
+If signature verification is required, upgrade scripts run `cosign verify-blob` before apply.
+
 ## Operations
 - Start (no rebuild): `./scripts/start.sh local`
 - Stop: `./scripts/stop.sh local`
 - Repo-root and installer-root wrappers default to `local` when mode is omitted.
 - Upgrade: `./scripts/upgrade.sh`
+- Upgrade with explicit refs (one-shot, without editing `.env`):
+  - `BRAINDRIVE_APP_REF=ghcr.io/braindrive-ai/braindrive-app@sha256:<digest> BRAINDRIVE_EDGE_REF=ghcr.io/braindrive-ai/braindrive-edge@sha256:<digest> ./scripts/upgrade.sh`
 - Backup: `./scripts/backup.sh`
 - Restore: `./scripts/restore.sh memory <backup-file>` or `./scripts/restore.sh secrets <backup-file>`
 - Reset new-user test state (with confirmation): `./scripts/reset-new-user.sh`
@@ -80,9 +101,39 @@ Then set in `.env`:
   - Stop: `./scripts/stop.ps1 local`
   - Install: `./scripts/install.ps1`
   - Upgrade: `./scripts/upgrade.ps1`
+    - One-shot refs:
+      - `$env:BRAINDRIVE_APP_REF='ghcr.io/braindrive-ai/braindrive-app@sha256:<digest>'; $env:BRAINDRIVE_EDGE_REF='ghcr.io/braindrive-ai/braindrive-edge@sha256:<digest>'; ./scripts/upgrade.ps1`
   - Backup: `./scripts/backup.ps1`
   - Restore: `./scripts/restore.ps1 -Target memory -BackupFile <backup-file>`
   - Reset new-user state: `./scripts/reset-new-user.ps1` (supports `-Yes` and `-FreshClone`)
+
+## Release helper scripts (maintainer)
+These are in `installer/docker/scripts` and intended for release operations.
+
+- Build images:
+  - `./scripts/build-release-images.sh v0.1.0`
+  - `./scripts/build-release-images.ps1 -Version v0.1.0`
+- Push images and print digest refs:
+  - `./scripts/publish-release-images.sh v0.1.0`
+  - `./scripts/publish-release-images.ps1 -Version v0.1.0`
+- Generate `releases.json` payload:
+  - `./scripts/generate-release-manifest.sh v0.1.0 <app-ref> <edge-ref> stable ./releases.json`
+  - `./scripts/generate-release-manifest.ps1 -Version v0.1.0 -AppRef <app-ref> -EdgeRef <edge-ref> -Channel stable -Output .\\releases.json`
+- Sign manifest (`releases.json.sig`):
+  - `./scripts/sign-release-manifest.sh ./releases.json ./releases.json.sig`
+  - `./scripts/sign-release-manifest.ps1 -ManifestPath .\\releases.json -SignaturePath .\\releases.json.sig`
+- Verify manifest signature:
+  - `./scripts/verify-release-manifest.sh ./releases.json ./releases.json.sig ./cosign.pub`
+  - `./scripts/verify-release-manifest.ps1 -ManifestPath .\\releases.json -SignaturePath .\\releases.json.sig -PublicKeyPath .\\cosign.pub`
+- Smoke test:
+  - `./scripts/smoke-test-release.sh https://<DOMAIN>`
+  - `./scripts/smoke-test-release.ps1 -BaseUrl https://<DOMAIN>`
+
+Cosign key setup (one-time per release signing identity):
+- Generate key pair:
+  - `cosign generate-key-pair`
+- Keep `cosign.key` private in CI/secrets manager.
+- Distribute `cosign.pub` as the trusted updater verification key.
 
 ## Notes
 - Data is persisted in named volumes: `braindrive_memory` and `braindrive_secrets`.
