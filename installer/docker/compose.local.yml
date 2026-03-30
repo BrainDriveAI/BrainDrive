@@ -39,7 +39,7 @@ services:
       app:
         condition: service_healthy
     ports:
-      - "127.0.0.1:8080:80"
+      - "${BRAINDRIVE_LOCAL_BIND_HOST:-127.0.0.1}:8080:80"
     volumes:
       - ./Caddyfile.local:/etc/caddy/Caddyfile:ro
 

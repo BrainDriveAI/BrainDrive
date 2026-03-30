@@ -26,7 +26,19 @@ COMPOSE_FILE="compose.prod.yml"
 URL_HINT="https://<DOMAIN>"
 if [[ "${MODE}" == "local" ]]; then
   COMPOSE_FILE="compose.local.yml"
-  URL_HINT="http://127.0.0.1:8080"
+fi
+
+if [[ "${MODE}" == "local" ]]; then
+  LOCAL_BIND_HOST="$(get_env_value BRAINDRIVE_LOCAL_BIND_HOST | tr -d '"')"
+  if [[ -z "${LOCAL_BIND_HOST}" ]]; then
+    LOCAL_BIND_HOST="127.0.0.1"
+  fi
+
+  if [[ "${LOCAL_BIND_HOST}" == "0.0.0.0" ]]; then
+    URL_HINT="http://<this-machine-ip>:8080"
+  else
+    URL_HINT="http://${LOCAL_BIND_HOST}:8080"
+  fi
 fi
 
 if [[ "${MODE}" == "prod" ]]; then

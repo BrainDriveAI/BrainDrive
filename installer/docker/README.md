@@ -30,14 +30,15 @@ For local smoke testing without TLS/domain setup:
    - Repo root: `./scripts/install.sh local`
    - Installer root: `./scripts/install.sh local`
    - Docker installer dir: `./scripts/install.sh local`
-3. Open `http://127.0.0.1:8080`
+3. Open `http://127.0.0.1:8080` (default bind).
+4. Optional LAN access: set `BRAINDRIVE_LOCAL_BIND_HOST=0.0.0.0` in `.env`, then restart/start local mode and open `http://<this-machine-ip>:8080` from another device on your network.
 
 Local mode builds images from this repo (`Dockerfile.app` + `Dockerfile.edge`) and does not require registry pull access.
 By default, first signup is allowed from any host/IP in this installer profile (`PAA_AUTH_ALLOW_FIRST_SIGNUP_ANY_IP=true`).
 
 ## Files
 - `compose.prod.yml`: production stack (app + edge, TLS via Caddy).
-- `compose.local.yml`: local-only stack (HTTP on 127.0.0.1:8080).
+- `compose.local.yml`: local stack (HTTP on `${BRAINDRIVE_LOCAL_BIND_HOST:-127.0.0.1}:8080`; set `0.0.0.0` for LAN access).
 - `.env.example`: required/optional runtime values.
 - `Caddyfile`: production routing and TLS.
 - `Caddyfile.local`: local HTTP routing.
