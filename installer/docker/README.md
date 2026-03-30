@@ -8,6 +8,29 @@ You can run installer commands from any of these directories:
 - Installer root (e.g. `./installer/scripts/install.sh local`)
 - This directory (e.g. `./scripts/install.sh local`)
 
+## GitHub Bootstrap (No Clone)
+For non-technical users, publish and use the bootstrap scripts from this repo:
+- `installer/bootstrap/install.sh`
+- `installer/bootstrap/install.ps1`
+
+Recommended command examples:
+- macOS/Linux:
+  - `curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/install.sh | bash`
+- Windows PowerShell:
+  - `irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/install.ps1 | iex`
+
+Bootstrap behavior:
+1. Downloads installer files from GitHub (`codeload` tarball by default).
+2. Installs or refreshes local installer files under `~/.braindrive/installer/docker`.
+3. Runs installer in `prod` mode by default (`local` supported as first arg).
+
+Optional bootstrap overrides:
+- `BRAINDRIVE_BOOTSTRAP_REPO` (default: `BrainDriveAI/BrainDrive`)
+- `BRAINDRIVE_BOOTSTRAP_REF` (default: `main`, can be version tag)
+- `BRAINDRIVE_BOOTSTRAP_ARCHIVE_URL` (full custom tarball URL)
+- `BRAINDRIVE_INSTALL_ROOT` (default: `~/.braindrive`)
+- `BRAINDRIVE_BOOTSTRAP_FORCE_REFRESH=true` (force re-download and refresh)
+
 ## What users run (production)
 1. From repo root:
    - `cp installer/docker/.env.example installer/docker/.env`
