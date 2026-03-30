@@ -10,7 +10,7 @@ $rootDir = Split-Path -Parent $scriptDir
 Set-Location $rootDir
 
 $composeFile = if ($Mode -eq "local") { "compose.local.yml" } else { "compose.prod.yml" }
-$urlHint = if ($Mode -eq "local") { "http://127.0.0.1:8080" } else { "https://<DOMAIN>" }
+$urlHint = "https://<DOMAIN>"
 
 function Require-Command {
   param([string]$Name)
@@ -114,5 +114,18 @@ if ($Mode -eq "local") {
 
 Write-Host "Current service status"
 docker compose -f $composeFile ps
+
+if ($Mode -eq "local") {
+  $localBindHost = Get-EnvValue -Key "BRAINDRIVE_LOCAL_BIND_HOST"
+  if (-not $localBindHost) {
+    $localBindHost = "127.0.0.1"
+  }
+
+  if ($localBindHost -eq "0.0.0.0") {
+    $urlHint = "http://<this-machine-ip>:8080"
+  } else {
+    $urlHint = "http://${localBindHost}:8080"
+  }
+}
 
 Write-Host "Install complete. Open: $urlHint"

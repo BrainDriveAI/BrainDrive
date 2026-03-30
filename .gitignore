@@ -5,6 +5,7 @@
 # Local runtime data
 builds/typescript/.env
 builds/typescript/.env.*
+installer/docker/.env
 builds/typescript/.paa-secrets/
 builds/typescript/your-memory/
 builds/typescript/.reset-backups/
