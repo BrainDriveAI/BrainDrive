@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 # Sign releases.json using cosign key-pair mode.
@@ -24,6 +24,14 @@ if ! command -v cosign >/dev/null 2>&1; then
   exit 1
 fi
 
-cosign sign-blob --key "${KEY_PATH}" --output-signature "${SIGNATURE_PATH}" "${MANIFEST_PATH}" >/dev/null
+# Cosign v3 defaults to Sigstore bundle mode. Keep detached signature output
+# for installer compatibility by explicitly disabling new bundle format.
+cosign sign-blob \
+  --new-bundle-format=false \
+  --use-signing-config=false \
+  --tlog-upload=false \
+  --key "${KEY_PATH}" \
+  --output-signature "${SIGNATURE_PATH}" \
+  "${MANIFEST_PATH}" >/dev/null
 
 echo "Manifest signed: ${SIGNATURE_PATH}"

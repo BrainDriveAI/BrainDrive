@@ -181,6 +181,8 @@ verify_manifest_signature() {
   fi
 
   cosign verify-blob \
+    --new-bundle-format=false \
+    --insecure-ignore-tlog=true \
     --key "${public_key_path}" \
     --signature "${signature_path}" \
     "${manifest_path}" >/dev/null

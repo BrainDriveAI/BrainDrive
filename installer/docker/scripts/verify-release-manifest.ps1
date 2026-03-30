@@ -19,7 +19,7 @@ if (-not (Get-Command cosign -ErrorAction SilentlyContinue)) {
   throw "cosign is required to verify manifests."
 }
 
-& cosign verify-blob --key $PublicKeyPath --signature $SignaturePath $ManifestPath | Out-Null
+& cosign verify-blob --new-bundle-format=false --insecure-ignore-tlog=true --key $PublicKeyPath --signature $SignaturePath $ManifestPath | Out-Null
 if ($LASTEXITCODE -ne 0) {
   throw "Manifest signature verification failed."
 }

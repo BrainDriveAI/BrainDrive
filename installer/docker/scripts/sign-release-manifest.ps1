@@ -17,7 +17,7 @@ if (-not (Get-Command cosign -ErrorAction SilentlyContinue)) {
   throw "cosign is required to sign manifests."
 }
 
-& cosign sign-blob --key $keyPath --output-signature $SignaturePath $ManifestPath | Out-Null
+& cosign sign-blob --new-bundle-format=false --use-signing-config=false --tlog-upload=false --key $keyPath --output-signature $SignaturePath $ManifestPath | Out-Null
 if ($LASTEXITCODE -ne 0) {
   throw "Manifest signing failed."
 }

@@ -101,7 +101,7 @@ function Verify-ManifestSignature {
     throw "cosign is required for manifest signature verification."
   }
 
-  & cosign verify-blob --key $publicKeyPath --signature $signaturePath $ManifestPath | Out-Null
+  & cosign verify-blob --new-bundle-format=false --insecure-ignore-tlog=true --key $publicKeyPath --signature $signaturePath $ManifestPath | Out-Null
   if ($LASTEXITCODE -ne 0) {
     throw "Manifest signature verification failed."
   }
