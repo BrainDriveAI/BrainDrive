@@ -4,7 +4,6 @@
 
 # Environment files (may contain API keys and secrets)
 .env
-.env.*
 builds/typescript/.env
 builds/typescript/.env.*
 installer/docker/.env
