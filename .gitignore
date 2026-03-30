@@ -5,7 +5,6 @@
 # Environment files (may contain API keys and secrets)
 .env
 builds/typescript/.env
-builds/typescript/.env.*
 installer/docker/.env
 
 # Local runtime data
