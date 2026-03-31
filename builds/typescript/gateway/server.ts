@@ -1,5 +1,6 @@
 import path from "node:path";
-import { createReadStream } from "node:fs";
+import { createReadStream, existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import Fastify from "fastify";
 import { z } from "zod";
 
@@ -34,7 +35,7 @@ import { runAgentLoop } from "../engine/loop.js";
 import { classifyProviderError } from "../engine/errors.js";
 import { formatSseEvent } from "../engine/stream.js";
 import { ToolExecutor } from "../engine/tool-executor.js";
-import { ensureGitReady } from "../git.js";
+import { commitMemoryChange, ensureGitReady } from "../git.js";
 import { auditLog } from "../logger.js";
 import { ensureAuthState, saveAuthState } from "../memory/auth-state.js";
 import type { ConversationRepository } from "../memory/conversation-repository.js";
@@ -695,6 +696,32 @@ export async function buildServer(rootDir = process.cwd()) {
       role: request.authContext.actorType,
     },
   }));
+
+  app.get("/profile", async (request, reply) => {
+    authorize(request.authContext, "memory_access");
+    const profilePath = path.join(runtimeConfig.memory_root, "me", "profile.md");
+    if (!existsSync(profilePath)) {
+      reply.code(404);
+      return { content: null };
+    }
+    const content = await readFile(profilePath, "utf8");
+    return { content };
+  });
+
+  app.put("/profile", async (request) => {
+    authorize(request.authContext, "memory_access");
+    const body = request.body as { content?: string };
+    if (typeof body?.content !== "string") {
+      throw new Error("Invalid request body");
+    }
+    const profileDir = path.join(runtimeConfig.memory_root, "me");
+    const profilePath = path.join(profileDir, "profile.md");
+    const { mkdir, writeFile: writeFileAsync } = await import("node:fs/promises");
+    await mkdir(profileDir, { recursive: true });
+    await writeFileAsync(profilePath, body.content, "utf8");
+    await commitMemoryChange(runtimeConfig.memory_root, "Update owner profile via UI").catch(() => {});
+    return { ok: true };
+  });
 
   app.get("/settings", async (request) => {
     authorize(request.authContext, "administration");

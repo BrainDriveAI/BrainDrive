@@ -2,6 +2,7 @@ import path from "node:path";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 
+import { commitMemoryChange } from "../git.js";
 import { isProtectedProjectId, scaffoldProjectFiles } from "../memory/init.js";
 import { resolveMemoryPath, toMemoryRelativePath } from "../memory/paths.js";
 
@@ -174,6 +175,8 @@ export class GatewayProjectService {
 
     await mkdir(path.dirname(resolvedPath), { recursive: true });
     await writeFile(resolvedPath, content, "utf8");
+    const relativePath = path.relative(this.memoryRoot, resolvedPath);
+    await commitMemoryChange(this.memoryRoot, `Update ${relativePath} via UI`).catch(() => {});
     return true;
   }
 
