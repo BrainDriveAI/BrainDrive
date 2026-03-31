@@ -12,6 +12,8 @@ You can run installer commands from any of these directories:
 For non-technical users, publish and use the bootstrap scripts from this repo:
 - `installer/bootstrap/install.sh`
 - `installer/bootstrap/install.ps1`
+- `installer/bootstrap/update.sh`
+- `installer/bootstrap/update.ps1`
 
 Recommended command examples:
 - macOS/Linux:
@@ -19,10 +21,17 @@ Recommended command examples:
 - Windows PowerShell:
   - `irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/install.ps1 | iex`
 
+Quick update commands:
+- macOS/Linux:
+  - `curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/update.sh | bash`
+- Windows PowerShell:
+  - `irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/update.ps1 | iex`
+
 Bootstrap behavior:
 1. Downloads installer files from GitHub (`codeload` tarball by default).
 2. Installs or refreshes local installer files under `~/.braindrive/installer/docker`.
-3. Runs installer in `prod` mode by default (`local` supported as first arg).
+3. Runs installer in `quickstart` mode by default (no domain required, pulls published images).
+4. `prod` and `local` are supported as explicit mode overrides.
 
 Optional bootstrap overrides:
 - `BRAINDRIVE_BOOTSTRAP_REPO` (default: `BrainDriveAI/BrainDrive`)
@@ -30,6 +39,25 @@ Optional bootstrap overrides:
 - `BRAINDRIVE_BOOTSTRAP_ARCHIVE_URL` (full custom tarball URL)
 - `BRAINDRIVE_INSTALL_ROOT` (default: `~/.braindrive`)
 - `BRAINDRIVE_BOOTSTRAP_FORCE_REFRESH=true` (force re-download and refresh)
+
+## Quickstart (Open-WebUI style)
+For a one-line, no-clone install that does not require DNS/TLS setup:
+1. macOS/Linux:
+   - `curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/install.sh | bash`
+2. Windows PowerShell:
+   - `irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/install.ps1 | iex`
+3. Open:
+   - `http://127.0.0.1:8080`
+
+This mode uses prebuilt images and `compose.quickstart.yml`.
+
+## Production Bootstrap
+For real public HTTPS deployments:
+1. macOS/Linux:
+   - `curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/install.sh | bash -s -- prod`
+2. Windows PowerShell:
+   - `$env:BRAINDRIVE_BOOTSTRAP_MODE='prod'; irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/install.ps1 | iex`
+3. Set `DOMAIN` in `~/.braindrive/installer/docker/.env` before first production run.
 
 ## What users run (production)
 1. From repo root:
@@ -46,8 +74,8 @@ Optional bootstrap overrides:
 
 `install` is first-run only. If `.env` already exists, install exits to avoid accidental account/secrets invalidation.
 
-## Local no-domain mode
-For local smoke testing without TLS/domain setup:
+## Local source-build mode
+For local smoke testing from source (builds images from this repo):
 1. Prepare `installer/docker/.env` (as shown above).
 2. Run local mode from any supported launch point:
    - Repo root: `./scripts/install.sh local`
@@ -61,6 +89,7 @@ By default, first signup is allowed from any host/IP in this installer profile (
 
 ## Files
 - `compose.prod.yml`: production stack (app + edge, TLS via Caddy).
+- `compose.quickstart.yml`: image-based local HTTP stack (no DNS/TLS requirement).
 - `compose.local.yml`: local stack (HTTP on `${BRAINDRIVE_LOCAL_BIND_HOST:-127.0.0.1}:8080`; set `0.0.0.0` for LAN access).
 - `.env.example`: required/optional runtime values.
 - `Caddyfile`: production routing and TLS.
@@ -113,11 +142,13 @@ Current helper scripts use key-pair signature verification (trusted public key) 
 Upgrade now auto-fetches metadata from configured release URLs into local `release-cache` so normal users do not need manual `.env` edits for each update.
 
 ## Operations
-- Start (no rebuild): `./scripts/start.sh local`
-- Stop: `./scripts/stop.sh local`
-- Repo-root and installer-root wrappers default to `local` when mode is omitted.
-- Upgrade: `./scripts/upgrade.sh`
-- Fetch remote metadata now (optional manual run, also done automatically in prod upgrade):
+- Start (quickstart): `./scripts/start.sh quickstart`
+- Stop (quickstart): `./scripts/stop.sh quickstart`
+- Upgrade (quickstart): `./scripts/upgrade.sh quickstart`
+- Start (source-build local): `./scripts/start.sh local`
+- Stop (source-build local): `./scripts/stop.sh local`
+- Upgrade (prod): `./scripts/upgrade.sh prod`
+- Fetch remote metadata now (optional manual run, also done automatically in prod/quickstart upgrade):
   - `./scripts/fetch-release-metadata.sh`
 - Upgrade with explicit refs (one-shot, without editing `.env`):
   - `BRAINDRIVE_APP_REF=ghcr.io/braindriveai/braindrive-app@sha256:<digest> BRAINDRIVE_EDGE_REF=ghcr.io/braindriveai/braindrive-edge@sha256:<digest> ./scripts/upgrade.sh`
@@ -127,11 +158,13 @@ Upgrade now auto-fetches metadata from configured release URLs into local `relea
   - Add `--yes` to skip prompt
   - Add `--fresh-clone` to also remove local `.env` and local images
 - Windows equivalents:
-  - Start: `./scripts/start.ps1 local`
-  - Stop: `./scripts/stop.ps1 local`
+  - Start quickstart: `./scripts/start.ps1 quickstart`
+  - Stop quickstart: `./scripts/stop.ps1 quickstart`
+  - Start local source-build: `./scripts/start.ps1 local`
+  - Stop local source-build: `./scripts/stop.ps1 local`
   - Install: `./scripts/install.ps1`
   - Upgrade: `./scripts/upgrade.ps1`
-  - Fetch remote metadata now (optional manual run, also done automatically in prod upgrade):
+  - Fetch remote metadata now (optional manual run, also done automatically in prod/quickstart upgrade):
     - `./scripts/fetch-release-metadata.ps1`
     - One-shot refs:
       - `$env:BRAINDRIVE_APP_REF='ghcr.io/braindriveai/braindrive-app@sha256:<digest>'; $env:BRAINDRIVE_EDGE_REF='ghcr.io/braindriveai/braindrive-edge@sha256:<digest>'; ./scripts/upgrade.ps1`

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODE="${1:-prod}"
+MODE="${1:-quickstart}"
 
-if [[ "${MODE}" != "prod" && "${MODE}" != "local" ]]; then
-  echo "Usage: ./scripts/upgrade.sh [prod|local]"
+if [[ "${MODE}" != "prod" && "${MODE}" != "local" && "${MODE}" != "quickstart" ]]; then
+  echo "Usage: ./scripts/upgrade.sh [quickstart|prod|local]"
   exit 1
 fi
 
@@ -279,8 +279,10 @@ validate_prod_image_refs() {
   fi
 }
 
-COMPOSE_FILE="compose.prod.yml"
-if [[ "${MODE}" == "local" ]]; then
+COMPOSE_FILE="compose.quickstart.yml"
+if [[ "${MODE}" == "prod" ]]; then
+  COMPOSE_FILE="compose.prod.yml"
+elif [[ "${MODE}" == "local" ]]; then
   COMPOSE_FILE="compose.local.yml"
 fi
 
