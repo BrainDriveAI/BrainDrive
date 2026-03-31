@@ -25,6 +25,9 @@ Update examples:
 - Windows PowerShell:
   - `irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/update.ps1 | iex`
 
+Note:
+- When signature verification is enabled, update flow now auto-installs `cosign` if missing (`BRAINDRIVE_AUTO_INSTALL_COSIGN=true`).
+
 Mode overrides:
 - Quickstart (default): no argument.
 - Production:
