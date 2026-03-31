@@ -3,14 +3,14 @@ set -euo pipefail
 
 MODE="${1:-${BRAINDRIVE_BOOTSTRAP_MODE:-quickstart}}"
 if [[ "${MODE}" != "prod" && "${MODE}" != "local" && "${MODE}" != "quickstart" ]]; then
-  echo "Usage: install.sh [quickstart|prod|local]" >&2
+  echo "Usage: update.sh [quickstart|prod|local]" >&2
   exit 1
 fi
 
 REPO="${BRAINDRIVE_BOOTSTRAP_REPO:-BrainDriveAI/BrainDrive}"
 REF="${BRAINDRIVE_BOOTSTRAP_REF:-main}"
 INSTALL_ROOT="${BRAINDRIVE_INSTALL_ROOT:-$HOME/.braindrive}"
-FORCE_REFRESH_RAW="${BRAINDRIVE_BOOTSTRAP_FORCE_REFRESH:-false}"
+FORCE_REFRESH_RAW="${BRAINDRIVE_BOOTSTRAP_FORCE_REFRESH:-true}"
 ARCHIVE_URL="${BRAINDRIVE_BOOTSTRAP_ARCHIVE_URL:-https://codeload.github.com/${REPO}/tar.gz/${REF}}"
 
 to_bool() {
@@ -36,9 +36,10 @@ require_cmd curl
 require_cmd tar
 require_cmd mktemp
 require_cmd bash
+require_cmd docker
 
 TARGET_DOCKER_DIR="${INSTALL_ROOT}/installer/docker"
-TARGET_INSTALL_SCRIPT="${TARGET_DOCKER_DIR}/scripts/install.sh"
+TARGET_UPGRADE_SCRIPT="${TARGET_DOCKER_DIR}/scripts/upgrade.sh"
 
 TEMP_DIR=""
 cleanup() {
@@ -79,15 +80,21 @@ download_installer() {
     cp "${existing_env_path}" "${TARGET_DOCKER_DIR}/.env"
   fi
 
-  chmod +x "${TARGET_INSTALL_SCRIPT}"
   chmod +x "${TARGET_DOCKER_DIR}/scripts/"*.sh || true
 }
 
-if [[ -f "${TARGET_INSTALL_SCRIPT}" && "${FORCE_REFRESH}" != "true" ]]; then
-  echo "Using existing installer at ${TARGET_DOCKER_DIR}"
-else
+if [[ ! -f "${TARGET_UPGRADE_SCRIPT}" || "${FORCE_REFRESH}" == "true" ]]; then
   download_installer
+else
+  echo "Using existing installer at ${TARGET_DOCKER_DIR}"
 fi
 
-echo "Running BrainDrive installer (${MODE}) from ${TARGET_DOCKER_DIR}"
-bash "${TARGET_INSTALL_SCRIPT}" "${MODE}"
+if [[ ! -f "${TARGET_UPGRADE_SCRIPT}" ]]; then
+  echo "Installer upgrade script not found at ${TARGET_UPGRADE_SCRIPT}." >&2
+  echo "Run install first:" >&2
+  echo "  curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/install.sh | bash" >&2
+  exit 1
+fi
+
+echo "Running BrainDrive upgrade (${MODE}) from ${TARGET_DOCKER_DIR}"
+bash "${TARGET_UPGRADE_SCRIPT}" "${MODE}"

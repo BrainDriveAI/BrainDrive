@@ -1,6 +1,6 @@
-﻿param(
-  [ValidateSet("prod", "local")]
-  [string]$Mode = "prod"
+param(
+  [ValidateSet("quickstart", "prod", "local")]
+  [string]$Mode = "quickstart"
 )
 
 $ErrorActionPreference = "Stop"
@@ -197,7 +197,7 @@ function Validate-ProdImageRefs {
   }
 }
 
-$composeFile = if ($Mode -eq "local") { "compose.local.yml" } else { "compose.prod.yml" }
+$composeFile = if ($Mode -eq "local") { "compose.local.yml" } elseif ($Mode -eq "prod") { "compose.prod.yml" } else { "compose.quickstart.yml" }
 
 if ($Mode -eq "local") {
   docker compose -f $composeFile up -d --build --remove-orphans

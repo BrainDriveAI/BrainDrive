@@ -10,7 +10,7 @@ if (-not $PSBoundParameters.ContainsKey("Mode") -and $env:BRAINDRIVE_BOOTSTRAP_M
 }
 
 if ($Mode -notin @("quickstart", "prod", "local")) {
-  throw "Usage: install.ps1 [-Mode quickstart|prod|local]"
+  throw "Usage: update.ps1 [-Mode quickstart|prod|local]"
 }
 
 function Convert-ToBool {
@@ -40,14 +40,14 @@ function Require-Command {
 $repo = if ($env:BRAINDRIVE_BOOTSTRAP_REPO) { $env:BRAINDRIVE_BOOTSTRAP_REPO } else { "BrainDriveAI/BrainDrive" }
 $ref = if ($env:BRAINDRIVE_BOOTSTRAP_REF) { $env:BRAINDRIVE_BOOTSTRAP_REF } else { "main" }
 $installRoot = if ($env:BRAINDRIVE_INSTALL_ROOT) { $env:BRAINDRIVE_INSTALL_ROOT } else { Join-Path $HOME ".braindrive" }
-$forceRefresh = Convert-ToBool -Value (if ($env:BRAINDRIVE_BOOTSTRAP_FORCE_REFRESH) { $env:BRAINDRIVE_BOOTSTRAP_FORCE_REFRESH } else { "false" })
+$forceRefresh = Convert-ToBool -Value (if ($env:BRAINDRIVE_BOOTSTRAP_FORCE_REFRESH) { $env:BRAINDRIVE_BOOTSTRAP_FORCE_REFRESH } else { "true" })
 $archiveUrl = if ($env:BRAINDRIVE_BOOTSTRAP_ARCHIVE_URL) { $env:BRAINDRIVE_BOOTSTRAP_ARCHIVE_URL } else { "https://codeload.github.com/$repo/tar.gz/$ref" }
 
 Require-Command tar
 Require-Command docker
 
 $targetDockerDir = Join-Path $installRoot "installer/docker"
-$targetInstallScript = Join-Path $targetDockerDir "scripts/install.ps1"
+$targetUpgradeScript = Join-Path $targetDockerDir "scripts/upgrade.ps1"
 
 function Install-FromArchive {
   $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("braindrive-bootstrap-" + [guid]::NewGuid().ToString("N"))
@@ -97,11 +97,19 @@ function Install-FromArchive {
   }
 }
 
-if ((Test-Path $targetInstallScript) -and (-not $forceRefresh)) {
-  Write-Host "Using existing installer at $targetDockerDir"
-} else {
+if ((-not (Test-Path $targetUpgradeScript)) -or $forceRefresh) {
   Install-FromArchive
+} else {
+  Write-Host "Using existing installer at $targetDockerDir"
 }
 
-Write-Host "Running BrainDrive installer ($Mode) from $targetDockerDir"
-& $targetInstallScript -Mode $Mode
+if (-not (Test-Path $targetUpgradeScript)) {
+  throw @"
+Installer upgrade script not found at $targetUpgradeScript.
+Run install first:
+  irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/install.ps1 | iex
+"@
+}
+
+Write-Host "Running BrainDrive upgrade ($Mode) from $targetDockerDir"
+& $targetUpgradeScript -Mode $Mode
