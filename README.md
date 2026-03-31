@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**A personal AI system that helps you define, set, and reach your goals. Self-hosted and MIT licensed.**
+BrainDrive is a personal AI system that helps you define, set, and reach your goals. Self-hosted and MIT licensed.
 
 ![BrainDrive — checking in on fitness goals](docs/images/braindrive-screenshot.png)
 
