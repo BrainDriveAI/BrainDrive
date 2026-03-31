@@ -134,10 +134,15 @@ Optional manifest-driven digest resolution (for upgrades):
 - `BRAINDRIVE_RELEASE_CHANNEL=stable`
 - `BRAINDRIVE_RELEASE_VERSION=` (optional explicit version override)
 - `BRAINDRIVE_REQUIRE_MANIFEST_SIGNATURE=true`
+- `BRAINDRIVE_AUTO_INSTALL_COSIGN=true` (auto-download cosign if missing)
+- `BRAINDRIVE_COSIGN_VERSION=latest` (optional version override)
+- `BRAINDRIVE_COSIGN_BIN_DIR=` (optional install location override)
+- `BRAINDRIVE_COSIGN_BIN=` (optional explicit cosign binary path)
 
 If refs are not set and a manifest is configured, upgrade scripts resolve
 `BRAINDRIVE_APP_REF` and `BRAINDRIVE_EDGE_REF` from the manifest.
 If signature verification is required, upgrade scripts run `cosign verify-blob` before apply.
+If `cosign` is missing, upgrade scripts now auto-install it by default (`BRAINDRIVE_AUTO_INSTALL_COSIGN=true`).
 Current helper scripts use key-pair signature verification (trusted public key) without transparency log lookup.
 Upgrade now auto-fetches metadata from configured release URLs into local `release-cache` so normal users do not need manual `.env` edits for each update.
 
