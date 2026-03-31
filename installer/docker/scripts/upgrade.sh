@@ -155,12 +155,10 @@ verify_manifest_signature() {
   public_key_path="$(trim_quotes "${BRAINDRIVE_RELEASE_PUBLIC_KEY:-$(get_env_value BRAINDRIVE_RELEASE_PUBLIC_KEY)}")"
 
   if [[ -z "${signature_path}" ]]; then
-    echo "BRAINDRIVE_RELEASE_MANIFEST_SIG is required when BRAINDRIVE_REQUIRE_MANIFEST_SIGNATURE=true." >&2
-    exit 1
+    signature_path="./release-cache/releases.json.sig"
   fi
   if [[ -z "${public_key_path}" ]]; then
-    echo "BRAINDRIVE_RELEASE_PUBLIC_KEY is required when BRAINDRIVE_REQUIRE_MANIFEST_SIGNATURE=true." >&2
-    exit 1
+    public_key_path="./release-cache/cosign.pub"
   fi
 
   signature_path="$(resolve_path_in_root "${signature_path}")"
@@ -201,9 +199,11 @@ resolve_prod_image_refs_from_manifest() {
   fi
 
   local manifest_path
+  local manifest_path_is_explicit="true"
   manifest_path="$(trim_quotes "${BRAINDRIVE_RELEASE_MANIFEST:-$(get_env_value BRAINDRIVE_RELEASE_MANIFEST)}")"
   if [[ -z "${manifest_path}" ]]; then
-    return 0
+    manifest_path="./release-cache/releases.json"
+    manifest_path_is_explicit="false"
   fi
 
   if [[ "${manifest_path}" != /* ]]; then
@@ -211,6 +211,9 @@ resolve_prod_image_refs_from_manifest() {
   fi
 
   if [[ ! -f "${manifest_path}" ]]; then
+    if [[ "${manifest_path_is_explicit}" == "false" ]]; then
+      return 0
+    fi
     echo "Release manifest file not found: ${manifest_path}" >&2
     exit 1
   fi
@@ -284,6 +287,7 @@ fi
 if [[ "${MODE}" == "local" ]]; then
   docker compose -f "${COMPOSE_FILE}" up -d --build --remove-orphans
 else
+  bash "${SCRIPT_DIR}/fetch-release-metadata.sh"
   resolve_prod_image_refs_from_manifest
   validate_prod_image_refs
   docker compose -f "${COMPOSE_FILE}" pull

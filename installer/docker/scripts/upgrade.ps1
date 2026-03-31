@@ -81,10 +81,10 @@ function Verify-ManifestSignature {
   $publicKeyPath = if ($env:BRAINDRIVE_RELEASE_PUBLIC_KEY) { $env:BRAINDRIVE_RELEASE_PUBLIC_KEY.Trim('"') } else { Get-EnvValue -Key "BRAINDRIVE_RELEASE_PUBLIC_KEY" }
 
   if (-not $signaturePath) {
-    throw "BRAINDRIVE_RELEASE_MANIFEST_SIG is required when BRAINDRIVE_REQUIRE_MANIFEST_SIGNATURE=true."
+    $signaturePath = "./release-cache/releases.json.sig"
   }
   if (-not $publicKeyPath) {
-    throw "BRAINDRIVE_RELEASE_PUBLIC_KEY is required when BRAINDRIVE_REQUIRE_MANIFEST_SIGNATURE=true."
+    $publicKeyPath = "./release-cache/cosign.pub"
   }
 
   $signaturePath = Resolve-PathInRoot -PathValue $signaturePath
@@ -118,8 +118,10 @@ function Resolve-ProdImageRefsFromManifest {
   }
 
   $manifestPath = if ($env:BRAINDRIVE_RELEASE_MANIFEST) { $env:BRAINDRIVE_RELEASE_MANIFEST.Trim('"') } else { Get-EnvValue -Key "BRAINDRIVE_RELEASE_MANIFEST" }
+  $manifestPathIsExplicit = $true
   if (-not $manifestPath) {
-    return
+    $manifestPath = "./release-cache/releases.json"
+    $manifestPathIsExplicit = $false
   }
 
   if (-not [System.IO.Path]::IsPathRooted($manifestPath)) {
@@ -127,6 +129,9 @@ function Resolve-ProdImageRefsFromManifest {
   }
 
   if (-not (Test-Path $manifestPath)) {
+    if (-not $manifestPathIsExplicit) {
+      return
+    }
     throw "Release manifest file not found: $manifestPath"
   }
 
@@ -197,6 +202,7 @@ $composeFile = if ($Mode -eq "local") { "compose.local.yml" } else { "compose.pr
 if ($Mode -eq "local") {
   docker compose -f $composeFile up -d --build --remove-orphans
 } else {
+  & "$scriptDir/fetch-release-metadata.ps1"
   Resolve-ProdImageRefsFromManifest
   Validate-ProdImageRefs
   docker compose -f $composeFile pull

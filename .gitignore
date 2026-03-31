@@ -11,6 +11,9 @@ installer/docker/.env
 **/cosign.key
 **/cosign.password
 
+# Local release metadata cache
+installer/docker/release-cache/
+
 # Local runtime data
 builds/typescript/.paa-secrets/
 builds/typescript/your-memory/
