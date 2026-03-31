@@ -40,6 +40,116 @@ function Convert-ToBool {
   }
 }
 
+$script:CosignBin = ""
+
+function Ensure-Cosign {
+  if ($script:CosignBin -and (Test-Path $script:CosignBin)) {
+    return
+  }
+
+  $configuredBin = if ($env:BRAINDRIVE_COSIGN_BIN) { $env:BRAINDRIVE_COSIGN_BIN.Trim('"') } else { Get-EnvValue -Key "BRAINDRIVE_COSIGN_BIN" }
+  if ($configuredBin) {
+    if (-not [System.IO.Path]::IsPathRooted($configuredBin)) {
+      $configuredBin = Join-Path $rootDir $configuredBin
+    }
+    if (-not (Test-Path $configuredBin)) {
+      throw "Configured BRAINDRIVE_COSIGN_BIN not found: $configuredBin"
+    }
+    $script:CosignBin = $configuredBin
+    return
+  }
+
+  $existing = Get-Command cosign -ErrorAction SilentlyContinue
+  if ($existing) {
+    $script:CosignBin = $existing.Source
+    return
+  }
+
+  $autoInstallRaw = if ($env:BRAINDRIVE_AUTO_INSTALL_COSIGN) { $env:BRAINDRIVE_AUTO_INSTALL_COSIGN.Trim('"') } else { Get-EnvValue -Key "BRAINDRIVE_AUTO_INSTALL_COSIGN" }
+  if (-not $autoInstallRaw) {
+    $autoInstallRaw = "true"
+  }
+  $autoInstall = Convert-ToBool -Value $autoInstallRaw
+  if (-not $autoInstall) {
+    throw "cosign is required for manifest signature verification. Install cosign manually or set BRAINDRIVE_AUTO_INSTALL_COSIGN=true."
+  }
+
+  $isWindowsPlatform = $false
+  $isLinuxPlatform = $false
+  $isMacPlatform = $false
+
+  if ($PSVersionTable.PSVersion.Major -ge 6) {
+    $isWindowsPlatform = [bool]$IsWindows
+    $isLinuxPlatform = [bool]$IsLinux
+    $isMacPlatform = [bool]$IsMacOS
+  } else {
+    $isWindowsPlatform = ($env:OS -eq "Windows_NT")
+  }
+
+  if (-not $isWindowsPlatform -and -not $isLinuxPlatform -and -not $isMacPlatform) {
+    $osDesc = [System.Runtime.InteropServices.RuntimeInformation]::OSDescription.ToLowerInvariant()
+    if ($osDesc -like "*linux*") {
+      $isLinuxPlatform = $true
+    } elseif ($osDesc -like "*darwin*" -or $osDesc -like "*mac*") {
+      $isMacPlatform = $true
+    }
+  }
+
+  $platform = if ($isWindowsPlatform) { "windows" } elseif ($isLinuxPlatform) { "linux" } elseif ($isMacPlatform) { "darwin" } else { "" }
+  if (-not $platform) {
+    throw "Automatic cosign install is not supported on this platform. Install cosign manually."
+  }
+
+  $archRaw = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
+  $arch = switch ($archRaw) {
+    "x64" { "amd64" }
+    "amd64" { "amd64" }
+    "arm64" { "arm64" }
+    "aarch64" { "arm64" }
+    default { "" }
+  }
+  if (-not $arch) {
+    throw "Automatic cosign install is not supported on architecture: $archRaw"
+  }
+
+  $version = if ($env:BRAINDRIVE_COSIGN_VERSION) { $env:BRAINDRIVE_COSIGN_VERSION.Trim('"') } else { Get-EnvValue -Key "BRAINDRIVE_COSIGN_VERSION" }
+  $binDir = if ($env:BRAINDRIVE_COSIGN_BIN_DIR) { $env:BRAINDRIVE_COSIGN_BIN_DIR.Trim('"') } else { Get-EnvValue -Key "BRAINDRIVE_COSIGN_BIN_DIR" }
+  if (-not $binDir) {
+    if ($isWindowsPlatform) {
+      $binDir = Join-Path $HOME ".braindrive/bin"
+    } else {
+      $binDir = Join-Path $HOME ".local/bin"
+    }
+  } elseif (-not [System.IO.Path]::IsPathRooted($binDir)) {
+    $binDir = Join-Path $rootDir $binDir
+  }
+
+  New-Item -ItemType Directory -Path $binDir -Force | Out-Null
+
+  $ext = if ($isWindowsPlatform) { ".exe" } else { "" }
+  $target = Join-Path $binDir ("cosign" + $ext)
+  $tmpTarget = "$target.tmp"
+
+  $url = if ($version -and $version -ne "latest") {
+    "https://github.com/sigstore/cosign/releases/download/$version/cosign-$platform-$arch$ext"
+  } else {
+    "https://github.com/sigstore/cosign/releases/latest/download/cosign-$platform-$arch$ext"
+  }
+
+  Write-Host "cosign not found; downloading $url"
+  Invoke-WebRequest -Uri $url -OutFile $tmpTarget
+
+  if (-not $isWindowsPlatform) {
+    $chmod = Get-Command chmod -ErrorAction SilentlyContinue
+    if ($chmod) {
+      & $chmod.Source +x $tmpTarget
+    }
+  }
+
+  Move-Item -Path $tmpTarget -Destination $target -Force
+  $script:CosignBin = $target
+}
+
 function Resolve-PathInRoot {
   param([string]$PathValue)
 
@@ -97,11 +207,9 @@ function Verify-ManifestSignature {
     throw "Manifest public key file not found: $publicKeyPath"
   }
 
-  if (-not (Get-Command cosign -ErrorAction SilentlyContinue)) {
-    throw "cosign is required for manifest signature verification."
-  }
+  Ensure-Cosign
 
-  & cosign verify-blob --new-bundle-format=false --insecure-ignore-tlog=true --key $publicKeyPath --signature $signaturePath $ManifestPath | Out-Null
+  & $script:CosignBin verify-blob --new-bundle-format=false --insecure-ignore-tlog=true --key $publicKeyPath --signature $signaturePath $ManifestPath | Out-Null
   if ($LASTEXITCODE -ne 0) {
     throw "Manifest signature verification failed."
   }
