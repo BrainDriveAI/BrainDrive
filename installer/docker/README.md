@@ -75,30 +75,33 @@ These Dockerfiles assume build context is repository root containing `builds/` a
 
 Build and tag:
 ```bash
-docker build -f installer/docker/Dockerfile.app -t ghcr.io/braindrive-ai/braindrive-app:v0.1.0 .
-docker build -f installer/docker/Dockerfile.edge -t ghcr.io/braindrive-ai/braindrive-edge:v0.1.0 .
+docker build -f installer/docker/Dockerfile.app -t ghcr.io/braindriveai/braindrive-app:v0.1.0 .
+docker build -f installer/docker/Dockerfile.edge -t ghcr.io/braindriveai/braindrive-edge:v0.1.0 .
 ```
 
 Push:
 ```bash
-docker push ghcr.io/braindrive-ai/braindrive-app:v0.1.0
-docker push ghcr.io/braindrive-ai/braindrive-edge:v0.1.0
+docker push ghcr.io/braindriveai/braindrive-app:v0.1.0
+docker push ghcr.io/braindriveai/braindrive-edge:v0.1.0
 ```
 
 Then set in `.env`:
 - `BRAINDRIVE_TAG=v0.1.0`
 
 Optional (recommended for production): pin immutable image refs by digest in `.env`:
-- `BRAINDRIVE_APP_REF=ghcr.io/braindrive-ai/braindrive-app@sha256:<digest>`
-- `BRAINDRIVE_EDGE_REF=ghcr.io/braindrive-ai/braindrive-edge@sha256:<digest>`
+- `BRAINDRIVE_APP_REF=ghcr.io/braindriveai/braindrive-app@sha256:<digest>`
+- `BRAINDRIVE_EDGE_REF=ghcr.io/braindriveai/braindrive-edge@sha256:<digest>`
 
 If you set one `*_REF`, set both.
 When refs are set, compose uses them instead of `BRAINDRIVE_*_IMAGE + BRAINDRIVE_TAG`.
 
 Optional manifest-driven digest resolution (for upgrades):
-- `BRAINDRIVE_RELEASE_MANIFEST=./releases.json`
-- `BRAINDRIVE_RELEASE_MANIFEST_SIG=./releases.json.sig`
-- `BRAINDRIVE_RELEASE_PUBLIC_KEY=./cosign.pub`
+- `BRAINDRIVE_RELEASE_MANIFEST=./release-cache/releases.json`
+- `BRAINDRIVE_RELEASE_MANIFEST_SIG=./release-cache/releases.json.sig`
+- `BRAINDRIVE_RELEASE_PUBLIC_KEY=./release-cache/cosign.pub`
+- `BRAINDRIVE_RELEASE_MANIFEST_URL=https://github.com/BrainDriveAI/BrainDrive/releases/latest/download/releases.json`
+- `BRAINDRIVE_RELEASE_MANIFEST_SIG_URL=https://github.com/BrainDriveAI/BrainDrive/releases/latest/download/releases.json.sig`
+- `BRAINDRIVE_RELEASE_PUBLIC_KEY_URL=https://github.com/BrainDriveAI/BrainDrive/releases/latest/download/cosign.pub`
 - `BRAINDRIVE_RELEASE_CHANNEL=stable`
 - `BRAINDRIVE_RELEASE_VERSION=` (optional explicit version override)
 - `BRAINDRIVE_REQUIRE_MANIFEST_SIGNATURE=true`
@@ -107,14 +110,17 @@ If refs are not set and a manifest is configured, upgrade scripts resolve
 `BRAINDRIVE_APP_REF` and `BRAINDRIVE_EDGE_REF` from the manifest.
 If signature verification is required, upgrade scripts run `cosign verify-blob` before apply.
 Current helper scripts use key-pair signature verification (trusted public key) without transparency log lookup.
+Upgrade now auto-fetches metadata from configured release URLs into local `release-cache` so normal users do not need manual `.env` edits for each update.
 
 ## Operations
 - Start (no rebuild): `./scripts/start.sh local`
 - Stop: `./scripts/stop.sh local`
 - Repo-root and installer-root wrappers default to `local` when mode is omitted.
 - Upgrade: `./scripts/upgrade.sh`
+- Fetch remote metadata now (optional manual run, also done automatically in prod upgrade):
+  - `./scripts/fetch-release-metadata.sh`
 - Upgrade with explicit refs (one-shot, without editing `.env`):
-  - `BRAINDRIVE_APP_REF=ghcr.io/braindrive-ai/braindrive-app@sha256:<digest> BRAINDRIVE_EDGE_REF=ghcr.io/braindrive-ai/braindrive-edge@sha256:<digest> ./scripts/upgrade.sh`
+  - `BRAINDRIVE_APP_REF=ghcr.io/braindriveai/braindrive-app@sha256:<digest> BRAINDRIVE_EDGE_REF=ghcr.io/braindriveai/braindrive-edge@sha256:<digest> ./scripts/upgrade.sh`
 - Backup: `./scripts/backup.sh`
 - Restore: `./scripts/restore.sh memory <backup-file>` or `./scripts/restore.sh secrets <backup-file>`
 - Reset new-user test state (with confirmation): `./scripts/reset-new-user.sh`
@@ -125,8 +131,10 @@ Current helper scripts use key-pair signature verification (trusted public key) 
   - Stop: `./scripts/stop.ps1 local`
   - Install: `./scripts/install.ps1`
   - Upgrade: `./scripts/upgrade.ps1`
+  - Fetch remote metadata now (optional manual run, also done automatically in prod upgrade):
+    - `./scripts/fetch-release-metadata.ps1`
     - One-shot refs:
-      - `$env:BRAINDRIVE_APP_REF='ghcr.io/braindrive-ai/braindrive-app@sha256:<digest>'; $env:BRAINDRIVE_EDGE_REF='ghcr.io/braindrive-ai/braindrive-edge@sha256:<digest>'; ./scripts/upgrade.ps1`
+      - `$env:BRAINDRIVE_APP_REF='ghcr.io/braindriveai/braindrive-app@sha256:<digest>'; $env:BRAINDRIVE_EDGE_REF='ghcr.io/braindriveai/braindrive-edge@sha256:<digest>'; ./scripts/upgrade.ps1`
   - Backup: `./scripts/backup.ps1`
   - Restore: `./scripts/restore.ps1 -Target memory -BackupFile <backup-file>`
   - Reset new-user state: `./scripts/reset-new-user.ps1` (supports `-Yes` and `-FreshClone`)
