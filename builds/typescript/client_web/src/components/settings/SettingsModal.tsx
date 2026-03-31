@@ -1296,8 +1296,9 @@ function ProfileSection() {
             Owner Profile
           </h3>
           <p className="mt-1 text-sm text-bd-text-muted">
-            Your profile helps your AI partner understand who you are and what
-            matters to you.
+            Your profile builds naturally through conversation. It captures the
+            stable facts about your life, work, and goals that help personalize
+            every interaction.
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -1386,10 +1387,6 @@ function ProfileSection() {
         </div>
       </div>
 
-      <p className="text-xs text-bd-text-muted">
-        Tip: You can also update your profile through conversation — ask your
-        partner to update it for you.
-      </p>
     </div>
   );
 }
