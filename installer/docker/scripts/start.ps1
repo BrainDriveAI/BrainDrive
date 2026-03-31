@@ -1,6 +1,6 @@
 param(
-  [ValidateSet("prod", "local")]
-  [string]$Mode = "prod"
+  [ValidateSet("quickstart", "prod", "local")]
+  [string]$Mode = "quickstart"
 )
 
 $ErrorActionPreference = "Stop"
@@ -9,8 +9,14 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $rootDir = Split-Path -Parent $scriptDir
 Set-Location $rootDir
 
-$composeFile = if ($Mode -eq "local") { "compose.local.yml" } else { "compose.prod.yml" }
-$urlHint = "https://<DOMAIN>"
+$composeFile = "compose.quickstart.yml"
+$urlHint = "http://127.0.0.1:8080"
+if ($Mode -eq "prod") {
+  $composeFile = "compose.prod.yml"
+  $urlHint = "https://<DOMAIN>"
+} elseif ($Mode -eq "local") {
+  $composeFile = "compose.local.yml"
+}
 
 function Get-EnvValue {
   param([string]$Key)
@@ -26,7 +32,7 @@ function Get-EnvValue {
   return ($line.Split("=", 2)[1]).Trim().Trim('"')
 }
 
-if ($Mode -eq "local") {
+if ($Mode -eq "local" -or $Mode -eq "quickstart") {
   $localBindHost = Get-EnvValue -Key "BRAINDRIVE_LOCAL_BIND_HOST"
   if (-not $localBindHost) {
     $localBindHost = "127.0.0.1"
@@ -41,12 +47,12 @@ if ($Mode -eq "local") {
 
 if ($Mode -eq "prod") {
   if (-not (Test-Path ".env")) {
-    throw "Prod start requires installer/docker/.env with a real DOMAIN. If you meant local mode, run: ./scripts/start.ps1 local"
+    throw "Prod start requires installer/docker/.env with a real DOMAIN. If you meant quickstart mode, run: ./scripts/start.ps1 quickstart"
   }
 
   $domainValue = Get-EnvValue -Key "DOMAIN"
   if (-not $domainValue -or $domainValue -eq "app.example.com") {
-    throw "Prod start requires installer/docker/.env with a real DOMAIN. If you meant local mode, run: ./scripts/start.ps1 local"
+    throw "Prod start requires installer/docker/.env with a real DOMAIN. If you meant quickstart mode, run: ./scripts/start.ps1 quickstart"
   }
 }
 
@@ -54,7 +60,7 @@ try {
   docker compose -f $composeFile up -d
 } catch {
   if ($Mode -eq "prod") {
-    throw "Prod start failed. If you are running locally, use: ./scripts/start.ps1 local"
+    throw "Prod start failed. If you are running locally, use: ./scripts/start.ps1 quickstart"
   }
   throw
 }

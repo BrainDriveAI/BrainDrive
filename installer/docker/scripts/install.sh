@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODE="${1:-prod}"
+MODE="${1:-quickstart}"
 
-if [[ "${MODE}" != "prod" && "${MODE}" != "local" ]]; then
-  echo "Usage: ./scripts/install.sh [prod|local]"
+if [[ "${MODE}" != "prod" && "${MODE}" != "local" && "${MODE}" != "quickstart" ]]; then
+  echo "Usage: ./scripts/install.sh [quickstart|prod|local]"
   exit 1
 fi
 
@@ -12,9 +12,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
 
-COMPOSE_FILE="compose.prod.yml"
-URL_HINT="https://<DOMAIN>"
-if [[ "${MODE}" == "local" ]]; then
+COMPOSE_FILE="compose.quickstart.yml"
+URL_HINT="http://127.0.0.1:8080"
+if [[ "${MODE}" == "prod" ]]; then
+  COMPOSE_FILE="compose.prod.yml"
+  URL_HINT="https://<DOMAIN>"
+elif [[ "${MODE}" == "local" ]]; then
   COMPOSE_FILE="compose.local.yml"
 fi
 
@@ -134,7 +137,7 @@ fi
 echo "Current service status"
 docker compose -f "${COMPOSE_FILE}" ps
 
-if [[ "${MODE}" == "local" ]]; then
+if [[ "${MODE}" == "local" || "${MODE}" == "quickstart" ]]; then
   LOCAL_BIND_HOST="$(get_env_value BRAINDRIVE_LOCAL_BIND_HOST | tr -d '"')"
   if [[ -z "${LOCAL_BIND_HOST}" ]]; then
     LOCAL_BIND_HOST="127.0.0.1"
