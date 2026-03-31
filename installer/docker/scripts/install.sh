@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODE="${1:-prod}"
+MODE="${1:-quickstart}"
 
-if [[ "${MODE}" != "prod" && "${MODE}" != "local" ]]; then
-  echo "Usage: ./scripts/install.sh [prod|local]"
+if [[ "${MODE}" != "prod" && "${MODE}" != "local" && "${MODE}" != "quickstart" ]]; then
+  echo "Usage: ./scripts/install.sh [quickstart|prod|local]"
   exit 1
 fi
 
@@ -12,9 +12,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
 
-COMPOSE_FILE="compose.prod.yml"
-URL_HINT="https://<DOMAIN>"
-if [[ "${MODE}" == "local" ]]; then
+COMPOSE_FILE="compose.quickstart.yml"
+URL_HINT="http://127.0.0.1:8080"
+if [[ "${MODE}" == "prod" ]]; then
+  COMPOSE_FILE="compose.prod.yml"
+  URL_HINT="https://<DOMAIN>"
+elif [[ "${MODE}" == "local" ]]; then
   COMPOSE_FILE="compose.local.yml"
 fi
 
@@ -106,6 +109,19 @@ if [[ "${MODE}" == "prod" ]]; then
     echo "Please set DOMAIN in .env to your real DNS hostname before prod install." >&2
     exit 1
   fi
+
+  APP_REF_VALUE="$(get_env_value BRAINDRIVE_APP_REF | tr -d '"')"
+  EDGE_REF_VALUE="$(get_env_value BRAINDRIVE_EDGE_REF | tr -d '"')"
+  if [[ -n "${APP_REF_VALUE}" && -z "${EDGE_REF_VALUE}" ]]; then
+    echo "BRAINDRIVE_APP_REF is set but BRAINDRIVE_EDGE_REF is missing." >&2
+    echo "Set both refs or neither." >&2
+    exit 1
+  fi
+  if [[ -n "${EDGE_REF_VALUE}" && -z "${APP_REF_VALUE}" ]]; then
+    echo "BRAINDRIVE_EDGE_REF is set but BRAINDRIVE_APP_REF is missing." >&2
+    echo "Set both refs or neither." >&2
+    exit 1
+  fi
 fi
 
 if [[ "${MODE}" == "local" ]]; then
@@ -121,7 +137,7 @@ fi
 echo "Current service status"
 docker compose -f "${COMPOSE_FILE}" ps
 
-if [[ "${MODE}" == "local" ]]; then
+if [[ "${MODE}" == "local" || "${MODE}" == "quickstart" ]]; then
   LOCAL_BIND_HOST="$(get_env_value BRAINDRIVE_LOCAL_BIND_HOST | tr -d '"')"
   if [[ -z "${LOCAL_BIND_HOST}" ]]; then
     LOCAL_BIND_HOST="127.0.0.1"

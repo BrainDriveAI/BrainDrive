@@ -1,6 +1,6 @@
-﻿param(
-  [ValidateSet("prod", "local")]
-  [string]$Mode = "prod"
+param(
+  [ValidateSet("quickstart", "prod", "local")]
+  [string]$Mode = "quickstart"
 )
 
 $ErrorActionPreference = "Stop"
@@ -9,8 +9,14 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $rootDir = Split-Path -Parent $scriptDir
 Set-Location $rootDir
 
-$composeFile = if ($Mode -eq "local") { "compose.local.yml" } else { "compose.prod.yml" }
-$urlHint = "https://<DOMAIN>"
+$composeFile = "compose.quickstart.yml"
+$urlHint = "http://127.0.0.1:8080"
+if ($Mode -eq "prod") {
+  $composeFile = "compose.prod.yml"
+  $urlHint = "https://<DOMAIN>"
+} elseif ($Mode -eq "local") {
+  $composeFile = "compose.local.yml"
+}
 
 function Require-Command {
   param([string]$Name)
@@ -100,6 +106,15 @@ if ($Mode -eq "prod") {
   if (-not $domain -or $domain -eq "app.example.com") {
     throw "Please set DOMAIN in .env to your real DNS hostname before prod install."
   }
+
+  $appRef = Get-EnvValue -Key "BRAINDRIVE_APP_REF"
+  $edgeRef = Get-EnvValue -Key "BRAINDRIVE_EDGE_REF"
+  if ($appRef -and -not $edgeRef) {
+    throw "BRAINDRIVE_APP_REF is set but BRAINDRIVE_EDGE_REF is missing. Set both refs or neither."
+  }
+  if ($edgeRef -and -not $appRef) {
+    throw "BRAINDRIVE_EDGE_REF is set but BRAINDRIVE_APP_REF is missing. Set both refs or neither."
+  }
 }
 
 if ($Mode -eq "local") {
@@ -115,7 +130,7 @@ if ($Mode -eq "local") {
 Write-Host "Current service status"
 docker compose -f $composeFile ps
 
-if ($Mode -eq "local") {
+if ($Mode -eq "local" -or $Mode -eq "quickstart") {
   $localBindHost = Get-EnvValue -Key "BRAINDRIVE_LOCAL_BIND_HOST"
   if (-not $localBindHost) {
     $localBindHost = "127.0.0.1"

@@ -8,6 +8,57 @@ You can run installer commands from any of these directories:
 - Installer root (e.g. `./installer/scripts/install.sh local`)
 - This directory (e.g. `./scripts/install.sh local`)
 
+## GitHub Bootstrap (No Clone)
+For non-technical users, publish and use the bootstrap scripts from this repo:
+- `installer/bootstrap/install.sh`
+- `installer/bootstrap/install.ps1`
+- `installer/bootstrap/update.sh`
+- `installer/bootstrap/update.ps1`
+
+Recommended command examples:
+- macOS/Linux:
+  - `curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/install.sh | bash`
+- Windows PowerShell:
+  - `irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/install.ps1 | iex`
+
+Quick update commands:
+- macOS/Linux:
+  - `curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/update.sh | bash`
+- Windows PowerShell:
+  - `irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/update.ps1 | iex`
+
+Bootstrap behavior:
+1. Downloads installer files from GitHub (`codeload` tarball by default).
+2. Installs or refreshes local installer files under `~/.braindrive/installer/docker`.
+3. Runs installer in `quickstart` mode by default (no domain required, pulls published images).
+4. `prod` and `local` are supported as explicit mode overrides.
+
+Optional bootstrap overrides:
+- `BRAINDRIVE_BOOTSTRAP_REPO` (default: `BrainDriveAI/BrainDrive`)
+- `BRAINDRIVE_BOOTSTRAP_REF` (default: `main`, can be version tag)
+- `BRAINDRIVE_BOOTSTRAP_ARCHIVE_URL` (full custom tarball URL)
+- `BRAINDRIVE_INSTALL_ROOT` (default: `~/.braindrive`)
+- `BRAINDRIVE_BOOTSTRAP_FORCE_REFRESH=true` (force re-download and refresh)
+
+## Quickstart (Open-WebUI style)
+For a one-line, no-clone install that does not require DNS/TLS setup:
+1. macOS/Linux:
+   - `curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/install.sh | bash`
+2. Windows PowerShell:
+   - `irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/install.ps1 | iex`
+3. Open:
+   - `http://127.0.0.1:8080`
+
+This mode uses prebuilt images and `compose.quickstart.yml`.
+
+## Production Bootstrap
+For real public HTTPS deployments:
+1. macOS/Linux:
+   - `curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/install.sh | bash -s -- prod`
+2. Windows PowerShell:
+   - `$env:BRAINDRIVE_BOOTSTRAP_MODE='prod'; irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/install.ps1 | iex`
+3. Set `DOMAIN` in `~/.braindrive/installer/docker/.env` before first production run.
+
 ## What users run (production)
 1. From repo root:
    - `cp installer/docker/.env.example installer/docker/.env`
@@ -23,8 +74,8 @@ You can run installer commands from any of these directories:
 
 `install` is first-run only. If `.env` already exists, install exits to avoid accidental account/secrets invalidation.
 
-## Local no-domain mode
-For local smoke testing without TLS/domain setup:
+## Local source-build mode
+For local smoke testing from source (builds images from this repo):
 1. Prepare `installer/docker/.env` (as shown above).
 2. Run local mode from any supported launch point:
    - Repo root: `./scripts/install.sh local`
@@ -38,6 +89,7 @@ By default, first signup is allowed from any host/IP in this installer profile (
 
 ## Files
 - `compose.prod.yml`: production stack (app + edge, TLS via Caddy).
+- `compose.quickstart.yml`: image-based local HTTP stack (no DNS/TLS requirement).
 - `compose.local.yml`: local stack (HTTP on `${BRAINDRIVE_LOCAL_BIND_HOST:-127.0.0.1}:8080`; set `0.0.0.0` for LAN access).
 - `.env.example`: required/optional runtime values.
 - `Caddyfile`: production routing and TLS.
@@ -52,37 +104,103 @@ These Dockerfiles assume build context is repository root containing `builds/` a
 
 Build and tag:
 ```bash
-docker build -f installer/docker/Dockerfile.app -t ghcr.io/braindrive-ai/braindrive-app:v0.1.0 .
-docker build -f installer/docker/Dockerfile.edge -t ghcr.io/braindrive-ai/braindrive-edge:v0.1.0 .
+docker build -f installer/docker/Dockerfile.app -t ghcr.io/braindriveai/braindrive-app:v0.1.0 .
+docker build -f installer/docker/Dockerfile.edge -t ghcr.io/braindriveai/braindrive-edge:v0.1.0 .
 ```
 
 Push:
 ```bash
-docker push ghcr.io/braindrive-ai/braindrive-app:v0.1.0
-docker push ghcr.io/braindrive-ai/braindrive-edge:v0.1.0
+docker push ghcr.io/braindriveai/braindrive-app:v0.1.0
+docker push ghcr.io/braindriveai/braindrive-edge:v0.1.0
 ```
 
 Then set in `.env`:
 - `BRAINDRIVE_TAG=v0.1.0`
 
+Optional (recommended for production): pin immutable image refs by digest in `.env`:
+- `BRAINDRIVE_APP_REF=ghcr.io/braindriveai/braindrive-app@sha256:<digest>`
+- `BRAINDRIVE_EDGE_REF=ghcr.io/braindriveai/braindrive-edge@sha256:<digest>`
+
+If you set one `*_REF`, set both.
+When refs are set, compose uses them instead of `BRAINDRIVE_*_IMAGE + BRAINDRIVE_TAG`.
+
+Optional manifest-driven digest resolution (for upgrades):
+- `BRAINDRIVE_RELEASE_MANIFEST=./release-cache/releases.json`
+- `BRAINDRIVE_RELEASE_MANIFEST_SIG=./release-cache/releases.json.sig`
+- `BRAINDRIVE_RELEASE_PUBLIC_KEY=./release-cache/cosign.pub`
+- `BRAINDRIVE_RELEASE_MANIFEST_URL=https://github.com/BrainDriveAI/BrainDrive/releases/latest/download/releases.json`
+- `BRAINDRIVE_RELEASE_MANIFEST_SIG_URL=https://github.com/BrainDriveAI/BrainDrive/releases/latest/download/releases.json.sig`
+- `BRAINDRIVE_RELEASE_PUBLIC_KEY_URL=https://github.com/BrainDriveAI/BrainDrive/releases/latest/download/cosign.pub`
+- `BRAINDRIVE_RELEASE_CHANNEL=stable`
+- `BRAINDRIVE_RELEASE_VERSION=` (optional explicit version override)
+- `BRAINDRIVE_REQUIRE_MANIFEST_SIGNATURE=true`
+
+If refs are not set and a manifest is configured, upgrade scripts resolve
+`BRAINDRIVE_APP_REF` and `BRAINDRIVE_EDGE_REF` from the manifest.
+If signature verification is required, upgrade scripts run `cosign verify-blob` before apply.
+Current helper scripts use key-pair signature verification (trusted public key) without transparency log lookup.
+Upgrade now auto-fetches metadata from configured release URLs into local `release-cache` so normal users do not need manual `.env` edits for each update.
+
 ## Operations
-- Start (no rebuild): `./scripts/start.sh local`
-- Stop: `./scripts/stop.sh local`
-- Repo-root and installer-root wrappers default to `local` when mode is omitted.
-- Upgrade: `./scripts/upgrade.sh`
+- Start (quickstart): `./scripts/start.sh quickstart`
+- Stop (quickstart): `./scripts/stop.sh quickstart`
+- Upgrade (quickstart): `./scripts/upgrade.sh quickstart`
+- Start (source-build local): `./scripts/start.sh local`
+- Stop (source-build local): `./scripts/stop.sh local`
+- Upgrade (prod): `./scripts/upgrade.sh prod`
+- Fetch remote metadata now (optional manual run, also done automatically in prod/quickstart upgrade):
+  - `./scripts/fetch-release-metadata.sh`
+- Upgrade with explicit refs (one-shot, without editing `.env`):
+  - `BRAINDRIVE_APP_REF=ghcr.io/braindriveai/braindrive-app@sha256:<digest> BRAINDRIVE_EDGE_REF=ghcr.io/braindriveai/braindrive-edge@sha256:<digest> ./scripts/upgrade.sh`
 - Backup: `./scripts/backup.sh`
 - Restore: `./scripts/restore.sh memory <backup-file>` or `./scripts/restore.sh secrets <backup-file>`
 - Reset new-user test state (with confirmation): `./scripts/reset-new-user.sh`
   - Add `--yes` to skip prompt
   - Add `--fresh-clone` to also remove local `.env` and local images
 - Windows equivalents:
-  - Start: `./scripts/start.ps1 local`
-  - Stop: `./scripts/stop.ps1 local`
+  - Start quickstart: `./scripts/start.ps1 quickstart`
+  - Stop quickstart: `./scripts/stop.ps1 quickstart`
+  - Start local source-build: `./scripts/start.ps1 local`
+  - Stop local source-build: `./scripts/stop.ps1 local`
   - Install: `./scripts/install.ps1`
   - Upgrade: `./scripts/upgrade.ps1`
+  - Fetch remote metadata now (optional manual run, also done automatically in prod/quickstart upgrade):
+    - `./scripts/fetch-release-metadata.ps1`
+    - One-shot refs:
+      - `$env:BRAINDRIVE_APP_REF='ghcr.io/braindriveai/braindrive-app@sha256:<digest>'; $env:BRAINDRIVE_EDGE_REF='ghcr.io/braindriveai/braindrive-edge@sha256:<digest>'; ./scripts/upgrade.ps1`
   - Backup: `./scripts/backup.ps1`
   - Restore: `./scripts/restore.ps1 -Target memory -BackupFile <backup-file>`
   - Reset new-user state: `./scripts/reset-new-user.ps1` (supports `-Yes` and `-FreshClone`)
+
+## Release helper scripts (maintainer)
+These are in `installer/docker/scripts` and intended for release operations.
+
+- Build images:
+  - `./scripts/build-release-images.sh v0.1.0`
+  - `./scripts/build-release-images.ps1 -Version v0.1.0`
+- Push images and print digest refs:
+  - `./scripts/publish-release-images.sh v0.1.0`
+  - `./scripts/publish-release-images.ps1 -Version v0.1.0`
+- Generate `releases.json` payload:
+  - `./scripts/generate-release-manifest.sh v0.1.0 <app-ref> <edge-ref> stable ./releases.json`
+  - `./scripts/generate-release-manifest.ps1 -Version v0.1.0 -AppRef <app-ref> -EdgeRef <edge-ref> -Channel stable -Output .\\releases.json`
+- Sign manifest (`releases.json.sig`):
+  - `./scripts/sign-release-manifest.sh ./releases.json ./releases.json.sig`
+  - `./scripts/sign-release-manifest.ps1 -ManifestPath .\\releases.json -SignaturePath .\\releases.json.sig`
+- Verify manifest signature:
+  - `./scripts/verify-release-manifest.sh ./releases.json ./releases.json.sig ./cosign.pub`
+  - `./scripts/verify-release-manifest.ps1 -ManifestPath .\\releases.json -SignaturePath .\\releases.json.sig -PublicKeyPath .\\cosign.pub`
+- Smoke test:
+  - `./scripts/smoke-test-release.sh https://<DOMAIN>`
+  - `./scripts/smoke-test-release.ps1 -BaseUrl https://<DOMAIN>`
+- Monday release operator checklist:
+  - `installer/docker/MONDAY-RELEASE-OPERATOR-CHECKLIST.md`
+
+Cosign key setup (one-time per release signing identity):
+- Generate key pair:
+  - `cosign generate-key-pair`
+- Keep `cosign.key` private in CI/secrets manager.
+- Distribute `cosign.pub` as the trusted updater verification key.
 
 ## Notes
 - Data is persisted in named volumes: `braindrive_memory` and `braindrive_secrets`.

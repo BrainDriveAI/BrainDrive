@@ -1,8 +1,8 @@
-﻿name: braindrive
+name: braindrive_quickstart
 
 services:
   app:
-    image: ${BRAINDRIVE_APP_REF:-${BRAINDRIVE_APP_IMAGE:-ghcr.io/braindrive-ai/braindrive-app}:${BRAINDRIVE_TAG:-latest}}
+    image: ${BRAINDRIVE_APP_REF:-${BRAINDRIVE_APP_IMAGE:-ghcr.io/braindriveai/braindrive-app}:${BRAINDRIVE_TAG:-latest}}
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -29,20 +29,15 @@ services:
       - no-new-privileges:true
 
   edge:
-    image: ${BRAINDRIVE_EDGE_REF:-${BRAINDRIVE_EDGE_IMAGE:-ghcr.io/braindrive-ai/braindrive-edge}:${BRAINDRIVE_TAG:-latest}}
+    image: ${BRAINDRIVE_EDGE_REF:-${BRAINDRIVE_EDGE_IMAGE:-ghcr.io/braindriveai/braindrive-edge}:${BRAINDRIVE_TAG:-latest}}
     restart: unless-stopped
     depends_on:
       app:
         condition: service_healthy
-    environment:
-      DOMAIN: ${DOMAIN}
     ports:
-      - "80:80"
-      - "443:443"
+      - "${BRAINDRIVE_LOCAL_BIND_HOST:-127.0.0.1}:8080:80"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
+      - ./Caddyfile.local:/etc/caddy/Caddyfile:ro
     security_opt:
       - no-new-privileges:true
 
@@ -51,7 +46,3 @@ volumes:
     name: braindrive_memory
   braindrive_secrets:
     name: braindrive_secrets
-  caddy_data:
-    name: braindrive_caddy_data
-  caddy_config:
-    name: braindrive_caddy_config

@@ -4,6 +4,9 @@ import {
   Download,
   Key,
   Cpu,
+  LoaderCircle,
+  PencilLine,
+  Save,
   User,
   UserCog,
   X,
@@ -12,13 +15,17 @@ import {
   Trash2
 } from "lucide-react";
 
+import MarkdownContent from "@/components/markdown/MarkdownContent";
+
 import { getSession } from "@/api/auth-adapter";
 import {
   deleteProviderModel,
   downloadLibraryExport,
+  getOwnerProfile,
   getProviderModels,
   getSettings as getGatewaySettings,
   pullProviderModel,
+  updateOwnerProfile,
   updateProviderCredential as updateGatewayProviderCredential,
   updateSettings as updateGatewaySettings,
 } from "@/api/gateway-adapter";
@@ -1326,18 +1333,102 @@ function mergeCatalogEntries(
 
 function ProfileSection() {
   const user = useSettingsUser();
+  const [profileContent, setProfileContent] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function loadProfile() {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const content = await getOwnerProfile();
+      setProfileContent(content);
+      setDraft(content ?? "");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load profile");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleSave() {
+    setIsSaving(true);
+    setError(null);
+    try {
+      await updateOwnerProfile(draft);
+      setIsEditing(false);
+      await loadProfile();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save profile");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  function handleCancel() {
+    setDraft(profileContent ?? "");
+    setError(null);
+    setIsEditing(false);
+  }
+
+  useEffect(() => {
+    void loadProfile();
+  }, []);
 
   return (
     <div className="space-y-6">
-      <div>
-        <h3 className="font-heading text-base font-semibold text-bd-text-heading">
-          Owner Profile
-        </h3>
-        <p className="mt-1 text-sm text-bd-text-muted">
-          Your profile helps your AI partner understand who you are and what
-          matters to you. Edit it through conversation — ask your partner to
-          update your profile.
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h3 className="font-heading text-base font-semibold text-bd-text-heading">
+            Owner Profile
+          </h3>
+          <p className="mt-1 text-sm text-bd-text-muted">
+            Your profile builds naturally through conversation. It captures the
+            stable facts about your life, work, and goals that help personalize
+            every interaction.
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {isEditing ? (
+            <>
+              <button
+                type="button"
+                onClick={handleCancel}
+                disabled={isSaving}
+                className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-secondary hover:text-bd-text-heading disabled:opacity-50"
+              >
+                <X size={14} />
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={isSaving}
+                className="flex items-center gap-1.5 rounded-md bg-bd-amber px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-bd-amber-hover disabled:opacity-50"
+              >
+                {isSaving ? <LoaderCircle size={14} className="animate-spin" /> : <Save size={14} />}
+                {isSaving ? "Saving…" : "Save"}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(profileContent ?? "");
+                setError(null);
+                setIsEditing(true);
+              }}
+              disabled={isLoading}
+              className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-secondary hover:text-bd-text-heading disabled:opacity-50"
+            >
+              <PencilLine size={14} />
+              Edit
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary p-4">
@@ -1352,17 +1443,40 @@ function ProfileSection() {
             <div className="text-xs text-bd-text-muted">Owner</div>
           </div>
         </div>
+
+        {error && (
+          <div className="mb-3 flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+            <AlertCircle size={14} className="mt-0.5 shrink-0" />
+            {error}
+          </div>
+        )}
+
         <div className="border-t border-bd-border pt-4">
-          <p className="text-sm italic text-bd-text-muted">
-            Profile data will be loaded from your library's me/profile.md
-          </p>
+          {isLoading ? (
+            <div className="flex items-center gap-2 py-4 text-sm text-bd-text-muted">
+              <LoaderCircle size={16} className="animate-spin" />
+              Loading profile…
+            </div>
+          ) : isEditing ? (
+            <textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              spellCheck={false}
+              className="min-h-[320px] w-full resize-none rounded-lg border border-bd-border bg-bd-bg-secondary px-4 py-3 font-mono text-[13px] leading-6 text-bd-text-primary outline-none transition-colors placeholder:text-bd-text-muted focus:border-bd-amber/60"
+            />
+          ) : profileContent ? (
+            <div className="prose-bd max-w-full text-sm leading-6 text-bd-text-primary">
+              <MarkdownContent content={profileContent} />
+            </div>
+          ) : (
+            <p className="py-4 text-sm italic text-bd-text-muted">
+              No profile yet. Start a conversation and ask your partner to build
+              your profile.
+            </p>
+          )}
         </div>
       </div>
 
-      <p className="text-xs text-bd-text-muted">
-        To update your profile, start a conversation: "Update my profile
-        to reflect that I'm focused on launching BrainDrive."
-      </p>
     </div>
   );
 }
