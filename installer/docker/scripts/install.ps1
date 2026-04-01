@@ -1,5 +1,5 @@
 param(
-  [ValidateSet("quickstart", "prod", "local")]
+  [ValidateSet("quickstart", "prod", "local", "dev")]
   [string]$Mode = "quickstart"
 )
 
@@ -16,6 +16,9 @@ if ($Mode -eq "prod") {
   $urlHint = "https://<DOMAIN>"
 } elseif ($Mode -eq "local") {
   $composeFile = "compose.local.yml"
+} elseif ($Mode -eq "dev") {
+  $composeFile = "compose.dev.yml"
+  $urlHint = "http://127.0.0.1:5073"
 }
 
 function Require-Command {
@@ -120,6 +123,11 @@ if ($Mode -eq "prod") {
 if ($Mode -eq "local") {
   Write-Host "Building and starting local stack using $composeFile"
   docker compose -f $composeFile up -d --build
+} elseif ($Mode -eq "dev") {
+  docker volume create braindrive_memory | Out-Null
+  docker volume create braindrive_secrets | Out-Null
+  Write-Host "Building and starting developer stack using $composeFile"
+  docker compose -f $composeFile up -d --build
 } else {
   Write-Host "Pulling images using $composeFile"
   docker compose -f $composeFile pull
@@ -140,6 +148,24 @@ if ($Mode -eq "local" -or $Mode -eq "quickstart") {
     $urlHint = "http://<this-machine-ip>:8080"
   } else {
     $urlHint = "http://${localBindHost}:8080"
+  }
+}
+
+if ($Mode -eq "dev") {
+  $devBindHost = Get-EnvValue -Key "BRAINDRIVE_DEV_BIND_HOST"
+  if (-not $devBindHost) {
+    $devBindHost = "127.0.0.1"
+  }
+
+  $devPort = Get-EnvValue -Key "BRAINDRIVE_DEV_PORT"
+  if (-not $devPort) {
+    $devPort = "5073"
+  }
+
+  if ($devBindHost -eq "0.0.0.0") {
+    $urlHint = "http://<this-machine-ip>:$devPort"
+  } else {
+    $urlHint = "http://${devBindHost}:$devPort"
   }
 }
 

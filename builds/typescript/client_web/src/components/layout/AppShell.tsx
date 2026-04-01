@@ -14,10 +14,18 @@ import Sidebar from "./Sidebar";
 type AppShellProps = {
   children?: ReactNode;
   deploymentMode?: "local" | "managed";
+  installMode?: "local" | "quickstart" | "prod" | "unknown";
+  appVersion?: string;
   onLogout?: () => void;
 };
 
-export default function AppShell({ children, deploymentMode = "local", onLogout }: AppShellProps) {
+export default function AppShell({
+  children,
+  deploymentMode = "local",
+  installMode = "unknown",
+  appVersion = "unknown",
+  onLogout,
+}: AppShellProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -293,6 +301,8 @@ export default function AppShell({ children, deploymentMode = "local", onLogout 
       {isSettingsOpen && (
         <SettingsModal
           mode={deploymentMode}
+          installMode={installMode}
+          appVersion={appVersion}
           onClose={() => setIsSettingsOpen(false)}
         />
       )}

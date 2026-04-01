@@ -3,8 +3,8 @@ set -euo pipefail
 
 MODE="${1:-quickstart}"
 
-if [[ "${MODE}" != "prod" && "${MODE}" != "local" && "${MODE}" != "quickstart" ]]; then
-  echo "Usage: ./scripts/start.sh [quickstart|prod|local]"
+if [[ "${MODE}" != "prod" && "${MODE}" != "local" && "${MODE}" != "quickstart" && "${MODE}" != "dev" ]]; then
+  echo "Usage: ./scripts/start.sh [quickstart|prod|local|dev]"
   exit 1
 fi
 
@@ -29,6 +29,8 @@ if [[ "${MODE}" == "prod" ]]; then
   URL_HINT="https://<DOMAIN>"
 elif [[ "${MODE}" == "local" ]]; then
   COMPOSE_FILE="compose.local.yml"
+elif [[ "${MODE}" == "dev" ]]; then
+  COMPOSE_FILE="compose.dev.yml"
 fi
 
 if [[ "${MODE}" == "local" || "${MODE}" == "quickstart" ]]; then
@@ -41,6 +43,23 @@ if [[ "${MODE}" == "local" || "${MODE}" == "quickstart" ]]; then
     URL_HINT="http://<this-machine-ip>:8080"
   else
     URL_HINT="http://${LOCAL_BIND_HOST}:8080"
+  fi
+fi
+
+if [[ "${MODE}" == "dev" ]]; then
+  DEV_BIND_HOST="$(get_env_value BRAINDRIVE_DEV_BIND_HOST | tr -d '"')"
+  DEV_PORT="$(get_env_value BRAINDRIVE_DEV_PORT | tr -d '"')"
+  if [[ -z "${DEV_BIND_HOST}" ]]; then
+    DEV_BIND_HOST="127.0.0.1"
+  fi
+  if [[ -z "${DEV_PORT}" ]]; then
+    DEV_PORT="5073"
+  fi
+
+  if [[ "${DEV_BIND_HOST}" == "0.0.0.0" ]]; then
+    URL_HINT="http://<this-machine-ip>:${DEV_PORT}"
+  else
+    URL_HINT="http://${DEV_BIND_HOST}:${DEV_PORT}"
   fi
 fi
 
@@ -63,6 +82,11 @@ if [[ "${MODE}" == "quickstart" || "${MODE}" == "prod" ]]; then
     echo "Startup halted because update policy is fail-closed and update processing failed." >&2
     exit ${CHECK_UPDATE_EXIT}
   fi
+fi
+
+if [[ "${MODE}" == "dev" ]]; then
+  docker volume create braindrive_memory >/dev/null
+  docker volume create braindrive_secrets >/dev/null
 fi
 
 if ! docker compose -f "${COMPOSE_FILE}" up -d; then

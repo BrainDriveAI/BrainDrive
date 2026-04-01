@@ -167,6 +167,7 @@ const PUBLIC_ROUTES = new Set([
 export async function buildServer(rootDir = process.cwd()) {
   auditLog("startup.phase", { phase: "runtime-config" });
   const runtimeConfig = await loadRuntimeConfig(rootDir);
+  const appVersion = await resolveAppVersion(rootDir, runtimeConfig.memory_root);
 
   auditLog("startup.phase", { phase: "adapter-config" });
   const adapterConfig = await loadAdapterConfig(rootDir, runtimeConfig.provider_adapter);
@@ -689,6 +690,7 @@ export async function buildServer(rootDir = process.cwd()) {
   app.get("/config", async () => ({
     mode: runtimeConfig.auth_mode === "managed" ? "managed" : "local",
     install_mode: runtimeConfig.install_mode,
+    app_version: appVersion,
     gateway_url: "/api",
     features: {
       approvals: true,
@@ -1516,6 +1518,49 @@ function toInitials(value: string): string {
   const first = parts[0]?.[0] ?? "L";
   const second = parts[1]?.[0] ?? (parts[0]?.[1] ?? "O");
   return `${first}${second}`.toUpperCase();
+}
+
+async function resolveAppVersion(rootDir: string, memoryRoot: string): Promise<string> {
+  const envVersion = process.env.BRAINDRIVE_APP_VERSION?.trim();
+  if (envVersion) {
+    return envVersion;
+  }
+
+  const appliedReleaseVersion = await resolveAppliedReleaseVersion(memoryRoot);
+  if (appliedReleaseVersion) {
+    return appliedReleaseVersion;
+  }
+
+  try {
+    const packagePath = path.join(rootDir, "package.json");
+    const raw = await readFile(packagePath, "utf8");
+    const parsed = JSON.parse(raw) as { version?: unknown };
+    if (typeof parsed.version === "string" && parsed.version.trim().length > 0) {
+      return parsed.version.trim();
+    }
+  } catch {
+    // Fall through to unknown for compatibility.
+  }
+
+  return "unknown";
+}
+
+async function resolveAppliedReleaseVersion(memoryRoot: string): Promise<string | null> {
+  try {
+    const statePath = path.join(memoryRoot, "system", "updates", "state.json");
+    const raw = await readFile(statePath, "utf8");
+    const parsed = JSON.parse(raw) as { last_applied_version?: unknown };
+    if (
+      typeof parsed.last_applied_version === "string" &&
+      parsed.last_applied_version.trim().length > 0
+    ) {
+      return parsed.last_applied_version.trim();
+    }
+  } catch {
+    // Fall through to package/env fallback.
+  }
+
+  return null;
 }
 
 class FixedWindowRateLimiter {

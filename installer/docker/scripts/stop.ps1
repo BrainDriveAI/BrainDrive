@@ -1,5 +1,5 @@
 param(
-  [ValidateSet("quickstart", "prod", "local")]
+  [ValidateSet("quickstart", "prod", "local", "dev")]
   [string]$Mode = "quickstart"
 )
 
@@ -14,6 +14,8 @@ if ($Mode -eq "prod") {
   $composeFile = "compose.prod.yml"
 } elseif ($Mode -eq "local") {
   $composeFile = "compose.local.yml"
+} elseif ($Mode -eq "dev") {
+  $composeFile = "compose.dev.yml"
 }
 
 docker compose -f $composeFile stop
