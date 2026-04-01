@@ -1,6 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
-  CreditCard,
   Download,
   Key,
   Cpu,
@@ -47,24 +46,27 @@ type SettingsModalProps = {
   onClose: () => void;
 };
 
-type SettingsTab = "provider" | "model" | "profile" | "account" | "billing" | "export";
+type SettingsTab = "provider" | "model" | "profile" | "account" | "export";
 
-type TabDef = { id: SettingsTab; label: string; icon: typeof Key; managedOnly?: boolean };
+type TabDef = { id: SettingsTab; label: string; icon: typeof Key; managedOnly?: boolean; localOnly?: boolean };
 
-// Account and Billing only show for managed hosting (D35).
-// Provider and Model sections adapt their content based on mode.
+// Managed hosting shows: Account, Owner Profile, Export (D93).
+// Local shows: Default Model, Model Providers, Owner Profile, Export.
 const allTabs: TabDef[] = [
-  { id: "model", label: "Default Model", icon: Cpu },
-  { id: "provider", label: "Model Providers", icon: Key },
-  { id: "profile", label: "Owner Profile", icon: User },
   { id: "account", label: "Account", icon: UserCog, managedOnly: true },
-  { id: "billing", label: "Billing", icon: CreditCard, managedOnly: true },
+  { id: "model", label: "Default Model", icon: Cpu, localOnly: true },
+  { id: "provider", label: "Model Providers", icon: Key, localOnly: true },
+  { id: "profile", label: "Owner Profile", icon: User },
   { id: "export", label: "Export Library", icon: Download }
 ];
 
 export default function SettingsModal({ mode = "local", onClose }: SettingsModalProps) {
-  const tabs = allTabs.filter((tab) => !tab.managedOnly || mode === "managed");
-  const [activeTab, setActiveTab] = useState<SettingsTab>("model");
+  const tabs = allTabs.filter((tab) => {
+    if (tab.managedOnly && mode !== "managed") return false;
+    if (tab.localOnly && mode !== "local") return false;
+    return true;
+  });
+  const [activeTab, setActiveTab] = useState<SettingsTab>(mode === "managed" ? "account" : "model");
   const [settings, setSettings] = useState<GatewaySettings | null>(null);
   const [isLoadingSettings, setIsLoadingSettings] = useState(mode === "local");
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -482,8 +484,6 @@ function TabContent({
       return <ProfileSection />;
     case "account":
       return <AccountSection />;
-    case "billing":
-      return <BillingSection />;
     case "export":
       return (
         <ExportSection
@@ -1657,6 +1657,7 @@ function ProfileSection() {
 
 function AccountSection() {
   const user = useSettingsUser();
+  const usagePercent = 0;
 
   return (
     <div className="space-y-6">
@@ -1665,10 +1666,53 @@ function AccountSection() {
           Account
         </h3>
         <p className="mt-1 text-sm text-bd-text-muted">
-          Manage your BrainDrive account details.
+          Manage your BrainDrive subscription and account.
         </p>
       </div>
 
+      {/* Subscription */}
+      <div className="rounded-lg border border-bd-border p-4 space-y-4">
+        <div>
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-medium text-bd-text-primary">
+              BrainDrive Managed Hosting
+            </div>
+            <div className="text-sm font-medium text-bd-text-primary">
+              $20/month
+            </div>
+          </div>
+          <div className="mt-0.5 text-xs text-bd-text-muted">
+            Currently powered by Claude Sonnet 4.6
+          </div>
+        </div>
+
+        {/* Usage bar */}
+        <div>
+          <div className="mb-1.5 flex items-center justify-between text-xs">
+            <span className="text-bd-text-secondary">Usage this period</span>
+            <span className="text-bd-text-muted">{usagePercent}%</span>
+          </div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-bd-bg-secondary">
+            <div
+              className="h-full rounded-full bg-bd-amber transition-all"
+              style={{ width: `${usagePercent}%` }}
+            />
+          </div>
+          <div className="mt-1.5 flex items-center justify-between text-xs">
+            <span className="text-bd-text-secondary">Next renewal</span>
+            <span className="text-bd-text-muted">—</span>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          className="rounded-lg bg-bd-bg-tertiary px-3 py-1.5 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover"
+        >
+          Manage Subscription
+        </button>
+      </div>
+
+      {/* Email & Password */}
       <div className="rounded-lg border border-bd-border p-4 space-y-4">
         <div className="flex items-center justify-between">
           <div>
@@ -1699,6 +1743,7 @@ function AccountSection() {
         </div>
       </div>
 
+      {/* Danger Zone */}
       <div className="rounded-lg border border-bd-danger-border p-4">
         <div className="text-sm font-medium text-bd-danger">Danger Zone</div>
         <p className="mt-1 text-sm text-bd-text-muted">
@@ -1711,70 +1756,6 @@ function AccountSection() {
         >
           Delete Account
         </button>
-      </div>
-    </div>
-  );
-}
-
-function BillingSection() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h3 className="font-heading text-base font-semibold text-bd-text-heading">
-          Billing
-        </h3>
-        <p className="mt-1 text-sm text-bd-text-muted">
-          Manage your subscription and payment method.
-        </p>
-      </div>
-
-      <div className="rounded-lg border border-bd-border p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-sm font-medium text-bd-text-primary">
-              Current Plan
-            </div>
-            <div className="mt-1 text-sm text-bd-text-muted">
-              BrainDrive Managed Hosting
-            </div>
-          </div>
-          <div className="text-right">
-            <div className="text-lg font-semibold text-bd-text-heading">
-              $20
-            </div>
-            <div className="text-xs text-bd-text-muted">/month</div>
-          </div>
-        </div>
-      </div>
-
-      <div className="rounded-lg border border-bd-border p-4 space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-sm font-medium text-bd-text-primary">
-              Payment Method
-            </div>
-            <div className="text-sm text-bd-text-muted">
-              No payment method on file
-            </div>
-          </div>
-          <button
-            type="button"
-            className="rounded-lg bg-bd-bg-tertiary px-3 py-1.5 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover"
-          >
-            Add
-          </button>
-        </div>
-
-        <div className="h-px bg-bd-border" />
-
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-sm font-medium text-bd-text-primary">
-              Next Invoice
-            </div>
-            <div className="text-sm text-bd-text-muted">—</div>
-          </div>
-        </div>
       </div>
 
       <p className="text-xs text-bd-text-muted">
