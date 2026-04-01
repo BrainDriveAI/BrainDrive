@@ -25,5 +25,23 @@ if [[ -z "${APP_DIGEST}" || -z "${EDGE_DIGEST}" ]]; then
   exit 1
 fi
 
-echo "APP_REF=${APP_IMAGE}@${APP_DIGEST}"
-echo "EDGE_REF=${EDGE_IMAGE}@${EDGE_DIGEST}"
+if [[ ! "${APP_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+  echo "Invalid app digest: ${APP_DIGEST}" >&2
+  exit 1
+fi
+
+if [[ ! "${EDGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+  echo "Invalid edge digest: ${EDGE_DIGEST}" >&2
+  exit 1
+fi
+
+APP_REF="${APP_IMAGE}@${APP_DIGEST}"
+EDGE_REF="${EDGE_IMAGE}@${EDGE_DIGEST}"
+
+if [[ "${APP_REF}" != *@sha256:* || "${EDGE_REF}" != *@sha256:* ]]; then
+  echo "Publish failed: APP_REF/EDGE_REF are not digest-pinned refs. Stop release." >&2
+  exit 1
+fi
+
+echo "APP_REF=${APP_REF}"
+echo "EDGE_REF=${EDGE_REF}"

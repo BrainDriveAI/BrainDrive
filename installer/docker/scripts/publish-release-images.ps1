@@ -24,5 +24,20 @@ if (-not $appDigestLine -or -not $edgeDigestLine) {
 $appDigest = $appDigestLine.Split()[-1]
 $edgeDigest = $edgeDigestLine.Split()[-1]
 
-Write-Host "APP_REF=${appImage}@${appDigest}"
-Write-Host "EDGE_REF=${edgeImage}@${edgeDigest}"
+if (-not ($appDigest -match '^sha256:[0-9a-f]{64}$')) {
+  throw "Invalid app digest: $appDigest"
+}
+
+if (-not ($edgeDigest -match '^sha256:[0-9a-f]{64}$')) {
+  throw "Invalid edge digest: $edgeDigest"
+}
+
+$appRef = "${appImage}@${appDigest}"
+$edgeRef = "${edgeImage}@${edgeDigest}"
+
+if ($appRef -notmatch '@sha256:' -or $edgeRef -notmatch '@sha256:') {
+  throw "Publish failed: APP_REF/EDGE_REF are not digest-pinned refs. Stop release."
+}
+
+Write-Host "APP_REF=$appRef"
+Write-Host "EDGE_REF=$edgeRef"
