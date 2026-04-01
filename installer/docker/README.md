@@ -97,7 +97,7 @@ By default, first signup is allowed from any host/IP in this installer profile (
 - `Dockerfile.app`: production app image pipeline (gateway + MCP in one container).
 - `Dockerfile.edge`: production edge image pipeline (static web assets + Caddy).
 - `entrypoint.sh`: app startup orchestration for MCP + gateway.
-- `scripts/*`: install, upgrade, backup, and restore helpers.
+- `scripts/*`: install, upgrade, backup, restore, and startup update-check helpers.
 
 ## Image publishing flow (maintainer)
 These Dockerfiles assume build context is repository root containing `builds/` and `installer/docker/`.
@@ -145,14 +145,19 @@ If signature verification is required, upgrade scripts run `cosign verify-blob` 
 If `cosign` is missing, upgrade scripts now auto-install it by default (`BRAINDRIVE_AUTO_INSTALL_COSIGN=true`).
 Current helper scripts use key-pair signature verification (trusted public key) without transparency log lookup.
 Upgrade now auto-fetches metadata from configured release URLs into local `release-cache` so normal users do not need manual `.env` edits for each update.
+Start in quickstart/prod now runs startup update policy checks before compose up. Settings are resolved in this order: runtime env override, persistent `/data/memory/system/config/app-config.json`, `.env`, then defaults.
 
 ## Operations
 - Start (quickstart): `./scripts/start.sh quickstart`
+  - Runs startup update check first (policy-driven), then starts containers.
 - Stop (quickstart): `./scripts/stop.sh quickstart`
 - Upgrade (quickstart): `./scripts/upgrade.sh quickstart`
 - Start (source-build local): `./scripts/start.sh local`
 - Stop (source-build local): `./scripts/stop.sh local`
 - Upgrade (prod): `./scripts/upgrade.sh prod`
+- Check update now (without start):
+  - `./scripts/check-update.sh quickstart`
+  - `./scripts/check-update.sh prod`
 - Fetch remote metadata now (optional manual run, also done automatically in prod/quickstart upgrade):
   - `./scripts/fetch-release-metadata.sh`
 - Upgrade with explicit refs (one-shot, without editing `.env`):
@@ -164,11 +169,15 @@ Upgrade now auto-fetches metadata from configured release URLs into local `relea
   - Add `--fresh-clone` to also remove local `.env` and local images
 - Windows equivalents:
   - Start quickstart: `./scripts/start.ps1 quickstart`
+    - Runs startup update check first (policy-driven), then starts containers.
   - Stop quickstart: `./scripts/stop.ps1 quickstart`
   - Start local source-build: `./scripts/start.ps1 local`
   - Stop local source-build: `./scripts/stop.ps1 local`
   - Install: `./scripts/install.ps1`
   - Upgrade: `./scripts/upgrade.ps1`
+  - Check update now:
+    - `./scripts/check-update.ps1 -Mode quickstart`
+    - `./scripts/check-update.ps1 -Mode prod`
   - Fetch remote metadata now (optional manual run, also done automatically in prod/quickstart upgrade):
     - `./scripts/fetch-release-metadata.ps1`
     - One-shot refs:
