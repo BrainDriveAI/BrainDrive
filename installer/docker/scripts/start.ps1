@@ -56,6 +56,14 @@ if ($Mode -eq "prod") {
   }
 }
 
+if ($Mode -eq "quickstart" -or $Mode -eq "prod") {
+  & "$scriptDir/check-update.ps1" -Mode $Mode
+  $checkUpdateExit = $LASTEXITCODE
+  if ($checkUpdateExit -eq 40 -or $checkUpdateExit -eq 50) {
+    throw "Startup halted because update policy is fail-closed and update processing failed."
+  }
+}
+
 try {
   docker compose -f $composeFile up -d
 } catch {

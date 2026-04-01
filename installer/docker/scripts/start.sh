@@ -53,6 +53,18 @@ if [[ "${MODE}" == "prod" ]]; then
   fi
 fi
 
+if [[ "${MODE}" == "quickstart" || "${MODE}" == "prod" ]]; then
+  set +e
+  bash "${SCRIPT_DIR}/check-update.sh" "${MODE}"
+  CHECK_UPDATE_EXIT=$?
+  set -e
+
+  if [[ ${CHECK_UPDATE_EXIT} -eq 40 || ${CHECK_UPDATE_EXIT} -eq 50 ]]; then
+    echo "Startup halted because update policy is fail-closed and update processing failed." >&2
+    exit ${CHECK_UPDATE_EXIT}
+  fi
+fi
+
 if ! docker compose -f "${COMPOSE_FILE}" up -d; then
   if [[ "${MODE}" == "prod" ]]; then
     echo "Prod start failed. If you are running locally, use: ./scripts/start.sh quickstart" >&2

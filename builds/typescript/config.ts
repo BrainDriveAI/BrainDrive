@@ -1,8 +1,8 @@
 import path from "node:path";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { z } from "zod";
 
-import type { AdapterConfig, Preferences, RuntimeConfig } from "./contracts.js";
+import type { AdapterConfig, InstallMode, Preferences, RuntimeConfig } from "./contracts.js";
 import { initializeMemoryLayout } from "./memory/init.js";
 import { auditLog } from "./logger.js";
 
@@ -11,6 +11,7 @@ const runtimeConfigSchema = z.object({
   provider_adapter: z.string().min(1),
   conversation_store: z.literal("markdown").optional(),
   auth_mode: z.enum(["local-owner", "local", "managed"]),
+  install_mode: z.string().optional(),
   tool_sources: z.array(z.string()),
   bind_address: z.string().min(1).optional(),
   safety_iteration_limit: z.number().int().positive().optional(),
@@ -146,13 +147,69 @@ export async function loadRuntimeConfig(rootDir: string): Promise<RuntimeConfig>
   const parsed = runtimeConfigSchema.parse(JSON.parse(raw));
   const memoryRootOverride = process.env.PAA_MEMORY_ROOT?.trim();
   const resolvedMemoryRoot = memoryRootOverride && memoryRootOverride.length > 0 ? memoryRootOverride : parsed.memory_root;
+  const installModeFromEnv = normalizeInstallMode(process.env.BRAINDRIVE_INSTALL_MODE);
+  const resolvedInstallMode =
+    installModeFromEnv !== "unknown" ? installModeFromEnv : normalizeInstallMode(parsed.install_mode);
 
   return {
     ...parsed,
     conversation_store: parsed.conversation_store ?? "markdown",
+    install_mode: resolvedInstallMode,
     memory_root: path.resolve(rootDir, resolvedMemoryRoot),
     bind_address: parsed.bind_address ?? "127.0.0.1",
     port: parsed.port ?? 8787,
+  };
+}
+
+export async function ensureSystemAppConfig(memoryRoot: string, installMode: InstallMode): Promise<{
+  path: string;
+  backupPath: string;
+  installMode: InstallMode;
+  updated: boolean;
+}> {
+  const configDir = path.join(memoryRoot, "system", "config");
+  const appConfigPath = path.join(configDir, "app-config.json");
+  const backupPath = path.join(configDir, "app-config.bak.json");
+  await mkdir(configDir, { recursive: true });
+
+  let raw = "";
+  let document: Record<string, unknown> = {};
+  let hasExistingConfig = false;
+  try {
+    raw = await readFile(appConfigPath, "utf8");
+    hasExistingConfig = true;
+    document = parseObjectOrDefault(raw);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  let updated = false;
+  const systemSection = getOrCreateObject(document, "system");
+  if (!Object.prototype.hasOwnProperty.call(systemSection, "install_mode")) {
+    systemSection.install_mode = installMode;
+    updated = true;
+  } else {
+    const normalized = normalizeInstallMode(systemSection.install_mode);
+    if (normalized !== systemSection.install_mode) {
+      systemSection.install_mode = normalized;
+      updated = true;
+    }
+  }
+
+  if (!hasExistingConfig || updated) {
+    if (hasExistingConfig && raw.trim().length > 0) {
+      await writeFile(backupPath, raw.endsWith("\n") ? raw : `${raw}\n`, "utf8");
+    }
+    await writeFile(appConfigPath, `${JSON.stringify(document, null, 2)}\n`, "utf8");
+  }
+
+  return {
+    path: appConfigPath,
+    backupPath,
+    installMode: normalizeInstallMode(systemSection.install_mode),
+    updated: !hasExistingConfig || updated,
   };
 }
 
@@ -252,4 +309,43 @@ function findForbiddenSecretFieldPaths(input: unknown, parentPath = ""): string[
   }
 
   return matches;
+}
+
+function normalizeInstallMode(value: unknown): InstallMode {
+  if (typeof value !== "string") {
+    return "unknown";
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "local" || normalized === "quickstart" || normalized === "prod") {
+    return normalized;
+  }
+  if (normalized === "unknown") {
+    return "unknown";
+  }
+  return "unknown";
+}
+
+function parseObjectOrDefault(raw: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    // Fall back to an empty object when parsing fails.
+  }
+  return {};
+}
+
+function getOrCreateObject(
+  root: Record<string, unknown>,
+  key: string
+): Record<string, unknown> {
+  const existing = root[key];
+  if (existing && typeof existing === "object" && !Array.isArray(existing)) {
+    return existing as Record<string, unknown>;
+  }
+  const created: Record<string, unknown> = {};
+  root[key] = created;
+  return created;
 }
