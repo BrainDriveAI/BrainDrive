@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { Menu } from "lucide-react";
 import { createPortal } from "react-dom";
 
+import { getOnboardingStatus } from "@/api/gateway-adapter";
 import ChatPanel from "@/components/chat/ChatPanel";
 import DocumentView from "@/components/document/DocumentView";
 import SettingsModal from "@/components/settings/SettingsModal";
@@ -42,6 +43,24 @@ export default function AppShell({ children, deploymentMode = "local", onLogout 
 
   const messageMetadata =
     selectedProjectId !== null ? { client: "web", project: selectedProjectId } : { client: "web" };
+
+  // Auto-open settings if BrainDrive Models is active but has no API key
+  useEffect(() => {
+    if (deploymentMode !== "local") return;
+    let cancelled = false;
+    void getOnboardingStatus().then((status) => {
+      if (cancelled) return;
+      const activeId = status.active_provider_profile ?? status.default_provider_profile;
+      const activeProvider = status.providers.find((p) => p.profile_id === activeId);
+      const needsSetup = activeProvider &&
+        activeProvider.provider_id === "braindrive-models" &&
+        activeProvider.credential_mode === "unset";
+      if (needsSetup) {
+        setIsSettingsOpen(true);
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [deploymentMode]);
 
   useEffect(() => {
     setActiveFile(null);

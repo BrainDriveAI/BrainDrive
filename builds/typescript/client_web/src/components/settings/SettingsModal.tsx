@@ -54,8 +54,8 @@ type TabDef = { id: SettingsTab; label: string; icon: typeof Key; managedOnly?: 
 // Account and Billing only show for managed hosting (D35).
 // Provider and Model sections adapt their content based on mode.
 const allTabs: TabDef[] = [
-  { id: "provider", label: "Model Provider", icon: Key },
   { id: "model", label: "Default Model", icon: Cpu },
+  { id: "provider", label: "Model Providers", icon: Key },
   { id: "profile", label: "Owner Profile", icon: User },
   { id: "account", label: "Account", icon: UserCog, managedOnly: true },
   { id: "billing", label: "Billing", icon: CreditCard, managedOnly: true },
@@ -64,7 +64,7 @@ const allTabs: TabDef[] = [
 
 export default function SettingsModal({ mode = "local", onClose }: SettingsModalProps) {
   const tabs = allTabs.filter((tab) => !tab.managedOnly || mode === "managed");
-  const [activeTab, setActiveTab] = useState<SettingsTab>("provider");
+  const [activeTab, setActiveTab] = useState<SettingsTab>("model");
   const [settings, setSettings] = useState<GatewaySettings | null>(null);
   const [isLoadingSettings, setIsLoadingSettings] = useState(mode === "local");
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -440,20 +440,16 @@ function TabContent({
   exportError: string | null;
   onRefreshCatalog: () => void;
 }) {
+  const activeProfile = settings?.provider_profiles.find(
+    (p) => p.id === (settings?.active_provider_profile ?? settings?.default_provider_profile)
+  );
+  const isBrainDriveActive = activeProfile?.provider_id?.toLowerCase() === "braindrive-models";
+
   switch (tab) {
-    case "provider":
-      return (
-        <ProviderSection
-          mode={mode}
-          settings={settings}
-          isLoadingSettings={isLoadingSettings}
-          settingsError={settingsError}
-          onSaveSettings={onSaveSettings}
-          onSaveCredential={onSaveCredential}
-        />
-      );
     case "model":
-      return (
+      return isBrainDriveActive ? (
+        <BrainDriveDefaultSection settings={settings} isLoadingSettings={isLoadingSettings} settingsError={settingsError} />
+      ) : (
         <ModelSection
           mode={mode}
           settings={settings}
@@ -464,6 +460,17 @@ function TabContent({
           modelCatalogError={modelCatalogError}
           onSaveSettings={onSaveSettings}
           onRefreshCatalog={onRefreshCatalog}
+        />
+      );
+    case "provider":
+      return (
+        <ProviderSection
+          mode={mode}
+          settings={settings}
+          isLoadingSettings={isLoadingSettings}
+          settingsError={settingsError}
+          onSaveSettings={onSaveSettings}
+          onSaveCredential={onSaveCredential}
         />
       );
     case "profile":
@@ -482,6 +489,81 @@ function TabContent({
         />
       );
   }
+}
+
+function BrainDriveDefaultSection({
+  settings,
+  isLoadingSettings,
+  settingsError,
+}: {
+  settings: GatewaySettings | null;
+  isLoadingSettings: boolean;
+  settingsError: string | null;
+}) {
+  if (isLoadingSettings) {
+    return <div className="py-8 text-center text-sm text-bd-text-muted">Loading...</div>;
+  }
+  if (settingsError) {
+    return (
+      <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-4 py-3 text-sm text-bd-text-primary">
+        {settingsError}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="font-heading text-base font-semibold text-bd-text-heading">
+          Default Model
+        </h3>
+        <p className="mt-1 text-sm text-bd-text-muted">
+          BrainDrive Default — powered by Claude Sonnet 4.6
+        </p>
+      </div>
+
+      <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary p-4 space-y-4">
+        <div>
+          <div className="text-2xl font-semibold text-bd-text-primary">$0.00</div>
+          <div className="text-xs text-bd-text-muted">remaining</div>
+        </div>
+
+        <div>
+          <div className="mb-2 text-xs font-medium text-bd-text-secondary">Add credits</div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="flex-1 rounded-lg border border-bd-amber px-3 py-2.5 text-sm font-medium text-bd-amber transition-colors hover:bg-bd-amber hover:text-bd-bg-primary"
+            >
+              $5
+            </button>
+            <button
+              type="button"
+              className="flex-1 rounded-lg border border-bd-amber px-3 py-2.5 text-sm font-medium text-bd-amber transition-colors hover:bg-bd-amber hover:text-bd-bg-primary"
+            >
+              $10
+            </button>
+            <button
+              type="button"
+              className="flex-1 rounded-lg border border-bd-amber px-3 py-2.5 text-sm font-medium text-bd-amber transition-colors hover:bg-bd-amber hover:text-bd-bg-primary"
+            >
+              $25
+            </button>
+          </div>
+          <button
+            type="button"
+            className="mt-2 text-xs text-bd-text-muted transition-colors hover:text-bd-text-secondary hover:underline"
+          >
+            Custom amount
+          </button>
+        </div>
+      </div>
+
+      <p className="text-xs text-bd-text-muted">
+        Ask your BrainDrive "what's my balance?" anytime during a conversation.
+      </p>
+    </div>
+  );
 }
 
 function ProviderSection({
@@ -532,7 +614,7 @@ function ProviderSection({
       <div className="space-y-6">
         <div>
           <h3 className="font-heading text-base font-semibold text-bd-text-heading">
-            AI Model Provider
+            Model Providers
           </h3>
           <p className="mt-1 text-sm text-bd-text-muted">
             Your AI model access is included with your subscription.
@@ -558,7 +640,7 @@ function ProviderSection({
   if (isLoadingSettings) {
     return (
       <div className="space-y-3">
-        <h3 className="font-heading text-base font-semibold text-bd-text-heading">AI Model Provider</h3>
+        <h3 className="font-heading text-base font-semibold text-bd-text-heading">Model Providers</h3>
         <p className="text-sm text-bd-text-muted">Loading provider settings...</p>
       </div>
     );
@@ -567,7 +649,7 @@ function ProviderSection({
   if (settingsError) {
     return (
       <div className="space-y-3">
-        <h3 className="font-heading text-base font-semibold text-bd-text-heading">AI Model Provider</h3>
+        <h3 className="font-heading text-base font-semibold text-bd-text-heading">Model Providers</h3>
         <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2.5 text-sm text-bd-text-primary">
           {settingsError}
         </div>
@@ -583,10 +665,10 @@ function ProviderSection({
     <div className="space-y-6">
       <div>
         <h3 className="font-heading text-base font-semibold text-bd-text-heading">
-          AI Model Provider
+          Model Providers
         </h3>
         <p className="mt-1 text-sm text-bd-text-muted">
-          Connect BrainDrive to your AI model provider.
+          Choose how BrainDrive connects to AI models.
         </p>
       </div>
 
@@ -596,6 +678,7 @@ function ProviderSection({
             {settings.provider_profiles.map((profile) => {
               const isSelected = selectedProfile === profile.id;
               const isOllama = profile.provider_id?.toLowerCase() === "ollama";
+              const isBrainDriveModels = profile.provider_id?.toLowerCase() === "braindrive-models";
               const profileCanUsePlain = profile.credential_mode === "plain" || isOllama;
               const showKeyForProfile = isSelected && showApiKeyInput;
 
@@ -637,10 +720,12 @@ function ProviderSection({
                         "text-sm font-medium",
                         isSelected ? "text-bd-text-primary" : "text-bd-text-secondary"
                       ].join(" ")}>
-                        {isOllama ? "Ollama" : "OpenRouter"}
+                        {isBrainDriveModels ? "BrainDrive Models" : isOllama ? "Ollama" : "OpenRouter"}
                       </div>
                       <div className="text-xs text-bd-text-muted">
-                        {isOllama
+                        {isBrainDriveModels
+                          ? <>Built-in AI models — add $5 to start chatting</>
+                          : isOllama
                           ? <>Runs on your computer, free — <a href="https://ollama.com" target="_blank" rel="noopener noreferrer" className="text-bd-text-muted hover:text-bd-text-secondary hover:underline" onClick={(e) => e.stopPropagation()}>ollama.com</a></>
                           : <>Cloud-based, requires API key — <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="text-bd-text-muted hover:text-bd-text-secondary hover:underline" onClick={(e) => e.stopPropagation()}>openrouter.ai/keys</a></>}
                       </div>
@@ -651,147 +736,155 @@ function ProviderSection({
                     <div className={[
                       "border border-t-0 border-bd-amber bg-bd-bg-tertiary px-4 pb-3 pt-2 rounded-b-lg"
                     ].join(" ")}>
-                      {isOllama && (
-                        <div className="mb-3 space-y-1.5">
-                          <label
-                            htmlFor="ollama-server-url"
-                            className="block text-sm font-medium text-bd-text-secondary"
-                          >
-                            Server URL
-                          </label>
-                          <div className="flex items-center gap-2">
-                            <input
-                              id="ollama-server-url"
-                              type="url"
-                              autoComplete="off"
-                              value={ollamaUrl}
-                              onChange={(event) => {
-                                setOllamaUrl(event.target.value);
-                                setUrlError(null);
-                              }}
-                              placeholder="http://localhost:11434/v1"
-                              className="h-10 flex-1 rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
-                            />
-                            <button
-                              type="button"
-                              disabled={isSavingUrl || ollamaUrl.trim().length === 0}
-                              onClick={() => {
-                                setIsSavingUrl(true);
-                                setUrlError(null);
-                                void onSaveSettings({
-                                  provider_base_url: {
-                                    provider_profile: profile.id,
-                                    base_url: ollamaUrl.trim(),
-                                  },
-                                })
-                                  .then(() => {})
-                                  .catch((error) => {
-                                    setUrlError(error instanceof Error ? error.message : String(error));
-                                  })
-                                  .finally(() => {
-                                    setIsSavingUrl(false);
-                                  });
-                              }}
-                              className="rounded-lg bg-bd-amber px-3 py-2 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              {isSavingUrl ? "Saving..." : "Save"}
-                            </button>
-                          </div>
-                          {urlError && (
-                            <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
-                              {urlError}
-                            </div>
-                          )}
+                      {isBrainDriveModels ? (
+                        <div className="text-xs text-bd-text-muted">
+                          Powered by Claude Sonnet 4.6. Manage credits in the Default Model tab.
                         </div>
-                      )}
-                      {!showKeyForProfile ? (
-                        <button
-                          type="button"
-                          onClick={() => setShowApiKeyInput(true)}
-                          className="text-xs text-bd-text-muted transition-colors hover:text-bd-text-secondary hover:underline"
-                        >
-                          {profileCanUsePlain
-                            ? `Optional: set API key for remote ${isOllama ? "Ollama" : profile.provider_id}`
-                            : profile.credential_mode === "secret_ref" ? "Update API key" : "Set API key"}
-                        </button>
                       ) : (
-                        <div className="space-y-3">
-                          <div>
-                            <label
-                              htmlFor="provider-api-key"
-                              className="mb-1.5 block text-sm font-medium text-bd-text-secondary"
-                            >
-                              API Key
-                            </label>
-                            {profile.credential_mode === "secret_ref" && (
-                              <div className="mb-2 flex items-center gap-2 text-xs text-bd-text-muted">
-                                <Check size={14} strokeWidth={1.5} className="shrink-0 text-bd-success" />
-                                API key configured — enter a new key below to replace it
+                        <>
+                          {isOllama && (
+                            <div className="mb-3 space-y-1.5">
+                              <label
+                                htmlFor="ollama-server-url"
+                                className="block text-sm font-medium text-bd-text-secondary"
+                              >
+                                Server URL
+                              </label>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  id="ollama-server-url"
+                                  type="url"
+                                  autoComplete="off"
+                                  value={ollamaUrl}
+                                  onChange={(event) => {
+                                    setOllamaUrl(event.target.value);
+                                    setUrlError(null);
+                                  }}
+                                  placeholder="http://localhost:11434/v1"
+                                  className="h-10 flex-1 rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+                                />
+                                <button
+                                  type="button"
+                                  disabled={isSavingUrl || ollamaUrl.trim().length === 0}
+                                  onClick={() => {
+                                    setIsSavingUrl(true);
+                                    setUrlError(null);
+                                    void onSaveSettings({
+                                      provider_base_url: {
+                                        provider_profile: profile.id,
+                                        base_url: ollamaUrl.trim(),
+                                      },
+                                    })
+                                      .then(() => {})
+                                      .catch((error) => {
+                                        setUrlError(error instanceof Error ? error.message : String(error));
+                                      })
+                                      .finally(() => {
+                                        setIsSavingUrl(false);
+                                      });
+                                  }}
+                                  className="rounded-lg bg-bd-amber px-3 py-2 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {isSavingUrl ? "Saving..." : "Save"}
+                                </button>
                               </div>
-                            )}
-                            <input
-                              id="provider-api-key"
-                              type="password"
-                              autoComplete="off"
-                              value={providerApiKey}
-                              onChange={(event) => {
-                                setProviderApiKey(event.target.value);
-                                setCredentialError(null);
-                              }}
-                              placeholder={profile.credential_mode === "secret_ref" ? "Enter new key to replace existing" : `Paste your ${profile.provider_id} API key`}
-                              className="h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
-                            />
-                          </div>
-
-                          <div className="flex flex-wrap items-center gap-2">
-                            <button
-                              type="button"
-                              disabled={isSavingCredential || providerApiKey.trim().length === 0}
-                              onClick={() => {
-                                setIsSavingCredential(true);
-                                setCredentialError(null);
-                                void onSaveCredential({
-                                  provider_profile: profile.id,
-                                  mode: "secret_ref",
-                                  api_key: providerApiKey.trim(),
-                                  secret_ref: profile.credential_ref ?? undefined,
-                                  required: true,
-                                  set_active_provider: true,
-                                })
-                                  .then(() => {
-                                    setProviderApiKey("");
-                                    setShowApiKeyInput(false);
-                                  })
-                                  .catch((error) => {
-                                    setCredentialError(error instanceof Error ? error.message : String(error));
-                                  })
-                                  .finally(() => {
-                                    setIsSavingCredential(false);
-                                  });
-                              }}
-                              className="rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              {isSavingCredential ? "Saving key..." : "Save API Key"}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setShowApiKeyInput(false);
-                                setProviderApiKey("");
-                                setCredentialError(null);
-                              }}
-                              className="rounded-lg border border-bd-border px-3 py-1.5 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-
-                          {credentialError && (
-                            <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
-                              {credentialError}
+                              {urlError && (
+                                <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
+                                  {urlError}
+                                </div>
+                              )}
                             </div>
                           )}
-                        </div>
+                          {!showKeyForProfile ? (
+                            <button
+                              type="button"
+                              onClick={() => setShowApiKeyInput(true)}
+                              className="text-xs text-bd-text-muted transition-colors hover:text-bd-text-secondary hover:underline"
+                            >
+                              {profileCanUsePlain
+                                ? `Optional: set API key for remote ${isOllama ? "Ollama" : profile.provider_id}`
+                                : profile.credential_mode === "secret_ref" ? "Update API key" : "Set API key"}
+                            </button>
+                          ) : (
+                            <div className="space-y-3">
+                              <div>
+                                <label
+                                  htmlFor="provider-api-key"
+                                  className="mb-1.5 block text-sm font-medium text-bd-text-secondary"
+                                >
+                                  API Key
+                                </label>
+                                {profile.credential_mode === "secret_ref" && (
+                                  <div className="mb-2 flex items-center gap-2 text-xs text-bd-text-muted">
+                                    <Check size={14} strokeWidth={1.5} className="shrink-0 text-bd-success" />
+                                    API key configured — enter a new key below to replace it
+                                  </div>
+                                )}
+                                <input
+                                  id="provider-api-key"
+                                  type="password"
+                                  autoComplete="off"
+                                  value={providerApiKey}
+                                  onChange={(event) => {
+                                    setProviderApiKey(event.target.value);
+                                    setCredentialError(null);
+                                  }}
+                                  placeholder={profile.credential_mode === "secret_ref" ? "Enter new key to replace existing" : `Paste your ${profile.provider_id} API key`}
+                                  className="h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+                                />
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  disabled={isSavingCredential || providerApiKey.trim().length === 0}
+                                  onClick={() => {
+                                    setIsSavingCredential(true);
+                                    setCredentialError(null);
+                                    void onSaveCredential({
+                                      provider_profile: profile.id,
+                                      mode: "secret_ref",
+                                      api_key: providerApiKey.trim(),
+                                      secret_ref: profile.credential_ref ?? undefined,
+                                      required: true,
+                                      set_active_provider: true,
+                                    })
+                                      .then(() => {
+                                        setProviderApiKey("");
+                                        setShowApiKeyInput(false);
+                                      })
+                                      .catch((error) => {
+                                        setCredentialError(error instanceof Error ? error.message : String(error));
+                                      })
+                                      .finally(() => {
+                                        setIsSavingCredential(false);
+                                      });
+                                  }}
+                                  className="rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {isSavingCredential ? "Saving key..." : "Save API Key"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowApiKeyInput(false);
+                                    setProviderApiKey("");
+                                    setCredentialError(null);
+                                  }}
+                                  className="rounded-lg border border-bd-border px-3 py-1.5 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+
+                              {credentialError && (
+                                <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
+                                  {credentialError}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                   )}
@@ -806,9 +899,6 @@ function ProviderSection({
             {saveError}
           </div>
         )}
-        <p className="text-xs text-bd-text-muted">
-          Your API key is encrypted and stored locally.
-        </p>
       </div>
     </div>
   );
