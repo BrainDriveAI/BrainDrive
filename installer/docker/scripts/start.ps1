@@ -1,5 +1,5 @@
 param(
-  [ValidateSet("quickstart", "prod", "local")]
+  [ValidateSet("quickstart", "prod", "local", "dev")]
   [string]$Mode = "quickstart"
 )
 
@@ -16,6 +16,8 @@ if ($Mode -eq "prod") {
   $urlHint = "https://<DOMAIN>"
 } elseif ($Mode -eq "local") {
   $composeFile = "compose.local.yml"
+} elseif ($Mode -eq "dev") {
+  $composeFile = "compose.dev.yml"
 }
 
 function Get-EnvValue {
@@ -45,6 +47,24 @@ if ($Mode -eq "local" -or $Mode -eq "quickstart") {
   }
 }
 
+if ($Mode -eq "dev") {
+  $devBindHost = Get-EnvValue -Key "BRAINDRIVE_DEV_BIND_HOST"
+  if (-not $devBindHost) {
+    $devBindHost = "127.0.0.1"
+  }
+
+  $devPort = Get-EnvValue -Key "BRAINDRIVE_DEV_PORT"
+  if (-not $devPort) {
+    $devPort = "5073"
+  }
+
+  if ($devBindHost -eq "0.0.0.0") {
+    $urlHint = "http://<this-machine-ip>:$devPort"
+  } else {
+    $urlHint = "http://${devBindHost}:$devPort"
+  }
+}
+
 if ($Mode -eq "prod") {
   if (-not (Test-Path ".env")) {
     throw "Prod start requires installer/docker/.env with a real DOMAIN. If you meant quickstart mode, run: ./scripts/start.ps1 quickstart"
@@ -62,6 +82,11 @@ if ($Mode -eq "quickstart" -or $Mode -eq "prod") {
   if ($checkUpdateExit -eq 40 -or $checkUpdateExit -eq 50) {
     throw "Startup halted because update policy is fail-closed and update processing failed."
   }
+}
+
+if ($Mode -eq "dev") {
+  docker volume create braindrive_memory | Out-Null
+  docker volume create braindrive_secrets | Out-Null
 }
 
 try {

@@ -1,0 +1,120 @@
+name: braindrive_dev
+
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: installer/docker/Dockerfile.app
+    image: ${BRAINDRIVE_APP_IMAGE_LOCAL:-braindrive-app:local}
+    user: "0:0"
+    entrypoint: ["/bin/bash"]
+    command:
+      - "-lc"
+      - |
+        set -euo pipefail
+        cd /app/typescript
+        npm install --no-audit --no-fund
+        pids=()
+        cleanup() {
+          for pid in "$${pids[@]:-}"; do
+            if kill -0 "$${pid}" >/dev/null 2>&1; then
+              kill "$${pid}" >/dev/null 2>&1 || true
+            fi
+          done
+          wait || true
+        }
+        trap cleanup EXIT INT TERM
+
+        start_mcp() {
+          local kind="$1"
+          local port="$2"
+          SERVER_KIND="$${kind}" HOST="127.0.0.1" PORT="$${port}" MEMORY_ROOT="$${PAA_MEMORY_ROOT}" \
+            node /app/mcp_release/dist/src/index.js &
+          pids+=("$$!")
+        }
+
+        wait_for_mcp() {
+          local port="$1"
+          local attempts=45
+          local delay=1
+          for ((i=1; i<=attempts; i+=1)); do
+            if node -e "fetch('http://127.0.0.1:' + process.argv[1] + '/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" "$${port}"; then
+              return 0
+            fi
+            sleep "$${delay}"
+          done
+          return 1
+        }
+
+        start_mcp memory "$${MCP_MEMORY_PORT:-8911}"
+        start_mcp auth "$${MCP_AUTH_PORT:-8912}"
+        start_mcp project "$${MCP_PROJECT_PORT:-8913}"
+        wait_for_mcp "$${MCP_MEMORY_PORT:-8911}"
+        wait_for_mcp "$${MCP_AUTH_PORT:-8912}"
+        wait_for_mcp "$${MCP_PROJECT_PORT:-8913}"
+
+        npx tsx watch gateway/server.ts
+    environment:
+      NODE_ENV: development
+      BRAINDRIVE_INSTALL_MODE: local
+      HOST: 0.0.0.0
+      PORT: 8787
+      MCP_SERVERS_FILE: mcp/servers.full-mcp.json
+      PAA_MEMORY_ROOT: /data/memory
+      PAA_SECRETS_HOME: /run/paa-secrets
+      PAA_SECRETS_MASTER_KEY_B64: ${PAA_SECRETS_MASTER_KEY_B64}
+      PAA_SECRETS_MASTER_KEY_ID: ${PAA_SECRETS_MASTER_KEY_ID:-owner-master-v1}
+      PAA_AUTH_BOOTSTRAP_TOKEN: ${PAA_AUTH_BOOTSTRAP_TOKEN:-}
+      PAA_AUTH_ALLOW_FIRST_SIGNUP_ANY_IP: ${PAA_AUTH_ALLOW_FIRST_SIGNUP_ANY_IP:-true}
+      TZ: ${TZ:-UTC}
+      CHOKIDAR_USEPOLLING: ${BRAINDRIVE_DEV_CHOKIDAR_POLLING:-false}
+      CHOKIDAR_INTERVAL: ${BRAINDRIVE_DEV_CHOKIDAR_INTERVAL:-250}
+    volumes:
+      - ../../builds/typescript:/app/typescript
+      - braindrive_dev_app_node_modules:/app/typescript/node_modules
+      - braindrive_memory:/data/memory
+      - braindrive_secrets:/run/paa-secrets
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  web:
+    image: node:22-bookworm-slim
+    user: "0:0"
+    working_dir: /workspace/builds/typescript/client_web
+    entrypoint: ["/bin/bash"]
+    command:
+      - "-lc"
+      - |
+        set -euo pipefail
+        npm install --no-audit --no-fund
+        npm run dev -- --host 0.0.0.0 --port 5073 --strictPort
+    environment:
+      VITE_GATEWAY_PROXY_TARGET: http://app:8787
+      CHOKIDAR_USEPOLLING: ${BRAINDRIVE_DEV_CHOKIDAR_POLLING:-false}
+      CHOKIDAR_INTERVAL: ${BRAINDRIVE_DEV_CHOKIDAR_INTERVAL:-250}
+      WATCHPACK_POLLING: ${BRAINDRIVE_DEV_WATCHPACK_POLLING:-false}
+      WATCHPACK_POLLING_INTERVAL: ${BRAINDRIVE_DEV_WATCHPACK_POLLING_INTERVAL:-250}
+    volumes:
+      - ../../builds/typescript/client_web:/workspace/builds/typescript/client_web
+      - braindrive_dev_web_node_modules:/workspace/builds/typescript/client_web/node_modules
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "${BRAINDRIVE_DEV_BIND_HOST:-127.0.0.1}:${BRAINDRIVE_DEV_PORT:-5073}:5073"
+
+volumes:
+  braindrive_dev_app_node_modules:
+    name: braindrive_dev_app_node_modules
+  braindrive_dev_web_node_modules:
+    name: braindrive_dev_web_node_modules
+  braindrive_memory:
+    external: true
+    name: braindrive_memory
+  braindrive_secrets:
+    external: true
+    name: braindrive_secrets

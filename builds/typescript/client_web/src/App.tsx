@@ -13,6 +13,7 @@ export default function App() {
   const [installMode, setInstallMode] = useState<"local" | "quickstart" | "prod" | "unknown">(
     "unknown"
   );
+  const [appVersion, setAppVersion] = useState<string>("unknown");
 
   useEffect(() => {
     let isCancelled = false;
@@ -22,6 +23,7 @@ export default function App() {
       }
       setDeploymentMode(config.mode);
       setInstallMode(config.installMode);
+      setAppVersion(config.appVersion);
     });
 
     return () => {
@@ -41,7 +43,6 @@ export default function App() {
       >
         {deploymentMode}
       </button>
-      <span className="text-bd-text-muted">Install: {installMode}</span>
     </div>
   );
 
@@ -58,6 +59,8 @@ export default function App() {
     <>
       <AppShell
         deploymentMode={deploymentMode}
+        installMode={installMode}
+        appVersion={appVersion}
         onLogout={() => {
           void logout().finally(() => {
             setScreen("auth");

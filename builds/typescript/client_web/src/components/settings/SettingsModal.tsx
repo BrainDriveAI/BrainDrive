@@ -43,6 +43,8 @@ type SettingsPatch = Partial<Pick<GatewaySettings, "default_model" | "active_pro
 
 type SettingsModalProps = {
   mode?: "local" | "managed";
+  installMode?: "local" | "quickstart" | "prod" | "unknown";
+  appVersion?: string;
   onClose: () => void;
 };
 
@@ -60,7 +62,12 @@ const allTabs: TabDef[] = [
   { id: "export", label: "Export Library", icon: Download }
 ];
 
-export default function SettingsModal({ mode = "local", onClose }: SettingsModalProps) {
+export default function SettingsModal({
+  mode = "local",
+  installMode = "unknown",
+  appVersion = "unknown",
+  onClose,
+}: SettingsModalProps) {
   const tabs = allTabs.filter((tab) => {
     if (tab.managedOnly && mode !== "managed") return false;
     if (tab.localOnly && mode !== "local") return false;
@@ -283,12 +290,14 @@ export default function SettingsModal({ mode = "local", onClose }: SettingsModal
               modelCatalogError={modelCatalogError}
               onSaveSettings={saveSettings}
               onSaveCredential={saveCredential}
-              onDownloadExport={handleDownloadExport}
-              isExporting={isExporting}
-              exportError={exportError}
-              onRefreshCatalog={() => setCatalogRefreshKey((k) => k + 1)}
-              onNavigateToTab={setActiveTab}
-            />
+            onDownloadExport={handleDownloadExport}
+            isExporting={isExporting}
+            exportError={exportError}
+            installMode={installMode}
+            appVersion={appVersion}
+            onRefreshCatalog={() => setCatalogRefreshKey((k) => k + 1)}
+            onNavigateToTab={setActiveTab}
+          />
           </div>
         </div>
       </div>
@@ -347,6 +356,8 @@ export default function SettingsModal({ mode = "local", onClose }: SettingsModal
             onDownloadExport={handleDownloadExport}
             isExporting={isExporting}
             exportError={exportError}
+            installMode={installMode}
+            appVersion={appVersion}
             onNavigateToTab={setActiveTab}
           />
         </div>
@@ -425,6 +436,8 @@ function TabContent({
   onDownloadExport,
   isExporting,
   exportError,
+  installMode,
+  appVersion,
   onRefreshCatalog,
   onNavigateToTab,
 }: {
@@ -443,6 +456,8 @@ function TabContent({
   onDownloadExport: () => Promise<void>;
   isExporting: boolean;
   exportError: string | null;
+  installMode: "local" | "quickstart" | "prod" | "unknown";
+  appVersion: string;
   onRefreshCatalog: () => void;
   onNavigateToTab: (tab: SettingsTab) => void;
 }) {
@@ -488,6 +503,8 @@ function TabContent({
       return (
         <ExportSection
           mode={mode}
+          installMode={installMode}
+          appVersion={appVersion}
           onDownload={onDownloadExport}
           isExporting={isExporting}
           exportError={exportError}
@@ -1768,17 +1785,24 @@ function AccountSection() {
 
 function ExportSection({
   mode,
+  installMode,
+  appVersion,
   onDownload,
   isExporting,
   exportError,
 }: {
   mode: "local" | "managed";
+  installMode: "local" | "quickstart" | "prod" | "unknown";
+  appVersion: string;
   onDownload: () => Promise<void>;
   isExporting: boolean;
   exportError: string | null;
 }) {
+  const installLabel = formatInstallModeLabel(installMode);
+  const versionLabel = appVersion.trim().length > 0 ? appVersion : "unknown";
+
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-full flex-col gap-6">
       <div>
         <h3 className="font-heading text-base font-semibold text-bd-text-heading">
           Export Library
@@ -1840,6 +1864,26 @@ function ExportSection({
           </span>
         </div>
       )}
+
+      <div className="mt-auto rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2.5">
+        <div className="flex flex-wrap items-center gap-4 text-xs text-bd-text-muted">
+          <span>Install Type: {installLabel}</span>
+          <span>App Version: {versionLabel}</span>
+        </div>
+      </div>
     </div>
   );
+}
+
+function formatInstallModeLabel(mode: "local" | "quickstart" | "prod" | "unknown"): string {
+  switch (mode) {
+    case "quickstart":
+      return "quickstart";
+    case "prod":
+      return "production";
+    case "local":
+      return "local";
+    default:
+      return "unknown";
+  }
 }

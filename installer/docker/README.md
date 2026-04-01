@@ -4,9 +4,9 @@ This directory contains the production-oriented Docker setup for BrainDrive.
 
 ## Supported launch points
 You can run installer commands from any of these directories:
-- Repo root (e.g. `./scripts/install.sh local`)
-- Installer root (e.g. `./installer/scripts/install.sh local`)
-- This directory (e.g. `./scripts/install.sh local`)
+- Repo root (e.g. `./scripts/install.sh local` or `./scripts/start.sh dev`)
+- Installer root (e.g. `./installer/scripts/install.sh local` or `./installer/scripts/start.sh dev`)
+- This directory (e.g. `./scripts/install.sh local` or `./scripts/start.sh dev`)
 
 ## GitHub Bootstrap (No Clone)
 For non-technical users, publish and use the bootstrap scripts from this repo:
@@ -87,10 +87,34 @@ For local smoke testing from source (builds images from this repo):
 Local mode builds images from this repo (`Dockerfile.app` + `Dockerfile.edge`) and does not require registry pull access.
 By default, first signup is allowed from any host/IP in this installer profile (`PAA_AUTH_ALLOW_FIRST_SIGNUP_ANY_IP=true`).
 
+## Developer hot-reload mode
+For day-to-day development with fast feedback loops:
+1. Prepare `installer/docker/.env` (run install once if needed to generate secrets key).
+2. Start dev mode:
+   - Repo root: `./scripts/start.sh dev`
+   - Installer root: `./scripts/start.sh dev`
+   - Docker installer dir: `./scripts/start.sh dev`
+3. Open `http://127.0.0.1:5073` (default bind).
+
+How dev mode works:
+- Backend runs with `tsx watch` against mounted source.
+- Web client runs Vite dev server with HMR.
+- API calls proxy from Vite to backend (`/api` -> app service).
+- Shared memory/secrets volumes are reused (`braindrive_memory`, `braindrive_secrets`).
+- Startup update checks are not used in dev mode.
+
+Optional LAN access for dev UI:
+- Set `BRAINDRIVE_DEV_BIND_HOST=0.0.0.0` in `.env`, restart dev mode, then open `http://<this-machine-ip>:5073`.
+
+If file watching is unreliable (WSL/network mounts), enable polling in `.env`:
+- `BRAINDRIVE_DEV_CHOKIDAR_POLLING=true`
+- `BRAINDRIVE_DEV_WATCHPACK_POLLING=true`
+
 ## Files
 - `compose.prod.yml`: production stack (app + edge, TLS via Caddy).
 - `compose.quickstart.yml`: image-based local HTTP stack (no DNS/TLS requirement).
 - `compose.local.yml`: local stack (HTTP on `${BRAINDRIVE_LOCAL_BIND_HOST:-127.0.0.1}:8080`; set `0.0.0.0` for LAN access).
+- `compose.dev.yml`: developer hot-reload stack (Vite UI on `${BRAINDRIVE_DEV_BIND_HOST:-127.0.0.1}:${BRAINDRIVE_DEV_PORT:-5073}`).
 - `.env.example`: required/optional runtime values.
 - `Caddyfile`: production routing and TLS.
 - `Caddyfile.local`: local HTTP routing.
@@ -154,6 +178,8 @@ Start in quickstart/prod now runs startup update policy checks before compose up
 - Upgrade (quickstart): `./scripts/upgrade.sh quickstart`
 - Start (source-build local): `./scripts/start.sh local`
 - Stop (source-build local): `./scripts/stop.sh local`
+- Start (developer hot reload): `./scripts/start.sh dev`
+- Stop (developer hot reload): `./scripts/stop.sh dev`
 - Upgrade (prod): `./scripts/upgrade.sh prod`
 - Check update now (without start):
   - `./scripts/check-update.sh quickstart`
@@ -173,6 +199,8 @@ Start in quickstart/prod now runs startup update policy checks before compose up
   - Stop quickstart: `./scripts/stop.ps1 quickstart`
   - Start local source-build: `./scripts/start.ps1 local`
   - Stop local source-build: `./scripts/stop.ps1 local`
+  - Start developer hot reload: `./scripts/start.ps1 dev`
+  - Stop developer hot reload: `./scripts/stop.ps1 dev`
   - Install: `./scripts/install.ps1`
   - Upgrade: `./scripts/upgrade.ps1`
   - Check update now:
