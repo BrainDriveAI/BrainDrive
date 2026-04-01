@@ -431,7 +431,6 @@ export default function Sidebar({
       </div>
 
       <div className="mt-auto">
-        <Separator className="bg-bd-border" />
         <div ref={profileMenuRef} className="relative px-2 pb-2 pt-2">
           {isProfileMenuOpen ? (
             <ProfileMenu

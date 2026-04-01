@@ -137,15 +137,15 @@ export default function Composer({
 
   const containerClassName =
     layout === "mobile-fixed"
-      ? "pointer-events-auto border-t border-bd-border bg-bd-bg-chat/96 px-4 pb-5 pt-3 shadow-[0_-12px_32px_rgba(1,2,8,0.55)] backdrop-blur-sm"
-      : "z-20 shrink-0 border-t border-bd-border bg-bd-bg-chat/96 px-4 pb-5 pt-3 backdrop-blur-sm sm:px-6";
+      ? "pointer-events-auto border-t border-bd-border bg-bd-bg-chat/96 px-4 pb-2 pt-3 shadow-[0_-12px_32px_rgba(1,2,8,0.55)] backdrop-blur-sm"
+      : "z-20 shrink-0 border-t border-bd-border bg-bd-bg-chat/96 px-4 pb-2 pt-3 backdrop-blur-sm sm:px-6";
 
   return (
     <div
       ref={wrapperRef}
       className={containerClassName}
       style={{
-        paddingBottom: "calc(var(--safe-area-bottom) + 1.25rem)",
+        paddingBottom: "calc(var(--safe-area-bottom) + 0.5rem)",
         paddingLeft: "max(1rem, var(--safe-area-left))",
         paddingRight: "max(1rem, var(--safe-area-right))"
       }}
@@ -245,6 +245,9 @@ export default function Composer({
           )}
         </div>
       </div>
+      <p className="px-2 pt-1.5 text-center text-[11px] text-bd-text-muted/60">
+        BrainDrive can make mistakes. Verify important information.
+      </p>
     </div>
   );
 }
