@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from "react";
 
 import { getSession } from "@/api/auth-adapter";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import type { Project, ProjectFile, UserProfile } from "@/types/ui";
 
 import ProfileMenu from "./ProfileMenu";

@@ -448,7 +448,7 @@ function TabContent({
   switch (tab) {
     case "model":
       return isBrainDriveActive ? (
-        <BrainDriveDefaultSection settings={settings} isLoadingSettings={isLoadingSettings} settingsError={settingsError} />
+        <BrainDriveDefaultSection isLoadingSettings={isLoadingSettings} settingsError={settingsError} />
       ) : (
         <ModelSection
           mode={mode}
@@ -492,11 +492,9 @@ function TabContent({
 }
 
 function BrainDriveDefaultSection({
-  settings,
   isLoadingSettings,
   settingsError,
 }: {
-  settings: GatewaySettings | null;
   isLoadingSettings: boolean;
   settingsError: string | null;
 }) {
