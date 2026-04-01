@@ -9,6 +9,7 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
+      BRAINDRIVE_INSTALL_MODE: local
       HOST: 0.0.0.0
       PORT: 8787
       MCP_SERVERS_FILE: mcp/servers.full-mcp.json

@@ -23,6 +23,7 @@ import {
 } from "../auth/local-jwt-auth.js";
 import { evaluateSignupBootstrapAccess } from "../auth/signup-bootstrap.js";
 import {
+  ensureSystemAppConfig,
   loadAdapterConfig,
   loadPreferences,
   loadRuntimeConfig,
@@ -176,6 +177,15 @@ export async function buildServer(rootDir = process.cwd()) {
   auditLog("startup.phase", { phase: "memory" });
   await ensureMemoryLayout(rootDir, runtimeConfig.memory_root);
   await ensureGitReady(runtimeConfig.memory_root);
+  const appConfigSync = await ensureSystemAppConfig(
+    runtimeConfig.memory_root,
+    runtimeConfig.install_mode
+  );
+  auditLog("startup.install_mode", {
+    install_mode: runtimeConfig.install_mode,
+    app_config_path: appConfigSync.path,
+    app_config_updated: appConfigSync.updated,
+  });
 
   auditLog("startup.phase", { phase: "preferences" });
   const preferences = await loadPreferences(runtimeConfig.memory_root);
@@ -678,6 +688,7 @@ export async function buildServer(rootDir = process.cwd()) {
 
   app.get("/config", async () => ({
     mode: runtimeConfig.auth_mode === "managed" ? "managed" : "local",
+    install_mode: runtimeConfig.install_mode,
     gateway_url: "/api",
     features: {
       approvals: true,

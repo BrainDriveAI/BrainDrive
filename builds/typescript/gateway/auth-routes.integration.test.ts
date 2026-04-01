@@ -20,6 +20,12 @@ vi.mock("../config.js", () => ({
   loadAdapterConfig: vi.fn(async () => mockAdapterConfig),
   loadPreferences: vi.fn(async () => mockPreferences),
   ensureMemoryLayout: vi.fn(async () => {}),
+  ensureSystemAppConfig: vi.fn(async () => ({
+    path: "/tmp/app-config.json",
+    backupPath: "/tmp/app-config.bak.json",
+    installMode: "local",
+    updated: false,
+  })),
   readBootstrapPrompt: vi.fn(async () => "You are a test bootstrap prompt."),
   savePreferences: vi.fn(async (_memoryRoot: string, nextPreferences: Preferences) => {
     mockPreferences = nextPreferences;
@@ -60,6 +66,7 @@ async function createTestServer(options: { bootstrapToken?: string } = {}): Prom
     provider_adapter: "openai-compatible",
     conversation_store: "markdown",
     auth_mode: "local",
+    install_mode: "local",
     tool_sources: [],
     bind_address: "127.0.0.1",
     port: 8787,
