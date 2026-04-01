@@ -285,6 +285,7 @@ export default function SettingsModal({ mode = "local", onClose }: SettingsModal
               isExporting={isExporting}
               exportError={exportError}
               onRefreshCatalog={() => setCatalogRefreshKey((k) => k + 1)}
+              onNavigateToTab={setActiveTab}
             />
           </div>
         </div>
@@ -344,6 +345,7 @@ export default function SettingsModal({ mode = "local", onClose }: SettingsModal
             onDownloadExport={handleDownloadExport}
             isExporting={isExporting}
             exportError={exportError}
+            onNavigateToTab={setActiveTab}
           />
         </div>
       </div>
@@ -422,6 +424,7 @@ function TabContent({
   isExporting,
   exportError,
   onRefreshCatalog,
+  onNavigateToTab,
 }: {
   tab: SettingsTab;
   mode: "local" | "managed";
@@ -439,6 +442,7 @@ function TabContent({
   isExporting: boolean;
   exportError: string | null;
   onRefreshCatalog: () => void;
+  onNavigateToTab: (tab: SettingsTab) => void;
 }) {
   const activeProfile = settings?.provider_profiles.find(
     (p) => p.id === (settings?.active_provider_profile ?? settings?.default_provider_profile)
@@ -448,7 +452,7 @@ function TabContent({
   switch (tab) {
     case "model":
       return isBrainDriveActive ? (
-        <BrainDriveDefaultSection isLoadingSettings={isLoadingSettings} settingsError={settingsError} />
+        <BrainDriveDefaultSection settings={settings} isLoadingSettings={isLoadingSettings} settingsError={settingsError} onSaveCredential={onSaveCredential} />
       ) : (
         <ModelSection
           mode={mode}
@@ -471,6 +475,7 @@ function TabContent({
           settingsError={settingsError}
           onSaveSettings={onSaveSettings}
           onSaveCredential={onSaveCredential}
+          onNavigateToTab={onNavigateToTab}
         />
       );
     case "profile":
@@ -492,12 +497,27 @@ function TabContent({
 }
 
 function BrainDriveDefaultSection({
+  settings,
   isLoadingSettings,
   settingsError,
+  onSaveCredential,
 }: {
+  settings: GatewaySettings | null;
   isLoadingSettings: boolean;
   settingsError: string | null;
+  onSaveCredential: (patch: GatewayCredentialUpdateRequest) => Promise<void>;
 }) {
+  const [apiKey, setApiKey] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [keySaved, setKeySaved] = useState(false);
+  const [showUpdateKey, setShowUpdateKey] = useState(false);
+
+  const activeProfile = settings?.provider_profiles.find(
+    (p) => p.id === (settings?.active_provider_profile ?? settings?.default_provider_profile)
+  );
+  const isFirstTime = activeProfile?.credential_mode === "unset";
+
   if (isLoadingSettings) {
     return <div className="py-8 text-center text-sm text-bd-text-muted">Loading...</div>;
   }
@@ -509,14 +529,106 @@ function BrainDriveDefaultSection({
     );
   }
 
+  if (isFirstTime && !keySaved) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h3 className="font-heading text-base font-semibold text-bd-text-heading">
+            BrainDrive
+          </h3>
+          <p className="mt-1 text-sm text-bd-text-muted">
+            Currently powered by Claude Sonnet 4.6
+          </p>
+        </div>
+
+        <div className="space-y-4">
+          {/* Step 1 */}
+          <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary p-4">
+            <div className="flex items-start gap-3">
+              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-bd-bg-secondary text-xs font-bold text-bd-text-muted">1</div>
+              <div className="flex-1">
+                <div className="text-sm font-medium text-bd-text-heading">Purchase credits</div>
+                <p className="mt-1 text-xs text-bd-text-muted">Add credits to start chatting.</p>
+                <div className="mt-3 flex gap-2">
+                  <button type="button" className="flex-1 rounded-lg border border-bd-amber px-3 py-2.5 text-sm font-medium text-bd-amber transition-colors hover:bg-bd-amber hover:text-bd-bg-primary">$5</button>
+                  <button type="button" className="flex-1 rounded-lg border border-bd-amber px-3 py-2.5 text-sm font-medium text-bd-amber transition-colors hover:bg-bd-amber hover:text-bd-bg-primary">$10</button>
+                  <button type="button" className="flex-1 rounded-lg border border-bd-amber px-3 py-2.5 text-sm font-medium text-bd-amber transition-colors hover:bg-bd-amber hover:text-bd-bg-primary">$25</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Step 2 */}
+          <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary p-4">
+            <div className="flex items-start gap-3">
+              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-bd-bg-secondary text-xs font-bold text-bd-text-muted">2</div>
+              <div className="flex-1">
+                <div className="text-sm font-medium text-bd-text-heading">Enter your BrainDrive API key</div>
+                <p className="mt-1 text-xs text-bd-text-muted">Paste the API key from your purchase confirmation.</p>
+                <div className="mt-3 space-y-2">
+                  <input
+                    type="password"
+                    value={apiKey}
+                    onChange={(e) => { setApiKey(e.target.value); setSaveError(null); }}
+                    placeholder="Paste your BrainDrive API key"
+                    className="h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+                  />
+                  {saveError && (
+                    <div className="flex items-center gap-1.5 text-xs text-red-400">
+                      <AlertCircle size={12} />
+                      {saveError}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    disabled={isSaving || apiKey.trim().length === 0}
+                    onClick={() => {
+                      setIsSaving(true);
+                      setSaveError(null);
+                      void onSaveCredential({
+                        provider_profile: activeProfile!.id,
+                        mode: "secret_ref",
+                        api_key: apiKey.trim(),
+                        secret_ref: activeProfile!.credential_ref ?? undefined,
+                        required: true,
+                        set_active_provider: true,
+                      })
+                        .then(() => { setApiKey(""); setKeySaved(true); })
+                        .catch((err) => { setSaveError(err instanceof Error ? err.message : String(err)); })
+                        .finally(() => { setIsSaving(false); });
+                    }}
+                    className="rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isSaving ? "Saving..." : "Save API Key"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Step 3 */}
+          <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary p-4">
+            <div className="flex items-start gap-3">
+              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-bd-bg-secondary text-xs font-bold text-bd-text-muted">3</div>
+              <div className="flex-1">
+                <div className="text-sm font-medium text-bd-text-heading">Start chatting</div>
+                <p className="mt-1 text-xs text-bd-text-muted">Your credit balance will update here in real time and you can add additional credits at anytime.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div>
         <h3 className="font-heading text-base font-semibold text-bd-text-heading">
-          Default Model
+          BrainDrive
         </h3>
         <p className="mt-1 text-sm text-bd-text-muted">
-          BrainDrive Default — powered by Claude Sonnet 4.6
+          Currently powered by Claude Sonnet 4.6
         </p>
       </div>
 
@@ -555,6 +667,63 @@ function BrainDriveDefaultSection({
             Custom amount
           </button>
         </div>
+
+        {showUpdateKey ? (
+          <div className="border-t border-bd-border pt-3 space-y-2">
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => { setApiKey(e.target.value); setSaveError(null); }}
+              placeholder="Enter new key to replace existing"
+              className="h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+            />
+            {saveError && (
+              <div className="flex items-center gap-1.5 text-xs text-red-400">
+                <AlertCircle size={12} />
+                {saveError}
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={isSaving || apiKey.trim().length === 0}
+                onClick={() => {
+                  setIsSaving(true);
+                  setSaveError(null);
+                  void onSaveCredential({
+                    provider_profile: activeProfile!.id,
+                    mode: "secret_ref",
+                    api_key: apiKey.trim(),
+                    secret_ref: activeProfile!.credential_ref ?? undefined,
+                    required: true,
+                    set_active_provider: true,
+                  })
+                    .then(() => { setApiKey(""); setShowUpdateKey(false); })
+                    .catch((err) => { setSaveError(err instanceof Error ? err.message : String(err)); })
+                    .finally(() => { setIsSaving(false); });
+                }}
+                className="rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSaving ? "Saving..." : "Save API Key"}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowUpdateKey(false); setApiKey(""); setSaveError(null); }}
+                className="rounded-lg border border-bd-border px-3 py-1.5 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowUpdateKey(true)}
+            className="text-xs text-bd-text-muted transition-colors hover:text-bd-text-secondary hover:underline"
+          >
+            Update API key
+          </button>
+        )}
       </div>
 
       <p className="text-xs text-bd-text-muted">
@@ -571,8 +740,10 @@ function ProviderSection({
   settingsError,
   onSaveSettings,
   onSaveCredential,
+  onNavigateToTab,
 }: {
   mode: "local" | "managed";
+  onNavigateToTab: (tab: SettingsTab) => void;
 } & SettingsDataProps) {
   const [selectedProfile, setSelectedProfile] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -718,11 +889,11 @@ function ProviderSection({
                         "text-sm font-medium",
                         isSelected ? "text-bd-text-primary" : "text-bd-text-secondary"
                       ].join(" ")}>
-                        {isBrainDriveModels ? "BrainDrive Models" : isOllama ? "Ollama" : "OpenRouter"}
+                        {isBrainDriveModels ? "BrainDrive" : isOllama ? "Ollama" : "OpenRouter"}
                       </div>
                       <div className="text-xs text-bd-text-muted">
                         {isBrainDriveModels
-                          ? <>Built-in AI models — add $5 to start chatting</>
+                          ? <>Currently powered by Claude Sonnet 4.6</>
                           : isOllama
                           ? <>Runs on your computer, free — <a href="https://ollama.com" target="_blank" rel="noopener noreferrer" className="text-bd-text-muted hover:text-bd-text-secondary hover:underline" onClick={(e) => e.stopPropagation()}>ollama.com</a></>
                           : <>Cloud-based, requires API key — <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="text-bd-text-muted hover:text-bd-text-secondary hover:underline" onClick={(e) => e.stopPropagation()}>openrouter.ai/keys</a></>}
@@ -735,9 +906,14 @@ function ProviderSection({
                       "border border-t-0 border-bd-amber bg-bd-bg-tertiary px-4 pb-3 pt-2 rounded-b-lg"
                     ].join(" ")}>
                       {isBrainDriveModels ? (
-                        <div className="text-xs text-bd-text-muted">
-                          Powered by Claude Sonnet 4.6. Manage credits in the Default Model tab.
-                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); onNavigateToTab("model"); }}
+                          className="flex items-center gap-1 text-sm font-medium text-bd-amber transition-colors hover:text-bd-amber-hover"
+                        >
+                          Add Credits
+                          <span aria-hidden="true">&rarr;</span>
+                        </button>
                       ) : (
                         <>
                           {isOllama && (
