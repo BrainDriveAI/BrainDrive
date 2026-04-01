@@ -284,6 +284,7 @@ export default function AppShell({ children, deploymentMode = "local", onLogout 
               messageMetadata={messageMetadata}
               contentOverride={documentContent}
               onSendMessage={handleReturnToChat}
+              onOpenSettings={() => setIsSettingsOpen(true)}
             />
           )}
         </div>

@@ -46,6 +46,7 @@ type ChatPanelProps = {
   messageMetadata?: Record<string, unknown>;
   contentOverride?: ReactNode;
   onSendMessage?: () => void;
+  onOpenSettings?: () => void;
 };
 
 function mapConversationMessages(conversation: ConversationDetail): Message[] {
@@ -68,7 +69,8 @@ export default function ChatPanel({
   onConversationComplete,
   messageMetadata,
   contentOverride,
-  onSendMessage
+  onSendMessage,
+  onOpenSettings
 }: ChatPanelProps) {
   const [attachment, setAttachment] = useState<AttachedFile | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -182,6 +184,12 @@ export default function ChatPanel({
   const chatError = historyError ?? error?.message ?? null;
   const visibleChatError =
     chatError && chatError !== dismissedError ? chatError : null;
+  const isProviderError = visibleChatError != null && (
+    visibleChatError.includes("credentials") ||
+    visibleChatError.includes("could not be reached") ||
+    visibleChatError.includes("provider") ||
+    visibleChatError.includes("model")
+  );
   const shouldShowEmptyState = isEmpty && messages.length === 0 && !isLoading;
   const shouldShowConversation = contentOverride === undefined;
 
@@ -345,6 +353,7 @@ export default function ChatPanel({
               {visibleChatError && (
                 <ErrorMessage
                   message={visibleChatError}
+                  onOpenSettings={isProviderError ? onOpenSettings : undefined}
                   onRetry={() => {
                     setHistoryError(null);
                     setDismissedError(visibleChatError);
