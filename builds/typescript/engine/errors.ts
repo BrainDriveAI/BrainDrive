@@ -30,7 +30,7 @@ function sanitizeProviderMessage(message: string): string {
     message.includes("401") ||
     message.includes("403")
   ) {
-    return "The model provider credentials were rejected";
+    return "Model provider credentials were rejected — check your API key in Settings";
   }
 
   if (
@@ -40,7 +40,7 @@ function sanitizeProviderMessage(message: string): string {
       message.includes("unsupported") ||
       message.includes("no endpoints"))
   ) {
-    return "The configured model is unavailable from the provider";
+    return "The configured model is unavailable — check your model selection in Settings";
   }
 
   if (
@@ -71,7 +71,7 @@ function sanitizeProviderMessage(message: string): string {
     message.includes("network") ||
     message.includes("connect")
   ) {
-    return "The model provider could not be reached";
+    return "The model provider could not be reached — check your connection and provider settings";
   }
 
   return "The model provider failed to complete the request";

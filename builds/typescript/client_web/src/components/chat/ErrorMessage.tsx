@@ -1,15 +1,17 @@
-import { AlertCircle, RefreshCw, X } from "lucide-react";
+import { AlertCircle, RefreshCw, Settings, X } from "lucide-react";
 
 type ErrorMessageProps = {
   message: string;
   onRetry?: () => void;
   onDismiss?: () => void;
+  onOpenSettings?: () => void;
 };
 
 export default function ErrorMessage({
   message,
   onRetry,
-  onDismiss
+  onDismiss,
+  onOpenSettings
 }: ErrorMessageProps) {
   return (
     <div className="mx-auto w-full max-w-[780px] py-2">
@@ -22,6 +24,16 @@ export default function ErrorMessage({
         <div className="min-w-0 flex-1">
           <p className="text-sm text-bd-text-primary">{message}</p>
           <div className="mt-2 flex gap-2">
+            {onOpenSettings && (
+              <button
+                type="button"
+                onClick={onOpenSettings}
+                className="flex items-center gap-1.5 rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover"
+              >
+                <Settings size={12} strokeWidth={1.5} />
+                Open Settings
+              </button>
+            )}
             {onRetry && (
               <button
                 type="button"
