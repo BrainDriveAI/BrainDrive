@@ -189,7 +189,10 @@ Start in quickstart/prod now runs startup update policy checks before compose up
 - Upgrade with explicit refs (one-shot, without editing `.env`):
   - `BRAINDRIVE_APP_REF=ghcr.io/braindriveai/braindrive-app@sha256:<digest> BRAINDRIVE_EDGE_REF=ghcr.io/braindriveai/braindrive-edge@sha256:<digest> ./scripts/upgrade.sh`
 - Backup: `./scripts/backup.sh`
-- Restore: `./scripts/restore.sh memory <backup-file>` or `./scripts/restore.sh secrets <backup-file>`
+- Restore:
+  - Quickstart: `./scripts/restore.sh memory <backup-file> quickstart`
+  - Prod: `./scripts/restore.sh memory <backup-file> prod`
+  - Local: `./scripts/restore.sh memory <backup-file> local`
 - Reset new-user test state (with confirmation): `./scripts/reset-new-user.sh`
   - Add `--yes` to skip prompt
   - Add `--fresh-clone` to also remove local `.env` and local images
@@ -211,7 +214,10 @@ Start in quickstart/prod now runs startup update policy checks before compose up
     - One-shot refs:
       - `$env:BRAINDRIVE_APP_REF='ghcr.io/braindriveai/braindrive-app@sha256:<digest>'; $env:BRAINDRIVE_EDGE_REF='ghcr.io/braindriveai/braindrive-edge@sha256:<digest>'; ./scripts/upgrade.ps1`
   - Backup: `./scripts/backup.ps1`
-  - Restore: `./scripts/restore.ps1 -Target memory -BackupFile <backup-file>`
+  - Restore:
+    - Quickstart: `./scripts/restore.ps1 -Target memory -BackupFile <backup-file> -Mode quickstart`
+    - Prod: `./scripts/restore.ps1 -Target memory -BackupFile <backup-file> -Mode prod`
+    - Local: `./scripts/restore.ps1 -Target memory -BackupFile <backup-file> -Mode local`
   - Reset new-user state: `./scripts/reset-new-user.ps1` (supports `-Yes` and `-FreshClone`)
 
 ## Release helper scripts (maintainer)

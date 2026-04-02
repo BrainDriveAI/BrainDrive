@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -lt 2 || $# -gt 3 ]]; then
-  echo "Usage: ./scripts/restore.sh <memory|secrets> <backup-file> [prod|local]"
+  echo "Usage: ./scripts/restore.sh <memory|secrets> <backup-file> [quickstart|prod|local]"
   exit 1
 fi
 
@@ -10,8 +10,8 @@ TARGET="$1"
 BACKUP_FILE="$2"
 MODE="${3:-prod}"
 
-if [[ "${MODE}" != "prod" && "${MODE}" != "local" ]]; then
-  echo "Mode must be prod or local"
+if [[ "${MODE}" != "quickstart" && "${MODE}" != "prod" && "${MODE}" != "local" ]]; then
+  echo "Mode must be quickstart, prod, or local"
   exit 1
 fi
 
@@ -38,7 +38,9 @@ case "${TARGET}" in
 esac
 
 COMPOSE_FILE="compose.prod.yml"
-if [[ "${MODE}" == "local" ]]; then
+if [[ "${MODE}" == "quickstart" ]]; then
+  COMPOSE_FILE="compose.quickstart.yml"
+elif [[ "${MODE}" == "local" ]]; then
   COMPOSE_FILE="compose.local.yml"
 fi
 
