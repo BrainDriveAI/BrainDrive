@@ -33,15 +33,31 @@ Other AI tools chat. BrainDrive partners with you to get things done.
 
 Prerequisites: [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker Engine + Compose on Linux).
 
+Quickstart uses published Docker images (no local source build required).
+
+macOS/Linux:
 ```bash
-git clone https://github.com/BrainDriveAI/braindrive.git
-cd braindrive
-./scripts/install.sh local
+curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/install.sh | bash
+```
+
+Windows PowerShell:
+```powershell
+irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/install.ps1 | iex
 ```
 
 Open [http://127.0.0.1:8080](http://127.0.0.1:8080), create your account, and start talking to your BrainDrive.
 
-> **Windows:** Use `.\scripts\install.ps1 local` in PowerShell.
+Quick update:
+
+macOS/Linux:
+```bash
+curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/update.sh | bash
+```
+
+Windows PowerShell:
+```powershell
+irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/update.ps1 | iex
+```
 
 ## How It Works
 
@@ -56,13 +72,21 @@ Open [http://127.0.0.1:8080](http://127.0.0.1:8080), create your account, and st
 
 BrainDrive implements the [Personal AI Architecture](https://github.com/BrainDriveAI/personal-ai-architecture) (PAA) — an open spec for user-owned AI systems. Every component is swappable. Your Memory is the foundation; everything else can be replaced.
 
-```
-You --> Web Client --> Gateway (Fastify) --> Agent Loop --> Models
-                          |                     |
-                          +-- Auth               +-- Tools (MCP)
-                          |
-                          +-- Your Memory
-                              (files on your machine)
+```mermaid
+flowchart LR
+    C[Clients external] -->|Gateway API| G[Gateway component]
+    G -->|Auth middleware check| A[Auth component]
+    A -->|POST engine chat and SSE stream internal contract D137| E[Agent Loop component]
+    E -->|Model API| M[Models external]
+
+    G -->|Conversation store tool D152| CST[Conversation Store Tool internal]
+    CST -->|Read and write conversations| YM[Your Memory platform]
+
+    E -->|Model-driven tool calls| TR[Tool Runtime MCP CLI Native]
+    TR -->|Memory tools read write edit delete search list history| YM
+    TR -->|External tools| EX[External services and external memory]
+
+    A -.->|Authorizes tool actions by actor policy| TR
 ```
 
 The system runs as two Docker containers: an app server (Gateway + tools) and an edge proxy (web client + Caddy). Your Memory is stored as plain files in a Docker volume — fully portable, fully yours.
@@ -71,12 +95,12 @@ The system runs as two Docker containers: an app server (Gateway + tools) and an
 
 | Command | What it does |
 |---------|-------------|
-| `./scripts/install.sh local` | First-time setup — builds images and starts everything |
-| `./scripts/start.sh` | Start after stopping |
-| `./scripts/stop.sh` | Stop without removing data |
-| `./scripts/upgrade.sh local` | Rebuild from latest source |
-| `./scripts/backup.sh` | Back up Your Memory and secrets |
-| `./scripts/restore.sh memory <file>` | Restore from backup |
+| `./installer/docker/scripts/install.sh quickstart` | First-time quickstart setup — pulls images and starts everything |
+| `./installer/docker/scripts/start.sh quickstart` | Start quickstart after stopping |
+| `./installer/docker/scripts/stop.sh quickstart` | Stop quickstart without removing data |
+| `./installer/docker/scripts/upgrade.sh quickstart` | Upgrade quickstart to latest published images |
+| `./installer/docker/scripts/backup.sh` | Back up Your Memory and secrets |
+| `./installer/docker/scripts/restore.sh memory <file> quickstart` | Restore from backup (quickstart stack) |
 
 See [`installer/docker/README.md`](installer/docker/README.md) for production deployment, Windows equivalents, and advanced operations.
 
@@ -87,7 +111,7 @@ braindrive/
 ├── builds/typescript/       # Core: gateway, engine, auth, memory, web client
 ├── builds/mcp_release/      # MCP tool services
 ├── installer/docker/        # Docker compose, Dockerfiles, Caddy config
-├── scripts/                 # Top-level lifecycle commands
+├── installer/docker/scripts/ # Canonical lifecycle and release scripts
 └── docs/                    # Documentation
 ```
 

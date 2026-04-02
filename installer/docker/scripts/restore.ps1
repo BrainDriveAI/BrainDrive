@@ -5,7 +5,7 @@
   [Parameter(Mandatory = $true)]
   [string]$BackupFile,
 
-  [ValidateSet("prod", "local")]
+  [ValidateSet("quickstart", "prod", "local")]
   [string]$Mode = "prod"
 )
 
@@ -15,7 +15,7 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $rootDir = Split-Path -Parent $scriptDir
 Set-Location $rootDir
 
-$composeFile = if ($Mode -eq "local") { "compose.local.yml" } else { "compose.prod.yml" }
+$composeFile = if ($Mode -eq "quickstart") { "compose.quickstart.yml" } elseif ($Mode -eq "local") { "compose.local.yml" } else { "compose.prod.yml" }
 $volumeName = if ($Target -eq "memory") { "braindrive_memory" } else { "braindrive_secrets" }
 
 $resolvedBackupPath = (Resolve-Path $BackupFile).Path
