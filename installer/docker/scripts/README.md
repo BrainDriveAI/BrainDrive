@@ -47,6 +47,8 @@
 - `start.ps1`
 - `stop.sh`
 - `stop.ps1`
+- `support-bundle.sh`
+- `support-bundle.ps1`
 - `upgrade.sh`
 - `upgrade.ps1`
 - `verify-release-manifest.sh`
@@ -248,6 +250,28 @@ Arguments:
 
 Output:
 - `<volume>_<YYYYMMDD_HHMMSS>.tar.gz`
+
+### support-bundle (`support-bundle.sh`, `support-bundle.ps1`)
+
+What it does:
+- Collects support diagnostics into a user-shareable archive.
+- Captures docker compose logs (`--since <window>`) for stack services.
+- Captures runtime metadata (mode, compose file, versions, compose state).
+- Attempts optional health endpoint snapshots.
+- Copies persisted audit JSONL files from `braindrive_memory:/diagnostics/audit` when present.
+- Redacts common secret patterns before packaging.
+
+Usage:
+- Shell: `./installer/docker/scripts/support-bundle.sh [quickstart|prod|local|dev] [since-window] [output-dir]`
+- PowerShell: `.\installer\docker\scripts\support-bundle.ps1 [-Mode quickstart|prod|local|dev] [-SinceWindow 24h] [-OutputDir <path>] [-SkipHealth]`
+
+Arguments:
+- `Mode` (default: `quickstart`)
+- `SinceWindow` (default: `24h`)
+- `OutputDir` (default: `installer/docker/support-bundles`)
+
+Optional behavior:
+- Shell health snapshots can be disabled with `BRAINDRIVE_SUPPORT_BUNDLE_SKIP_HEALTH=true`
 
 ### restore (`restore.sh`, `restore.ps1`)
 

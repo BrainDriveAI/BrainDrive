@@ -52,7 +52,9 @@ type TestServerContext = {
   restoreEnv: () => void;
 };
 
-async function createTestServer(options: { bootstrapToken?: string } = {}): Promise<TestServerContext> {
+async function createTestServer(
+  options: { bootstrapToken?: string; authMode?: RuntimeConfig["auth_mode"] } = {}
+): Promise<TestServerContext> {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "paa-auth-int-"));
   const memoryRoot = path.join(tempRoot, "memory");
   const preferencesRoot = path.join(memoryRoot, "preferences");
@@ -65,7 +67,7 @@ async function createTestServer(options: { bootstrapToken?: string } = {}): Prom
     memory_root: memoryRoot,
     provider_adapter: "openai-compatible",
     conversation_store: "markdown",
-    auth_mode: "local",
+    auth_mode: options.authMode ?? "local",
     install_mode: "local",
     tool_sources: [],
     bind_address: "127.0.0.1",
@@ -233,5 +235,108 @@ describe.sequential("gateway auth route integration", () => {
 
     expect(statusCodes.slice(0, 5)).toEqual([400, 400, 400, 400, 400]);
     expect(statusCodes[5]).toBe(429);
+  });
+
+  it("rejects unauthenticated support bundle requests", async () => {
+    context = await createTestServer();
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/support/bundles",
+      payload: {},
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(parseJson<{ error: string }>(response.body).error).toBe("Unauthorized");
+  });
+
+  it("creates, lists, and downloads support bundles for authenticated local JWT sessions", async () => {
+    context = await createTestServer();
+
+    const signupResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/signup",
+      payload: {
+        identifier: "owner",
+        password: "password123",
+      },
+    });
+    expect(signupResponse.statusCode).toBe(201);
+    const tokenPayload = parseJson<{ access_token: string }>(signupResponse.body);
+
+    const createResponse = await context.app.inject({
+      method: "POST",
+      url: "/support/bundles",
+      headers: {
+        authorization: `Bearer ${tokenPayload.access_token}`,
+      },
+      payload: {
+        window_hours: 24,
+      },
+    });
+
+    expect(createResponse.statusCode).toBe(201);
+    const created = parseJson<{
+      scope: string;
+      file_name: string;
+      included_audit_files: number;
+      download_path: string;
+    }>(createResponse.body);
+    expect(created.scope).toBe("memory-only");
+    expect(created.file_name).toMatch(/^support-bundle-\d{13}\.tar\.gz$/);
+    expect(created.download_path).toBe(`/support/bundles/${encodeURIComponent(created.file_name)}`);
+
+    const listResponse = await context.app.inject({
+      method: "GET",
+      url: "/support/bundles",
+      headers: {
+        authorization: `Bearer ${tokenPayload.access_token}`,
+      },
+    });
+    expect(listResponse.statusCode).toBe(200);
+    const listed = parseJson<{
+      scope: string;
+      bundles: Array<{ file_name: string; size_bytes: number; updated_at: string }>;
+    }>(listResponse.body);
+    expect(listed.scope).toBe("memory-only");
+    expect(listed.bundles.some((entry) => entry.file_name === created.file_name)).toBe(true);
+
+    const downloadResponse = await context.app.inject({
+      method: "GET",
+      url: `/support/bundles/${created.file_name}`,
+      headers: {
+        authorization: `Bearer ${tokenPayload.access_token}`,
+      },
+    });
+    expect(downloadResponse.statusCode).toBe(200);
+    expect(downloadResponse.headers["content-type"]).toContain("application/gzip");
+    expect(downloadResponse.body.length).toBeGreaterThan(0);
+  });
+
+  it("denies support bundle endpoints in local-owner mode", async () => {
+    context = await createTestServer({ authMode: "local-owner" });
+
+    const localOwnerHeaders = {
+      "x-actor-id": "owner",
+      "x-actor-type": "owner",
+      "x-auth-mode": "local-owner",
+      "x-actor-permissions": JSON.stringify({
+        memory_access: true,
+        tool_access: true,
+        system_actions: true,
+        delegation: true,
+        approval_authority: true,
+        administration: true,
+      }),
+    };
+
+    const response = await context.app.inject({
+      method: "GET",
+      url: "/support/bundles",
+      headers: localOwnerHeaders,
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(parseJson<{ error: string }>(response.body).error).toBe("support_bundle_requires_local_jwt_auth");
   });
 });

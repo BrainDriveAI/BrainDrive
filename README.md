@@ -100,9 +100,25 @@ The system runs as two Docker containers: an app server (Gateway + tools) and an
 | `./installer/docker/scripts/stop.sh quickstart` | Stop quickstart without removing data |
 | `./installer/docker/scripts/upgrade.sh quickstart` | Upgrade quickstart to latest published images |
 | `./installer/docker/scripts/backup.sh` | Back up Your Memory and secrets |
+| `./installer/docker/scripts/support-bundle.sh quickstart 24h` | Create a redacted support bundle archive for sharing with support |
 | `./installer/docker/scripts/restore.sh memory <file> quickstart` | Restore from backup (quickstart stack) |
 
 See [`installer/docker/README.md`](installer/docker/README.md) for production deployment, Windows equivalents, and advanced operations.
+
+## Operator Quick Usage
+
+Support bundle script:
+
+- Linux/macOS/WSL:
+  - `./installer/docker/scripts/support-bundle.sh quickstart 24h`
+- Windows PowerShell:
+  - `.\installer\docker\scripts\support-bundle.ps1 -Mode quickstart -SinceWindow 24h`
+
+Gateway support-bundle API (local JWT auth mode only):
+
+- `POST /api/support/bundles` creates a memory-local support bundle archive.
+- `GET /api/support/bundles` lists generated support bundle archives.
+- `GET /api/support/bundles/:fileName` downloads a specific archive.
 
 ## Project Structure
 
