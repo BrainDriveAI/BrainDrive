@@ -1,6 +1,6 @@
 import path from "node:path";
 import { createReadStream, existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import Fastify from "fastify";
 import { z } from "zod";
 
@@ -37,11 +37,16 @@ import { classifyProviderError } from "../engine/errors.js";
 import { formatSseEvent } from "../engine/stream.js";
 import { ToolExecutor } from "../engine/tool-executor.js";
 import { commitMemoryChange, ensureGitReady } from "../git.js";
-import { auditLog } from "../logger.js";
+import { auditLog, configureAuditFileSink, disableAuditFileSink } from "../logger.js";
 import { ensureAuthState, saveAuthState } from "../memory/auth-state.js";
 import type { ConversationRepository } from "../memory/conversation-repository.js";
 import { MarkdownConversationStore } from "../memory/conversation-store-markdown.js";
 import { exportMemory } from "../memory/export.js";
+import {
+  createSupportBundle,
+  listSupportBundles,
+  resolveSupportBundleDownloadPath,
+} from "../memory/support-bundle.js";
 import { discoverTools } from "../tools.js";
 import { ApprovalStore } from "../engine/approval-store.js";
 import { resolveProviderCredentialForStartup } from "../secrets/resolver.js";
@@ -154,6 +159,18 @@ const authCredentialsSchema = z
   })
   .strict();
 
+const supportBundleCreateSchema = z
+  .object({
+    window_hours: z.number().int().min(1).max(24 * 30).optional(),
+  })
+  .strict();
+
+const supportBundleDownloadParamsSchema = z
+  .object({
+    fileName: z.string().regex(/^support-bundle-\d{13}\.tar\.gz$/),
+  })
+  .strict();
+
 const REFRESH_COOKIE_NAME = "paa_refresh_token";
 const PUBLIC_ROUTES = new Set([
   "/health",
@@ -167,6 +184,21 @@ const PUBLIC_ROUTES = new Set([
 export async function buildServer(rootDir = process.cwd()) {
   auditLog("startup.phase", { phase: "runtime-config" });
   const runtimeConfig = await loadRuntimeConfig(rootDir);
+  const auditFileSinkEnabled = readBooleanEnv(process.env.PAA_AUDIT_FILE_SINK_ENABLED, true);
+  if (auditFileSinkEnabled) {
+    configureAuditFileSink(runtimeConfig.memory_root, {
+      maxFileBytes: readPositiveIntEnv(process.env.PAA_AUDIT_MAX_FILE_BYTES, 5 * 1024 * 1024),
+      retentionDays: readPositiveIntEnv(process.env.PAA_AUDIT_RETENTION_DAYS, 14),
+    });
+  } else {
+    disableAuditFileSink();
+  }
+  auditLog("startup.audit_sink", {
+    enabled: auditFileSinkEnabled,
+    memory_root: runtimeConfig.memory_root,
+    max_file_bytes: readPositiveIntEnv(process.env.PAA_AUDIT_MAX_FILE_BYTES, 5 * 1024 * 1024),
+    retention_days: readPositiveIntEnv(process.env.PAA_AUDIT_RETENTION_DAYS, 14),
+  });
   const appVersion = await resolveAppVersion(rootDir, runtimeConfig.memory_root);
 
   auditLog("startup.phase", { phase: "adapter-config" });
@@ -1231,6 +1263,105 @@ export async function buildServer(rootDir = process.cwd()) {
     return reply.send(createReadStream(result.archive_path));
   });
 
+  app.get("/support/bundles", async (request, reply) => {
+    authorize(request.authContext, "administration");
+    authorize(request.authContext, "memory_access");
+    if (!supportBundleEndpointsEnabled(runtimeConfig)) {
+      reply.code(403).send({ error: "support_bundle_requires_local_jwt_auth" });
+      return;
+    }
+
+    const bundles = await listSupportBundles(runtimeConfig.memory_root);
+    reply.send({
+      scope: "memory-only",
+      bundles,
+    });
+  });
+
+  app.post("/support/bundles", async (request, reply) => {
+    authorize(request.authContext, "administration");
+    authorize(request.authContext, "memory_access");
+    if (!supportBundleEndpointsEnabled(runtimeConfig)) {
+      reply.code(403).send({ error: "support_bundle_requires_local_jwt_auth" });
+      return;
+    }
+
+    const parsed = supportBundleCreateSchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      sendInvalidRequest(reply, "/support/bundles", parsed.error.issues.length);
+      return;
+    }
+
+    const windowHours = parsed.data.window_hours ?? 24;
+    const result = await createSupportBundle(runtimeConfig.memory_root, {
+      windowHours,
+      appVersion,
+      installMode: runtimeConfig.install_mode,
+      authMode: runtimeConfig.auth_mode,
+      actorId: request.authContext.actorId,
+    });
+    auditLog("support.bundle.create", {
+      actor_id: request.authContext.actorId,
+      file_name: result.file_name,
+      archive_path: result.archive_path,
+      window_hours: windowHours,
+      included_audit_files: result.included_audit_files,
+      scope: "memory-only",
+    });
+
+    reply.code(201).send({
+      scope: "memory-only",
+      file_name: result.file_name,
+      window_hours: windowHours,
+      included_audit_files: result.included_audit_files,
+      download_path: `/support/bundles/${encodeURIComponent(result.file_name)}`,
+    });
+  });
+
+  app.get("/support/bundles/:fileName", async (request, reply) => {
+    authorize(request.authContext, "administration");
+    authorize(request.authContext, "memory_access");
+    if (!supportBundleEndpointsEnabled(runtimeConfig)) {
+      reply.code(403).send({ error: "support_bundle_requires_local_jwt_auth" });
+      return;
+    }
+
+    const params = supportBundleDownloadParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      sendInvalidRequest(reply, "/support/bundles/:fileName", params.error.issues.length);
+      return;
+    }
+
+    const absolutePath = resolveSupportBundleDownloadPath(runtimeConfig.memory_root, params.data.fileName);
+    if (!absolutePath) {
+      reply.code(404).send({ error: "Support bundle not found" });
+      return;
+    }
+
+    try {
+      const details = await stat(absolutePath);
+      if (!details.isFile()) {
+        reply.code(404).send({ error: "Support bundle not found" });
+        return;
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        reply.code(404).send({ error: "Support bundle not found" });
+        return;
+      }
+      throw error;
+    }
+
+    auditLog("support.bundle.download", {
+      actor_id: request.authContext.actorId,
+      file_name: params.data.fileName,
+      scope: "memory-only",
+    });
+    reply.header("content-type", "application/gzip");
+    reply.header("content-disposition", `attachment; filename="${params.data.fileName}"`);
+    return reply.send(createReadStream(absolutePath));
+  });
+
   app.get("/projects", async () => projects.listProjects());
 
   app.get("/projects/:id/skills", async (request, reply) => {
@@ -1495,6 +1626,22 @@ function readBooleanEnv(value: string | undefined, defaultValue = false): boolea
   }
 
   return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+}
+
+function readPositiveIntEnv(value: string | undefined, defaultValue: number): number {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return defaultValue;
+  }
+  const parsed = Number.parseInt(normalized, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return defaultValue;
+  }
+  return parsed;
+}
+
+function supportBundleEndpointsEnabled(runtimeConfig: RuntimeConfig): boolean {
+  return runtimeConfig.auth_mode === "local";
 }
 
 function isSecureRequest(request: { headers: Record<string, unknown> }): boolean {

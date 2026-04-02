@@ -189,6 +189,7 @@ Start in quickstart/prod now runs startup update policy checks before compose up
 - Upgrade with explicit refs (one-shot, without editing `.env`):
   - `BRAINDRIVE_APP_REF=ghcr.io/braindriveai/braindrive-app@sha256:<digest> BRAINDRIVE_EDGE_REF=ghcr.io/braindriveai/braindrive-edge@sha256:<digest> ./scripts/upgrade.sh`
 - Backup: `./scripts/backup.sh`
+- Support bundle (logs + metadata + audit JSONL): `./scripts/support-bundle.sh [quickstart|prod|local|dev] [24h]`
 - Restore:
   - Quickstart: `./scripts/restore.sh memory <backup-file> quickstart`
   - Prod: `./scripts/restore.sh memory <backup-file> prod`
@@ -214,6 +215,8 @@ Start in quickstart/prod now runs startup update policy checks before compose up
     - One-shot refs:
       - `$env:BRAINDRIVE_APP_REF='ghcr.io/braindriveai/braindrive-app@sha256:<digest>'; $env:BRAINDRIVE_EDGE_REF='ghcr.io/braindriveai/braindrive-edge@sha256:<digest>'; ./scripts/upgrade.ps1`
   - Backup: `./scripts/backup.ps1`
+  - Support bundle (logs + metadata + audit JSONL):
+    - `./scripts/support-bundle.ps1 -Mode quickstart -SinceWindow 24h`
   - Restore:
     - Quickstart: `./scripts/restore.ps1 -Target memory -BackupFile <backup-file> -Mode quickstart`
     - Prod: `./scripts/restore.ps1 -Target memory -BackupFile <backup-file> -Mode prod`
@@ -252,5 +255,14 @@ Cosign key setup (one-time per release signing identity):
 
 ## Notes
 - Data is persisted in named volumes: `braindrive_memory` and `braindrive_secrets`.
+- Structured audit logs are persisted to `memory/diagnostics/audit/YYYY-MM-DD(.N).jsonl` while still emitting to stdout.
+- Audit retention/rotation env knobs:
+  - `PAA_AUDIT_FILE_SINK_ENABLED` (default `true`)
+  - `PAA_AUDIT_MAX_FILE_BYTES` (default `5242880`)
+  - `PAA_AUDIT_RETENTION_DAYS` (default `14`)
+- Support bundle API endpoints are enabled only in `auth_mode=local` (JWT) and return `403` in `local-owner` mode:
+  - `POST /api/support/bundles`
+  - `GET /api/support/bundles`
+  - `GET /api/support/bundles/:fileName`
 - Keep a secure backup of `PAA_SECRETS_MASTER_KEY_B64`. Losing it may make encrypted secrets unreadable.
 - To enforce stricter first-account protection, set `PAA_AUTH_ALLOW_FIRST_SIGNUP_ANY_IP=false` and use `PAA_AUTH_BOOTSTRAP_TOKEN`.
