@@ -11,7 +11,8 @@ import {
   X,
   Check,
   AlertCircle,
-  Trash2
+  Trash2,
+  Upload
 } from "lucide-react";
 
 import MarkdownContent from "@/components/markdown/MarkdownContent";
@@ -20,6 +21,7 @@ import { getSession } from "@/api/auth-adapter";
 import {
   deleteProviderModel,
   downloadLibraryExport,
+  importLibraryArchive,
   getOwnerProfile,
   getProviderModels,
   getSettings as getGatewaySettings,
@@ -33,6 +35,7 @@ import type {
   GatewayCredentialUpdateRequest,
   GatewayModelCatalog,
   GatewayModelCatalogEntry,
+  GatewayMigrationImportResult,
   GatewaySettings,
 } from "@/api/types";
 import type { UserProfile } from "@/types/ui";
@@ -59,7 +62,7 @@ const allTabs: TabDef[] = [
   { id: "model", label: "Default Model", icon: Cpu, localOnly: true },
   { id: "provider", label: "Model Providers", icon: Key, localOnly: true },
   { id: "profile", label: "Owner Profile", icon: User },
-  { id: "export", label: "Export Library", icon: Download }
+  { id: "export", label: "Migrate Library", icon: Download }
 ];
 
 export default function SettingsModal({
@@ -82,6 +85,9 @@ export default function SettingsModal({
   const [modelCatalogError, setModelCatalogError] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importResult, setImportResult] = useState<GatewayMigrationImportResult | null>(null);
   const [catalogRefreshKey, setCatalogRefreshKey] = useState(0);
   const overlayRef = useRef<HTMLDivElement>(null);
 
@@ -231,6 +237,26 @@ export default function SettingsModal({
     }
   }
 
+  async function handleImportArchive(file: File): Promise<void> {
+    setIsImporting(true);
+    setImportError(null);
+    setImportResult(null);
+
+    try {
+      const result = await importLibraryArchive(file);
+      setImportResult(result);
+      if (mode === "local") {
+        setSettings(result.settings);
+        resetGatewayChatRuntime();
+        setCatalogRefreshKey((current) => current + 1);
+      }
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsImporting(false);
+    }
+  }
+
   return (
     <div
       ref={overlayRef}
@@ -293,6 +319,10 @@ export default function SettingsModal({
             onDownloadExport={handleDownloadExport}
             isExporting={isExporting}
             exportError={exportError}
+            onImportArchive={handleImportArchive}
+            isImporting={isImporting}
+            importError={importError}
+            importResult={importResult}
             installMode={installMode}
             appVersion={appVersion}
             onRefreshCatalog={() => setCatalogRefreshKey((k) => k + 1)}
@@ -356,6 +386,10 @@ export default function SettingsModal({
             onDownloadExport={handleDownloadExport}
             isExporting={isExporting}
             exportError={exportError}
+            onImportArchive={handleImportArchive}
+            isImporting={isImporting}
+            importError={importError}
+            importResult={importResult}
             installMode={installMode}
             appVersion={appVersion}
             onNavigateToTab={setActiveTab}
@@ -436,6 +470,10 @@ function TabContent({
   onDownloadExport,
   isExporting,
   exportError,
+  onImportArchive,
+  isImporting,
+  importError,
+  importResult,
   installMode,
   appVersion,
   onRefreshCatalog,
@@ -456,6 +494,10 @@ function TabContent({
   onDownloadExport: () => Promise<void>;
   isExporting: boolean;
   exportError: string | null;
+  onImportArchive: (file: File) => Promise<void>;
+  isImporting: boolean;
+  importError: string | null;
+  importResult: GatewayMigrationImportResult | null;
   installMode: "local" | "quickstart" | "prod" | "unknown";
   appVersion: string;
   onRefreshCatalog: () => void;
@@ -508,6 +550,10 @@ function TabContent({
           onDownload={onDownloadExport}
           isExporting={isExporting}
           exportError={exportError}
+          onImport={onImportArchive}
+          isImporting={isImporting}
+          importError={importError}
+          importResult={importResult}
         />
       );
   }
@@ -1790,6 +1836,10 @@ function ExportSection({
   onDownload,
   isExporting,
   exportError,
+  onImport,
+  isImporting,
+  importError,
+  importResult,
 }: {
   mode: "local" | "managed";
   installMode: "local" | "quickstart" | "prod" | "unknown";
@@ -1797,7 +1847,13 @@ function ExportSection({
   onDownload: () => Promise<void>;
   isExporting: boolean;
   exportError: string | null;
+  onImport: (file: File) => Promise<void>;
+  isImporting: boolean;
+  importError: string | null;
+  importResult: GatewayMigrationImportResult | null;
 }) {
+  const [selectedImportFile, setSelectedImportFile] = useState<File | null>(null);
+  const isImportDisabled = isImporting || !selectedImportFile;
   const installLabel = formatInstallModeLabel(installMode);
   const versionLabel = appVersion.trim().length > 0 ? appVersion : "unknown";
 
@@ -1805,7 +1861,7 @@ function ExportSection({
     <div className="flex min-h-full flex-col gap-6">
       <div>
         <h3 className="font-heading text-base font-semibold text-bd-text-heading">
-          Export Library
+          Migrate Library
         </h3>
         <p className="mt-1 text-sm text-bd-text-muted">
           {mode === "managed"
@@ -1842,6 +1898,71 @@ function ExportSection({
         {exportError && (
           <div className="mt-3 rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2.5 text-sm text-bd-text-primary">
             {exportError}
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-lg border border-bd-border p-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-bd-bg-hover">
+            <Upload size={20} strokeWidth={1.5} className="text-bd-text-secondary" />
+          </div>
+          <div className="flex-1">
+            <div className="text-sm font-medium text-bd-text-primary">
+              Import Library
+            </div>
+            <div className="text-xs text-bd-text-muted">
+              Restore library content, settings, and included secrets from a migration archive
+            </div>
+          </div>
+        </div>
+
+        <label className="mt-4 block text-xs font-medium text-bd-text-secondary" htmlFor="library-import-file">
+          Migration Archive (.tar.gz)
+        </label>
+        <input
+          id="library-import-file"
+          type="file"
+          accept=".tar.gz,application/gzip,application/x-gzip"
+          onChange={(event) => {
+            setSelectedImportFile(event.target.files?.[0] ?? null);
+          }}
+          className="mt-1 block w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 py-2 text-sm text-bd-text-primary file:mr-3 file:rounded-md file:border-0 file:bg-bd-bg-hover file:px-2.5 file:py-1 file:text-xs file:text-bd-text-secondary"
+        />
+
+        <button
+          type="button"
+          onClick={() => {
+            if (selectedImportFile) {
+              void onImport(selectedImportFile);
+            }
+          }}
+          disabled={isImportDisabled}
+          className={`mt-4 w-full rounded-xl px-4 py-2.5 text-sm font-medium transition-colors duration-200 ${
+            isImportDisabled
+              ? "cursor-not-allowed bg-bd-bg-tertiary text-bd-text-muted"
+              : "bg-bd-amber text-bd-bg-primary hover:bg-bd-amber-hover"
+          }`}
+        >
+          {isImporting ? "Importing Library..." : "Import Library (.tar.gz)"}
+        </button>
+
+        {importError && (
+          <div className="mt-3 rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2.5 text-sm text-bd-text-primary">
+            {importError}
+          </div>
+        )}
+
+        {importResult && (
+          <div className="mt-3 rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2.5 text-sm text-bd-text-primary">
+            <p>
+              Import complete. Format: {importResult.source_format}. Secrets restored: {importResult.restored.secrets ? "yes" : "no"}.
+            </p>
+            {importResult.warnings.length > 0 && (
+              <p className="mt-1 text-xs text-bd-text-muted">
+                {importResult.warnings.join(" ")}
+              </p>
+            )}
           </div>
         )}
       </div>

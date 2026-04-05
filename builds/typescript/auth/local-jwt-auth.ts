@@ -62,6 +62,7 @@ export type LocalJwtAuthService = {
   logout: () => Promise<void>;
   authenticateAccessToken: (accessToken: string) => Promise<AuthContext>;
   getSigningKeyForVerification: () => Promise<string>;
+  resetCache: () => void;
 };
 
 export function createLocalJwtAuthService(options: {
@@ -311,6 +312,10 @@ export function createLocalJwtAuthService(options: {
 
     async getSigningKeyForVerification() {
       return getSigningKey(false);
+    },
+
+    resetCache() {
+      cachedMasterKey = null;
     },
   };
 }

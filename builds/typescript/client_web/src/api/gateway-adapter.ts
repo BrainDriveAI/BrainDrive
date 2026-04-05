@@ -11,6 +11,7 @@ import {
   type ConversationDetail,
   type GatewayCredentialUpdateRequest,
   type GatewayCredentialUpdateResponse,
+  type GatewayMigrationImportResult,
   type GatewayModelCatalog,
   type GatewayOnboardingStatus,
   type GatewaySkillBinding,
@@ -718,6 +719,22 @@ export async function downloadLibraryExport(): Promise<ExportDownload> {
     fileName,
     blob,
   };
+}
+
+export async function importLibraryArchive(file: Blob): Promise<GatewayMigrationImportResult> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/migration/import`, {
+    method: "POST",
+    headers: withLocalOwnerHeaders({
+      "Content-Type": "application/gzip",
+    }),
+    body: file,
+  });
+
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+
+  return (await response.json()) as GatewayMigrationImportResult;
 }
 
 function extractExportFilename(contentDisposition: string | null): string {

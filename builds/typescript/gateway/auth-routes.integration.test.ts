@@ -1,5 +1,5 @@
 import path from "node:path";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 
 import type { AdapterConfig, Preferences, RuntimeConfig } from "../contracts.js";
@@ -338,5 +338,64 @@ describe.sequential("gateway auth route integration", () => {
 
     expect(response.statusCode).toBe(403);
     expect(parseJson<{ error: string }>(response.body).error).toBe("support_bundle_requires_local_jwt_auth");
+  });
+
+  it("exports and imports migration archives through the gateway API", async () => {
+    context = await createTestServer();
+
+    const memoryRoot = path.join(context.tempRoot, "memory");
+    const secretsRoot = path.join(context.tempRoot, "secrets");
+    await writeFile(path.join(memoryRoot, "documents", "migration-note.md"), "original\n", "utf8").catch(async () => {
+      await mkdir(path.join(memoryRoot, "documents"), { recursive: true });
+      await writeFile(path.join(memoryRoot, "documents", "migration-note.md"), "original\n", "utf8");
+    });
+
+    const signupResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/signup",
+      payload: {
+        identifier: "owner",
+        password: "password123",
+      },
+    });
+    expect(signupResponse.statusCode).toBe(201);
+    const tokenPayload = parseJson<{ access_token: string }>(signupResponse.body);
+
+    const exportResponse = await context.app.inject({
+      method: "GET",
+      url: "/export",
+      headers: {
+        authorization: `Bearer ${tokenPayload.access_token}`,
+      },
+    });
+    expect(exportResponse.statusCode).toBe(200);
+    expect(exportResponse.headers["content-type"]).toContain("application/gzip");
+
+    await writeFile(path.join(memoryRoot, "documents", "migration-note.md"), "mutated\n", "utf8");
+
+    const importResponse = await context.app.inject({
+      method: "POST",
+      url: "/migration/import",
+      headers: {
+        authorization: `Bearer ${tokenPayload.access_token}`,
+        "content-type": "application/gzip",
+      },
+      payload: exportResponse.rawPayload,
+    });
+    expect(importResponse.statusCode).toBe(201);
+    const imported = parseJson<{
+      restored: { memory: boolean; secrets: boolean };
+      source_format: string;
+      settings: { approval_mode: string };
+    }>(importResponse.body);
+    expect(imported.restored.memory).toBe(true);
+    expect(imported.source_format).toBe("migration-v1");
+    expect(imported.settings.approval_mode).toBe("ask-on-write");
+
+    const restoredFile = await readFile(path.join(memoryRoot, "documents", "migration-note.md"), "utf8");
+    expect(restoredFile).toBe("original\n");
+
+    const restoredVault = await readFile(path.join(secretsRoot, "vault.json"), "utf8");
+    expect(restoredVault).toContain("auth/jwt/signing_key");
   });
 });

@@ -18,6 +18,7 @@ installer/docker/.env
 
 # Local release metadata cache
 installer/docker/release-cache/
+installer/docker/backups/
 
 # Local runtime data
 builds/typescript/.paa-secrets/

@@ -5,6 +5,7 @@ vi.mock("./auth-adapter", () => ({
 import {
   getOnboardingStatus,
   getProviderModels,
+  importLibraryArchive,
   sendMessage,
   updateProviderCredential,
   type ChatEvent,
@@ -200,6 +201,43 @@ describe("gateway-adapter onboarding settings", () => {
       expect.objectContaining({
         method: "PUT",
         headers: expect.any(Object),
+      })
+    );
+  });
+
+  it("imports migration archives through the migration endpoint", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          imported_at: "2026-04-03T00:00:00.000Z",
+          schema_version: 1,
+          source_format: "migration-v1",
+          restored: { memory: true, secrets: true },
+          warnings: [],
+          settings: {
+            default_model: "openai/gpt-4o-mini",
+            approval_mode: "ask-on-write",
+            active_provider_profile: "openrouter",
+            default_provider_profile: "openrouter",
+            available_models: ["openai/gpt-4o-mini"],
+            provider_profiles: [],
+          },
+        }),
+        {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await importLibraryArchive(new Blob(["archive"], { type: "application/gzip" }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/migration/import",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "Content-Type": "application/gzip" }),
       })
     );
   });
