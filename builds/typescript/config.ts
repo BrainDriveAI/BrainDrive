@@ -151,8 +151,15 @@ export async function loadRuntimeConfig(rootDir: string): Promise<RuntimeConfig>
   const resolvedInstallMode =
     installModeFromEnv !== "unknown" ? installModeFromEnv : normalizeInstallMode(parsed.install_mode);
 
+  const authModeOverride = process.env.PAA_AUTH_MODE?.trim();
+  const resolvedAuthMode =
+    authModeOverride && ["local-owner", "local", "managed"].includes(authModeOverride)
+      ? (authModeOverride as "local-owner" | "local" | "managed")
+      : parsed.auth_mode;
+
   return {
     ...parsed,
+    auth_mode: resolvedAuthMode,
     conversation_store: parsed.conversation_store ?? "markdown",
     install_mode: resolvedInstallMode,
     memory_root: path.resolve(rootDir, resolvedMemoryRoot),
@@ -228,7 +235,20 @@ export async function loadAdapterConfig(rootDir: string, adapterName: string): P
   }
 
   const config = adapterConfigSchema.parse(JSON.parse(raw));
-  return applyAdapterEnvironmentOverrides(config);
+  return applyManagedApiBaseOverride(applyAdapterEnvironmentOverrides(config));
+}
+
+function applyManagedApiBaseOverride(config: AdapterConfig): AdapterConfig {
+  const managedApiBase = process.env.BD_MANAGED_API_BASE?.replace(/\/+$/, "");
+  if (!managedApiBase || !config.provider_profiles?.["braindrive-models"]) {
+    return config;
+  }
+  const profiles = { ...config.provider_profiles };
+  profiles["braindrive-models"] = {
+    ...profiles["braindrive-models"],
+    base_url: `${managedApiBase}/credits/v1`,
+  };
+  return { ...config, provider_profiles: profiles };
 }
 
 function applyAdapterEnvironmentOverrides(config: AdapterConfig): AdapterConfig {

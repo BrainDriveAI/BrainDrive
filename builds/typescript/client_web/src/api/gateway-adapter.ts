@@ -761,6 +761,82 @@ function withLocalOwnerHeaders(headers?: Record<string, string>): Record<string,
   };
 }
 
+// --- Managed mode account API ---
+
+export type AccountInfo = {
+  email: string;
+  username: string;
+  subscription_status: string;
+  openrouter_usage_dollars: number;
+  openrouter_limit_dollars: number;
+  created_at: string | null;
+  password_changed_at: string | null;
+  subscription_renewal_date: string | null;
+  cancel_at_period_end: boolean;
+};
+
+export async function getAccount(): Promise<AccountInfo> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/account`);
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+  return (await response.json()) as AccountInfo;
+}
+
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string
+): Promise<void> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/account/change-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+}
+
+export async function changeEmail(
+  newEmail: string,
+  currentPassword: string
+): Promise<void> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/account/change-email`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ new_email: newEmail, current_password: currentPassword }),
+  });
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+}
+
+export async function deleteAccount(
+  currentPassword: string,
+  confirmation: string
+): Promise<void> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/account`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ current_password: currentPassword, confirmation }),
+  });
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+}
+
+export async function createPortalSession(): Promise<string> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/account/portal-session`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+  const data = (await response.json()) as { portal_url: string };
+  return data.portal_url;
+}
+
 export {
   GatewayError,
   GatewayNotFoundError,

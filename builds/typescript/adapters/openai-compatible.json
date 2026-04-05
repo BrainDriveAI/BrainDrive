@@ -1,13 +1,13 @@
 {
-  "base_url": "https://ai-gateway.vercel.sh/v1",
-  "model": "anthropic/claude-sonnet-4.6",
+  "base_url": "https://my.braindrive.ai/credits/v1",
+  "model": "claude-sonnet-4-6",
   "api_key_env": "AI_GATEWAY_API_KEY",
   "provider_id": "braindrive-models",
   "default_provider_profile": "braindrive-models",
   "provider_profiles": {
     "braindrive-models": {
-      "base_url": "https://ai-gateway.vercel.sh/v1",
-      "model": "anthropic/claude-sonnet-4.6",
+      "base_url": "https://my.braindrive.ai/credits/v1",
+      "model": "claude-sonnet-4-6",
       "api_key_env": "AI_GATEWAY_API_KEY",
       "provider_id": "braindrive-models"
     },

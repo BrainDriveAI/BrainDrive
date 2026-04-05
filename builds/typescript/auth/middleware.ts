@@ -70,7 +70,9 @@ async function buildAuthContext(
     return options.authenticateLocalJwtAccessToken(accessToken);
   }
 
-  throw new Error("Managed auth mode is not implemented");
+  // Managed mode: the gateway proxy injects local-owner headers.
+  // Authenticate using the same header-based approach as local-owner.
+  return buildLocalOwnerAuthContext(request, authState);
 }
 
 function readBearerToken(headerValue: unknown): string {

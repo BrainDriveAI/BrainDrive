@@ -5,6 +5,7 @@ export type GatewayInstallMode = "local" | "quickstart" | "prod" | "unknown";
 type GatewayConfig = {
   mode?: string;
   gateway_url?: string;
+  billing_url?: string;
   install_mode?: string;
   app_version?: string;
 };
@@ -12,6 +13,7 @@ type GatewayConfig = {
 export type GatewayClientConfig = {
   mode: "local" | "managed";
   gatewayUrl: string;
+  billingUrl: string;
   installMode: GatewayInstallMode;
   appVersion: string;
 };
@@ -22,18 +24,19 @@ export async function getConfig(): Promise<GatewayClientConfig> {
       headers: buildLocalOwnerHeaders(),
     });
     if (!response.ok) {
-      return { mode: "local", gatewayUrl: "/api", installMode: "unknown", appVersion: "unknown" };
+      return { mode: "local", gatewayUrl: "/api", billingUrl: "https://my.braindrive.ai/credits", installMode: "unknown", appVersion: "unknown" };
     }
 
     const payload = (await response.json()) as GatewayConfig;
     return {
       mode: toDeploymentMode(payload.mode),
       gatewayUrl: payload.gateway_url || "/api",
+      billingUrl: payload.billing_url ?? "https://my.braindrive.ai/credits",
       installMode: toInstallMode(payload.install_mode),
       appVersion: toAppVersion(payload.app_version),
     };
   } catch {
-    return { mode: "local", gatewayUrl: "/api", installMode: "unknown", appVersion: "unknown" };
+    return { mode: "local", gatewayUrl: "/api", billingUrl: "https://my.braindrive.ai/credits", installMode: "unknown", appVersion: "unknown" };
   }
 }
 
