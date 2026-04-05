@@ -33,6 +33,12 @@
 - `generate-release-manifest.ps1`
 - `install.sh`
 - `install.ps1`
+- `migration-export.sh`
+- `migration-export.ps1`
+- `migration-import.sh`
+- `migration-import.ps1`
+- `migration-smoke.sh`
+- `migration-smoke.ps1`
 - `publish-release-images.sh`
 - `publish-release-images.ps1`
 - `reset-new-user.sh`
@@ -250,6 +256,43 @@ Arguments:
 
 Output:
 - `<volume>_<YYYYMMDD_HHMMSS>.tar.gz`
+
+### migration-export (`migration-export.sh`, `migration-export.ps1`)
+
+What it does:
+- Calls the same Gateway API export endpoint used by the app (`GET /api/export`).
+- Produces a migration archive `.tar.gz` for import into another instance.
+
+Usage:
+- Shell: `./installer/docker/scripts/migration-export.sh [output-file] [base-url]`
+- PowerShell: `.\installer\docker\scripts\migration-export.ps1 [-OutputFile <path>] [-BaseUrl <url>] [-Mode dev|local|quickstart|prod]`
+
+Authentication:
+- Uses `BRAINDRIVE_MIGRATION_ACCESS_TOKEN` when set.
+- Else logs in via `BRAINDRIVE_MIGRATION_IDENTIFIER` and `BRAINDRIVE_MIGRATION_PASSWORD`.
+- Else falls back to local-owner headers (for `auth_mode=local-owner` only).
+
+### migration-import (`migration-import.sh`, `migration-import.ps1`)
+
+What it does:
+- Calls the same Gateway API import endpoint used by the app (`POST /api/migration/import`).
+- Restores memory + included secrets from a migration archive without container restart.
+
+Usage:
+- Shell: `./installer/docker/scripts/migration-import.sh <archive-file> [base-url]`
+- PowerShell: `.\installer\docker\scripts\migration-import.ps1 -ArchiveFile <path> [-BaseUrl <url>] [-Mode dev|local|quickstart|prod]`
+
+Authentication:
+- Same credential resolution as `migration-export`.
+
+### migration-smoke (`migration-smoke.sh`, `migration-smoke.ps1`)
+
+What it does:
+- Runs export then immediate import through Gateway API to verify migration path end-to-end.
+
+Usage:
+- Shell: `./installer/docker/scripts/migration-smoke.sh [mode] [base-url]`
+- PowerShell: `.\installer\docker\scripts\migration-smoke.ps1 [-Mode dev|local|quickstart|prod] [-BaseUrl <url>]`
 
 ### support-bundle (`support-bundle.sh`, `support-bundle.ps1`)
 

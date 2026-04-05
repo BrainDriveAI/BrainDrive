@@ -1,6 +1,7 @@
 import path from "node:path";
 import { createReadStream, existsSync } from "node:fs";
-import { readFile, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import Fastify from "fastify";
 import { z } from "zod";
 
@@ -42,6 +43,7 @@ import { ensureAuthState, saveAuthState } from "../memory/auth-state.js";
 import type { ConversationRepository } from "../memory/conversation-repository.js";
 import { MarkdownConversationStore } from "../memory/conversation-store-markdown.js";
 import { exportMemory } from "../memory/export.js";
+import { importMigrationArchive } from "../memory/migration.js";
 import {
   createSupportBundle,
   listSupportBundles,
@@ -251,7 +253,18 @@ export async function buildServer(rootDir = process.cwd()) {
 
   auditLog("startup.phase", { phase: "ready" });
 
-  const app = Fastify({ logger: false, trustProxy: true });
+  const app = Fastify({
+    logger: false,
+    trustProxy: true,
+    bodyLimit: readPositiveIntEnv(process.env.PAA_MIGRATION_IMPORT_BODY_LIMIT_BYTES, 1024 * 1024 * 1024),
+  });
+  app.addContentTypeParser(
+    ["application/gzip", "application/x-gzip", "application/octet-stream"],
+    { parseAs: "buffer" },
+    (_request, body, done) => {
+      done(null, body);
+    }
+  );
   const approvalStore = new ApprovalStore();
   const toolExecutor = new ToolExecutor(tools);
   const conversations = new GatewayConversationService(createConversationRepository(runtimeConfig));
@@ -273,6 +286,7 @@ export async function buildServer(rootDir = process.cwd()) {
           persistAuthState,
         })
       : null;
+  let migrationInProgress = false;
 
   app.get("/health", async () => ({ status: "ok" }));
 
@@ -452,6 +466,23 @@ export async function buildServer(rootDir = process.cwd()) {
         ? async (accessToken: string) => localJwtAuthService.authenticateAccessToken(accessToken)
         : undefined,
     });
+  });
+
+  app.addHook("preHandler", async (request, reply) => {
+    const requestPath = stripQueryString(request.url);
+    if (!migrationInProgress) {
+      return;
+    }
+
+    if (requestPath === "/health" || requestPath === "/config") {
+      return;
+    }
+
+    if (requestPath.startsWith("/migration")) {
+      return;
+    }
+
+    reply.code(423).send({ error: "migration_in_progress" });
   });
 
   app.post("/message", async (request, reply) => {
@@ -728,6 +759,8 @@ export async function buildServer(rootDir = process.cwd()) {
       approvals: true,
       projects: true,
       export: true,
+      import: true,
+      migration: true,
     },
   }));
 
@@ -1256,11 +1289,79 @@ export async function buildServer(rootDir = process.cwd()) {
 
   app.get("/export", async (request, reply) => {
     authorize(request.authContext, "memory_access");
+    authorize(request.authContext, "administration");
     const result = await exportMemory(runtimeConfig.memory_root);
     const fileName = path.basename(result.archive_path);
     reply.header("content-type", "application/gzip");
     reply.header("content-disposition", `attachment; filename="${fileName}"`);
     return reply.send(createReadStream(result.archive_path));
+  });
+
+  app.post("/migration/import", async (request, reply) => {
+    authorize(request.authContext, "memory_access");
+    authorize(request.authContext, "administration");
+
+    if (migrationInProgress) {
+      reply.code(409).send({ error: "migration_in_progress" });
+      return;
+    }
+
+    const contentType = String(request.headers["content-type"] ?? "").toLowerCase();
+    const acceptsImport =
+      contentType.includes("application/gzip") ||
+      contentType.includes("application/x-gzip") ||
+      contentType.includes("application/octet-stream");
+
+    if (!acceptsImport) {
+      sendInvalidRequest(reply, "/migration/import", 1);
+      return;
+    }
+
+    const tempDir = await mkdtemp(path.join(tmpdir(), "paa-migration-upload-"));
+    const tempArchivePath = path.join(tempDir, `upload-${Date.now()}.tar.gz`);
+    migrationInProgress = true;
+
+    try {
+      if (!Buffer.isBuffer(request.body) || request.body.length === 0) {
+        sendInvalidRequest(reply, "/migration/import", 1);
+        return;
+      }
+
+      await writeFile(tempArchivePath, request.body);
+      const importResult = await importMigrationArchive(tempArchivePath, {
+        memoryRoot: runtimeConfig.memory_root,
+        secretsPaths: resolveSecretsPaths(),
+      });
+      await ensureMemoryLayout(rootDir, runtimeConfig.memory_root);
+      await ensureGitReady(runtimeConfig.memory_root);
+      authState = await ensureAuthState(runtimeConfig.memory_root, { mode: runtimeConfig.auth_mode });
+      localJwtAuthService?.resetCache();
+      const refreshedPreferences = await loadPreferences(runtimeConfig.memory_root);
+
+      auditLog("migration.import.completed", {
+        actor_id: request.authContext.actorId,
+        source_format: importResult.source_format,
+        restored_memory: importResult.restored.memory,
+        restored_secrets: importResult.restored.secrets,
+        warnings_count: importResult.warnings.length,
+      });
+
+      reply.code(201).send({
+        ...importResult,
+        settings: buildSettingsPayload(adapterConfig, refreshedPreferences),
+      });
+    } catch (error) {
+      auditLog("migration.import.failed", {
+        actor_id: request.authContext.actorId,
+        message: error instanceof Error ? error.message : "Unknown migration import error",
+      });
+      reply.code(400).send({
+        error: error instanceof Error ? error.message : "Failed to import migration archive",
+      });
+    } finally {
+      migrationInProgress = false;
+      await rm(tempDir, { recursive: true, force: true });
+    }
   });
 
   app.get("/support/bundles", async (request, reply) => {

@@ -189,6 +189,9 @@ Start in quickstart/prod now runs startup update policy checks before compose up
 - Upgrade with explicit refs (one-shot, without editing `.env`):
   - `BRAINDRIVE_APP_REF=ghcr.io/braindriveai/braindrive-app@sha256:<digest> BRAINDRIVE_EDGE_REF=ghcr.io/braindriveai/braindrive-edge@sha256:<digest> ./scripts/upgrade.sh`
 - Backup: `./scripts/backup.sh`
+- Migration export (same method as app UI): `./scripts/migration-export.sh [output-file] [base-url]`
+- Migration import (same method as app UI): `./scripts/migration-import.sh <archive-file> [base-url]`
+- Migration smoke test (export + import roundtrip): `./scripts/migration-smoke.sh [dev|local|quickstart|prod] [base-url]`
 - Support bundle (logs + metadata + audit JSONL): `./scripts/support-bundle.sh [quickstart|prod|local|dev] [24h]`
 - Restore:
   - Quickstart: `./scripts/restore.sh memory <backup-file> quickstart`
@@ -215,6 +218,12 @@ Start in quickstart/prod now runs startup update policy checks before compose up
     - One-shot refs:
       - `$env:BRAINDRIVE_APP_REF='ghcr.io/braindriveai/braindrive-app@sha256:<digest>'; $env:BRAINDRIVE_EDGE_REF='ghcr.io/braindriveai/braindrive-edge@sha256:<digest>'; ./scripts/upgrade.ps1`
   - Backup: `./scripts/backup.ps1`
+  - Migration export (same method as app UI):
+    - `./scripts/migration-export.ps1 -Mode dev`
+  - Migration import (same method as app UI):
+    - `./scripts/migration-import.ps1 -ArchiveFile <archive-file> -Mode dev`
+  - Migration smoke test:
+    - `./scripts/migration-smoke.ps1 -Mode dev`
   - Support bundle (logs + metadata + audit JSONL):
     - `./scripts/support-bundle.ps1 -Mode quickstart -SinceWindow 24h`
   - Restore:

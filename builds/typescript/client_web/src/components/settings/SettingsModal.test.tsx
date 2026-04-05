@@ -15,6 +15,7 @@ const getProviderModelsMock = vi.fn<
 const downloadLibraryExportMock = vi.fn<
   () => Promise<{ fileName: string; blob: Blob }>
 >();
+const importLibraryArchiveMock = vi.fn();
 const updateProviderCredentialMock = vi.fn<
   () => Promise<{ settings: GatewaySettings }>
 >();
@@ -27,6 +28,7 @@ vi.mock("@/api/gateway-adapter", () => ({
   updateProviderCredential: () => updateProviderCredentialMock(),
   getProviderModels: (providerProfile?: string) => getProviderModelsMock(providerProfile),
   downloadLibraryExport: () => downloadLibraryExportMock(),
+  importLibraryArchive: (file: Blob) => importLibraryArchiveMock(file),
 }));
 
 const baseSettings: GatewaySettings = {
@@ -82,6 +84,7 @@ describe("SettingsModal", () => {
     updateSettingsMock.mockReset();
     getProviderModelsMock.mockReset();
     downloadLibraryExportMock.mockReset();
+    importLibraryArchiveMock.mockReset();
     updateProviderCredentialMock.mockReset();
     getSettingsMock.mockResolvedValue(baseSettings);
     updateSettingsMock.mockResolvedValue(baseSettings);
@@ -90,6 +93,17 @@ describe("SettingsModal", () => {
     downloadLibraryExportMock.mockResolvedValue({
       fileName: "memory-export-123.tar.gz",
       blob: new Blob(["tar-bytes"], { type: "application/gzip" }),
+    });
+    importLibraryArchiveMock.mockResolvedValue({
+      imported_at: "2026-04-03T00:00:00.000Z",
+      schema_version: 1,
+      source_format: "migration-v1",
+      restored: {
+        memory: true,
+        secrets: true,
+      },
+      warnings: [],
+      settings: baseSettings,
     });
   });
 
@@ -105,10 +119,8 @@ describe("SettingsModal", () => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    const profileSelect = screen.getAllByLabelText("Active Provider Profile")[0]!;
-    await user.selectOptions(profileSelect, "ollama");
-    const saveButton = screen.getAllByRole("button", { name: "Save" })[0]!;
-    await user.click(saveButton);
+    await user.click(screen.getAllByRole("button", { name: "Model Providers" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: /Ollama/i })[0]!);
 
     await waitFor(() => {
       expect(updateSettingsMock).toHaveBeenCalledWith({
@@ -125,12 +137,54 @@ describe("SettingsModal", () => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    await user.click(screen.getAllByRole("button", { name: "Export Library" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "Migrate Library" })[0]!);
     await user.click(screen.getAllByRole("button", { name: "Download Library (.tar.gz)" })[0]!);
 
     await waitFor(() => {
       expect(downloadLibraryExportMock).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it("imports a migration archive from the export tab", async () => {
+    const user = userEvent.setup();
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+
+    await waitFor(() => {
+      expect(getSettingsMock).toHaveBeenCalledTimes(1);
+    });
+
+    await user.click(screen.getAllByRole("button", { name: "Migrate Library" })[0]!);
+
+    const importInput = screen.getByLabelText("Migration Archive (.tar.gz)") as HTMLInputElement;
+    const file = new File(["archive"], "memory-migration.tar.gz", { type: "application/gzip" });
+    await user.upload(importInput, file);
+    await user.click(screen.getAllByRole("button", { name: "Import Library (.tar.gz)" })[0]!);
+
+    await waitFor(() => {
+      expect(importLibraryArchiveMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("keeps import button disabled until a migration archive is selected", async () => {
+    const user = userEvent.setup();
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+
+    await waitFor(() => {
+      expect(getSettingsMock).toHaveBeenCalledTimes(1);
+    });
+
+    await user.click(screen.getAllByRole("button", { name: "Migrate Library" })[0]!);
+
+    const importButton = screen.getAllByRole("button", { name: "Import Library (.tar.gz)" })[0] as HTMLButtonElement;
+    expect(importButton).toBeDisabled();
+    await user.click(importButton);
+    expect(importLibraryArchiveMock).not.toHaveBeenCalled();
+
+    const importInput = screen.getByLabelText("Migration Archive (.tar.gz)") as HTMLInputElement;
+    const file = new File(["archive"], "memory-migration.tar.gz", { type: "application/gzip" });
+    await user.upload(importInput, file);
+
+    expect(importButton).toBeEnabled();
   });
 
   it("filters provider models in real time and saves selected model", async () => {
@@ -146,8 +200,8 @@ describe("SettingsModal", () => {
       expect(getProviderModelsMock).toHaveBeenCalled();
     });
 
-    await user.click(screen.getAllByRole("button", { name: /Browse provider model catalog/i })[0]!);
-    const searchInput = screen.getAllByLabelText("Search provider models")[0]!;
+    await user.click(screen.getAllByRole("button", { name: /Browse model catalog/i })[0]!);
+    const searchInput = screen.getAllByPlaceholderText("Search models...")[0]!;
     await user.type(searchInput, "free");
 
     await waitFor(() => {
@@ -158,7 +212,6 @@ describe("SettingsModal", () => {
       .closest("button");
     expect(freeModelButton).not.toBeNull();
     await user.click(freeModelButton as HTMLButtonElement);
-    await user.click(screen.getAllByRole("button", { name: "Save" })[0]!);
 
     await waitFor(() => {
       expect(updateSettingsMock).toHaveBeenCalledWith({

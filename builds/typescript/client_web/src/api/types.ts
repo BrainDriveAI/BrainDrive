@@ -218,6 +218,18 @@ export type GatewaySkillBinding = {
   project_id?: string;
 };
 
+export type GatewayMigrationImportResult = {
+  imported_at: string;
+  schema_version: number;
+  source_format: "migration-v1" | "legacy-memory-export";
+  restored: {
+    memory: boolean;
+    secrets: boolean;
+  };
+  warnings: string[];
+  settings: GatewaySettings;
+};
+
 export class GatewayError extends Error {
   readonly status: number;
   readonly code?: string;
