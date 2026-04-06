@@ -183,7 +183,23 @@ const PUBLIC_ROUTES = new Set([
   "/auth/refresh",
 ]);
 
+const MANAGED_PROXY_ROUTES = new Set([
+  "/account",
+  "/account/change-password",
+  "/account/change-email",
+  "/account/portal-session",
+]);
+
 export async function buildServer(rootDir = process.cwd()) {
+  const isManaged = process.env.BD_DEPLOYMENT_MODE === "managed";
+  const managedApiBase = process.env.BD_MANAGED_API_BASE?.replace(/\/+$/, "") || "";
+
+  if (isManaged) {
+    for (const p of MANAGED_PROXY_ROUTES) {
+      PUBLIC_ROUTES.add(p);
+    }
+  }
+
   auditLog("startup.phase", { phase: "runtime-config" });
   const runtimeConfig = await loadRuntimeConfig(rootDir);
   const auditFileSinkEnabled = readBooleanEnv(process.env.PAA_AUDIT_FILE_SINK_ENABLED, true);
@@ -751,7 +767,7 @@ export async function buildServer(rootDir = process.cwd()) {
   });
 
   app.get("/config", async () => ({
-    mode: runtimeConfig.auth_mode === "managed" ? "managed" : "local",
+    mode: isManaged ? "managed" : "local",
     install_mode: runtimeConfig.install_mode,
     app_version: appVersion,
     gateway_url: "/api",
@@ -765,7 +781,7 @@ export async function buildServer(rootDir = process.cwd()) {
   }));
 
   app.get("/session", async (request) => ({
-    mode: runtimeConfig.auth_mode === "managed" ? "managed" : "local",
+    mode: isManaged ? "managed" : "local",
     user: {
       id: request.authContext.actorId,
       name: authState.account_username ?? "Local Owner",
@@ -774,6 +790,57 @@ export async function buildServer(rootDir = process.cwd()) {
       role: request.authContext.actorType,
     },
   }));
+
+  // Credits API base: use managed gateway when available, otherwise production credits server
+  const creditsApiBase = managedApiBase || "https://my.braindrive.ai";
+
+  app.get("/credits/status", async (request, reply) => {
+    try {
+      const currentPreferences = await loadPreferences(runtimeConfig.memory_root);
+      const currentAdapterConfig = resolveAdapterConfigForPreferences(adapterConfig, currentPreferences);
+      const credential = await resolveProviderCredentialForStartup(
+        runtimeConfig.provider_adapter, currentAdapterConfig, currentPreferences
+      );
+      if (!credential?.apiKey) {
+        return { remaining_usd: 0, total_purchased_usd: 0, total_spent_usd: 0 };
+      }
+      const resp = await fetch(`${creditsApiBase}/credits/status`, {
+        headers: { Authorization: `Bearer ${credential.apiKey}` },
+      });
+      if (!resp.ok) {
+        return { remaining_usd: 0, total_purchased_usd: 0, total_spent_usd: 0 };
+      }
+      return resp.json();
+    } catch {
+      return { remaining_usd: 0, total_purchased_usd: 0, total_spent_usd: 0 };
+    }
+  });
+
+  app.post("/credits/checkout", async (request, reply) => {
+    const bodySchema = z.object({
+      amount: z.number().min(1),
+      email: z.string().email(),
+    });
+    const parsed = bodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      reply.code(400).send({ error: "Invalid request: amount must be >= 1 and a valid email is required" });
+      return;
+    }
+    try {
+      const resp = await fetch(`${creditsApiBase}/credits/checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount: parsed.data.amount, email: parsed.data.email }),
+      });
+      if (!resp.ok) {
+        reply.code(resp.status).send({ error: "Checkout service unavailable" });
+        return;
+      }
+      return resp.json();
+    } catch {
+      reply.code(502).send({ error: "Checkout service unreachable" });
+    }
+  });
 
   app.get("/profile", async (request, reply) => {
     authorize(request.authContext, "memory_access");
@@ -1647,12 +1714,57 @@ export async function buildServer(rootDir = process.cwd()) {
     }
   });
 
+  // --- Managed mode proxy endpoints ---
+  if (isManaged && managedApiBase) {
+    app.get("/account", async (request, reply) => proxyToGateway(request, reply, "GET", "/api/gateway/auth/account"));
+    app.post("/account/change-password", async (request, reply) => proxyToGateway(request, reply, "POST", "/api/gateway/auth/change-password", request.body));
+    app.post("/account/change-email", async (request, reply) => proxyToGateway(request, reply, "POST", "/api/gateway/auth/account/change-email", request.body));
+    app.delete("/account", async (request, reply) => proxyToGateway(request, reply, "DELETE", "/api/gateway/auth/account", request.body));
+    app.post("/account/portal-session", async (request, reply) => proxyToGateway(request, reply, "POST", "/api/gateway/billing/create-portal-session", request.body));
+  }
+
   return {
     app,
     runtimeConfig,
     adapterConfig,
     rootDir,
   };
+}
+
+async function proxyToGateway(
+  request: import("fastify").FastifyRequest,
+  reply: import("fastify").FastifyReply,
+  method: string,
+  path: string,
+  body?: unknown,
+) {
+  const managedApiBase = process.env.BD_MANAGED_API_BASE?.replace(/\/+$/, "") || "";
+  if (!managedApiBase) {
+    reply.code(404).send({ error: "Not available" });
+    return;
+  }
+  const hasBody = body !== undefined && body !== null;
+  const resp = await fetch(`${managedApiBase}${path}`, {
+    method,
+    headers: {
+      ...(hasBody ? { "Content-Type": "application/json" } : {}),
+      ...(request.headers.cookie ? { Cookie: request.headers.cookie } : {}),
+    },
+    ...(hasBody ? { body: JSON.stringify(body) } : {}),
+  });
+  // Forward Set-Cookie headers from upstream
+  const setCookie = resp.headers.getSetCookie?.();
+  if (setCookie && setCookie.length > 0) {
+    for (const cookie of setCookie) {
+      reply.header("set-cookie", cookie);
+    }
+  }
+  reply.code(resp.status);
+  const contentType = resp.headers.get("content-type") || "";
+  if (contentType.includes("json")) {
+    return resp.json();
+  }
+  return resp.text();
 }
 
 function isPublicRoute(urlPath: string): boolean {

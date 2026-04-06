@@ -26,6 +26,12 @@ builds/typescript/your-memory/
 builds/typescript/.reset-backups/
 builds/typescript/.your-memory.root-owned.backup/
 
+# Dev notes / server-specific docs (contain IPs, internal ports)
+builds/typescript/status.md
+
+# Local MCP server overrides
+builds/typescript/mcp/servers.local.json
+
 # Logs
 *.log
 

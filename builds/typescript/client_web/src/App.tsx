@@ -5,10 +5,10 @@ import { getConfig } from "@/api/config-adapter";
 import AuthFlow from "@/components/auth/AuthFlow";
 import AppShell from "@/components/layout/AppShell";
 
-type AppScreen = "auth" | "main";
+type AppScreen = "loading" | "auth" | "main";
 
 export default function App() {
-  const [screen, setScreen] = useState<AppScreen>("auth");
+  const [screen, setScreen] = useState<AppScreen>("loading");
   const [deploymentMode, setDeploymentMode] = useState<"local" | "managed">("local");
   const [installMode, setInstallMode] = useState<"local" | "quickstart" | "prod" | "unknown">(
     "unknown"
@@ -24,6 +24,14 @@ export default function App() {
       setDeploymentMode(config.mode);
       setInstallMode(config.installMode);
       setAppVersion(config.appVersion);
+
+      if (config.mode === "managed") {
+        // Managed mode: user is already authenticated via gateway proxy headers.
+        // Skip the auth screen entirely.
+        setScreen("main");
+      } else {
+        setScreen("auth");
+      }
     });
 
     return () => {
@@ -31,43 +39,35 @@ export default function App() {
     };
   }, []);
 
-  const modeToggle = (
-    <div className="fixed bottom-4 right-4 z-50 hidden items-center gap-2 rounded-lg border border-bd-border bg-bd-bg-secondary px-3 py-2 text-xs shadow-lg md:flex">
-      <span className="text-bd-text-muted">Mode:</span>
-      <button
-        type="button"
-        onClick={() =>
-          setDeploymentMode((currentMode) => (currentMode === "local" ? "managed" : "local"))
-        }
-        className="rounded-md bg-bd-bg-tertiary px-2 py-1 text-bd-text-secondary transition-colors hover:bg-bd-bg-hover"
-      >
-        {deploymentMode}
-      </button>
-    </div>
-  );
+  if (screen === "loading") {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-bd-bg-primary px-4">
+        <p className="text-sm text-bd-text-muted">Loading...</p>
+      </div>
+    );
+  }
 
   if (screen === "auth") {
     return (
-      <>
-        <AuthFlow mode={deploymentMode} onAuthenticated={() => setScreen("main")} />
-        {modeToggle}
-      </>
+      <AuthFlow mode={deploymentMode} onAuthenticated={() => setScreen("main")} />
     );
   }
 
   return (
-    <>
-      <AppShell
-        deploymentMode={deploymentMode}
-        installMode={installMode}
-        appVersion={appVersion}
-        onLogout={() => {
-          void logout().finally(() => {
+    <AppShell
+      deploymentMode={deploymentMode}
+      installMode={installMode}
+      appVersion={appVersion}
+      onLogout={() => {
+        void logout().finally(() => {
+          if (deploymentMode === "managed") {
+            // In managed mode, logout means redirect back to the gateway login
+            window.location.href = "/login";
+          } else {
             setScreen("auth");
-          });
-        }}
-      />
-      {modeToggle}
-    </>
+          }
+        });
+      }}
+    />
   );
 }

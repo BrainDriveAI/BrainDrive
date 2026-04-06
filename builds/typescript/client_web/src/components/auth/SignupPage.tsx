@@ -62,7 +62,7 @@ export default function SignupPage({
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} autoComplete="off" className="space-y-4">
           {error && (
             <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-4 py-3 text-sm text-bd-danger">
               {error}
@@ -83,7 +83,7 @@ export default function SignupPage({
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="Choose a username"
-                autoComplete="username"
+                autoComplete="off"
                 autoFocus
                 required
                 className="h-11 w-full rounded-lg border border-bd-border bg-bd-bg-tertiary px-4 text-sm text-bd-text-primary outline-none placeholder:text-bd-text-muted focus:border-bd-amber"
@@ -103,7 +103,7 @@ export default function SignupPage({
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
-                autoComplete="email"
+                autoComplete="off"
                 autoFocus
                 required
                 className="h-11 w-full rounded-lg border border-bd-border bg-bd-bg-tertiary px-4 text-sm text-bd-text-primary outline-none placeholder:text-bd-text-muted focus:border-bd-amber"
@@ -124,7 +124,7 @@ export default function SignupPage({
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="At least 8 characters"
-              autoComplete="new-password"
+              autoComplete="off"
               required
               minLength={8}
               className="h-11 w-full rounded-lg border border-bd-border bg-bd-bg-tertiary px-4 text-sm text-bd-text-primary outline-none placeholder:text-bd-text-muted focus:border-bd-amber"
@@ -144,7 +144,7 @@ export default function SignupPage({
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="Re-enter your password"
-              autoComplete="new-password"
+              autoComplete="off"
               required
               className={[
                 "h-11 w-full rounded-lg border bg-bd-bg-tertiary px-4 text-sm text-bd-text-primary outline-none placeholder:text-bd-text-muted focus:border-bd-amber",

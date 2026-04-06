@@ -17,7 +17,7 @@ import {
 
 import MarkdownContent from "@/components/markdown/MarkdownContent";
 
-import { getSession } from "@/api/auth-adapter";
+import { authenticatedFetch, getSession } from "@/api/auth-adapter";
 import {
   deleteProviderModel,
   downloadLibraryExport,
@@ -29,6 +29,12 @@ import {
   updateOwnerProfile,
   updateProviderCredential as updateGatewayProviderCredential,
   updateSettings as updateGatewaySettings,
+  getAccount,
+  changePassword as apiChangePassword,
+  changeEmail as apiChangeEmail,
+  deleteAccount as apiDeleteAccount,
+  createPortalSession,
+  type AccountInfo,
 } from "@/api/gateway-adapter";
 import { resetGatewayChatRuntime } from "@/api/useGatewayChat";
 import type {
@@ -575,11 +581,52 @@ function BrainDriveDefaultSection({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [keySaved, setKeySaved] = useState(false);
   const [showUpdateKey, setShowUpdateKey] = useState(false);
+  const [balance, setBalance] = useState<{ remaining_usd: number } | null>(null);
+  const [purchaseLoading, setPurchaseLoading] = useState<number | null>(null);
+  const [billingEmail, setBillingEmail] = useState(() => localStorage.getItem("bd_billing_email") ?? "");
+  const [isEditingEmail, setIsEditingEmail] = useState(false);
+
+  function handleEmailChange(value: string) {
+    setBillingEmail(value);
+    if (value.includes("@")) {
+      localStorage.setItem("bd_billing_email", value);
+    }
+  }
+
+  const emailSaved = Boolean(billingEmail && localStorage.getItem("bd_billing_email") === billingEmail);
 
   const activeProfile = settings?.provider_profiles.find(
     (p) => p.id === (settings?.active_provider_profile ?? settings?.default_provider_profile)
   );
   const isFirstTime = activeProfile?.credential_mode === "unset";
+
+  useEffect(() => {
+    if (isFirstTime) return;
+    authenticatedFetch("/api/credits/status")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (data) setBalance(data); })
+      .catch(() => {});
+  }, [isFirstTime, keySaved]);
+
+  async function handlePurchase(amount: number) {
+    if (!billingEmail || !billingEmail.includes("@")) return;
+    setPurchaseLoading(amount);
+    try {
+      const resp = await authenticatedFetch("/api/credits/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount, email: billingEmail }),
+      });
+      const data = await resp.json();
+      if (data.checkout_url) {
+        window.open(data.checkout_url, "_blank");
+      }
+    } catch {
+      // silent — Stripe window didn't open
+    } finally {
+      setPurchaseLoading(null);
+    }
+  }
 
   if (isLoadingSettings) {
     return <div className="py-8 text-center text-sm text-bd-text-muted">Loading...</div>;
@@ -612,10 +659,26 @@ function BrainDriveDefaultSection({
               <div className="flex-1">
                 <div className="text-sm font-medium text-bd-text-heading">Purchase credits</div>
                 <p className="mt-1 text-xs text-bd-text-muted">Add credits to start chatting.</p>
-                <div className="mt-3 flex gap-2">
-                  <button type="button" className="flex-1 rounded-lg border border-bd-amber px-3 py-2.5 text-sm font-medium text-bd-amber transition-colors hover:bg-bd-amber hover:text-bd-bg-primary">$5</button>
-                  <button type="button" className="flex-1 rounded-lg border border-bd-amber px-3 py-2.5 text-sm font-medium text-bd-amber transition-colors hover:bg-bd-amber hover:text-bd-bg-primary">$10</button>
-                  <button type="button" className="flex-1 rounded-lg border border-bd-amber px-3 py-2.5 text-sm font-medium text-bd-amber transition-colors hover:bg-bd-amber hover:text-bd-bg-primary">$25</button>
+                {emailSaved && !isEditingEmail ? (
+                  <div className="mt-3 flex items-center gap-2">
+                    <span className="text-sm text-bd-text-primary">{billingEmail}</span>
+                    <button type="button" onClick={() => setIsEditingEmail(true)} className="text-xs text-bd-text-muted transition-colors hover:text-bd-text-secondary hover:underline">Change email</button>
+                  </div>
+                ) : (
+                  <input
+                    type="email"
+                    value={billingEmail}
+                    onChange={(e) => handleEmailChange(e.target.value)}
+                    placeholder="Email for receipt"
+                    className="mt-3 h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+                  />
+                )}
+                <div className="mt-2 flex gap-2">
+                  {[5, 10, 25].map((amt) => (
+                    <button key={amt} type="button" disabled={purchaseLoading !== null || !billingEmail.includes("@")} onClick={() => handlePurchase(amt)} className="flex-1 rounded-lg border border-bd-amber px-3 py-2.5 text-sm font-medium text-bd-amber transition-colors hover:bg-bd-amber hover:text-bd-bg-primary disabled:opacity-60">
+                      {purchaseLoading === amt ? "..." : `$${amt}`}
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>
@@ -697,38 +760,39 @@ function BrainDriveDefaultSection({
 
       <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary p-4 space-y-4">
         <div>
-          <div className="text-2xl font-semibold text-bd-text-primary">$0.00</div>
+          <div className="text-2xl font-semibold text-bd-text-primary">${balance ? balance.remaining_usd.toFixed(2) : "..."}</div>
           <div className="text-xs text-bd-text-muted">remaining</div>
         </div>
 
         <div>
           <div className="mb-2 text-xs font-medium text-bd-text-secondary">Add credits</div>
+          {emailSaved && !isEditingEmail ? (
+            <div className="mb-2 flex items-center gap-2">
+              <span className="text-sm text-bd-text-primary">{billingEmail}</span>
+              <button type="button" onClick={() => setIsEditingEmail(true)} className="text-xs text-bd-text-muted transition-colors hover:text-bd-text-secondary hover:underline">Change email</button>
+            </div>
+          ) : (
+            <input
+              type="email"
+              value={billingEmail}
+              onChange={(e) => handleEmailChange(e.target.value)}
+              placeholder="Email for receipt"
+              className="mb-2 h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+            />
+          )}
           <div className="flex gap-2">
-            <button
-              type="button"
-              className="flex-1 rounded-lg border border-bd-amber px-3 py-2.5 text-sm font-medium text-bd-amber transition-colors hover:bg-bd-amber hover:text-bd-bg-primary"
-            >
-              $5
-            </button>
-            <button
-              type="button"
-              className="flex-1 rounded-lg border border-bd-amber px-3 py-2.5 text-sm font-medium text-bd-amber transition-colors hover:bg-bd-amber hover:text-bd-bg-primary"
-            >
-              $10
-            </button>
-            <button
-              type="button"
-              className="flex-1 rounded-lg border border-bd-amber px-3 py-2.5 text-sm font-medium text-bd-amber transition-colors hover:bg-bd-amber hover:text-bd-bg-primary"
-            >
-              $25
-            </button>
+            {[5, 10, 25].map((amt) => (
+              <button
+                key={amt}
+                type="button"
+                disabled={purchaseLoading !== null || !billingEmail.includes("@")}
+                onClick={() => handlePurchase(amt)}
+                className="flex-1 rounded-lg border border-bd-amber px-3 py-2.5 text-sm font-medium text-bd-amber transition-colors hover:bg-bd-amber hover:text-bd-bg-primary disabled:opacity-60"
+              >
+                {purchaseLoading === amt ? "..." : `$${amt}`}
+              </button>
+            ))}
           </div>
-          <button
-            type="button"
-            className="mt-2 text-xs text-bd-text-muted transition-colors hover:text-bd-text-secondary hover:underline"
-          >
-            Custom amount
-          </button>
         </div>
 
         {showUpdateKey ? (
@@ -784,7 +848,7 @@ function BrainDriveDefaultSection({
             onClick={() => setShowUpdateKey(true)}
             className="text-xs text-bd-text-muted transition-colors hover:text-bd-text-secondary hover:underline"
           >
-            Update API key
+            Change API key
           </button>
         )}
       </div>
@@ -1719,8 +1783,148 @@ function ProfileSection() {
 }
 
 function AccountSection() {
-  const user = useSettingsUser();
-  const usagePercent = 0;
+  const [accountInfo, setAccountInfo] = useState<AccountInfo | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Inline form toggles
+  const [showChangeEmail, setShowChangeEmail] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // Form inputs
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+  const [emailPassword, setEmailPassword] = useState("");
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+
+  // Action states
+  const [isSavingEmail, setIsSavingEmail] = useState(false);
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isLoadingPortal, setIsLoadingPortal] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
+    void getAccount()
+      .then((info) => {
+        if (!cancelled) setAccountInfo(info);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load account info");
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const clearForms = () => {
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setNewEmail("");
+    setEmailPassword("");
+    setDeletePassword("");
+    setDeleteConfirmation("");
+    setActionError(null);
+    setActionSuccess(null);
+  };
+
+  const handleChangeEmail = async () => {
+    setActionError(null);
+    setActionSuccess(null);
+    if (!newEmail.trim()) { setActionError("Email is required"); return; }
+    setIsSavingEmail(true);
+    try {
+      await apiChangeEmail(newEmail.trim(), emailPassword);
+      setAccountInfo((prev) => prev ? { ...prev, email: newEmail.trim() } : prev);
+      setShowChangeEmail(false);
+      clearForms();
+      setActionSuccess("Email updated");
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to change email");
+    } finally {
+      setIsSavingEmail(false);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    setActionError(null);
+    setActionSuccess(null);
+    if (newPassword !== confirmPassword) { setActionError("Passwords do not match"); return; }
+    if (newPassword.length < 8) { setActionError("Password must be at least 8 characters"); return; }
+    setIsSavingPassword(true);
+    try {
+      await apiChangePassword(currentPassword, newPassword);
+      setShowChangePassword(false);
+      clearForms();
+      setActionSuccess("Password updated");
+      // Refresh account info to show updated password_changed_at
+      void getAccount().then(setAccountInfo).catch(() => {});
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to change password");
+    } finally {
+      setIsSavingPassword(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    setActionError(null);
+    if (deleteConfirmation !== "DELETE") { setActionError("Type DELETE to confirm"); return; }
+    setIsDeleting(true);
+    try {
+      await apiDeleteAccount(deletePassword, deleteConfirmation);
+      window.location.href = "/login";
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to delete account");
+      setIsDeleting(false);
+    }
+  };
+
+  const handleManageSubscription = async () => {
+    setActionError(null);
+    setIsLoadingPortal(true);
+    try {
+      const portalUrl = await createPortalSession();
+      window.open(portalUrl, "_blank");
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to open subscription portal");
+    } finally {
+      setIsLoadingPortal(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <LoaderCircle size={24} className="animate-spin text-bd-text-muted" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-lg border border-bd-danger-border p-4">
+        <div className="flex items-center gap-2 text-sm text-bd-danger">
+          <AlertCircle size={16} />
+          {error}
+        </div>
+      </div>
+    );
+  }
+
+  const usagePercent = accountInfo
+    ? Math.min(100, Math.round((accountInfo.openrouter_usage_dollars / accountInfo.openrouter_limit_dollars) * 100))
+    : 0;
+
+  const inputClasses = "h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber";
 
   return (
     <div className="space-y-6">
@@ -1733,6 +1937,18 @@ function AccountSection() {
         </p>
       </div>
 
+      {/* Status messages */}
+      {actionSuccess && (
+        <div className="flex items-center gap-2 rounded-lg bg-bd-success-bg px-3 py-2 text-sm text-bd-success">
+          <Check size={16} /> {actionSuccess}
+        </div>
+      )}
+      {actionError && (
+        <div className="flex items-center gap-2 rounded-lg bg-bd-danger-bg px-3 py-2 text-sm text-bd-danger">
+          <AlertCircle size={16} /> {actionError}
+        </div>
+      )}
+
       {/* Subscription */}
       <div className="rounded-lg border border-bd-border p-4 space-y-4">
         <div>
@@ -1740,20 +1956,33 @@ function AccountSection() {
             <div className="text-sm font-medium text-bd-text-primary">
               BrainDrive Managed Hosting
             </div>
-            <div className="text-sm font-medium text-bd-text-primary">
-              $20/month
+            <div className="flex items-center gap-2">
+              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                accountInfo?.subscription_status === "active"
+                  ? "bg-bd-success-bg text-bd-success"
+                  : "bg-bd-bg-tertiary text-bd-text-muted"
+              }`}>
+                {accountInfo?.subscription_status ?? "unknown"}
+              </span>
+              <span className="text-sm font-medium text-bd-text-primary">$20/month</span>
             </div>
           </div>
-          <div className="mt-0.5 text-xs text-bd-text-muted">
-            Currently powered by Claude Sonnet 4.6
-          </div>
+          {accountInfo?.subscription_renewal_date && (
+            <div className="mt-2 text-xs text-bd-text-muted">
+              {accountInfo.cancel_at_period_end
+                ? `Cancels on ${new Date(accountInfo.subscription_renewal_date).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })}`
+                : `Renews ${new Date(accountInfo.subscription_renewal_date).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })}`}
+            </div>
+          )}
         </div>
 
         {/* Usage bar */}
         <div>
           <div className="mb-1.5 flex items-center justify-between text-xs">
             <span className="text-bd-text-secondary">Usage this period</span>
-            <span className="text-bd-text-muted">{usagePercent}%</span>
+            <span className="text-bd-text-muted">
+              {usagePercent}% used
+            </span>
           </div>
           <div className="h-2 w-full overflow-hidden rounded-full bg-bd-bg-secondary">
             <div
@@ -1761,48 +1990,115 @@ function AccountSection() {
               style={{ width: `${usagePercent}%` }}
             />
           </div>
-          <div className="mt-1.5 flex items-center justify-between text-xs">
-            <span className="text-bd-text-secondary">Next renewal</span>
-            <span className="text-bd-text-muted">—</span>
-          </div>
         </div>
 
         <button
           type="button"
-          className="rounded-lg bg-bd-bg-tertiary px-3 py-1.5 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover"
+          disabled={isLoadingPortal}
+          onClick={handleManageSubscription}
+          className="rounded-lg bg-bd-bg-tertiary px-3 py-1.5 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover disabled:opacity-50"
         >
-          Manage Subscription
+          {isLoadingPortal ? "Opening..." : "Manage Subscription"}
         </button>
       </div>
 
       {/* Email & Password */}
       <div className="rounded-lg border border-bd-border p-4 space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-sm font-medium text-bd-text-primary">Email</div>
-            <div className="text-sm text-bd-text-muted">{user.email}</div>
+        <div>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium text-bd-text-primary">Email</div>
+              <div className="text-sm text-bd-text-muted">{accountInfo?.email}</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => { setShowChangeEmail(!showChangeEmail); setShowChangePassword(false); clearForms(); }}
+              className="rounded-lg bg-bd-bg-tertiary px-3 py-1.5 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover"
+            >
+              {showChangeEmail ? "Cancel" : "Change"}
+            </button>
           </div>
-          <button
-            type="button"
-            className="rounded-lg bg-bd-bg-tertiary px-3 py-1.5 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover"
-          >
-            Change
-          </button>
+          {showChangeEmail && (
+            <div className="mt-3 space-y-3">
+              <input
+                type="email"
+                placeholder="New email"
+                value={newEmail}
+                onChange={(e) => setNewEmail(e.target.value)}
+                className={inputClasses}
+              />
+              <input
+                type="password"
+                placeholder="Current password"
+                value={emailPassword}
+                onChange={(e) => setEmailPassword(e.target.value)}
+                className={inputClasses}
+              />
+              <button
+                type="button"
+                disabled={isSavingEmail}
+                onClick={handleChangeEmail}
+                className="rounded-lg bg-bd-amber px-4 py-2 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:opacity-50"
+              >
+                {isSavingEmail ? "Saving..." : "Update Email"}
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="h-px bg-bd-border" />
 
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-sm font-medium text-bd-text-primary">Password</div>
-            <div className="text-sm text-bd-text-muted">Last changed: Never</div>
+        <div>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium text-bd-text-primary">Password</div>
+              <div className="text-sm text-bd-text-muted">
+                Last changed: {accountInfo?.password_changed_at
+                  ? new Date(accountInfo.password_changed_at).toLocaleDateString()
+                  : "Never"}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => { setShowChangePassword(!showChangePassword); setShowChangeEmail(false); clearForms(); }}
+              className="rounded-lg bg-bd-bg-tertiary px-3 py-1.5 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover"
+            >
+              {showChangePassword ? "Cancel" : "Change"}
+            </button>
           </div>
-          <button
-            type="button"
-            className="rounded-lg bg-bd-bg-tertiary px-3 py-1.5 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover"
-          >
-            Change
-          </button>
+          {showChangePassword && (
+            <div className="mt-3 space-y-3">
+              <input
+                type="password"
+                placeholder="Current password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                className={inputClasses}
+              />
+              <input
+                type="password"
+                placeholder="New password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                className={inputClasses}
+              />
+              <input
+                type="password"
+                placeholder="Confirm new password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className={inputClasses}
+              />
+              <button
+                type="button"
+                disabled={isSavingPassword}
+                onClick={handleChangePassword}
+                className="rounded-lg bg-bd-amber px-4 py-2 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:opacity-50"
+              >
+                {isSavingPassword ? "Saving..." : "Update Password"}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1813,12 +2109,49 @@ function AccountSection() {
           Permanently delete your account and all associated data. This cannot
           be undone. Export your library first.
         </p>
-        <button
-          type="button"
-          className="mt-3 rounded-lg border border-bd-danger-border px-3 py-1.5 text-xs text-bd-danger transition-colors hover:bg-bd-danger-bg"
-        >
-          Delete Account
-        </button>
+        {!showDeleteConfirm ? (
+          <button
+            type="button"
+            onClick={() => { setShowDeleteConfirm(true); clearForms(); }}
+            className="mt-3 rounded-lg border border-bd-danger-border px-3 py-1.5 text-xs text-bd-danger transition-colors hover:bg-bd-danger-bg"
+          >
+            Delete Account
+          </button>
+        ) : (
+          <div className="mt-3 space-y-3">
+            <input
+              type="password"
+              placeholder="Current password"
+              value={deletePassword}
+              onChange={(e) => setDeletePassword(e.target.value)}
+              className={inputClasses}
+            />
+            <input
+              type="text"
+              placeholder='Type "DELETE" to confirm'
+              value={deleteConfirmation}
+              onChange={(e) => setDeleteConfirmation(e.target.value)}
+              className={inputClasses}
+            />
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={handleDeleteAccount}
+                className="rounded-lg bg-bd-danger px-4 py-2 text-xs font-medium text-white transition-colors hover:opacity-90 disabled:opacity-50"
+              >
+                {isDeleting ? "Deleting..." : "Permanently Delete"}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowDeleteConfirm(false); clearForms(); }}
+                className="rounded-lg bg-bd-bg-tertiary px-4 py-2 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <p className="text-xs text-bd-text-muted">
