@@ -253,8 +253,6 @@ These are in `installer/docker/scripts` and intended for release operations.
 - Smoke test:
   - `./scripts/smoke-test-release.sh https://<DOMAIN>`
   - `./scripts/smoke-test-release.ps1 -BaseUrl https://<DOMAIN>`
-- Monday release operator checklist:
-  - `installer/docker/MONDAY-RELEASE-OPERATOR-CHECKLIST.md`
 
 Cosign key setup (one-time per release signing identity):
 - Generate key pair:

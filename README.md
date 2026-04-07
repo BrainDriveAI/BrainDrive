@@ -7,7 +7,7 @@ BrainDrive is a personal AI system that helps you define, set, and reach your go
 ![BrainDrive — checking in on fitness goals](docs/images/braindrive-screenshot.png)
 
 <p align="center">
-  <a href="https://braindrive.ai">Website</a> · <a href="https://community.braindrive.ai">Community</a>
+  <a href="https://braindrive.ai">Website</a> · <a href="https://community.braindrive.ai">Community</a> · <a href="ROADMAP.md">Roadmap</a>
 </p>
 
 ## What Is BrainDrive?
