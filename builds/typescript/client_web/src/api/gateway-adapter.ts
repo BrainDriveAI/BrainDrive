@@ -39,6 +39,7 @@ type SendMessageOptions = {
 
 type ErrorPayload = {
   code?: string;
+  detail?: string;
   error?: string;
   message?: string;
 };
@@ -152,6 +153,7 @@ async function readErrorPayload(response: Response): Promise<ErrorPayload | null
 async function toGatewayError(response: Response): Promise<GatewayError> {
   const payload = await readErrorPayload(response);
   const message =
+    payload?.detail ??
     payload?.message ??
     payload?.error ??
     `Gateway request failed with status ${response.status}`;
@@ -767,12 +769,16 @@ export type AccountInfo = {
   email: string;
   username: string;
   subscription_status: string;
-  openrouter_usage_dollars: number;
-  openrouter_limit_dollars: number;
+  litellm_spend_dollars: number;
+  litellm_budget_dollars: number;
+  credits_remaining_dollars: number;
+  credits_exhausted: boolean;
   created_at: string | null;
   password_changed_at: string | null;
   subscription_renewal_date: string | null;
   cancel_at_period_end: boolean;
+  topup_total_dollars: number;
+  topup_available: boolean;
 };
 
 export async function getAccount(): Promise<AccountInfo> {
@@ -835,6 +841,19 @@ export async function createPortalSession(): Promise<string> {
   }
   const data = (await response.json()) as { portal_url: string };
   return data.portal_url;
+}
+
+export async function createTopupSession(amountCents: number): Promise<string> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/account/topup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ amount_cents: amountCents }),
+  });
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+  const data = (await response.json()) as { checkout_url: string };
+  return data.checkout_url;
 }
 
 export {

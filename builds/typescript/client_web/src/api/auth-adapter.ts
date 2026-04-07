@@ -157,7 +157,12 @@ export async function authenticatedFetch(
   }
 
   if (authMode === "managed") {
-    return fetch(input, init);
+    const response = await fetch(input, init);
+    if (response.status === 401) {
+      // Session expired or container stopped — redirect to login
+      window.location.href = "/login";
+    }
+    return response;
   }
 
   await ensureAccessToken();

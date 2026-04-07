@@ -34,6 +34,7 @@ import {
   changeEmail as apiChangeEmail,
   deleteAccount as apiDeleteAccount,
   createPortalSession,
+  createTopupSession,
   type AccountInfo,
 } from "@/api/gateway-adapter";
 import { resetGatewayChatRuntime } from "@/api/useGatewayChat";
@@ -1809,6 +1810,11 @@ function AccountSection() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
+  // Top-up
+  const [showTopupOptions, setShowTopupOptions] = useState(false);
+  const [topupAmount, setTopupAmount] = useState(1000); // $10 default
+  const [isLoadingTopup, setIsLoadingTopup] = useState(false);
+
   useEffect(() => {
     let cancelled = false;
     setIsLoading(true);
@@ -1901,6 +1907,19 @@ function AccountSection() {
     }
   };
 
+  const handleTopup = async () => {
+    setActionError(null);
+    setIsLoadingTopup(true);
+    try {
+      const checkoutUrl = await createTopupSession(topupAmount);
+      window.open(checkoutUrl, "_blank");
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to start top-up checkout");
+    } finally {
+      setIsLoadingTopup(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -1920,8 +1939,8 @@ function AccountSection() {
     );
   }
 
-  const usagePercent = accountInfo
-    ? Math.min(100, Math.round((accountInfo.openrouter_usage_dollars / accountInfo.openrouter_limit_dollars) * 100))
+  const usagePercent = accountInfo && accountInfo.litellm_budget_dollars > 0
+    ? Math.min(100, Math.round(((accountInfo.litellm_spend_dollars ?? 0) / accountInfo.litellm_budget_dollars) * 100))
     : 0;
 
   const inputClasses = "h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber";
@@ -1964,7 +1983,7 @@ function AccountSection() {
               }`}>
                 {accountInfo?.subscription_status ?? "unknown"}
               </span>
-              <span className="text-sm font-medium text-bd-text-primary">$20/month</span>
+              <span className="text-sm font-medium text-bd-text-primary">$25/month</span>
             </div>
           </div>
           {accountInfo?.subscription_renewal_date && (
@@ -1979,18 +1998,105 @@ function AccountSection() {
         {/* Usage bar */}
         <div>
           <div className="mb-1.5 flex items-center justify-between text-xs">
-            <span className="text-bd-text-secondary">Usage this period</span>
+            <span className="text-bd-text-secondary">
+              Usage this period
+            </span>
             <span className="text-bd-text-muted">
               {usagePercent}% used
             </span>
           </div>
           <div className="h-2 w-full overflow-hidden rounded-full bg-bd-bg-secondary">
             <div
-              className="h-full rounded-full bg-bd-amber transition-all"
+              className={`h-full rounded-full transition-all ${accountInfo?.credits_exhausted ? "bg-bd-danger" : "bg-bd-amber"}`}
               style={{ width: `${usagePercent}%` }}
             />
           </div>
+          {accountInfo?.credits_exhausted && (
+            <div className="mt-2 text-xs text-bd-danger">
+              Credits exhausted — your AI features are paused until next billing cycle.
+            </div>
+          )}
         </div>
+
+        {/* Top-up credits */}
+        {accountInfo?.topup_available && (
+          <div>
+            {accountInfo.credits_exhausted ? (
+              <div className="rounded-lg border border-bd-amber-border bg-bd-amber-bg/30 p-3 space-y-3">
+                <div className="text-xs font-medium text-bd-text-primary">Buy additional credits</div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={topupAmount}
+                    onChange={(e) => setTopupAmount(Number(e.target.value))}
+                    className="h-8 rounded-md border border-bd-border bg-bd-bg-secondary px-2 text-xs text-bd-text-primary outline-none"
+                  >
+                    <option value={500}>$5</option>
+                    <option value={1000}>$10</option>
+                    <option value={2000}>$20</option>
+                    <option value={5000}>$50</option>
+                    <option value={10000}>$100</option>
+                  </select>
+                  <button
+                    type="button"
+                    disabled={isLoadingTopup}
+                    onClick={handleTopup}
+                    className="rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:opacity-50"
+                  >
+                    {isLoadingTopup ? "Opening..." : "Buy Credits"}
+                  </button>
+                </div>
+                <div className="text-[11px] text-bd-text-muted">
+                  Credits are added instantly after payment. 5% processing fee applies.
+                </div>
+              </div>
+            ) : !showTopupOptions ? (
+              <button
+                type="button"
+                onClick={() => setShowTopupOptions(true)}
+                className="text-xs text-bd-text-muted hover:text-bd-text-secondary transition-colors"
+              >
+                Need more credits?
+              </button>
+            ) : (
+              <div className="rounded-lg border border-bd-border p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-medium text-bd-text-primary">Buy additional credits</div>
+                  <button
+                    type="button"
+                    onClick={() => setShowTopupOptions(false)}
+                    className="text-xs text-bd-text-muted hover:text-bd-text-secondary"
+                  >
+                    Cancel
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={topupAmount}
+                    onChange={(e) => setTopupAmount(Number(e.target.value))}
+                    className="h-8 rounded-md border border-bd-border bg-bd-bg-secondary px-2 text-xs text-bd-text-primary outline-none"
+                  >
+                    <option value={500}>$5</option>
+                    <option value={1000}>$10</option>
+                    <option value={2000}>$20</option>
+                    <option value={5000}>$50</option>
+                    <option value={10000}>$100</option>
+                  </select>
+                  <button
+                    type="button"
+                    disabled={isLoadingTopup}
+                    onClick={handleTopup}
+                    className="rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:opacity-50"
+                  >
+                    {isLoadingTopup ? "Opening..." : "Buy Credits"}
+                  </button>
+                </div>
+                <div className="text-[11px] text-bd-text-muted">
+                  Credits are added instantly after payment. 5% processing fee applies.
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <button
           type="button"

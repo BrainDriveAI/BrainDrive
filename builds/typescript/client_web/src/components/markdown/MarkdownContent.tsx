@@ -26,6 +26,12 @@ function CopyButton({ code }: { code: string }) {
 }
 
 export default function MarkdownContent({ content }: { content: string }) {
+  // Strip <tool_call>/<tool_response> blocks that some models emit as text
+  const cleaned = content
+    .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "")
+    .replace(/<tool_response>[\s\S]*?<\/tool_response>/g, "")
+    .trim();
+
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
@@ -135,7 +141,7 @@ export default function MarkdownContent({ content }: { content: string }) {
         }
       }}
     >
-      {content}
+      {cleaned}
     </ReactMarkdown>
   );
 }

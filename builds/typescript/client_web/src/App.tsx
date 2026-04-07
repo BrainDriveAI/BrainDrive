@@ -61,8 +61,9 @@ export default function App() {
       onLogout={() => {
         void logout().finally(() => {
           if (deploymentMode === "managed") {
-            // In managed mode, logout means redirect back to the gateway login
-            window.location.href = "/login";
+            // In managed mode, hit the Gateway logout endpoint which stops the
+            // container, clears the bd_session cookie, and redirects to /login.
+            window.location.href = "/api/gateway/auth/logout";
           } else {
             setScreen("auth");
           }

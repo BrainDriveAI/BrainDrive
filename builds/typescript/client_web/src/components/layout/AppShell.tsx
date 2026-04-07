@@ -52,6 +52,23 @@ export default function AppShell({
   const messageMetadata =
     selectedProjectId !== null ? { client: "web", project: selectedProjectId } : { client: "web" };
 
+  // Send heartbeat to gateway every 5 minutes in managed mode so the idle
+  // monitor knows the user is still active and won't stop the container.
+  useEffect(() => {
+    if (deploymentMode !== "managed") return;
+
+    const HEARTBEAT_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
+    function sendHeartbeat() {
+      fetch("/api/gateway/containers/heartbeat", { method: "POST" }).catch(() => {});
+    }
+
+    // Send immediately on mount, then every 5 minutes
+    sendHeartbeat();
+    const id = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL);
+    return () => clearInterval(id);
+  }, [deploymentMode]);
+
   // Auto-open settings if BrainDrive Models is active but has no API key
   useEffect(() => {
     if (deploymentMode !== "local") return;
