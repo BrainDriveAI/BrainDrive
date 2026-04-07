@@ -188,6 +188,7 @@ const MANAGED_PROXY_ROUTES = new Set([
   "/account/change-password",
   "/account/change-email",
   "/account/portal-session",
+  "/account/topup",
 ]);
 
 export async function buildServer(rootDir = process.cwd()) {
@@ -1721,6 +1722,7 @@ export async function buildServer(rootDir = process.cwd()) {
     app.post("/account/change-email", async (request, reply) => proxyToGateway(request, reply, "POST", "/api/gateway/auth/account/change-email", request.body));
     app.delete("/account", async (request, reply) => proxyToGateway(request, reply, "DELETE", "/api/gateway/auth/account", request.body));
     app.post("/account/portal-session", async (request, reply) => proxyToGateway(request, reply, "POST", "/api/gateway/billing/create-portal-session", request.body));
+    app.post("/account/topup", async (request, reply) => proxyToGateway(request, reply, "POST", "/api/gateway/billing/topup", request.body));
   }
 
   return {
