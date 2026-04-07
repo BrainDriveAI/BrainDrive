@@ -4,7 +4,7 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { bootstrapSkillsFromStarterPack, MemorySkillStore } from "./skills.js";
 import { resolveMemoryPath, toMemoryRelativePath } from "./paths.js";
 
-export type MemoryInitProfile = "local-dev" | "openrouter-secret-ref";
+export type MemoryInitProfile = "local-dev" | "openrouter-secret-ref" | "braindrive-managed-secret-ref";
 
 export type MemoryInitOptions = {
   profile?: MemoryInitProfile;
@@ -81,6 +81,25 @@ const FALLBACK_OPENROUTER_SECRET_REF_PREFERENCES = {
       secret_ref: "provider/openrouter/api_key",
       required: true,
     },
+  },
+  secret_resolution: {
+    on_missing: "fail_closed",
+  },
+};
+
+const FALLBACK_BRAINDRIVE_MANAGED_SECRET_REF_PREFERENCES = {
+  default_model: "claude-sonnet-4-6",
+  approval_mode: "ask-on-write",
+  active_provider_profile: "braindrive-models",
+  provider_credentials: {
+    "braindrive-models": {
+      mode: "secret_ref",
+      secret_ref: "provider/ai-gateway/api_key",
+      required: true,
+    },
+  },
+  provider_base_urls: {
+    "braindrive-models": process.env.BD_MANAGED_LITELLM_BASE || "http://host.docker.internal:4002/v1",
   },
   secret_resolution: {
     on_missing: "fail_closed",
@@ -569,17 +588,21 @@ function toMemoryPathForSummary(memoryRoot: string, absolutePath: string): strin
 }
 
 function normalizeProfile(profile: MemoryInitProfile | undefined): MemoryInitProfile {
-  if (profile === "openrouter-secret-ref") {
+  if (profile === "openrouter-secret-ref" || profile === "braindrive-managed-secret-ref") {
     return profile;
   }
   return "local-dev";
 }
 
 function fallbackPreferencesByProfile(profile: MemoryInitProfile): string {
-  const value =
-    profile === "openrouter-secret-ref"
-      ? FALLBACK_OPENROUTER_SECRET_REF_PREFERENCES
-      : FALLBACK_LOCAL_DEV_PREFERENCES;
+  let value;
+  if (profile === "braindrive-managed-secret-ref") {
+    value = FALLBACK_BRAINDRIVE_MANAGED_SECRET_REF_PREFERENCES;
+  } else if (profile === "openrouter-secret-ref") {
+    value = FALLBACK_OPENROUTER_SECRET_REF_PREFERENCES;
+  } else {
+    value = FALLBACK_LOCAL_DEV_PREFERENCES;
+  }
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
