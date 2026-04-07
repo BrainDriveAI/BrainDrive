@@ -25,7 +25,10 @@ import {
   getOwnerProfile,
   getProviderModels,
   getSettings as getGatewaySettings,
+  restoreMemoryBackup as restoreGatewayMemoryBackup,
+  runMemoryBackupNow,
   pullProviderModel,
+  updateMemoryBackupSettings as updateGatewayMemoryBackupSettings,
   updateOwnerProfile,
   updateProviderCredential as updateGatewayProviderCredential,
   updateSettings as updateGatewaySettings,
@@ -39,6 +42,11 @@ import {
 import { resetGatewayChatRuntime } from "@/api/useGatewayChat";
 import type {
   GatewayCredentialUpdateRequest,
+  GatewayMemoryBackupFrequency,
+  GatewayMemoryBackupRestoreRequest,
+  GatewayMemoryBackupRestoreResult,
+  GatewayMemoryBackupRunResult,
+  GatewayMemoryBackupSettingsUpdateRequest,
   GatewayModelCatalog,
   GatewayModelCatalogEntry,
   GatewayMigrationImportResult,
@@ -57,18 +65,19 @@ type SettingsModalProps = {
   onClose: () => void;
 };
 
-type SettingsTab = "provider" | "model" | "profile" | "account" | "export";
+type SettingsTab = "provider" | "model" | "profile" | "account" | "export" | "memory-backup";
 
 type TabDef = { id: SettingsTab; label: string; icon: typeof Key; managedOnly?: boolean; localOnly?: boolean };
 
 // Managed hosting shows: Account, Owner Profile, Export (D93).
-// Local shows: Default Model, Model Providers, Owner Profile, Export.
+// Local shows: Default Model, Model Providers, Owner Profile, Export, Memory Backup.
 const allTabs: TabDef[] = [
   { id: "account", label: "Account", icon: UserCog, managedOnly: true },
   { id: "model", label: "Default Model", icon: Cpu, localOnly: true },
   { id: "provider", label: "Model Providers", icon: Key, localOnly: true },
   { id: "profile", label: "Owner Profile", icon: User },
-  { id: "export", label: "Migrate Library", icon: Download }
+  { id: "export", label: "Migrate Library", icon: Download },
+  { id: "memory-backup", label: "Memory Backup", icon: Save, localOnly: true },
 ];
 
 export default function SettingsModal({
@@ -223,6 +232,32 @@ export default function SettingsModal({
     resetGatewayChatRuntime();
   }
 
+  async function saveMemoryBackupSettings(
+    payload: GatewayMemoryBackupSettingsUpdateRequest
+  ): Promise<GatewaySettings> {
+    const updated = await updateGatewayMemoryBackupSettings(payload);
+    setSettings(updated);
+    setSettingsError(null);
+    return updated;
+  }
+
+  async function triggerMemoryBackupNow(): Promise<GatewayMemoryBackupRunResult> {
+    const updated = await runMemoryBackupNow();
+    setSettings(updated.settings);
+    setSettingsError(null);
+    return updated.result;
+  }
+
+  async function triggerMemoryBackupRestore(
+    payload?: GatewayMemoryBackupRestoreRequest
+  ): Promise<GatewayMemoryBackupRestoreResult> {
+    const updated = await restoreGatewayMemoryBackup(payload ?? {});
+    setSettings(updated.settings);
+    setSettingsError(null);
+    resetGatewayChatRuntime();
+    return updated.result;
+  }
+
   async function handleDownloadExport(): Promise<void> {
     setIsExporting(true);
     setExportError(null);
@@ -322,18 +357,21 @@ export default function SettingsModal({
               modelCatalogError={modelCatalogError}
               onSaveSettings={saveSettings}
               onSaveCredential={saveCredential}
-            onDownloadExport={handleDownloadExport}
-            isExporting={isExporting}
-            exportError={exportError}
-            onImportArchive={handleImportArchive}
-            isImporting={isImporting}
-            importError={importError}
-            importResult={importResult}
-            installMode={installMode}
-            appVersion={appVersion}
-            onRefreshCatalog={() => setCatalogRefreshKey((k) => k + 1)}
-            onNavigateToTab={setActiveTab}
-          />
+              onSaveMemoryBackupSettings={saveMemoryBackupSettings}
+              onRunMemoryBackupNow={triggerMemoryBackupNow}
+              onRestoreMemoryBackup={triggerMemoryBackupRestore}
+              onDownloadExport={handleDownloadExport}
+              isExporting={isExporting}
+              exportError={exportError}
+              onImportArchive={handleImportArchive}
+              isImporting={isImporting}
+              importError={importError}
+              importResult={importResult}
+              installMode={installMode}
+              appVersion={appVersion}
+              onRefreshCatalog={() => setCatalogRefreshKey((k) => k + 1)}
+              onNavigateToTab={setActiveTab}
+            />
           </div>
         </div>
       </div>
@@ -389,6 +427,9 @@ export default function SettingsModal({
             onSaveSettings={saveSettings}
             onRefreshCatalog={() => setCatalogRefreshKey((k) => k + 1)}
             onSaveCredential={saveCredential}
+            onSaveMemoryBackupSettings={saveMemoryBackupSettings}
+            onRunMemoryBackupNow={triggerMemoryBackupNow}
+            onRestoreMemoryBackup={triggerMemoryBackupRestore}
             onDownloadExport={handleDownloadExport}
             isExporting={isExporting}
             exportError={exportError}
@@ -473,6 +514,9 @@ function TabContent({
   modelCatalogError,
   onSaveSettings,
   onSaveCredential,
+  onSaveMemoryBackupSettings,
+  onRunMemoryBackupNow,
+  onRestoreMemoryBackup,
   onDownloadExport,
   isExporting,
   exportError,
@@ -497,6 +541,13 @@ function TabContent({
     patch: SettingsPatch
   ) => Promise<GatewaySettings>;
   onSaveCredential: (patch: GatewayCredentialUpdateRequest) => Promise<void>;
+  onSaveMemoryBackupSettings: (
+    payload: GatewayMemoryBackupSettingsUpdateRequest
+  ) => Promise<GatewaySettings>;
+  onRunMemoryBackupNow: () => Promise<GatewayMemoryBackupRunResult>;
+  onRestoreMemoryBackup: (
+    payload?: GatewayMemoryBackupRestoreRequest
+  ) => Promise<GatewayMemoryBackupRestoreResult>;
   onDownloadExport: () => Promise<void>;
   isExporting: boolean;
   exportError: string | null;
@@ -543,6 +594,18 @@ function TabContent({
           onNavigateToTab={onNavigateToTab}
         />
       );
+    case "memory-backup":
+      return (
+        <MemoryBackupSection
+          mode={mode}
+          settings={settings}
+          isLoadingSettings={isLoadingSettings}
+          settingsError={settingsError}
+          onSaveMemoryBackupSettings={onSaveMemoryBackupSettings}
+          onRunMemoryBackupNow={onRunMemoryBackupNow}
+          onRestoreMemoryBackup={onRestoreMemoryBackup}
+        />
+      );
     case "profile":
       return <ProfileSection />;
     case "account":
@@ -563,6 +626,289 @@ function TabContent({
         />
       );
   }
+}
+
+function MemoryBackupSection({
+  mode,
+  settings,
+  isLoadingSettings,
+  settingsError,
+  onSaveMemoryBackupSettings,
+  onRunMemoryBackupNow,
+  onRestoreMemoryBackup,
+}: {
+  mode: "local" | "managed";
+  settings: GatewaySettings | null;
+  isLoadingSettings: boolean;
+  settingsError: string | null;
+  onSaveMemoryBackupSettings: (
+    payload: GatewayMemoryBackupSettingsUpdateRequest
+  ) => Promise<GatewaySettings>;
+  onRunMemoryBackupNow: () => Promise<GatewayMemoryBackupRunResult>;
+  onRestoreMemoryBackup: (
+    payload?: GatewayMemoryBackupRestoreRequest
+  ) => Promise<GatewayMemoryBackupRestoreResult>;
+}) {
+  const [repositoryUrl, setRepositoryUrl] = useState("");
+  const [frequency, setFrequency] = useState<GatewayMemoryBackupFrequency>("manual");
+  const [token, setToken] = useState("");
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [settingsActionError, setSettingsActionError] = useState<string | null>(null);
+  const [settingsActionSuccess, setSettingsActionSuccess] = useState<string | null>(null);
+  const [isSavingNow, setIsSavingNow] = useState(false);
+  const [saveNowMessage, setSaveNowMessage] = useState<string | null>(null);
+  const [saveNowError, setSaveNowError] = useState<string | null>(null);
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [restoreMessage, setRestoreMessage] = useState<string | null>(null);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+
+  const backupSettings = settings?.memory_backup ?? null;
+
+  useEffect(() => {
+    setRepositoryUrl(backupSettings?.repository_url ?? "");
+    setFrequency(backupSettings?.frequency ?? "manual");
+  }, [backupSettings?.repository_url, backupSettings?.frequency]);
+
+  if (mode !== "local") {
+    return null;
+  }
+
+  if (isLoadingSettings) {
+    return (
+      <div className="space-y-3">
+        <h3 className="font-heading text-base font-semibold text-bd-text-heading">Memory Backup</h3>
+        <p className="text-sm text-bd-text-muted">Loading backup settings...</p>
+      </div>
+    );
+  }
+
+  if (settingsError) {
+    return (
+      <div className="space-y-3">
+        <h3 className="font-heading text-base font-semibold text-bd-text-heading">Memory Backup</h3>
+        <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2.5 text-sm text-bd-text-primary">
+          {settingsError}
+        </div>
+      </div>
+    );
+  }
+
+  const lastSave = backupSettings?.last_save_at
+    ? new Date(backupSettings.last_save_at).toLocaleString()
+    : "Never";
+  const lastResult = backupSettings?.last_result ?? "never";
+  const statusText =
+    lastResult === "success"
+      ? "Success"
+      : lastResult === "failed"
+        ? "Failed"
+        : "Never run";
+  const frequencyOptions: Array<{ value: GatewayMemoryBackupFrequency; label: string }> = [
+    { value: "manual", label: "Manual" },
+    { value: "after_changes", label: "After changes" },
+    { value: "hourly", label: "Every hour" },
+    { value: "daily", label: "Every day" },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="font-heading text-base font-semibold text-bd-text-heading">Memory Backup</h3>
+        <p className="mt-1 text-sm text-bd-text-muted">
+          Configure a git repository and token to back up memory snapshots.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        <label className="block text-sm font-medium text-bd-text-secondary" htmlFor="memory-backup-repo">
+          Repository URL
+        </label>
+        <input
+          id="memory-backup-repo"
+          type="url"
+          value={repositoryUrl}
+          onChange={(event) => {
+            setRepositoryUrl(event.target.value);
+            setSettingsActionError(null);
+            setSettingsActionSuccess(null);
+          }}
+          placeholder="https://github.com/your-org/your-memory-backup.git"
+          className="h-10 w-full rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+        />
+      </div>
+
+      <div className="space-y-3">
+        <label className="block text-sm font-medium text-bd-text-secondary" htmlFor="memory-backup-token">
+          Git Token (PAT/Classic)
+        </label>
+        <input
+          id="memory-backup-token"
+          type="password"
+          value={token}
+          onChange={(event) => {
+            setToken(event.target.value);
+            setSettingsActionError(null);
+            setSettingsActionSuccess(null);
+          }}
+          placeholder={backupSettings?.token_configured ? "Leave blank to keep current token" : "Paste token"}
+          className="h-10 w-full rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+        />
+      </div>
+
+      <div className="space-y-3">
+        <label className="block text-sm font-medium text-bd-text-secondary" htmlFor="memory-backup-frequency">
+          Frequency
+        </label>
+        <select
+          id="memory-backup-frequency"
+          value={frequency}
+          onChange={(event) => {
+            setFrequency(event.target.value as GatewayMemoryBackupFrequency);
+            setSettingsActionError(null);
+            setSettingsActionSuccess(null);
+          }}
+          className="h-10 w-full rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+        >
+          {frequencyOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary p-3 text-sm text-bd-text-secondary">
+        <div className="flex items-center justify-between gap-3">
+          <span>Last successful save</span>
+          <span className="text-bd-text-primary">{lastSave}</span>
+        </div>
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <span>Status</span>
+          <span className={lastResult === "failed" ? "text-bd-danger" : "text-bd-text-primary"}>{statusText}</span>
+        </div>
+        {backupSettings?.last_error && (
+          <div className="mt-2 text-xs text-bd-danger">{backupSettings.last_error}</div>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={isSavingSettings || repositoryUrl.trim().length === 0}
+          onClick={() => {
+            setIsSavingSettings(true);
+            setSettingsActionError(null);
+            setSettingsActionSuccess(null);
+            void onSaveMemoryBackupSettings({
+              repository_url: repositoryUrl.trim(),
+              frequency,
+              ...(token.trim().length > 0 ? { git_token: token.trim() } : {}),
+            })
+              .then(() => {
+                setToken("");
+                setSettingsActionSuccess("Backup settings saved.");
+              })
+              .catch((error) => {
+                setSettingsActionError(error instanceof Error ? error.message : String(error));
+              })
+              .finally(() => {
+                setIsSavingSettings(false);
+              });
+          }}
+          className="rounded-lg bg-bd-amber px-3 py-2 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isSavingSettings ? "Saving..." : "Save Backup Settings"}
+        </button>
+        <button
+          type="button"
+          disabled={isSavingNow || !backupSettings}
+          onClick={() => {
+            setIsSavingNow(true);
+            setSaveNowError(null);
+            setSaveNowMessage(null);
+            void onRunMemoryBackupNow()
+              .then((result) => {
+                const summary =
+                  result.result === "failed"
+                    ? result.message ?? "Backup failed."
+                    : result.result === "noop"
+                      ? result.message ?? "No changes to snapshot."
+                      : "Backup saved successfully.";
+                setSaveNowMessage(summary);
+              })
+              .catch((error) => {
+                setSaveNowError(error instanceof Error ? error.message : String(error));
+              })
+              .finally(() => {
+                setIsSavingNow(false);
+              });
+          }}
+          className="rounded-lg border border-bd-border px-3 py-2 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isSavingNow ? "Saving..." : "Save Now"}
+        </button>
+        <button
+          type="button"
+          disabled={isRestoring || !backupSettings}
+          onClick={() => {
+            const confirmed = window.confirm(
+              "This restores your memory files from backup and does not restore secrets. Continue?"
+            );
+            if (!confirmed) {
+              return;
+            }
+            setIsRestoring(true);
+            setRestoreError(null);
+            setRestoreMessage(null);
+            void onRestoreMemoryBackup()
+              .then((result) => {
+                setRestoreMessage(`Restored commit ${result.commit.slice(0, 12)}.`);
+              })
+              .catch((error) => {
+                setRestoreError(error instanceof Error ? error.message : String(error));
+              })
+              .finally(() => {
+                setIsRestoring(false);
+              });
+          }}
+          className="rounded-lg border border-bd-border px-3 py-2 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isRestoring ? "Restoring..." : "Restore from Backup Repo"}
+        </button>
+      </div>
+
+      {settingsActionError && (
+        <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
+          {settingsActionError}
+        </div>
+      )}
+      {settingsActionSuccess && (
+        <div className="rounded-lg border border-bd-success-border bg-bd-success-bg px-3 py-2 text-sm text-bd-text-primary">
+          {settingsActionSuccess}
+        </div>
+      )}
+      {saveNowError && (
+        <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
+          {saveNowError}
+        </div>
+      )}
+      {saveNowMessage && (
+        <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-sm text-bd-text-secondary">
+          {saveNowMessage}
+        </div>
+      )}
+      {restoreError && (
+        <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
+          {restoreError}
+        </div>
+      )}
+      {restoreMessage && (
+        <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-sm text-bd-text-secondary">
+          {restoreMessage}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function BrainDriveDefaultSection({

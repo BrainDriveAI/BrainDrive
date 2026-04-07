@@ -11,6 +11,10 @@ import {
   type ConversationDetail,
   type GatewayCredentialUpdateRequest,
   type GatewayCredentialUpdateResponse,
+  type GatewayMemoryBackupRestoreRequest,
+  type GatewayMemoryBackupRestoreResponse,
+  type GatewayMemoryBackupRunResponse,
+  type GatewayMemoryBackupSettingsUpdateRequest,
   type GatewayMigrationImportResult,
   type GatewayModelCatalog,
   type GatewayOnboardingStatus,
@@ -540,6 +544,52 @@ export async function updateSettings(
   }
 
   return (await response.json()) as GatewaySettings;
+}
+
+export async function updateMemoryBackupSettings(
+  payload: GatewayMemoryBackupSettingsUpdateRequest
+): Promise<GatewaySettings> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/settings/memory-backup`, {
+    method: "PUT",
+    headers: withLocalOwnerHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+
+  return (await response.json()) as GatewaySettings;
+}
+
+export async function runMemoryBackupNow(): Promise<GatewayMemoryBackupRunResponse> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/settings/memory-backup/save`, {
+    method: "POST",
+    headers: withLocalOwnerHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({}),
+  });
+
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+
+  return (await response.json()) as GatewayMemoryBackupRunResponse;
+}
+
+export async function restoreMemoryBackup(
+  payload: GatewayMemoryBackupRestoreRequest = {}
+): Promise<GatewayMemoryBackupRestoreResponse> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/settings/memory-backup/restore`, {
+    method: "POST",
+    headers: withLocalOwnerHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+
+  return (await response.json()) as GatewayMemoryBackupRestoreResponse;
 }
 
 export async function getOwnerProfile(): Promise<string | null> {

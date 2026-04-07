@@ -25,6 +25,7 @@ Other AI tools chat. BrainDrive partners with you to get things done.
 - **A structured path to your goals** — interview → spec → action plan → ongoing partnership
 - **Life areas built in** — Career, Relationships, Fitness, Finance, plus create your own projects
 - **Your data stays yours** — conversations, memory, and files live on your machine
+- **Memory backup modes** — push memory snapshots to your own Git repo (manual or scheduled)
 - **Any AI model** — cloud models via API, local models via Ollama, or both
 - **One install** — runs in Docker on Linux, macOS, and WSL
 - **MIT licensed** — fork it, extend it, make it yours
@@ -104,6 +105,28 @@ The system runs as two Docker containers: an app server (Gateway + tools) and an
 | `./installer/docker/scripts/restore.sh memory <file> quickstart` | Restore from backup (quickstart stack) |
 
 See [`installer/docker/README.md`](installer/docker/README.md) for production deployment, Windows equivalents, and advanced operations.
+
+## Memory Backup (MVP)
+
+BrainDrive includes a local-only **Memory Backup** settings tab for backing up memory snapshots to your own HTTPS Git repository.
+
+What it supports:
+
+1. Configure repository URL, token, and frequency in **Settings -> Memory Backup**
+2. Run immediate backup with **Save Now**
+3. Run scheduled backups in `after_changes`, `hourly`, or `daily` modes
+4. Restore memory from backup branch snapshots
+
+Important safety behavior:
+
+1. Restore is **memory-only**. Secrets are not restored from git backup.
+2. Backup repository URL must be `https://` (SSH URLs are rejected).
+3. Token is stored as a vault secret reference, not plaintext preferences.
+
+Setup and validation instructions:
+
+1. Operator notes: [`installer/docker/README.md`](installer/docker/README.md)
+2. Step-by-step local test flow: [`docs/onboarding/getting-started-testing-openrouter-docker.md`](docs/onboarding/getting-started-testing-openrouter-docker.md)
 
 ## Operator Quick Usage
 

@@ -1,7 +1,12 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import type { GatewayModelCatalog, GatewaySettings } from "@/api/types";
+import type {
+  GatewayMemoryBackupRestoreRequest,
+  GatewayMemoryBackupSettingsUpdateRequest,
+  GatewayModelCatalog,
+  GatewaySettings
+} from "@/api/types";
 
 import SettingsModal from "./SettingsModal";
 
@@ -19,6 +24,15 @@ const importLibraryArchiveMock = vi.fn();
 const updateProviderCredentialMock = vi.fn<
   () => Promise<{ settings: GatewaySettings }>
 >();
+const updateMemoryBackupSettingsMock = vi.fn<
+  (payload: GatewayMemoryBackupSettingsUpdateRequest) => Promise<GatewaySettings>
+>();
+const runMemoryBackupNowMock = vi.fn<
+  () => Promise<{ result: { result: "success" | "failed" | "noop"; message?: string }; settings: GatewaySettings }>
+>();
+const restoreMemoryBackupMock = vi.fn<
+  (payload?: GatewayMemoryBackupRestoreRequest) => Promise<{ result: { commit: string }; settings: GatewaySettings }>
+>();
 
 vi.mock("@/api/gateway-adapter", () => ({
   getSettings: () => getSettingsMock(),
@@ -26,6 +40,10 @@ vi.mock("@/api/gateway-adapter", () => ({
     patch: Partial<Pick<GatewaySettings, "default_model" | "active_provider_profile">>
   ) => updateSettingsMock(patch),
   updateProviderCredential: () => updateProviderCredentialMock(),
+  updateMemoryBackupSettings: (payload: GatewayMemoryBackupSettingsUpdateRequest) =>
+    updateMemoryBackupSettingsMock(payload),
+  runMemoryBackupNow: () => runMemoryBackupNowMock(),
+  restoreMemoryBackup: (payload?: GatewayMemoryBackupRestoreRequest) => restoreMemoryBackupMock(payload),
   getProviderModels: (providerProfile?: string) => getProviderModelsMock(providerProfile),
   downloadLibraryExport: () => downloadLibraryExportMock(),
   importLibraryArchive: (file: Blob) => importLibraryArchiveMock(file),
@@ -37,6 +55,7 @@ const baseSettings: GatewaySettings = {
   active_provider_profile: "openrouter",
   default_provider_profile: "openrouter",
   available_models: ["openai/gpt-4o-mini", "llama3.1"],
+  memory_backup: null,
   provider_profiles: [
     {
       id: "openrouter",
@@ -78,6 +97,18 @@ const providerCatalog: GatewayModelCatalog = {
   ],
 };
 
+const settingsWithBackup: GatewaySettings = {
+  ...baseSettings,
+  memory_backup: {
+    repository_url: "https://github.com/BrainDriveAI/braindrive-memory.git",
+    frequency: "manual",
+    token_configured: true,
+    last_result: "success",
+    last_error: null,
+    last_save_at: "2026-04-07T12:00:01.000Z",
+  },
+};
+
 describe("SettingsModal", () => {
   beforeEach(() => {
     getSettingsMock.mockReset();
@@ -86,9 +117,21 @@ describe("SettingsModal", () => {
     downloadLibraryExportMock.mockReset();
     importLibraryArchiveMock.mockReset();
     updateProviderCredentialMock.mockReset();
+    updateMemoryBackupSettingsMock.mockReset();
+    runMemoryBackupNowMock.mockReset();
+    restoreMemoryBackupMock.mockReset();
     getSettingsMock.mockResolvedValue(baseSettings);
     updateSettingsMock.mockResolvedValue(baseSettings);
     updateProviderCredentialMock.mockResolvedValue({ settings: baseSettings });
+    updateMemoryBackupSettingsMock.mockResolvedValue(settingsWithBackup);
+    runMemoryBackupNowMock.mockResolvedValue({
+      result: { result: "success", message: "Backup saved successfully." },
+      settings: settingsWithBackup,
+    });
+    restoreMemoryBackupMock.mockResolvedValue({
+      result: { commit: "abc123def456" },
+      settings: settingsWithBackup,
+    });
     getProviderModelsMock.mockResolvedValue(providerCatalog);
     downloadLibraryExportMock.mockResolvedValue({
       fileName: "memory-export-123.tar.gz",
@@ -218,5 +261,88 @@ describe("SettingsModal", () => {
         default_model: "meta-llama/llama-3.1-8b-instruct:free",
       });
     });
+  });
+
+  it("renders memory backup tab below migrate library in local mode", async () => {
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+
+    await waitFor(() => {
+      expect(getSettingsMock).toHaveBeenCalledTimes(1);
+    });
+
+    const tabLabels = screen
+      .getAllByRole("button")
+      .map((button) => button.textContent?.trim() ?? "")
+      .filter(Boolean);
+
+    const migrateIndex = tabLabels.indexOf("Migrate Library");
+    const backupIndex = tabLabels.indexOf("Memory Backup");
+    expect(migrateIndex).toBeGreaterThanOrEqual(0);
+    expect(backupIndex).toBeGreaterThan(migrateIndex);
+  });
+
+  it("saves memory backup settings", async () => {
+    const user = userEvent.setup();
+    getSettingsMock.mockResolvedValueOnce(baseSettings);
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+
+    await waitFor(() => {
+      expect(getSettingsMock).toHaveBeenCalledTimes(1);
+    });
+
+    await user.click(screen.getAllByRole("button", { name: "Memory Backup" })[0]!);
+    await user.clear(screen.getAllByLabelText("Repository URL")[0]!);
+    await user.type(
+      screen.getAllByLabelText("Repository URL")[0]!,
+      "https://github.com/BrainDriveAI/braindrive-memory.git"
+    );
+    await user.type(screen.getAllByLabelText("Git Token (PAT/Classic)")[0]!, "ghp_test");
+    await user.selectOptions(screen.getAllByLabelText("Frequency")[0]!, "daily");
+    await user.click(screen.getAllByRole("button", { name: "Save Backup Settings" })[0]!);
+
+    await waitFor(() => {
+      expect(updateMemoryBackupSettingsMock).toHaveBeenCalledWith({
+        repository_url: "https://github.com/BrainDriveAI/braindrive-memory.git",
+        frequency: "daily",
+        git_token: "ghp_test",
+      });
+    });
+  });
+
+  it("runs manual save from memory backup tab", async () => {
+    const user = userEvent.setup();
+    getSettingsMock.mockResolvedValueOnce(settingsWithBackup);
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+
+    await waitFor(() => {
+      expect(getSettingsMock).toHaveBeenCalledTimes(1);
+    });
+
+    await user.click(screen.getAllByRole("button", { name: "Memory Backup" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "Save Now" })[0]!);
+
+    await waitFor(() => {
+      expect(runMemoryBackupNowMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("runs restore from memory backup tab after confirmation", async () => {
+    const user = userEvent.setup();
+    getSettingsMock.mockResolvedValueOnce(settingsWithBackup);
+    const confirmMock = vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+
+    await waitFor(() => {
+      expect(getSettingsMock).toHaveBeenCalledTimes(1);
+    });
+
+    await user.click(screen.getAllByRole("button", { name: "Memory Backup" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "Restore from Backup Repo" })[0]!);
+
+    await waitFor(() => {
+      expect(restoreMemoryBackupMock).toHaveBeenCalledTimes(1);
+    });
+    expect(confirmMock).toHaveBeenCalledTimes(1);
+    confirmMock.mockRestore();
   });
 });
