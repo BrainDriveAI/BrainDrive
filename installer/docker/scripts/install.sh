@@ -50,7 +50,12 @@ set_env_value() {
   escaped="${escaped//&/\\&}"
 
   if grep -q -E "^${key}=" .env; then
-    sed -i "s|^${key}=.*|${key}=${escaped}|" .env
+    # GNU sed supports `-i`; BSD/macOS sed requires `-i ''`.
+    if sed --version >/dev/null 2>&1; then
+      sed -i "s|^${key}=.*|${key}=${escaped}|" .env
+    else
+      sed -i '' "s|^${key}=.*|${key}=${escaped}|" .env
+    fi
   else
     printf '%s=%s\n' "${key}" "${value}" >> .env
   fi
