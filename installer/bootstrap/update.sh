@@ -38,6 +38,17 @@ require_cmd mktemp
 require_cmd bash
 require_cmd docker
 
+copy_tree() {
+  local source="$1"
+  local destination_parent="$2"
+
+  if cp -a "${source}" "${destination_parent}/" 2>/dev/null; then
+    return 0
+  fi
+
+  cp -R "${source}" "${destination_parent}/"
+}
+
 TARGET_DOCKER_DIR="${INSTALL_ROOT}/installer/docker"
 TARGET_UPGRADE_SCRIPT="${TARGET_DOCKER_DIR}/scripts/upgrade.sh"
 
@@ -74,7 +85,7 @@ download_installer() {
 
   rm -rf "${TARGET_DOCKER_DIR}"
   mkdir -p "${INSTALL_ROOT}/installer"
-  cp -a "${source_docker_dir}" "${INSTALL_ROOT}/installer/"
+  copy_tree "${source_docker_dir}" "${INSTALL_ROOT}/installer"
 
   if [[ -n "${existing_env_path}" && -f "${existing_env_path}" ]]; then
     cp "${existing_env_path}" "${TARGET_DOCKER_DIR}/.env"
