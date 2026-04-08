@@ -4,7 +4,7 @@
 
 BrainDrive is built in five phases. Each phase makes your AI system more capable. At scale, something bigger emerges — when millions of owner-controlled AI systems connect, the sum becomes greater than the parts.
 
-Built on the [Personal AI Architecture](https://github.com/BrainDriveAI/personal-ai-architecture) — an open, MIT-licensed foundation for building personal AI systems with zero lock-in.
+Built on the [Personal AI Architecture](https://github.com/Personal-AI-Architecture/the-architecture) — an open, MIT-licensed foundation for building personal AI systems with zero lock-in.
 
 ---
 
@@ -126,7 +126,7 @@ Phase 2 builds the partnership. Phase 3 gets you off the keyboard.
 BrainDrive is MIT-licensed and open source. We welcome contributions at every level:
 
 - **Use it** — install BrainDrive, try the interview flow, report what works and what doesn't
-- **Build on it** — the [Personal AI Architecture](https://github.com/BrainDriveAI/personal-ai-architecture) is designed for anyone to build on
+- **Build on it** — the [Personal AI Architecture](https://github.com/Personal-AI-Architecture/the-architecture) is designed for anyone to build on
 - **Contribute code** — check [open issues](https://github.com/BrainDriveAI/braindrive/issues) or pick something from the roadmap above
 - **Join the community** — [community.braindrive.ai](https://community.braindrive.ai)
 
