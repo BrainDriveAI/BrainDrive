@@ -26,10 +26,14 @@ function CopyButton({ code }: { code: string }) {
 }
 
 export default function MarkdownContent({ content }: { content: string }) {
-  // Strip <tool_call>/<tool_response> blocks that some models emit as text
+  // Strip tool-call XML blocks that some models/proxies emit as plain text
+  // Covers: <tool_call>, <function_calls>, <function_calls>, <invoke>, <invoke>
   const cleaned = content
     .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "")
     .replace(/<tool_response>[\s\S]*?<\/tool_response>/g, "")
+    .replace(/<\/?(?:antml:)?function_calls>[\s\S]*?(?:<\/(?:antml:)?function_calls>|$)/g, "")
+    .replace(/<(?:antml:)?invoke[\s\S]*?(?:<\/(?:antml:)?invoke>|$)/g, "")
+    .replace(/<(?:antml:)?parameter[\s\S]*?(?:<\/(?:antml:)?parameter>|$)/g, "")
     .trim();
 
   return (
