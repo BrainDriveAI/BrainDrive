@@ -24,6 +24,30 @@ get_env_value() {
   echo "${line#*=}"
 }
 
+configure_docker_platform() {
+  if [[ "${MODE}" != "quickstart" && "${MODE}" != "prod" ]]; then
+    return 0
+  fi
+
+  local configured_platform
+  configured_platform="${BRAINDRIVE_DOCKER_PLATFORM:-$(trim_quotes "$(get_env_value BRAINDRIVE_DOCKER_PLATFORM)")}"
+  if [[ -n "${configured_platform}" ]]; then
+    export DOCKER_DEFAULT_PLATFORM="${configured_platform}"
+    echo "Using Docker platform override: ${DOCKER_DEFAULT_PLATFORM}"
+    return 0
+  fi
+
+  local host_os
+  local host_arch
+  host_os="$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')"
+  host_arch="$(uname -m 2>/dev/null | tr '[:upper:]' '[:lower:]')"
+  if [[ "${host_os}" == "darwin" && ( "${host_arch}" == "arm64" || "${host_arch}" == "aarch64" ) ]]; then
+    export DOCKER_DEFAULT_PLATFORM="linux/amd64"
+    echo "Apple Silicon detected; using linux/amd64 for BrainDrive prebuilt images."
+    echo "Set BRAINDRIVE_DOCKER_PLATFORM to override this behavior."
+  fi
+}
+
 trim_quotes() {
   local value="$1"
   value="${value%\"}"
@@ -408,6 +432,8 @@ if [[ "${MODE}" == "prod" ]]; then
 elif [[ "${MODE}" == "local" ]]; then
   COMPOSE_FILE="compose.local.yml"
 fi
+
+configure_docker_platform
 
 if [[ "${MODE}" == "local" ]]; then
   if [[ "$(to_bool "${DRY_RUN}")" == "true" ]]; then

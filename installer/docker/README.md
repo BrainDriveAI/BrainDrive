@@ -140,6 +140,8 @@ docker push ghcr.io/braindriveai/braindrive-edge:v0.1.0
 
 Then set in `.env`:
 - `BRAINDRIVE_TAG=v0.1.0`
+- Optional platform override (quickstart/prod image modes):
+  - `BRAINDRIVE_DOCKER_PLATFORM=linux/amd64`
 
 Optional (recommended for production): pin immutable image refs by digest in `.env`:
 - `BRAINDRIVE_APP_REF=ghcr.io/braindriveai/braindrive-app@sha256:<digest>`
@@ -147,6 +149,8 @@ Optional (recommended for production): pin immutable image refs by digest in `.e
 
 If you set one `*_REF`, set both.
 When refs are set, compose uses them instead of `BRAINDRIVE_*_IMAGE + BRAINDRIVE_TAG`.
+On Apple Silicon macOS, shell scripts automatically default quickstart/prod image runs to
+`linux/amd64` when no explicit platform override is set.
 
 Optional manifest-driven digest resolution (for upgrades):
 - `BRAINDRIVE_RELEASE_MANIFEST=./release-cache/releases.json`
