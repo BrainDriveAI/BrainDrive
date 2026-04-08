@@ -93,9 +93,10 @@ Key behavior:
 - Fails if `.env` already exists (protects existing account/secrets state).
 - `local` and `dev` build images.
 - `quickstart` and `prod` pull images.
+- On Apple Silicon macOS, shell install defaults quickstart/prod pulls to `linux/amd64` unless `BRAINDRIVE_DOCKER_PLATFORM` is set.
 
 Env/config touched:
-- Reads: `DOMAIN`, `BRAINDRIVE_APP_REF`, `BRAINDRIVE_EDGE_REF`, `BRAINDRIVE_LOCAL_BIND_HOST`, `BRAINDRIVE_DEV_BIND_HOST`, `BRAINDRIVE_DEV_PORT`
+- Reads: `DOMAIN`, `BRAINDRIVE_APP_REF`, `BRAINDRIVE_EDGE_REF`, `BRAINDRIVE_DOCKER_PLATFORM`, `BRAINDRIVE_LOCAL_BIND_HOST`, `BRAINDRIVE_DEV_BIND_HOST`, `BRAINDRIVE_DEV_PORT`
 - Writes: `.env`, `PAA_SECRETS_MASTER_KEY_B64` when missing
 
 ### start (`start.sh`, `start.ps1`)
@@ -117,7 +118,7 @@ Key behavior:
 - If `check-update` returns fail-closed errors, startup halts.
 
 Env/config read:
-- `BRAINDRIVE_LOCAL_BIND_HOST`, `BRAINDRIVE_DEV_BIND_HOST`, `BRAINDRIVE_DEV_PORT`, `DOMAIN`
+- `BRAINDRIVE_LOCAL_BIND_HOST`, `BRAINDRIVE_DEV_BIND_HOST`, `BRAINDRIVE_DEV_PORT`, `DOMAIN`, `BRAINDRIVE_DOCKER_PLATFORM`
 
 ### stop (`stop.sh`, `stop.ps1`)
 
@@ -160,6 +161,7 @@ Important behavior:
 Key env vars:
 - `BRAINDRIVE_UPGRADE_DRY_RUN`
 - `BRAINDRIVE_APP_REF`, `BRAINDRIVE_EDGE_REF`
+- `BRAINDRIVE_DOCKER_PLATFORM`
 - `BRAINDRIVE_APP_IMAGE`, `BRAINDRIVE_EDGE_IMAGE`, `BRAINDRIVE_TAG`
 - `BRAINDRIVE_RELEASE_MANIFEST`, `BRAINDRIVE_RELEASE_CHANNEL`, `BRAINDRIVE_RELEASE_VERSION`
 - `BRAINDRIVE_REQUIRE_MANIFEST_SIGNATURE`
