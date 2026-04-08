@@ -232,6 +232,65 @@ Start in quickstart/prod now runs startup update policy checks before compose up
     - Local: `./scripts/restore.ps1 -Target memory -BackupFile <backup-file> -Mode local`
   - Reset new-user state: `./scripts/reset-new-user.ps1` (supports `-Yes` and `-FreshClone`)
 
+## Memory Backup Setup (Operator Notes)
+
+Memory backup configuration is managed in the app UI:
+
+1. Open BrainDrive at `http://127.0.0.1:8080` (or your production URL).
+2. Open **Settings -> Memory Backup**.
+3. Set `Repository URL` to an HTTPS git URL (example: `https://github.com/<org>/<repo>.git`).
+4. Set `Git Token (PAT/Classic)` and choose frequency:
+   - `Manual`
+   - `After changes`
+   - `Every hour`
+   - `Every day`
+5. Click `Save Backup Settings`, then click `Save Now` to verify first push.
+6. Confirm status fields in UI:
+   - `Last successful save`
+   - `Status` (`success`/`failed`) and error message if present
+
+Validation rules and safety:
+
+1. SSH remotes are intentionally unsupported for MVP (`git@...` / `ssh://...` rejected).
+2. Embedded credentials in URL are rejected (`https://user:pass@...`).
+3. Token is stored as vault secret reference; token plaintext is never returned in settings payload.
+
+### Restore Semantics (Memory-Only)
+
+`Restore from Backup Repo` restores memory files only.
+
+1. Restores memory snapshot from fixed backup branch `braindrive-memory-backup`.
+2. Uses staging + rollback safety so partial apply is avoided on failure.
+3. Does **not** restore secrets from git backup.
+4. Does **not** change runtime/adapter config.
+
+### PAT Scope Guidance (GitHub MVP)
+
+Use minimum required scope for pushes to your target repository:
+
+1. Private repository: `repo`
+2. Public repository only: `public_repo`
+
+### Troubleshooting Common Backup Failures
+
+1. `Authentication failed for the backup repository`
+   - Verify PAT is valid and not expired.
+   - Verify PAT scope includes required repo write access.
+   - Verify the token owner has push permission to target repo.
+2. `Backup repository was not found or is not accessible`
+   - Confirm repository URL and visibility.
+   - Confirm token owner can access that repository.
+3. `Unable to reach the backup repository URL`
+   - Verify URL host/path, DNS, outbound network, and proxy/firewall settings.
+4. `Backup branch is not available in the configured repository` (restore)
+   - Run `Save Now` first to create/sync backup branch.
+5. `memory_backup.repository_url must use https://`
+   - Replace SSH URL with HTTPS URL.
+
+For a complete local validation flow, see:
+
+- `docs/onboarding/getting-started-testing-openrouter-docker.md`
+
 ## Release helper scripts (maintainer)
 These are in `installer/docker/scripts` and intended for release operations.
 

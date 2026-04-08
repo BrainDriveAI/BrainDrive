@@ -116,6 +116,57 @@ const providerCredentialSchema = z.discriminatedUnion("mode", [
   secretRefProviderCredentialSchema,
 ]);
 
+const memoryBackupFrequencySchema = z.enum(["manual", "after_changes", "hourly", "daily"]);
+
+const memoryBackupResultSchema = z.enum(["never", "success", "failed"]);
+
+const memoryBackupPreferenceSchema = z
+  .object({
+    repository_url: z
+      .string()
+      .trim()
+      .url()
+      .superRefine((value, context) => {
+        if (looksLikeSshRepositoryUrl(value)) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "memory_backup.repository_url must use https:// (SSH URLs are not supported)",
+          });
+          return;
+        }
+
+        const parsed = tryParseUrl(value);
+        if (!parsed) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "memory_backup.repository_url must be a valid URL",
+          });
+          return;
+        }
+
+        if (parsed.protocol !== "https:") {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "memory_backup.repository_url must use https://",
+          });
+        }
+
+        if (parsed.username || parsed.password) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "memory_backup.repository_url cannot include embedded credentials",
+          });
+        }
+      }),
+    frequency: memoryBackupFrequencySchema,
+    token_secret_ref: z.string().trim().min(1),
+    last_save_at: z.string().datetime({ offset: true }).optional(),
+    last_attempt_at: z.string().datetime({ offset: true }).optional(),
+    last_result: memoryBackupResultSchema.optional(),
+    last_error: z.string().optional().nullable(),
+  })
+  .strict();
+
 const preferencesSchema = z
   .object({
     default_model: z.string().min(1),
@@ -125,6 +176,7 @@ const preferencesSchema = z
     provider_base_urls: z.record(z.string().url()).optional(),
     provider_default_models: z.record(z.string().min(1)).optional(),
     secret_resolution: secretResolutionSchema.optional(),
+    memory_backup: memoryBackupPreferenceSchema.optional(),
   })
   .strict()
   .superRefine((value, context) => {
@@ -329,6 +381,19 @@ function findForbiddenSecretFieldPaths(input: unknown, parentPath = ""): string[
   }
 
   return matches;
+}
+
+function tryParseUrl(value: string): URL | null {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+}
+
+function looksLikeSshRepositoryUrl(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return normalized.startsWith("ssh://") || normalized.startsWith("git@");
 }
 
 function normalizeInstallMode(value: unknown): InstallMode {

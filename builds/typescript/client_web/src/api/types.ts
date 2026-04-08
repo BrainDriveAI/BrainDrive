@@ -131,6 +131,54 @@ export type GatewayProviderProfile = {
   credential_ref: string | null;
 };
 
+export type GatewayMemoryBackupFrequency = "manual" | "after_changes" | "hourly" | "daily";
+
+export type GatewayMemoryBackupSettings = {
+  repository_url: string;
+  frequency: GatewayMemoryBackupFrequency;
+  token_configured: boolean;
+  last_save_at?: string;
+  last_attempt_at?: string;
+  last_result: "never" | "success" | "failed";
+  last_error: string | null;
+};
+
+export type GatewayMemoryBackupSettingsUpdateRequest = {
+  repository_url: string;
+  frequency: GatewayMemoryBackupFrequency;
+  git_token?: string;
+  token_secret_ref?: string;
+};
+
+export type GatewayMemoryBackupRunResult = {
+  attempted_at: string;
+  saved_at?: string;
+  result: "success" | "failed" | "noop";
+  message?: string;
+};
+
+export type GatewayMemoryBackupRestoreRequest = {
+  target_commit?: string;
+};
+
+export type GatewayMemoryBackupRestoreResult = {
+  attempted_at: string;
+  restored_at: string;
+  commit: string;
+  source_branch: string;
+  warnings: string[];
+};
+
+export type GatewayMemoryBackupRunResponse = {
+  result: GatewayMemoryBackupRunResult;
+  settings: GatewaySettings;
+};
+
+export type GatewayMemoryBackupRestoreResponse = {
+  result: GatewayMemoryBackupRestoreResult;
+  settings: GatewaySettings;
+};
+
 export type GatewaySettings = {
   default_model: string;
   approval_mode: "ask-on-write";
@@ -138,6 +186,7 @@ export type GatewaySettings = {
   default_provider_profile: string | null;
   available_models: string[];
   provider_profiles: GatewayProviderProfile[];
+  memory_backup: GatewayMemoryBackupSettings | null;
 };
 
 export type GatewayOnboardingProvider = {

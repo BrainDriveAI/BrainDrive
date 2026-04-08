@@ -180,6 +180,21 @@ export type Preferences = {
   provider_base_urls?: Record<string, string>;
   provider_default_models?: Record<string, string>;
   secret_resolution?: SecretResolutionPreference;
+  memory_backup?: MemoryBackupPreference;
+};
+
+export type MemoryBackupFrequency = "manual" | "after_changes" | "hourly" | "daily";
+
+export type MemoryBackupResult = "never" | "success" | "failed";
+
+export type MemoryBackupPreference = {
+  repository_url: string;
+  frequency: MemoryBackupFrequency;
+  token_secret_ref: string;
+  last_save_at?: string;
+  last_attempt_at?: string;
+  last_result?: MemoryBackupResult;
+  last_error?: string | null;
 };
 
 export type ProviderCredentialPreference =
