@@ -38,7 +38,7 @@ This builds and starts everything in Docker. See the [README](README.md) for pre
 
 ## Build on It
 
-BrainDrive is built on the [Personal AI Architecture](https://github.com/BrainDriveAI/personal-ai-architecture) and is MIT-licensed. You can use it, extend it, and build on it without waiting for permission.
+BrainDrive is built on the [Personal AI Architecture](https://github.com/Personal-AI-Architecture/the-architecture) and is MIT-licensed. You can use it, extend it, and build on it without waiting for permission.
 
 ## License
 

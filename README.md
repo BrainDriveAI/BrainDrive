@@ -69,9 +69,17 @@ irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/boo
 5. **Plan** — the spec becomes an action plan with concrete steps, phases, and milestones.
 6. **Partner** — come back anytime. Your AI remembers everything and helps you stay on track, adjust plans, and make progress.
 
-## Architecture
+## For Developers
 
-BrainDrive implements the [Personal AI Architecture](https://github.com/BrainDriveAI/personal-ai-architecture) (PAA) — an open spec for user-owned AI systems. Every component is swappable. Your Memory is the foundation; everything else can be replaced.
+BrainDrive is built on the [Personal AI Architecture](https://github.com/Personal-AI-Architecture/the-architecture) (PAA) — an open, MIT-licensed standard for user-owned AI systems. Think of PAA as the spec and BrainDrive as the implementation. Anyone can build on the architecture; BrainDrive is our take on it.
+
+| I want to... | Start here |
+|--------------|------------|
+| **Understand the architecture** | [Personal AI Architecture](https://github.com/Personal-AI-Architecture/the-architecture) — foundation spec, component contracts, conformance tests, zero lock-in by design |
+| **Build with AI assistance** | [Architecture Primer](https://github.com/Personal-AI-Architecture/the-architecture/tree/main/docs/ai) — token-optimized reference files designed to hand directly to your AI agent. Compliance matrix, component primers, audit playbooks, canonical examples. |
+| **Hack on BrainDrive** | [CONTRIBUTING.md](CONTRIBUTING.md) — fork, build, run tests, submit a PR |
+
+## Architecture
 
 ```mermaid
 flowchart LR
@@ -156,7 +164,7 @@ braindrive/
 
 ## Built With
 
-- [Personal AI Architecture](https://github.com/BrainDriveAI/personal-ai-architecture) — the open foundation spec
+- [Personal AI Architecture](https://github.com/Personal-AI-Architecture/the-architecture) — the open foundation spec
 - TypeScript, Fastify, React, Tailwind CSS
 - Docker and Caddy for deployment
 - [MCP](https://modelcontextprotocol.io/) for tool integration
