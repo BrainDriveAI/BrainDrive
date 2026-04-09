@@ -28,13 +28,14 @@ For larger changes (new components, architectural modifications, protocol change
 
 ## Local Development
 
-The fastest way to run BrainDrive locally:
+See [DEVELOPMENT.md](DEVELOPMENT.md) for full setup instructions. The quick version:
 
 ```bash
-./scripts/install.sh local
+cd installer/docker
+./scripts/install.sh dev
 ```
 
-This builds and starts everything in Docker. See the [README](README.md) for prerequisites and details.
+This builds from source with hot reload. See [DEVELOPMENT.md](DEVELOPMENT.md) for all install modes, running tests, and project structure.
 
 ## Build on It
 
