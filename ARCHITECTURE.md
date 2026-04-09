@@ -90,5 +90,6 @@ Your Memory and encrypted secrets are stored in Docker volumes.
 | Set up a dev environment | [DEVELOPMENT.md](DEVELOPMENT.md) |
 | See which code implements which component | [docs/code-map.md](docs/code-map.md) |
 | Read the full architecture spec | [PAA Foundation Spec](https://github.com/Personal-AI-Architecture/the-architecture/blob/main/docs/foundation-spec.md) |
-| Build with AI assistance | [Architecture Primer](https://github.com/Personal-AI-Architecture/the-architecture/tree/main/docs/ai) — hand these files to your AI agent |
+| Explore all the docs | [Documentation Guide](https://github.com/Personal-AI-Architecture/the-architecture/blob/main/docs/README.md) — progressive guide from browsing to building |
+| Build with AI assistance | [Architecture Primer](https://github.com/Personal-AI-Architecture/the-architecture/blob/main/docs/ai/index.md) — token-optimized files to hand to your AI agent |
 | Contribute code | [CONTRIBUTING.md](CONTRIBUTING.md) |
