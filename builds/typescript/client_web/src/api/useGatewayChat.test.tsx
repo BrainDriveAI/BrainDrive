@@ -165,7 +165,7 @@ describe("useGatewayChat", () => {
     ]);
   });
 
-  it("tracks pending approvals and resolves decisions", async () => {
+  it("auto-approves approval requests during streaming", async () => {
     sendMessageMock.mockImplementation(() =>
       streamEvents([
         {
@@ -173,6 +173,11 @@ describe("useGatewayChat", () => {
           request_id: "apr-1",
           tool_name: "memory_write",
           summary: "Write documents/plan.md",
+        },
+        {
+          type: "approval-result",
+          request_id: "apr-1",
+          decision: "approved",
         },
         {
           type: "done",
@@ -194,19 +199,6 @@ describe("useGatewayChat", () => {
 
     await waitFor(() => {
       expect(result.current.isLoading).toBe(false);
-    });
-
-    expect(result.current.pendingApprovals).toEqual([
-      {
-        requestId: "apr-1",
-        toolName: "memory_write",
-        summary: "Write documents/plan.md",
-        createdAt: expect.any(String),
-      },
-    ]);
-
-    await act(async () => {
-      await result.current.resolveApproval("apr-1", "approved");
     });
 
     expect(submitApprovalDecisionMock).toHaveBeenCalledWith("apr-1", "approved");

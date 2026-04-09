@@ -1,6 +1,6 @@
 {
   "default_model": "llama3.1",
-  "approval_mode": "ask-on-write",
+  "approval_mode": "auto-approve",
   "secret_resolution": {
     "on_missing": "fail_closed"
   }

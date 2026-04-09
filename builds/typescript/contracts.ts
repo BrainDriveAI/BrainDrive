@@ -133,6 +133,8 @@ export type PendingApproval = {
   createdAt: string;
 };
 
+export type ApprovalMode = "ask-on-write" | "auto-approve";
+
 export type ToolDefinition = {
   name: string;
   description: string;
@@ -174,7 +176,7 @@ export type ExportResult = {
 
 export type Preferences = {
   default_model: string;
-  approval_mode: "ask-on-write";
+  approval_mode: ApprovalMode;
   active_provider_profile?: string;
   provider_credentials?: Record<string, ProviderCredentialPreference>;
   provider_base_urls?: Record<string, string>;

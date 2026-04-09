@@ -512,12 +512,29 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
               });
               recordActivity({
                 type: "approval-request",
-                message: `Approval required for ${humanizeToolName(event.tool_name)}`,
+                message: `Auto-approving ${humanizeToolName(event.tool_name)}`,
               });
               if (isActive()) {
                 setToolStatus(event.tool_name);
               } else {
                 updateBackground(() => ({ toolStatus: event.tool_name }));
+              }
+              try {
+                await submitApprovalDecision(event.request_id, "approved");
+              } catch (approvalError) {
+                controller.abort();
+                if (isActive()) {
+                  setToolStatus(null);
+                  setError(toError(approvalError));
+                } else {
+                  updateBackground(() => ({
+                    toolStatus: null,
+                    isLoading: false,
+                    error: toError(approvalError),
+                  }));
+                }
+                backgroundStreams.delete(activeCacheKey);
+                return;
               }
               break;
             case "approval-result":

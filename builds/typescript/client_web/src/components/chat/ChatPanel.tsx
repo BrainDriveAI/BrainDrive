@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type ReactNode } from "react";
-import { CheckCircle2, FileText, LoaderCircle, ShieldAlert, XCircle } from "lucide-react";
+import { FileText } from "lucide-react";
 import { createPortal } from "react-dom";
 
 import {
@@ -82,8 +82,6 @@ export default function ChatPanel({
   const [historyMessages, setHistoryMessages] = useState<Message[]>([]);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [dismissedError, setDismissedError] = useState<string | null>(null);
-  const [approvalError, setApprovalError] = useState<string | null>(null);
-  const [resolvingApprovalId, setResolvingApprovalId] = useState<string | null>(null);
   const wasLoadingRef = useRef(false);
   const completedConversationIdRef = useRef<string | null>(null);
 
@@ -95,7 +93,6 @@ export default function ChatPanel({
     toolStatus,
     pendingApprovals,
     append,
-    resolveApproval,
     stop
   } = useGatewayChat({
     conversationId: activeConversationId,
@@ -153,11 +150,6 @@ export default function ChatPanel({
   }, [error, historyError]);
 
   useEffect(() => {
-    setApprovalError(null);
-    setResolvingApprovalId(null);
-  }, [activeConversationId]);
-
-  useEffect(() => {
     if (wasLoadingRef.current && !isLoading && !error && conversationId) {
       if (completedConversationIdRef.current !== conversationId) {
         completedConversationIdRef.current = conversationId;
@@ -175,7 +167,7 @@ export default function ChatPanel({
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
   const hasStartedAssistantReply = isLoading && lastMessage?.role === "assistant";
   const isWaitingForReply = isLoading && !hasStartedAssistantReply;
-  const showTypingFeedback = isLoading && pendingApprovals.length === 0;
+  const showTypingFeedback = isWaitingForReply && pendingApprovals.length === 0;
   const typingStatus = isLoading
     ? toolStatus
       ? formatToolStatus(toolStatus)
@@ -233,25 +225,6 @@ export default function ChatPanel({
 
     setFileError(null);
     setAttachment(attached);
-  }
-
-  async function handleApprovalDecision(
-    requestId: string,
-    decision: "approved" | "denied"
-  ): Promise<void> {
-    setApprovalError(null);
-    setResolvingApprovalId(requestId);
-    try {
-      await resolveApproval(requestId, decision);
-    } catch (decisionError) {
-      setApprovalError(
-        decisionError instanceof Error
-          ? decisionError.message
-          : "Failed to submit approval decision"
-      );
-    } finally {
-      setResolvingApprovalId((current) => (current === requestId ? null : current));
-    }
   }
 
   const composerProps = {
@@ -364,65 +337,6 @@ export default function ChatPanel({
                     setDismissedError(visibleChatError);
                   }}
                 />
-              )}
-              {approvalError && (
-                <ErrorMessage
-                  message={approvalError}
-                  onRetry={() => setApprovalError(null)}
-                  onDismiss={() => setApprovalError(null)}
-                />
-              )}
-              {pendingApprovals.length > 0 && (
-                <section className="rounded-xl border border-bd-border bg-bd-bg-secondary p-4">
-                  <div className="mb-3 flex items-center gap-2 text-sm font-medium text-bd-text-secondary">
-                    <ShieldAlert size={16} strokeWidth={1.5} />
-                    <span>Approval Required</span>
-                  </div>
-                  <div className="space-y-3">
-                    {pendingApprovals.map((approval) => {
-                      const isResolving = resolvingApprovalId === approval.requestId;
-                      return (
-                        <article
-                          key={approval.requestId}
-                          className="rounded-lg border border-bd-border bg-bd-bg-tertiary p-3"
-                        >
-                          <div className="text-sm font-medium text-bd-text-primary">
-                            {approval.toolName.replace(/_/g, " ")}
-                          </div>
-                          <p className="mt-1 text-sm text-bd-text-muted">{approval.summary}</p>
-                          <div className="mt-3 flex items-center gap-2">
-                            <button
-                              type="button"
-                              disabled={isResolving}
-                              onClick={() =>
-                                void handleApprovalDecision(approval.requestId, "approved")
-                              }
-                              className="inline-flex items-center gap-1 rounded-md bg-bd-amber px-3 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              {isResolving ? (
-                                <LoaderCircle size={12} className="animate-spin" />
-                              ) : (
-                                <CheckCircle2 size={12} />
-                              )}
-                              Approve
-                            </button>
-                            <button
-                              type="button"
-                              disabled={isResolving}
-                              onClick={() =>
-                                void handleApprovalDecision(approval.requestId, "denied")
-                              }
-                              className="inline-flex items-center gap-1 rounded-md border border-bd-border px-3 py-1.5 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              <XCircle size={12} />
-                              Deny
-                            </button>
-                          </div>
-                        </article>
-                      );
-                    })}
-                  </div>
-                </section>
               )}
             </MessageList>
           )) : contentOverride}

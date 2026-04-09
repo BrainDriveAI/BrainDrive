@@ -170,7 +170,7 @@ const memoryBackupPreferenceSchema = z
 const preferencesSchema = z
   .object({
     default_model: z.string().min(1),
-    approval_mode: z.literal("ask-on-write"),
+    approval_mode: z.enum(["ask-on-write", "auto-approve"]),
     active_provider_profile: z.string().min(1).optional(),
     provider_credentials: z.record(providerCredentialSchema).optional(),
     provider_base_urls: z.record(z.string().url()).optional(),
