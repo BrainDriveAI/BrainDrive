@@ -14,11 +14,12 @@ import {
   type ChatEvent,
 } from "./gateway-adapter";
 
-function sseResponse(frames: string): Response {
+function sseResponse(frames: string, headers?: Record<string, string>): Response {
   return new Response(frames, {
     status: 200,
     headers: {
       "content-type": "text/event-stream",
+      ...(headers ?? {}),
     },
   });
 }
@@ -88,6 +89,48 @@ describe("gateway-adapter SSE parsing", () => {
     expect(events[0]).toMatchObject({
       type: "text-delta",
       delta: "Legacy format",
+    });
+  });
+
+  it("exposes context-window warnings from response headers", async () => {
+    const onContextWarning = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        sseResponse(
+          [
+            "event: done",
+            'data: {"finish_reason":"stop","conversation_id":"conv_3"}',
+            "",
+          ].join("\n"),
+          {
+            "x-context-window-warning": "1",
+            "x-context-window-estimated-tokens": "90000",
+            "x-context-window-budget-tokens": "100000",
+            "x-context-window-ratio": "0.9",
+            "x-context-window-threshold": "0.8",
+            "x-context-window-managed": "1",
+            "x-context-window-message": "This session is getting long.",
+          }
+        )
+      )
+    );
+
+    const events = await collectEvents(sendMessage(null, "hi", { onContextWarning }));
+    expect(events).toEqual([
+      {
+        type: "done",
+        finish_reason: "stop",
+        conversation_id: "conv_3",
+      },
+    ]);
+    expect(onContextWarning).toHaveBeenCalledWith({
+      estimated_tokens: 90000,
+      budget_tokens: 100000,
+      ratio: 0.9,
+      threshold: 0.8,
+      managed: true,
+      message: "This session is getting long.",
     });
   });
 });

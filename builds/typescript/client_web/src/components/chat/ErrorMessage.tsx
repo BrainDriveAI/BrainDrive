@@ -5,13 +5,21 @@ type ErrorMessageProps = {
   onRetry?: () => void;
   onDismiss?: () => void;
   onOpenSettings?: () => void;
+  primaryActionLabel?: string;
+  onPrimaryAction?: () => void;
+  secondaryActionLabel?: string;
+  onSecondaryAction?: () => void;
 };
 
 export default function ErrorMessage({
   message,
   onRetry,
   onDismiss,
-  onOpenSettings
+  onOpenSettings,
+  primaryActionLabel,
+  onPrimaryAction,
+  secondaryActionLabel,
+  onSecondaryAction,
 }: ErrorMessageProps) {
   return (
     <div className="mx-auto w-full max-w-[780px] py-2">
@@ -24,6 +32,24 @@ export default function ErrorMessage({
         <div className="min-w-0 flex-1">
           <p className="text-sm text-bd-text-primary">{message}</p>
           <div className="mt-2 flex gap-2">
+            {onPrimaryAction && primaryActionLabel && (
+              <button
+                type="button"
+                onClick={onPrimaryAction}
+                className="flex items-center gap-1.5 rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover"
+              >
+                {primaryActionLabel}
+              </button>
+            )}
+            {onSecondaryAction && secondaryActionLabel && (
+              <button
+                type="button"
+                onClick={onSecondaryAction}
+                className="flex items-center gap-1.5 rounded-lg bg-bd-bg-tertiary px-3 py-1.5 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover"
+              >
+                {secondaryActionLabel}
+              </button>
+            )}
             {onOpenSettings && (
               <button
                 type="button"

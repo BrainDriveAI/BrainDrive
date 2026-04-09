@@ -66,6 +66,7 @@ import { GatewayConversationService } from "./conversations.js";
 import { createMemoryBackupScheduler } from "./memory-backup-scheduler.js";
 import { GatewayProjectService, isProjectMetadata, ProtectedProjectError } from "./projects.js";
 import { GatewaySkillService } from "./skills.js";
+import { prepareContextWindow } from "./context-window.js";
 
 const approvalDecisionSchema = z.object({
   decision: z.enum(["approved", "denied"]),
@@ -596,19 +597,54 @@ export async function buildServer(rootDir = process.cwd()) {
       : "";
     const finalPrompt = promptWithSkills.prompt + projectContext;
 
+    const correlationId = crypto.randomUUID();
+    const contextWindow = await prepareContextWindow({
+      memoryRoot: runtimeConfig.memory_root,
+      conversationId,
+      correlationId,
+      messages: conversations.buildConversationMessages(conversationId, finalPrompt),
+      tools: toolExecutor.listTools(request.authContext),
+    });
+
+    auditLog("context.window", {
+      conversation_id: conversationId,
+      estimated_prompt_tokens_before: contextWindow.usage.estimatedPromptTokensBefore,
+      estimated_prompt_tokens_after: contextWindow.usage.estimatedPromptTokensAfter,
+      budget_tokens: contextWindow.usage.budgetTokens,
+      ratio_before: Number(contextWindow.usage.ratioBefore.toFixed(3)),
+      ratio_after: Number(contextWindow.usage.ratioAfter.toFixed(3)),
+      warning_threshold: contextWindow.usage.threshold,
+      dropped_units: contextWindow.usage.droppedUnits,
+      dropped_messages: contextWindow.usage.droppedMessages,
+      summary_applied: contextWindow.usage.summaryApplied,
+      summary_artifact_path: contextWindow.usage.summaryArtifactPath,
+      summary_artifact_write_error: contextWindow.usage.summaryArtifactWriteError,
+    });
+
     const engineRequest = gatewayAdapter.buildEngineRequest({
       conversationId,
-      correlationId: crypto.randomUUID(),
-      messages: conversations.buildConversationMessages(conversationId, finalPrompt),
+      correlationId,
+      messages: contextWindow.messages,
       ...(body.metadata ? { clientMetadata: body.metadata } : {}),
     });
 
-    reply.raw.writeHead(200, {
+    const streamHeaders: Record<string, string> = {
       "content-type": "text/event-stream",
       "cache-control": "no-cache",
       connection: "keep-alive",
       "x-conversation-id": conversationId,
-    });
+    };
+    if (contextWindow.warning) {
+      streamHeaders["x-context-window-warning"] = "1";
+      streamHeaders["x-context-window-estimated-tokens"] = String(contextWindow.warning.estimated_tokens);
+      streamHeaders["x-context-window-budget-tokens"] = String(contextWindow.warning.budget_tokens);
+      streamHeaders["x-context-window-ratio"] = String(contextWindow.warning.ratio);
+      streamHeaders["x-context-window-threshold"] = String(contextWindow.warning.threshold);
+      streamHeaders["x-context-window-managed"] = contextWindow.warning.managed ? "1" : "0";
+      streamHeaders["x-context-window-message"] = contextWindow.warning.message;
+    }
+
+    reply.raw.writeHead(200, streamHeaders);
 
     let assistantBuffer = "";
     let currentAssistantMessageId = crypto.randomUUID();
