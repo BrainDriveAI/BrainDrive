@@ -20,7 +20,7 @@ const runtimeConfigSchema = z.object({
 
 const adapterProfileSchema = z.object({
   base_url: z.string().url(),
-  model: z.string().min(1),
+  model: z.string().trim(),
   api_key_env: z.string().min(1),
   provider_id: z.string().min(1).optional(),
 });

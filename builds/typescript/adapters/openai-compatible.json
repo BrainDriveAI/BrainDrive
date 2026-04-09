@@ -18,8 +18,8 @@
       "provider_id": "openrouter"
     },
     "ollama": {
-      "base_url": "http://127.0.0.1:11434/v1",
-      "model": "llama3.1",
+      "base_url": "http://host.docker.internal:11434/v1",
+      "model": "",
       "api_key_env": "OLLAMA_API_KEY",
       "provider_id": "ollama"
     }

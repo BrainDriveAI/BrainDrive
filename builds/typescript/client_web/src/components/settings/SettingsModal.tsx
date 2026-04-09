@@ -10,6 +10,7 @@ import {
   UserCog,
   X,
   Check,
+  Info,
   AlertCircle,
   Trash2,
   Upload
@@ -1392,12 +1393,33 @@ function ProviderSection({
                         <>
                           {isOllama && (
                             <div className="mb-3 space-y-1.5">
-                              <label
-                                htmlFor="ollama-server-url"
-                                className="block text-sm font-medium text-bd-text-secondary"
-                              >
-                                Server URL
-                              </label>
+                              <div className="flex items-center gap-1.5">
+                                <label
+                                  htmlFor="ollama-server-url"
+                                  className="text-sm font-medium text-bd-text-secondary"
+                                >
+                                  Server URL
+                                </label>
+                                <div className="group relative inline-flex">
+                                  <button
+                                    type="button"
+                                    aria-label="Docker Ollama URL help"
+                                    className="inline-flex h-4 w-4 items-center justify-center rounded-full text-bd-text-muted transition-colors hover:text-bd-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bd-amber/60"
+                                  >
+                                    <Info size={12} strokeWidth={2} />
+                                  </button>
+                                  <div
+                                    role="tooltip"
+                                    className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 w-72 -translate-x-1/2 rounded-md border border-bd-border bg-bd-bg-secondary px-3 py-2 text-xs leading-5 text-bd-text-secondary opacity-0 shadow-[0_12px_30px_rgba(2,8,23,0.45)] transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100"
+                                  >
+                                    If BrainDrive is running in Docker and Ollama is installed on this computer, use
+                                    {" "}
+                                    <span className="font-medium text-bd-text-primary">
+                                      http://host.docker.internal:11434/v1
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
                               <div className="flex items-center gap-2">
                                 <input
                                   id="ollama-server-url"
@@ -1408,7 +1430,7 @@ function ProviderSection({
                                     setOllamaUrl(event.target.value);
                                     setUrlError(null);
                                   }}
-                                  placeholder="http://localhost:11434/v1"
+                                  placeholder="http://host.docker.internal:11434/v1"
                                   className="h-10 flex-1 rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
                                 />
                                 <button
