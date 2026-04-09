@@ -8,7 +8,7 @@ export function classifyProviderError(error: unknown): StreamEvent {
     return {
       type: "error",
       code: "context_overflow",
-      message: "The model context limit was exceeded",
+      message: "This session has gotten long. Start a new conversation to continue - all your work is saved.",
     };
   }
 

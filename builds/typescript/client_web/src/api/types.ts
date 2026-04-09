@@ -94,6 +94,15 @@ export type ChatEvent =
   | ChatErrorEvent
   | DoneEvent;
 
+export type ContextWindowWarning = {
+  estimated_tokens: number;
+  budget_tokens: number;
+  ratio: number;
+  threshold: number;
+  managed: boolean;
+  message: string;
+};
+
 export type ApprovalDecision = "approved" | "denied";
 export type ApprovalMode = "ask-on-write" | "auto-approve";
 

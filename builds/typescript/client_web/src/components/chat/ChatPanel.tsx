@@ -89,11 +89,14 @@ export default function ChatPanel({
     messages,
     isLoading,
     error,
+    errorCode,
     conversationId,
     toolStatus,
     pendingApprovals,
+    contextWindowWarning,
     append,
-    stop
+    stop,
+    startNewConversation,
   } = useGatewayChat({
     conversationId: activeConversationId,
     projectId: activeProjectId ?? null,
@@ -176,14 +179,37 @@ export default function ChatPanel({
   const chatError = historyError ?? error?.message ?? null;
   const visibleChatError =
     chatError && chatError !== dismissedError ? chatError : null;
+  const isContextOverflowError = errorCode === "context_overflow";
   const isProviderError = visibleChatError != null && (
     visibleChatError.includes("credentials") ||
     visibleChatError.includes("could not be reached") ||
     visibleChatError.includes("provider") ||
     visibleChatError.includes("model")
-  );
+  ) && !isContextOverflowError;
+  const lastUserMessage = [...messages].reverse().find((message) => message.role === "user") ?? null;
   const shouldShowEmptyState = isEmpty && messages.length === 0 && !isLoading;
   const shouldShowConversation = contentOverride === undefined;
+
+  function resetErrorPresentation() {
+    setHistoryError(null);
+    if (visibleChatError) {
+      setDismissedError(visibleChatError);
+    }
+    setConnectionStatus("connected");
+  }
+
+  function handleStartNewConversation() {
+    resetErrorPresentation();
+    startNewConversation();
+  }
+
+  function handleContinueInNewConversation() {
+    const replayContent = lastUserMessage?.content?.trim();
+    handleStartNewConversation();
+    if (replayContent && replayContent.length > 0) {
+      append(replayContent, { metadata: messageMetadata });
+    }
+  }
 
   function handleDragOver(e: DragEvent) {
     e.preventDefault();
@@ -323,15 +349,38 @@ export default function ChatPanel({
               isTyping={showTypingFeedback}
               typingStatus={typingStatus}
             >
+              {contextWindowWarning && !visibleChatError && (
+                <div className="mx-auto w-full max-w-[780px] py-2">
+                  <div className="rounded-xl border border-bd-amber/40 bg-bd-amber/10 px-4 py-3 text-sm text-bd-text-primary">
+                    <p>
+                      {contextWindowWarning.message}{" "}
+                      <span className="text-bd-text-secondary">
+                        ({Math.round(contextWindowWarning.ratio * 100)}% of current prompt budget)
+                      </span>
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleStartNewConversation}
+                      className="mt-2 rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover"
+                    >
+                      Start New Conversation
+                    </button>
+                  </div>
+                </div>
+              )}
               {visibleChatError && (
                 <ErrorMessage
                   message={visibleChatError}
                   onOpenSettings={isProviderError ? onOpenSettings : undefined}
-                  onRetry={() => {
-                    setHistoryError(null);
-                    setDismissedError(visibleChatError);
-                    setConnectionStatus("connected");
-                  }}
+                  onRetry={isContextOverflowError ? undefined : () => resetErrorPresentation()}
+                  primaryActionLabel={isContextOverflowError ? "Start New Conversation" : undefined}
+                  onPrimaryAction={isContextOverflowError ? handleStartNewConversation : undefined}
+                  secondaryActionLabel={
+                    isContextOverflowError && lastUserMessage ? "Continue in New Conversation" : undefined
+                  }
+                  onSecondaryAction={
+                    isContextOverflowError && lastUserMessage ? handleContinueInNewConversation : undefined
+                  }
                   onDismiss={() => {
                     setHistoryError(null);
                     setDismissedError(visibleChatError);

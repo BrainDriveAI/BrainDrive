@@ -11,7 +11,7 @@ import {
   updateConversationSkills,
   updateProjectSkills,
 } from "./gateway-adapter";
-import type { ActivityEvent, ApprovalDecision, PendingApproval } from "./types";
+import type { ActivityEvent, ApprovalDecision, ContextWindowWarning, PendingApproval } from "./types";
 
 const EMPTY_MESSAGES: Message[] = [];
 const EMPTY_ACTIVITY: ActivityEvent[] = [];
@@ -35,9 +35,11 @@ type ConversationState = {
   messages: Message[];
   isLoading: boolean;
   error: Error | null;
+  errorCode: string | null;
   toolStatus: string | null;
   pendingApprovals: PendingApproval[];
   activity: ActivityEvent[];
+  contextWindowWarning: ContextWindowWarning | null;
   conversationId: string | null;
   abortController: AbortController | null;
   requestToken: number;
@@ -75,13 +77,16 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
   messages: Message[];
   isLoading: boolean;
   error: Error | null;
+  errorCode: string | null;
   conversationId: string | null;
   toolStatus: string | null;
   pendingApprovals: PendingApproval[];
   activity: ActivityEvent[];
+  contextWindowWarning: ContextWindowWarning | null;
   append: (content: string, options?: { metadata?: Record<string, unknown> }) => void;
   resolveApproval: (requestId: string, decision: ApprovalDecision) => Promise<void>;
   stop: () => void;
+  startNewConversation: () => void;
 } {
   const externalConversationId = options.conversationId ?? null;
   const externalProjectId = options.projectId ?? null;
@@ -97,6 +102,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
   const [messages, setMessages] = useState<Message[]>(cached?.messages ?? externalMessages);
   const [isLoading, setIsLoading] = useState(cached?.isLoading ?? false);
   const [error, setError] = useState<Error | null>(cached?.error ?? null);
+  const [errorCode, setErrorCode] = useState<string | null>(cached?.errorCode ?? null);
   const [conversationId, setConversationId] = useState<string | null>(
     cached?.conversationId ?? externalConversationId
   );
@@ -105,6 +111,9 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
     cached?.pendingApprovals ?? EMPTY_APPROVALS
   );
   const [activity, setActivity] = useState<ActivityEvent[]>(cached?.activity ?? EMPTY_ACTIVITY);
+  const [contextWindowWarning, setContextWindowWarning] = useState<ContextWindowWarning | null>(
+    cached?.contextWindowWarning ?? null
+  );
 
   const abortControllerRef = useRef<AbortController | null>(cached?.abortController ?? null);
   const requestTokenRef = useRef(cached?.requestToken ?? 0);
@@ -130,9 +139,11 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
 
       setIsLoading(false);
       setError(null);
+      setErrorCode(null);
       setToolStatus(null);
       setPendingApprovals([]);
       setActivity([]);
+      setContextWindowWarning(null);
     }
 
     window.addEventListener(GATEWAY_CHAT_RUNTIME_RESET_EVENT, handleRuntimeReset);
@@ -151,9 +162,11 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
         messages: messages,
         isLoading,
         error,
+        errorCode,
         toolStatus,
         pendingApprovals,
         activity,
+        contextWindowWarning,
         conversationId,
         abortController: abortControllerRef.current,
         requestToken: requestTokenRef.current,
@@ -170,9 +183,11 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
       setMessages(restored.messages);
       setIsLoading(restored.isLoading);
       setError(restored.error);
+      setErrorCode(restored.errorCode);
       setToolStatus(restored.toolStatus);
       setPendingApprovals(restored.pendingApprovals);
       setActivity(restored.activity);
+      setContextWindowWarning(restored.contextWindowWarning);
       setConversationId(restored.conversationId);
       abortControllerRef.current = restored.abortController;
       requestTokenRef.current = restored.requestToken;
@@ -187,9 +202,11 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
       setMessages(EMPTY_MESSAGES);
       setIsLoading(false);
       setError(null);
+      setErrorCode(null);
       setToolStatus(null);
       setPendingApprovals([]);
       setActivity([]);
+      setContextWindowWarning(null);
       setConversationId(externalConversationId);
       abortControllerRef.current = null;
       requestTokenRef.current = 0;
@@ -236,6 +253,28 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
     setIsLoading(false);
   }
 
+  function startNewConversation() {
+    requestTokenRef.current += 1;
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    backgroundStreams.delete(cacheKeyRef.current);
+    backgroundStates.delete(cacheKeyRef.current);
+
+    setMessages(EMPTY_MESSAGES);
+    setIsLoading(false);
+    setError(null);
+    setErrorCode(null);
+    setToolStatus(null);
+    setPendingApprovals([]);
+    setActivity([]);
+    setContextWindowWarning(null);
+    setConversationId(null);
+
+    conversationIdRef.current = null;
+    messageCounterRef.current = 0;
+    activityCounterRef.current = 0;
+  }
+
   async function resolveApproval(requestId: string, decision: ApprovalDecision): Promise<void> {
     // Capture the tool name before removing the approval so we can show
     // a user-friendly status ("Writing to your library...") instead of "Approval approved"
@@ -269,6 +308,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
       };
 
       setError(null);
+      setErrorCode(null);
       setIsLoading(true);
       setToolStatus("Running slash command...");
       setMessages((current) => [...current, userMessage]);
@@ -289,6 +329,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
           setToolStatus(null);
         } catch (error) {
           setError(toError(error));
+          setErrorCode(null);
           setToolStatus(null);
         } finally {
           setIsLoading(false);
@@ -315,7 +356,9 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
     const assistantMessageId = nextMessageId();
 
     setError(null);
+    setErrorCode(null);
     setIsLoading(true);
+    setContextWindowWarning(null);
     setMessages((current) => [...current, userMessage]);
 
     // Track this as a background stream so state updates route correctly
@@ -392,7 +435,17 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
       try {
         for await (const event of sendMessage(conversationIdRef.current, trimmed, {
           signal: controller.signal,
-          metadata: options?.metadata
+          metadata: options?.metadata,
+          onContextWarning: (warning) => {
+            if (isActive()) {
+              setContextWindowWarning(warning);
+              return;
+            }
+
+            updateBackground(() => ({
+              contextWindowWarning: warning,
+            }));
+          },
         })) {
           if (requestToken !== requestTokenRef.current && isActive()) {
             return;
@@ -461,11 +514,13 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
             case "done":
               if (isActive()) {
                 setToolStatus(null);
+                setErrorCode(null);
                 updateConversationId(event.conversation_id);
               } else {
                 updateBackground(() => ({
                   toolStatus: null,
                   isLoading: false,
+                  errorCode: null,
                   conversationId: event.conversation_id ?? null,
                 }));
               }
@@ -475,11 +530,13 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
               if (isActive()) {
                 setToolStatus(null);
                 setError(new Error(event.message));
+                setErrorCode(event.code);
               } else {
                 updateBackground(() => ({
                   toolStatus: null,
                   isLoading: false,
                   error: new Error(event.message),
+                  errorCode: event.code,
                 }));
               }
               backgroundStreams.delete(activeCacheKey);
@@ -526,11 +583,13 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
                 if (isActive()) {
                   setToolStatus(null);
                   setError(toError(approvalError));
+                  setErrorCode(null);
                 } else {
                   updateBackground(() => ({
                     toolStatus: null,
                     isLoading: false,
                     error: toError(approvalError),
+                    errorCode: null,
                   }));
                 }
                 backgroundStreams.delete(activeCacheKey);
@@ -557,6 +616,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
           updateBackground(() => ({
             isLoading: false,
             error: toError(caughtError),
+            errorCode: null,
           }));
           backgroundStreams.delete(activeCacheKey);
           return;
@@ -566,6 +626,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
         }
 
         setError(toError(caughtError));
+        setErrorCode(null);
       } finally {
         backgroundStreams.delete(activeCacheKey);
         if (isActive() && requestToken === requestTokenRef.current) {
@@ -583,13 +644,16 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
     messages,
     isLoading,
     error,
+    errorCode,
     conversationId,
     toolStatus,
     pendingApprovals,
     activity,
+    contextWindowWarning,
     append,
     resolveApproval,
-    stop
+    stop,
+    startNewConversation
   };
 }
 

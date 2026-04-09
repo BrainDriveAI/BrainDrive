@@ -38,7 +38,7 @@ export async function* runAgentLoop(
       yield {
         type: "error",
         code: "context_overflow",
-        message: "Conversation exceeded the configured safety limit",
+        message: "This session has gotten long. Start a new conversation to continue - all your work is saved.",
       };
       return;
     }

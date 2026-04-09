@@ -7,7 +7,18 @@ const sendMessageMock = vi.fn<
   (
     conversationId: string | null,
     content: string,
-    options?: { signal?: AbortSignal; metadata?: Record<string, unknown> }
+    options?: {
+      signal?: AbortSignal;
+      metadata?: Record<string, unknown>;
+      onContextWarning?: (warning: {
+        estimated_tokens: number;
+        budget_tokens: number;
+        ratio: number;
+        threshold: number;
+        managed: boolean;
+        message: string;
+      }) => void;
+    }
   ) => AsyncIterable<ChatEvent>
 >();
 
@@ -41,7 +52,18 @@ vi.mock("./gateway-adapter", () => ({
   sendMessage: (
     conversationId: string | null,
     content: string,
-    options?: { signal?: AbortSignal; metadata?: Record<string, unknown> }
+    options?: {
+      signal?: AbortSignal;
+      metadata?: Record<string, unknown>;
+      onContextWarning?: (warning: {
+        estimated_tokens: number;
+        budget_tokens: number;
+        ratio: number;
+        threshold: number;
+        managed: boolean;
+        message: string;
+      }) => void;
+    }
   ) => sendMessageMock(conversationId, content, options),
   submitApprovalDecision: (requestId: string, decision: "approved" | "denied") =>
     submitApprovalDecisionMock(requestId, decision),
@@ -160,9 +182,73 @@ describe("useGatewayChat", () => {
     });
 
     expect(result.current.error?.message).toBe("Provider unavailable");
+    expect(result.current.errorCode).toBe("provider_error");
     expect(result.current.messages).toEqual([
       { id: "message-1", role: "user", content: "Hello" }
     ]);
+  });
+
+  it("stores context overflow error code for overflow-specific UI actions", async () => {
+    sendMessageMock.mockImplementation(() =>
+      streamEvents([
+        {
+          type: "error",
+          code: "context_overflow",
+          message: "This session has gotten long. Start a new conversation to continue - all your work is saved.",
+        },
+      ])
+    );
+
+    const { result } = renderHook(() => useGatewayChat());
+
+    act(() => {
+      result.current.append("Hello");
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.errorCode).toBe("context_overflow");
+  });
+
+  it("stores context warning metadata passed from the gateway adapter", async () => {
+    sendMessageMock.mockImplementation((_conversationId, _content, options) =>
+      (async function* contextWarningStream() {
+        options?.onContextWarning?.({
+          estimated_tokens: 90_000,
+          budget_tokens: 100_000,
+          ratio: 0.9,
+          threshold: 0.8,
+          managed: true,
+          message: "This session is getting long. Earlier turns were compacted so you can keep chatting.",
+        });
+        yield {
+          type: "done",
+          finish_reason: "stop",
+          conversation_id: "conv-warning",
+        } as ChatEvent;
+      })()
+    );
+
+    const { result } = renderHook(() => useGatewayChat());
+
+    act(() => {
+      result.current.append("Hello");
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.contextWindowWarning).toEqual({
+      estimated_tokens: 90_000,
+      budget_tokens: 100_000,
+      ratio: 0.9,
+      threshold: 0.8,
+      managed: true,
+      message: "This session is getting long. Earlier turns were compacted so you can keep chatting.",
+    });
   });
 
   it("auto-approves approval requests during streaming", async () => {
