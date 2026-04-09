@@ -95,6 +95,7 @@ export type ChatEvent =
   | DoneEvent;
 
 export type ApprovalDecision = "approved" | "denied";
+export type ApprovalMode = "ask-on-write" | "auto-approve";
 
 export type PendingApproval = {
   requestId: string;
@@ -181,7 +182,7 @@ export type GatewayMemoryBackupRestoreResponse = {
 
 export type GatewaySettings = {
   default_model: string;
-  approval_mode: "ask-on-write";
+  approval_mode: ApprovalMode;
   active_provider_profile: string | null;
   default_provider_profile: string | null;
   available_models: string[];

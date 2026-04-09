@@ -32,7 +32,13 @@ import {
   readBootstrapPrompt,
   savePreferences,
 } from "../config.js";
-import type { AdapterConfig, ClientMessageRequest, Preferences, RuntimeConfig } from "../contracts.js";
+import type {
+  AdapterConfig,
+  ApprovalMode,
+  ClientMessageRequest,
+  Preferences,
+  RuntimeConfig
+} from "../contracts.js";
 import { runAgentLoop } from "../engine/loop.js";
 import { classifyProviderError } from "../engine/errors.js";
 import { formatSseEvent } from "../engine/stream.js";
@@ -637,6 +643,7 @@ export async function buildServer(rootDir = process.cwd()) {
         request.authContext,
         {
           memoryRoot: runtimeConfig.memory_root,
+          approvalMode: livePreferences.approval_mode,
           safetyIterationLimit: runtimeConfig.safety_iteration_limit,
         }
       )) {
@@ -2211,7 +2218,7 @@ function buildSettingsPayload(
   preferences: Preferences
 ): {
   default_model: string;
-  approval_mode: "ask-on-write";
+  approval_mode: ApprovalMode;
   active_provider_profile: string | null;
   default_provider_profile: string | null;
   available_models: string[];
