@@ -2259,10 +2259,9 @@ function buildSettingsPayload(
   const activeProfileEntry = activeProfileId
     ? providerProfilePayload.find((p) => p.id === activeProfileId)
     : null;
-  const effectiveDefaultModel =
-    (activeProfileId ? preferences.provider_default_models?.[activeProfileId] : undefined) ??
-    activeProfileEntry?.model ??
-    preferences.default_model;
+  const effectiveDefaultModel = activeProfileId
+    ? (preferences.provider_default_models?.[activeProfileId] ?? activeProfileEntry?.model ?? "")
+    : preferences.default_model;
 
   const availableModels = Array.from(
     new Set(

@@ -68,8 +68,8 @@ const baseSettings: GatewaySettings = {
     {
       id: "ollama",
       provider_id: "ollama",
-      base_url: "http://127.0.0.1:11434/v1",
-      model: "llama3.1",
+      base_url: "http://host.docker.internal:11434/v1",
+      model: "",
       credential_mode: "plain",
       credential_ref: null,
     },
