@@ -55,7 +55,12 @@ export function useProjects(): {
   function refreshProjects() {
     const requestId = projectsRequestIdRef.current + 1;
     projectsRequestIdRef.current = requestId;
-    setIsLoadingProjects(true);
+    const shouldShowLoadingState = projects.length === 0;
+
+    if (shouldShowLoadingState) {
+      setIsLoadingProjects(true);
+    }
+
     setProjectsError(null);
 
     void (async () => {
@@ -72,10 +77,13 @@ export function useProjects(): {
           return;
         }
 
-        setProjects([]);
+        if (shouldShowLoadingState) {
+          setProjects([]);
+        }
+
         setProjectsError(toError(error));
       } finally {
-        if (projectsRequestIdRef.current === requestId) {
+        if (projectsRequestIdRef.current === requestId && shouldShowLoadingState) {
           setIsLoadingProjects(false);
         }
       }
@@ -100,9 +108,13 @@ export function useProjects(): {
         selectProject(bdPlusOne.id);
       }
     }
-  }, [projects]);
+  }, [projects, selectedProjectId]);
 
   function selectProject(id: string) {
+    if (id === selectedProjectId) {
+      return;
+    }
+
     setSelectedProjectId(id);
     setProjectFiles([]);
     setIsLoadingFiles(true);
