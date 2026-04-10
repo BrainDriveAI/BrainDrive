@@ -1,19 +1,19 @@
 {
   "base_url": "https://my.braindrive.ai/credits/v1",
-  "model": "claude-sonnet-4-6",
+  "model": "claude-haiku-4-5",
   "api_key_env": "AI_GATEWAY_API_KEY",
   "provider_id": "braindrive-models",
   "default_provider_profile": "braindrive-models",
   "provider_profiles": {
     "braindrive-models": {
       "base_url": "https://my.braindrive.ai/credits/v1",
-      "model": "claude-sonnet-4-6",
+      "model": "claude-haiku-4-5",
       "api_key_env": "AI_GATEWAY_API_KEY",
       "provider_id": "braindrive-models"
     },
     "openrouter": {
       "base_url": "https://openrouter.ai/api/v1",
-      "model": "anthropic/claude-sonnet-4.6",
+      "model": "anthropic/claude-haiku-4.5",
       "api_key_env": "OPENROUTER_API_KEY",
       "provider_id": "openrouter"
     },

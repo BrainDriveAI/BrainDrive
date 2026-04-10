@@ -72,7 +72,7 @@ const FALLBACK_LOCAL_DEV_PREFERENCES = {
 };
 
 const FALLBACK_OPENROUTER_SECRET_REF_PREFERENCES = {
-  default_model: "anthropic/claude-sonnet-4.6",
+  default_model: "anthropic/claude-haiku-4.5",
   approval_mode: "auto-approve",
   active_provider_profile: "openrouter",
   provider_credentials: {
@@ -88,7 +88,7 @@ const FALLBACK_OPENROUTER_SECRET_REF_PREFERENCES = {
 };
 
 const FALLBACK_BRAINDRIVE_MANAGED_SECRET_REF_PREFERENCES = {
-  default_model: "claude-sonnet-4-6",
+  default_model: "claude-haiku-4-5",
   approval_mode: "auto-approve",
   active_provider_profile: "braindrive-models",
   provider_credentials: {
