@@ -5,11 +5,6 @@
 
 $ErrorActionPreference = "Stop"
 
-if ($Mode -eq "local") {
-  Write-Host "Startup update check skipped in local mode."
-  exit 0
-}
-
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $rootDir = Split-Path -Parent $scriptDir
 Set-Location $rootDir

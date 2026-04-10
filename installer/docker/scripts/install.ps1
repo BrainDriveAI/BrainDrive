@@ -8,17 +8,15 @@ $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $rootDir = Split-Path -Parent $scriptDir
 Set-Location $rootDir
+. "$scriptDir/browser-helper.ps1"
 
 $composeFile = "compose.quickstart.yml"
-$urlHint = "http://127.0.0.1:8080"
 if ($Mode -eq "prod") {
   $composeFile = "compose.prod.yml"
-  $urlHint = "https://<DOMAIN>"
 } elseif ($Mode -eq "local") {
   $composeFile = "compose.local.yml"
 } elseif ($Mode -eq "dev") {
   $composeFile = "compose.dev.yml"
-  $urlHint = "http://127.0.0.1:5073"
 }
 
 function Require-Command {
@@ -120,10 +118,7 @@ if ($Mode -eq "prod") {
   }
 }
 
-if ($Mode -eq "local") {
-  Write-Host "Building and starting local stack using $composeFile"
-  docker compose -f $composeFile up -d --build
-} elseif ($Mode -eq "dev") {
+if ($Mode -eq "dev") {
   docker volume create braindrive_memory | Out-Null
   docker volume create braindrive_secrets | Out-Null
   Write-Host "Building and starting developer stack using $composeFile"
@@ -138,35 +133,4 @@ if ($Mode -eq "local") {
 Write-Host "Current service status"
 docker compose -f $composeFile ps
 
-if ($Mode -eq "local" -or $Mode -eq "quickstart") {
-  $localBindHost = Get-EnvValue -Key "BRAINDRIVE_LOCAL_BIND_HOST"
-  if (-not $localBindHost) {
-    $localBindHost = "127.0.0.1"
-  }
-
-  if ($localBindHost -eq "0.0.0.0") {
-    $urlHint = "http://<this-machine-ip>:8080"
-  } else {
-    $urlHint = "http://${localBindHost}:8080"
-  }
-}
-
-if ($Mode -eq "dev") {
-  $devBindHost = Get-EnvValue -Key "BRAINDRIVE_DEV_BIND_HOST"
-  if (-not $devBindHost) {
-    $devBindHost = "127.0.0.1"
-  }
-
-  $devPort = Get-EnvValue -Key "BRAINDRIVE_DEV_PORT"
-  if (-not $devPort) {
-    $devPort = "5073"
-  }
-
-  if ($devBindHost -eq "0.0.0.0") {
-    $urlHint = "http://<this-machine-ip>:$devPort"
-  } else {
-    $urlHint = "http://${devBindHost}:$devPort"
-  }
-}
-
-Write-Host "Install complete. Open: $urlHint"
+Write-BrainDriveAccessInfo -Mode $Mode -Prefix "Install complete."

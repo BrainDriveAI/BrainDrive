@@ -14,6 +14,7 @@ $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $rootDir = Split-Path -Parent $scriptDir
 Set-Location $rootDir
+. "$scriptDir/browser-helper.ps1"
 
 $composeFile = if ($Mode -eq "quickstart") { "compose.quickstart.yml" } elseif ($Mode -eq "local") { "compose.local.yml" } else { "compose.prod.yml" }
 $volumeName = if ($Target -eq "memory") { "braindrive_memory" } else { "braindrive_secrets" }
@@ -37,3 +38,4 @@ Write-Host "Starting stack after restore"
 docker compose -f $composeFile up -d
 
 Write-Host "Restore complete for $volumeName from $resolvedBackupPath"
+Write-BrainDriveAccessInfo -Mode $Mode -Prefix "Restore complete."

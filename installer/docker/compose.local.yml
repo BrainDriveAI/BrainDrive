@@ -2,10 +2,7 @@
 
 services:
   app:
-    build:
-      context: ../..
-      dockerfile: installer/docker/Dockerfile.app
-    image: ${BRAINDRIVE_APP_IMAGE_LOCAL:-braindrive-app:local}
+    image: ${BRAINDRIVE_APP_REF:-${BRAINDRIVE_APP_IMAGE:-ghcr.io/braindriveai/braindrive-app}:${BRAINDRIVE_TAG:-latest}}
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -34,10 +31,7 @@ services:
       start_period: 20s
 
   edge:
-    build:
-      context: ../..
-      dockerfile: installer/docker/Dockerfile.edge
-    image: ${BRAINDRIVE_EDGE_IMAGE_LOCAL:-braindrive-edge:local}
+    image: ${BRAINDRIVE_EDGE_REF:-${BRAINDRIVE_EDGE_IMAGE:-ghcr.io/braindriveai/braindrive-edge}:${BRAINDRIVE_TAG:-latest}}
     restart: unless-stopped
     depends_on:
       app:

@@ -11,6 +11,7 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
+source "${SCRIPT_DIR}/browser-helper.sh"
 
 get_env_value() {
   local key="$1"
@@ -23,7 +24,7 @@ get_env_value() {
 }
 
 configure_docker_platform() {
-  if [[ "${MODE}" != "quickstart" && "${MODE}" != "prod" ]]; then
+  if [[ "${MODE}" != "quickstart" && "${MODE}" != "prod" && "${MODE}" != "local" ]]; then
     return 0
   fi
 
@@ -47,44 +48,12 @@ configure_docker_platform() {
 }
 
 COMPOSE_FILE="compose.quickstart.yml"
-URL_HINT="http://127.0.0.1:8080"
 if [[ "${MODE}" == "prod" ]]; then
   COMPOSE_FILE="compose.prod.yml"
-  URL_HINT="https://<DOMAIN>"
 elif [[ "${MODE}" == "local" ]]; then
   COMPOSE_FILE="compose.local.yml"
 elif [[ "${MODE}" == "dev" ]]; then
   COMPOSE_FILE="compose.dev.yml"
-fi
-
-if [[ "${MODE}" == "local" || "${MODE}" == "quickstart" ]]; then
-  LOCAL_BIND_HOST="$(get_env_value BRAINDRIVE_LOCAL_BIND_HOST | tr -d '"')"
-  if [[ -z "${LOCAL_BIND_HOST}" ]]; then
-    LOCAL_BIND_HOST="127.0.0.1"
-  fi
-
-  if [[ "${LOCAL_BIND_HOST}" == "0.0.0.0" ]]; then
-    URL_HINT="http://<this-machine-ip>:8080"
-  else
-    URL_HINT="http://${LOCAL_BIND_HOST}:8080"
-  fi
-fi
-
-if [[ "${MODE}" == "dev" ]]; then
-  DEV_BIND_HOST="$(get_env_value BRAINDRIVE_DEV_BIND_HOST | tr -d '"')"
-  DEV_PORT="$(get_env_value BRAINDRIVE_DEV_PORT | tr -d '"')"
-  if [[ -z "${DEV_BIND_HOST}" ]]; then
-    DEV_BIND_HOST="127.0.0.1"
-  fi
-  if [[ -z "${DEV_PORT}" ]]; then
-    DEV_PORT="5073"
-  fi
-
-  if [[ "${DEV_BIND_HOST}" == "0.0.0.0" ]]; then
-    URL_HINT="http://<this-machine-ip>:${DEV_PORT}"
-  else
-    URL_HINT="http://${DEV_BIND_HOST}:${DEV_PORT}"
-  fi
 fi
 
 if [[ "${MODE}" == "prod" ]]; then
@@ -98,7 +67,7 @@ fi
 
 configure_docker_platform
 
-if [[ "${MODE}" == "quickstart" || "${MODE}" == "prod" ]]; then
+if [[ "${MODE}" == "quickstart" || "${MODE}" == "prod" || "${MODE}" == "local" ]]; then
   set +e
   bash "${SCRIPT_DIR}/check-update.sh" "${MODE}"
   CHECK_UPDATE_EXIT=$?
@@ -124,4 +93,4 @@ fi
 
 docker compose -f "${COMPOSE_FILE}" ps
 
-echo "Start complete. Open: ${URL_HINT}"
+braindrive_print_access_info_and_open "${MODE}" "Start complete."
