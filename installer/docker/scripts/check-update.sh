@@ -8,11 +8,6 @@ if [[ "${MODE}" != "prod" && "${MODE}" != "local" && "${MODE}" != "quickstart" ]
   exit 1
 fi
 
-if [[ "${MODE}" == "local" ]]; then
-  echo "Startup update check skipped in local mode."
-  exit 0
-fi
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"

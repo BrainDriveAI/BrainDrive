@@ -18,6 +18,7 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
+source "${SCRIPT_DIR}/browser-helper.sh"
 
 get_env_value() {
   local key="$1"
@@ -98,3 +99,4 @@ echo "Starting stack after restore"
 docker compose -f "${COMPOSE_FILE}" up -d
 
 echo "Restore complete for ${VOLUME} from ${BACKUP_FILE}"
+braindrive_print_access_info_and_open "${MODE}" "Restore complete."

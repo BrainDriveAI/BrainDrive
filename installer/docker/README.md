@@ -50,6 +50,7 @@ For a one-line, no-clone install that does not require DNS/TLS setup:
    - `http://127.0.0.1:8080`
 
 This mode uses prebuilt images and `compose.quickstart.yml`.
+Lifecycle scripts now always print the access URL and attempt a best-effort browser auto-open on the host.
 
 ## Production Bootstrap
 For real public HTTPS deployments:
@@ -74,8 +75,8 @@ For real public HTTPS deployments:
 
 `install` is first-run only. If `.env` already exists, install exits to avoid accidental account/secrets invalidation.
 
-## Local source-build mode
-For local smoke testing from source (builds images from this repo):
+## Local image mode
+For local runs on prebuilt images (stable-style HTTP on localhost):
 1. Prepare `installer/docker/.env` (as shown above).
 2. Run local mode from any supported launch point:
    - Repo root: `./scripts/install.sh local`
@@ -84,7 +85,7 @@ For local smoke testing from source (builds images from this repo):
 3. Open `http://127.0.0.1:8080` (default bind).
 4. Optional LAN access: set `BRAINDRIVE_LOCAL_BIND_HOST=0.0.0.0` in `.env`, then restart/start local mode and open `http://<this-machine-ip>:8080` from another device on your network.
 
-Local mode builds images from this repo (`Dockerfile.app` + `Dockerfile.edge`) and does not require registry pull access.
+Local mode uses prebuilt images (same image/ref controls as quickstart/prod) and does require registry pull access.
 By default, first signup is allowed from any host/IP in this installer profile (`PAA_AUTH_ALLOW_FIRST_SIGNUP_ANY_IP=true`).
 
 ## Developer hot-reload mode
@@ -173,21 +174,23 @@ If signature verification is required, upgrade scripts run `cosign verify-blob` 
 If `cosign` is missing, upgrade scripts now auto-install it by default (`BRAINDRIVE_AUTO_INSTALL_COSIGN=true`).
 Current helper scripts use key-pair signature verification (trusted public key) without transparency log lookup.
 Upgrade now auto-fetches metadata from configured release URLs into local `release-cache` so normal users do not need manual `.env` edits for each update.
-Start in quickstart/prod now runs startup update policy checks before compose up. Settings are resolved in this order: runtime env override, persistent `/data/memory/system/config/app-config.json`, `.env`, then defaults.
+Start in quickstart/prod/local now runs startup update policy checks before compose up. Settings are resolved in this order: runtime env override, persistent `/data/memory/system/config/app-config.json`, `.env`, then defaults.
+Lifecycle scripts that start/restart services (`install`, `start`, `upgrade`, `restore`) always print the URL and attempt browser auto-open; if auto-open fails, users can still use the printed URL.
 
 ## Operations
 - Start (quickstart): `./scripts/start.sh quickstart`
   - Runs startup update check first (policy-driven), then starts containers.
 - Stop (quickstart): `./scripts/stop.sh quickstart`
 - Upgrade (quickstart): `./scripts/upgrade.sh quickstart`
-- Start (source-build local): `./scripts/start.sh local`
-- Stop (source-build local): `./scripts/stop.sh local`
+- Start (local prebuilt): `./scripts/start.sh local`
+- Stop (local prebuilt): `./scripts/stop.sh local`
 - Start (developer hot reload): `./scripts/start.sh dev`
 - Stop (developer hot reload): `./scripts/stop.sh dev`
 - Upgrade (prod): `./scripts/upgrade.sh prod`
 - Check update now (without start):
   - `./scripts/check-update.sh quickstart`
   - `./scripts/check-update.sh prod`
+  - `./scripts/check-update.sh local`
 - Fetch remote metadata now (optional manual run, also done automatically in prod/quickstart upgrade):
   - `./scripts/fetch-release-metadata.sh`
 - Upgrade with explicit refs (one-shot, without editing `.env`):
@@ -208,8 +211,8 @@ Start in quickstart/prod now runs startup update policy checks before compose up
   - Start quickstart: `./scripts/start.ps1 quickstart`
     - Runs startup update check first (policy-driven), then starts containers.
   - Stop quickstart: `./scripts/stop.ps1 quickstart`
-  - Start local source-build: `./scripts/start.ps1 local`
-  - Stop local source-build: `./scripts/stop.ps1 local`
+  - Start local prebuilt: `./scripts/start.ps1 local`
+  - Stop local prebuilt: `./scripts/stop.ps1 local`
   - Start developer hot reload: `./scripts/start.ps1 dev`
   - Stop developer hot reload: `./scripts/stop.ps1 dev`
   - Install: `./scripts/install.ps1`
@@ -217,6 +220,7 @@ Start in quickstart/prod now runs startup update policy checks before compose up
   - Check update now:
     - `./scripts/check-update.ps1 -Mode quickstart`
     - `./scripts/check-update.ps1 -Mode prod`
+    - `./scripts/check-update.ps1 -Mode local`
   - Fetch remote metadata now (optional manual run, also done automatically in prod/quickstart upgrade):
     - `./scripts/fetch-release-metadata.ps1`
     - One-shot refs:

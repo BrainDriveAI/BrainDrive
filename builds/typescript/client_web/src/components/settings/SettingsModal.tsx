@@ -995,7 +995,7 @@ function BrainDriveDefaultSection({
             BrainDrive
           </h3>
           <p className="mt-1 text-sm text-bd-text-muted">
-            Currently powered by Claude Sonnet 4.6
+            Currently powered by Claude Haiku 4.5
           </p>
         </div>
 
@@ -1102,7 +1102,7 @@ function BrainDriveDefaultSection({
           BrainDrive
         </h3>
         <p className="mt-1 text-sm text-bd-text-muted">
-          Currently powered by Claude Sonnet 4.6
+          Currently powered by Claude Haiku 4.5
         </p>
       </div>
 
@@ -1368,7 +1368,7 @@ function ProviderSection({
                       </div>
                       <div className="text-xs text-bd-text-muted">
                         {isBrainDriveModels
-                          ? <>Currently powered by Claude Sonnet 4.6</>
+                          ? <>Currently powered by Claude Haiku 4.5</>
                           : isOllama
                           ? <>Runs on your computer, free — <a href="https://ollama.com" target="_blank" rel="noopener noreferrer" className="text-bd-text-muted hover:text-bd-text-secondary hover:underline" onClick={(e) => e.stopPropagation()}>ollama.com</a></>
                           : <>Cloud-based, requires API key — <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="text-bd-text-muted hover:text-bd-text-secondary hover:underline" onClick={(e) => e.stopPropagation()}>openrouter.ai/keys</a></>}
@@ -1598,7 +1598,7 @@ function ModelSection({
   onRefreshCatalog: () => void;
 }) {
   const managedModels = [
-    { name: "Claude Sonnet 4.6", provider: "Anthropic" },
+    { name: "Claude Haiku 4.5", provider: "Anthropic" },
     { name: "Claude Opus 4.6", provider: "Anthropic" },
     { name: "GPT-4o", provider: "OpenAI" }
   ];
