@@ -84,6 +84,7 @@ export default function ChatPanel({
   const [dismissedError, setDismissedError] = useState<string | null>(null);
   const wasLoadingRef = useRef(false);
   const completedConversationIdRef = useRef<string | null>(null);
+  const hasUsedToolRef = useRef(false);
 
   const {
     messages,
@@ -167,15 +168,21 @@ export default function ChatPanel({
     wasLoadingRef.current = isLoading;
   }, [conversationId, error, isLoading, onConversationComplete]);
 
+  if (toolStatus) {
+    hasUsedToolRef.current = true;
+  }
+  if (!isLoading) {
+    hasUsedToolRef.current = false;
+  }
+
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
   const hasStartedAssistantReply = isLoading && lastMessage?.role === "assistant";
   const isWaitingForReply = isLoading && !hasStartedAssistantReply;
-  const isToolActive = isLoading && toolStatus !== null;
-  const showTypingFeedback = (isWaitingForReply || isToolActive) && pendingApprovals.length === 0;
+  const showTypingFeedback = isLoading && pendingApprovals.length === 0;
   const typingStatus = isLoading
     ? toolStatus
       ? formatToolStatus(toolStatus)
-      : "Thinking..."
+      : hasUsedToolRef.current ? "Working..." : "Thinking..."
     : undefined;
   const chatError = historyError ?? error?.message ?? null;
   const visibleChatError =
