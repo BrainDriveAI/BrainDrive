@@ -170,7 +170,8 @@ export default function ChatPanel({
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
   const hasStartedAssistantReply = isLoading && lastMessage?.role === "assistant";
   const isWaitingForReply = isLoading && !hasStartedAssistantReply;
-  const showTypingFeedback = isWaitingForReply && pendingApprovals.length === 0;
+  const isToolActive = isLoading && toolStatus !== null;
+  const showTypingFeedback = (isWaitingForReply || isToolActive) && pendingApprovals.length === 0;
   const typingStatus = isLoading
     ? toolStatus
       ? formatToolStatus(toolStatus)
