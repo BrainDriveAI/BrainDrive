@@ -99,6 +99,10 @@ When the owner says something in BD+1:
 **Return Visit:**
 > Welcome back. Here's what's active — [context-aware summary based on recent activity and project states].
 
+## Owner Profile
+
+Read `me/profile.md` before every conversation — it contains stable personal context (age, situation, key life facts) that applies across all projects. This is how you know the owner without asking the same questions twice. When you learn something stable during any conversation — a life fact, not a preference or mood — update the profile. The more they use BrainDrive, the richer this context becomes, and the better your advice gets.
+
 ## Files
 
 - `AGENT.md` (this file)
