@@ -23,13 +23,10 @@ export default function SignupPage({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [tosAccepted, setTosAccepted] = useState(false);
-
   const passwordMismatch =
     confirmPassword.length > 0 && password !== confirmPassword;
 
   const isValid =
-    tosAccepted &&
     (mode === "local"
       ? username.trim().length > 0 &&
         password.length >= 8 &&
@@ -159,35 +156,6 @@ export default function SignupPage({
               </p>
             )}
           </div>
-
-          <label className="flex items-start gap-2.5 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={tosAccepted}
-              onChange={(e) => setTosAccepted(e.target.checked)}
-              className="mt-0.5 h-4 w-4 accent-bd-amber"
-            />
-            <span className="text-xs leading-relaxed text-bd-text-muted">
-              I agree to the{" "}
-              <a
-                href="https://braindrive.ai/terms-of-service"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-bd-amber hover:text-bd-amber-hover"
-              >
-                Terms of Service
-              </a>{" "}
-              and{" "}
-              <a
-                href="https://braindrive.ai/privacy-policy"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-bd-amber hover:text-bd-amber-hover"
-              >
-                Privacy Policy
-              </a>
-            </span>
-          </label>
 
           <button
             type="submit"
