@@ -425,6 +425,11 @@ Arguments:
 
 Env vars:
 - `COSIGN_KEY_PATH` (default `./cosign.key`)
+- `COSIGN_PASSWORD` (recommended in non-interactive/CI flows for encrypted keys)
+- `BRAINDRIVE_COSIGN_BIN` (optional explicit cosign binary path)
+- `BRAINDRIVE_AUTO_INSTALL_COSIGN` (shell script only; default `true`)
+- `BRAINDRIVE_COSIGN_VERSION` (shell script only; optional version pin, default `latest`)
+- `BRAINDRIVE_COSIGN_BIN_DIR` (shell script only; optional auto-install target dir, default `$HOME/.local/bin`)
 
 ### verify-release-manifest (`verify-release-manifest.sh`, `verify-release-manifest.ps1`)
 
@@ -439,6 +444,12 @@ Arguments:
 - `ManifestPath` optional
 - `SignaturePath` optional
 - `PublicKeyPath` optional
+
+Env vars:
+- `BRAINDRIVE_COSIGN_BIN` (optional explicit cosign binary path)
+- `BRAINDRIVE_AUTO_INSTALL_COSIGN` (shell script only; default `true`)
+- `BRAINDRIVE_COSIGN_VERSION` (shell script only; optional version pin, default `latest`)
+- `BRAINDRIVE_COSIGN_BIN_DIR` (shell script only; optional auto-install target dir, default `$HOME/.local/bin`)
 
 ### smoke-test-release (`smoke-test-release.sh`, `smoke-test-release.ps1`)
 

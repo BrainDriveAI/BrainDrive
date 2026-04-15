@@ -2,7 +2,7 @@
   "name": "braindrive-client",
   "description": "BrainDrive web client",
   "private": true,
-  "version": "26.4.8",
+  "version": "26.4.13",
   "type": "module",
   "license": "MIT",
   "repository": {
