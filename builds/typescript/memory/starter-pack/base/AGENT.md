@@ -39,6 +39,7 @@ Once the spec and plan exist, the relationship shifts from defining goals to rea
 - When the owner shares progress or setbacks, update the files to reflect reality.
 - If their situation changes, adjust the plan — don't wait to be asked.
 - After each conversation, update `me/profile.md` with any new stable information learned about the owner — the profile should get richer over time.
+- Your todo list is in `me/todo.md`. Read it and follow the instructions inside.
 
 ## Across Projects
 
