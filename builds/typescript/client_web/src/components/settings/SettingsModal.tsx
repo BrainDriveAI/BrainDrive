@@ -75,11 +75,11 @@ type TabDef = { id: SettingsTab; label: string; icon: typeof Key; managedOnly?: 
 // Local shows: Default Model, Model Providers, Owner Profile, Export, Memory Backup.
 const allTabs: TabDef[] = [
   { id: "account", label: "Account", icon: UserCog, managedOnly: true },
-  { id: "model", label: "Default Model", icon: Cpu, localOnly: true },
+  { id: "model", label: "AI Model", icon: Cpu, localOnly: true },
   { id: "provider", label: "Model Providers", icon: Key, localOnly: true },
-  { id: "profile", label: "Owner Profile", icon: User },
-  { id: "export", label: "Migrate Library", icon: Download },
-  { id: "memory-backup", label: "Memory Backup", icon: Save, localOnly: true },
+  { id: "profile", label: "Your Profile", icon: User },
+  { id: "memory-backup", label: "Backup", icon: Save, localOnly: true },
+  { id: "export", label: "Migrate", icon: Download },
 ];
 
 export default function SettingsModal({
@@ -652,7 +652,7 @@ function MemoryBackupSection({
   ) => Promise<GatewayMemoryBackupRestoreResult>;
 }) {
   const [repositoryUrl, setRepositoryUrl] = useState("");
-  const [frequency, setFrequency] = useState<GatewayMemoryBackupFrequency>("manual");
+  const [frequency, setFrequency] = useState<GatewayMemoryBackupFrequency>("after_changes");
   const [token, setToken] = useState("");
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [settingsActionError, setSettingsActionError] = useState<string | null>(null);
@@ -668,7 +668,7 @@ function MemoryBackupSection({
 
   useEffect(() => {
     setRepositoryUrl(backupSettings?.repository_url ?? "");
-    setFrequency(backupSettings?.frequency ?? "manual");
+    setFrequency(backupSettings?.frequency ?? "after_changes");
   }, [backupSettings?.repository_url, backupSettings?.frequency]);
 
   if (mode !== "local") {
@@ -678,7 +678,7 @@ function MemoryBackupSection({
   if (isLoadingSettings) {
     return (
       <div className="space-y-3">
-        <h3 className="font-heading text-base font-semibold text-bd-text-heading">Memory Backup</h3>
+        <h3 className="font-heading text-base font-semibold text-bd-text-heading">Backup</h3>
         <p className="text-sm text-bd-text-muted">Loading backup settings...</p>
       </div>
     );
@@ -687,7 +687,7 @@ function MemoryBackupSection({
   if (settingsError) {
     return (
       <div className="space-y-3">
-        <h3 className="font-heading text-base font-semibold text-bd-text-heading">Memory Backup</h3>
+        <h3 className="font-heading text-base font-semibold text-bd-text-heading">Backup</h3>
         <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2.5 text-sm text-bd-text-primary">
           {settingsError}
         </div>
@@ -697,101 +697,179 @@ function MemoryBackupSection({
 
   const lastSave = backupSettings?.last_save_at
     ? new Date(backupSettings.last_save_at).toLocaleString()
-    : "Never";
+    : "No backups yet";
   const lastResult = backupSettings?.last_result ?? "never";
   const statusText =
     lastResult === "success"
       ? "Success"
       : lastResult === "failed"
         ? "Failed"
-        : "Never run";
+        : "No backups yet";
   const frequencyOptions: Array<{ value: GatewayMemoryBackupFrequency; label: string }> = [
-    { value: "manual", label: "Manual" },
     { value: "after_changes", label: "After changes" },
     { value: "hourly", label: "Every hour" },
     { value: "daily", label: "Every day" },
+    { value: "manual", label: "Manual" },
   ];
 
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="font-heading text-base font-semibold text-bd-text-heading">Memory Backup</h3>
+        <h3 className="font-heading text-base font-semibold text-bd-text-heading">Backup</h3>
         <p className="mt-1 text-sm text-bd-text-muted">
-          Configure a git repository and token to back up memory snapshots.
+          Connect your BrainDrive to a free GitHub account to keep it backed up automatically.
         </p>
       </div>
 
-      <div className="space-y-3">
-        <label className="block text-sm font-medium text-bd-text-secondary" htmlFor="memory-backup-repo">
-          Repository URL
-        </label>
-        <input
-          id="memory-backup-repo"
-          type="url"
-          value={repositoryUrl}
-          onChange={(event) => {
-            setRepositoryUrl(event.target.value);
-            setSettingsActionError(null);
-            setSettingsActionSuccess(null);
-          }}
-          placeholder="https://github.com/your-org/your-memory-backup.git"
-          className="h-10 w-full rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
-        />
-      </div>
-
-      <div className="space-y-3">
-        <label className="block text-sm font-medium text-bd-text-secondary" htmlFor="memory-backup-token">
-          Git Token (PAT/Classic)
-        </label>
-        <input
-          id="memory-backup-token"
-          type="password"
-          value={token}
-          onChange={(event) => {
-            setToken(event.target.value);
-            setSettingsActionError(null);
-            setSettingsActionSuccess(null);
-          }}
-          placeholder={backupSettings?.token_configured ? "Leave blank to keep current token" : "Paste token"}
-          className="h-10 w-full rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
-        />
-      </div>
-
-      <div className="space-y-3">
-        <label className="block text-sm font-medium text-bd-text-secondary" htmlFor="memory-backup-frequency">
-          Frequency
-        </label>
-        <select
-          id="memory-backup-frequency"
-          value={frequency}
-          onChange={(event) => {
-            setFrequency(event.target.value as GatewayMemoryBackupFrequency);
-            setSettingsActionError(null);
-            setSettingsActionSuccess(null);
-          }}
-          className="h-10 w-full rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
-        >
-          {frequencyOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary p-3 text-sm text-bd-text-secondary">
-        <div className="flex items-center justify-between gap-3">
-          <span>Last successful save</span>
-          <span className="text-bd-text-primary">{lastSave}</span>
+      <div className="space-y-4">
+        {/* Step 1 */}
+        <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary p-4">
+          <div className="flex items-start gap-3">
+            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-bd-bg-secondary text-xs font-bold text-bd-text-muted">1</div>
+            <div className="flex-1">
+              <div className="text-sm font-medium text-bd-text-heading">Create a backup repository</div>
+              <p className="mt-1 text-xs text-bd-text-muted">Go to GitHub and create a free repository for your backups. Ensure visibility is set to private. Paste the repository URL below.</p>
+              <a
+                href="https://github.com/new?name=braindrive-backup&visibility=private"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-block text-xs font-medium text-bd-amber hover:text-bd-amber-hover hover:underline"
+              >
+                Create on GitHub &rarr;
+              </a>
+            </div>
+          </div>
         </div>
-        <div className="mt-2 flex items-center justify-between gap-3">
-          <span>Status</span>
-          <span className={lastResult === "failed" ? "text-bd-danger" : "text-bd-text-primary"}>{statusText}</span>
+
+        {/* Step 2 */}
+        <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary p-4">
+          <div className="flex items-start gap-3">
+            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-bd-bg-secondary text-xs font-bold text-bd-text-muted">2</div>
+            <div className="flex-1">
+              <div className="text-sm font-medium text-bd-text-heading">Create an access token</div>
+              <p className="mt-1 text-xs text-bd-text-muted">GitHub needs a token so BrainDrive can save to your repository. Set expiration to "No expiration" so your backups don't stop. Copy the token from GitHub and paste it below before closing — it only shows once.</p>
+              <a
+                href="https://github.com/settings/tokens/new?scopes=repo&description=BrainDrive+Backup"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-block text-xs font-medium text-bd-amber hover:text-bd-amber-hover hover:underline"
+              >
+                Create token on GitHub &rarr;
+              </a>
+            </div>
+          </div>
         </div>
-        {backupSettings?.last_error && (
-          <div className="mt-2 text-xs text-bd-danger">{backupSettings.last_error}</div>
-        )}
+
+        {/* Step 3 */}
+        <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary p-4">
+          <div className="flex items-start gap-3">
+            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-bd-bg-secondary text-xs font-bold text-bd-text-muted">3</div>
+            <div className="flex-1 space-y-3">
+              <div className="text-sm font-medium text-bd-text-heading">Connect</div>
+              <p className="text-xs text-bd-text-muted">Paste your repository URL and token below.</p>
+              <div>
+                <label className="block text-xs font-medium text-bd-text-secondary" htmlFor="memory-backup-repo">
+                  Repository URL
+                </label>
+                <input
+                  id="memory-backup-repo"
+                  type="url"
+                  autoComplete="off"
+                  value={repositoryUrl}
+                  onChange={(event) => {
+                    setRepositoryUrl(event.target.value);
+                    setSettingsActionError(null);
+                    setSettingsActionSuccess(null);
+                  }}
+                  placeholder="https://github.com/you/braindrive-backup"
+                  className="mt-1 h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-bd-text-secondary" htmlFor="memory-backup-token">
+                  Token
+                </label>
+                <input
+                  id="memory-backup-token"
+                  type="password" autoComplete="new-password"
+                  autoComplete="new-password"
+                  value={token}
+                  onChange={(event) => {
+                    setToken(event.target.value);
+                    setSettingsActionError(null);
+                    setSettingsActionSuccess(null);
+                  }}
+                  placeholder={backupSettings?.token_configured ? "Leave blank to keep current token" : "Paste token"}
+                  className="mt-1 h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-bd-text-secondary">
+                  Backup frequency
+                </label>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  {frequencyOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => {
+                        setFrequency(option.value as GatewayMemoryBackupFrequency);
+                        setSettingsActionError(null);
+                        setSettingsActionSuccess(null);
+                      }}
+                      className={[
+                        "rounded-lg px-3 py-2 text-xs font-medium transition-colors",
+                        frequency === option.value
+                          ? "bg-bd-amber text-bd-bg-primary"
+                          : "border border-bd-border bg-bd-bg-secondary text-bd-text-secondary hover:bg-bd-bg-hover"
+                      ].join(" ")}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
+
+      {backupSettings?.repository_url && backupSettings?.token_configured ? (
+        <div className={[
+          "rounded-lg border p-3 text-sm",
+          lastResult === "failed"
+            ? "border-bd-danger-border bg-bd-danger-bg"
+            : lastResult === "success"
+              ? "border-bd-success-border bg-bd-success-bg"
+              : "border-bd-border bg-bd-bg-tertiary"
+        ].join(" ")}>
+          <div className="flex items-center gap-2">
+            {lastResult === "success" ? (
+              <span className="text-bd-success">&#10003;</span>
+            ) : lastResult === "failed" ? (
+              <span className="text-bd-danger">&#10007;</span>
+            ) : null}
+            <span className="font-medium text-bd-text-primary">
+              {lastResult === "success"
+                ? "Connected and backing up"
+                : lastResult === "failed"
+                  ? "Connected — last backup failed"
+                  : "Connected — waiting for first backup"}
+            </span>
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-3 text-xs text-bd-text-muted">
+            <span>Last backup</span>
+            <span>{lastSave}</span>
+          </div>
+          {backupSettings?.last_error && (
+            <div className="mt-2 text-xs text-bd-danger">{backupSettings.last_error}</div>
+          )}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary p-3 text-sm text-bd-text-muted">
+          Not connected yet — complete the steps above to start backing up.
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <button
@@ -801,14 +879,16 @@ function MemoryBackupSection({
             setIsSavingSettings(true);
             setSettingsActionError(null);
             setSettingsActionSuccess(null);
+            const normalizedUrl = repositoryUrl.trim().replace(/\/+$/, "");
+            const repoUrl = normalizedUrl.endsWith(".git") ? normalizedUrl : `${normalizedUrl}.git`;
             void onSaveMemoryBackupSettings({
-              repository_url: repositoryUrl.trim(),
+              repository_url: repoUrl,
               frequency,
               ...(token.trim().length > 0 ? { git_token: token.trim() } : {}),
             })
               .then(() => {
                 setToken("");
-                setSettingsActionSuccess("Backup settings saved.");
+                setSettingsActionSuccess("Settings saved.");
               })
               .catch((error) => {
                 setSettingsActionError(error instanceof Error ? error.message : String(error));
@@ -819,7 +899,7 @@ function MemoryBackupSection({
           }}
           className="rounded-lg bg-bd-amber px-3 py-2 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {isSavingSettings ? "Saving..." : "Save Backup Settings"}
+          {isSavingSettings ? "Saving..." : "Save Settings"}
         </button>
         <button
           type="button"
@@ -834,7 +914,7 @@ function MemoryBackupSection({
                   result.result === "failed"
                     ? result.message ?? "Backup failed."
                     : result.result === "noop"
-                      ? result.message ?? "No changes to snapshot."
+                      ? result.message ?? "Already up to date — nothing new to back up."
                       : "Backup saved successfully.";
                 setSaveNowMessage(summary);
               })
@@ -847,35 +927,7 @@ function MemoryBackupSection({
           }}
           className="rounded-lg border border-bd-border px-3 py-2 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {isSavingNow ? "Saving..." : "Save Now"}
-        </button>
-        <button
-          type="button"
-          disabled={isRestoring || !backupSettings}
-          onClick={() => {
-            const confirmed = window.confirm(
-              "This restores your memory files from backup and does not restore secrets. Continue?"
-            );
-            if (!confirmed) {
-              return;
-            }
-            setIsRestoring(true);
-            setRestoreError(null);
-            setRestoreMessage(null);
-            void onRestoreMemoryBackup()
-              .then((result) => {
-                setRestoreMessage(`Restored commit ${result.commit.slice(0, 12)}.`);
-              })
-              .catch((error) => {
-                setRestoreError(error instanceof Error ? error.message : String(error));
-              })
-              .finally(() => {
-                setIsRestoring(false);
-              });
-          }}
-          className="rounded-lg border border-bd-border px-3 py-2 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {isRestoring ? "Restoring..." : "Restore from Backup Repo"}
+          {isSavingNow ? "Backing up..." : "Back Up Now"}
         </button>
       </div>
 
@@ -899,16 +951,54 @@ function MemoryBackupSection({
           {saveNowMessage}
         </div>
       )}
-      {restoreError && (
-        <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
-          {restoreError}
-        </div>
-      )}
-      {restoreMessage && (
-        <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-sm text-bd-text-secondary">
-          {restoreMessage}
-        </div>
-      )}
+
+      <div className="rounded-lg border border-bd-border p-4">
+        <div className="text-sm font-medium text-bd-text-heading">Restore</div>
+        <p className="mt-1 text-xs text-bd-text-muted">
+          Replace your current BrainDrive with a previous backup. Your API keys will need to be re-entered after restoring.
+          {!backupSettings?.repository_url && !backupSettings?.token_configured && (
+            <> GitHub tokens can&apos;t be transferred between machines — create a new one in step 2 above, enter your backup repo URL and token in step 3, save, then click the &quot;Restore from Backup&quot; button below.</>
+          )}
+        </p>
+        <button
+          type="button"
+          disabled={isRestoring || !backupSettings}
+          onClick={() => {
+            const confirmed = window.confirm(
+              "This will replace all your current data with the backup. API keys will need to be re-entered. Continue?"
+            );
+            if (!confirmed) {
+              return;
+            }
+            setIsRestoring(true);
+            setRestoreError(null);
+            setRestoreMessage(null);
+            void onRestoreMemoryBackup()
+              .then((result) => {
+                setRestoreMessage(`Restored from backup successfully.`);
+              })
+              .catch((error) => {
+                setRestoreError(error instanceof Error ? error.message : String(error));
+              })
+              .finally(() => {
+                setIsRestoring(false);
+              });
+          }}
+          className="mt-3 rounded-lg border border-bd-border px-3 py-2 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isRestoring ? "Restoring..." : "Restore from Backup"}
+        </button>
+        {restoreError && (
+          <div className="mt-3 rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
+            {restoreError}
+          </div>
+        )}
+        {restoreMessage && (
+          <div className="mt-3 rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-sm text-bd-text-secondary">
+            {restoreMessage}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -992,10 +1082,10 @@ function BrainDriveDefaultSection({
       <div className="space-y-6">
         <div>
           <h3 className="font-heading text-base font-semibold text-bd-text-heading">
-            BrainDrive
+            Managed by BrainDrive
           </h3>
           <p className="mt-1 text-sm text-bd-text-muted">
-            Currently powered by Claude Haiku 4.5
+            We pick the best AI model for you — just add credits and go.
           </p>
         </div>
 
@@ -1017,7 +1107,7 @@ function BrainDriveDefaultSection({
                     type="email"
                     value={billingEmail}
                     onChange={(e) => handleEmailChange(e.target.value)}
-                    placeholder="Email for receipt"
+                    placeholder="Email — we'll send your receipt here"
                     className="mt-3 h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
                   />
                 )}
@@ -1041,7 +1131,7 @@ function BrainDriveDefaultSection({
                 <p className="mt-1 text-xs text-bd-text-muted">Paste the API key from your purchase confirmation.</p>
                 <div className="mt-3 space-y-2">
                   <input
-                    type="password"
+                    type="password" autoComplete="new-password"
                     value={apiKey}
                     onChange={(e) => { setApiKey(e.target.value); setSaveError(null); }}
                     placeholder="Paste your BrainDrive API key"
@@ -1099,10 +1189,10 @@ function BrainDriveDefaultSection({
     <div className="space-y-6">
       <div>
         <h3 className="font-heading text-base font-semibold text-bd-text-heading">
-          BrainDrive
+          Managed by BrainDrive
         </h3>
         <p className="mt-1 text-sm text-bd-text-muted">
-          Currently powered by Claude Haiku 4.5
+          We pick the best AI model for you — just add credits and go.
         </p>
       </div>
 
@@ -1124,7 +1214,7 @@ function BrainDriveDefaultSection({
               type="email"
               value={billingEmail}
               onChange={(e) => handleEmailChange(e.target.value)}
-              placeholder="Email for receipt"
+              placeholder="Email — we'll send your receipt here"
               className="mb-2 h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
             />
           )}
@@ -1146,7 +1236,7 @@ function BrainDriveDefaultSection({
         {showUpdateKey ? (
           <div className="border-t border-bd-border pt-3 space-y-2">
             <input
-              type="password"
+              type="password" autoComplete="new-password"
               value={apiKey}
               onChange={(e) => { setApiKey(e.target.value); setSaveError(null); }}
               placeholder="Enter new key to replace existing"
@@ -1200,10 +1290,6 @@ function BrainDriveDefaultSection({
           </button>
         )}
       </div>
-
-      <p className="text-xs text-bd-text-muted">
-        Ask your BrainDrive "what's my balance?" anytime during a conversation.
-      </p>
     </div>
   );
 }
@@ -1368,7 +1454,7 @@ function ProviderSection({
                       </div>
                       <div className="text-xs text-bd-text-muted">
                         {isBrainDriveModels
-                          ? <>Currently powered by Claude Haiku 4.5</>
+                          ? <>We pick the best AI model for you — just add credits and go</>
                           : isOllama
                           ? <>Runs on your computer, free — <a href="https://ollama.com" target="_blank" rel="noopener noreferrer" className="text-bd-text-muted hover:text-bd-text-secondary hover:underline" onClick={(e) => e.stopPropagation()}>ollama.com</a></>
                           : <>Cloud-based, requires API key — <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="text-bd-text-muted hover:text-bd-text-secondary hover:underline" onClick={(e) => e.stopPropagation()}>openrouter.ai/keys</a></>}
@@ -1492,7 +1578,7 @@ function ProviderSection({
                                 )}
                                 <input
                                   id="provider-api-key"
-                                  type="password"
+                                  type="password" autoComplete="new-password"
                                   autoComplete="off"
                                   value={providerApiKey}
                                   onChange={(event) => {
@@ -1707,7 +1793,7 @@ function ModelSection({
               <div className="space-y-2">
                 <input
                   id={catalogSearchId}
-                  type="text"
+                  type="text" autoComplete="off"
                   value={catalogQuery}
                   onChange={(event) => setCatalogQuery(event.target.value)}
                   placeholder="Search models..."
@@ -1833,7 +1919,7 @@ function ModelSection({
                     </div>
                     <div className="flex items-center gap-2">
                       <input
-                        type="text"
+                        type="text" autoComplete="off"
                         value={pullModelName}
                         onChange={(event) => {
                           setPullModelName(event.target.value);
@@ -2502,7 +2588,7 @@ function AccountSection() {
                 className={inputClasses}
               />
               <input
-                type="password"
+                type="password" autoComplete="new-password"
                 placeholder="Current password"
                 value={emailPassword}
                 onChange={(e) => setEmailPassword(e.target.value)}
@@ -2543,21 +2629,21 @@ function AccountSection() {
           {showChangePassword && (
             <div className="mt-3 space-y-3">
               <input
-                type="password"
+                type="password" autoComplete="new-password"
                 placeholder="Current password"
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
                 className={inputClasses}
               />
               <input
-                type="password"
+                type="password" autoComplete="new-password"
                 placeholder="New password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 className={inputClasses}
               />
               <input
-                type="password"
+                type="password" autoComplete="new-password"
                 placeholder="Confirm new password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
@@ -2594,14 +2680,14 @@ function AccountSection() {
         ) : (
           <div className="mt-3 space-y-3">
             <input
-              type="password"
+              type="password" autoComplete="new-password"
               placeholder="Current password"
               value={deletePassword}
               onChange={(e) => setDeletePassword(e.target.value)}
               className={inputClasses}
             />
             <input
-              type="text"
+              type="text" autoComplete="off"
               placeholder='Type "DELETE" to confirm'
               value={deleteConfirmation}
               onChange={(e) => setDeleteConfirmation(e.target.value)}
@@ -2668,12 +2754,10 @@ function ExportSection({
     <div className="flex min-h-full flex-col gap-6">
       <div>
         <h3 className="font-heading text-base font-semibold text-bd-text-heading">
-          Migrate Library
+          Migrate
         </h3>
         <p className="mt-1 text-sm text-bd-text-muted">
-          {mode === "managed"
-            ? "Download a complete copy of your library. Take it with you — run BrainDrive locally, switch providers, or just keep a backup. No lock-in, ever."
-            : "Download a complete copy of your library — every file, conversation, and configuration, in its native format. Your data is yours — always."}
+          Moving to a new machine or switching from local or hosted? Take everything with you.
         </p>
       </div>
 
@@ -2684,10 +2768,10 @@ function ExportSection({
           </div>
           <div className="flex-1">
             <div className="text-sm font-medium text-bd-text-primary">
-              Full Library Export
+              Export
             </div>
             <div className="text-xs text-bd-text-muted">
-              All files, conversations, and configuration
+              Download a complete copy of your BrainDrive.
             </div>
           </div>
         </div>
@@ -2700,7 +2784,7 @@ function ExportSection({
           disabled={isExporting}
           className="mt-4 w-full rounded-xl bg-bd-amber px-4 py-2.5 text-sm font-medium text-bd-bg-primary transition-colors duration-200 hover:bg-bd-amber-hover"
         >
-          {isExporting ? "Preparing Download..." : "Download Library (.tar.gz)"}
+          {isExporting ? "Preparing Download..." : "Download"}
         </button>
         {exportError && (
           <div className="mt-3 rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2.5 text-sm text-bd-text-primary">
@@ -2716,16 +2800,16 @@ function ExportSection({
           </div>
           <div className="flex-1">
             <div className="text-sm font-medium text-bd-text-primary">
-              Import Library
+              Import
             </div>
             <div className="text-xs text-bd-text-muted">
-              Restore library content, settings, and included secrets from a migration archive
+              Restore from a previous export.
             </div>
           </div>
         </div>
 
         <label className="mt-4 block text-xs font-medium text-bd-text-secondary" htmlFor="library-import-file">
-          Migration Archive (.tar.gz)
+          Choose file
         </label>
         <input
           id="library-import-file"
@@ -2751,7 +2835,7 @@ function ExportSection({
               : "bg-bd-amber text-bd-bg-primary hover:bg-bd-amber-hover"
           }`}
         >
-          {isImporting ? "Importing Library..." : "Import Library (.tar.gz)"}
+          {isImporting ? "Importing..." : "Import"}
         </button>
 
         {importError && (
@@ -2773,25 +2857,6 @@ function ExportSection({
           </div>
         )}
       </div>
-
-      <div className="flex items-start gap-2 rounded-lg bg-bd-bg-tertiary px-3 py-2.5">
-        <Check size={16} strokeWidth={1.5} className="mt-0.5 shrink-0 text-bd-success" />
-        <span className="text-sm text-bd-text-muted">
-          Most of your library is plain markdown — readable with any text
-          editor. The export includes everything needed to restore into a new
-          BrainDrive instance.
-        </span>
-      </div>
-
-      {mode === "managed" && (
-        <div className="flex items-start gap-2 rounded-lg bg-bd-bg-tertiary px-3 py-2.5">
-          <Check size={16} strokeWidth={1.5} className="mt-0.5 shrink-0 text-bd-success" />
-          <span className="text-sm text-bd-text-muted">
-            Your export works with any AI system — BrainDrive, ChatGPT,
-            Claude, or anything else that reads files. No conversion needed.
-          </span>
-        </div>
-      )}
 
       <div className="mt-auto rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2.5">
         <div className="flex flex-wrap items-center gap-4 text-xs text-bd-text-muted">
