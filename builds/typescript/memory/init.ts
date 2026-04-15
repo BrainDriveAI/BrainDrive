@@ -88,7 +88,7 @@ const FALLBACK_OPENROUTER_SECRET_REF_PREFERENCES = {
 };
 
 const FALLBACK_BRAINDRIVE_MANAGED_SECRET_REF_PREFERENCES = {
-  default_model: "claude-haiku-4-5",
+  default_model: "claude-haiku-4-5-20251001",
   approval_mode: "auto-approve",
   active_provider_profile: "braindrive-models",
   provider_credentials: {
