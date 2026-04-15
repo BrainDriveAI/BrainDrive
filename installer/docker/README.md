@@ -326,6 +326,8 @@ Cosign key setup (one-time per release signing identity):
   - `cosign generate-key-pair`
 - Keep `cosign.key` private in CI/secrets manager.
 - Distribute `cosign.pub` as the trusted updater verification key.
+- For non-interactive signing (CI, no TTY), set `COSIGN_PASSWORD` when using an encrypted `cosign.key`.
+- Shell release-sign/verify scripts support `BRAINDRIVE_COSIGN_BIN` and can auto-install cosign when missing (`BRAINDRIVE_AUTO_INSTALL_COSIGN=true`).
 
 ## Notes
 - Data is persisted in named volumes: `braindrive_memory` and `braindrive_secrets`.
