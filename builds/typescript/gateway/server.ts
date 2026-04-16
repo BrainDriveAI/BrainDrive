@@ -891,9 +891,14 @@ export async function buildServer(rootDir = process.cwd()) {
         headers: { Authorization: `Bearer ${credential.apiKey}` },
       });
       if (!resp.ok) {
-        return { remaining_usd: 0, total_purchased_usd: 0, total_spent_usd: 0 };
+        const isAuthError = resp.status === 401 || resp.status === 403;
+        return {
+          remaining_usd: 0, total_purchased_usd: 0, total_spent_usd: 0,
+          ...(isAuthError && { key_valid: false }),
+        };
       }
-      return resp.json();
+      const data = (await resp.json()) as Record<string, unknown>;
+      return { ...data, key_valid: true };
     } catch {
       return { remaining_usd: 0, total_purchased_usd: 0, total_spent_usd: 0 };
     }
@@ -1440,6 +1445,30 @@ export async function buildServer(rootDir = process.cwd()) {
     const selectedProfile = resolveAdapterProfile(adapterConfig, body.provider_profile);
     const providerId = selectedProfile.provider_id ?? body.provider_profile;
     const mode = body.mode ?? "secret_ref";
+
+    // Validate BrainDrive Models API keys before persisting
+    if (mode === "secret_ref" && body.api_key && providerId === "braindrive-models") {
+      const trimmedKey = body.api_key.trim();
+      if (!/^sk-[A-Za-z0-9_-]{8,}$/.test(trimmedKey)) {
+        reply.code(400).send({
+          error: "That doesn't look like a BrainDrive API key. Please copy the full key from your purchase confirmation email and paste it here.",
+        });
+        return;
+      }
+      try {
+        const verifyResp = await fetch(`${creditsApiBase}/credits/status`, {
+          headers: { Authorization: `Bearer ${trimmedKey}` },
+        });
+        if (verifyResp.status === 401 || verifyResp.status === 403) {
+          reply.code(400).send({
+            error: "This API key wasn't recognized. Please check that you copied the full key from your purchase confirmation email.",
+          });
+          return;
+        }
+      } catch {
+        // Upstream unreachable — proceed with save
+      }
+    }
 
     let secretRef: string | undefined;
     if (mode === "plain") {
