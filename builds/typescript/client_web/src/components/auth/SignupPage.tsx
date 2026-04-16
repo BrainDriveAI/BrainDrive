@@ -179,7 +179,7 @@ export default function SignupPage({
 
         {mode === "local" && (
           <p className="mt-4 text-center text-xs text-bd-text-muted">
-            Your credentials are stored locally in your library. No data
+            Your credentials are stored locally on your computer. No data
             leaves your machine.
           </p>
         )}
