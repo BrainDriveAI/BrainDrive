@@ -43,6 +43,7 @@
 - `migration-smoke.ps1`
 - `publish-release-images.sh`
 - `publish-release-images.ps1`
+- `release-production.sh`
 - `reset-new-user.sh`
 - `reset-new-user.ps1`
 - `restore.sh`
@@ -391,6 +392,35 @@ Env vars:
 - `REGISTRY` (default `ghcr.io/braindrive-ai`)
 - `APP_IMAGE` (default `${REGISTRY}/braindrive-app`)
 - `EDGE_IMAGE` (default `${REGISTRY}/braindrive-edge`)
+
+### release-production (`release-production.sh`)
+
+What it does:
+- Runs the full production release runbook in one flow:
+- preflight checks (`git`, `docker`, `npm`, `node`, `cosign`)
+- package version bump (core + web client)
+- image build/publish and digest ref capture
+- optional `latest` tag move
+- release manifest generate/sign/verify
+- final GitHub Release upload checklist output
+
+Usage:
+- Shell: `./installer/docker/scripts/release-production.sh [options]`
+
+Options:
+- `--package-version <yy.m.d>` (default: today's local date, for example `26.4.16`)
+- `--image-tag <tag>` (default: `v<package-version>`)
+- `--channel <name>` (default: `stable`)
+- `--app-image <repo>` (default: `ghcr.io/braindriveai/braindrive-app`)
+- `--edge-image <repo>` (default: `ghcr.io/braindriveai/braindrive-edge`)
+- `--cosign-key-path <path>` (default: `<repo>/cosign.key`)
+- `--skip-git-sync`
+- `--skip-docker-login`
+- `--skip-latest-tag`
+
+Versioning rule enforced:
+- `IMAGE_TAG` must exactly equal `v${PACKAGE_VERSION}`.
+- Generated manifest must include `channels.<channel> == PACKAGE_VERSION` and `releases[PACKAGE_VERSION]`.
 
 ### generate-release-manifest (`generate-release-manifest.sh`, `generate-release-manifest.ps1`)
 
