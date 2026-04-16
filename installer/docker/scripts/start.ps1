@@ -1,6 +1,6 @@
 param(
   [ValidateSet("quickstart", "prod", "local", "dev")]
-  [string]$Mode = "quickstart"
+  [string]$Mode = "local"
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,11 +10,14 @@ $rootDir = Split-Path -Parent $scriptDir
 Set-Location $rootDir
 . "$scriptDir/browser-helper.ps1"
 
-$composeFile = "compose.quickstart.yml"
+if ($Mode -eq "quickstart") {
+  Write-Warning "Mode 'quickstart' is deprecated and now aliases to 'local'."
+  $Mode = "local"
+}
+
+$composeFile = "compose.local.yml"
 if ($Mode -eq "prod") {
   $composeFile = "compose.prod.yml"
-} elseif ($Mode -eq "local") {
-  $composeFile = "compose.local.yml"
 } elseif ($Mode -eq "dev") {
   $composeFile = "compose.dev.yml"
 }
@@ -35,16 +38,52 @@ function Get-EnvValue {
 
 if ($Mode -eq "prod") {
   if (-not (Test-Path ".env")) {
-    throw "Prod start requires installer/docker/.env with a real DOMAIN. If you meant quickstart mode, run: ./scripts/start.ps1 quickstart"
+    throw "Prod start requires installer/docker/.env with a real DOMAIN. If you meant local mode, run: ./scripts/start.ps1 local"
   }
 
   $domainValue = Get-EnvValue -Key "DOMAIN"
   if (-not $domainValue -or $domainValue -eq "app.example.com") {
-    throw "Prod start requires installer/docker/.env with a real DOMAIN. If you meant quickstart mode, run: ./scripts/start.ps1 quickstart"
+    throw "Prod start requires installer/docker/.env with a real DOMAIN. If you meant local mode, run: ./scripts/start.ps1 local"
   }
 }
 
-if ($Mode -eq "quickstart" -or $Mode -eq "prod" -or $Mode -eq "local") {
+function Invoke-QuickstartMigrationOnce {
+  if ($Mode -ne "local") {
+    return
+  }
+
+  $runtimeDir = Join-Path $rootDir ".runtime"
+  $markerPath = Join-Path $runtimeDir "quickstart-migration-v1.done"
+  New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null
+  if (Test-Path $markerPath) {
+    return
+  }
+
+  Write-Host "Migration note: 'quickstart' has been replaced by 'local'."
+  $legacyIds = @()
+  try {
+    $legacyIds = @(docker compose -f compose.quickstart.yml ps -q 2>$null | Where-Object { $_ -and $_.Trim().Length -gt 0 })
+  } catch {
+    $legacyIds = @()
+  }
+  if ($legacyIds.Count -gt 0) {
+    Write-Host "Found running legacy quickstart containers; stopping them to avoid port conflicts."
+    try {
+      docker compose -f compose.quickstart.yml down --remove-orphans | Out-Null
+    } catch {
+      # Continue startup even if legacy stack cleanup fails.
+    }
+  }
+
+  @(
+    "migrated_at_utc=$((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'))"
+    "reason=quickstart-renamed-to-local"
+  ) | Set-Content -LiteralPath $markerPath -Encoding utf8
+}
+
+Invoke-QuickstartMigrationOnce
+
+if ($Mode -eq "prod" -or $Mode -eq "local") {
   & "$scriptDir/check-update.ps1" -Mode $Mode
   $checkUpdateExit = $LASTEXITCODE
   if ($checkUpdateExit -eq 40 -or $checkUpdateExit -eq 50) {
@@ -61,7 +100,7 @@ try {
   docker compose -f $composeFile up -d
 } catch {
   if ($Mode -eq "prod") {
-    throw "Prod start failed. If you are running locally, use: ./scripts/start.ps1 quickstart"
+    throw "Prod start failed. If you are running locally, use: ./scripts/start.ps1 local"
   }
   throw
 }

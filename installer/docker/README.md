@@ -30,8 +30,9 @@ Quick update commands:
 Bootstrap behavior:
 1. Downloads installer files from GitHub (`codeload` tarball by default).
 2. Installs or refreshes local installer files under `~/.braindrive/installer/docker`.
-3. Runs installer in `quickstart` mode by default (no domain required, pulls published images).
-4. `prod` and `local` are supported as explicit mode overrides.
+3. Runs installer in `local` mode by default (no domain required, pulls published images).
+4. `prod` is supported as an explicit mode override.
+5. `quickstart` remains accepted as a legacy alias for `local`.
 
 Optional bootstrap overrides:
 - `BRAINDRIVE_BOOTSTRAP_REPO` (default: `BrainDriveAI/BrainDrive`)
@@ -40,7 +41,7 @@ Optional bootstrap overrides:
 - `BRAINDRIVE_INSTALL_ROOT` (default: `~/.braindrive`)
 - `BRAINDRIVE_BOOTSTRAP_FORCE_REFRESH=true` (force re-download and refresh)
 
-## Quickstart (Open-WebUI style)
+## Local Quick Start (Open-WebUI style)
 For a one-line, no-clone install that does not require DNS/TLS setup:
 1. macOS/Linux:
    - `curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/install.sh | bash`
@@ -49,8 +50,13 @@ For a one-line, no-clone install that does not require DNS/TLS setup:
 3. Open:
    - `http://127.0.0.1:8080`
 
-This mode uses prebuilt images and `compose.quickstart.yml`.
+This mode uses prebuilt images and `compose.local.yml`.
+`quickstart` remains accepted as a legacy CLI alias and maps to `local`.
 Lifecycle scripts now always print the access URL and attempt a best-effort browser auto-open on the host.
+
+One-time migration behavior:
+- On first `start` or `upgrade` in `local` mode, scripts detect running legacy `compose.quickstart.yml` containers.
+- If found, scripts stop legacy quickstart containers (volumes are preserved) to prevent port conflicts.
 
 ## Production Bootstrap
 For real public HTTPS deployments:
@@ -85,7 +91,7 @@ For local runs on prebuilt images (stable-style HTTP on localhost):
 3. Open `http://127.0.0.1:8080` (default bind).
 4. Optional LAN access: set `BRAINDRIVE_LOCAL_BIND_HOST=0.0.0.0` in `.env`, then restart/start local mode and open `http://<this-machine-ip>:8080` from another device on your network.
 
-Local mode uses prebuilt images (same image/ref controls as quickstart/prod) and does require registry pull access.
+Local mode uses prebuilt images (same image/ref controls as local/prod) and does require registry pull access.
 By default, first signup is allowed from any host/IP in this installer profile (`PAA_AUTH_ALLOW_FIRST_SIGNUP_ANY_IP=true`).
 
 ## Developer hot-reload mode
@@ -113,8 +119,8 @@ If file watching is unreliable (WSL/network mounts), enable polling in `.env`:
 
 ## Files
 - `compose.prod.yml`: production stack (app + edge, TLS via Caddy).
-- `compose.quickstart.yml`: image-based local HTTP stack (no DNS/TLS requirement).
 - `compose.local.yml`: local stack (HTTP on `${BRAINDRIVE_LOCAL_BIND_HOST:-127.0.0.1}:8080`; set `0.0.0.0` for LAN access).
+- `compose.quickstart.yml`: legacy compatibility stack kept for one-time migration handling.
 - `compose.dev.yml`: developer hot-reload stack (Vite UI on `${BRAINDRIVE_DEV_BIND_HOST:-127.0.0.1}:${BRAINDRIVE_DEV_PORT:-5073}`).
 - `.env.example`: required/optional runtime values.
 - `Caddyfile`: production routing and TLS.
@@ -141,7 +147,7 @@ docker push ghcr.io/braindriveai/braindrive-edge:v0.1.0
 
 Then set in `.env`:
 - `BRAINDRIVE_TAG=v0.1.0`
-- Optional platform override (quickstart/prod image modes):
+- Optional platform override (local/prod image modes):
   - `BRAINDRIVE_DOCKER_PLATFORM=linux/amd64`
 
 Optional (recommended for production): pin immutable image refs by digest in `.env`:
@@ -150,7 +156,7 @@ Optional (recommended for production): pin immutable image refs by digest in `.e
 
 If you set one `*_REF`, set both.
 When refs are set, compose uses them instead of `BRAINDRIVE_*_IMAGE + BRAINDRIVE_TAG`.
-On Apple Silicon macOS, shell scripts automatically default quickstart/prod image runs to
+On Apple Silicon macOS, shell scripts automatically default local/prod image runs to
 `linux/amd64` when no explicit platform override is set.
 
 Optional manifest-driven digest resolution (for upgrades):
@@ -174,54 +180,47 @@ If signature verification is required, upgrade scripts run `cosign verify-blob` 
 If `cosign` is missing, upgrade scripts now auto-install it by default (`BRAINDRIVE_AUTO_INSTALL_COSIGN=true`).
 Current helper scripts use key-pair signature verification (trusted public key) without transparency log lookup.
 Upgrade now auto-fetches metadata from configured release URLs into local `release-cache` so normal users do not need manual `.env` edits for each update.
-Start in quickstart/prod/local now runs startup update policy checks before compose up. Settings are resolved in this order: runtime env override, persistent `/data/memory/system/config/app-config.json`, `.env`, then defaults.
+Start in local/prod now runs startup update policy checks before compose up. Settings are resolved in this order: runtime env override, persistent `/data/memory/system/config/app-config.json`, `.env`, then defaults.
 Lifecycle scripts that start/restart services (`install`, `start`, `upgrade`, `restore`) always print the URL and attempt browser auto-open; if auto-open fails, users can still use the printed URL.
 
 ## Operations
-- Start (quickstart): `./scripts/start.sh quickstart`
+- Start (local): `./scripts/start.sh local`
   - Runs startup update check first (policy-driven), then starts containers.
-- Stop (quickstart): `./scripts/stop.sh quickstart`
-- Upgrade (quickstart): `./scripts/upgrade.sh quickstart`
-- Start (local prebuilt): `./scripts/start.sh local`
-- Stop (local prebuilt): `./scripts/stop.sh local`
+- Stop (local): `./scripts/stop.sh local`
+- Upgrade (local): `./scripts/upgrade.sh local`
 - Start (developer hot reload): `./scripts/start.sh dev`
 - Stop (developer hot reload): `./scripts/stop.sh dev`
 - Upgrade (prod): `./scripts/upgrade.sh prod`
 - Check update now (without start):
-  - `./scripts/check-update.sh quickstart`
-  - `./scripts/check-update.sh prod`
   - `./scripts/check-update.sh local`
-- Fetch remote metadata now (optional manual run, also done automatically in prod/quickstart upgrade):
+  - `./scripts/check-update.sh prod`
+- Fetch remote metadata now (optional manual run, also done automatically in prod/local upgrade):
   - `./scripts/fetch-release-metadata.sh`
 - Upgrade with explicit refs (one-shot, without editing `.env`):
   - `BRAINDRIVE_APP_REF=ghcr.io/braindriveai/braindrive-app@sha256:<digest> BRAINDRIVE_EDGE_REF=ghcr.io/braindriveai/braindrive-edge@sha256:<digest> ./scripts/upgrade.sh`
 - Backup: `./scripts/backup.sh`
 - Migration export (same method as app UI): `./scripts/migration-export.sh [output-file] [base-url]`
 - Migration import (same method as app UI): `./scripts/migration-import.sh <archive-file> [base-url]`
-- Migration smoke test (export + import roundtrip): `./scripts/migration-smoke.sh [dev|local|quickstart|prod] [base-url]`
-- Support bundle (logs + metadata + audit JSONL): `./scripts/support-bundle.sh [quickstart|prod|local|dev] [24h]`
+- Migration smoke test (export + import roundtrip): `./scripts/migration-smoke.sh [dev|local|prod|quickstart] [base-url]`
+- Support bundle (logs + metadata + audit JSONL): `./scripts/support-bundle.sh [local|prod|dev|quickstart] [24h]`
 - Restore:
-  - Quickstart: `./scripts/restore.sh memory <backup-file> quickstart`
-  - Prod: `./scripts/restore.sh memory <backup-file> prod`
   - Local: `./scripts/restore.sh memory <backup-file> local`
+  - Prod: `./scripts/restore.sh memory <backup-file> prod`
 - Reset new-user test state (with confirmation): `./scripts/reset-new-user.sh`
   - Add `--yes` to skip prompt
   - Add `--fresh-clone` to also remove local `.env` and local images
 - Windows equivalents:
-  - Start quickstart: `./scripts/start.ps1 quickstart`
+  - Start local: `./scripts/start.ps1 local`
     - Runs startup update check first (policy-driven), then starts containers.
-  - Stop quickstart: `./scripts/stop.ps1 quickstart`
-  - Start local prebuilt: `./scripts/start.ps1 local`
-  - Stop local prebuilt: `./scripts/stop.ps1 local`
+  - Stop local: `./scripts/stop.ps1 local`
   - Start developer hot reload: `./scripts/start.ps1 dev`
   - Stop developer hot reload: `./scripts/stop.ps1 dev`
   - Install: `./scripts/install.ps1`
   - Upgrade: `./scripts/upgrade.ps1`
   - Check update now:
-    - `./scripts/check-update.ps1 -Mode quickstart`
-    - `./scripts/check-update.ps1 -Mode prod`
     - `./scripts/check-update.ps1 -Mode local`
-  - Fetch remote metadata now (optional manual run, also done automatically in prod/quickstart upgrade):
+    - `./scripts/check-update.ps1 -Mode prod`
+  - Fetch remote metadata now (optional manual run, also done automatically in prod/local upgrade):
     - `./scripts/fetch-release-metadata.ps1`
     - One-shot refs:
       - `$env:BRAINDRIVE_APP_REF='ghcr.io/braindriveai/braindrive-app@sha256:<digest>'; $env:BRAINDRIVE_EDGE_REF='ghcr.io/braindriveai/braindrive-edge@sha256:<digest>'; ./scripts/upgrade.ps1`
@@ -233,11 +232,10 @@ Lifecycle scripts that start/restart services (`install`, `start`, `upgrade`, `r
   - Migration smoke test:
     - `./scripts/migration-smoke.ps1 -Mode dev`
   - Support bundle (logs + metadata + audit JSONL):
-    - `./scripts/support-bundle.ps1 -Mode quickstart -SinceWindow 24h`
+    - `./scripts/support-bundle.ps1 -Mode local -SinceWindow 24h`
   - Restore:
-    - Quickstart: `./scripts/restore.ps1 -Target memory -BackupFile <backup-file> -Mode quickstart`
-    - Prod: `./scripts/restore.ps1 -Target memory -BackupFile <backup-file> -Mode prod`
     - Local: `./scripts/restore.ps1 -Target memory -BackupFile <backup-file> -Mode local`
+    - Prod: `./scripts/restore.ps1 -Target memory -BackupFile <backup-file> -Mode prod`
   - Reset new-user state: `./scripts/reset-new-user.ps1` (supports `-Yes` and `-FreshClone`)
 
 ## Memory Backup Setup (Operator Notes)

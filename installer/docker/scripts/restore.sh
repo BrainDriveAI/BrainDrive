@@ -2,17 +2,22 @@
 set -euo pipefail
 
 if [[ $# -lt 2 || $# -gt 3 ]]; then
-  echo "Usage: ./scripts/restore.sh <memory|secrets> <backup-file> [quickstart|prod|local]"
+  echo "Usage: ./scripts/restore.sh <memory|secrets> <backup-file> [local|prod|quickstart]"
   exit 1
 fi
 
 TARGET="$1"
 BACKUP_FILE="$2"
-MODE="${3:-prod}"
+MODE="${3:-local}"
 
 if [[ "${MODE}" != "quickstart" && "${MODE}" != "prod" && "${MODE}" != "local" ]]; then
-  echo "Mode must be quickstart, prod, or local"
+  echo "Mode must be local, prod, or quickstart"
   exit 1
+fi
+
+if [[ "${MODE}" == "quickstart" ]]; then
+  echo "Mode 'quickstart' is deprecated and now aliases to 'local'." >&2
+  MODE="local"
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,7 +36,7 @@ get_env_value() {
 }
 
 configure_docker_platform() {
-  if [[ "${MODE}" != "quickstart" && "${MODE}" != "prod" ]]; then
+  if [[ "${MODE}" != "local" && "${MODE}" != "prod" ]]; then
     return 0
   fi
 
@@ -72,11 +77,9 @@ case "${TARGET}" in
     ;;
 esac
 
-COMPOSE_FILE="compose.prod.yml"
-if [[ "${MODE}" == "quickstart" ]]; then
-  COMPOSE_FILE="compose.quickstart.yml"
-elif [[ "${MODE}" == "local" ]]; then
-  COMPOSE_FILE="compose.local.yml"
+COMPOSE_FILE="compose.local.yml"
+if [[ "${MODE}" == "prod" ]]; then
+  COMPOSE_FILE="compose.prod.yml"
 fi
 
 configure_docker_platform

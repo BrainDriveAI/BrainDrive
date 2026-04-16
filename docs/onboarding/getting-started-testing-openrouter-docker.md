@@ -6,7 +6,7 @@ It also includes a Twilio SMS MVP handoff step so operators can validate inbound
 ## Prerequisites
 
 1. Docker Desktop (or Docker Engine + Compose) is installed.
-2. BrainDrive quickstart/local stack is installed and running.
+2. BrainDrive local stack is installed and running (`quickstart` still works as a legacy alias).
 3. You have an OpenRouter API key.
 4. You have a git repository for memory backups and a PAT that can push to that repository.
 
@@ -15,7 +15,7 @@ It also includes a Twilio SMS MVP handoff step so operators can validate inbound
 From repo root:
 
 ```bash
-./installer/docker/scripts/start.sh quickstart
+./installer/docker/scripts/start.sh local
 ```
 
 Open:

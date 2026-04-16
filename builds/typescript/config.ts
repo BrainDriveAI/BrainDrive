@@ -475,7 +475,10 @@ function normalizeInstallMode(value: unknown): InstallMode {
     return "unknown";
   }
   const normalized = value.trim().toLowerCase();
-  if (normalized === "local" || normalized === "quickstart" || normalized === "prod") {
+  if (normalized === "quickstart") {
+    return "local";
+  }
+  if (normalized === "local" || normalized === "prod") {
     return normalized;
   }
   if (normalized === "unknown") {

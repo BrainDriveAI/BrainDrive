@@ -34,7 +34,7 @@ Other AI tools chat. BrainDrive partners with you to get things done.
 
 Prerequisites: [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker Engine + Compose on Linux).
 
-Quickstart uses published Docker images (no local source build required).
+Local quick start uses published Docker images (no local source build required).
 
 macOS/Linux:
 ```bash
@@ -104,13 +104,15 @@ The system runs as two Docker containers: an app server (Gateway + tools) and an
 
 | Command | What it does |
 |---------|-------------|
-| `./installer/docker/scripts/install.sh quickstart` | First-time quickstart setup — pulls images and starts everything |
-| `./installer/docker/scripts/start.sh quickstart` | Start quickstart after stopping |
-| `./installer/docker/scripts/stop.sh quickstart` | Stop quickstart without removing data |
-| `./installer/docker/scripts/upgrade.sh quickstart` | Upgrade quickstart to latest published images |
+| `./installer/docker/scripts/install.sh local` | First-time local setup — pulls images and starts everything |
+| `./installer/docker/scripts/start.sh local` | Start local stack after stopping |
+| `./installer/docker/scripts/stop.sh local` | Stop local stack without removing data |
+| `./installer/docker/scripts/upgrade.sh local` | Upgrade local stack to latest published images |
 | `./installer/docker/scripts/backup.sh` | Back up Your Memory and secrets |
-| `./installer/docker/scripts/support-bundle.sh quickstart 24h` | Create a redacted support bundle archive for sharing with support |
-| `./installer/docker/scripts/restore.sh memory <file> quickstart` | Restore from backup (quickstart stack) |
+| `./installer/docker/scripts/support-bundle.sh local 24h` | Create a redacted support bundle archive for sharing with support |
+| `./installer/docker/scripts/restore.sh memory <file> local` | Restore from backup (local stack) |
+
+`quickstart` is still accepted as a legacy alias and maps to `local`.
 
 See [`installer/docker/README.md`](installer/docker/README.md) for production deployment, Windows equivalents, and advanced operations.
 
@@ -141,9 +143,9 @@ Setup and validation instructions:
 Support bundle script:
 
 - Linux/macOS/WSL:
-  - `./installer/docker/scripts/support-bundle.sh quickstart 24h`
+  - `./installer/docker/scripts/support-bundle.sh local 24h`
 - Windows PowerShell:
-  - `.\installer\docker\scripts\support-bundle.ps1 -Mode quickstart -SinceWindow 24h`
+  - `.\installer\docker\scripts\support-bundle.ps1 -Mode local -SinceWindow 24h`
 
 Gateway support-bundle API (local JWT auth mode only):
 

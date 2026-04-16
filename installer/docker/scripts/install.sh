@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODE="${1:-quickstart}"
+MODE="${1:-local}"
 
 if [[ "${MODE}" != "prod" && "${MODE}" != "local" && "${MODE}" != "quickstart" && "${MODE}" != "dev" ]]; then
-  echo "Usage: ./scripts/install.sh [quickstart|prod|local|dev]"
+  echo "Usage: ./scripts/install.sh [local|prod|dev|quickstart]"
   exit 1
+fi
+
+if [[ "${MODE}" == "quickstart" ]]; then
+  echo "Mode 'quickstart' is deprecated and now aliases to 'local'." >&2
+  MODE="local"
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -13,11 +18,9 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
 source "${SCRIPT_DIR}/browser-helper.sh"
 
-COMPOSE_FILE="compose.quickstart.yml"
+COMPOSE_FILE="compose.local.yml"
 if [[ "${MODE}" == "prod" ]]; then
   COMPOSE_FILE="compose.prod.yml"
-elif [[ "${MODE}" == "local" ]]; then
-  COMPOSE_FILE="compose.local.yml"
 elif [[ "${MODE}" == "dev" ]]; then
   COMPOSE_FILE="compose.dev.yml"
 fi
@@ -41,7 +44,7 @@ get_env_value() {
 }
 
 configure_docker_platform() {
-  if [[ "${MODE}" != "quickstart" && "${MODE}" != "prod" && "${MODE}" != "local" ]]; then
+  if [[ "${MODE}" != "prod" && "${MODE}" != "local" ]]; then
     return 0
   fi
 

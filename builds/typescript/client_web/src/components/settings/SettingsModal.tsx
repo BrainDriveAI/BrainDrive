@@ -1595,7 +1595,8 @@ function BrainDriveDefaultSection({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [keySaved, setKeySaved] = useState(false);
   const [showUpdateKey, setShowUpdateKey] = useState(false);
-  const [balance, setBalance] = useState<{ remaining_usd: number } | null>(null);
+  const [balance, setBalance] = useState<{ remaining_usd: number; key_valid?: boolean } | null>(null);
+  const [keyInvalid, setKeyInvalid] = useState(false);
   const [purchaseLoading, setPurchaseLoading] = useState<number | null>(null);
   const [billingEmail, setBillingEmail] = useState(() => localStorage.getItem("bd_billing_email") ?? "");
   const [isEditingEmail, setIsEditingEmail] = useState(false);
@@ -1618,7 +1619,7 @@ function BrainDriveDefaultSection({
     if (isFirstTime) return;
     authenticatedFetch("/api/credits/status")
       .then((r) => (r.ok ? r.json() : null))
-      .then((data) => { if (data) setBalance(data); })
+      .then((data) => { if (data) { setBalance(data); setKeyInvalid(data.key_valid === false); } })
       .catch(() => {});
   }, [isFirstTime, keySaved]);
 
@@ -1723,12 +1724,17 @@ function BrainDriveDefaultSection({
                     type="button"
                     disabled={isSaving || apiKey.trim().length === 0}
                     onClick={() => {
+                      const trimmed = apiKey.trim();
+                      if (!/^sk-[A-Za-z0-9_-]{8,}$/.test(trimmed)) {
+                        setSaveError("That doesn't look like a BrainDrive API key. Please copy the full key from your purchase confirmation email and paste it here.");
+                        return;
+                      }
                       setIsSaving(true);
                       setSaveError(null);
                       void onSaveCredential({
                         provider_profile: activeProfile!.id,
                         mode: "secret_ref",
-                        api_key: apiKey.trim(),
+                        api_key: trimmed,
                         secret_ref: activeProfile!.credential_ref ?? undefined,
                         required: true,
                         set_active_provider: true,
@@ -1776,6 +1782,12 @@ function BrainDriveDefaultSection({
         <div>
           <div className="text-2xl font-semibold text-bd-text-primary">${balance ? balance.remaining_usd.toFixed(2) : "..."}</div>
           <div className="text-xs text-bd-text-muted">remaining</div>
+          {keyInvalid && (
+            <div className="mt-2 flex items-center gap-1.5 text-xs text-red-400">
+              <AlertCircle size={12} />
+              Your API key isn't working. Check your purchase confirmation email for the correct key and update it below.
+            </div>
+          )}
         </div>
 
         <div>
@@ -1829,17 +1841,30 @@ function BrainDriveDefaultSection({
                 type="button"
                 disabled={isSaving || apiKey.trim().length === 0}
                 onClick={() => {
+                  const trimmed = apiKey.trim();
+                  if (!/^sk-[A-Za-z0-9_-]{8,}$/.test(trimmed)) {
+                    setSaveError("That doesn't look like a BrainDrive API key. Please copy the full key from your purchase confirmation email and paste it here.");
+                    return;
+                  }
                   setIsSaving(true);
                   setSaveError(null);
                   void onSaveCredential({
                     provider_profile: activeProfile!.id,
                     mode: "secret_ref",
-                    api_key: apiKey.trim(),
+                    api_key: trimmed,
                     secret_ref: activeProfile!.credential_ref ?? undefined,
                     required: true,
                     set_active_provider: true,
                   })
-                    .then(() => { setApiKey(""); setShowUpdateKey(false); })
+                    .then(() => {
+                      setApiKey("");
+                      setShowUpdateKey(false);
+                      setKeyInvalid(false);
+                      authenticatedFetch("/api/credits/status")
+                        .then((r) => (r.ok ? r.json() : null))
+                        .then((data) => { if (data) { setBalance(data); setKeyInvalid(data.key_valid === false); } })
+                        .catch(() => {});
+                    })
                     .catch((err) => { setSaveError(err instanceof Error ? err.message : String(err)); })
                     .finally(() => { setIsSaving(false); });
                 }}
@@ -3447,7 +3472,7 @@ function ExportSection({
 function formatInstallModeLabel(mode: "local" | "quickstart" | "prod" | "unknown"): string {
   switch (mode) {
     case "quickstart":
-      return "quickstart";
+      return "local";
     case "prod":
       return "production";
     case "local":
