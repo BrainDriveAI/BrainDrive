@@ -13,6 +13,12 @@
 > - `PUT /api/settings`
 > - `GET /api/settings/onboarding-status`
 > - `PUT /api/settings/credentials`
+> - `PUT /api/settings/twilio-sms`
+> - `POST /api/settings/twilio-sms/test-send`
+> Twilio ingress (external, no `/api` prefix):
+> - `POST /twilio/sms/webhook` (public Twilio webhook route; signature-validated)
+> - Twilio webhook intake now reuses the same canonical Gateway message-processing path as `POST /api/message`.
+> - Auto-reply uses the shared Gateway processing flow, applies per-sender sequential processing, and enforces per-sender round-trip rate limits with one cap notice SMS per active window.
 > - `GET /api/export`
 > Streaming canonical event fields are `text-delta.delta` and `tool-call.input`.
 

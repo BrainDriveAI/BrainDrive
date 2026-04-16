@@ -8,7 +8,9 @@ import {
   importLibraryArchive,
   restoreMemoryBackup,
   runMemoryBackupNow,
+  sendTwilioTestSms,
   sendMessage,
+  updateTwilioSmsSettings,
   updateMemoryBackupSettings,
   updateProviderCredential,
   type ChatEvent,
@@ -415,6 +417,104 @@ describe("gateway-adapter onboarding settings", () => {
     expect(payload.result.commit).toBe("abc123def456");
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/settings/memory-backup/restore",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "Content-Type": "application/json" }),
+      })
+    );
+  });
+});
+
+describe("gateway-adapter twilio sms settings", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("updates Twilio SMS settings through the dedicated endpoint", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          default_model: "openai/gpt-4o-mini",
+          approval_mode: "ask-on-write",
+          active_provider_profile: "openrouter",
+          default_provider_profile: "openrouter",
+          available_models: ["openai/gpt-4o-mini"],
+          provider_profiles: [],
+          memory_backup: null,
+          twilio_sms: {
+            enabled: true,
+            account_sid: "AC1234567890abcdef1234567890abcd",
+            from_number: "+14155552671",
+            public_base_url: "https://example.com",
+            auto_reply: true,
+            strict_owner_mode: false,
+            owner_phone_number: null,
+            rate_limit_period: 60,
+            rate_limit_cap_round_trips: 5,
+            rate_limit_current_count: 0,
+            token_configured: true,
+            test_recipient: "+14155553333",
+            last_error: null,
+            webhook_url: "https://example.com/twilio/sms/webhook",
+          },
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await updateTwilioSmsSettings({
+      enabled: true,
+      account_sid: "AC1234567890abcdef1234567890abcd",
+      from_number: "+14155552671",
+      public_base_url: "https://example.com",
+      auto_reply: true,
+      strict_owner_mode: false,
+      rate_limit_period: 60,
+      rate_limit_cap_round_trips: 5,
+      auth_token: "twilio_secret_v1",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/settings/twilio-sms",
+      expect.objectContaining({
+        method: "PUT",
+        headers: expect.objectContaining({ "Content-Type": "application/json" }),
+      })
+    );
+  });
+
+  it("triggers Twilio SMS test send", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          result: "success",
+          recipient: "+14155553333",
+          message: "hello",
+          sent_at: "2026-04-07T12:10:03.000Z",
+          provider: {
+            message_sid: "SM11111111111111111111111111111111",
+            status: "queued",
+          },
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const payload = await sendTwilioTestSms({
+      recipient: "+14155553333",
+      message: "hello",
+    });
+    expect(payload.result).toBe("success");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/settings/twilio-sms/test-send",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({ "Content-Type": "application/json" }),

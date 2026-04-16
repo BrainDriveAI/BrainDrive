@@ -1,0 +1,8 @@
+{
+  "name": "braindrive-workspace",
+  "private": true,
+  "scripts": {
+    "build": "npm --prefix builds/typescript run build",
+    "test": "npm --prefix builds/typescript run test"
+  }
+}

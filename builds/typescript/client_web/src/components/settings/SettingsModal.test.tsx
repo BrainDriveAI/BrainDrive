@@ -5,7 +5,10 @@ import type {
   GatewayMemoryBackupRestoreRequest,
   GatewayMemoryBackupSettingsUpdateRequest,
   GatewayModelCatalog,
-  GatewaySettings
+  GatewaySettings,
+  GatewayTwilioSmsSettingsUpdateRequest,
+  GatewayTwilioSmsTestSendRequest,
+  GatewayTwilioSmsTestSendResponse,
 } from "@/api/types";
 
 import SettingsModal from "./SettingsModal";
@@ -33,6 +36,12 @@ const runMemoryBackupNowMock = vi.fn<
 const restoreMemoryBackupMock = vi.fn<
   (payload?: GatewayMemoryBackupRestoreRequest) => Promise<{ result: { commit: string }; settings: GatewaySettings }>
 >();
+const updateTwilioSmsSettingsMock = vi.fn<
+  (payload: GatewayTwilioSmsSettingsUpdateRequest) => Promise<GatewaySettings>
+>();
+const sendTwilioTestSmsMock = vi.fn<
+  (payload: GatewayTwilioSmsTestSendRequest) => Promise<GatewayTwilioSmsTestSendResponse>
+>();
 
 vi.mock("@/api/gateway-adapter", () => ({
   getSettings: () => getSettingsMock(),
@@ -44,6 +53,9 @@ vi.mock("@/api/gateway-adapter", () => ({
     updateMemoryBackupSettingsMock(payload),
   runMemoryBackupNow: () => runMemoryBackupNowMock(),
   restoreMemoryBackup: (payload?: GatewayMemoryBackupRestoreRequest) => restoreMemoryBackupMock(payload),
+  updateTwilioSmsSettings: (payload: GatewayTwilioSmsSettingsUpdateRequest) =>
+    updateTwilioSmsSettingsMock(payload),
+  sendTwilioTestSms: (payload: GatewayTwilioSmsTestSendRequest) => sendTwilioTestSmsMock(payload),
   getProviderModels: (providerProfile?: string) => getProviderModelsMock(providerProfile),
   downloadLibraryExport: () => downloadLibraryExportMock(),
   importLibraryArchive: (file: Blob) => importLibraryArchiveMock(file),
@@ -56,6 +68,25 @@ const baseSettings: GatewaySettings = {
   default_provider_profile: "openrouter",
   available_models: ["openai/gpt-4o-mini", "llama3.1"],
   memory_backup: null,
+  twilio_sms: {
+    enabled: true,
+    account_sid: "AC1234567890abcdef1234567890abcd",
+    from_number: "+14155552671",
+    public_base_url: "https://example.com",
+    auto_reply: true,
+    strict_owner_mode: false,
+    owner_phone_number: null,
+    rate_limit_period: 60,
+    rate_limit_cap_round_trips: 5,
+    rate_limit_current_count: 1,
+    token_configured: true,
+    test_recipient: "+14155553333",
+    last_inbound_at: "2026-04-07T12:00:00.000Z",
+    last_outbound_at: "2026-04-07T12:05:00.000Z",
+    last_result: "success",
+    last_error: null,
+    webhook_url: "https://example.com/twilio/sms/webhook",
+  },
   provider_profiles: [
     {
       id: "openrouter",
@@ -120,6 +151,9 @@ describe("SettingsModal", () => {
     updateMemoryBackupSettingsMock.mockReset();
     runMemoryBackupNowMock.mockReset();
     restoreMemoryBackupMock.mockReset();
+    updateTwilioSmsSettingsMock.mockReset();
+    sendTwilioTestSmsMock.mockReset();
+
     getSettingsMock.mockResolvedValue(baseSettings);
     updateSettingsMock.mockResolvedValue(baseSettings);
     updateProviderCredentialMock.mockResolvedValue({ settings: baseSettings });
@@ -131,6 +165,17 @@ describe("SettingsModal", () => {
     restoreMemoryBackupMock.mockResolvedValue({
       result: { commit: "abc123def456" },
       settings: settingsWithBackup,
+    });
+    updateTwilioSmsSettingsMock.mockResolvedValue(baseSettings);
+    sendTwilioTestSmsMock.mockResolvedValue({
+      result: "success",
+      recipient: "+14155553333",
+      message: "hello",
+      sent_at: "2026-04-07T12:10:03.000Z",
+      provider: {
+        message_sid: "SM11111111111111111111111111111111",
+        status: "queued",
+      },
     });
     getProviderModelsMock.mockResolvedValue(providerCatalog);
     downloadLibraryExportMock.mockResolvedValue({
@@ -172,7 +217,7 @@ describe("SettingsModal", () => {
     });
   });
 
-  it("downloads export from the export tab", async () => {
+  it("downloads export from the migrate tab", async () => {
     const user = userEvent.setup();
     render(<SettingsModal mode="local" onClose={() => {}} />);
 
@@ -180,15 +225,15 @@ describe("SettingsModal", () => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    await user.click(screen.getAllByRole("button", { name: "Migrate Library" })[0]!);
-    await user.click(screen.getAllByRole("button", { name: "Download Library (.tar.gz)" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "Migrate" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "Download" })[0]!);
 
     await waitFor(() => {
       expect(downloadLibraryExportMock).toHaveBeenCalledTimes(1);
     });
   });
 
-  it("imports a migration archive from the export tab", async () => {
+  it("imports a migration archive from the migrate tab", async () => {
     const user = userEvent.setup();
     render(<SettingsModal mode="local" onClose={() => {}} />);
 
@@ -196,12 +241,12 @@ describe("SettingsModal", () => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    await user.click(screen.getAllByRole("button", { name: "Migrate Library" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "Migrate" })[0]!);
 
-    const importInput = screen.getByLabelText("Migration Archive (.tar.gz)") as HTMLInputElement;
+    const importInput = screen.getAllByLabelText("Choose file")[0] as HTMLInputElement;
     const file = new File(["archive"], "memory-migration.tar.gz", { type: "application/gzip" });
     await user.upload(importInput, file);
-    await user.click(screen.getAllByRole("button", { name: "Import Library (.tar.gz)" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "Import" })[0]!);
 
     await waitFor(() => {
       expect(importLibraryArchiveMock).toHaveBeenCalledTimes(1);
@@ -216,14 +261,14 @@ describe("SettingsModal", () => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    await user.click(screen.getAllByRole("button", { name: "Migrate Library" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "Migrate" })[0]!);
 
-    const importButton = screen.getAllByRole("button", { name: "Import Library (.tar.gz)" })[0] as HTMLButtonElement;
+    const importButton = screen.getAllByRole("button", { name: "Import" })[0] as HTMLButtonElement;
     expect(importButton).toBeDisabled();
     await user.click(importButton);
     expect(importLibraryArchiveMock).not.toHaveBeenCalled();
 
-    const importInput = screen.getByLabelText("Migration Archive (.tar.gz)") as HTMLInputElement;
+    const importInput = screen.getAllByLabelText("Choose file")[0] as HTMLInputElement;
     const file = new File(["archive"], "memory-migration.tar.gz", { type: "application/gzip" });
     await user.upload(importInput, file);
 
@@ -238,7 +283,7 @@ describe("SettingsModal", () => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    await user.click(screen.getAllByRole("button", { name: "Default Model" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "AI Model" })[0]!);
     await waitFor(() => {
       expect(getProviderModelsMock).toHaveBeenCalled();
     });
@@ -263,22 +308,111 @@ describe("SettingsModal", () => {
     });
   });
 
-  it("renders memory backup tab below migrate library in local mode", async () => {
+  it("renders local-only SMS (Twilio) tab", async () => {
     render(<SettingsModal mode="local" onClose={() => {}} />);
 
     await waitFor(() => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    const tabLabels = screen
-      .getAllByRole("button")
-      .map((button) => button.textContent?.trim() ?? "")
-      .filter(Boolean);
+    expect(screen.getAllByRole("button", { name: "SMS (Twilio)" }).length).toBeGreaterThan(0);
+  });
 
-    const migrateIndex = tabLabels.indexOf("Migrate Library");
-    const backupIndex = tabLabels.indexOf("Memory Backup");
-    expect(migrateIndex).toBeGreaterThanOrEqual(0);
-    expect(backupIndex).toBeGreaterThan(migrateIndex);
+  it("keeps auth token field write-only after loading twilio settings", async () => {
+    const user = userEvent.setup();
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+
+    await waitFor(() => {
+      expect(getSettingsMock).toHaveBeenCalledTimes(1);
+    });
+
+    await user.click(screen.getAllByRole("button", { name: "SMS (Twilio)" })[0]!);
+    const authTokenInput = screen.getAllByLabelText("Auth Token")[0] as HTMLInputElement;
+    expect(authTokenInput.value).toBe("");
+    expect(authTokenInput.placeholder).toContain("Leave blank");
+  });
+
+  it("renders Twilio webhook/runtime status values and copies webhook URL", async () => {
+    const user = userEvent.setup();
+    const writeTextMock = vi.fn<(text: string) => Promise<void>>(async () => {});
+    Object.defineProperty(window.navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: writeTextMock,
+      },
+    });
+
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+
+    await waitFor(() => {
+      expect(getSettingsMock).toHaveBeenCalledTimes(1);
+    });
+
+    await user.click(screen.getAllByRole("button", { name: "SMS (Twilio)" })[0]!);
+
+    expect(screen.getAllByDisplayValue("https://example.com/twilio/sms/webhook").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("1/5").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Success").length).toBeGreaterThan(0);
+
+    await user.click(screen.getAllByRole("button", { name: "Copy Webhook URL" })[0]!);
+    await waitFor(() => {
+      expect(writeTextMock).toHaveBeenCalledWith("https://example.com/twilio/sms/webhook");
+    });
+    expect(screen.getAllByText("Webhook URL copied.").length).toBeGreaterThan(0);
+  });
+
+  it("saves twilio sms settings", async () => {
+    const user = userEvent.setup();
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+
+    await waitFor(() => {
+      expect(getSettingsMock).toHaveBeenCalledTimes(1);
+    });
+
+    await user.click(screen.getAllByRole("button", { name: "SMS (Twilio)" })[0]!);
+    await user.clear(screen.getAllByLabelText("Account SID")[0]!);
+    await user.type(screen.getAllByLabelText("Account SID")[0]!, "AC99999999999999999999999999999999");
+    await user.clear(screen.getAllByLabelText("From Number")[0]!);
+    await user.type(screen.getAllByLabelText("From Number")[0]!, "+14155550000");
+    await user.clear(screen.getAllByLabelText("Public Base URL")[0]!);
+    await user.type(screen.getAllByLabelText("Public Base URL")[0]!, "https://new.example.com");
+    await user.type(screen.getAllByLabelText("Auth Token")[0]!, "twilio_secret_v2");
+    await user.click(screen.getAllByRole("button", { name: "Save SMS Settings" })[0]!);
+
+    await waitFor(() => {
+      expect(updateTwilioSmsSettingsMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          enabled: true,
+          account_sid: "AC99999999999999999999999999999999",
+          from_number: "+14155550000",
+          public_base_url: "https://new.example.com",
+          auth_token: "twilio_secret_v2",
+        })
+      );
+    });
+  });
+
+  it("sends twilio test sms", async () => {
+    const user = userEvent.setup();
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+
+    await waitFor(() => {
+      expect(getSettingsMock).toHaveBeenCalledTimes(1);
+    });
+
+    await user.click(screen.getAllByRole("button", { name: "SMS (Twilio)" })[0]!);
+    await user.clear(screen.getAllByLabelText("Test Recipient")[0]!);
+    await user.type(screen.getAllByLabelText("Test Recipient")[0]!, "+14155558888");
+    await user.clear(screen.getAllByLabelText("Test Message")[0]!);
+    await user.type(screen.getAllByLabelText("Test Message")[0]!, "hello from test");
+    await user.click(screen.getAllByRole("button", { name: "Send Test SMS" })[0]!);
+
+    await waitFor(() => {
+      expect(sendTwilioTestSmsMock).toHaveBeenCalledWith({
+        recipient: "+14155558888",
+        message: "hello from test",
+      });
+    });
   });
 
   it("saves memory backup settings", async () => {
@@ -290,15 +424,15 @@ describe("SettingsModal", () => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    await user.click(screen.getAllByRole("button", { name: "Memory Backup" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "Backup" })[0]!);
     await user.clear(screen.getAllByLabelText("Repository URL")[0]!);
     await user.type(
       screen.getAllByLabelText("Repository URL")[0]!,
       "https://github.com/BrainDriveAI/braindrive-memory.git"
     );
-    await user.type(screen.getAllByLabelText("Git Token (PAT/Classic)")[0]!, "ghp_test");
-    await user.selectOptions(screen.getAllByLabelText("Frequency")[0]!, "daily");
-    await user.click(screen.getAllByRole("button", { name: "Save Backup Settings" })[0]!);
+    await user.type(screen.getAllByLabelText("Token")[0]!, "ghp_test");
+    await user.click(screen.getAllByRole("button", { name: "Every day" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "Save Settings" })[0]!);
 
     await waitFor(() => {
       expect(updateMemoryBackupSettingsMock).toHaveBeenCalledWith({
@@ -309,7 +443,7 @@ describe("SettingsModal", () => {
     });
   });
 
-  it("runs manual save from memory backup tab", async () => {
+  it("runs manual save from backup tab", async () => {
     const user = userEvent.setup();
     getSettingsMock.mockResolvedValueOnce(settingsWithBackup);
     render(<SettingsModal mode="local" onClose={() => {}} />);
@@ -318,15 +452,15 @@ describe("SettingsModal", () => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    await user.click(screen.getAllByRole("button", { name: "Memory Backup" })[0]!);
-    await user.click(screen.getAllByRole("button", { name: "Save Now" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "Backup" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "Back Up Now" })[0]!);
 
     await waitFor(() => {
       expect(runMemoryBackupNowMock).toHaveBeenCalledTimes(1);
     });
   });
 
-  it("runs restore from memory backup tab after confirmation", async () => {
+  it("runs restore from backup tab after confirmation", async () => {
     const user = userEvent.setup();
     getSettingsMock.mockResolvedValueOnce(settingsWithBackup);
     const confirmMock = vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -336,8 +470,8 @@ describe("SettingsModal", () => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    await user.click(screen.getAllByRole("button", { name: "Memory Backup" })[0]!);
-    await user.click(screen.getAllByRole("button", { name: "Restore from Backup Repo" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "Backup" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "Restore from Backup" })[0]!);
 
     await waitFor(() => {
       expect(restoreMemoryBackupMock).toHaveBeenCalledTimes(1);

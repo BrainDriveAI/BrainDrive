@@ -1,6 +1,7 @@
-# Getting Started: Testing OpenRouter + Docker + Memory Backup
+# Getting Started: Testing OpenRouter + Docker + Memory Backup + Twilio SMS
 
 This guide walks through a local BrainDrive test run with OpenRouter and validates Memory Backup end to end.
+It also includes a Twilio SMS MVP handoff step so operators can validate inbound/outbound SMS behavior.
 
 ## Prerequisites
 
@@ -75,6 +76,20 @@ Expected restore behavior:
 1. Restore applies memory snapshot only.
 2. Secrets are not restored from git backup.
 3. Runtime/adapter config is not changed by restore.
+
+## 7) Validate Twilio SMS MVP (local mode)
+
+1. Open `Settings -> SMS (Twilio)` in BrainDrive UI.
+2. Configure Twilio values and public HTTPS tunnel base URL.
+3. Save settings and copy the generated webhook URL (`/twilio/sms/webhook`).
+4. Configure the copied webhook URL in Twilio Console for your number.
+5. Run `Send Test SMS` from UI and confirm outbound success.
+6. Send inbound SMS to your Twilio number and confirm BrainDrive intake.
+7. Validate replay idempotency, strict-owner mode, auto-reply, and rate-limit suppression/reset.
+
+For the full Twilio operator flow and compliance notes, use:
+
+- `docs/onboarding/twilio-sms-local-operator-guide.md`
 
 ## PAT Scope Guidance (GitHub Classic)
 

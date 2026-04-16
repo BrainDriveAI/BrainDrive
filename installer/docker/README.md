@@ -298,6 +298,37 @@ Use minimum required scope for pushes to your target repository:
 For a complete local validation flow, see:
 
 - `docs/onboarding/getting-started-testing-openrouter-docker.md`
+- `docs/onboarding/twilio-sms-local-operator-guide.md`
+
+## Twilio SMS Setup (Operator Notes)
+
+BrainDrive includes a local-only Twilio SMS settings tab at `Settings -> SMS (Twilio)`.
+
+1. Configure Twilio values in UI:
+   - `Account SID`
+   - `From Number` (`+E.164`)
+   - `Public Base URL` (public HTTPS tunnel origin only)
+   - `Auth Token` (write-only; stored as secret ref)
+2. Save settings and copy `Webhook URL` from UI.
+3. In Twilio Console, set incoming webhook to:
+   - `https://<public-host>/twilio/sms/webhook`
+4. Optional: configure `SmsFallbackUrl` based on your incident/failover workflow.
+5. Use `Send Test SMS` and verify:
+   - outbound delivery
+   - inbound message ingestion
+   - conversation linkage and auto-reply behavior (if enabled)
+
+Important behavior:
+
+1. Inbound webhook route is `/twilio/sms/webhook`.
+2. Twilio signature validation is required; invalid signatures are rejected.
+3. Message idempotency is enforced via `MessageSid` dedup.
+4. Strict-owner mode allows only configured owner sender number.
+5. Rate-limit suppression emits one cap notice per active window, then resets after period expiry.
+
+For the full checklist (webhook setup, local tunnel, replay/idempotency, strict-owner, rate-limit, STOP/START/HELP, and US A2P 10DLC notes), see:
+
+- `docs/onboarding/twilio-sms-local-operator-guide.md`
 
 ## Release helper scripts (maintainer)
 These are in `installer/docker/scripts` and intended for release operations.

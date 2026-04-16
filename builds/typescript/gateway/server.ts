@@ -6,6 +6,7 @@ import Fastify from "fastify";
 import { z } from "zod";
 
 import { createGatewayAdapter } from "../adapters/gateway.js";
+import { normalizeTwilioSmsWebhookPayload } from "../adapters/gateway-twilio-sms.js";
 import { createModelAdapter, resolveAdapterConfigForPreferences } from "../adapters/index.js";
 import type { ProviderModel } from "../adapters/base.js";
 import { authorize, authorizeApprovalDecision } from "../auth/authorize.js";
@@ -34,13 +35,12 @@ import {
 } from "../config.js";
 import type {
   AdapterConfig,
-  ApprovalMode,
+  AuthContext,
   ClientMessageRequest,
+  GatewaySettingsPayload,
   Preferences,
   RuntimeConfig
 } from "../contracts.js";
-import { runAgentLoop } from "../engine/loop.js";
-import { classifyProviderError } from "../engine/errors.js";
 import { formatSseEvent } from "../engine/stream.js";
 import { ToolExecutor } from "../engine/tool-executor.js";
 import { commitMemoryChange, ensureGitReady } from "../git.js";
@@ -51,6 +51,7 @@ import { MarkdownConversationStore } from "../memory/conversation-store-markdown
 import { exportMemory } from "../memory/export.js";
 import { restoreMemoryBackup } from "../memory/backup-restore.js";
 import { importMigrationArchive } from "../memory/migration.js";
+import { TwilioSmsLinkStore, type TwilioSmsSenderKey } from "../memory/twilio-sms-link-store.js";
 import {
   createSupportBundle,
   listSupportBundles,
@@ -62,11 +63,19 @@ import { resolveProviderCredentialForStartup } from "../secrets/resolver.js";
 import { initializeMasterKey, loadMasterKey } from "../secrets/key-provider.js";
 import { resolveSecretsPaths } from "../secrets/paths.js";
 import { getVaultSecret, upsertVaultSecret } from "../secrets/vault.js";
+import { sanitizeOutboundSmsToGsm7, sendTwilioOutboundSms } from "../integrations/twilio/client.js";
 import { GatewayConversationService } from "./conversations.js";
 import { createMemoryBackupScheduler } from "./memory-backup-scheduler.js";
-import { GatewayProjectService, isProjectMetadata, ProtectedProjectError } from "./projects.js";
+import { GatewayProjectService, ProtectedProjectError } from "./projects.js";
 import { GatewaySkillService } from "./skills.js";
-import { prepareContextWindow } from "./context-window.js";
+import { ConversationNotFoundError, GatewayMessageProcessingService } from "./message-processing.js";
+import {
+  isStrictOwnerSenderAllowed,
+  TWILIO_SMS_EMPTY_TWIML_RESPONSE,
+  TWILIO_SMS_MESSAGE_SID_DEDUP_TTL_SECONDS,
+  TWILIO_SMS_WEBHOOK_PATH,
+  validateTwilioRequestSignature,
+} from "./twilio-sms.js";
 
 const approvalDecisionSchema = z.object({
   decision: z.enum(["approved", "denied"]),
@@ -190,6 +199,56 @@ const settingsMemoryBackupRestoreSchema = z
   })
   .strict();
 
+const E164_PHONE_NUMBER_PATTERN = /^\+[1-9]\d{1,14}$/;
+const e164PhoneNumberSchema = z.string().trim().regex(E164_PHONE_NUMBER_PATTERN, {
+  message: "must be a valid E.164 phone number (for example, +14155552671)",
+});
+
+const settingsTwilioSmsUpdateSchema = z
+  .object({
+    enabled: z.boolean(),
+    account_sid: z.string().trim().min(1),
+    from_number: e164PhoneNumberSchema,
+    public_base_url: z.string().trim().url(),
+    auto_reply: z.boolean(),
+    strict_owner_mode: z.boolean(),
+    owner_phone_number: z.union([e164PhoneNumberSchema, z.literal(""), z.null()]).optional(),
+    rate_limit_period: z.number().int().nonnegative(),
+    rate_limit_cap_round_trips: z.number().int().nonnegative(),
+    rate_limit_current_count: z.number().int().nonnegative().optional(),
+    rate_limit_period_started_at: z
+      .union([z.string().datetime({ offset: true }), z.literal(""), z.null()])
+      .optional(),
+    rate_limit_last_notified_at: z
+      .union([z.string().datetime({ offset: true }), z.literal(""), z.null()])
+      .optional(),
+    auth_token: z.string().trim().optional(),
+    auth_token_secret_ref: z.string().trim().min(1).optional(),
+    test_recipient: z.union([e164PhoneNumberSchema, z.literal(""), z.null()]).optional(),
+    last_inbound_at: z.union([z.string().datetime({ offset: true }), z.literal(""), z.null()]).optional(),
+    last_outbound_at: z.union([z.string().datetime({ offset: true }), z.literal(""), z.null()]).optional(),
+    last_result: z.union([z.string(), z.null()]).optional(),
+    last_error: z.union([z.string(), z.null()]).optional(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const publicBaseUrlError = validatePublicBaseUrl(value.public_base_url);
+    if (publicBaseUrlError) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: publicBaseUrlError,
+        path: ["public_base_url"],
+      });
+    }
+  });
+
+const settingsTwilioSmsTestSendSchema = z
+  .object({
+    recipient: z.union([e164PhoneNumberSchema, z.literal(""), z.null()]).optional(),
+    message: z.string().min(1).max(4096),
+  })
+  .strict();
+
 const authCredentialsSchema = z
   .object({
     identifier: z.string().trim().min(1),
@@ -217,6 +276,7 @@ const PUBLIC_ROUTES = new Set([
   "/auth/signup",
   "/auth/login",
   "/auth/refresh",
+  TWILIO_SMS_WEBHOOK_PATH,
 ]);
 
 const MANAGED_PROXY_ROUTES = new Set([
@@ -228,6 +288,10 @@ const MANAGED_PROXY_ROUTES = new Set([
 ]);
 
 const DEFAULT_MEMORY_BACKUP_TOKEN_SECRET_REF = "backup/git/token";
+const DEFAULT_TWILIO_SMS_AUTH_TOKEN_SECRET_REF = "twilio/auth/token";
+const TWILIO_SMS_MAX_OUTBOUND_CHARS = 1600;
+const TWILIO_SMS_RATE_LIMIT_CAP_NOTICE =
+  "Auto-reply limit reached for now. I will resume SMS replies when the current rate-limit window resets.";
 
 export async function buildServer(rootDir = process.cwd()) {
   const isManaged = process.env.BD_DEPLOYMENT_MODE === "managed";
@@ -320,11 +384,31 @@ export async function buildServer(rootDir = process.cwd()) {
       done(null, body);
     }
   );
+  app.addContentTypeParser(
+    "application/x-www-form-urlencoded",
+    { parseAs: "string" },
+    (_request, body, done) => {
+      done(null, body);
+    }
+  );
   const approvalStore = new ApprovalStore();
   const toolExecutor = new ToolExecutor(tools);
   const conversations = new GatewayConversationService(createConversationRepository(runtimeConfig));
   const projects = new GatewayProjectService(runtimeConfig.memory_root, { rootDir });
   const skills = new GatewaySkillService(runtimeConfig.memory_root);
+  const messageProcessing = new GatewayMessageProcessingService({
+    runtimeConfig,
+    adapterConfig,
+    gatewayAdapter,
+    conversations,
+    projects,
+    skills,
+    approvalStore,
+    toolExecutor,
+    systemPrompt,
+  });
+  const twilioSmsLinkStore = new TwilioSmsLinkStore(runtimeConfig.memory_root);
+  const twilioSmsSenderSequencer = new SenderKeySequencer();
   const signupRateLimiter = new FixedWindowRateLimiter(5, 5 * 60 * 1000);
   const loginRateLimiter = new FixedWindowRateLimiter(10, 5 * 60 * 1000);
   const refreshRateLimiter = new FixedWindowRateLimiter(30, 5 * 60 * 1000);
@@ -548,8 +632,291 @@ export async function buildServer(rootDir = process.cwd()) {
     reply.code(423).send({ error: "migration_in_progress" });
   });
 
+  app.post(TWILIO_SMS_WEBHOOK_PATH, async (request, reply) => {
+    const currentPreferences = await loadPreferences(runtimeConfig.memory_root);
+    const twilioSettings = currentPreferences.twilio_sms;
+    if (!twilioSettings?.enabled) {
+      reply.code(404).send({ error: "Not found" });
+      return;
+    }
+
+    const webhookUrl = buildTwilioWebhookUrl(twilioSettings.public_base_url);
+    if (!webhookUrl) {
+      auditLog("twilio.sms.webhook.error", {
+        reason: "invalid_webhook_url",
+      });
+      reply.code(500).send({ error: "Twilio webhook URL is invalid" });
+      return;
+    }
+
+    const authToken = await resolveVaultSecretValue(twilioSettings.auth_token_secret_ref);
+    if (!authToken) {
+      auditLog("twilio.sms.webhook.error", {
+        reason: "missing_auth_token",
+      });
+      reply.code(503).send({ error: "Twilio auth token is not configured" });
+      return;
+    }
+
+    const normalizedWebhook = normalizeTwilioSmsWebhookPayload(request.body, {
+      receivedAt: new Date().toISOString(),
+    });
+    if (!normalizedWebhook.ok) {
+      sendInvalidRequest(reply, TWILIO_SMS_WEBHOOK_PATH, normalizedWebhook.failure.issueCount);
+      return;
+    }
+
+    const signatureValid = validateTwilioRequestSignature({
+      authToken,
+      webhookUrl,
+      formParameters: normalizedWebhook.webhook.form_parameters,
+      providedSignature: request.headers["x-twilio-signature"],
+    });
+    if (!signatureValid) {
+      auditLog("twilio.sms.webhook.rejected", {
+        reason: "invalid_signature",
+        account_sid: normalizedWebhook.webhook.metadata.account_sid,
+        message_sid: normalizedWebhook.webhook.metadata.message_sid,
+      });
+      reply.code(403).send({ error: "Forbidden" });
+      return;
+    }
+
+    const senderKey = {
+      account_sid: normalizedWebhook.webhook.metadata.account_sid,
+      from_number: normalizedWebhook.webhook.metadata.from_number,
+      to_number: normalizedWebhook.webhook.metadata.to_number,
+    };
+    const senderSequenceKey = toTwilioSenderSequenceKey(senderKey);
+    await twilioSmsSenderSequencer.run(senderSequenceKey, async () => {
+      const dedupResult = await twilioSmsLinkStore.rememberMessageSid({
+        account_sid: normalizedWebhook.webhook.metadata.account_sid,
+        message_sid: normalizedWebhook.webhook.metadata.message_sid,
+        ttl_seconds: TWILIO_SMS_MESSAGE_SID_DEDUP_TTL_SECONDS,
+        seen_at: normalizedWebhook.webhook.metadata.received_at,
+      });
+
+      await persistTwilioInboundOperationalState(
+        runtimeConfig.memory_root,
+        currentPreferences,
+        normalizedWebhook.webhook.metadata.received_at
+      );
+
+      if (dedupResult.duplicate) {
+        auditLog("twilio.sms.webhook.ignored", {
+          reason: "duplicate_message_sid",
+          account_sid: normalizedWebhook.webhook.metadata.account_sid,
+          message_sid: normalizedWebhook.webhook.metadata.message_sid,
+        });
+        return;
+      }
+
+      if (
+        twilioSettings.strict_owner_mode &&
+        !isStrictOwnerSenderAllowed(twilioSettings.owner_phone_number, normalizedWebhook.webhook.metadata.from_number)
+      ) {
+        auditLog("twilio.sms.webhook.ignored", {
+          reason: "strict_owner_mode_non_owner_sender",
+          account_sid: normalizedWebhook.webhook.metadata.account_sid,
+          message_sid: normalizedWebhook.webhook.metadata.message_sid,
+          from_number: normalizedWebhook.webhook.metadata.from_number,
+        });
+        return;
+      }
+
+      const canonicalMessage: ClientMessageRequest = {
+        content: normalizedWebhook.webhook.client_message.content,
+        metadata: {
+          ...(normalizedWebhook.webhook.client_message.metadata ?? {}),
+          ...normalizedWebhook.webhook.metadata,
+        },
+      };
+      const processingAuthContext = buildSystemServiceAuthContext(authState);
+      const linkedConversationId = await twilioSmsLinkStore.getConversationIdForSender(senderKey);
+      let preparedTurn;
+
+      try {
+        preparedTurn = await messageProcessing.prepareConversationTurn({
+          requestedConversationId: linkedConversationId ?? undefined,
+          message: canonicalMessage,
+          authContext: processingAuthContext,
+        });
+      } catch (error) {
+        if (!(error instanceof ConversationNotFoundError)) {
+          throw error;
+        }
+
+        auditLog("twilio.sms.webhook.link_reset", {
+          reason: "linked_conversation_not_found",
+          account_sid: senderKey.account_sid,
+          from_number: senderKey.from_number,
+          to_number: senderKey.to_number,
+          conversation_id: error.conversationId,
+        });
+
+        preparedTurn = await messageProcessing.prepareConversationTurn({
+          message: canonicalMessage,
+          authContext: processingAuthContext,
+        });
+      }
+
+      await twilioSmsLinkStore.setSenderConversationLink({
+        ...senderKey,
+        conversation_id: preparedTurn.conversationId,
+        last_inbound_at: normalizedWebhook.webhook.metadata.received_at,
+        updated_at: normalizedWebhook.webhook.metadata.received_at,
+      });
+
+      auditLog("twilio.sms.webhook.accepted", {
+        account_sid: normalizedWebhook.webhook.metadata.account_sid,
+        message_sid: normalizedWebhook.webhook.metadata.message_sid,
+        from_number: normalizedWebhook.webhook.metadata.from_number,
+        to_number: normalizedWebhook.webhook.metadata.to_number,
+        conversation_id: preparedTurn.conversationId,
+      });
+
+      if (!twilioSettings.auto_reply) {
+        return;
+      }
+
+      const rateLimitDecision = await reserveTwilioAutoReplySlot({
+        linkStore: twilioSmsLinkStore,
+        senderKey,
+        periodSeconds: twilioSettings.rate_limit_period,
+        capRoundTrips: twilioSettings.rate_limit_cap_round_trips,
+        now: normalizedWebhook.webhook.metadata.received_at,
+      });
+
+      if (!rateLimitDecision.allowed) {
+        if (!rateLimitDecision.shouldNotify) {
+          auditLog("twilio.sms.webhook.auto_reply_suppressed", {
+            reason: "round_trip_rate_limit_reached",
+            account_sid: senderKey.account_sid,
+            from_number: senderKey.from_number,
+            to_number: senderKey.to_number,
+            current_count: rateLimitDecision.currentCount,
+            cap_round_trips: twilioSettings.rate_limit_cap_round_trips,
+            period_started_at: rateLimitDecision.periodStartedAt,
+          });
+          return;
+        }
+
+        const capNoticeMessage = sanitizeTwilioOutboundMessage(TWILIO_SMS_RATE_LIMIT_CAP_NOTICE);
+        if (!capNoticeMessage) {
+          return;
+        }
+
+        const capNoticeSentAt = new Date().toISOString();
+        const capNoticeResult = await sendTwilioOutboundSms({
+          account_sid: twilioSettings.account_sid,
+          auth_token: authToken,
+          from_number: twilioSettings.from_number,
+          to_number: senderKey.from_number,
+          message: capNoticeMessage,
+          smart_encoded: true,
+        });
+
+        await twilioSmsLinkStore.recordOutboundTimestamp(senderKey, capNoticeSentAt);
+
+        if (!capNoticeResult.ok) {
+          const safeError = buildTwilioTestSendFailureMessage(capNoticeResult.status_code, capNoticeResult.error_code);
+          await persistTwilioOperationalState(runtimeConfig.memory_root, currentPreferences, {
+            attemptedAt: capNoticeSentAt,
+            result: "failed",
+            error: safeError,
+          });
+          auditLog("twilio.sms.webhook.cap_notice_failed", {
+            account_sid: senderKey.account_sid,
+            from_number: senderKey.from_number,
+            to_number: senderKey.to_number,
+            status_code: capNoticeResult.status_code,
+            error_code: capNoticeResult.error_code,
+          });
+          return;
+        }
+
+        await persistTwilioOperationalState(runtimeConfig.memory_root, currentPreferences, {
+          attemptedAt: capNoticeSentAt,
+          result: "success",
+          error: null,
+        });
+        auditLog("twilio.sms.webhook.cap_notice_sent", {
+          account_sid: senderKey.account_sid,
+          from_number: senderKey.from_number,
+          to_number: senderKey.to_number,
+          status_code: capNoticeResult.status_code,
+          message_sid: capNoticeResult.message_sid,
+        });
+        return;
+      }
+
+      const runResult = await messageProcessing.runPreparedConversationTurn(preparedTurn);
+      const assistantReply = sanitizeTwilioOutboundMessage(runResult.lastAssistantMessageContent ?? "");
+      if (!assistantReply) {
+        auditLog("twilio.sms.webhook.auto_reply_skipped", {
+          reason: "empty_assistant_reply",
+          account_sid: senderKey.account_sid,
+          from_number: senderKey.from_number,
+          to_number: senderKey.to_number,
+          conversation_id: preparedTurn.conversationId,
+        });
+        return;
+      }
+
+      const outboundAttemptedAt = new Date().toISOString();
+      const sendResult = await sendTwilioOutboundSms({
+        account_sid: twilioSettings.account_sid,
+        auth_token: authToken,
+        from_number: twilioSettings.from_number,
+        to_number: senderKey.from_number,
+        message: assistantReply,
+        smart_encoded: true,
+      });
+
+      await twilioSmsLinkStore.recordOutboundTimestamp(senderKey, outboundAttemptedAt);
+
+      if (!sendResult.ok) {
+        const safeError = buildTwilioTestSendFailureMessage(sendResult.status_code, sendResult.error_code);
+        await persistTwilioOperationalState(runtimeConfig.memory_root, currentPreferences, {
+          attemptedAt: outboundAttemptedAt,
+          result: "failed",
+          error: safeError,
+        });
+        auditLog("twilio.sms.webhook.auto_reply_failed", {
+          account_sid: senderKey.account_sid,
+          from_number: senderKey.from_number,
+          to_number: senderKey.to_number,
+          conversation_id: preparedTurn.conversationId,
+          status_code: sendResult.status_code,
+          error_code: sendResult.error_code,
+        });
+        return;
+      }
+
+      await persistTwilioOperationalState(runtimeConfig.memory_root, currentPreferences, {
+        attemptedAt: outboundAttemptedAt,
+        result: "success",
+        error: null,
+      });
+      auditLog("twilio.sms.webhook.auto_reply_sent", {
+        account_sid: senderKey.account_sid,
+        from_number: senderKey.from_number,
+        to_number: senderKey.to_number,
+        conversation_id: preparedTurn.conversationId,
+        status_code: sendResult.status_code,
+        message_sid: sendResult.message_sid,
+      });
+    });
+
+    sendEmptyTwilioSmsWebhookResponse(reply);
+  });
+
+  // POST /message shared message-processing entrypoint (also reused by Twilio SMS webhook).
   app.post("/message", async (request, reply) => {
-    const normalizedRequest = gatewayAdapter.normalizeMessageRequest(request.body, request.headers["x-conversation-id"]);
+    const normalizedRequest = gatewayAdapter.normalizeMessageRequest(
+      request.body,
+      request.headers["x-conversation-id"]
+    );
     if (!normalizedRequest.ok) {
       sendInvalidRequest(reply, "/message", normalizedRequest.failure.issueCount);
       return;
@@ -559,180 +926,57 @@ export async function buildServer(rootDir = process.cwd()) {
       content: normalizedRequest.request.content,
       ...(normalizedRequest.request.metadata ? { metadata: normalizedRequest.request.metadata } : {}),
     };
-    const requestedConversationId = normalizedRequest.request.requestedConversationId;
 
-    if (requestedConversationId && !conversations.hasConversation(requestedConversationId)) {
+    let preparedTurn;
+    try {
+      preparedTurn = await messageProcessing.prepareConversationTurn({
+        requestedConversationId: normalizedRequest.request.requestedConversationId,
+        message: body,
+        authContext: request.authContext,
+      });
+    } catch (error) {
+      if (!(error instanceof ConversationNotFoundError)) {
+        throw error;
+      }
+
       auditLog("contract.error", {
         route: "/message",
         status: 404,
         reason: "conversation_not_found",
-        conversation_id: requestedConversationId,
+        conversation_id: error.conversationId,
       });
       reply.code(404).send({ error: "Conversation not found" });
       return;
     }
 
-    const { conversationId } = conversations.persistUserMessage(requestedConversationId, body);
-    const projectId = isProjectMetadata(body.metadata) ? body.metadata.project.trim() : null;
-    if (isProjectMetadata(body.metadata)) {
-      await projects.attachConversation(body.metadata.project.trim(), conversationId);
-    }
-    const conversationSkillIds = conversations.getConversationSkills(conversationId) ?? [];
-    const projectSkillIds = projectId ? (await projects.getProjectSkills(projectId)) ?? [] : [];
-    const promptWithSkills = await skills.composePromptWithSkills(systemPrompt, [...projectSkillIds, ...conversationSkillIds]);
-
-    auditLog("skills.apply", {
-      conversation_id: conversationId,
-      project_id: projectId,
-      applied_skill_ids: promptWithSkills.applied,
-      missing_skill_ids: promptWithSkills.missing,
-      truncated: promptWithSkills.truncated,
-    });
-
-    // Inject project context so the AI knows which project it's operating in.
-    // Without this, the AI sees the base prompt but doesn't know which project
-    // files to read — it would read all projects and behave like BD+1.
-    const projectContext = projectId
-      ? `\n\n## Active Project\n\nYou are currently in the **${projectId}** project. Read this project's AGENT.md, spec.md, and plan.md from the documents/${projectId}/ folder. Stay focused on this domain — do not read or reference other projects unless the conversation specifically calls for cross-domain connections.`
-      : "";
-    const finalPrompt = promptWithSkills.prompt + projectContext;
-
-    const correlationId = crypto.randomUUID();
-    const contextWindow = await prepareContextWindow({
-      memoryRoot: runtimeConfig.memory_root,
-      conversationId,
-      correlationId,
-      messages: conversations.buildConversationMessages(conversationId, finalPrompt),
-      tools: toolExecutor.listTools(request.authContext),
-    });
-
-    auditLog("context.window", {
-      conversation_id: conversationId,
-      estimated_prompt_tokens_before: contextWindow.usage.estimatedPromptTokensBefore,
-      estimated_prompt_tokens_after: contextWindow.usage.estimatedPromptTokensAfter,
-      budget_tokens: contextWindow.usage.budgetTokens,
-      ratio_before: Number(contextWindow.usage.ratioBefore.toFixed(3)),
-      ratio_after: Number(contextWindow.usage.ratioAfter.toFixed(3)),
-      warning_threshold: contextWindow.usage.threshold,
-      dropped_units: contextWindow.usage.droppedUnits,
-      dropped_messages: contextWindow.usage.droppedMessages,
-      summary_applied: contextWindow.usage.summaryApplied,
-      summary_artifact_path: contextWindow.usage.summaryArtifactPath,
-      summary_artifact_write_error: contextWindow.usage.summaryArtifactWriteError,
-    });
-
-    const engineRequest = gatewayAdapter.buildEngineRequest({
-      conversationId,
-      correlationId,
-      messages: contextWindow.messages,
-      ...(body.metadata ? { clientMetadata: body.metadata } : {}),
-    });
-
     const streamHeaders: Record<string, string> = {
       "content-type": "text/event-stream",
       "cache-control": "no-cache",
       connection: "keep-alive",
-      "x-conversation-id": conversationId,
+      "x-conversation-id": preparedTurn.conversationId,
     };
-    if (contextWindow.warning) {
+    if (preparedTurn.contextWindowWarning) {
       streamHeaders["x-context-window-warning"] = "1";
-      streamHeaders["x-context-window-estimated-tokens"] = String(contextWindow.warning.estimated_tokens);
-      streamHeaders["x-context-window-budget-tokens"] = String(contextWindow.warning.budget_tokens);
-      streamHeaders["x-context-window-ratio"] = String(contextWindow.warning.ratio);
-      streamHeaders["x-context-window-threshold"] = String(contextWindow.warning.threshold);
-      streamHeaders["x-context-window-managed"] = contextWindow.warning.managed ? "1" : "0";
-      streamHeaders["x-context-window-message"] = contextWindow.warning.message;
+      streamHeaders["x-context-window-estimated-tokens"] = String(
+        preparedTurn.contextWindowWarning.estimated_tokens
+      );
+      streamHeaders["x-context-window-budget-tokens"] = String(
+        preparedTurn.contextWindowWarning.budget_tokens
+      );
+      streamHeaders["x-context-window-ratio"] = String(preparedTurn.contextWindowWarning.ratio);
+      streamHeaders["x-context-window-threshold"] = String(preparedTurn.contextWindowWarning.threshold);
+      streamHeaders["x-context-window-managed"] = preparedTurn.contextWindowWarning.managed ? "1" : "0";
+      streamHeaders["x-context-window-message"] = preparedTurn.contextWindowWarning.message;
     }
 
     reply.raw.writeHead(200, streamHeaders);
 
-    let assistantBuffer = "";
-    let currentAssistantMessageId = crypto.randomUUID();
-    let lastPersistedAssistantMessageId: string | null = null;
-    const pendingToolCalls = new Map<string, { name: string; input: Record<string, unknown> }>();
-
     try {
-      const livePreferences = await loadPreferences(runtimeConfig.memory_root);
-      const liveAdapterConfig = resolveAdapterConfigForPreferences(adapterConfig, livePreferences);
-      const liveProviderCredential = await resolveProviderCredentialForStartup(
-        runtimeConfig.provider_adapter,
-        liveAdapterConfig,
-        livePreferences
-      );
-      if (liveProviderCredential) {
-        auditLog("secret.resolve", {
-          provider_id: liveProviderCredential.providerId,
-          provider_profile: livePreferences.active_provider_profile ?? adapterConfig.default_provider_profile,
-          source: liveProviderCredential.source,
-          secret_ref: liveProviderCredential.secretRef,
-        });
-      }
-      const modelAdapter = createModelAdapter(runtimeConfig.provider_adapter, liveAdapterConfig, livePreferences, {
-        apiKey: liveProviderCredential?.apiKey,
+      await messageProcessing.runPreparedConversationTurn(preparedTurn, {
+        onEvent: (event) => {
+          reply.raw.write(formatSseEvent(event));
+        },
       });
-
-      for await (const event of runAgentLoop(
-        modelAdapter,
-        toolExecutor,
-        approvalStore,
-        engineRequest,
-        request.authContext,
-        {
-          memoryRoot: runtimeConfig.memory_root,
-          approvalMode: livePreferences.approval_mode,
-          safetyIterationLimit: runtimeConfig.safety_iteration_limit,
-        }
-      )) {
-        if (event.type === "tool-call") {
-          pendingToolCalls.set(event.id, {
-            name: event.name,
-            input: event.input,
-          });
-        }
-
-        if (event.type === "text-delta") {
-          assistantBuffer += event.delta;
-        }
-
-        if (event.type === "tool-result") {
-          const toolCall = pendingToolCalls.get(event.id);
-          pendingToolCalls.delete(event.id);
-
-          if (assistantBuffer.trim().length > 0) {
-            conversations.appendAssistantMessage(conversationId, currentAssistantMessageId, assistantBuffer);
-            lastPersistedAssistantMessageId = currentAssistantMessageId;
-            assistantBuffer = "";
-            currentAssistantMessageId = crypto.randomUUID();
-          }
-
-          conversations.appendToolMessage(
-            conversationId,
-            event.id,
-            JSON.stringify({
-              status: event.status,
-              output: event.output,
-            }),
-            toolCall
-          );
-        }
-
-        const outgoingEvent = gatewayAdapter.toClientStreamEvent(event, {
-          conversationId,
-          messageId: lastPersistedAssistantMessageId ?? currentAssistantMessageId,
-        });
-        reply.raw.write(formatSseEvent(outgoingEvent));
-      }
-
-      if (assistantBuffer.trim().length > 0) {
-        conversations.appendAssistantMessage(conversationId, currentAssistantMessageId, assistantBuffer);
-        lastPersistedAssistantMessageId = currentAssistantMessageId;
-      }
-    } catch (error) {
-      auditLog("gateway.error", {
-        conversation_id: conversationId,
-        message: error instanceof Error ? error.message : "Unknown error",
-      });
-      reply.raw.write(formatSseEvent(classifyProviderError(error)));
     } finally {
       reply.raw.end();
     }
@@ -954,7 +1198,7 @@ export async function buildServer(rootDir = process.cwd()) {
   app.get("/settings", async (request) => {
     authorize(request.authContext, "administration");
     const currentPreferences = await loadPreferences(runtimeConfig.memory_root);
-    return buildSettingsPayload(adapterConfig, currentPreferences);
+    return await buildSettingsPayload(adapterConfig, currentPreferences);
   });
 
   app.get("/settings/onboarding-status", async (request) => {
@@ -988,7 +1232,9 @@ export async function buildServer(rootDir = process.cwd()) {
       active_provider_profile: selectedProfile,
     };
     const selectedAdapterConfig = resolveAdapterConfigForPreferences(adapterConfig, scopedPreferences);
-    const fallbackModels = toFallbackProviderModels(buildSettingsPayload(adapterConfig, scopedPreferences).available_models);
+    const fallbackModels = toFallbackProviderModels(
+      (await buildSettingsPayload(adapterConfig, scopedPreferences)).available_models
+    );
     let models: ProviderModel[] = fallbackModels;
     let source: "provider" | "fallback" = "fallback";
     let warning: string | undefined;
@@ -1280,7 +1526,226 @@ export async function buildServer(rootDir = process.cwd()) {
     }
 
     await savePreferences(runtimeConfig.memory_root, nextPreferences);
-    reply.send(buildSettingsPayload(adapterConfig, nextPreferences));
+    reply.send(await buildSettingsPayload(adapterConfig, nextPreferences));
+  });
+
+  app.put("/settings/twilio-sms", async (request, reply) => {
+    authorize(request.authContext, "administration");
+    const parsed = settingsTwilioSmsUpdateSchema.safeParse(request.body);
+    if (!parsed.success) {
+      sendInvalidRequest(reply, "/settings/twilio-sms", parsed.error.issues.length);
+      return;
+    }
+
+    const body = parsed.data;
+    const currentPreferences = await loadPreferences(runtimeConfig.memory_root);
+    const currentTwilio = currentPreferences.twilio_sms;
+
+    const authTokenSecretRef =
+      body.auth_token_secret_ref?.trim() ||
+      currentTwilio?.auth_token_secret_ref?.trim() ||
+      DEFAULT_TWILIO_SMS_AUTH_TOKEN_SECRET_REF;
+    const authToken = body.auth_token?.trim();
+    let tokenRotated = false;
+
+    if (authToken) {
+      const paths = resolveSecretsPaths();
+      let masterKey;
+      try {
+        masterKey = await loadMasterKey(paths);
+      } catch {
+        await initializeMasterKey({ paths });
+        masterKey = await loadMasterKey(paths);
+      }
+      await upsertVaultSecret(authTokenSecretRef, authToken, masterKey, paths);
+      tokenRotated = true;
+    }
+
+    const ownerPhoneNumber = resolveSanitizedOptionalUpdate(
+      body.owner_phone_number,
+      currentTwilio?.owner_phone_number
+    );
+    if (body.strict_owner_mode && !ownerPhoneNumber) {
+      sendInvalidRequest(reply, "/settings/twilio-sms", 1);
+      return;
+    }
+
+    const testRecipient = resolveSanitizedOptionalUpdate(body.test_recipient, currentTwilio?.test_recipient);
+    const rateLimitPeriodStartedAt = resolveSanitizedOptionalUpdate(
+      body.rate_limit_period_started_at,
+      currentTwilio?.rate_limit_period_started_at
+    );
+    const rateLimitLastNotifiedAt = resolveSanitizedOptionalUpdate(
+      body.rate_limit_last_notified_at,
+      currentTwilio?.rate_limit_last_notified_at
+    );
+    const lastInboundAt = resolveSanitizedOptionalUpdate(body.last_inbound_at, currentTwilio?.last_inbound_at);
+    const lastOutboundAt = resolveSanitizedOptionalUpdate(body.last_outbound_at, currentTwilio?.last_outbound_at);
+    const lastResult = resolveSanitizedOptionalUpdate(body.last_result, currentTwilio?.last_result);
+    const lastError = resolveSanitizedNullableUpdate(body.last_error, currentTwilio?.last_error ?? null);
+
+    const nextPreferences: Preferences = {
+      ...currentPreferences,
+      twilio_sms: {
+        enabled: body.enabled,
+        account_sid: body.account_sid.trim(),
+        from_number: body.from_number.trim(),
+        public_base_url: normalizePublicBaseUrl(body.public_base_url),
+        auto_reply: body.auto_reply,
+        strict_owner_mode: body.strict_owner_mode,
+        ...(ownerPhoneNumber ? { owner_phone_number: ownerPhoneNumber } : {}),
+        rate_limit_period: body.rate_limit_period,
+        rate_limit_cap_round_trips: body.rate_limit_cap_round_trips,
+        rate_limit_current_count: body.rate_limit_current_count ?? currentTwilio?.rate_limit_current_count ?? 0,
+        ...(rateLimitPeriodStartedAt ? { rate_limit_period_started_at: rateLimitPeriodStartedAt } : {}),
+        ...(rateLimitLastNotifiedAt ? { rate_limit_last_notified_at: rateLimitLastNotifiedAt } : {}),
+        auth_token_secret_ref: authTokenSecretRef,
+        ...(testRecipient ? { test_recipient: testRecipient } : {}),
+        ...(lastInboundAt ? { last_inbound_at: lastInboundAt } : {}),
+        ...(lastOutboundAt ? { last_outbound_at: lastOutboundAt } : {}),
+        ...(lastResult ? { last_result: lastResult } : {}),
+        last_error: lastError,
+      },
+    };
+
+    await savePreferences(runtimeConfig.memory_root, nextPreferences);
+    auditLog("settings.twilio_sms_update", {
+      actor_id: request.authContext.actorId,
+      enabled: body.enabled,
+      strict_owner_mode: body.strict_owner_mode,
+      token_rotated: tokenRotated,
+      auth_token_secret_ref: authTokenSecretRef,
+    });
+
+    reply.send(await buildSettingsPayload(adapterConfig, nextPreferences));
+  });
+
+  app.post("/settings/twilio-sms/test-send", async (request, reply) => {
+    authorize(request.authContext, "administration");
+    const parsed = settingsTwilioSmsTestSendSchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      sendInvalidRequest(reply, "/settings/twilio-sms/test-send", parsed.error.issues.length);
+      return;
+    }
+
+    const currentPreferences = await loadPreferences(runtimeConfig.memory_root);
+    const twilioSettings = currentPreferences.twilio_sms;
+    if (!twilioSettings?.enabled) {
+      sendInvalidRequest(reply, "/settings/twilio-sms/test-send", 1);
+      return;
+    }
+
+    const recipient = resolveSanitizedOptionalUpdate(parsed.data.recipient, twilioSettings.test_recipient);
+    if (!recipient || !E164_PHONE_NUMBER_PATTERN.test(recipient)) {
+      sendInvalidRequest(reply, "/settings/twilio-sms/test-send", 1);
+      return;
+    }
+
+    const sanitizedMessage = sanitizeTwilioOutboundMessage(parsed.data.message);
+    if (!sanitizedMessage) {
+      sendInvalidRequest(reply, "/settings/twilio-sms/test-send", 1);
+      return;
+    }
+
+    const attemptedAt = new Date().toISOString();
+    const authToken = await resolveVaultSecretValue(twilioSettings.auth_token_secret_ref);
+    if (!authToken) {
+      const safeError = "Twilio auth token is not configured";
+      await persistTwilioOperationalState(runtimeConfig.memory_root, currentPreferences, {
+        attemptedAt,
+        result: "failed",
+        error: safeError,
+      });
+      auditLog("settings.twilio_sms_test_send_failed", {
+        actor_id: request.authContext.actorId,
+        result: "failed",
+        status_code: 400,
+        error: safeError,
+      });
+      reply.code(400).send({
+        result: "failed",
+        recipient,
+        message: sanitizedMessage,
+        sent_at: attemptedAt,
+        error: safeError,
+      });
+      return;
+    }
+
+    try {
+      const sendResult = await sendTwilioOutboundSms({
+        account_sid: twilioSettings.account_sid,
+        auth_token: authToken,
+        from_number: twilioSettings.from_number,
+        to_number: recipient,
+        message: sanitizedMessage,
+        smart_encoded: true,
+      });
+
+      if (!sendResult.ok) {
+        const safeError = buildTwilioTestSendFailureMessage(sendResult.status_code, sendResult.error_code);
+        await persistTwilioOperationalState(runtimeConfig.memory_root, currentPreferences, {
+          attemptedAt,
+          result: "failed",
+          error: safeError,
+        });
+        auditLog("settings.twilio_sms_test_send_failed", {
+          actor_id: request.authContext.actorId,
+          result: "failed",
+          status_code: sendResult.status_code,
+          error_code: sendResult.error_code,
+        });
+        reply.code(502).send({
+          result: "failed",
+          recipient,
+          message: sanitizedMessage,
+          sent_at: attemptedAt,
+          error: safeError,
+        });
+        return;
+      }
+
+      await persistTwilioOperationalState(runtimeConfig.memory_root, currentPreferences, {
+        attemptedAt,
+        result: "success",
+        error: null,
+      });
+      auditLog("settings.twilio_sms_test_send_success", {
+        actor_id: request.authContext.actorId,
+        result: "success",
+        status_code: sendResult.status_code,
+      });
+      reply.send({
+        result: "success",
+        recipient,
+        message: sanitizedMessage,
+        sent_at: attemptedAt,
+        provider: {
+          message_sid: sendResult.message_sid || null,
+          status: sendResult.status,
+        },
+      });
+    } catch {
+      const safeError = "Twilio request failed";
+      await persistTwilioOperationalState(runtimeConfig.memory_root, currentPreferences, {
+        attemptedAt,
+        result: "failed",
+        error: safeError,
+      });
+      auditLog("settings.twilio_sms_test_send_failed", {
+        actor_id: request.authContext.actorId,
+        result: "failed",
+        status_code: 502,
+        error: safeError,
+      });
+      reply.code(502).send({
+        result: "failed",
+        recipient,
+        message: sanitizedMessage,
+        sent_at: attemptedAt,
+        error: safeError,
+      });
+    }
   });
 
   app.put("/settings/memory-backup", async (request, reply) => {
@@ -1343,7 +1808,7 @@ export async function buildServer(rootDir = process.cwd()) {
       token_secret_ref: tokenSecretRef,
       token_rotated: Boolean(body.git_token),
     });
-    reply.send(buildSettingsPayload(adapterConfig, nextPreferences));
+    reply.send(await buildSettingsPayload(adapterConfig, nextPreferences));
   });
 
   app.post("/settings/memory-backup/save", async (request, reply) => {
@@ -1365,7 +1830,7 @@ export async function buildServer(rootDir = process.cwd()) {
 
     reply.send({
       result,
-      settings: buildSettingsPayload(adapterConfig, nextPreferences),
+      settings: await buildSettingsPayload(adapterConfig, nextPreferences),
     });
   });
 
@@ -1401,7 +1866,7 @@ export async function buildServer(rootDir = process.cwd()) {
       });
       reply.send({
         result,
-        settings: buildSettingsPayload(adapterConfig, refreshedPreferences),
+        settings: await buildSettingsPayload(adapterConfig, refreshedPreferences),
       });
     } catch (error) {
       const safeMessage = error instanceof Error ? error.message : "Memory restore failed";
@@ -1482,7 +1947,7 @@ export async function buildServer(rootDir = process.cwd()) {
     });
 
     reply.send({
-      settings: buildSettingsPayload(adapterConfig, nextPreferences),
+      settings: await buildSettingsPayload(adapterConfig, nextPreferences),
       onboarding: onboardingStatus,
     });
   });
@@ -1632,7 +2097,7 @@ export async function buildServer(rootDir = process.cwd()) {
 
       reply.code(201).send({
         ...importResult,
-        settings: buildSettingsPayload(adapterConfig, refreshedPreferences),
+        settings: await buildSettingsPayload(adapterConfig, refreshedPreferences),
       });
     } catch (error) {
       auditLog("migration.import.failed", {
@@ -2168,6 +2633,120 @@ class FixedWindowRateLimiter {
   }
 }
 
+class SenderKeySequencer {
+  private readonly tails = new Map<string, Promise<void>>();
+
+  async run<T>(key: string, task: () => Promise<T>): Promise<T> {
+    const previousTail = this.tails.get(key) ?? Promise.resolve();
+    let releaseTail: (() => void) | undefined;
+    const tail = new Promise<void>((resolve) => {
+      releaseTail = resolve;
+    });
+    this.tails.set(key, tail);
+
+    await previousTail;
+
+    try {
+      return await task();
+    } finally {
+      releaseTail?.();
+      if (this.tails.get(key) === tail) {
+        this.tails.delete(key);
+      }
+    }
+  }
+}
+
+async function reserveTwilioAutoReplySlot(input: {
+  linkStore: TwilioSmsLinkStore;
+  senderKey: TwilioSmsSenderKey;
+  periodSeconds: number;
+  capRoundTrips: number;
+  now: string;
+}): Promise<
+  | {
+      allowed: true;
+      currentCount: number;
+      periodStartedAt: string;
+    }
+  | {
+      allowed: false;
+      shouldNotify: boolean;
+      currentCount: number;
+      periodStartedAt: string;
+    }
+> {
+  const nowIso = new Date(input.now).toISOString();
+  const periodSeconds = Math.max(0, Math.floor(input.periodSeconds));
+  const capRoundTrips = Math.max(0, Math.floor(input.capRoundTrips));
+
+  if (periodSeconds <= 0) {
+    await input.linkStore.clearRateLimitState(input.senderKey);
+    return {
+      allowed: true,
+      currentCount: 0,
+      periodStartedAt: nowIso,
+    };
+  }
+
+  const currentState = await input.linkStore.getRateLimitState(input.senderKey);
+  const windowIsExpired =
+    !currentState ||
+    currentState.period_seconds !== periodSeconds ||
+    currentState.cap_round_trips !== capRoundTrips ||
+    Date.parse(currentState.period_started_at) + currentState.period_seconds * 1000 <= Date.parse(nowIso);
+  const activeState = windowIsExpired
+    ? {
+        current_count: 0,
+        period_started_at: nowIso,
+      }
+    : {
+        current_count: currentState.current_count,
+        period_started_at: currentState.period_started_at,
+        ...(currentState.last_notified_at ? { last_notified_at: currentState.last_notified_at } : {}),
+      };
+
+  if (activeState.current_count >= capRoundTrips) {
+    const shouldNotify = !activeState.last_notified_at;
+    const persisted = await input.linkStore.setRateLimitState({
+      ...input.senderKey,
+      period_seconds: periodSeconds,
+      cap_round_trips: capRoundTrips,
+      current_count: activeState.current_count,
+      period_started_at: activeState.period_started_at,
+      ...(shouldNotify
+        ? { last_notified_at: nowIso }
+        : activeState.last_notified_at
+          ? { last_notified_at: activeState.last_notified_at }
+          : {}),
+      updated_at: nowIso,
+    });
+
+    return {
+      allowed: false,
+      shouldNotify,
+      currentCount: persisted.current_count,
+      periodStartedAt: persisted.period_started_at,
+    };
+  }
+
+  const persisted = await input.linkStore.setRateLimitState({
+    ...input.senderKey,
+    period_seconds: periodSeconds,
+    cap_round_trips: capRoundTrips,
+    current_count: activeState.current_count + 1,
+    period_started_at: activeState.period_started_at,
+    ...(activeState.last_notified_at ? { last_notified_at: activeState.last_notified_at } : {}),
+    updated_at: nowIso,
+  });
+
+  return {
+    allowed: true,
+    currentCount: persisted.current_count,
+    periodStartedAt: persisted.period_started_at,
+  };
+}
+
 function createConversationRepository(runtimeConfig: RuntimeConfig): ConversationRepository {
   switch (runtimeConfig.conversation_store) {
     case "markdown":
@@ -2175,6 +2754,28 @@ function createConversationRepository(runtimeConfig: RuntimeConfig): Conversatio
     default:
       throw new Error(`Unsupported conversation store: ${(runtimeConfig as { conversation_store?: string }).conversation_store ?? "unknown"}`);
   }
+}
+
+function buildSystemServiceAuthContext(state: {
+  actor_id: string;
+  actor_type: "owner";
+  permissions: AuthContext["permissions"];
+  mode: AuthContext["mode"];
+}): AuthContext {
+  return {
+    actorId: state.actor_id,
+    actorType: state.actor_type,
+    permissions: state.permissions,
+    mode: state.mode,
+  };
+}
+
+function toTwilioSenderSequenceKey(senderKey: TwilioSmsSenderKey): string {
+  return [
+    senderKey.account_sid.trim().toUpperCase(),
+    senderKey.from_number.replace(/\s+/g, "").trim(),
+    senderKey.to_number.replace(/\s+/g, "").trim(),
+  ].join("|");
 }
 
 function sendInvalidRequest(
@@ -2236,6 +2837,164 @@ function validateMemoryBackupRepositoryUrl(repositoryUrl: string): string | null
   return null;
 }
 
+function validatePublicBaseUrl(value: string): string | null {
+  const parsed = tryParseUrl(value);
+  if (!parsed) {
+    return "public_base_url must be a valid URL";
+  }
+
+  if (parsed.protocol !== "https:") {
+    return "public_base_url must use https://";
+  }
+
+  if (parsed.username || parsed.password) {
+    return "public_base_url cannot include embedded credentials";
+  }
+
+  if ((parsed.pathname && parsed.pathname !== "/") || parsed.search || parsed.hash) {
+    return "public_base_url must include only scheme and host (no path, query, or hash)";
+  }
+
+  return null;
+}
+
+function normalizePublicBaseUrl(value: string): string {
+  const parsed = tryParseUrl(value);
+  if (!parsed) {
+    return value.trim();
+  }
+  return parsed.origin;
+}
+
+function normalizeOptionalString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function resolveSanitizedOptionalUpdate(value: unknown, fallback: string | undefined): string | undefined {
+  if (value === undefined) {
+    return fallback;
+  }
+  return normalizeOptionalString(value);
+}
+
+function resolveSanitizedNullableUpdate(value: unknown, fallback: string | null): string | null {
+  if (value === undefined) {
+    return fallback;
+  }
+  return normalizeOptionalString(value) ?? null;
+}
+
+function buildTwilioWebhookUrl(publicBaseUrl: string): string | null {
+  const twilioSmsWebhookPath = "/twilio/sms/webhook";
+  const normalizedBaseUrl = normalizePublicBaseUrl(publicBaseUrl);
+  const parsedBaseUrl = tryParseUrl(normalizedBaseUrl);
+  if (!parsedBaseUrl) {
+    return null;
+  }
+  return new URL(twilioSmsWebhookPath, parsedBaseUrl).toString();
+}
+
+function sendEmptyTwilioSmsWebhookResponse(reply: {
+  header: (key: string, value: string) => unknown;
+  code: (statusCode: number) => { send: (payload: unknown) => void };
+}): void {
+  const emptyTwimlBody = "<Response></Response>";
+  const payload = TWILIO_SMS_EMPTY_TWIML_RESPONSE.includes(emptyTwimlBody)
+    ? TWILIO_SMS_EMPTY_TWIML_RESPONSE
+    : emptyTwimlBody;
+  reply.header("content-type", "text/xml; charset=utf-8");
+  reply.code(200).send(payload);
+}
+
+async function persistTwilioInboundOperationalState(
+  memoryRoot: string,
+  _preferences: Preferences,
+  receivedAt: string
+): Promise<Preferences> {
+  const currentPreferences = await loadPreferences(memoryRoot);
+  if (!currentPreferences.twilio_sms) {
+    return currentPreferences;
+  }
+
+  const nextPreferences: Preferences = {
+    ...currentPreferences,
+    twilio_sms: {
+      ...currentPreferences.twilio_sms,
+      last_inbound_at: receivedAt,
+    },
+  };
+
+  await savePreferences(memoryRoot, nextPreferences);
+  return nextPreferences;
+}
+
+async function persistTwilioOperationalState(
+  memoryRoot: string,
+  _preferences: Preferences,
+  state: { attemptedAt: string; result: "success" | "failed"; error: string | null }
+): Promise<Preferences> {
+  const currentPreferences = await loadPreferences(memoryRoot);
+  if (!currentPreferences.twilio_sms) {
+    return currentPreferences;
+  }
+
+  const nextPreferences: Preferences = {
+    ...currentPreferences,
+    twilio_sms: {
+      ...currentPreferences.twilio_sms,
+      last_outbound_at: state.attemptedAt,
+      last_result: state.result,
+      last_error: state.error,
+    },
+  };
+
+  await savePreferences(memoryRoot, nextPreferences);
+  return nextPreferences;
+}
+
+function sanitizeTwilioOutboundMessage(message: string): string {
+  const gsm7Message = sanitizeOutboundSmsToGsm7(message);
+  const normalized = gsm7Message.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const bounded = normalized.slice(0, TWILIO_SMS_MAX_OUTBOUND_CHARS);
+  return bounded.trim();
+}
+
+function buildTwilioTestSendFailureMessage(statusCode: number, errorCode: number | null): string {
+  if (errorCode !== null) {
+    return `Twilio request failed (status ${statusCode}, code ${errorCode})`;
+  }
+
+  return `Twilio request failed (status ${statusCode})`;
+}
+
+async function resolveVaultSecretValue(secretRef: string | undefined): Promise<string | null> {
+  const normalizedSecretRef = secretRef?.trim();
+  if (!normalizedSecretRef) {
+    return null;
+  }
+
+  try {
+    const paths = resolveSecretsPaths();
+    const masterKey = await loadMasterKey(paths);
+    const secretValue = await getVaultSecret(normalizedSecretRef, masterKey, paths);
+    const normalizedSecretValue = secretValue?.trim();
+    if (!normalizedSecretValue) {
+      return null;
+    }
+    return normalizedSecretValue;
+  } catch {
+    return null;
+  }
+}
+
+async function isVaultSecretConfigured(secretRef: string | undefined): Promise<boolean> {
+  return (await resolveVaultSecretValue(secretRef)) !== null;
+}
+
 function looksLikeSshRepositoryUrl(repositoryUrl: string): boolean {
   const normalized = repositoryUrl.trim().toLowerCase();
   return normalized.startsWith("ssh://") || normalized.startsWith("git@");
@@ -2249,33 +3008,10 @@ function tryParseUrl(repositoryUrl: string): URL | null {
   }
 }
 
-function buildSettingsPayload(
+async function buildSettingsPayload(
   adapterConfig: AdapterConfig,
   preferences: Preferences
-): {
-  default_model: string;
-  approval_mode: ApprovalMode;
-  active_provider_profile: string | null;
-  default_provider_profile: string | null;
-  available_models: string[];
-  provider_profiles: Array<{
-    id: string;
-    provider_id: string;
-    base_url: string;
-    model: string;
-    credential_mode: "plain" | "secret_ref" | "unset";
-    credential_ref: string | null;
-  }>;
-  memory_backup: {
-    repository_url: string;
-    frequency: "manual" | "after_changes" | "hourly" | "daily";
-    token_configured: boolean;
-    last_save_at?: string;
-    last_attempt_at?: string;
-    last_result: "never" | "success" | "failed";
-    last_error: string | null;
-  } | null;
-} {
+): Promise<GatewaySettingsPayload> {
   const profiles = listProviderProfiles(adapterConfig);
   const providerProfilePayload = profiles.map((profile) => {
     const credential = preferences.provider_credentials?.[profile.provider_id];
@@ -2314,6 +3050,8 @@ function buildSettingsPayload(
     )
   );
   const memoryBackup = preferences.memory_backup;
+  const twilioSms = preferences.twilio_sms;
+  const twilioTokenConfigured = await isVaultSecretConfigured(twilioSms?.auth_token_secret_ref);
 
   return {
     default_model: effectiveDefaultModel,
@@ -2331,6 +3069,33 @@ function buildSettingsPayload(
           ...(memoryBackup.last_attempt_at ? { last_attempt_at: memoryBackup.last_attempt_at } : {}),
           last_result: memoryBackup.last_result ?? "never",
           last_error: memoryBackup.last_error ?? null,
+        }
+      : null,
+    twilio_sms: twilioSms
+      ? {
+          enabled: twilioSms.enabled,
+          account_sid: twilioSms.account_sid,
+          from_number: twilioSms.from_number,
+          public_base_url: twilioSms.public_base_url,
+          auto_reply: twilioSms.auto_reply,
+          strict_owner_mode: twilioSms.strict_owner_mode,
+          owner_phone_number: twilioSms.owner_phone_number ?? null,
+          rate_limit_period: twilioSms.rate_limit_period,
+          rate_limit_cap_round_trips: twilioSms.rate_limit_cap_round_trips,
+          rate_limit_current_count: twilioSms.rate_limit_current_count,
+          ...(twilioSms.rate_limit_period_started_at
+            ? { rate_limit_period_started_at: twilioSms.rate_limit_period_started_at }
+            : {}),
+          ...(twilioSms.rate_limit_last_notified_at
+            ? { rate_limit_last_notified_at: twilioSms.rate_limit_last_notified_at }
+            : {}),
+          token_configured: twilioTokenConfigured,
+          test_recipient: twilioSms.test_recipient ?? null,
+          ...(twilioSms.last_inbound_at ? { last_inbound_at: twilioSms.last_inbound_at } : {}),
+          ...(twilioSms.last_outbound_at ? { last_outbound_at: twilioSms.last_outbound_at } : {}),
+          ...(twilioSms.last_result ? { last_result: twilioSms.last_result } : {}),
+          last_error: twilioSms.last_error ?? null,
+          webhook_url: buildTwilioWebhookUrl(twilioSms.public_base_url),
         }
       : null,
   };

@@ -160,6 +160,67 @@ export type GatewayMemoryBackupSettingsUpdateRequest = {
   token_secret_ref?: string;
 };
 
+export type GatewayTwilioSmsSettings = {
+  enabled: boolean;
+  account_sid: string;
+  from_number: string;
+  public_base_url: string;
+  auto_reply: boolean;
+  strict_owner_mode: boolean;
+  owner_phone_number: string | null;
+  rate_limit_period: number;
+  rate_limit_cap_round_trips: number;
+  rate_limit_current_count: number;
+  rate_limit_period_started_at?: string;
+  rate_limit_last_notified_at?: string;
+  token_configured: boolean;
+  test_recipient: string | null;
+  last_inbound_at?: string;
+  last_outbound_at?: string;
+  last_result?: string;
+  last_error: string | null;
+  webhook_url: string | null;
+};
+
+export type GatewayTwilioSmsSettingsUpdateRequest = {
+  enabled: boolean;
+  account_sid: string;
+  from_number: string;
+  public_base_url: string;
+  auto_reply: boolean;
+  strict_owner_mode: boolean;
+  owner_phone_number?: string | null;
+  rate_limit_period: number;
+  rate_limit_cap_round_trips: number;
+  rate_limit_current_count?: number;
+  rate_limit_period_started_at?: string | null;
+  rate_limit_last_notified_at?: string | null;
+  auth_token?: string;
+  auth_token_secret_ref?: string;
+  test_recipient?: string | null;
+  last_inbound_at?: string | null;
+  last_outbound_at?: string | null;
+  last_result?: string | null;
+  last_error?: string | null;
+};
+
+export type GatewayTwilioSmsTestSendRequest = {
+  recipient?: string | null;
+  message: string;
+};
+
+export type GatewayTwilioSmsTestSendResponse = {
+  result: "success" | "failed";
+  recipient: string;
+  message: string;
+  sent_at: string;
+  error?: string;
+  provider?: {
+    message_sid: string | null;
+    status: string | null;
+  };
+};
+
 export type GatewayMemoryBackupRunResult = {
   attempted_at: string;
   saved_at?: string;
@@ -197,6 +258,7 @@ export type GatewaySettings = {
   available_models: string[];
   provider_profiles: GatewayProviderProfile[];
   memory_backup: GatewayMemoryBackupSettings | null;
+  twilio_sms?: GatewayTwilioSmsSettings | null;
 };
 
 export type GatewayOnboardingProvider = {
