@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODE="${1:-quickstart}"
+MODE="${1:-local}"
 
 if [[ "${MODE}" != "prod" && "${MODE}" != "local" && "${MODE}" != "quickstart" && "${MODE}" != "dev" ]]; then
-  echo "Usage: ./scripts/start.sh [quickstart|prod|local|dev]"
+  echo "Usage: ./scripts/start.sh [local|prod|dev|quickstart]"
   exit 1
 fi
 
@@ -12,6 +12,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
 source "${SCRIPT_DIR}/browser-helper.sh"
+
+if [[ "${MODE}" == "quickstart" ]]; then
+  echo "Mode 'quickstart' is deprecated and now aliases to 'local'." >&2
+  MODE="local"
+fi
 
 get_env_value() {
   local key="$1"
@@ -24,7 +29,7 @@ get_env_value() {
 }
 
 configure_docker_platform() {
-  if [[ "${MODE}" != "quickstart" && "${MODE}" != "prod" && "${MODE}" != "local" ]]; then
+  if [[ "${MODE}" != "prod" && "${MODE}" != "local" ]]; then
     return 0
   fi
 
@@ -47,27 +52,54 @@ configure_docker_platform() {
   fi
 }
 
-COMPOSE_FILE="compose.quickstart.yml"
+COMPOSE_FILE="compose.local.yml"
 if [[ "${MODE}" == "prod" ]]; then
   COMPOSE_FILE="compose.prod.yml"
-elif [[ "${MODE}" == "local" ]]; then
-  COMPOSE_FILE="compose.local.yml"
 elif [[ "${MODE}" == "dev" ]]; then
   COMPOSE_FILE="compose.dev.yml"
 fi
+
+run_quickstart_migration_once() {
+  if [[ "${MODE}" != "local" ]]; then
+    return 0
+  fi
+
+  local runtime_dir marker_file legacy_ids
+  runtime_dir="${ROOT_DIR}/.runtime"
+  marker_file="${runtime_dir}/quickstart-migration-v1.done"
+  mkdir -p "${runtime_dir}"
+
+  if [[ -f "${marker_file}" ]]; then
+    return 0
+  fi
+
+  echo "Migration note: 'quickstart' has been replaced by 'local'."
+  legacy_ids="$(docker compose -f compose.quickstart.yml ps -q 2>/dev/null || true)"
+  if [[ -n "${legacy_ids}" ]]; then
+    echo "Found running legacy quickstart containers; stopping them to avoid port conflicts."
+    docker compose -f compose.quickstart.yml down --remove-orphans >/dev/null 2>&1 || true
+  fi
+
+  {
+    echo "migrated_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "reason=quickstart-renamed-to-local"
+  } > "${marker_file}"
+}
 
 if [[ "${MODE}" == "prod" ]]; then
   DOMAIN_VALUE="$(get_env_value DOMAIN | tr -d '"')"
   if [[ -z "${DOMAIN_VALUE}" || "${DOMAIN_VALUE}" == "app.example.com" ]]; then
     echo "Prod start requires installer/docker/.env with a real DOMAIN." >&2
-    echo "If you meant quickstart mode, run: ./scripts/start.sh quickstart" >&2
+    echo "If you meant local mode, run: ./scripts/start.sh local" >&2
     exit 1
   fi
 fi
 
 configure_docker_platform
 
-if [[ "${MODE}" == "quickstart" || "${MODE}" == "prod" || "${MODE}" == "local" ]]; then
+run_quickstart_migration_once
+
+if [[ "${MODE}" == "prod" || "${MODE}" == "local" ]]; then
   set +e
   bash "${SCRIPT_DIR}/check-update.sh" "${MODE}"
   CHECK_UPDATE_EXIT=$?
@@ -86,7 +118,7 @@ fi
 
 if ! docker compose -f "${COMPOSE_FILE}" up -d; then
   if [[ "${MODE}" == "prod" ]]; then
-    echo "Prod start failed. If you are running locally, use: ./scripts/start.sh quickstart" >&2
+    echo "Prod start failed. If you are running locally, use: ./scripts/start.sh local" >&2
   fi
   exit 1
 fi

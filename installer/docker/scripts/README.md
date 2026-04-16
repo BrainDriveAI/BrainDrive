@@ -64,14 +64,14 @@
 
 ## Mode Map
 
-- `quickstart` -> `compose.quickstart.yml`
 - `prod` -> `compose.prod.yml`
 - `local` -> `compose.local.yml`
 - `dev` -> `compose.dev.yml`
+- `quickstart` -> legacy alias that resolves to `local` (legacy stack file kept at `compose.quickstart.yml` for one-time migration handling)
 
 Notes:
 - `install/start/stop` support `dev`.
-- `check-update/upgrade` support `quickstart|prod|local`.
+- `check-update/upgrade` support `local|prod` (plus legacy `quickstart` alias).
 
 ## Script Catalog
 
@@ -85,17 +85,17 @@ What it does:
 - In `prod`, validates `DOMAIN` and digest-ref pairing (`BRAINDRIVE_APP_REF` and `BRAINDRIVE_EDGE_REF`).
 
 Usage:
-- Shell: `./installer/docker/scripts/install.sh [quickstart|prod|local|dev]`
-- PowerShell: `.\installer\docker\scripts\install.ps1 [-Mode quickstart|prod|local|dev]`
+- Shell: `./installer/docker/scripts/install.sh [local|prod|dev|quickstart]`
+- PowerShell: `.\installer\docker\scripts\install.ps1 [-Mode local|prod|dev|quickstart]`
 
 Arguments:
-- `Mode` (default: `quickstart`)
+- `Mode` (default: `local`)
 
 Key behavior:
 - Fails if `.env` already exists (protects existing account/secrets state).
 - `dev` builds images.
-- `quickstart`, `prod`, and `local` pull images.
-- On Apple Silicon macOS, shell install defaults quickstart/prod/local pulls to `linux/amd64` unless `BRAINDRIVE_DOCKER_PLATFORM` is set.
+- `local` and `prod` pull images (`quickstart` aliases to `local`).
+- On Apple Silicon macOS, shell install defaults local/prod pulls to `linux/amd64` unless `BRAINDRIVE_DOCKER_PLATFORM` is set.
 - Always prints the access URL and attempts a best-effort browser auto-open on the host.
 
 Env/config touched:
@@ -106,15 +106,16 @@ Env/config touched:
 
 What it does:
 - Starts services for selected mode.
-- Runs startup update policy check for `quickstart`, `prod`, and `local` before `docker compose up -d`.
+- Runs startup update policy check for `local` and `prod` before `docker compose up -d`.
+- Includes one-time migration handling to stop running legacy `quickstart` containers before local startup.
 - Creates required volumes in `dev` mode.
 
 Usage:
-- Shell: `./installer/docker/scripts/start.sh [quickstart|prod|local|dev]`
-- PowerShell: `.\installer\docker\scripts\start.ps1 [-Mode quickstart|prod|local|dev]`
+- Shell: `./installer/docker/scripts/start.sh [local|prod|dev|quickstart]`
+- PowerShell: `.\installer\docker\scripts\start.ps1 [-Mode local|prod|dev|quickstart]`
 
 Arguments:
-- `Mode` (default: `quickstart`)
+- `Mode` (default: `local`)
 
 Key behavior:
 - `prod` requires `.env` and real `DOMAIN`.
@@ -130,24 +131,25 @@ What it does:
 - Stops containers for selected compose stack and prints `docker compose ps`.
 
 Usage:
-- Shell: `./installer/docker/scripts/stop.sh [quickstart|prod|local|dev]`
-- PowerShell: `.\installer\docker\scripts\stop.ps1 [-Mode quickstart|prod|local|dev]`
+- Shell: `./installer/docker/scripts/stop.sh [local|prod|dev|quickstart]`
+- PowerShell: `.\installer\docker\scripts\stop.ps1 [-Mode local|prod|dev|quickstart]`
 
 Arguments:
-- `Mode` (default: `quickstart`)
+- `Mode` (default: `local`)
 
 ### upgrade (`upgrade.sh`, `upgrade.ps1`)
 
 What it does:
-- Performs upgrade flow for `quickstart|prod|local`.
+- Performs upgrade flow for `local|prod` (legacy `quickstart` aliases to `local`).
+- Includes one-time migration handling to stop running legacy `quickstart` containers before local upgrade.
 - Fetches remote metadata, resolves target refs, validates signatures (if required), then pulls and restarts.
 
 Usage:
-- Shell: `./installer/docker/scripts/upgrade.sh [quickstart|prod|local]`
-- PowerShell: `.\installer\docker\scripts\upgrade.ps1 [-Mode quickstart|prod|local]`
+- Shell: `./installer/docker/scripts/upgrade.sh [local|prod|quickstart]`
+- PowerShell: `.\installer\docker\scripts\upgrade.ps1 [-Mode local|prod|quickstart]`
 
 Arguments:
-- `Mode` (default: `quickstart`)
+- `Mode` (default: `local`)
 
 Important behavior:
 - Supports dry-run check mode via `BRAINDRIVE_UPGRADE_DRY_RUN=true`.
@@ -185,11 +187,11 @@ What it does:
 - Uses state tracking and lock to avoid concurrent checks.
 
 Usage:
-- Shell: `./installer/docker/scripts/check-update.sh [quickstart|prod|local]`
-- PowerShell: `.\installer\docker\scripts\check-update.ps1 [-Mode quickstart|prod|local]`
+- Shell: `./installer/docker/scripts/check-update.sh [local|prod|quickstart]`
+- PowerShell: `.\installer\docker\scripts\check-update.ps1 [-Mode local|prod|quickstart]`
 
 Arguments:
-- `Mode` (default: `quickstart`)
+- `Mode` (default: `local`)
 
 Policies supported:
 - `auto-apply`
@@ -270,7 +272,7 @@ What it does:
 
 Usage:
 - Shell: `./installer/docker/scripts/migration-export.sh [output-file] [base-url]`
-- PowerShell: `.\installer\docker\scripts\migration-export.ps1 [-OutputFile <path>] [-BaseUrl <url>] [-Mode dev|local|quickstart|prod]`
+- PowerShell: `.\installer\docker\scripts\migration-export.ps1 [-OutputFile <path>] [-BaseUrl <url>] [-Mode dev|local|prod|quickstart]`
 
 Authentication:
 - Uses `BRAINDRIVE_MIGRATION_ACCESS_TOKEN` when set.
@@ -285,7 +287,7 @@ What it does:
 
 Usage:
 - Shell: `./installer/docker/scripts/migration-import.sh <archive-file> [base-url]`
-- PowerShell: `.\installer\docker\scripts\migration-import.ps1 -ArchiveFile <path> [-BaseUrl <url>] [-Mode dev|local|quickstart|prod]`
+- PowerShell: `.\installer\docker\scripts\migration-import.ps1 -ArchiveFile <path> [-BaseUrl <url>] [-Mode dev|local|prod|quickstart]`
 
 Authentication:
 - Same credential resolution as `migration-export`.
@@ -297,7 +299,7 @@ What it does:
 
 Usage:
 - Shell: `./installer/docker/scripts/migration-smoke.sh [mode] [base-url]`
-- PowerShell: `.\installer\docker\scripts\migration-smoke.ps1 [-Mode dev|local|quickstart|prod] [-BaseUrl <url>]`
+- PowerShell: `.\installer\docker\scripts\migration-smoke.ps1 [-Mode dev|local|prod|quickstart] [-BaseUrl <url>]`
 
 ### support-bundle (`support-bundle.sh`, `support-bundle.ps1`)
 
@@ -310,11 +312,11 @@ What it does:
 - Redacts common secret patterns before packaging.
 
 Usage:
-- Shell: `./installer/docker/scripts/support-bundle.sh [quickstart|prod|local|dev] [since-window] [output-dir]`
-- PowerShell: `.\installer\docker\scripts\support-bundle.ps1 [-Mode quickstart|prod|local|dev] [-SinceWindow 24h] [-OutputDir <path>] [-SkipHealth]`
+- Shell: `./installer/docker/scripts/support-bundle.sh [local|prod|dev|quickstart] [since-window] [output-dir]`
+- PowerShell: `.\installer\docker\scripts\support-bundle.ps1 [-Mode local|prod|dev|quickstart] [-SinceWindow 24h] [-OutputDir <path>] [-SkipHealth]`
 
 Arguments:
-- `Mode` (default: `quickstart`)
+- `Mode` (default: `local`)
 - `SinceWindow` (default: `24h`)
 - `OutputDir` (default: `installer/docker/support-bundles`)
 
@@ -329,13 +331,13 @@ What it does:
 - After completion, prints the access URL and attempts a best-effort browser auto-open on the host.
 
 Usage:
-- Shell: `./installer/docker/scripts/restore.sh <memory|secrets> <backup-file> [quickstart|prod|local]`
-- PowerShell: `.\installer\docker\scripts\restore.ps1 -Target <memory|secrets> -BackupFile <path> [-Mode quickstart|prod|local]`
+- Shell: `./installer/docker/scripts/restore.sh <memory|secrets> <backup-file> [local|prod|quickstart]`
+- PowerShell: `.\installer\docker\scripts\restore.ps1 -Target <memory|secrets> -BackupFile <path> [-Mode local|prod|quickstart]`
 
 Arguments:
 - `Target`: `memory` or `secrets`
 - `BackupFile`: required path to `.tar.gz`
-- `Mode`: `quickstart`, `prod`, or `local` (default `prod`)
+- `Mode`: `local`, `prod`, or legacy alias `quickstart` (default `local`)
 
 ### reset-new-user (`reset-new-user.sh`, `reset-new-user.ps1`)
 
@@ -470,5 +472,5 @@ Behavior:
 
 - Most scripts `cd` to `installer/docker` internally before running compose operations.
 - If running from repo root, canonical invocation should remain explicit (`./installer/docker/scripts/...`) to avoid ambiguity.
-- `start` in `quickstart/prod/local` is update-policy aware through `check-update`.
+- `start` in `local/prod` is update-policy aware through `check-update`.
 - `check-update` and `upgrade` form a contract via dry-run fields and exit codes.

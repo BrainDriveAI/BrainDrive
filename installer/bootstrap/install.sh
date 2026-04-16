@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODE="${1:-${BRAINDRIVE_BOOTSTRAP_MODE:-quickstart}}"
+MODE="${1:-${BRAINDRIVE_BOOTSTRAP_MODE:-local}}"
 if [[ "${MODE}" != "prod" && "${MODE}" != "local" && "${MODE}" != "quickstart" ]]; then
-  echo "Usage: install.sh [quickstart|prod|local]" >&2
+  echo "Usage: install.sh [local|prod|quickstart]" >&2
   exit 1
+fi
+
+if [[ "${MODE}" == "quickstart" ]]; then
+  echo "Mode 'quickstart' is deprecated and now aliases to 'local'." >&2
+  MODE="local"
 fi
 
 REPO="${BRAINDRIVE_BOOTSTRAP_REPO:-BrainDriveAI/BrainDrive}"

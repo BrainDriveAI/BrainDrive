@@ -45,7 +45,10 @@ function toDeploymentMode(value: unknown): "local" | "managed" {
 }
 
 function toInstallMode(value: unknown): GatewayInstallMode {
-  if (value === "local" || value === "quickstart" || value === "prod") {
+  if (value === "quickstart") {
+    return "local";
+  }
+  if (value === "local" || value === "prod") {
     return value;
   }
   return "unknown";

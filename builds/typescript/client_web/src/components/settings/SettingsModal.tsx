@@ -2871,7 +2871,7 @@ function ExportSection({
 function formatInstallModeLabel(mode: "local" | "quickstart" | "prod" | "unknown"): string {
   switch (mode) {
     case "quickstart":
-      return "quickstart";
+      return "local";
     case "prod":
       return "production";
     case "local":

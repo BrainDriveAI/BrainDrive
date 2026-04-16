@@ -1,6 +1,6 @@
 param(
   [ValidateSet("quickstart", "prod", "local", "dev")]
-  [string]$Mode = "quickstart"
+  [string]$Mode = "local"
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,11 +10,14 @@ $rootDir = Split-Path -Parent $scriptDir
 Set-Location $rootDir
 . "$scriptDir/browser-helper.ps1"
 
-$composeFile = "compose.quickstart.yml"
+if ($Mode -eq "quickstart") {
+  Write-Warning "Mode 'quickstart' is deprecated and now aliases to 'local'."
+  $Mode = "local"
+}
+
+$composeFile = "compose.local.yml"
 if ($Mode -eq "prod") {
   $composeFile = "compose.prod.yml"
-} elseif ($Mode -eq "local") {
-  $composeFile = "compose.local.yml"
 } elseif ($Mode -eq "dev") {
   $composeFile = "compose.dev.yml"
 }

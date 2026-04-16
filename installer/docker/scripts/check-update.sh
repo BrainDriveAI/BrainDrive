@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODE="${1:-quickstart}"
+MODE="${1:-local}"
 
 if [[ "${MODE}" != "prod" && "${MODE}" != "local" && "${MODE}" != "quickstart" ]]; then
-  echo "Usage: ./scripts/check-update.sh [quickstart|prod|local]"
+  echo "Usage: ./scripts/check-update.sh [local|prod|quickstart]"
   exit 1
+fi
+
+if [[ "${MODE}" == "quickstart" ]]; then
+  echo "Mode 'quickstart' is deprecated and now aliases to 'local'." >&2
+  MODE="local"
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
