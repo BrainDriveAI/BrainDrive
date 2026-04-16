@@ -1280,7 +1280,15 @@ function BrainDriveDefaultSection({
                     required: true,
                     set_active_provider: true,
                   })
-                    .then(() => { setApiKey(""); setShowUpdateKey(false); })
+                    .then(() => {
+                      setApiKey("");
+                      setShowUpdateKey(false);
+                      setKeyInvalid(false);
+                      authenticatedFetch("/api/credits/status")
+                        .then((r) => (r.ok ? r.json() : null))
+                        .then((data) => { if (data) { setBalance(data); setKeyInvalid(data.key_valid === false); } })
+                        .catch(() => {});
+                    })
                     .catch((err) => { setSaveError(err instanceof Error ? err.message : String(err)); })
                     .finally(() => { setIsSaving(false); });
                 }}
