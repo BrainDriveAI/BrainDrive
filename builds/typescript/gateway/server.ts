@@ -1451,7 +1451,7 @@ export async function buildServer(rootDir = process.cwd()) {
       const trimmedKey = body.api_key.trim();
       if (!/^sk-[A-Za-z0-9_-]{8,}$/.test(trimmedKey)) {
         reply.code(400).send({
-          error: "Invalid key format. BrainDrive API keys start with \"sk-\" followed by at least 8 characters.",
+          error: "That doesn't look like a BrainDrive API key. Please copy the full key from your purchase confirmation email and paste it here.",
         });
         return;
       }
@@ -1461,7 +1461,7 @@ export async function buildServer(rootDir = process.cwd()) {
         });
         if (verifyResp.status === 401 || verifyResp.status === 403) {
           reply.code(400).send({
-            error: "This API key was not recognized. Please check that you pasted it correctly.",
+            error: "This API key wasn't recognized. Please check that you copied the full key from your purchase confirmation email.",
           });
           return;
         }

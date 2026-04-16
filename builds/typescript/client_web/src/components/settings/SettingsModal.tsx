@@ -1150,7 +1150,7 @@ function BrainDriveDefaultSection({
                     onClick={() => {
                       const trimmed = apiKey.trim();
                       if (!/^sk-[A-Za-z0-9_-]{8,}$/.test(trimmed)) {
-                        setSaveError("Invalid key format. BrainDrive API keys start with \"sk-\" followed by at least 8 characters.");
+                        setSaveError("That doesn't look like a BrainDrive API key. Please copy the full key from your purchase confirmation email and paste it here.");
                         return;
                       }
                       setIsSaving(true);
@@ -1209,7 +1209,7 @@ function BrainDriveDefaultSection({
           {keyInvalid && (
             <div className="mt-2 flex items-center gap-1.5 text-xs text-red-400">
               <AlertCircle size={12} />
-              Your API key appears to be invalid. Update it below.
+              Your API key isn't working. Check your purchase confirmation email for the correct key and update it below.
             </div>
           )}
         </div>
@@ -1267,7 +1267,7 @@ function BrainDriveDefaultSection({
                 onClick={() => {
                   const trimmed = apiKey.trim();
                   if (!/^sk-[A-Za-z0-9_-]{8,}$/.test(trimmed)) {
-                    setSaveError("Invalid key format. BrainDrive API keys start with \"sk-\" followed by at least 8 characters.");
+                    setSaveError("That doesn't look like a BrainDrive API key. Please copy the full key from your purchase confirmation email and paste it here.");
                     return;
                   }
                   setIsSaving(true);
