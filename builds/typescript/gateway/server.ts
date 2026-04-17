@@ -602,6 +602,13 @@ export async function buildServer(rootDir = process.cwd()) {
 
   app.addHook("preHandler", async (request, reply) => {
     const requestPath = stripQueryString(request.url);
+    // Twilio webhook must remain publicly reachable in local deployments.
+    if (
+      requestPath === TWILIO_SMS_WEBHOOK_PATH ||
+      requestPath === `${TWILIO_SMS_WEBHOOK_PATH}/`
+    ) {
+      return;
+    }
     if (isPublicRoute(requestPath)) {
       return;
     }
@@ -2451,7 +2458,11 @@ async function proxyToGateway(
 }
 
 function isPublicRoute(urlPath: string): boolean {
-  return PUBLIC_ROUTES.has(urlPath);
+  const normalizedPath = urlPath.endsWith("/") && urlPath !== "/" ? urlPath.slice(0, -1) : urlPath;
+  if (normalizedPath === TWILIO_SMS_WEBHOOK_PATH) {
+    return true;
+  }
+  return PUBLIC_ROUTES.has(normalizedPath);
 }
 
 function stripQueryString(url: string): string {

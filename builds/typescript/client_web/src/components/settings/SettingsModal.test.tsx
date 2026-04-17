@@ -308,19 +308,22 @@ describe("SettingsModal", () => {
     });
   });
 
-  it("renders local-only SMS (Twilio) tab", async () => {
-    render(<SettingsModal mode="local" onClose={() => {}} />);
+  it("renders SMS (Twilio) tab only for dev install mode", async () => {
+    const { rerender } = render(<SettingsModal mode="local" installMode="dev" onClose={() => {}} />);
 
     await waitFor(() => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
     expect(screen.getAllByRole("button", { name: "SMS (Twilio)" }).length).toBeGreaterThan(0);
+
+    rerender(<SettingsModal mode="local" installMode="local" onClose={() => {}} />);
+    expect(screen.queryAllByRole("button", { name: "SMS (Twilio)" }).length).toBe(0);
   });
 
   it("keeps auth token field write-only after loading twilio settings", async () => {
     const user = userEvent.setup();
-    render(<SettingsModal mode="local" onClose={() => {}} />);
+    render(<SettingsModal mode="local" installMode="dev" onClose={() => {}} />);
 
     await waitFor(() => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
@@ -342,7 +345,7 @@ describe("SettingsModal", () => {
       },
     });
 
-    render(<SettingsModal mode="local" onClose={() => {}} />);
+    render(<SettingsModal mode="local" installMode="dev" onClose={() => {}} />);
 
     await waitFor(() => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
@@ -363,7 +366,7 @@ describe("SettingsModal", () => {
 
   it("saves twilio sms settings", async () => {
     const user = userEvent.setup();
-    render(<SettingsModal mode="local" onClose={() => {}} />);
+    render(<SettingsModal mode="local" installMode="dev" onClose={() => {}} />);
 
     await waitFor(() => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
@@ -394,7 +397,7 @@ describe("SettingsModal", () => {
 
   it("sends twilio test sms", async () => {
     const user = userEvent.setup();
-    render(<SettingsModal mode="local" onClose={() => {}} />);
+    render(<SettingsModal mode="local" installMode="dev" onClose={() => {}} />);
 
     await waitFor(() => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);

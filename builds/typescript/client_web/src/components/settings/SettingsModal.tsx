@@ -69,7 +69,7 @@ type SettingsPatch = Partial<Pick<GatewaySettings, "default_model" | "active_pro
 
 type SettingsModalProps = {
   mode?: "local" | "managed";
-  installMode?: "local" | "quickstart" | "prod" | "unknown";
+  installMode?: "dev" | "local" | "quickstart" | "prod" | "unknown";
   appVersion?: string;
   onClose: () => void;
 };
@@ -83,7 +83,14 @@ type SettingsTab =
   | "memory-backup"
   | "twilio-sms";
 
-type TabDef = { id: SettingsTab; label: string; icon: typeof Key; managedOnly?: boolean; localOnly?: boolean };
+type TabDef = {
+  id: SettingsTab;
+  label: string;
+  icon: typeof Key;
+  managedOnly?: boolean;
+  localOnly?: boolean;
+  devOnly?: boolean;
+};
 
 // Managed hosting shows: Account, Owner Profile, Export (D93).
 // Local shows: Default Model, Model Providers, Owner Profile, Export, Memory Backup.
@@ -93,7 +100,7 @@ const allTabs: TabDef[] = [
   { id: "provider", label: "Model Providers", icon: Key, localOnly: true },
   { id: "profile", label: "Your Profile", icon: User },
   { id: "memory-backup", label: "Backup", icon: Save, localOnly: true },
-  { id: "twilio-sms", label: "SMS (Twilio)", icon: MessageSquare, localOnly: true },
+  { id: "twilio-sms", label: "SMS (Twilio)", icon: MessageSquare, localOnly: true, devOnly: true },
   { id: "export", label: "Migrate", icon: Download },
 ];
 
@@ -106,6 +113,7 @@ export default function SettingsModal({
   const tabs = allTabs.filter((tab) => {
     if (tab.managedOnly && mode !== "managed") return false;
     if (tab.localOnly && mode !== "local") return false;
+    if (tab.devOnly && installMode !== "dev") return false;
     return true;
   });
   const [activeTab, setActiveTab] = useState<SettingsTab>(mode === "managed" ? "account" : "model");
@@ -617,7 +625,7 @@ function TabContent({
   isImporting: boolean;
   importError: string | null;
   importResult: GatewayMigrationImportResult | null;
-  installMode: "local" | "quickstart" | "prod" | "unknown";
+  installMode: "dev" | "local" | "quickstart" | "prod" | "unknown";
   appVersion: string;
   onRefreshCatalog: () => void;
   onNavigateToTab: (tab: SettingsTab) => void;
@@ -3336,7 +3344,7 @@ function ExportSection({
   importResult,
 }: {
   mode: "local" | "managed";
-  installMode: "local" | "quickstart" | "prod" | "unknown";
+  installMode: "dev" | "local" | "quickstart" | "prod" | "unknown";
   appVersion: string;
   onDownload: () => Promise<void>;
   isExporting: boolean;
@@ -3469,8 +3477,10 @@ function ExportSection({
   );
 }
 
-function formatInstallModeLabel(mode: "local" | "quickstart" | "prod" | "unknown"): string {
+function formatInstallModeLabel(mode: "dev" | "local" | "quickstart" | "prod" | "unknown"): string {
   switch (mode) {
+    case "dev":
+      return "development";
     case "quickstart":
       return "local";
     case "prod":

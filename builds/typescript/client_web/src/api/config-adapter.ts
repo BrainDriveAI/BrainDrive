@@ -1,6 +1,6 @@
 import { buildLocalOwnerHeaders } from "./local-auth";
 
-export type GatewayInstallMode = "local" | "quickstart" | "prod" | "unknown";
+export type GatewayInstallMode = "dev" | "local" | "quickstart" | "prod" | "unknown";
 
 type GatewayConfig = {
   mode?: string;
@@ -45,6 +45,9 @@ function toDeploymentMode(value: unknown): "local" | "managed" {
 }
 
 function toInstallMode(value: unknown): GatewayInstallMode {
+  if (value === "dev") {
+    return "dev";
+  }
   if (value === "quickstart") {
     return "local";
   }

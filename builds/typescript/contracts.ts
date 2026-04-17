@@ -11,7 +11,7 @@ export type RuntimeConfig = {
 };
 
 export type AuthMode = "local-owner" | "local" | "managed";
-export type InstallMode = "local" | "quickstart" | "prod" | "unknown";
+export type InstallMode = "dev" | "local" | "quickstart" | "prod" | "unknown";
 
 export type AdapterConfig = {
   base_url: string;
