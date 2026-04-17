@@ -10,7 +10,7 @@ type AppScreen = "loading" | "auth" | "main";
 export default function App() {
   const [screen, setScreen] = useState<AppScreen>("loading");
   const [deploymentMode, setDeploymentMode] = useState<"local" | "managed">("local");
-  const [installMode, setInstallMode] = useState<"local" | "quickstart" | "prod" | "unknown">(
+  const [installMode, setInstallMode] = useState<"dev" | "local" | "quickstart" | "prod" | "unknown">(
     "unknown"
   );
   const [appVersion, setAppVersion] = useState<string>("unknown");

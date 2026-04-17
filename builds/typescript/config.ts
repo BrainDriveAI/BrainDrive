@@ -6,6 +6,8 @@ import type { AdapterConfig, InstallMode, Preferences, RuntimeConfig } from "./c
 import { initializeMemoryLayout } from "./memory/init.js";
 import { auditLog } from "./logger.js";
 
+const E164_PHONE_NUMBER_PATTERN = /^\+[1-9]\d{1,14}$/;
+
 const runtimeConfigSchema = z.object({
   memory_root: z.string().min(1),
   provider_adapter: z.string().min(1),
@@ -167,6 +169,56 @@ const memoryBackupPreferenceSchema = z
   })
   .strict();
 
+const e164PhoneNumberSchema = z.string().trim().regex(E164_PHONE_NUMBER_PATTERN, {
+  message: "must be a valid E.164 phone number (for example, +14155552671)",
+});
+
+const nonNegativeIntegerSchema = z.number().int().nonnegative();
+
+const twilioSmsPreferenceSchema = z
+  .object({
+    enabled: z.boolean(),
+    account_sid: z.string().trim().min(1),
+    from_number: e164PhoneNumberSchema,
+    public_base_url: z
+      .string()
+      .trim()
+      .url()
+      .superRefine((value, context) => {
+        const publicBaseUrlError = validatePublicBaseUrl(value);
+        if (publicBaseUrlError) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: publicBaseUrlError,
+          });
+        }
+      }),
+    auto_reply: z.boolean(),
+    strict_owner_mode: z.boolean(),
+    owner_phone_number: e164PhoneNumberSchema.optional(),
+    rate_limit_period: nonNegativeIntegerSchema,
+    rate_limit_cap_round_trips: nonNegativeIntegerSchema,
+    rate_limit_current_count: nonNegativeIntegerSchema,
+    rate_limit_period_started_at: z.string().datetime({ offset: true }).optional(),
+    rate_limit_last_notified_at: z.string().datetime({ offset: true }).optional(),
+    auth_token_secret_ref: z.string().trim().min(1),
+    test_recipient: e164PhoneNumberSchema.optional(),
+    last_inbound_at: z.string().datetime({ offset: true }).optional(),
+    last_outbound_at: z.string().datetime({ offset: true }).optional(),
+    last_result: z.string().trim().min(1).optional(),
+    last_error: z.string().optional().nullable(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.strict_owner_mode && !value.owner_phone_number) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "twilio_sms.owner_phone_number is required when strict_owner_mode is enabled",
+        path: ["owner_phone_number"],
+      });
+    }
+  });
+
 const preferencesSchema = z
   .object({
     default_model: z.string().min(1),
@@ -177,6 +229,7 @@ const preferencesSchema = z
     provider_default_models: z.record(z.string().min(1)).optional(),
     secret_resolution: secretResolutionSchema.optional(),
     memory_backup: memoryBackupPreferenceSchema.optional(),
+    twilio_sms: twilioSmsPreferenceSchema.optional(),
   })
   .strict()
   .superRefine((value, context) => {
@@ -366,7 +419,7 @@ function findForbiddenSecretFieldPaths(input: unknown, parentPath = ""): string[
     return [];
   }
 
-  const forbiddenKeys = new Set(["api_key", "token", "password", "secret_value"]);
+  const forbiddenKeys = new Set(["api_key", "token", "auth_token", "password", "secret_value"]);
   const matches: string[] = [];
   const entries = Object.entries(input as Record<string, unknown>);
 
@@ -396,11 +449,35 @@ function looksLikeSshRepositoryUrl(value: string): boolean {
   return normalized.startsWith("ssh://") || normalized.startsWith("git@");
 }
 
+function validatePublicBaseUrl(value: string): string | null {
+  const parsed = tryParseUrl(value);
+  if (!parsed) {
+    return "twilio_sms.public_base_url must be a valid URL";
+  }
+
+  if (parsed.protocol !== "https:") {
+    return "twilio_sms.public_base_url must use https://";
+  }
+
+  if (parsed.username || parsed.password) {
+    return "twilio_sms.public_base_url cannot include embedded credentials";
+  }
+
+  if ((parsed.pathname && parsed.pathname !== "/") || parsed.search || parsed.hash) {
+    return "twilio_sms.public_base_url must include only scheme and host (no path, query, or hash)";
+  }
+
+  return null;
+}
+
 function normalizeInstallMode(value: unknown): InstallMode {
   if (typeof value !== "string") {
     return "unknown";
   }
   const normalized = value.trim().toLowerCase();
+  if (normalized === "dev") {
+    return "dev";
+  }
   if (normalized === "quickstart") {
     return "local";
   }

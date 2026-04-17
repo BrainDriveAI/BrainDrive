@@ -1,7 +1,9 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
+  Copy,
   Download,
   Key,
+  MessageSquare,
   Cpu,
   LoaderCircle,
   PencilLine,
@@ -29,10 +31,12 @@ import {
   restoreMemoryBackup as restoreGatewayMemoryBackup,
   runMemoryBackupNow,
   pullProviderModel,
+  sendTwilioTestSms as sendGatewayTwilioTestSms,
   updateMemoryBackupSettings as updateGatewayMemoryBackupSettings,
   updateOwnerProfile,
   updateProviderCredential as updateGatewayProviderCredential,
   updateSettings as updateGatewaySettings,
+  updateTwilioSmsSettings as updateGatewayTwilioSmsSettings,
   getAccount,
   changePassword as apiChangePassword,
   changeEmail as apiChangeEmail,
@@ -53,6 +57,9 @@ import type {
   GatewayModelCatalogEntry,
   GatewayMigrationImportResult,
   GatewaySettings,
+  GatewayTwilioSmsSettingsUpdateRequest,
+  GatewayTwilioSmsTestSendRequest,
+  GatewayTwilioSmsTestSendResponse,
 } from "@/api/types";
 import type { UserProfile } from "@/types/ui";
 
@@ -62,14 +69,28 @@ type SettingsPatch = Partial<Pick<GatewaySettings, "default_model" | "active_pro
 
 type SettingsModalProps = {
   mode?: "local" | "managed";
-  installMode?: "local" | "quickstart" | "prod" | "unknown";
+  installMode?: "dev" | "local" | "quickstart" | "prod" | "unknown";
   appVersion?: string;
   onClose: () => void;
 };
 
-type SettingsTab = "provider" | "model" | "profile" | "account" | "export" | "memory-backup";
+type SettingsTab =
+  | "provider"
+  | "model"
+  | "profile"
+  | "account"
+  | "export"
+  | "memory-backup"
+  | "twilio-sms";
 
-type TabDef = { id: SettingsTab; label: string; icon: typeof Key; managedOnly?: boolean; localOnly?: boolean };
+type TabDef = {
+  id: SettingsTab;
+  label: string;
+  icon: typeof Key;
+  managedOnly?: boolean;
+  localOnly?: boolean;
+  devOnly?: boolean;
+};
 
 // Managed hosting shows: Account, Owner Profile, Export (D93).
 // Local shows: Default Model, Model Providers, Owner Profile, Export, Memory Backup.
@@ -79,6 +100,7 @@ const allTabs: TabDef[] = [
   { id: "provider", label: "Model Providers", icon: Key, localOnly: true },
   { id: "profile", label: "Your Profile", icon: User },
   { id: "memory-backup", label: "Backup", icon: Save, localOnly: true },
+  { id: "twilio-sms", label: "SMS (Twilio)", icon: MessageSquare, localOnly: true, devOnly: true },
   { id: "export", label: "Migrate", icon: Download },
 ];
 
@@ -91,6 +113,7 @@ export default function SettingsModal({
   const tabs = allTabs.filter((tab) => {
     if (tab.managedOnly && mode !== "managed") return false;
     if (tab.localOnly && mode !== "local") return false;
+    if (tab.devOnly && installMode !== "dev") return false;
     return true;
   });
   const [activeTab, setActiveTab] = useState<SettingsTab>(mode === "managed" ? "account" : "model");
@@ -260,6 +283,39 @@ export default function SettingsModal({
     return updated.result;
   }
 
+  async function saveTwilioSmsSettings(
+    payload: GatewayTwilioSmsSettingsUpdateRequest
+  ): Promise<GatewaySettings> {
+    const updated = await updateGatewayTwilioSmsSettings(payload);
+    setSettings(updated);
+    setSettingsError(null);
+    return updated;
+  }
+
+  async function triggerTwilioTestSms(
+    payload: GatewayTwilioSmsTestSendRequest
+  ): Promise<GatewayTwilioSmsTestSendResponse> {
+    try {
+      const result = await sendGatewayTwilioTestSms(payload);
+      try {
+        const refreshed = await getGatewaySettings();
+        setSettings(refreshed);
+        setSettingsError(null);
+      } catch {
+        // best-effort refresh; the send itself already succeeded
+      }
+      return result;
+    } catch (error) {
+      try {
+        const refreshed = await getGatewaySettings();
+        setSettings(refreshed);
+      } catch {
+        // preserve original request error if refresh fails
+      }
+      throw error;
+    }
+  }
+
   async function handleDownloadExport(): Promise<void> {
     setIsExporting(true);
     setExportError(null);
@@ -362,6 +418,8 @@ export default function SettingsModal({
               onSaveMemoryBackupSettings={saveMemoryBackupSettings}
               onRunMemoryBackupNow={triggerMemoryBackupNow}
               onRestoreMemoryBackup={triggerMemoryBackupRestore}
+              onSaveTwilioSmsSettings={saveTwilioSmsSettings}
+              onSendTwilioTestSms={triggerTwilioTestSms}
               onDownloadExport={handleDownloadExport}
               isExporting={isExporting}
               exportError={exportError}
@@ -432,6 +490,8 @@ export default function SettingsModal({
             onSaveMemoryBackupSettings={saveMemoryBackupSettings}
             onRunMemoryBackupNow={triggerMemoryBackupNow}
             onRestoreMemoryBackup={triggerMemoryBackupRestore}
+            onSaveTwilioSmsSettings={saveTwilioSmsSettings}
+            onSendTwilioTestSms={triggerTwilioTestSms}
             onDownloadExport={handleDownloadExport}
             isExporting={isExporting}
             exportError={exportError}
@@ -519,6 +579,8 @@ function TabContent({
   onSaveMemoryBackupSettings,
   onRunMemoryBackupNow,
   onRestoreMemoryBackup,
+  onSaveTwilioSmsSettings,
+  onSendTwilioTestSms,
   onDownloadExport,
   isExporting,
   exportError,
@@ -550,6 +612,12 @@ function TabContent({
   onRestoreMemoryBackup: (
     payload?: GatewayMemoryBackupRestoreRequest
   ) => Promise<GatewayMemoryBackupRestoreResult>;
+  onSaveTwilioSmsSettings: (
+    payload: GatewayTwilioSmsSettingsUpdateRequest
+  ) => Promise<GatewaySettings>;
+  onSendTwilioTestSms: (
+    payload: GatewayTwilioSmsTestSendRequest
+  ) => Promise<GatewayTwilioSmsTestSendResponse>;
   onDownloadExport: () => Promise<void>;
   isExporting: boolean;
   exportError: string | null;
@@ -557,7 +625,7 @@ function TabContent({
   isImporting: boolean;
   importError: string | null;
   importResult: GatewayMigrationImportResult | null;
-  installMode: "local" | "quickstart" | "prod" | "unknown";
+  installMode: "dev" | "local" | "quickstart" | "prod" | "unknown";
   appVersion: string;
   onRefreshCatalog: () => void;
   onNavigateToTab: (tab: SettingsTab) => void;
@@ -606,6 +674,17 @@ function TabContent({
           onSaveMemoryBackupSettings={onSaveMemoryBackupSettings}
           onRunMemoryBackupNow={onRunMemoryBackupNow}
           onRestoreMemoryBackup={onRestoreMemoryBackup}
+        />
+      );
+    case "twilio-sms":
+      return (
+        <TwilioSmsSection
+          mode={mode}
+          settings={settings}
+          isLoadingSettings={isLoadingSettings}
+          settingsError={settingsError}
+          onSaveTwilioSmsSettings={onSaveTwilioSmsSettings}
+          onSendTwilioTestSms={onSendTwilioTestSms}
         />
       );
     case "profile":
@@ -699,12 +778,6 @@ function MemoryBackupSection({
     ? new Date(backupSettings.last_save_at).toLocaleString()
     : "No backups yet";
   const lastResult = backupSettings?.last_result ?? "never";
-  const statusText =
-    lastResult === "success"
-      ? "Success"
-      : lastResult === "failed"
-        ? "Failed"
-        : "No backups yet";
   const frequencyOptions: Array<{ value: GatewayMemoryBackupFrequency; label: string }> = [
     { value: "after_changes", label: "After changes" },
     { value: "hourly", label: "Every hour" },
@@ -791,7 +864,7 @@ function MemoryBackupSection({
                 </label>
                 <input
                   id="memory-backup-token"
-                  type="password" autoComplete="new-password"
+                  type="password"
                   autoComplete="new-password"
                   value={token}
                   onChange={(event) => {
@@ -974,7 +1047,7 @@ function MemoryBackupSection({
             setRestoreError(null);
             setRestoreMessage(null);
             void onRestoreMemoryBackup()
-              .then((result) => {
+              .then(() => {
                 setRestoreMessage(`Restored from backup successfully.`);
               })
               .catch((error) => {
@@ -999,6 +1072,517 @@ function MemoryBackupSection({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function TwilioSmsSection({
+  mode,
+  settings,
+  isLoadingSettings,
+  settingsError,
+  onSaveTwilioSmsSettings,
+  onSendTwilioTestSms,
+}: {
+  mode: "local" | "managed";
+  settings: GatewaySettings | null;
+  isLoadingSettings: boolean;
+  settingsError: string | null;
+  onSaveTwilioSmsSettings: (
+    payload: GatewayTwilioSmsSettingsUpdateRequest
+  ) => Promise<GatewaySettings>;
+  onSendTwilioTestSms: (
+    payload: GatewayTwilioSmsTestSendRequest
+  ) => Promise<GatewayTwilioSmsTestSendResponse>;
+}) {
+  const twilioSettings = settings?.twilio_sms ?? null;
+
+  const [enabled, setEnabled] = useState(false);
+  const [accountSid, setAccountSid] = useState("");
+  const [fromNumber, setFromNumber] = useState("");
+  const [publicBaseUrl, setPublicBaseUrl] = useState("");
+  const [autoReply, setAutoReply] = useState(false);
+  const [strictOwnerMode, setStrictOwnerMode] = useState(false);
+  const [ownerPhoneNumber, setOwnerPhoneNumber] = useState("");
+  const [rateLimitPeriod, setRateLimitPeriod] = useState("60");
+  const [rateLimitCap, setRateLimitCap] = useState("5");
+  const [authToken, setAuthToken] = useState("");
+  const [testRecipient, setTestRecipient] = useState("");
+  const [testMessage, setTestMessage] = useState("Test message from BrainDrive");
+  const [isSaving, setIsSaving] = useState(false);
+  const [isSendingTest, setIsSendingTest] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [testSuccess, setTestSuccess] = useState<string | null>(null);
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    setEnabled(twilioSettings?.enabled ?? false);
+    setAccountSid(twilioSettings?.account_sid ?? "");
+    setFromNumber(twilioSettings?.from_number ?? "");
+    setPublicBaseUrl(twilioSettings?.public_base_url ?? "");
+    setAutoReply(twilioSettings?.auto_reply ?? false);
+    setStrictOwnerMode(twilioSettings?.strict_owner_mode ?? false);
+    setOwnerPhoneNumber(twilioSettings?.owner_phone_number ?? "");
+    setRateLimitPeriod(String(twilioSettings?.rate_limit_period ?? 60));
+    setRateLimitCap(String(twilioSettings?.rate_limit_cap_round_trips ?? 5));
+    setAuthToken("");
+    setTestRecipient(twilioSettings?.test_recipient ?? "");
+  }, [twilioSettings]);
+
+  if (mode !== "local") {
+    return null;
+  }
+
+  if (isLoadingSettings) {
+    return (
+      <div className="space-y-3">
+        <h3 className="font-heading text-base font-semibold text-bd-text-heading">SMS (Twilio)</h3>
+        <p className="text-sm text-bd-text-muted">Loading Twilio SMS settings...</p>
+      </div>
+    );
+  }
+
+  if (settingsError) {
+    return (
+      <div className="space-y-3">
+        <h3 className="font-heading text-base font-semibold text-bd-text-heading">SMS (Twilio)</h3>
+        <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2.5 text-sm text-bd-text-primary">
+          {settingsError}
+        </div>
+      </div>
+    );
+  }
+
+  const lastInbound = twilioSettings?.last_inbound_at
+    ? new Date(twilioSettings.last_inbound_at).toLocaleString()
+    : "Never";
+  const lastOutbound = twilioSettings?.last_outbound_at
+    ? new Date(twilioSettings.last_outbound_at).toLocaleString()
+    : "Never";
+  const currentUsage = twilioSettings
+    ? `${twilioSettings.rate_limit_current_count}/${twilioSettings.rate_limit_cap_round_trips}`
+    : `0/${rateLimitCap}`;
+  const status = twilioSettings?.last_error
+    ? `Failed: ${twilioSettings.last_error}`
+    : twilioSettings?.last_result === "success"
+      ? "Success"
+      : twilioSettings?.last_result === "failed"
+        ? "Failed"
+        : "Not sent yet";
+  const webhookUrl = twilioSettings?.webhook_url ?? "";
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="font-heading text-base font-semibold text-bd-text-heading">SMS (Twilio)</h3>
+        <p className="mt-1 text-sm text-bd-text-muted">
+          Configure local-only Twilio SMS webhook and test send behavior.
+        </p>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <label className="flex items-center gap-2 rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-sm text-bd-text-secondary">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(event) => {
+              setEnabled(event.target.checked);
+              setSaveError(null);
+              setSaveSuccess(null);
+            }}
+            className="h-4 w-4 accent-bd-amber"
+          />
+          Enabled
+        </label>
+
+        <label className="flex items-center gap-2 rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-sm text-bd-text-secondary">
+          <input
+            type="checkbox"
+            checked={autoReply}
+            onChange={(event) => {
+              setAutoReply(event.target.checked);
+              setSaveError(null);
+              setSaveSuccess(null);
+            }}
+            className="h-4 w-4 accent-bd-amber"
+          />
+          Auto Reply
+        </label>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <div>
+          <label className="block text-xs font-medium text-bd-text-secondary" htmlFor="twilio-account-sid">
+            Account SID
+          </label>
+          <input
+            id="twilio-account-sid"
+            type="text" autoComplete="off"
+            value={accountSid}
+            onChange={(event) => {
+              setAccountSid(event.target.value);
+              setSaveError(null);
+              setSaveSuccess(null);
+            }}
+            placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            className="mt-1 h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-bd-text-secondary" htmlFor="twilio-from-number">
+            From Number
+          </label>
+          <input
+            id="twilio-from-number"
+            type="text" autoComplete="off"
+            value={fromNumber}
+            onChange={(event) => {
+              setFromNumber(event.target.value);
+              setSaveError(null);
+              setSaveSuccess(null);
+            }}
+            placeholder="+14155552671"
+            className="mt-1 h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-bd-text-secondary" htmlFor="twilio-public-base-url">
+          Public Base URL
+        </label>
+        <input
+          id="twilio-public-base-url"
+          type="url"
+          autoComplete="off"
+          value={publicBaseUrl}
+          onChange={(event) => {
+            setPublicBaseUrl(event.target.value);
+            setSaveError(null);
+            setSaveSuccess(null);
+          }}
+          placeholder="https://example.com"
+          className="mt-1 h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+        />
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <label className="flex items-center gap-2 rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-sm text-bd-text-secondary">
+          <input
+            type="checkbox"
+            checked={strictOwnerMode}
+            onChange={(event) => {
+              setStrictOwnerMode(event.target.checked);
+              setSaveError(null);
+              setSaveSuccess(null);
+            }}
+            className="h-4 w-4 accent-bd-amber"
+          />
+          Strict Owner Mode
+        </label>
+
+        <div>
+          <label className="block text-xs font-medium text-bd-text-secondary" htmlFor="twilio-owner-phone-number">
+            Owner Phone Number
+          </label>
+          <input
+            id="twilio-owner-phone-number"
+            type="text" autoComplete="off"
+            value={ownerPhoneNumber}
+            onChange={(event) => {
+              setOwnerPhoneNumber(event.target.value);
+              setSaveError(null);
+              setSaveSuccess(null);
+            }}
+            placeholder="+14155550000"
+            className="mt-1 h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+          />
+        </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <div>
+          <label className="block text-xs font-medium text-bd-text-secondary" htmlFor="twilio-rate-limit-period">
+            Rate Limit Period
+          </label>
+          <input
+            id="twilio-rate-limit-period"
+            type="number"
+            min={0}
+            step={1}
+            value={rateLimitPeriod}
+            onChange={(event) => {
+              setRateLimitPeriod(event.target.value);
+              setSaveError(null);
+              setSaveSuccess(null);
+            }}
+            className="mt-1 h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-bd-text-secondary" htmlFor="twilio-rate-limit-cap">
+            Rate Limit Cap
+          </label>
+          <input
+            id="twilio-rate-limit-cap"
+            type="number"
+            min={0}
+            step={1}
+            value={rateLimitCap}
+            onChange={(event) => {
+              setRateLimitCap(event.target.value);
+              setSaveError(null);
+              setSaveSuccess(null);
+            }}
+            className="mt-1 h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-bd-text-secondary" htmlFor="twilio-auth-token">
+          Auth Token
+        </label>
+        {twilioSettings?.token_configured && (
+          <p className="mt-1 text-xs text-bd-text-muted">
+            Auth token is configured. Enter a value only to rotate it.
+          </p>
+        )}
+        <input
+          id="twilio-auth-token"
+          type="password"
+          autoComplete="new-password"
+          value={authToken}
+          onChange={(event) => {
+            setAuthToken(event.target.value);
+            setSaveError(null);
+            setSaveSuccess(null);
+          }}
+          placeholder={twilioSettings?.token_configured ? "Leave blank to keep current token" : "Enter auth token"}
+          className="mt-1 h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+        />
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <div>
+          <label className="block text-xs font-medium text-bd-text-secondary" htmlFor="twilio-test-recipient">
+            Test Recipient
+          </label>
+          <input
+            id="twilio-test-recipient"
+            type="text" autoComplete="off"
+            value={testRecipient}
+            onChange={(event) => {
+              setTestRecipient(event.target.value);
+              setTestError(null);
+              setTestSuccess(null);
+            }}
+            placeholder="+14155553333"
+            className="mt-1 h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-bd-text-secondary" htmlFor="twilio-webhook-url">
+            Webhook URL
+          </label>
+          <div className="mt-1 flex items-center gap-2">
+            <input
+              id="twilio-webhook-url"
+              type="text" autoComplete="off"
+              readOnly
+              value={webhookUrl}
+              className="h-10 w-full rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 text-sm text-bd-text-muted outline-none"
+            />
+            <button
+              type="button"
+              disabled={webhookUrl.trim().length === 0}
+              onClick={() => {
+                if (webhookUrl.trim().length === 0) {
+                  return;
+                }
+                if (!navigator.clipboard?.writeText) {
+                  setCopyStatus("Clipboard is unavailable.");
+                  return;
+                }
+                void navigator.clipboard.writeText(webhookUrl).then(() => {
+                  setCopyStatus("Webhook URL copied.");
+                }).catch(() => {
+                  setCopyStatus("Failed to copy Webhook URL.");
+                });
+              }}
+              className="inline-flex h-10 shrink-0 items-center gap-1 rounded-lg border border-bd-border px-3 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Copy size={14} strokeWidth={1.5} />
+              Copy Webhook URL
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-bd-text-secondary" htmlFor="twilio-test-message">
+          Test Message
+        </label>
+        <textarea
+          id="twilio-test-message"
+          value={testMessage}
+          onChange={(event) => {
+            setTestMessage(event.target.value);
+            setTestError(null);
+            setTestSuccess(null);
+          }}
+          rows={3}
+          className="mt-1 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 py-2 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+        />
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <div>
+          <label className="block text-xs font-medium text-bd-text-secondary">Last Inbound</label>
+          <div className="mt-1 rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-sm text-bd-text-muted">
+            {lastInbound}
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-bd-text-secondary">Last Outbound</label>
+          <div className="mt-1 rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-sm text-bd-text-muted">
+            {lastOutbound}
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-bd-text-secondary">Current Usage</label>
+          <div className="mt-1 rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-sm text-bd-text-muted">
+            {currentUsage}
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-bd-text-secondary">Status</label>
+          <div className="mt-1 rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-sm text-bd-text-muted">
+            {status}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={isSaving}
+          onClick={() => {
+            const normalizedRateLimitPeriod = Number.parseInt(rateLimitPeriod, 10);
+            const normalizedRateLimitCap = Number.parseInt(rateLimitCap, 10);
+            const normalizedOwnerPhone = ownerPhoneNumber.trim();
+            const normalizedAuthToken = authToken.trim();
+            const normalizedTestRecipient = testRecipient.trim();
+
+            if (!Number.isFinite(normalizedRateLimitPeriod) || normalizedRateLimitPeriod < 0) {
+              setSaveError("Rate limit period must be a non-negative integer.");
+              return;
+            }
+            if (!Number.isFinite(normalizedRateLimitCap) || normalizedRateLimitCap < 0) {
+              setSaveError("Rate limit cap must be a non-negative integer.");
+              return;
+            }
+            if (strictOwnerMode && normalizedOwnerPhone.length === 0) {
+              setSaveError("Owner phone number is required when strict owner mode is enabled.");
+              return;
+            }
+
+            setIsSaving(true);
+            setSaveError(null);
+            setSaveSuccess(null);
+            setCopyStatus(null);
+            const payload: GatewayTwilioSmsSettingsUpdateRequest = {
+              enabled,
+              account_sid: accountSid.trim(),
+              from_number: fromNumber.trim(),
+              public_base_url: publicBaseUrl.trim(),
+              auto_reply: autoReply,
+              strict_owner_mode: strictOwnerMode,
+              owner_phone_number: normalizedOwnerPhone.length > 0 ? normalizedOwnerPhone : "",
+              rate_limit_period: normalizedRateLimitPeriod,
+              rate_limit_cap_round_trips: normalizedRateLimitCap,
+              rate_limit_current_count: twilioSettings?.rate_limit_current_count ?? 0,
+              test_recipient: normalizedTestRecipient.length > 0 ? normalizedTestRecipient : "",
+              ...(normalizedAuthToken.length > 0 ? { auth_token: normalizedAuthToken } : {}),
+            };
+
+            void onSaveTwilioSmsSettings(payload)
+              .then(() => {
+                setAuthToken("");
+                setSaveSuccess("SMS settings saved.");
+              })
+              .catch((error) => {
+                setSaveError(error instanceof Error ? error.message : String(error));
+              })
+              .finally(() => {
+                setIsSaving(false);
+              });
+          }}
+          className="rounded-lg bg-bd-amber px-3 py-2 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isSaving ? "Saving..." : "Save SMS Settings"}
+        </button>
+        <button
+          type="button"
+          disabled={isSendingTest}
+          onClick={() => {
+            const normalizedMessage = testMessage.trim();
+            const normalizedRecipient = testRecipient.trim();
+            if (normalizedMessage.length === 0) {
+              setTestError("Test message is required.");
+              return;
+            }
+
+            setIsSendingTest(true);
+            setTestError(null);
+            setTestSuccess(null);
+            void onSendTwilioTestSms({
+              ...(normalizedRecipient.length > 0 ? { recipient: normalizedRecipient } : {}),
+              message: normalizedMessage,
+            })
+              .then((result) => {
+                setTestSuccess(`Test SMS sent to ${result.recipient}.`);
+              })
+              .catch((error) => {
+                setTestError(error instanceof Error ? error.message : String(error));
+              })
+              .finally(() => {
+                setIsSendingTest(false);
+              });
+          }}
+          className="rounded-lg border border-bd-border px-3 py-2 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isSendingTest ? "Sending..." : "Send Test SMS"}
+        </button>
+      </div>
+
+      {saveError && (
+        <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
+          {saveError}
+        </div>
+      )}
+      {saveSuccess && (
+        <div className="rounded-lg border border-bd-success-border bg-bd-success-bg px-3 py-2 text-sm text-bd-text-primary">
+          {saveSuccess}
+        </div>
+      )}
+      {testError && (
+        <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
+          {testError}
+        </div>
+      )}
+      {testSuccess && (
+        <div className="rounded-lg border border-bd-success-border bg-bd-success-bg px-3 py-2 text-sm text-bd-text-primary">
+          {testSuccess}
+        </div>
+      )}
+      {copyStatus && (
+        <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-sm text-bd-text-secondary">
+          {copyStatus}
+        </div>
+      )}
     </div>
   );
 }
@@ -1603,7 +2187,7 @@ function ProviderSection({
                                 )}
                                 <input
                                   id="provider-api-key"
-                                  type="password" autoComplete="new-password"
+                                  type="password"
                                   autoComplete="off"
                                   value={providerApiKey}
                                   onChange={(event) => {
@@ -2748,7 +3332,7 @@ function AccountSection() {
 }
 
 function ExportSection({
-  mode,
+  mode: _mode,
   installMode,
   appVersion,
   onDownload,
@@ -2760,7 +3344,7 @@ function ExportSection({
   importResult,
 }: {
   mode: "local" | "managed";
-  installMode: "local" | "quickstart" | "prod" | "unknown";
+  installMode: "dev" | "local" | "quickstart" | "prod" | "unknown";
   appVersion: string;
   onDownload: () => Promise<void>;
   isExporting: boolean;
@@ -2893,8 +3477,10 @@ function ExportSection({
   );
 }
 
-function formatInstallModeLabel(mode: "local" | "quickstart" | "prod" | "unknown"): string {
+function formatInstallModeLabel(mode: "dev" | "local" | "quickstart" | "prod" | "unknown"): string {
   switch (mode) {
+    case "dev":
+      return "development";
     case "quickstart":
       return "local";
     case "prod":

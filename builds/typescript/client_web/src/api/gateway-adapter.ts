@@ -19,6 +19,9 @@ import {
   type GatewayMigrationImportResult,
   type GatewayModelCatalog,
   type GatewayOnboardingStatus,
+  type GatewayTwilioSmsSettingsUpdateRequest,
+  type GatewayTwilioSmsTestSendRequest,
+  type GatewayTwilioSmsTestSendResponse,
   type GatewaySkillBinding,
   type GatewaySkillSummary,
   type GatewaySettings,
@@ -625,6 +628,38 @@ export async function restoreMemoryBackup(
   }
 
   return (await response.json()) as GatewayMemoryBackupRestoreResponse;
+}
+
+export async function updateTwilioSmsSettings(
+  payload: GatewayTwilioSmsSettingsUpdateRequest
+): Promise<GatewaySettings> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/settings/twilio-sms`, {
+    method: "PUT",
+    headers: withLocalOwnerHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+
+  return (await response.json()) as GatewaySettings;
+}
+
+export async function sendTwilioTestSms(
+  payload: GatewayTwilioSmsTestSendRequest
+): Promise<GatewayTwilioSmsTestSendResponse> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/settings/twilio-sms/test-send`, {
+    method: "POST",
+    headers: withLocalOwnerHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+
+  return (await response.json()) as GatewayTwilioSmsTestSendResponse;
 }
 
 export async function getOwnerProfile(): Promise<string | null> {

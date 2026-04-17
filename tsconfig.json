@@ -1,0 +1,6 @@
+{
+  "extends": "./builds/typescript/tsconfig.json",
+  "compilerOptions": {
+    "typeRoots": ["./builds/typescript/node_modules/@types"]
+  }
+}

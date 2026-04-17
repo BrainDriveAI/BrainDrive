@@ -14,7 +14,7 @@ import Sidebar from "./Sidebar";
 type AppShellProps = {
   children?: ReactNode;
   deploymentMode?: "local" | "managed";
-  installMode?: "local" | "quickstart" | "prod" | "unknown";
+  installMode?: "dev" | "local" | "quickstart" | "prod" | "unknown";
   appVersion?: string;
   onLogout?: () => void;
 };
