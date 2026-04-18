@@ -26,8 +26,9 @@ Gateway update routes:
 
 1. `GET /api/updates/status`
 2. `GET /api/updates/session` (admin auth required)
-3. `POST /api/updates/code` (admin auth required)
-4. `POST /api/updates/restart` (admin auth required)
+3. `POST /api/updates/conversation/start` (admin auth required)
+4. `POST /api/updates/code` (admin auth required)
+5. `POST /api/updates/restart` (admin auth required)
 
 When host-level execution is unavailable, `/api/updates/code` and `/api/updates/restart` return the canonical fallback command:
 

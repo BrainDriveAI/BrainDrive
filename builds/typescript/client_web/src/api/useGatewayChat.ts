@@ -66,6 +66,19 @@ export function resetGatewayChatRuntime(): void {
   }
 }
 
+export function clearGatewayChatDraftState(draftKey: string): void {
+  const normalized = draftKey.trim();
+  if (!normalized) {
+    return;
+  }
+
+  const cacheKey = `__draft__:${normalized}`;
+  const cached = backgroundStates.get(cacheKey);
+  cached?.abortController?.abort();
+  backgroundStates.delete(cacheKey);
+  backgroundStreams.delete(cacheKey);
+}
+
 type UseGatewayChatOptions = {
   conversationId?: string | null;
   projectId?: string | null;

@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 let mockRuntimeConfig: RuntimeConfig;
 let mockPreferences: Preferences;
-const { runMemoryBackupMock, restoreMemoryBackupMock, createMemoryBackupSchedulerMock } = vi.hoisted(() => ({
+const { runMemoryBackupMock, restoreMemoryBackupMock, createMemoryBackupSchedulerMock, runAgentLoopMock } = vi.hoisted(() => ({
   runMemoryBackupMock: vi.fn<
     (memoryRoot: string, preferences: Preferences) => Promise<MemoryBackupRunResult>
   >(
@@ -59,6 +59,18 @@ const { runMemoryBackupMock, restoreMemoryBackupMock, createMemoryBackupSchedule
       };
     }),
   })),
+  runAgentLoopMock: vi.fn(async function* () {
+    yield {
+      type: "text-delta",
+      delta: "I found pending migrations and I can guide the update safely.",
+    } as const;
+    yield {
+      type: "done",
+      conversation_id: "",
+      message_id: "bootstrap-msg-1",
+      finish_reason: "stop",
+    } as const;
+  }),
 }));
 
 const mockAdapterConfig: AdapterConfig = {
@@ -107,6 +119,10 @@ vi.mock("../memory/backup-restore.js", () => ({
 
 vi.mock("./memory-backup-scheduler.js", () => ({
   createMemoryBackupScheduler: createMemoryBackupSchedulerMock,
+}));
+
+vi.mock("../engine/loop.js", () => ({
+  runAgentLoop: (...args: any[]) => (runAgentLoopMock as any)(...args),
 }));
 
 import { buildServer } from "./server.js";
@@ -228,6 +244,76 @@ function localOwnerAdminHeaders(): Record<string, string> {
   };
 }
 
+async function seedUpdateConversationFixtures(
+  context: TestServerContext,
+  options: { manifestVersion: string }
+): Promise<void> {
+  const memoryRoot = path.join(context.tempRoot, "memory");
+  const projectsPath = path.join(memoryRoot, "documents", "projects.json");
+  await mkdir(path.dirname(projectsPath), { recursive: true });
+  await writeFile(
+    projectsPath,
+    `${JSON.stringify(
+      [
+        {
+          id: "braindrive-plus-one",
+          name: "BrainDrive+1",
+          icon: "sparkles",
+          conversation_id: null,
+          default_skill_ids: [],
+        },
+      ],
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+
+  const manifestPath = path.join(memoryRoot, "system", "updates", "manifest.md");
+  await mkdir(path.dirname(manifestPath), { recursive: true });
+  await writeFile(
+    manifestPath,
+    [
+      "# BrainDrive Starter Pack Update Manifest",
+      "",
+      `## Version ${options.manifestVersion}`,
+      "### AI Briefing",
+      "Apply starter-pack update checklist changes.",
+      "",
+      "### Item: Refresh update checklist",
+      "- action: write templates/update-checklist.md -> documents/braindrive-plus-one/update-checklist.md",
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+
+  const appliedPath = path.join(memoryRoot, "system", "updates", "applied.json");
+  await writeFile(
+    appliedPath,
+    `${JSON.stringify({ last_applied: null, items: {}, runs: [] }, null, 2)}\n`,
+    "utf8"
+  );
+
+  const starterTemplatePath = path.join(
+    context.tempRoot,
+    "memory",
+    "starter-pack",
+    "base",
+    "templates",
+    "update-checklist.md"
+  );
+  await mkdir(path.dirname(starterTemplatePath), { recursive: true });
+  await writeFile(starterTemplatePath, "# Update Checklist\n", "utf8");
+}
+
+async function readProjectConversationId(context: TestServerContext): Promise<string | null> {
+  const projectsPath = path.join(context.tempRoot, "memory", "documents", "projects.json");
+  const projects = parseJson<Array<{ id: string; conversation_id: string | null }>>(
+    await readFile(projectsPath, "utf8")
+  );
+  return projects.find((project) => project.id === "braindrive-plus-one")?.conversation_id ?? null;
+}
+
 describe.sequential("gateway auth route integration", () => {
   let context: TestServerContext | null = null;
 
@@ -237,6 +323,7 @@ describe.sequential("gateway auth route integration", () => {
     runMemoryBackupMock.mockClear();
     restoreMemoryBackupMock.mockClear();
     createMemoryBackupSchedulerMock.mockClear();
+    runAgentLoopMock.mockClear();
   });
 
   it("rejects unauthenticated logout requests", async () => {
@@ -382,6 +469,152 @@ describe.sequential("gateway auth route integration", () => {
         update_id: "active-update-123",
       })
     );
+  });
+
+  it("bootstraps an assistant-first update conversation with bounded context", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      versionMetadata: {
+        version: "26.4.18",
+        released: "2026-04-18T12:00:00Z",
+        channel: "stable",
+      },
+    });
+    await seedUpdateConversationFixtures(context, { manifestVersion: "26.4.19" });
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/updates/conversation/start",
+      headers: localOwnerAdminHeaders(),
+    });
+
+    expect(response.statusCode).toBe(200);
+    const payload = parseJson<{
+      status: string;
+      project_id: string;
+      conversation_id: string | null;
+      update_id: string | null;
+      bootstrap_sent: boolean;
+    }>(response.body);
+    expect(payload).toEqual(
+      expect.objectContaining({
+        status: "started",
+        project_id: "braindrive-plus-one",
+        bootstrap_sent: true,
+      })
+    );
+    expect(payload.conversation_id).toBeTruthy();
+    expect(payload.update_id).toBeTruthy();
+
+    const persistedConversationId = await readProjectConversationId(context);
+    expect(persistedConversationId).toBe(payload.conversation_id);
+
+    const conversationResponse = await context.app.inject({
+      method: "GET",
+      url: `/conversations/${encodeURIComponent(payload.conversation_id ?? "")}`,
+      headers: localOwnerAdminHeaders(),
+    });
+    expect(conversationResponse.statusCode).toBe(200);
+    const conversation = parseJson<{ messages: Array<{ role: string; content: string }> }>(
+      conversationResponse.body
+    );
+    expect(conversation.messages.map((message) => message.role)).toEqual(["system", "assistant"]);
+
+    const systemMessage = conversation.messages[0]?.content ?? "";
+    const markerIndex = systemMessage.indexOf("[braindrive-update-context:v1]");
+    expect(markerIndex).toBeGreaterThanOrEqual(0);
+    const rawContext = systemMessage.slice(markerIndex + "[braindrive-update-context:v1]".length).trim();
+    const contextPayload = JSON.parse(rawContext) as Record<string, unknown>;
+    expect(Object.keys(contextPayload).sort()).toEqual(
+      ["current_version", "migration_items", "target_version", "update_id"].sort()
+    );
+    const firstItem = Array.isArray(contextPayload.migration_items)
+      ? (contextPayload.migration_items[0] as Record<string, unknown>)
+      : null;
+    expect(firstItem ? Object.keys(firstItem).sort() : []).toEqual(
+      ["item_id", "summary", "source_file_paths", "target_file_paths"].sort()
+    );
+    expect(JSON.stringify(contextPayload)).not.toContain("\"provider\"");
+    expect(JSON.stringify(contextPayload)).not.toContain("\"model\"");
+    expect(JSON.stringify(contextPayload)).not.toContain("\"tool\"");
+    expect(JSON.stringify(contextPayload)).not.toContain("\"runtime\"");
+  });
+
+  it("reuses the same update conversation on repeated unresolved bootstrap requests", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      versionMetadata: {
+        version: "26.4.18",
+        released: "2026-04-18T12:00:00Z",
+        channel: "stable",
+      },
+    });
+    await seedUpdateConversationFixtures(context, { manifestVersion: "26.4.19" });
+
+    const firstResponse = await context.app.inject({
+      method: "POST",
+      url: "/updates/conversation/start",
+      headers: localOwnerAdminHeaders(),
+    });
+    expect(firstResponse.statusCode).toBe(200);
+    const firstPayload = parseJson<{ conversation_id: string; status: string }>(firstResponse.body);
+    expect(firstPayload.status).toBe("started");
+
+    const secondResponse = await context.app.inject({
+      method: "POST",
+      url: "/updates/conversation/start",
+      headers: localOwnerAdminHeaders(),
+    });
+    expect(secondResponse.statusCode).toBe(200);
+    const secondPayload = parseJson<{
+      conversation_id: string;
+      status: string;
+      bootstrap_sent: boolean;
+    }>(secondResponse.body);
+    expect(secondPayload).toEqual(
+      expect.objectContaining({
+        conversation_id: firstPayload.conversation_id,
+        status: "resumed",
+        bootstrap_sent: false,
+      })
+    );
+
+    expect(runAgentLoopMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns completed and skips bootstrap when no pending migrations remain", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      versionMetadata: {
+        version: "26.4.20",
+        released: "2026-04-18T12:00:00Z",
+        channel: "stable",
+      },
+    });
+    await seedUpdateConversationFixtures(context, { manifestVersion: "26.4.19" });
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/updates/conversation/start",
+      headers: localOwnerAdminHeaders(),
+    });
+    expect(response.statusCode).toBe(200);
+    expect(
+      parseJson<{
+        status: string;
+        update_id: string | null;
+        bootstrap_sent: boolean;
+      }>(response.body)
+    ).toEqual(
+      expect.objectContaining({
+        status: "completed",
+        update_id: null,
+        bootstrap_sent: false,
+      })
+    );
+
+    expect(await readProjectConversationId(context)).toBeNull();
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
   });
 
   it("allows authenticated logout after successful signup", async () => {
