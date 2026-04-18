@@ -142,6 +142,7 @@ async function createTestServer(
       released: string;
       channel: string;
     };
+    beforeBuild?: (tempRoot: string) => Promise<void>;
   } = {}
 ): Promise<TestServerContext> {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "paa-auth-int-"));
@@ -185,6 +186,9 @@ async function createTestServer(
     const versionPath = path.join(memoryRoot, "system", "version.json");
     await mkdir(path.dirname(versionPath), { recursive: true });
     await writeFile(versionPath, `${JSON.stringify(options.versionMetadata, null, 2)}\n`, "utf8");
+  }
+  if (options.beforeBuild) {
+    await options.beforeBuild(tempRoot);
   }
 
   const { app } = await buildServer(tempRoot);
@@ -248,7 +252,14 @@ async function seedUpdateConversationFixtures(
   context: TestServerContext,
   options: { manifestVersion: string }
 ): Promise<void> {
-  const memoryRoot = path.join(context.tempRoot, "memory");
+  await seedUpdateFixtures(context.tempRoot, options);
+}
+
+async function seedUpdateFixtures(
+  tempRoot: string,
+  options: { manifestVersion: string }
+): Promise<void> {
+  const memoryRoot = path.join(tempRoot, "memory");
   const projectsPath = path.join(memoryRoot, "documents", "projects.json");
   await mkdir(path.dirname(projectsPath), { recursive: true });
   await writeFile(
@@ -295,7 +306,7 @@ async function seedUpdateConversationFixtures(
   );
 
   const starterTemplatePath = path.join(
-    context.tempRoot,
+    tempRoot,
     "memory",
     "starter-pack",
     "base",
@@ -304,6 +315,60 @@ async function seedUpdateConversationFixtures(
   );
   await mkdir(path.dirname(starterTemplatePath), { recursive: true });
   await writeFile(starterTemplatePath, "# Update Checklist\n", "utf8");
+}
+
+async function seedRestartPendingSession(
+  tempRoot: string,
+  options: {
+    updateId: string;
+    fromVersion: string;
+    targetVersion: string;
+  }
+): Promise<void> {
+  const memoryRoot = path.join(tempRoot, "memory");
+  const sessionPath = path.join(memoryRoot, "system", "updates", "session.json");
+  const statePath = path.join(memoryRoot, "system", "updates", "state.json");
+  await mkdir(path.dirname(sessionPath), { recursive: true });
+  await writeFile(
+    sessionPath,
+    `${JSON.stringify(
+      {
+        update_id: options.updateId,
+        correlation_id: options.updateId,
+        from_version: options.fromVersion,
+        target_version: options.targetVersion,
+        phase: "restart_pending",
+        status: "in_progress",
+        started_at: "2026-04-18T12:00:00.000Z",
+        updated_at: "2026-04-18T12:01:00.000Z",
+        last_error: null,
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+  await writeFile(
+    statePath,
+    `${JSON.stringify(
+      {
+        last_checked_at: "2026-04-18T12:01:00.000Z",
+        last_check_status: "ok",
+        last_check_error: null,
+        last_available_version: options.targetVersion,
+        last_applied_version: options.fromVersion,
+        last_applied_app_ref: "app@sha256:old",
+        last_applied_edge_ref: "edge@sha256:old",
+        pending_update: true,
+        pending_reason: "restart_pending",
+        consecutive_failures: 0,
+        next_retry_at: null,
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
 }
 
 async function readProjectConversationId(context: TestServerContext): Promise<string | null> {
@@ -469,6 +534,118 @@ describe.sequential("gateway auth route integration", () => {
         update_id: "active-update-123",
       })
     );
+  });
+
+  it("resumes restart_pending update sessions on startup and keeps resume deterministic across restarts", async () => {
+    const updateId = "restart-resume-123";
+    context = await createTestServer({
+      authMode: "local-owner",
+      versionMetadata: {
+        version: "26.4.18",
+        released: "2026-04-18T12:00:00Z",
+        channel: "stable",
+      },
+      beforeBuild: async (tempRoot) => {
+        await seedUpdateFixtures(tempRoot, { manifestVersion: "26.4.19" });
+        await seedRestartPendingSession(tempRoot, {
+          updateId,
+          fromVersion: "26.4.18",
+          targetVersion: "26.4.19",
+        });
+      },
+    });
+
+    const sessionPath = path.join(context.tempRoot, "memory", "system", "updates", "session.json");
+    const firstSession = parseJson<Record<string, unknown>>(await readFile(sessionPath, "utf8"));
+    expect(firstSession).toEqual(
+      expect.objectContaining({
+        update_id: updateId,
+        correlation_id: updateId,
+        phase: "completed",
+        status: "completed",
+        last_error: null,
+      })
+    );
+
+    const statePath = path.join(context.tempRoot, "memory", "system", "updates", "state.json");
+    const firstState = parseJson<Record<string, unknown>>(await readFile(statePath, "utf8"));
+    expect(firstState.pending_update).toBe(false);
+    expect(firstState.pending_reason).toBeNull();
+
+    const migratedFilePath = path.join(
+      context.tempRoot,
+      "memory",
+      "documents",
+      "braindrive-plus-one",
+      "update-checklist.md"
+    );
+    expect(await readFile(migratedFilePath, "utf8")).toBe("# Update Checklist\n");
+
+    const appliedPath = path.join(context.tempRoot, "memory", "system", "updates", "applied.json");
+    const firstApplied = parseJson<{
+      items: Record<string, { status: string }>;
+    }>(await readFile(appliedPath, "utf8"));
+    expect(Object.values(firstApplied.items).map((entry) => entry.status)).toEqual(["applied"]);
+
+    const firstUpdatedAt = String(firstSession.updated_at ?? "");
+    await context.app.close();
+    const rebuilt = await buildServer(context.tempRoot);
+    context.app = rebuilt.app;
+
+    const secondSession = parseJson<Record<string, unknown>>(await readFile(sessionPath, "utf8"));
+    expect(secondSession).toEqual(
+      expect.objectContaining({
+        update_id: updateId,
+        correlation_id: updateId,
+        phase: "completed",
+        status: "completed",
+      })
+    );
+    expect(secondSession.updated_at).toBe(firstUpdatedAt);
+  });
+
+  it("marks restart_pending sessions as failed on critical readiness errors and skips migration resume", async () => {
+    const updateId = "restart-readiness-failure-123";
+    context = await createTestServer({
+      authMode: "local-owner",
+      versionMetadata: {
+        version: "26.4.18",
+        released: "2026-04-18T12:00:00Z",
+        channel: "stable",
+      },
+      beforeBuild: async (tempRoot) => {
+        await seedRestartPendingSession(tempRoot, {
+          updateId,
+          fromVersion: "26.4.18",
+          targetVersion: "26.4.19",
+        });
+      },
+    });
+
+    const sessionPath = path.join(context.tempRoot, "memory", "system", "updates", "session.json");
+    const session = parseJson<Record<string, unknown>>(await readFile(sessionPath, "utf8"));
+    expect(session).toEqual(
+      expect.objectContaining({
+        update_id: updateId,
+        correlation_id: updateId,
+        phase: "failed",
+        status: "failed",
+      })
+    );
+    expect(typeof session.last_error).toBe("string");
+    expect(String(session.last_error)).toContain("ENOENT");
+
+    const statePath = path.join(context.tempRoot, "memory", "system", "updates", "state.json");
+    const state = parseJson<Record<string, unknown>>(await readFile(statePath, "utf8"));
+    expect(state.pending_update).toBe(false);
+    expect(state.pending_reason).toBeNull();
+
+    await expect(
+      readFile(
+        path.join(context.tempRoot, "memory", "documents", "braindrive-plus-one", "update-checklist.md"),
+        "utf8"
+      )
+    ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("bootstraps an assistant-first update conversation with bounded context", async () => {

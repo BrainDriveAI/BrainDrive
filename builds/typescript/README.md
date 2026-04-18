@@ -34,3 +34,9 @@ When host-level execution is unavailable, `/api/updates/code` and `/api/updates/
 
 1. `./installer/docker/scripts/upgrade.sh local`
 2. `./installer/docker/scripts/upgrade.sh prod`
+
+Startup resume behavior:
+
+1. Gateway inspects `memory/system/updates/session.json` after startup readiness.
+2. Non-terminal sessions resume deterministically; `restart_pending` advances to migration resume.
+3. Critical readiness failures terminalize the session (`failed` or `rolled_back`) and stop migration.
