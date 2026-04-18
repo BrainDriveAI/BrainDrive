@@ -3,6 +3,8 @@ import { Menu } from "lucide-react";
 import { createPortal } from "react-dom";
 
 import { getOnboardingStatus } from "@/api/gateway-adapter";
+import { startUpdateConversation } from "@/api/update-adapter";
+import { clearGatewayChatDraftState } from "@/api/useGatewayChat";
 import ChatPanel from "@/components/chat/ChatPanel";
 import DocumentView from "@/components/document/DocumentView";
 import SettingsModal from "@/components/settings/SettingsModal";
@@ -33,6 +35,7 @@ export default function AppShell({
   const [activeFile, setActiveFile] = useState<ProjectFile | null>(null);
   const [mobileHeaderHeight, setMobileHeaderHeight] = useState(0);
   const stableAppHeightRef = useRef(0);
+  const updateBootstrapInFlightRef = useRef<Promise<void> | null>(null);
   const mobileHeaderRef = useRef<HTMLDivElement | null>(null);
   const {
     projects,
@@ -179,6 +182,25 @@ export default function AppShell({
   function handleStartUpdateFlow() {
     setActiveFile(null);
     selectProject("braindrive-plus-one");
+
+    if (updateBootstrapInFlightRef.current) {
+      return;
+    }
+
+    clearGatewayChatDraftState("braindrive-plus-one");
+
+    const bootstrapTask = (async () => {
+      try {
+        await startUpdateConversation();
+      } catch {
+        // Best effort: still keep owner in BD+1 even if bootstrap fails.
+      } finally {
+        refreshProjects();
+        updateBootstrapInFlightRef.current = null;
+      }
+    })();
+
+    updateBootstrapInFlightRef.current = bootstrapTask;
   }
 
   const documentContent = activeFile && selectedProject ? (

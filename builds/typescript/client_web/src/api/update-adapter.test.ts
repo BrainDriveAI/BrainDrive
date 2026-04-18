@@ -1,5 +1,5 @@
 import { GatewayError } from "./types";
-import { getUpdateStatus } from "./update-adapter";
+import { getUpdateStatus, startUpdateConversation } from "./update-adapter";
 
 describe("update-adapter", () => {
   beforeEach(() => {
@@ -59,6 +59,40 @@ describe("update-adapter", () => {
         message: "upstream unavailable",
         status: 503,
         code: "upstream_error",
+      })
+    );
+  });
+
+  it("starts or resumes the update conversation bootstrap flow", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          status: "started",
+          project_id: "braindrive-plus-one",
+          conversation_id: "conv-update-1",
+          update_id: "update-123",
+          bootstrap_sent: true,
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(startUpdateConversation()).resolves.toEqual({
+      status: "started",
+      project_id: "braindrive-plus-one",
+      conversation_id: "conv-update-1",
+      update_id: "update-123",
+      bootstrap_sent: true,
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/updates/conversation/start",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.any(Object),
       })
     );
   });

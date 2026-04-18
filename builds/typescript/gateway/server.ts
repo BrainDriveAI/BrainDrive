@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { createReadStream, existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -36,6 +37,7 @@ import type {
   AdapterConfig,
   ApprovalMode,
   ClientMessageRequest,
+  ConversationDetail,
   Preferences,
   RuntimeConfig
 } from "../contracts.js";
@@ -51,6 +53,9 @@ import { MarkdownConversationStore } from "../memory/conversation-store-markdown
 import { exportMemory } from "../memory/export.js";
 import { restoreMemoryBackup } from "../memory/backup-restore.js";
 import { importMigrationArchive } from "../memory/migration.js";
+import { loadAppliedState } from "../memory/updates/applied-state.js";
+import { loadUpdatesManifest } from "../memory/updates/manifest.js";
+import { planPendingMigrations } from "../memory/updates/planner.js";
 import { loadVersionMetadata } from "../memory/updates/version.js";
 import {
   ActiveCodeUpdateSessionError,
@@ -231,6 +236,29 @@ const updatesRestartSchema = z
   })
   .strict();
 
+const UPDATE_CONVERSATION_PROJECT_ID = "braindrive-plus-one";
+const UPDATE_CONTEXT_MARKER = "[braindrive-update-context:v1]";
+
+const updateConversationContextItemSchema = z
+  .object({
+    item_id: z.string().trim().min(1).max(200),
+    summary: z.string().trim().min(1).max(2000),
+    source_file_paths: z.array(z.string().trim().min(1).max(400)).max(20),
+    target_file_paths: z.array(z.string().trim().min(1).max(400)).max(20),
+  })
+  .strict();
+
+const updateConversationContextSchema = z
+  .object({
+    update_id: z.string().trim().min(1).max(200),
+    current_version: z.string().trim().min(1).max(120),
+    target_version: z.string().trim().min(1).max(120),
+    migration_items: z.array(updateConversationContextItemSchema).max(80),
+  })
+  .strict();
+
+type UpdateConversationContext = z.infer<typeof updateConversationContextSchema>;
+
 const REFRESH_COOKIE_NAME = "paa_refresh_token";
 const PUBLIC_ROUTES = new Set([
   "/health",
@@ -345,7 +373,8 @@ export async function buildServer(rootDir = process.cwd()) {
   );
   const approvalStore = new ApprovalStore();
   const toolExecutor = new ToolExecutor(tools);
-  const conversations = new GatewayConversationService(createConversationRepository(runtimeConfig));
+  const conversationRepository = createConversationRepository(runtimeConfig);
+  const conversations = new GatewayConversationService(conversationRepository);
   const projects = new GatewayProjectService(runtimeConfig.memory_root, { rootDir });
   const skills = new GatewaySkillService(runtimeConfig.memory_root);
   const updateStatusService = createUpdateStatusService({
@@ -899,6 +928,177 @@ export async function buildServer(rootDir = process.cwd()) {
     authorize(request.authContext, "administration");
     const session = await codeUpdateSessionService.getSession();
     return { session };
+  });
+
+  app.post("/updates/conversation/start", async (request, reply) => {
+    authorize(request.authContext, "administration");
+
+    const project = await projects.getProject(UPDATE_CONVERSATION_PROJECT_ID);
+    if (!project) {
+      reply.code(404).send({
+        error: "project_not_found",
+        project_id: UPDATE_CONVERSATION_PROJECT_ID,
+      });
+      return;
+    }
+
+    const manifest = await loadUpdatesManifest(runtimeConfig.memory_root);
+    const appliedState = await loadAppliedState(runtimeConfig.memory_root);
+    const versionMetadata = await loadVersionMetadata(runtimeConfig.memory_root);
+    const currentVersion = versionMetadata?.version ?? appVersion;
+    const starterPackBaseRoot = path.resolve(rootDir, "memory", "starter-pack", "base");
+    const plan = await planPendingMigrations(manifest, {
+      current_version: currentVersion,
+      starter_pack_base_root: starterPackBaseRoot,
+      library_root: runtimeConfig.memory_root,
+      applied_state: appliedState,
+    });
+
+    const contextSeed = buildUpdateConversationContextSeed(plan);
+    if (contextSeed.migration_items.length === 0) {
+      reply.send({
+        status: "completed",
+        project_id: UPDATE_CONVERSATION_PROJECT_ID,
+        conversation_id: project.conversation_id,
+        update_id: null,
+        bootstrap_sent: false,
+      });
+      return;
+    }
+
+    const activeSession = await codeUpdateSessionService.getSession();
+    const activeUpdateId =
+      activeSession && activeSession.status !== "completed" ? activeSession.update_id : null;
+    const pendingSignature = buildUpdateContextSignature(contextSeed);
+
+    const existingConversationId = project.conversation_id;
+    const existingConversation = existingConversationId
+      ? conversations.detail(existingConversationId)
+      : null;
+    const existingContext = extractUpdateContextFromConversation(existingConversation);
+    const existingSignature = existingContext ? buildUpdateContextSignature(existingContext) : null;
+    const hasAssistantReply = Boolean(
+      existingConversation?.messages.some((message) => message.role === "assistant")
+    );
+    const canReuseExistingConversation =
+      Boolean(existingConversationId) &&
+      existingContext !== null &&
+      existingSignature === pendingSignature &&
+      hasAssistantReply &&
+      (activeUpdateId === null || existingContext.update_id === activeUpdateId);
+
+    if (canReuseExistingConversation && existingConversationId) {
+      await projects.attachConversation(UPDATE_CONVERSATION_PROJECT_ID, existingConversationId);
+      reply.send({
+        status: "resumed",
+        project_id: UPDATE_CONVERSATION_PROJECT_ID,
+        conversation_id: existingConversationId,
+        update_id: existingContext!.update_id,
+        bootstrap_sent: false,
+      });
+      return;
+    }
+
+    const updateId = activeUpdateId ?? createDeterministicUpdateId(pendingSignature);
+    const boundedContext = updateConversationContextSchema.parse({
+      ...contextSeed,
+      update_id: updateId,
+    });
+    const conversationId = crypto.randomUUID();
+    const bootstrapPrompt = buildUpdateBootstrapPrompt(boundedContext);
+    const projectSkillIds = (await projects.getProjectSkills(UPDATE_CONVERSATION_PROJECT_ID)) ?? [];
+    const promptWithSkills = await skills.composePromptWithSkills(systemPrompt, projectSkillIds);
+    const finalPrompt = appendProjectContextToPrompt(
+      promptWithSkills.prompt,
+      UPDATE_CONVERSATION_PROJECT_ID
+    );
+
+    const restrictedAuthContext = {
+      ...request.authContext,
+      permissions: {
+        ...request.authContext.permissions,
+        memory_access: false,
+        tool_access: false,
+        system_actions: false,
+        delegation: false,
+        approval_authority: false,
+      },
+    };
+
+    const engineRequest = gatewayAdapter.buildEngineRequest({
+      conversationId,
+      correlationId: crypto.randomUUID(),
+      messages: [
+        { role: "system", content: finalPrompt },
+        { role: "user", content: bootstrapPrompt },
+      ],
+      clientMetadata: {
+        client: "web",
+        project: UPDATE_CONVERSATION_PROJECT_ID,
+      },
+    });
+
+    let assistantText = "";
+    try {
+      const livePreferences = await loadPreferences(runtimeConfig.memory_root);
+      const liveAdapterConfig = resolveAdapterConfigForPreferences(adapterConfig, livePreferences);
+      const liveProviderCredential = await resolveProviderCredentialForStartup(
+        runtimeConfig.provider_adapter,
+        liveAdapterConfig,
+        livePreferences
+      );
+      const modelAdapter = createModelAdapter(runtimeConfig.provider_adapter, liveAdapterConfig, livePreferences, {
+        apiKey: liveProviderCredential?.apiKey,
+      });
+
+      for await (const event of runAgentLoop(
+        modelAdapter,
+        toolExecutor,
+        approvalStore,
+        engineRequest,
+        restrictedAuthContext,
+        {
+          memoryRoot: runtimeConfig.memory_root,
+          approvalMode: "auto-approve",
+          safetyIterationLimit: runtimeConfig.safety_iteration_limit,
+        }
+      )) {
+        if (event.type === "text-delta") {
+          assistantText += event.delta;
+          continue;
+        }
+
+        if (event.type === "error") {
+          throw new Error(event.message);
+        }
+      }
+    } catch (error) {
+      auditLog("updates.conversation.bootstrap_fallback", {
+        update_id: boundedContext.update_id,
+        message: error instanceof Error ? error.message : "Unknown bootstrap error",
+      });
+      assistantText = "";
+    }
+
+    const normalizedAssistantText =
+      assistantText.trim().length > 0 ? assistantText.trim() : buildFallbackUpdateBootstrapMessage(boundedContext);
+    const nowIso = new Date().toISOString();
+    conversationRepository.createConversation(conversationId, {
+      id: crypto.randomUUID(),
+      role: "system",
+      content: renderUpdateContextMessage(boundedContext),
+      timestamp: nowIso,
+    });
+    conversations.appendAssistantMessage(conversationId, crypto.randomUUID(), normalizedAssistantText);
+    await projects.attachConversation(UPDATE_CONVERSATION_PROJECT_ID, conversationId);
+
+    reply.send({
+      status: "started",
+      project_id: UPDATE_CONVERSATION_PROJECT_ID,
+      conversation_id: conversationId,
+      update_id: boundedContext.update_id,
+      bootstrap_sent: true,
+    });
   });
 
   app.post("/updates/code", async (request, reply) => {
@@ -2319,6 +2519,154 @@ async function resolveAppliedReleaseVersion(memoryRoot: string): Promise<string 
   }
 
   return null;
+}
+
+function buildUpdateConversationContextSeed(
+  plan: Awaited<ReturnType<typeof planPendingMigrations>>
+): Omit<UpdateConversationContext, "update_id"> {
+  return {
+    current_version: plan.current_version,
+    target_version: plan.target_version,
+    migration_items: plan.items.map((item) => ({
+      item_id: item.id,
+      summary: item.summary,
+      source_file_paths: dedupeTrimmedStrings(item.source_file_paths),
+      target_file_paths: dedupeTrimmedStrings(item.file_actions.map((action) => action.target_path)),
+    })),
+  };
+}
+
+function dedupeTrimmedStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const deduped: string[] = [];
+
+  for (const value of values) {
+    const normalized = value.trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    deduped.push(normalized);
+  }
+
+  return deduped;
+}
+
+function buildUpdateContextSignature(
+  context: Omit<UpdateConversationContext, "update_id"> | UpdateConversationContext
+): string {
+  return JSON.stringify({
+    current_version: context.current_version,
+    target_version: context.target_version,
+    migration_items: context.migration_items.map((item) => ({
+      item_id: item.item_id,
+      summary: item.summary,
+      source_file_paths: item.source_file_paths,
+      target_file_paths: item.target_file_paths,
+    })),
+  });
+}
+
+function createDeterministicUpdateId(signature: string): string {
+  const digest = createHash("sha256").update(signature).digest("hex").slice(0, 16);
+  return `update-${digest}`;
+}
+
+function appendProjectContextToPrompt(prompt: string, projectId: string): string {
+  if (!projectId.trim()) {
+    return prompt;
+  }
+
+  return (
+    prompt +
+    `\n\n## Active Project\n\nYou are currently in the **${projectId}** project. ` +
+    "Read this project's AGENT.md, spec.md, and plan.md from the documents/" +
+    `${projectId}/ folder. Stay focused on this domain — do not read or reference ` +
+    "other projects unless the conversation specifically calls for cross-domain connections."
+  );
+}
+
+function buildUpdateBootstrapPrompt(context: UpdateConversationContext): string {
+  return [
+    "Start the update conversation now.",
+    "You are speaking first to the owner.",
+    "Use only the structured update context below.",
+    "Do not mention hidden metadata fields or runtime override settings.",
+    "Give a concise plan, call out risks, and ask for confirmation before any destructive change.",
+    "",
+    "## Structured Update Context",
+    "```json",
+    JSON.stringify(context, null, 2),
+    "```",
+  ].join("\n");
+}
+
+function buildFallbackUpdateBootstrapMessage(context: UpdateConversationContext): string {
+  const preview = context.migration_items.slice(0, 6);
+  const summaryLines = preview.map(
+    (item) =>
+      `- ${item.item_id}: ${item.summary} (${item.target_file_paths.length} target file${item.target_file_paths.length === 1 ? "" : "s"})`
+  );
+  const overflowCount = Math.max(0, context.migration_items.length - preview.length);
+
+  return [
+    `I found ${context.migration_items.length} pending migration item${context.migration_items.length === 1 ? "" : "s"} for update ${context.update_id}.`,
+    `Current version: ${context.current_version}`,
+    `Target version: ${context.target_version}`,
+    "",
+    ...summaryLines,
+    ...(overflowCount > 0 ? [`- ...and ${overflowCount} more item${overflowCount === 1 ? "" : "s"}`] : []),
+    "",
+    "I can walk through the safest order and tradeoffs before we apply anything. Continue?",
+  ].join("\n");
+}
+
+function renderUpdateContextMessage(context: UpdateConversationContext): string {
+  return [
+    "Update bootstrap context",
+    UPDATE_CONTEXT_MARKER,
+    JSON.stringify(context),
+  ].join("\n");
+}
+
+function extractUpdateContextFromConversation(
+  conversation: ConversationDetail | null
+): UpdateConversationContext | null {
+  if (!conversation) {
+    return null;
+  }
+
+  for (const message of conversation.messages) {
+    if (message.role !== "system") {
+      continue;
+    }
+    const parsed = parseUpdateContextMessage(message.content);
+    if (parsed) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+function parseUpdateContextMessage(content: string): UpdateConversationContext | null {
+  const markerIndex = content.indexOf(UPDATE_CONTEXT_MARKER);
+  if (markerIndex < 0) {
+    return null;
+  }
+
+  const rawPayload = content.slice(markerIndex + UPDATE_CONTEXT_MARKER.length).trim();
+  if (!rawPayload) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(rawPayload);
+    const validated = updateConversationContextSchema.safeParse(parsed);
+    return validated.success ? validated.data : null;
+  } catch {
+    return null;
+  }
 }
 
 class FixedWindowRateLimiter {

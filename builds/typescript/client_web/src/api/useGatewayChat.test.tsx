@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 
 import type { ChatEvent } from "./types";
-import { resetGatewayChatRuntime, useGatewayChat } from "./useGatewayChat";
+import { clearGatewayChatDraftState, resetGatewayChatRuntime, useGatewayChat } from "./useGatewayChat";
 
 const sendMessageMock = vi.fn<
   (
@@ -399,5 +399,46 @@ describe("useGatewayChat", () => {
     expect(result.current.isLoading).toBe(false);
     expect(result.current.pendingApprovals).toEqual([]);
     expect(result.current.activity).toEqual([]);
+  });
+
+  it("clears cached draft state for a specific project key", async () => {
+    sendMessageMock.mockImplementation(() =>
+      streamEvents([
+        { type: "text-delta", delta: "Bootstrap reply" },
+        {
+          type: "done",
+          finish_reason: "stop",
+          conversation_id: "conv-bootstrap",
+        },
+      ])
+    );
+
+    const { result, rerender } = renderHook(
+      ({ draftKey }: { draftKey: string }) => useGatewayChat({ draftKey }),
+      {
+        initialProps: { draftKey: "braindrive-plus-one" },
+      }
+    );
+
+    act(() => {
+      result.current.append("Start update flow");
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(result.current.messages.length).toBeGreaterThan(0);
+
+    act(() => {
+      rerender({ draftKey: "secondary-project" });
+    });
+
+    act(() => {
+      clearGatewayChatDraftState("braindrive-plus-one");
+      rerender({ draftKey: "braindrive-plus-one" });
+    });
+
+    expect(result.current.messages).toEqual([]);
   });
 });

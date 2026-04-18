@@ -10,6 +10,16 @@ export type UpdateStatusPayload = {
   diagnostic: string | null;
 };
 
+export type UpdateConversationStartStatus = "started" | "resumed" | "completed";
+
+export type UpdateConversationStartPayload = {
+  status: UpdateConversationStartStatus;
+  project_id: string;
+  conversation_id: string | null;
+  update_id: string | null;
+  bootstrap_sent: boolean;
+};
+
 type ErrorPayload = {
   detail?: string;
   message?: string;
@@ -18,6 +28,7 @@ type ErrorPayload = {
 };
 
 type PartialUpdateStatusPayload = Partial<UpdateStatusPayload>;
+type PartialUpdateConversationStartPayload = Partial<UpdateConversationStartPayload>;
 
 const EMPTY_STATUS: UpdateStatusPayload = {
   channel: null,
@@ -42,6 +53,20 @@ export async function getUpdateStatus(): Promise<UpdateStatusPayload> {
   return normalizeStatusPayload(payload);
 }
 
+export async function startUpdateConversation(): Promise<UpdateConversationStartPayload> {
+  const response = await fetch("/api/updates/conversation/start", {
+    method: "POST",
+    headers: buildLocalOwnerHeaders(),
+  });
+
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+
+  const payload = (await response.json()) as PartialUpdateConversationStartPayload;
+  return normalizeUpdateConversationStartPayload(payload);
+}
+
 function normalizeStatusPayload(payload: PartialUpdateStatusPayload): UpdateStatusPayload {
   return {
     channel: typeof payload.channel === "string" ? payload.channel : null,
@@ -53,6 +78,35 @@ function normalizeStatusPayload(payload: PartialUpdateStatusPayload): UpdateStat
       typeof payload.last_checked_at === "string" ? payload.last_checked_at : EMPTY_STATUS.last_checked_at,
     diagnostic: typeof payload.diagnostic === "string" ? payload.diagnostic : null,
   };
+}
+
+function normalizeUpdateConversationStartPayload(
+  payload: PartialUpdateConversationStartPayload
+): UpdateConversationStartPayload {
+  const status = toStartStatus(payload.status);
+  return {
+    status,
+    project_id:
+      typeof payload.project_id === "string" && payload.project_id.trim().length > 0
+        ? payload.project_id
+        : "braindrive-plus-one",
+    conversation_id:
+      typeof payload.conversation_id === "string" && payload.conversation_id.trim().length > 0
+        ? payload.conversation_id
+        : null,
+    update_id:
+      typeof payload.update_id === "string" && payload.update_id.trim().length > 0
+        ? payload.update_id
+        : null,
+    bootstrap_sent: payload.bootstrap_sent === true,
+  };
+}
+
+function toStartStatus(value: unknown): UpdateConversationStartStatus {
+  if (value === "started" || value === "resumed" || value === "completed") {
+    return value;
+  }
+  return "completed";
 }
 
 async function toGatewayError(response: Response): Promise<GatewayError> {
