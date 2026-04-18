@@ -9,6 +9,7 @@ import {
   isItemDeclined,
   loadAppliedState,
   lookupItemDecision,
+  persistAppliedState,
   parseAppliedState,
 } from "./applied-state.js";
 
@@ -75,5 +76,57 @@ describe("applied update state", () => {
         })
       )
     ).toThrow(AppliedStateParseError);
+  });
+
+  it("supports in_progress and failed item statuses with rollback metadata", () => {
+    const parsed = parseAppliedState(
+      JSON.stringify({
+        last_applied: null,
+        items: {
+          "1.2.1:in-progress:aaaa1111": {
+            status: "in_progress",
+            decided_at: "2026-04-18T10:00:00Z",
+          },
+          "1.2.1:failed:bbbb2222": {
+            status: "failed",
+            decided_at: "2026-04-18T10:01:00Z",
+            error_summary: "source file was missing",
+            snapshot_path: "system/updates/snapshots/fail.json",
+          },
+        },
+        runs: [],
+      })
+    );
+
+    expect(parsed.items["1.2.1:in-progress:aaaa1111"]?.status).toBe("in_progress");
+    expect(parsed.items["1.2.1:failed:bbbb2222"]?.status).toBe("failed");
+    expect(parsed.items["1.2.1:failed:bbbb2222"]?.error_summary).toBe("source file was missing");
+    expect(parsed.items["1.2.1:failed:bbbb2222"]?.snapshot_path).toBe(
+      "system/updates/snapshots/fail.json"
+    );
+  });
+
+  it("persists state with formatting-compatible output", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "braindrive-applied-state-save-"));
+    const memoryRoot = path.join(tempRoot, "memory");
+
+    try {
+      await persistAppliedState(memoryRoot, {
+        last_applied: "1.2.0",
+        items: {
+          "1.2.1:done:aaaa1111": {
+            status: "applied",
+            decided_at: "2026-04-18T11:00:00Z",
+          },
+        },
+        runs: [],
+      });
+
+      const loaded = await loadAppliedState(memoryRoot);
+      expect(loaded.last_applied).toBe("1.2.0");
+      expect(loaded.items["1.2.1:done:aaaa1111"]?.status).toBe("applied");
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
   });
 });

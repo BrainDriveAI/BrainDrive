@@ -1,16 +1,18 @@
 import path from "node:path";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 import { normalizeVersionString } from "./version.js";
 
 const APPLIED_STATE_RELATIVE_PATH = path.join("system", "updates", "applied.json");
 
-export type AppliedItemStatus = "applied" | "declined";
+export type AppliedItemStatus = "in_progress" | "applied" | "declined" | "failed";
 
 export type AppliedItemDecision = {
   status: AppliedItemStatus;
   decided_at: string;
   note?: string;
+  error_summary?: string;
+  snapshot_path?: string;
 };
 
 export type AppliedRunHistoryEntry = {
@@ -90,6 +92,20 @@ export function isItemDeclined(state: AppliedState, itemId: string): boolean {
   return lookupItemDecision(state, itemId)?.status === "declined";
 }
 
+export function isTerminalItemStatus(status: AppliedItemStatus): boolean {
+  return status === "applied" || status === "declined" || status === "failed";
+}
+
+export function serializeAppliedState(state: AppliedState): string {
+  return `${JSON.stringify(state, null, 2)}\n`;
+}
+
+export async function persistAppliedState(memoryRoot: string, state: AppliedState): Promise<void> {
+  const statePath = resolveAppliedStatePath(memoryRoot);
+  await mkdir(path.dirname(statePath), { recursive: true });
+  await writeFile(statePath, serializeAppliedState(state), "utf8");
+}
+
 function parseLastApplied(value: unknown): string | null {
   if (value === null || value === undefined) {
     return null;
@@ -136,27 +152,34 @@ function parseItemDecisions(value: unknown): Record<string, AppliedItemDecision>
     const status = parseDecisionStatus(decisionRecord.status, itemId);
     const decidedAt = parseRequiredString(decisionRecord.decided_at, `items.${itemId}.decided_at`);
     const note = parseOptionalString(decisionRecord.note, `items.${itemId}.note`);
+    const errorSummary = parseOptionalString(
+      decisionRecord.error_summary,
+      `items.${itemId}.error_summary`
+    );
+    const snapshotPath = parseOptionalString(
+      decisionRecord.snapshot_path,
+      `items.${itemId}.snapshot_path`
+    );
 
-    parsed[itemId] = note
-      ? {
-          status,
-          decided_at: decidedAt,
-          note,
-        }
-      : {
-          status,
-          decided_at: decidedAt,
-        };
+    parsed[itemId] = {
+      status,
+      decided_at: decidedAt,
+      ...(note ? { note } : {}),
+      ...(errorSummary ? { error_summary: errorSummary } : {}),
+      ...(snapshotPath ? { snapshot_path: snapshotPath } : {}),
+    };
   }
 
   return parsed;
 }
 
 function parseDecisionStatus(value: unknown, itemId: string): AppliedItemStatus {
-  if (value === "applied" || value === "declined") {
+  if (value === "in_progress" || value === "applied" || value === "declined" || value === "failed") {
     return value;
   }
-  throw new AppliedStateParseError(`items.${itemId}.status must be \"applied\" or \"declined\"`);
+  throw new AppliedStateParseError(
+    `items.${itemId}.status must be "in_progress", "applied", "declined", or "failed"`
+  );
 }
 
 function parseRunHistory(value: unknown): AppliedRunHistoryEntry[] {
