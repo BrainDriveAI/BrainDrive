@@ -153,6 +153,44 @@ describe("AppShell update flow", () => {
     });
   });
 
+  it("renders update indicator trigger only when update availability is true", () => {
+    hooksMock.useUpdateStatus.mockReturnValue({
+      updateStatus: {
+        channel: "stable",
+        current_version: "26.4.19",
+        latest_stable_version: "26.4.19",
+        update_available: false,
+        last_checked_at: "2026-04-18T16:00:00.000Z",
+        diagnostic: null,
+      },
+      hasUpdateAvailable: false,
+      isLoading: false,
+      error: null,
+      refreshStatus: vi.fn(),
+    });
+
+    const { rerender } = render(<AppShell />);
+    expect(screen.queryByRole("button", { name: "Start update flow" })).not.toBeInTheDocument();
+
+    hooksMock.useUpdateStatus.mockReturnValue({
+      updateStatus: {
+        channel: "stable",
+        current_version: "26.4.18",
+        latest_stable_version: "26.4.19",
+        update_available: true,
+        last_checked_at: "2026-04-18T16:01:00.000Z",
+        diagnostic: null,
+      },
+      hasUpdateAvailable: true,
+      isLoading: false,
+      error: null,
+      refreshStatus: vi.fn(),
+    });
+
+    rerender(<AppShell />);
+    expect(screen.getByRole("button", { name: "Start update flow" })).toBeInTheDocument();
+  });
+
   it("refreshes projects even when bootstrap start fails", async () => {
     const user = userEvent.setup();
     updateAdapterMock.startUpdateConversation.mockRejectedValue(new Error("gateway unavailable"));

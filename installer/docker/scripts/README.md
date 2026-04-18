@@ -155,6 +155,9 @@ Arguments:
 Important behavior:
 - Supports dry-run check mode via `BRAINDRIVE_UPGRADE_DRY_RUN=true`.
 - After non-dry-run completion, prints the access URL and attempts a best-effort browser auto-open on the host.
+- This is the canonical fallback command surface used by Gateway update APIs when host execution is unavailable:
+- `./installer/docker/scripts/upgrade.sh local`
+- `./installer/docker/scripts/upgrade.sh prod`
 - Dry-run emits machine-readable fields:
 - `CHECK_MODE=dry-run`
 - `CHECK_TARGET_APP_REF`, `CHECK_TARGET_EDGE_REF`
@@ -222,6 +225,13 @@ Key env vars:
 - `BRAINDRIVE_UPDATES_WINDOW_START`
 - `BRAINDRIVE_UPDATES_WINDOW_END`
 - `BRAINDRIVE_UPGRADE_DRY_RUN` (used internally during check)
+
+Persistent update state files used by this flow:
+- `memory/system/updates/state.json` (policy + retry state for check/update decisions)
+- `memory/system/updates/session.json` (durable code-update phase/status lifecycle for gateway resume)
+- `memory/system/updates/applied.json` (applied migration-item ledger)
+- `memory/system/updates/manifest.md` (cumulative migration plan source)
+- `memory/system/version.json` (current local version metadata)
 
 ### fetch-release-metadata (`fetch-release-metadata.sh`, `fetch-release-metadata.ps1`)
 
@@ -504,3 +514,4 @@ Behavior:
 - If running from repo root, canonical invocation should remain explicit (`./installer/docker/scripts/...`) to avoid ambiguity.
 - `start` in `local/prod` is update-policy aware through `check-update`.
 - `check-update` and `upgrade` form a contract via dry-run fields and exit codes.
+- Do not introduce alternate wrapper scripts for update fallback; the canonical host command is `./installer/docker/scripts/upgrade.sh <local|prod>`.

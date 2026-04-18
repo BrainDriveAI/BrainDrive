@@ -451,6 +451,167 @@ describe.sequential("gateway auth route integration", () => {
     });
   });
 
+  it("covers available-update detection through bootstrap and deterministic migration resolution", async () => {
+    const originalFetch = globalThis.fetch;
+    const releaseFetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/repos/BrainDriveAI/braindrive/releases/latest")) {
+        return new Response(JSON.stringify({ tag_name: "v26.4.19" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response("not found", { status: 404 });
+    }) as unknown as typeof fetch;
+
+    vi.stubGlobal("fetch", releaseFetchMock);
+
+    try {
+      context = await createTestServer({
+        authMode: "local-owner",
+        versionMetadata: {
+          version: "26.4.18",
+          released: "2026-04-18T12:00:00Z",
+          channel: "stable",
+        },
+      });
+      await seedUpdateConversationFixtures(context, { manifestVersion: "26.4.19" });
+
+      const firstStatusResponse = await context.app.inject({
+        method: "GET",
+        url: "/updates/status",
+      });
+      expect(firstStatusResponse.statusCode).toBe(200);
+      expect(
+        parseJson<{
+          channel: string | null;
+          current_version: string | null;
+          latest_stable_version: string | null;
+          update_available: boolean | null;
+          diagnostic: string | null;
+        }>(firstStatusResponse.body)
+      ).toMatchObject({
+        channel: "stable",
+        current_version: "26.4.18",
+        latest_stable_version: "26.4.19",
+        update_available: true,
+        diagnostic: null,
+      });
+
+      const secondStatusResponse = await context.app.inject({
+        method: "GET",
+        url: "/updates/status",
+      });
+      expect(secondStatusResponse.statusCode).toBe(200);
+      expect(releaseFetchMock).toHaveBeenCalledTimes(1);
+
+      const bootstrapResponse = await context.app.inject({
+        method: "POST",
+        url: "/updates/conversation/start",
+        headers: localOwnerAdminHeaders(),
+      });
+      expect(bootstrapResponse.statusCode).toBe(200);
+      const bootstrapPayload = parseJson<{
+        status: string;
+        conversation_id: string | null;
+        update_id: string | null;
+        bootstrap_sent: boolean;
+      }>(bootstrapResponse.body);
+      expect(bootstrapPayload).toEqual(
+        expect.objectContaining({
+          status: "started",
+          bootstrap_sent: true,
+        })
+      );
+      expect(bootstrapPayload.conversation_id).toBeTruthy();
+      expect(bootstrapPayload.update_id).toBeTruthy();
+      expect(await readProjectConversationId(context)).toBe(bootstrapPayload.conversation_id);
+
+      const resumedUpdateId = String(bootstrapPayload.update_id);
+      const sessionPath = path.join(context.tempRoot, "memory", "system", "updates", "session.json");
+      const statePath = path.join(context.tempRoot, "memory", "system", "updates", "state.json");
+      await mkdir(path.dirname(sessionPath), { recursive: true });
+      await writeFile(
+        sessionPath,
+        `${JSON.stringify(
+          {
+            update_id: resumedUpdateId,
+            correlation_id: resumedUpdateId,
+            from_version: "26.4.18",
+            target_version: "26.4.19",
+            phase: "restart_pending",
+            status: "in_progress",
+            started_at: "2026-04-18T12:00:00.000Z",
+            updated_at: "2026-04-18T12:01:00.000Z",
+            last_error: null,
+          },
+          null,
+          2
+        )}\n`,
+        "utf8"
+      );
+      await writeFile(
+        statePath,
+        `${JSON.stringify(
+          {
+            last_checked_at: "2026-04-18T12:01:00.000Z",
+            last_check_status: "ok",
+            last_check_error: null,
+            last_available_version: "26.4.19",
+            last_applied_version: "26.4.18",
+            last_applied_app_ref: "app@sha256:old",
+            last_applied_edge_ref: "edge@sha256:old",
+            pending_update: true,
+            pending_reason: "restart_pending",
+            consecutive_failures: 0,
+            next_retry_at: null,
+          },
+          null,
+          2
+        )}\n`,
+        "utf8"
+      );
+
+      await context.app.close();
+      const rebuilt = await buildServer(context.tempRoot);
+      context.app = rebuilt.app;
+
+      const sessionResponse = await context.app.inject({
+        method: "GET",
+        url: "/updates/session",
+        headers: localOwnerAdminHeaders(),
+      });
+      expect(sessionResponse.statusCode).toBe(200);
+      expect(
+        parseJson<{ session: Record<string, unknown> | null }>(sessionResponse.body).session
+      ).toEqual(
+        expect.objectContaining({
+          update_id: resumedUpdateId,
+          phase: "completed",
+          status: "completed",
+          last_error: null,
+        })
+      );
+
+      const migratedFilePath = path.join(
+        context.tempRoot,
+        "memory",
+        "documents",
+        "braindrive-plus-one",
+        "update-checklist.md"
+      );
+      expect(await readFile(migratedFilePath, "utf8")).toBe("# Update Checklist\n");
+
+      const appliedPath = path.join(context.tempRoot, "memory", "system", "updates", "applied.json");
+      const applied = parseJson<{
+        items: Record<string, { status: string }>;
+      }>(await readFile(appliedPath, "utf8"));
+      expect(Object.values(applied.items).map((entry) => entry.status)).toEqual(["applied"]);
+    } finally {
+      vi.stubGlobal("fetch", originalFetch);
+    }
+  });
+
   it("creates durable update session metadata and returns fallback command when host execution is unavailable", async () => {
     context = await createTestServer({ authMode: "local-owner" });
 
