@@ -53,6 +53,14 @@ import { restoreMemoryBackup } from "../memory/backup-restore.js";
 import { importMigrationArchive } from "../memory/migration.js";
 import { loadVersionMetadata } from "../memory/updates/version.js";
 import {
+  ActiveCodeUpdateSessionError,
+  CodeUpdateExecutionError,
+  CodeUpdateSessionMismatchError,
+  ContainerRestartExecutionError,
+  createCodeUpdateSessionService,
+  NoActiveCodeUpdateSessionError,
+} from "../memory/updates/session.js";
+import {
   createSupportBundle,
   listSupportBundles,
   resolveSupportBundleDownloadPath,
@@ -211,6 +219,18 @@ const supportBundleDownloadParamsSchema = z
   })
   .strict();
 
+const updatesCodeApplySchema = z
+  .object({
+    target_version: z.string().trim().min(1).optional(),
+  })
+  .strict();
+
+const updatesRestartSchema = z
+  .object({
+    update_id: z.string().trim().min(1).optional(),
+  })
+  .strict();
+
 const REFRESH_COOKIE_NAME = "paa_refresh_token";
 const PUBLIC_ROUTES = new Set([
   "/health",
@@ -330,6 +350,10 @@ export async function buildServer(rootDir = process.cwd()) {
   const skills = new GatewaySkillService(runtimeConfig.memory_root);
   const updateStatusService = createUpdateStatusService({
     memoryRoot: runtimeConfig.memory_root,
+  });
+  const codeUpdateSessionService = createCodeUpdateSessionService({
+    memoryRoot: runtimeConfig.memory_root,
+    installMode: runtimeConfig.install_mode,
   });
   const signupRateLimiter = new FixedWindowRateLimiter(5, 5 * 60 * 1000);
   const loginRateLimiter = new FixedWindowRateLimiter(10, 5 * 60 * 1000);
@@ -870,6 +894,120 @@ export async function buildServer(rootDir = process.cwd()) {
   }));
 
   app.get("/updates/status", async () => updateStatusService.getStatus());
+
+  app.get("/updates/session", async (request) => {
+    authorize(request.authContext, "administration");
+    const session = await codeUpdateSessionService.getSession();
+    return { session };
+  });
+
+  app.post("/updates/code", async (request, reply) => {
+    authorize(request.authContext, "administration");
+    const parsed = updatesCodeApplySchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      sendInvalidRequest(reply, "/updates/code", parsed.error.issues.length);
+      return;
+    }
+
+    try {
+      const result = await codeUpdateSessionService.startCodeUpdate({
+        fromVersion: appVersion,
+        targetVersion: parsed.data.target_version,
+      });
+
+      if (result.kind === "fallback") {
+        reply.code(503).send({
+          error: "host_execution_unavailable",
+          update_id: result.session.update_id,
+          command: result.command,
+          detail: result.detail,
+          session: result.session,
+        });
+        return;
+      }
+
+      reply.code(202).send({
+        update_id: result.session.update_id,
+        session: result.session,
+      });
+    } catch (error) {
+      if (error instanceof ActiveCodeUpdateSessionError) {
+        reply.code(409).send({
+          error: "update_session_active",
+          update_id: error.activeSession.update_id,
+          session: error.activeSession,
+        });
+        return;
+      }
+
+      if (error instanceof CodeUpdateExecutionError) {
+        reply.code(502).send({
+          error: "update_execution_failed",
+          update_id: error.updateId,
+          detail: error.message,
+        });
+        return;
+      }
+
+      throw error;
+    }
+  });
+
+  app.post("/updates/restart", async (request, reply) => {
+    authorize(request.authContext, "administration");
+    const parsed = updatesRestartSchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      sendInvalidRequest(reply, "/updates/restart", parsed.error.issues.length);
+      return;
+    }
+
+    try {
+      const result = await codeUpdateSessionService.restartCodeUpdate({
+        updateId: parsed.data.update_id,
+      });
+
+      if (result.kind === "fallback") {
+        reply.code(503).send({
+          error: "host_execution_unavailable",
+          update_id: result.session.update_id,
+          command: result.command,
+          detail: result.detail,
+          session: result.session,
+        });
+        return;
+      }
+
+      reply.code(202).send({
+        update_id: result.session.update_id,
+        session: result.session,
+      });
+    } catch (error) {
+      if (error instanceof NoActiveCodeUpdateSessionError) {
+        reply.code(409).send({ error: "no_active_update_session" });
+        return;
+      }
+
+      if (error instanceof CodeUpdateSessionMismatchError) {
+        reply.code(409).send({
+          error: "update_session_mismatch",
+          update_id: error.activeSession.update_id,
+          session: error.activeSession,
+        });
+        return;
+      }
+
+      if (error instanceof ContainerRestartExecutionError) {
+        reply.code(502).send({
+          error: "container_restart_failed",
+          update_id: error.updateId,
+          detail: error.message,
+        });
+        return;
+      }
+
+      throw error;
+    }
+  });
 
   app.get("/session", async (request) => ({
     mode: isManaged ? "managed" : "local",

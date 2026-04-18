@@ -299,6 +299,91 @@ describe.sequential("gateway auth route integration", () => {
     });
   });
 
+  it("creates durable update session metadata and returns fallback command when host execution is unavailable", async () => {
+    context = await createTestServer({ authMode: "local-owner" });
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/updates/code",
+      headers: localOwnerAdminHeaders(),
+      payload: {
+        target_version: "26.4.19",
+      },
+    });
+
+    expect(response.statusCode).toBe(503);
+    const payload = parseJson<{
+      error: string;
+      update_id: string;
+      command: string;
+    }>(response.body);
+    expect(payload.error).toBe("host_execution_unavailable");
+    expect(payload.command).toBe("./installer/docker/scripts/upgrade.sh local");
+    expect(payload.update_id.length).toBeGreaterThan(0);
+
+    const sessionPath = path.join(context.tempRoot, "memory", "system", "updates", "session.json");
+    const persisted = parseJson<Record<string, unknown>>(await readFile(sessionPath, "utf8"));
+    expect(persisted).toEqual(
+      expect.objectContaining({
+        update_id: payload.update_id,
+        from_version: expect.any(String),
+        target_version: "26.4.19",
+        phase: "host_execution_unavailable",
+        status: "failed",
+        started_at: expect.any(String),
+        updated_at: expect.any(String),
+        last_error: expect.any(String),
+      })
+    );
+  });
+
+  it("rejects a second code update request when a non-terminal session is active", async () => {
+    context = await createTestServer({ authMode: "local-owner" });
+
+    const sessionPath = path.join(context.tempRoot, "memory", "system", "updates", "session.json");
+    await mkdir(path.dirname(sessionPath), { recursive: true });
+    await writeFile(
+      sessionPath,
+      `${JSON.stringify(
+        {
+          update_id: "active-update-123",
+          from_version: "26.4.18",
+          target_version: "26.4.19",
+          phase: "code_update_complete",
+          status: "in_progress",
+          started_at: "2026-04-18T12:00:00.000Z",
+          updated_at: "2026-04-18T12:01:00.000Z",
+          last_error: null,
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/updates/code",
+      headers: localOwnerAdminHeaders(),
+      payload: {
+        target_version: "26.4.20",
+      },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(
+      parseJson<{
+        error: string;
+        update_id: string;
+      }>(response.body)
+    ).toEqual(
+      expect.objectContaining({
+        error: "update_session_active",
+        update_id: "active-update-123",
+      })
+    );
+  });
+
   it("allows authenticated logout after successful signup", async () => {
     context = await createTestServer();
 
