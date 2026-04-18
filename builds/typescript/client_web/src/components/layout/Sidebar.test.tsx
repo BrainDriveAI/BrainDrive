@@ -34,7 +34,9 @@ const baseProps = {
   onReturnToChat: () => {},
   onFileClick: () => {},
   onOpenSettings: () => {},
-  onLogout: () => {}
+  onLogout: () => {},
+  showUpdateIndicator: false,
+  onUpdateIndicatorClick: () => {}
 };
 
 describe("Sidebar", () => {
@@ -102,5 +104,51 @@ describe("Sidebar", () => {
 
     expect(onDeselectProject).toHaveBeenCalledTimes(1);
     expect(onReturnToChat).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides update indicator when no update is available", () => {
+    render(<Sidebar {...baseProps} showUpdateIndicator={false} />);
+
+    expect(screen.queryByText("Update available")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /update available/i })
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows an amber update indicator above the profile section", () => {
+    render(<Sidebar {...baseProps} showUpdateIndicator />);
+
+    const updateButton = screen.getByRole("button", { name: /update available/i });
+
+    expect(updateButton).toBeInTheDocument();
+    expect(updateButton).toHaveAccessibleName(/Update available/i);
+    expect(updateButton.className).toContain("border-bd-amber");
+    expect(screen.queryByRole("button", { name: /dismiss/i })).not.toBeInTheDocument();
+  });
+
+  it("invokes update callback without triggering unrelated sidebar actions", async () => {
+    const user = userEvent.setup();
+    const onUpdateIndicatorClick = vi.fn();
+    const onSelectProject = vi.fn();
+    const onOpenSettings = vi.fn();
+
+    render(
+      <Sidebar
+        {...baseProps}
+        showUpdateIndicator
+        onUpdateIndicatorClick={onUpdateIndicatorClick}
+        onSelectProject={onSelectProject}
+        onOpenSettings={onOpenSettings}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: /update available/i }));
+
+    expect(onUpdateIndicatorClick).toHaveBeenCalledTimes(1);
+    expect(onSelectProject).not.toHaveBeenCalled();
+    expect(onOpenSettings).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("button", { name: "BrainDrive Settings" })
+    ).not.toBeInTheDocument();
   });
 });

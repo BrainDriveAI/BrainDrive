@@ -7,6 +7,7 @@ import ChatPanel from "@/components/chat/ChatPanel";
 import DocumentView from "@/components/document/DocumentView";
 import SettingsModal from "@/components/settings/SettingsModal";
 import { useProjects } from "@/hooks/useProjects";
+import { useUpdateStatus } from "@/hooks/useUpdateStatus";
 import type { ProjectFile } from "@/types/ui";
 
 import Sidebar from "./Sidebar";
@@ -48,6 +49,7 @@ export default function AppShell({
     removeProject,
     renameProject
   } = useProjects();
+  const { hasUpdateAvailable } = useUpdateStatus();
 
   const messageMetadata =
     selectedProjectId !== null ? { client: "web", project: selectedProjectId } : { client: "web" };
@@ -174,6 +176,11 @@ export default function AppShell({
     setActiveFile(null);
   }
 
+  function handleStartUpdateFlow() {
+    setActiveFile(null);
+    selectProject("braindrive-plus-one");
+  }
+
   const documentContent = activeFile && selectedProject ? (
     <DocumentView
       projectId={selectedProject.id}
@@ -250,6 +257,8 @@ export default function AppShell({
           onAddProject={addProject}
           onRemoveProject={removeProject}
           onRenameProject={renameProject}
+          showUpdateIndicator={hasUpdateAvailable}
+          onUpdateIndicatorClick={handleStartUpdateFlow}
         />
       </div>
 
@@ -285,6 +294,11 @@ export default function AppShell({
               tier={deploymentMode === "managed" ? "hosted" : "local"}
               onAddProject={addProject}
               onRemoveProject={removeProject}
+              showUpdateIndicator={hasUpdateAvailable}
+              onUpdateIndicatorClick={() => {
+                handleStartUpdateFlow();
+                setIsMobileSidebarOpen(false);
+              }}
               onClose={() => {
                 setIsMobileSidebarOpen(false);
               }}

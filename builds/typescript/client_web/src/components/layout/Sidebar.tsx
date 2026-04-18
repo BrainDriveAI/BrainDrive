@@ -1,4 +1,15 @@
-import { ChevronLeft, FileText, MoreHorizontal, Pencil, Plus, Sparkles, Trash2, X } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  CircleAlert,
+  FileText,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Sparkles,
+  Trash2,
+  X
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { getSession } from "@/api/auth-adapter";
@@ -35,6 +46,8 @@ type SidebarProps = {
   onRenameProject?: (id: string, name: string) => Promise<void>;
   tier?: "local" | "hosted" | "concierge";
   onClose?: () => void;
+  showUpdateIndicator?: boolean;
+  onUpdateIndicatorClick?: () => void;
 };
 
 export default function Sidebar({
@@ -56,7 +69,9 @@ export default function Sidebar({
   onRemoveProject,
   onRenameProject,
   tier = "local",
-  onClose
+  onClose,
+  showUpdateIndicator = false,
+  onUpdateIndicatorClick
 }: SidebarProps) {
   const [user, setUser] = useState<UserProfile>(DEFAULT_USER);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
@@ -430,6 +445,26 @@ export default function Sidebar({
       </div>
 
       <div className="mt-auto">
+        {showUpdateIndicator ? (
+          <div className="px-2 pb-1 pt-2">
+            <button
+              type="button"
+              aria-label="Update available. Open update flow"
+              onClick={(event) => {
+                event.stopPropagation();
+                onUpdateIndicatorClick?.();
+                onClose?.();
+              }}
+              className="group flex w-full items-center gap-2 rounded-xl border border-bd-amber/40 bg-bd-amber/10 px-3 py-2 text-left transition-all duration-200 hover:bg-bd-amber/15"
+            >
+              <CircleAlert size={16} strokeWidth={1.8} className="shrink-0 text-bd-amber" />
+              <span className="min-w-0 flex-1 text-[13px] font-medium text-bd-amber">
+                Update available
+              </span>
+              <ChevronRight size={16} strokeWidth={1.5} className="shrink-0 text-bd-amber" />
+            </button>
+          </div>
+        ) : null}
         <div ref={profileMenuRef} className="relative px-2 pb-2 pt-2">
           {isProfileMenuOpen ? (
             <ProfileMenu
