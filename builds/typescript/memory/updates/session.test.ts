@@ -163,12 +163,12 @@ describe("code update session service", () => {
       expect(restarted.kind).toBe("restarted");
 
       const finalSession = await loadCodeUpdateSession(paths.memoryRoot);
-      expect(finalSession?.phase).toBe("completed");
-      expect(finalSession?.status).toBe("completed");
+      expect(finalSession?.phase).toBe("restart_pending");
+      expect(finalSession?.status).toBe("in_progress");
 
       const finalState = JSON.parse(await readFile(statePath, "utf8")) as Record<string, unknown>;
-      expect(finalState.pending_update).toBe(false);
-      expect(finalState.pending_reason).toBeNull();
+      expect(finalState.pending_update).toBe(true);
+      expect(finalState.pending_reason).toBe("restart_pending");
       expect(finalState.custom_field).toBe("keep-me");
       expect(finalState.last_applied_version).toBe("26.4.18");
     } finally {

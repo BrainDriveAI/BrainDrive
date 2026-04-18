@@ -53,6 +53,7 @@ import { MarkdownConversationStore } from "../memory/conversation-store-markdown
 import { exportMemory } from "../memory/export.js";
 import { restoreMemoryBackup } from "../memory/backup-restore.js";
 import { importMigrationArchive } from "../memory/migration.js";
+import { applyMigrationAcceptAll } from "../memory/updates/apply-migration.js";
 import { loadAppliedState } from "../memory/updates/applied-state.js";
 import { loadUpdatesManifest } from "../memory/updates/manifest.js";
 import { planPendingMigrations } from "../memory/updates/planner.js";
@@ -63,6 +64,7 @@ import {
   CodeUpdateSessionMismatchError,
   ContainerRestartExecutionError,
   createCodeUpdateSessionService,
+  isTerminalCodeUpdateSessionStatus,
   NoActiveCodeUpdateSessionError,
 } from "../memory/updates/session.js";
 import {
@@ -406,6 +408,12 @@ export async function buildServer(rootDir = process.cwd()) {
     isMigrationInProgress: () => migrationInProgress,
   });
   await memoryBackupScheduler.initialize();
+  await resumeCodeUpdateSessionAfterReady({
+    codeUpdateSessionService,
+    memoryRoot: runtimeConfig.memory_root,
+    rootDir,
+    appVersion,
+  });
   app.addHook("onClose", async () => {
     memoryBackupScheduler.close();
   });
@@ -968,7 +976,9 @@ export async function buildServer(rootDir = process.cwd()) {
 
     const activeSession = await codeUpdateSessionService.getSession();
     const activeUpdateId =
-      activeSession && activeSession.status !== "completed" ? activeSession.update_id : null;
+      activeSession && !isTerminalCodeUpdateSessionStatus(activeSession.status)
+        ? activeSession.update_id
+        : null;
     const pendingSignature = buildUpdateContextSignature(contextSeed);
 
     const existingConversationId = project.conversation_id;
@@ -2322,6 +2332,158 @@ export async function buildServer(rootDir = process.cwd()) {
     adapterConfig,
     rootDir,
   };
+}
+
+async function resumeCodeUpdateSessionAfterReady(options: {
+  codeUpdateSessionService: ReturnType<typeof createCodeUpdateSessionService>;
+  memoryRoot: string;
+  rootDir: string;
+  appVersion: string;
+}): Promise<void> {
+  const activeSession = await options.codeUpdateSessionService.getSession();
+  if (!activeSession || isTerminalCodeUpdateSessionStatus(activeSession.status)) {
+    return;
+  }
+
+  const correlationId = activeSession.correlation_id ?? activeSession.update_id;
+  auditLog("updates.resume.detected", {
+    update_id: activeSession.update_id,
+    correlation_id: correlationId,
+    phase: activeSession.phase,
+    status: activeSession.status,
+  });
+
+  try {
+    let session = activeSession;
+    if (session.phase === "restart_pending") {
+      session = await options.codeUpdateSessionService.transitionSession({
+        updateId: session.update_id,
+        phase: "migration_pending",
+        status: "in_progress",
+        lastError: null,
+        pendingUpdate: true,
+        pendingReason: "migration_pending",
+      });
+    }
+
+    const phase = session.phase;
+    const shouldResumeMigration = phase === "migration_pending" || phase === "migration_in_progress";
+    if (!shouldResumeMigration) {
+      auditLog("updates.resume.skipped", {
+        update_id: session.update_id,
+        correlation_id: correlationId,
+        phase: session.phase,
+        reason: "phase_not_resumable",
+      });
+      return;
+    }
+
+    const inProgressSession = await options.codeUpdateSessionService.transitionSession({
+      updateId: session.update_id,
+      phase: "migration_in_progress",
+      status: "in_progress",
+      lastError: null,
+      pendingUpdate: true,
+      pendingReason: "migration_in_progress",
+    });
+    const starterPackBaseRoot = path.resolve(options.rootDir, "memory", "starter-pack", "base");
+    const manifest = await loadUpdatesManifest(options.memoryRoot);
+    const appliedState = await loadAppliedState(options.memoryRoot);
+    const versionMetadata = await loadVersionMetadata(options.memoryRoot);
+    const currentVersion = versionMetadata?.version ?? options.appVersion;
+    const plan = await planPendingMigrations(manifest, {
+      current_version: currentVersion,
+      target_version: inProgressSession.target_version,
+      starter_pack_base_root: starterPackBaseRoot,
+      library_root: options.memoryRoot,
+      applied_state: appliedState,
+    });
+
+    if (plan.items.length === 0) {
+      const completedSession = await options.codeUpdateSessionService.transitionSession({
+        updateId: inProgressSession.update_id,
+        phase: "completed",
+        status: "completed",
+        lastError: null,
+        pendingUpdate: false,
+        pendingReason: null,
+      });
+      auditLog("updates.resume.completed", {
+        update_id: completedSession.update_id,
+        correlation_id: completedSession.correlation_id,
+        resumed_items: 0,
+      });
+      return;
+    }
+
+    const result = await applyMigrationAcceptAll({
+      memory_root: options.memoryRoot,
+      starter_pack_base_root: starterPackBaseRoot,
+      manifest,
+      plan,
+      approved_by: `system:${inProgressSession.correlation_id}`,
+    });
+
+    if (result.stopped_after_failure) {
+      const failedResult = result.results.find((entry) => entry.status === "failed");
+      const failureMessage =
+        failedResult?.error_summary ??
+        (failedResult ? `Migration item failed during resume: ${failedResult.item_id}` : "Migration resume failed");
+      const rolledBackSession = await options.codeUpdateSessionService.transitionSession({
+        updateId: inProgressSession.update_id,
+        phase: "rolled_back",
+        status: "rolled_back",
+        lastError: failureMessage,
+        pendingUpdate: false,
+        pendingReason: null,
+      });
+      auditLog("updates.resume.rolled_back", {
+        update_id: rolledBackSession.update_id,
+        correlation_id: rolledBackSession.correlation_id,
+        failed_item_id: failedResult?.item_id ?? null,
+        resumed_items: result.results.length,
+      });
+      return;
+    }
+
+    const completedSession = await options.codeUpdateSessionService.transitionSession({
+      updateId: inProgressSession.update_id,
+      phase: "completed",
+      status: "completed",
+      lastError: null,
+      pendingUpdate: false,
+      pendingReason: null,
+    });
+    auditLog("updates.resume.completed", {
+      update_id: completedSession.update_id,
+      correlation_id: completedSession.correlation_id,
+      resumed_items: result.results.length,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown update resume error";
+    try {
+      await options.codeUpdateSessionService.transitionSession({
+        updateId: activeSession.update_id,
+        phase: "failed",
+        status: "failed",
+        lastError: message,
+        pendingUpdate: false,
+        pendingReason: null,
+      });
+    } catch (transitionError) {
+      auditLog("updates.resume.terminalize_failed", {
+        update_id: activeSession.update_id,
+        correlation_id: correlationId,
+        message: transitionError instanceof Error ? transitionError.message : "Unknown terminalization error",
+      });
+    }
+
+    auditLog("updates.resume.failed", {
+      update_id: activeSession.update_id,
+      correlation_id: correlationId,
+      message,
+    });
+  }
 }
 
 async function proxyToGateway(

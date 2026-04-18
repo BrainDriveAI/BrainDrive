@@ -7,21 +7,29 @@ import type { InstallMode } from "../../contracts.js";
 const SESSION_RELATIVE_PATH = path.join("system", "updates", "session.json");
 const STATE_RELATIVE_PATH = path.join("system", "updates", "state.json");
 
-const TERMINAL_UPDATE_STATUSES = new Set<CodeUpdateSessionStatus>(["completed", "failed"]);
+const TERMINAL_UPDATE_STATUSES = new Set<CodeUpdateSessionStatus>([
+  "completed",
+  "failed",
+  "rolled_back",
+]);
 
 export type CodeUpdateSessionPhase =
   | "requested"
   | "code_update_in_progress"
   | "code_update_complete"
   | "restart_pending"
+  | "migration_pending"
+  | "migration_in_progress"
   | "completed"
   | "failed"
+  | "rolled_back"
   | "host_execution_unavailable";
 
-export type CodeUpdateSessionStatus = "in_progress" | "completed" | "failed";
+export type CodeUpdateSessionStatus = "in_progress" | "completed" | "failed" | "rolled_back";
 
 export type CodeUpdateSession = {
   update_id: string;
+  correlation_id: string;
   from_version: string;
   target_version: string;
   phase: CodeUpdateSessionPhase;
@@ -148,6 +156,10 @@ export function resolveCanonicalUpgradeFallbackCommand(installMode: InstallMode)
   return `./installer/docker/scripts/upgrade.sh ${normalizeUpgradeMode(installMode)}`;
 }
 
+export function isTerminalCodeUpdateSessionStatus(status: CodeUpdateSessionStatus): boolean {
+  return TERMINAL_UPDATE_STATUSES.has(status);
+}
+
 export async function loadCodeUpdateSession(memoryRoot: string): Promise<CodeUpdateSession | null> {
   try {
     const raw = await readFile(resolveCodeUpdateSessionPath(memoryRoot), "utf8");
@@ -191,6 +203,7 @@ export function parseCodeUpdateSession(raw: string): CodeUpdateSession {
   const parsed = JSON.parse(raw) as Record<string, unknown>;
 
   const updateId = coerceNonEmptyString(parsed.update_id, "update_id");
+  const correlationId = coerceString(parsed.correlation_id) ?? updateId;
   const fromVersion = coerceNonEmptyString(parsed.from_version, "from_version");
   const targetVersion = coerceNonEmptyString(parsed.target_version, "target_version");
   const phase = coerceSessionPhase(parsed.phase);
@@ -201,6 +214,7 @@ export function parseCodeUpdateSession(raw: string): CodeUpdateSession {
 
   return {
     update_id: updateId,
+    correlation_id: correlationId,
     from_version: fromVersion,
     target_version: targetVersion,
     phase,
@@ -215,6 +229,14 @@ export function createCodeUpdateSessionService(options: CreateCodeUpdateSessionS
   getSession: () => Promise<CodeUpdateSession | null>;
   startCodeUpdate: (input: { fromVersion: string; targetVersion?: string }) => Promise<StartCodeUpdateResult>;
   restartCodeUpdate: (input?: { updateId?: string }) => Promise<RestartCodeUpdateResult>;
+  transitionSession: (input: {
+    updateId?: string;
+    phase: CodeUpdateSessionPhase;
+    status: CodeUpdateSessionStatus;
+    lastError: string | null;
+    pendingUpdate?: boolean;
+    pendingReason?: string | null;
+  }) => Promise<CodeUpdateSession>;
 } {
   const nowFn = options.nowFn ?? (() => new Date());
   const createUpdateIdFn = options.createUpdateIdFn ?? (() => randomUUID());
@@ -313,7 +335,7 @@ export function createCodeUpdateSessionService(options: CreateCodeUpdateSessionS
 
   const restartCodeUpdate = async (input: { updateId?: string } = {}): Promise<RestartCodeUpdateResult> => {
     const activeSession = await loadCodeUpdateSession(options.memoryRoot);
-    if (!activeSession || TERMINAL_UPDATE_STATUSES.has(activeSession.status)) {
+    if (!activeSession || isTerminalCodeUpdateSessionStatus(activeSession.status)) {
       throw new NoActiveCodeUpdateSessionError();
     }
 
@@ -376,31 +398,62 @@ export function createCodeUpdateSessionService(options: CreateCodeUpdateSessionS
       throw new ContainerRestartExecutionError(restartPendingSession.update_id, message);
     }
 
-    const completedSession = await transitionCodeUpdateSession(
+    return {
+      kind: "restarted",
+      session: await loadCodeUpdateSession(options.memoryRoot) ?? restartPendingSession,
+    };
+  };
+
+  const transitionSession = async (input: {
+    updateId?: string;
+    phase: CodeUpdateSessionPhase;
+    status: CodeUpdateSessionStatus;
+    lastError: string | null;
+    pendingUpdate?: boolean;
+    pendingReason?: string | null;
+  }): Promise<CodeUpdateSession> => {
+    const activeSession = await loadCodeUpdateSession(options.memoryRoot);
+    if (!activeSession || isTerminalCodeUpdateSessionStatus(activeSession.status)) {
+      throw new NoActiveCodeUpdateSessionError();
+    }
+
+    if (input.updateId && input.updateId !== activeSession.update_id) {
+      throw new CodeUpdateSessionMismatchError(activeSession);
+    }
+
+    const nextSession = await transitionCodeUpdateSession(
       options.memoryRoot,
       {
-        phase: "completed",
-        status: "completed",
-        lastError: null,
+        phase: input.phase,
+        status: input.status,
+        lastError: input.lastError,
       },
       nowFn
     );
+
+    const pendingUpdate =
+      input.pendingUpdate ?? !isTerminalCodeUpdateSessionStatus(nextSession.status);
+    const pendingReason =
+      input.pendingReason !== undefined
+        ? input.pendingReason
+        : pendingUpdate
+          ? nextSession.phase
+          : null;
+
     await patchCodeUpdateState(options.memoryRoot, {
-      pendingUpdate: false,
-      pendingReason: null,
+      pendingUpdate,
+      pendingReason,
       now: nowFn,
     });
 
-    return {
-      kind: "restarted",
-      session: completedSession,
-    };
+    return nextSession;
   };
 
   return {
     getSession,
     startCodeUpdate,
     restartCodeUpdate,
+    transitionSession,
   };
 }
 
@@ -412,13 +465,15 @@ async function beginCodeUpdateSession(options: {
   createUpdateIdFn: () => string;
 }): Promise<CodeUpdateSession> {
   const existingSession = await loadCodeUpdateSession(options.memoryRoot);
-  if (existingSession && !TERMINAL_UPDATE_STATUSES.has(existingSession.status)) {
+  if (existingSession && !isTerminalCodeUpdateSessionStatus(existingSession.status)) {
     throw new ActiveCodeUpdateSessionError(existingSession);
   }
 
   const nowIso = options.nowFn().toISOString();
+  const updateId = normalizeVersionLabel(options.createUpdateIdFn(), "update");
   const nextSession: CodeUpdateSession = {
-    update_id: normalizeVersionLabel(options.createUpdateIdFn(), "update"),
+    update_id: updateId,
+    correlation_id: updateId,
     from_version: options.fromVersion,
     target_version: options.targetVersion,
     phase: "requested",
@@ -448,6 +503,7 @@ async function transitionCodeUpdateSession(
 
   const nextSession: CodeUpdateSession = {
     ...currentSession,
+    correlation_id: coerceString(currentSession.correlation_id) ?? currentSession.update_id,
     phase: patch.phase,
     status: patch.status,
     updated_at: nowFn().toISOString(),
@@ -525,8 +581,11 @@ function coerceSessionPhase(value: unknown): CodeUpdateSessionPhase {
     value === "code_update_in_progress" ||
     value === "code_update_complete" ||
     value === "restart_pending" ||
+    value === "migration_pending" ||
+    value === "migration_in_progress" ||
     value === "completed" ||
     value === "failed" ||
+    value === "rolled_back" ||
     value === "host_execution_unavailable"
   ) {
     return value;
@@ -536,7 +595,7 @@ function coerceSessionPhase(value: unknown): CodeUpdateSessionPhase {
 }
 
 function coerceSessionStatus(value: unknown): CodeUpdateSessionStatus {
-  if (value === "in_progress" || value === "completed" || value === "failed") {
+  if (value === "in_progress" || value === "completed" || value === "failed" || value === "rolled_back") {
     return value;
   }
 
