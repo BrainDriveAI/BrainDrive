@@ -14,6 +14,12 @@
 > - `GET /api/settings/onboarding-status`
 > - `PUT /api/settings/credentials`
 > - `GET /api/export`
+> Update routes:
+> - `GET /api/updates/status` (public)
+> - `GET /api/updates/session` (admin auth required)
+> - `POST /api/updates/conversation/start` (admin auth required)
+> - `POST /api/updates/code` (admin auth required)
+> - `POST /api/updates/restart` (admin auth required)
 > Streaming canonical event fields are `text-delta.delta` and `tool-call.input`.
 
 This document describes the current local-mode contract between the V1 interface and the standalone BrainDrive gateway behind the Vite `/api` proxy.
@@ -23,7 +29,217 @@ This document describes the current local-mode contract between the V1 interface
 - Development base URL: `/api`
 - Vite rewrites `/api/*` to the standalone gateway on `http://127.0.0.1:3000/*`
 
+## Update Files and Runtime State
+
+These files define update state and are consumed by `/api/updates/*` routes:
+
+- `memory/system/version.json`
+  - Source of truth for local app version metadata (`version`, `released`, `channel`).
+  - Read by `GET /api/updates/status` and `GET /api/config`.
+- `memory/system/updates/manifest.md`
+  - Cumulative migration manifest shipped with starter-pack updates.
+  - Read by `POST /api/updates/conversation/start` and startup migration resume logic.
+- `memory/system/updates/applied.json`
+  - Tracks applied migration items and run outcomes.
+  - Read by update planning; written by migration apply/resume.
+- `memory/system/updates/session.json`
+  - Durable code-update session contract (phase/status lifecycle).
+  - Read by `GET /api/updates/session`; resumed on gateway startup.
+
 ## Endpoints
+
+### `GET /api/updates/status`
+
+Returns current update availability status.
+
+Behavior:
+
+- Public route (no auth required).
+- `stable` channel compares local `system/version.json` against latest GitHub stable release tag.
+- `dev` channel never performs remote checks and always reports `update_available: false`.
+- Responses are cached in-memory for 24 hours from the last successful/failed check.
+
+Response example:
+
+```json
+{
+  "channel": "stable",
+  "current_version": "26.4.18",
+  "latest_stable_version": "26.4.19",
+  "update_available": true,
+  "last_checked_at": "2026-04-18T15:00:00.000Z",
+  "diagnostic": null
+}
+```
+
+Possible `diagnostic` values:
+
+- `local_version_metadata_unavailable`
+- `local_version_unparseable`
+- `remote_fetch_failed`
+- `remote_version_unparseable`
+- `unsupported_channel`
+
+### `GET /api/updates/session`
+
+Returns durable code-update session state.
+
+Auth:
+
+- Admin auth required.
+
+Response example:
+
+```json
+{
+  "session": {
+    "update_id": "update-a1b2c3",
+    "correlation_id": "update-a1b2c3",
+    "from_version": "26.4.18",
+    "target_version": "26.4.19",
+    "phase": "migration_pending",
+    "status": "in_progress",
+    "started_at": "2026-04-18T12:00:00.000Z",
+    "updated_at": "2026-04-18T12:01:00.000Z",
+    "last_error": null
+  }
+}
+```
+
+`session` may be `null` when no session file exists.
+
+### `POST /api/updates/conversation/start`
+
+Starts or resumes the BD+1 assistant-first update conversation.
+
+Auth:
+
+- Admin auth required.
+
+Request body:
+
+- Empty JSON object or omitted body.
+
+Response example:
+
+```json
+{
+  "status": "started",
+  "project_id": "braindrive-plus-one",
+  "conversation_id": "f39dca8a-2d4d-49ee-958a-72a01fa2e5b2",
+  "update_id": "update-faf303dbd7914f67",
+  "bootstrap_sent": true
+}
+```
+
+Response `status` values:
+
+- `started`: new bootstrap conversation created and seeded.
+- `resumed`: existing unresolved update conversation reused.
+- `completed`: no pending migrations, no bootstrap sent.
+
+Bounded bootstrap context payload:
+
+- Persisted in the seeded system message after marker `[braindrive-update-context:v1]`.
+- Schema and limits:
+  - `update_id`: string, `1..200` chars
+  - `current_version`: string, `1..120` chars
+  - `target_version`: string, `1..120` chars
+  - `migration_items`: array, max `80` items
+  - Per item:
+    - `item_id`: string, `1..200` chars
+    - `summary`: string, `1..2000` chars
+    - `source_file_paths`: array of strings, max `20`, each `1..400` chars
+    - `target_file_paths`: array of strings, max `20`, each `1..400` chars
+
+### `POST /api/updates/code`
+
+Starts host-level code update execution.
+
+Auth:
+
+- Admin auth required.
+
+Request body:
+
+```json
+{
+  "target_version": "26.4.19"
+}
+```
+
+`target_version` is optional; when omitted, current local version is used as target.
+
+Success response:
+
+- `202 Accepted`
+
+```json
+{
+  "update_id": "update-a1b2c3",
+  "session": {
+    "phase": "code_update_complete",
+    "status": "in_progress"
+  }
+}
+```
+
+Fallback response when host execution is unavailable:
+
+- `503 Service Unavailable`
+
+```json
+{
+  "error": "host_execution_unavailable",
+  "update_id": "update-a1b2c3",
+  "command": "./installer/docker/scripts/upgrade.sh local",
+  "detail": "Host-level upgrade execution is unavailable in this runtime. Run the fallback command on the host.",
+  "session": {
+    "phase": "host_execution_unavailable",
+    "status": "failed"
+  }
+}
+```
+
+Conflict response when another non-terminal update session is active:
+
+- `409 Conflict`
+```json
+{
+  "error": "update_session_active",
+  "update_id": "active-update-123",
+  "session": {
+    "phase": "code_update_complete",
+    "status": "in_progress"
+  }
+}
+```
+
+### `POST /api/updates/restart`
+
+Requests container restart for the active update session.
+
+Auth:
+
+- Admin auth required.
+
+Request body:
+
+```json
+{
+  "update_id": "update-a1b2c3"
+}
+```
+
+`update_id` is optional; when provided, it must match the active non-terminal session.
+
+Responses:
+
+- `202 Accepted` on restart dispatch.
+- `503 Service Unavailable` with canonical fallback `command` when host execution is unavailable.
+- `409 Conflict` with:
+  - `error: "no_active_update_session"` or
+  - `error: "update_session_mismatch"`
 
 ### `POST /api/conversations/messages`
 

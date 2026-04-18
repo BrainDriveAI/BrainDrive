@@ -60,6 +60,20 @@ Windows PowerShell:
 irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/update.ps1 | iex
 ```
 
+Update behavior:
+
+1. `stable` channel checks the latest published stable release and surfaces update availability.
+2. `dev` channel suppresses update prompts (`update_available=false`) and skips remote stable checks.
+3. Update status checks are cached for 24 hours per gateway runtime before re-checking remote release metadata.
+4. Gateway fallback upgrade command (when host execution is unavailable) is the existing script surface:
+   - `./installer/docker/scripts/upgrade.sh local`
+   - `./installer/docker/scripts/upgrade.sh prod`
+5. Update planning/resume state is stored under:
+   - `memory/system/version.json`
+   - `memory/system/updates/manifest.md`
+   - `memory/system/updates/applied.json`
+   - `memory/system/updates/session.json`
+
 ## How It Works
 
 1. **Land on BrainDrive+1** — your primary AI assistant. It knows everything across all your projects and helps you get started.
