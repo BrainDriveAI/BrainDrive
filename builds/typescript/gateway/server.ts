@@ -51,6 +51,7 @@ import { MarkdownConversationStore } from "../memory/conversation-store-markdown
 import { exportMemory } from "../memory/export.js";
 import { restoreMemoryBackup } from "../memory/backup-restore.js";
 import { importMigrationArchive } from "../memory/migration.js";
+import { loadVersionMetadata } from "../memory/updates/version.js";
 import {
   createSupportBundle,
   listSupportBundles,
@@ -2128,6 +2129,11 @@ function toInitials(value: string): string {
 }
 
 async function resolveAppVersion(rootDir: string, memoryRoot: string): Promise<string> {
+  const metadata = await loadVersionMetadata(memoryRoot);
+  if (metadata) {
+    return metadata.version;
+  }
+
   const envVersion = process.env.BRAINDRIVE_APP_VERSION?.trim();
   if (envVersion) {
     return envVersion;
