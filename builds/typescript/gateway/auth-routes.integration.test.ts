@@ -271,6 +271,34 @@ describe.sequential("gateway auth route integration", () => {
     expect(parseJson<{ app_version: string }>(response.body).app_version).toBe("26.4.18");
   });
 
+  it("exposes GET /updates/status as a public endpoint", async () => {
+    context = await createTestServer({
+      versionMetadata: {
+        version: "v26.4.18.5",
+        released: "2026-04-18T12:00:00Z",
+        channel: "dev",
+      },
+    });
+
+    const response = await context.app.inject({
+      method: "GET",
+      url: "/updates/status",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(
+      parseJson<{
+        current_version: string | null;
+        update_available: boolean | null;
+        channel: string | null;
+      }>(response.body)
+    ).toMatchObject({
+      channel: "dev",
+      current_version: "26.4.18.5",
+      update_available: false,
+    });
+  });
+
   it("allows authenticated logout after successful signup", async () => {
     context = await createTestServer();
 

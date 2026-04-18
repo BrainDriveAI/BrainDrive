@@ -68,6 +68,7 @@ import { createMemoryBackupScheduler } from "./memory-backup-scheduler.js";
 import { GatewayProjectService, isProjectMetadata, ProtectedProjectError } from "./projects.js";
 import { GatewaySkillService } from "./skills.js";
 import { prepareContextWindow } from "./context-window.js";
+import { createUpdateStatusService } from "./update-status.js";
 
 const approvalDecisionSchema = z.object({
   decision: z.enum(["approved", "denied"]),
@@ -214,6 +215,7 @@ const REFRESH_COOKIE_NAME = "paa_refresh_token";
 const PUBLIC_ROUTES = new Set([
   "/health",
   "/config",
+  "/updates/status",
   "/auth/bootstrap-status",
   "/auth/signup",
   "/auth/login",
@@ -326,6 +328,9 @@ export async function buildServer(rootDir = process.cwd()) {
   const conversations = new GatewayConversationService(createConversationRepository(runtimeConfig));
   const projects = new GatewayProjectService(runtimeConfig.memory_root, { rootDir });
   const skills = new GatewaySkillService(runtimeConfig.memory_root);
+  const updateStatusService = createUpdateStatusService({
+    memoryRoot: runtimeConfig.memory_root,
+  });
   const signupRateLimiter = new FixedWindowRateLimiter(5, 5 * 60 * 1000);
   const loginRateLimiter = new FixedWindowRateLimiter(10, 5 * 60 * 1000);
   const refreshRateLimiter = new FixedWindowRateLimiter(30, 5 * 60 * 1000);
@@ -863,6 +868,8 @@ export async function buildServer(rootDir = process.cwd()) {
       migration: true,
     },
   }));
+
+  app.get("/updates/status", async () => updateStatusService.getStatus());
 
   app.get("/session", async (request) => ({
     mode: isManaged ? "managed" : "local",
