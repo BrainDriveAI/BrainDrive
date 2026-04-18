@@ -47,6 +47,22 @@ log_step() {
   echo "=== ${label} ==="
 }
 
+write_starter_pack_version_metadata() {
+  local package_version="$1"
+  local channel="$2"
+  local released_at="$3"
+  local target_path="${REPO_ROOT}/builds/typescript/memory/starter-pack/base/system/version.json"
+
+  mkdir -p "$(dirname "${target_path}")"
+  cat > "${target_path}" <<JSON
+{
+  "version": "${package_version}",
+  "released": "${released_at}",
+  "channel": "${channel}"
+}
+JSON
+}
+
 default_package_version() {
   local year month day
   year="$(date +%y)"
@@ -72,6 +88,7 @@ MANIFEST_SIG_PATH="${MANIFEST_SIG_PATH:-${REPO_ROOT}/releases.json.sig}"
 SKIP_GIT_SYNC="false"
 SKIP_DOCKER_LOGIN="false"
 SKIP_LATEST_TAG="false"
+RELEASED_AT="${RELEASED_AT:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -144,6 +161,7 @@ echo "REPO_ROOT=${REPO_ROOT}"
 echo "PACKAGE_VERSION=${PACKAGE_VERSION}"
 echo "IMAGE_TAG=${IMAGE_TAG}"
 echo "RELEASE_CHANNEL=${RELEASE_CHANNEL}"
+echo "RELEASED_AT=${RELEASED_AT}"
 echo "APP_IMAGE=${APP_IMAGE}"
 echo "EDGE_IMAGE=${EDGE_IMAGE}"
 echo "COSIGN_KEY_PATH=${COSIGN_KEY_PATH}"
@@ -176,12 +194,24 @@ log_step "3. Bump package versions"
 npm --prefix builds/typescript version "${PACKAGE_VERSION}" --no-git-tag-version
 npm --prefix builds/typescript/client_web version "${PACKAGE_VERSION}" --no-git-tag-version
 
+write_starter_pack_version_metadata "${PACKAGE_VERSION}" "${RELEASE_CHANNEL}" "${RELEASED_AT}"
+
 CORE_VERSION="$(node -p 'require("./builds/typescript/package.json").version')"
 WEB_VERSION="$(node -p 'require("./builds/typescript/client_web/package.json").version')"
+STARTER_PACK_VERSION="$(node -p 'require("./builds/typescript/memory/starter-pack/base/system/version.json").version')"
+STARTER_PACK_RELEASED="$(node -p 'require("./builds/typescript/memory/starter-pack/base/system/version.json").released')"
+STARTER_PACK_CHANNEL="$(node -p 'require("./builds/typescript/memory/starter-pack/base/system/version.json").channel')"
 echo "builds/typescript/package.json version=${CORE_VERSION}"
 echo "builds/typescript/client_web/package.json version=${WEB_VERSION}"
+echo "builds/typescript/memory/starter-pack/base/system/version.json version=${STARTER_PACK_VERSION}"
+echo "builds/typescript/memory/starter-pack/base/system/version.json released=${STARTER_PACK_RELEASED}"
+echo "builds/typescript/memory/starter-pack/base/system/version.json channel=${STARTER_PACK_CHANNEL}"
 if [[ "${CORE_VERSION}" != "${PACKAGE_VERSION}" || "${WEB_VERSION}" != "${PACKAGE_VERSION}" ]]; then
   echo "Version bump mismatch. Stop release." >&2
+  exit 1
+fi
+if [[ "${STARTER_PACK_VERSION}" != "${PACKAGE_VERSION}" || "${STARTER_PACK_RELEASED}" != "${RELEASED_AT}" || "${STARTER_PACK_CHANNEL}" != "${RELEASE_CHANNEL}" ]]; then
+  echo "Starter-pack version metadata mismatch. Stop release." >&2
   exit 1
 fi
 

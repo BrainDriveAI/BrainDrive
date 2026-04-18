@@ -118,7 +118,15 @@ type TestServerContext = {
 };
 
 async function createTestServer(
-  options: { bootstrapToken?: string; authMode?: RuntimeConfig["auth_mode"] } = {}
+  options: {
+    bootstrapToken?: string;
+    authMode?: RuntimeConfig["auth_mode"];
+    versionMetadata?: {
+      version: string;
+      released: string;
+      channel: string;
+    };
+  } = {}
 ): Promise<TestServerContext> {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "paa-auth-int-"));
   const memoryRoot = path.join(tempRoot, "memory");
@@ -149,12 +157,18 @@ async function createTestServer(
 
   const previousSecretsHome = process.env.PAA_SECRETS_HOME;
   const previousBootstrapToken = process.env.PAA_AUTH_BOOTSTRAP_TOKEN;
+  const previousAppVersion = process.env.BRAINDRIVE_APP_VERSION;
 
   process.env.PAA_SECRETS_HOME = secretsRoot;
   if (typeof options.bootstrapToken === "string") {
     process.env.PAA_AUTH_BOOTSTRAP_TOKEN = options.bootstrapToken;
   } else {
     delete process.env.PAA_AUTH_BOOTSTRAP_TOKEN;
+  }
+  if (options.versionMetadata) {
+    const versionPath = path.join(memoryRoot, "system", "version.json");
+    await mkdir(path.dirname(versionPath), { recursive: true });
+    await writeFile(versionPath, `${JSON.stringify(options.versionMetadata, null, 2)}\n`, "utf8");
   }
 
   const { app } = await buildServer(tempRoot);
@@ -173,6 +187,12 @@ async function createTestServer(
         process.env.PAA_AUTH_BOOTSTRAP_TOKEN = previousBootstrapToken;
       } else {
         delete process.env.PAA_AUTH_BOOTSTRAP_TOKEN;
+      }
+
+      if (typeof previousAppVersion === "string") {
+        process.env.BRAINDRIVE_APP_VERSION = previousAppVersion;
+      } else {
+        delete process.env.BRAINDRIVE_APP_VERSION;
       }
     },
   };
@@ -230,6 +250,25 @@ describe.sequential("gateway auth route integration", () => {
 
     expect(response.statusCode).toBe(401);
     expect(parseJson<{ error: string }>(response.body).error).toBe("Unauthorized");
+  });
+
+  it("uses system version metadata for GET /config before env fallback", async () => {
+    process.env.BRAINDRIVE_APP_VERSION = "99.0.0";
+    context = await createTestServer({
+      versionMetadata: {
+        version: "  v26.4.18 ",
+        released: "2026-04-18T12:00:00Z",
+        channel: "stable",
+      },
+    });
+
+    const response = await context.app.inject({
+      method: "GET",
+      url: "/config",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(parseJson<{ app_version: string }>(response.body).app_version).toBe("26.4.18");
   });
 
   it("allows authenticated logout after successful signup", async () => {

@@ -37,10 +37,11 @@ export type ProjectManifestEntry = {
 const STARTER_PACK_ENV = "PAA_STARTER_PACK_DIR";
 const STARTER_PACK_RELATIVE_PATH = "memory/starter-pack";
 
-const ROOT_DIRECTORIES = ["conversations", "documents", "preferences", "exports", "skills"];
+const ROOT_DIRECTORIES = ["conversations", "documents", "preferences", "exports", "skills", "system"];
 const ROOT_AGENT_RELATIVE_PATH = "AGENT.md";
 const PREFERENCES_RELATIVE_PATH = "preferences/default.json";
 const TODO_RELATIVE_PATH = "me/todo.md";
+const VERSION_METADATA_RELATIVE_PATH = "system/version.json";
 const CONVERSATIONS_INDEX_RELATIVE_PATH = "conversations/index.json";
 const PROJECTS_MANIFEST_RELATIVE_PATH = "documents/projects.json";
 const PROJECTS_SEEDED_MARKER_RELATIVE_PATH = "preferences/projects-seeded-v1.json";
@@ -156,6 +157,17 @@ export async function initializeMemoryLayout(
     TODO_RELATIVE_PATH,
     starterPackDir ? path.join(starterPackDir, "base", "me", "todo.md") : null,
     fallbackTodoSeed(),
+    force,
+    dryRun,
+    summary
+  );
+
+  const fallbackVersionSeed = await fallbackVersionMetadata(rootDir);
+  await ensureFileFromTemplate(
+    absoluteMemoryRoot,
+    VERSION_METADATA_RELATIVE_PATH,
+    starterPackDir ? path.join(starterPackDir, "base", "system", "version.json") : null,
+    fallbackVersionSeed,
     force,
     dryRun,
     summary
@@ -655,6 +667,30 @@ function fallbackTodoSeed(): string {
     "## Completed",
     "",
   ].join("\n");
+}
+
+async function fallbackVersionMetadata(rootDir: string): Promise<string> {
+  let version = "unknown";
+  const packageJsonPath = path.resolve(rootDir, "package.json");
+  try {
+    const raw = await readFile(packageJsonPath, "utf8");
+    const parsed = JSON.parse(raw) as { version?: unknown };
+    if (typeof parsed.version === "string" && parsed.version.trim().length > 0) {
+      version = parsed.version.trim();
+    }
+  } catch {
+    // Fall back to "unknown" for compatibility when package metadata is missing.
+  }
+
+  return JSON.stringify(
+    {
+      version,
+      released: "1970-01-01T00:00:00Z",
+      channel: "stable",
+    },
+    null,
+    2
+  );
 }
 
 function fallbackProjectTemplateContent(projectName: string, fileName: (typeof PROJECT_TEMPLATE_FILES)[number]): string {
