@@ -42,6 +42,8 @@ const ROOT_AGENT_RELATIVE_PATH = "AGENT.md";
 const PREFERENCES_RELATIVE_PATH = "preferences/default.json";
 const TODO_RELATIVE_PATH = "me/todo.md";
 const VERSION_METADATA_RELATIVE_PATH = "system/version.json";
+const UPDATES_MANIFEST_RELATIVE_PATH = "system/updates/manifest.md";
+const UPDATES_APPLIED_STATE_RELATIVE_PATH = "system/updates/applied.json";
 const CONVERSATIONS_INDEX_RELATIVE_PATH = "conversations/index.json";
 const PROJECTS_MANIFEST_RELATIVE_PATH = "documents/projects.json";
 const PROJECTS_SEEDED_MARKER_RELATIVE_PATH = "preferences/projects-seeded-v1.json";
@@ -168,6 +170,26 @@ export async function initializeMemoryLayout(
     VERSION_METADATA_RELATIVE_PATH,
     starterPackDir ? path.join(starterPackDir, "base", "system", "version.json") : null,
     fallbackVersionSeed,
+    force,
+    dryRun,
+    summary
+  );
+
+  await ensureFileFromTemplate(
+    absoluteMemoryRoot,
+    UPDATES_MANIFEST_RELATIVE_PATH,
+    starterPackDir ? path.join(starterPackDir, "base", "system", "updates", "manifest.md") : null,
+    fallbackUpdatesManifestSeed(),
+    force,
+    dryRun,
+    summary
+  );
+
+  await ensureFileFromTemplate(
+    absoluteMemoryRoot,
+    UPDATES_APPLIED_STATE_RELATIVE_PATH,
+    starterPackDir ? path.join(starterPackDir, "base", "system", "updates", "applied.json") : null,
+    fallbackAppliedStateSeed(),
     force,
     dryRun,
     summary
@@ -667,6 +689,32 @@ function fallbackTodoSeed(): string {
     "## Completed",
     "",
   ].join("\n");
+}
+
+function fallbackUpdatesManifestSeed(): string {
+  return [
+    "# BrainDrive Update Manifest",
+    "",
+    "## Version 0.0.0",
+    "### AI Briefing",
+    "Fallback update manifest generated when starter-pack update templates are unavailable.",
+    "",
+    "### Item: Align system version metadata",
+    "- action: write system/version.json -> system/version.json",
+    "",
+  ].join("\n");
+}
+
+function fallbackAppliedStateSeed(): string {
+  return JSON.stringify(
+    {
+      last_applied: null,
+      items: {},
+      runs: [],
+    },
+    null,
+    2
+  );
 }
 
 async function fallbackVersionMetadata(rootDir: string): Promise<string> {
