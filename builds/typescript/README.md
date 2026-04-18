@@ -21,3 +21,15 @@ Compose services:
 3. mcp-project
 4. paa-runtime
 5. paa-web
+
+Gateway update routes:
+
+1. `GET /api/updates/status`
+2. `GET /api/updates/session` (admin auth required)
+3. `POST /api/updates/code` (admin auth required)
+4. `POST /api/updates/restart` (admin auth required)
+
+When host-level execution is unavailable, `/api/updates/code` and `/api/updates/restart` return the canonical fallback command:
+
+1. `./installer/docker/scripts/upgrade.sh local`
+2. `./installer/docker/scripts/upgrade.sh prod`
