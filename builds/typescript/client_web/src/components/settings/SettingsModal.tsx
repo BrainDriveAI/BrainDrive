@@ -615,7 +615,6 @@ function TabContent({
     case "export":
       return (
         <ExportSection
-          mode={mode}
           installMode={installMode}
           appVersion={appVersion}
           onDownload={onDownloadExport}
@@ -699,12 +698,6 @@ function MemoryBackupSection({
     ? new Date(backupSettings.last_save_at).toLocaleString()
     : "No backups yet";
   const lastResult = backupSettings?.last_result ?? "never";
-  const statusText =
-    lastResult === "success"
-      ? "Success"
-      : lastResult === "failed"
-        ? "Failed"
-        : "No backups yet";
   const frequencyOptions: Array<{ value: GatewayMemoryBackupFrequency; label: string }> = [
     { value: "after_changes", label: "After changes" },
     { value: "hourly", label: "Every hour" },
@@ -791,7 +784,7 @@ function MemoryBackupSection({
                 </label>
                 <input
                   id="memory-backup-token"
-                  type="password" autoComplete="new-password"
+                  type="password"
                   autoComplete="new-password"
                   value={token}
                   onChange={(event) => {
@@ -974,7 +967,7 @@ function MemoryBackupSection({
             setRestoreError(null);
             setRestoreMessage(null);
             void onRestoreMemoryBackup()
-              .then((result) => {
+              .then(() => {
                 setRestoreMessage(`Restored from backup successfully.`);
               })
               .catch((error) => {
@@ -1603,8 +1596,8 @@ function ProviderSection({
                                 )}
                                 <input
                                   id="provider-api-key"
-                                  type="password" autoComplete="new-password"
-                                  autoComplete="off"
+                                  type="password"
+                                  autoComplete="new-password"
                                   value={providerApiKey}
                                   onChange={(event) => {
                                     setProviderApiKey(event.target.value);
@@ -2748,7 +2741,6 @@ function AccountSection() {
 }
 
 function ExportSection({
-  mode,
   installMode,
   appVersion,
   onDownload,
@@ -2759,7 +2751,6 @@ function ExportSection({
   importError,
   importResult,
 }: {
-  mode: "local" | "managed";
   installMode: "local" | "quickstart" | "prod" | "unknown";
   appVersion: string;
   onDownload: () => Promise<void>;
