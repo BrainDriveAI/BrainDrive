@@ -13,11 +13,12 @@ Usage: ./installer/docker/scripts/release-production.sh [options]
 
 Automates the Monday production release runbook:
 1. Preflight checks and optional git sync/docker login
-2. Bump package versions
-3. Build and publish images
-4. Move latest tags
-5. Generate/sign/verify release manifest
-6. Print GitHub Release publishing checklist
+2. Release readiness checks (TypeScript preflight)
+3. Bump package versions
+4. Build and publish images
+5. Move latest tags
+6. Generate/sign/verify release manifest
+7. Print GitHub Release publishing checklist
 
 Options:
   --package-version <yy.m.d>   Release version (default: today's local date, e.g. 26.4.16)
@@ -26,6 +27,7 @@ Options:
   --app-image <image>          App image repo (default: ghcr.io/braindriveai/braindrive-app)
   --edge-image <image>         Edge image repo (default: ghcr.io/braindriveai/braindrive-edge)
   --cosign-key-path <path>     Cosign private key path (default: <repo>/cosign.key)
+  --skip-prebuild-check        Skip TypeScript preflight check script
   --skip-git-sync              Skip 'git checkout main' and 'git pull --ff-only'
   --skip-docker-login          Skip 'docker login ghcr.io'
   --skip-latest-tag            Skip retagging and pushing :latest
@@ -69,6 +71,7 @@ COSIGN_KEY_PATH="${COSIGN_KEY_PATH:-${REPO_ROOT}/cosign.key}"
 COSIGN_PUB_PATH="${COSIGN_PUB_PATH:-${REPO_ROOT}/cosign.pub}"
 MANIFEST_PATH="${MANIFEST_PATH:-${REPO_ROOT}/releases.json}"
 MANIFEST_SIG_PATH="${MANIFEST_SIG_PATH:-${REPO_ROOT}/releases.json.sig}"
+SKIP_PREBUILD_CHECK="false"
 SKIP_GIT_SYNC="false"
 SKIP_DOCKER_LOGIN="false"
 SKIP_LATEST_TAG="false"
@@ -98,6 +101,10 @@ while [[ $# -gt 0 ]]; do
     --cosign-key-path)
       COSIGN_KEY_PATH="${2:-}"
       shift 2
+      ;;
+    --skip-prebuild-check)
+      SKIP_PREBUILD_CHECK="true"
+      shift
       ;;
     --skip-git-sync)
       SKIP_GIT_SYNC="true"
@@ -169,10 +176,17 @@ else
   echo "Skipping docker login."
 fi
 
-log_step "2. Set release variables"
+log_step "2. Release readiness checks"
+if [[ "${SKIP_PREBUILD_CHECK}" != "true" ]]; then
+  bash ./installer/docker/scripts/preflight-production-build.sh --skip-docker-build
+else
+  echo "Skipping prebuild TypeScript check."
+fi
+
+log_step "3. Set release variables"
 export PACKAGE_VERSION IMAGE_TAG APP_IMAGE EDGE_IMAGE COSIGN_KEY_PATH
 
-log_step "3. Bump package versions"
+log_step "4. Bump package versions"
 npm --prefix builds/typescript version "${PACKAGE_VERSION}" --no-git-tag-version
 npm --prefix builds/typescript/client_web version "${PACKAGE_VERSION}" --no-git-tag-version
 
@@ -185,7 +199,7 @@ if [[ "${CORE_VERSION}" != "${PACKAGE_VERSION}" || "${WEB_VERSION}" != "${PACKAG
   exit 1
 fi
 
-log_step "4. Build and publish images"
+log_step "5. Build and publish images"
 APP_IMAGE="${APP_IMAGE}" EDGE_IMAGE="${EDGE_IMAGE}" \
   bash ./installer/docker/scripts/build-release-images.sh "${IMAGE_TAG}"
 
@@ -205,7 +219,7 @@ if [[ -z "${APP_REF}" || -z "${EDGE_REF}" ]]; then
   exit 1
 fi
 
-log_step "5. Move latest tags"
+log_step "6. Move latest tags"
 if [[ "${SKIP_LATEST_TAG}" != "true" ]]; then
   docker tag "${APP_IMAGE}:${IMAGE_TAG}" "${APP_IMAGE}:latest"
   docker tag "${EDGE_IMAGE}:${IMAGE_TAG}" "${EDGE_IMAGE}:latest"
@@ -215,7 +229,7 @@ else
   echo "Skipping latest tag move."
 fi
 
-log_step "6. Generate, sign, and verify release manifest"
+log_step "7. Generate, sign, and verify release manifest"
 if [[ ! -f "${COSIGN_KEY_PATH}" ]]; then
   echo "Cosign private key not found: ${COSIGN_KEY_PATH}" >&2
   exit 1
@@ -258,7 +272,7 @@ if (!manifest.releases || !manifest.releases[pkgVersion]) {
 }
 ' "${PACKAGE_VERSION}" "${RELEASE_CHANNEL}" "${MANIFEST_PATH}"
 
-log_step "7. Publish GitHub Release assets (manual)"
+log_step "8. Publish GitHub Release assets (manual)"
 echo "Create release tag: ${IMAGE_TAG}"
 echo "Upload assets:"
 echo "  1. releases.json"
