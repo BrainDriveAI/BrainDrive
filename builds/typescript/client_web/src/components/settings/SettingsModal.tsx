@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import MarkdownContent from "@/components/markdown/MarkdownContent";
+import { openTrustedBillingUrl } from "@/utils/billing-url";
 
 import { authenticatedFetch, getSession } from "@/api/auth-adapter";
 import {
@@ -1015,6 +1016,7 @@ function BrainDriveDefaultSection({
   const [balance, setBalance] = useState<{ remaining_usd: number; key_valid?: boolean } | null>(null);
   const [keyInvalid, setKeyInvalid] = useState(false);
   const [purchaseLoading, setPurchaseLoading] = useState<number | null>(null);
+  const [purchaseError, setPurchaseError] = useState<string | null>(null);
   const [billingEmail, setBillingEmail] = useState(() => localStorage.getItem("bd_billing_email") ?? "");
   const [isEditingEmail, setIsEditingEmail] = useState(false);
 
@@ -1042,6 +1044,7 @@ function BrainDriveDefaultSection({
 
   async function handlePurchase(amount: number) {
     if (!billingEmail || !billingEmail.includes("@")) return;
+    setPurchaseError(null);
     setPurchaseLoading(amount);
     try {
       const resp = await authenticatedFetch("/api/credits/checkout", {
@@ -1051,10 +1054,12 @@ function BrainDriveDefaultSection({
       });
       const data = await resp.json();
       if (data.checkout_url) {
-        window.open(data.checkout_url, "_blank");
+        if (!openTrustedBillingUrl(data.checkout_url)) {
+          setPurchaseError("Received an unexpected checkout link. Please try again.");
+        }
       }
     } catch {
-      // silent — Stripe window didn't open
+      setPurchaseError("Failed to open checkout. Please try again.");
     } finally {
       setPurchaseLoading(null);
     }
@@ -1112,6 +1117,12 @@ function BrainDriveDefaultSection({
                     </button>
                   ))}
                 </div>
+                {purchaseError && (
+                  <div className="mt-2 flex items-center gap-1.5 text-xs text-red-400">
+                    <AlertCircle size={12} />
+                    {purchaseError}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -1236,6 +1247,12 @@ function BrainDriveDefaultSection({
               </button>
             ))}
           </div>
+          {purchaseError && (
+            <div className="mt-2 flex items-center gap-1.5 text-xs text-red-400">
+              <AlertCircle size={12} />
+              {purchaseError}
+            </div>
+          )}
         </div>
 
         {showUpdateKey ? (
@@ -2371,7 +2388,10 @@ function AccountSection() {
     setIsLoadingPortal(true);
     try {
       const portalUrl = await createPortalSession();
-      window.open(portalUrl, "_blank");
+      if (!openTrustedBillingUrl(portalUrl)) {
+        setActionError("Received an unexpected billing portal link. Please try again.");
+        return;
+      }
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to open subscription portal");
     } finally {
@@ -2384,7 +2404,10 @@ function AccountSection() {
     setIsLoadingTopup(true);
     try {
       const checkoutUrl = await createTopupSession(topupAmount);
-      window.open(checkoutUrl, "_blank");
+      if (!openTrustedBillingUrl(checkoutUrl)) {
+        setActionError("Received an unexpected checkout link. Please try again.");
+        return;
+      }
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to start top-up checkout");
     } finally {
