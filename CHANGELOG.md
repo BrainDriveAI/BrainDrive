@@ -5,6 +5,7 @@
 - Automated production release runbook script with date-based version defaults (`installer/docker/scripts/release-production.sh`). (`#58`)
 - Monday preflight release gate script for production image builds (`preflight-production-build.sh`). (`#62`)
 - Dependabot configuration to automate dependency update PRs. (`#64`)
+- Public **`AGENT.md`** boot file added at repository root. (`#56`)
 
 ### Changed
 - Settings modal copy rewritten for clearer onboarding/setup guidance, including improved restore instructions. (`#50`)
@@ -12,6 +13,9 @@
 - Product image release-manifest signing/verification flow and docs refined for Docker release builds. (`#52`)
 - Installer defaults now prefer `local` mode while preserving `quickstart` as a legacy alias across scripts, docs, and config surfaces. (`#57`)
 - `.gitignore` now ignores local `.codex` workspace artifacts. (`#54`)
+- Dependabot policy now groups npm updates by workspace and semver level (non-major vs major) to reduce one-off PR noise. (`#85`)
+- `client_web` dependency bundle updated (grouped non-major): `@ai-sdk/react`, `react`, `react-dom`, `react-router-dom`, `@playwright/test`, `@tailwindcss/vite`, `jsdom`, `shadcn`, and `tailwindcss`. (`#86`)
+- `ROADMAP.md` Phase 2 reorganized to reflect shipped state more accurately. (`#87`)
 
 ### Fixed
 - BrainDrive managed Haiku model ID alignment with LiteLLM alias across adapters and starter defaults. (`#53`)
@@ -20,6 +24,7 @@
 - SettingsModal TypeScript build blockers resolved in release preflight updates. (`#62`)
 - Config loading now tolerates unknown preference keys and prunes stale preference entries (with tests). (`#63`)
 - npm dependency vulnerabilities remediated across runtime/client/release packages. (`#64`)
+- Client web test expectations updated for current Settings/Chat UI labels and streaming typing-indicator behavior. (`#86`)
 
 ### Removed
 - No user-facing removals this week.
