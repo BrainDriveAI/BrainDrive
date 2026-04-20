@@ -167,6 +167,17 @@ const memoryBackupPreferenceSchema = z
   })
   .strict();
 
+const PREFERENCE_TOP_LEVEL_KEYS = new Set([
+  "default_model",
+  "approval_mode",
+  "active_provider_profile",
+  "provider_credentials",
+  "provider_base_urls",
+  "provider_default_models",
+  "secret_resolution",
+  "memory_backup",
+]);
+
 const preferencesSchema = z
   .object({
     default_model: z.string().min(1),
@@ -178,7 +189,7 @@ const preferencesSchema = z
     secret_resolution: secretResolutionSchema.optional(),
     memory_backup: memoryBackupPreferenceSchema.optional(),
   })
-  .strict()
+  .strip()
   .superRefine((value, context) => {
     const forbiddenFieldPaths = findForbiddenSecretFieldPaths(value);
     for (const fieldPath of forbiddenFieldPaths) {
@@ -343,7 +354,29 @@ export async function ensureMemoryLayout(rootDir: string, memoryRoot: string): P
 export async function loadPreferences(memoryRoot: string): Promise<Preferences> {
   const preferencesPath = resolvePreferencesPath(memoryRoot);
   const raw = await readFile(preferencesPath, "utf8");
-  return preferencesSchema.parse(JSON.parse(raw));
+  const document = JSON.parse(raw) as unknown;
+  const unknownKeys = findUnknownPreferenceKeys(document);
+  const parsed = preferencesSchema.parse(document);
+  if (unknownKeys.length > 0) {
+    auditLog("preferences.unknown_keys_ignored", {
+      path: preferencesPath,
+      keys: unknownKeys,
+    });
+    try {
+      await writeFile(preferencesPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+      auditLog("preferences.unknown_keys_pruned", {
+        path: preferencesPath,
+        keys: unknownKeys,
+      });
+    } catch (error) {
+      auditLog("preferences.unknown_keys_prune_failed", {
+        path: preferencesPath,
+        keys: unknownKeys,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return parsed;
 }
 
 export async function savePreferences(memoryRoot: string, preferences: Preferences): Promise<void> {
@@ -381,6 +414,17 @@ function findForbiddenSecretFieldPaths(input: unknown, parentPath = ""): string[
   }
 
   return matches;
+}
+
+function findUnknownPreferenceKeys(input: unknown): string[] {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return [];
+  }
+  const unknownKeys = Object.keys(input as Record<string, unknown>).filter(
+    (key) => !PREFERENCE_TOP_LEVEL_KEYS.has(key)
+  );
+  unknownKeys.sort((left, right) => left.localeCompare(right));
+  return unknownKeys;
 }
 
 function tryParseUrl(value: string): URL | null {
