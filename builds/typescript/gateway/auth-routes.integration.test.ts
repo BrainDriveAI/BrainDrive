@@ -118,7 +118,13 @@ type TestServerContext = {
 };
 
 async function createTestServer(
-  options: { bootstrapToken?: string; authMode?: RuntimeConfig["auth_mode"] } = {}
+  options: {
+    bootstrapToken?: string;
+    authMode?: RuntimeConfig["auth_mode"];
+    deploymentMode?: "managed" | "local";
+    managedApiBase?: string;
+    allowManagedPublicAccountProxyRoutes?: boolean;
+  } = {}
 ): Promise<TestServerContext> {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "paa-auth-int-"));
   const memoryRoot = path.join(tempRoot, "memory");
@@ -149,12 +155,32 @@ async function createTestServer(
 
   const previousSecretsHome = process.env.PAA_SECRETS_HOME;
   const previousBootstrapToken = process.env.PAA_AUTH_BOOTSTRAP_TOKEN;
+  const previousDeploymentMode = process.env.BD_DEPLOYMENT_MODE;
+  const previousManagedApiBase = process.env.BD_MANAGED_API_BASE;
+  const previousManagedPublicAccountProxyRoutes = process.env.PAA_MANAGED_PUBLIC_ACCOUNT_PROXY_ROUTES;
 
   process.env.PAA_SECRETS_HOME = secretsRoot;
   if (typeof options.bootstrapToken === "string") {
     process.env.PAA_AUTH_BOOTSTRAP_TOKEN = options.bootstrapToken;
   } else {
     delete process.env.PAA_AUTH_BOOTSTRAP_TOKEN;
+  }
+  if (options.deploymentMode) {
+    process.env.BD_DEPLOYMENT_MODE = options.deploymentMode;
+  } else {
+    delete process.env.BD_DEPLOYMENT_MODE;
+  }
+  if (typeof options.managedApiBase === "string") {
+    process.env.BD_MANAGED_API_BASE = options.managedApiBase;
+  } else {
+    delete process.env.BD_MANAGED_API_BASE;
+  }
+  if (typeof options.allowManagedPublicAccountProxyRoutes === "boolean") {
+    process.env.PAA_MANAGED_PUBLIC_ACCOUNT_PROXY_ROUTES = options.allowManagedPublicAccountProxyRoutes
+      ? "true"
+      : "false";
+  } else {
+    delete process.env.PAA_MANAGED_PUBLIC_ACCOUNT_PROXY_ROUTES;
   }
 
   const { app } = await buildServer(tempRoot);
@@ -173,6 +199,21 @@ async function createTestServer(
         process.env.PAA_AUTH_BOOTSTRAP_TOKEN = previousBootstrapToken;
       } else {
         delete process.env.PAA_AUTH_BOOTSTRAP_TOKEN;
+      }
+      if (typeof previousDeploymentMode === "string") {
+        process.env.BD_DEPLOYMENT_MODE = previousDeploymentMode;
+      } else {
+        delete process.env.BD_DEPLOYMENT_MODE;
+      }
+      if (typeof previousManagedApiBase === "string") {
+        process.env.BD_MANAGED_API_BASE = previousManagedApiBase;
+      } else {
+        delete process.env.BD_MANAGED_API_BASE;
+      }
+      if (typeof previousManagedPublicAccountProxyRoutes === "string") {
+        process.env.PAA_MANAGED_PUBLIC_ACCOUNT_PROXY_ROUTES = previousManagedPublicAccountProxyRoutes;
+      } else {
+        delete process.env.PAA_MANAGED_PUBLIC_ACCOUNT_PROXY_ROUTES;
       }
     },
   };
@@ -217,6 +258,7 @@ describe.sequential("gateway auth route integration", () => {
     runMemoryBackupMock.mockClear();
     restoreMemoryBackupMock.mockClear();
     createMemoryBackupSchedulerMock.mockClear();
+    vi.unstubAllGlobals();
   });
 
   it("rejects unauthenticated logout requests", async () => {
@@ -332,6 +374,59 @@ describe.sequential("gateway auth route integration", () => {
 
     expect(response.statusCode).toBe(401);
     expect(parseJson<{ error: string }>(response.body).error).toBe("Unauthorized");
+  });
+
+  it("requires authentication for managed account proxy routes by default", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      deploymentMode: "managed",
+      managedApiBase: "https://managed.example",
+    });
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ checkout_url: "https://checkout.stripe.com/c/pay_123" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/account/topup",
+      payload: { amount_cents: 1000 },
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(parseJson<{ error: string }>(response.body).error).toBe("Unauthorized");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("allows unauthenticated managed account proxy routes when explicitly enabled", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      deploymentMode: "managed",
+      managedApiBase: "https://managed.example",
+      allowManagedPublicAccountProxyRoutes: true,
+    });
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ checkout_url: "https://checkout.stripe.com/c/pay_123" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/account/topup",
+      payload: { amount_cents: 1000 },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(parseJson<{ checkout_url: string }>(response.body).checkout_url).toBe(
+      "https://checkout.stripe.com/c/pay_123"
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("creates, lists, and downloads support bundles for authenticated local JWT sessions", async () => {

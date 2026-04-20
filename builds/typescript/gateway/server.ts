@@ -210,7 +210,7 @@ const supportBundleDownloadParamsSchema = z
   .strict();
 
 const REFRESH_COOKIE_NAME = "paa_refresh_token";
-const PUBLIC_ROUTES = new Set([
+const BASE_PUBLIC_ROUTES = new Set([
   "/health",
   "/config",
   "/auth/bootstrap-status",
@@ -232,11 +232,28 @@ const DEFAULT_MEMORY_BACKUP_TOKEN_SECRET_REF = "backup/git/token";
 export async function buildServer(rootDir = process.cwd()) {
   const isManaged = process.env.BD_DEPLOYMENT_MODE === "managed";
   const managedApiBase = process.env.BD_MANAGED_API_BASE?.replace(/\/+$/, "") || "";
+  const allowManagedPublicAccountProxyRoutes = readBooleanEnv(
+    process.env.PAA_MANAGED_PUBLIC_ACCOUNT_PROXY_ROUTES,
+    false
+  );
+  const publicRoutes = new Set(BASE_PUBLIC_ROUTES);
 
-  if (isManaged) {
+  if (isManaged && allowManagedPublicAccountProxyRoutes) {
     for (const p of MANAGED_PROXY_ROUTES) {
-      PUBLIC_ROUTES.add(p);
+      publicRoutes.add(p);
     }
+    auditLog("startup.managed_public_account_proxy_routes", {
+      enabled: true,
+      route_count: MANAGED_PROXY_ROUTES.size,
+      managed_api_base_configured: managedApiBase.length > 0,
+      warning: "Managed /account proxy routes are publicly accessible.",
+    });
+  } else if (isManaged) {
+    auditLog("startup.managed_public_account_proxy_routes", {
+      enabled: false,
+      route_count: MANAGED_PROXY_ROUTES.size,
+      managed_api_base_configured: managedApiBase.length > 0,
+    });
   }
 
   auditLog("startup.phase", { phase: "runtime-config" });
@@ -518,7 +535,7 @@ export async function buildServer(rootDir = process.cwd()) {
 
   app.addHook("preHandler", async (request, reply) => {
     const requestPath = stripQueryString(request.url);
-    if (isPublicRoute(requestPath)) {
+    if (publicRoutes.has(requestPath)) {
       return;
     }
 
@@ -2012,10 +2029,6 @@ async function proxyToGateway(
     return resp.json();
   }
   return resp.text();
-}
-
-function isPublicRoute(urlPath: string): boolean {
-  return PUBLIC_ROUTES.has(urlPath);
 }
 
 function stripQueryString(url: string): string {
