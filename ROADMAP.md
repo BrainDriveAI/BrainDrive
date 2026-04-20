@@ -44,42 +44,42 @@ Phase 2 turns BrainDrive from "an AI you own" into "a partner you rely on." The 
 | Feature | Status |
 |---------|--------|
 | Docker install — one command, you're running | Done |
-| Managed hosting — sign up and start talking | Testing |
 | Web interface — browser-based, no terminal needed | Done |
 | Cloud models — access SOTA models via API key | Done |
+| Local models (Ollama) — run intelligence on your machine | Done |
 | Projects — click in, AI loads your context automatically | Done |
 | Core methodology — interview, spec, plan with an expert partner | Done |
 | Capture — dump anything in, AI routes it | Done |
 | Edit your library — directly or through your partner | Done |
 | Chat with your docs — answers grounded in your content | Done |
+| Owner profile — AI knows who you are across conversations | Done |
 | Security — sandboxed, auth-first, export anytime | Done |
+| Remote backup — push your library to a git remote you control | Done |
 
 ### What's In Progress
 
 | Feature | Status |
 |---------|--------|
-| Owner profile — AI knows who you are across conversations | Partially working |
-| Local models (Ollama) — run intelligence on your machine | Testing |
+| Managed hosting — sign up and start talking | Testing |
 | Version history — every change reversible | Verifying |
-| Working sessions — discuss decisions, get plan-grounded advice | Not started |
-| Transcript processing — hand off a meeting, AI handles follow-up | Not started |
-| Remote backup — push your library to a git remote you control | Not started |
+| Working sessions — discuss decisions, get plan-grounded advice | Testing |
+| Progress capture — tell your partner what you did, plans update automatically | Testing |
+| Plan review — walk through what's done, what's overdue, adapt when things change | Testing |
+| Cross-pollination — changes in one area ripple across your library | Testing |
+| Pulse — unified task view across all projects | Testing |
 
 ### What's Next (V1.1+)
 
 These capabilities complete Phase 2 — the execution partnership:
 
-- **Progress capture** — tell your partner what you did, plans update automatically
-- **Plan review** — walk through what's done, what's overdue, adapt when things change
+- **Transcript processing** — hand off a meeting, AI handles follow-up
 - **Smart landing page** — your partner greets you with what's relevant
 - **Proactive check-ins** — reminders and follow-ups via email or text
 - **Daily digest** — cross-project briefing that drives action
-- **Multi-channel** — text, email, voice. Same partner, anywhere.
-- **Cross-pollination** — changes in one area ripple across your library
-- **Pulse** — unified task view across all projects
+- **Messaging surfaces** — your partner reaches you (and you reply) via SMS, email, or phone call. Async, outbound too.
 - **Context gardening** — automated library health checks
 - **Conversations build memory** — every chat becomes searchable knowledge
-- **Multiple ways in** — web, mobile, voice, hardware
+- **Interfaces** — where you sit down to work with your BrainDrive: web, mobile app, desktop, voice assistant, hardware device.
 - **WhyFinder** — deep onboarding that explores your values and purpose
 
 ---

@@ -262,7 +262,7 @@ const updateConversationContextSchema = z
 type UpdateConversationContext = z.infer<typeof updateConversationContextSchema>;
 
 const REFRESH_COOKIE_NAME = "paa_refresh_token";
-const PUBLIC_ROUTES = new Set([
+const BASE_PUBLIC_ROUTES = new Set([
   "/health",
   "/config",
   "/updates/status",
@@ -285,11 +285,35 @@ const DEFAULT_MEMORY_BACKUP_TOKEN_SECRET_REF = "backup/git/token";
 export async function buildServer(rootDir = process.cwd()) {
   const isManaged = process.env.BD_DEPLOYMENT_MODE === "managed";
   const managedApiBase = process.env.BD_MANAGED_API_BASE?.replace(/\/+$/, "") || "";
+  const managedPublicAccountProxyRoutesEnv = process.env.PAA_MANAGED_PUBLIC_ACCOUNT_PROXY_ROUTES;
+  const managedPublicAccountProxyRoutesConfigured =
+    typeof managedPublicAccountProxyRoutesEnv === "string" &&
+    managedPublicAccountProxyRoutesEnv.trim().length > 0;
+  const allowManagedPublicAccountProxyRoutes = readBooleanEnv(
+    managedPublicAccountProxyRoutesEnv,
+    true
+  );
+  const publicRoutes = new Set(BASE_PUBLIC_ROUTES);
 
-  if (isManaged) {
+  if (isManaged && allowManagedPublicAccountProxyRoutes) {
     for (const p of MANAGED_PROXY_ROUTES) {
-      PUBLIC_ROUTES.add(p);
+      publicRoutes.add(p);
     }
+    auditLog("startup.managed_public_account_proxy_routes", {
+      enabled: true,
+      route_count: MANAGED_PROXY_ROUTES.size,
+      managed_api_base_configured: managedApiBase.length > 0,
+      configured_via_env: managedPublicAccountProxyRoutesConfigured,
+      warning:
+        "Managed /account proxy routes are publicly accessible. Set PAA_MANAGED_PUBLIC_ACCOUNT_PROXY_ROUTES=false to require gateway auth.",
+    });
+  } else if (isManaged) {
+    auditLog("startup.managed_public_account_proxy_routes", {
+      enabled: false,
+      route_count: MANAGED_PROXY_ROUTES.size,
+      managed_api_base_configured: managedApiBase.length > 0,
+      configured_via_env: managedPublicAccountProxyRoutesConfigured,
+    });
   }
 
   auditLog("startup.phase", { phase: "runtime-config" });
@@ -585,7 +609,7 @@ export async function buildServer(rootDir = process.cwd()) {
 
   app.addHook("preHandler", async (request, reply) => {
     const requestPath = stripQueryString(request.url);
-    if (isPublicRoute(requestPath)) {
+    if (publicRoutes.has(requestPath)) {
       return;
     }
 
@@ -2520,10 +2544,6 @@ async function proxyToGateway(
     return resp.json();
   }
   return resp.text();
-}
-
-function isPublicRoute(urlPath: string): boolean {
-  return PUBLIC_ROUTES.has(urlPath);
 }
 
 function stripQueryString(url: string): string {

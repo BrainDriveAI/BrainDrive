@@ -60,7 +60,7 @@ describe("ChatPanel typing indicator behavior", () => {
     expect(screen.getByText("Thinking...")).toBeInTheDocument();
   });
 
-  it("hides typing indicator once assistant text starts streaming", () => {
+  it("keeps typing indicator visible while assistant text is still streaming", () => {
     useGatewayChatMock.mockReturnValue(
       makeHookState({
         isLoading: true,
@@ -73,7 +73,7 @@ describe("ChatPanel typing indicator behavior", () => {
 
     render(<ChatPanel activeConversationId={null} isEmpty={false} />);
 
-    expect(screen.queryByText("Thinking...")).not.toBeInTheDocument();
+    expect(screen.getByText("Thinking...")).toBeInTheDocument();
   });
 
   it("shows context warning banner when near limit", () => {

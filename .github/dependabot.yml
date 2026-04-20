@@ -1,0 +1,73 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/builds/mcp_release"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: "America/New_York"
+    labels:
+      - dependencies
+      - chore
+    open-pull-requests-limit: 4
+    groups:
+      mcp-release-non-major:
+        patterns:
+          - "*"
+        update-types:
+          - patch
+          - minor
+      mcp-release-major:
+        patterns:
+          - "*"
+        update-types:
+          - major
+
+  - package-ecosystem: npm
+    directory: "/builds/typescript"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:10"
+      timezone: "America/New_York"
+    labels:
+      - dependencies
+      - chore
+    open-pull-requests-limit: 4
+    groups:
+      typescript-non-major:
+        patterns:
+          - "*"
+        update-types:
+          - patch
+          - minor
+      typescript-major:
+        patterns:
+          - "*"
+        update-types:
+          - major
+
+  - package-ecosystem: npm
+    directory: "/builds/typescript/client_web"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:20"
+      timezone: "America/New_York"
+    labels:
+      - dependencies
+      - chore
+    open-pull-requests-limit: 4
+    groups:
+      client-web-non-major:
+        patterns:
+          - "*"
+        update-types:
+          - patch
+          - minor
+      client-web-major:
+        patterns:
+          - "*"
+        update-types:
+          - major

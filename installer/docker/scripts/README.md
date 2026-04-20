@@ -41,6 +41,7 @@
 - `migration-import.ps1`
 - `migration-smoke.sh`
 - `migration-smoke.ps1`
+- `preflight-production-build.sh`
 - `publish-release-images.sh`
 - `publish-release-images.ps1`
 - `release-production.sh`
@@ -384,6 +385,24 @@ Env vars:
 - `APP_IMAGE` (default `${REGISTRY}/braindrive-app`)
 - `EDGE_IMAGE` (default `${REGISTRY}/braindrive-edge`)
 
+### preflight-production-build (`preflight-production-build.sh`)
+
+What it does:
+- Runs Monday release readiness checks before publish.
+- Validates TypeScript app build (`builds/typescript`).
+- Validates TypeScript web checks/build (`builds/typescript/client_web`).
+- Optionally builds production Docker images (`Dockerfile.app` and `Dockerfile.edge`) with local test tags.
+
+Usage:
+- Shell: `./installer/docker/scripts/preflight-production-build.sh [options]`
+
+Options:
+- `--app-image <name>` (default `braindrive-preflight-app`)
+- `--edge-image <name>` (default `braindrive-preflight-edge`)
+- `--image-tag <tag>` (default `preflight-<UTC timestamp>`)
+- `--skip-npm-install` (skip `npm ci` in app/web packages)
+- `--skip-docker-build` (run Node/TypeScript checks only)
+
 ### publish-release-images (`publish-release-images.sh`, `publish-release-images.ps1`)
 
 What it does:
@@ -408,6 +427,7 @@ Env vars:
 What it does:
 - Runs the full production release runbook in one flow:
 - preflight checks (`git`, `docker`, `npm`, `node`, `cosign`)
+- release readiness checks (`preflight-production-build.sh --skip-docker-build`)
 - package version bump (core + web client)
 - image build/publish and digest ref capture
 - optional `latest` tag move
@@ -424,6 +444,7 @@ Options:
 - `--app-image <repo>` (default: `ghcr.io/braindriveai/braindrive-app`)
 - `--edge-image <repo>` (default: `ghcr.io/braindriveai/braindrive-edge`)
 - `--cosign-key-path <path>` (default: `<repo>/cosign.key`)
+- `--skip-prebuild-check`
 - `--skip-git-sync`
 - `--skip-docker-login`
 - `--skip-latest-tag`
