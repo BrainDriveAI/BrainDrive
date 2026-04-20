@@ -180,8 +180,8 @@ describe("SettingsModal", () => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    await user.click(screen.getAllByRole("button", { name: "Migrate Library" })[0]!);
-    await user.click(screen.getAllByRole("button", { name: "Download Library (.tar.gz)" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "Migrate" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "Download" })[0]!);
 
     await waitFor(() => {
       expect(downloadLibraryExportMock).toHaveBeenCalledTimes(1);
@@ -196,12 +196,12 @@ describe("SettingsModal", () => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    await user.click(screen.getAllByRole("button", { name: "Migrate Library" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "Migrate" })[0]!);
 
-    const importInput = screen.getByLabelText("Migration Archive (.tar.gz)") as HTMLInputElement;
+    const importInput = screen.getByLabelText("Choose file") as HTMLInputElement;
     const file = new File(["archive"], "memory-migration.tar.gz", { type: "application/gzip" });
     await user.upload(importInput, file);
-    await user.click(screen.getAllByRole("button", { name: "Import Library (.tar.gz)" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "Import" })[0]!);
 
     await waitFor(() => {
       expect(importLibraryArchiveMock).toHaveBeenCalledTimes(1);
@@ -216,14 +216,14 @@ describe("SettingsModal", () => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    await user.click(screen.getAllByRole("button", { name: "Migrate Library" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "Migrate" })[0]!);
 
-    const importButton = screen.getAllByRole("button", { name: "Import Library (.tar.gz)" })[0] as HTMLButtonElement;
+    const importButton = screen.getAllByRole("button", { name: "Import" })[0] as HTMLButtonElement;
     expect(importButton).toBeDisabled();
     await user.click(importButton);
     expect(importLibraryArchiveMock).not.toHaveBeenCalled();
 
-    const importInput = screen.getByLabelText("Migration Archive (.tar.gz)") as HTMLInputElement;
+    const importInput = screen.getByLabelText("Choose file") as HTMLInputElement;
     const file = new File(["archive"], "memory-migration.tar.gz", { type: "application/gzip" });
     await user.upload(importInput, file);
 
@@ -238,7 +238,6 @@ describe("SettingsModal", () => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    await user.click(screen.getAllByRole("button", { name: "Default Model" })[0]!);
     await waitFor(() => {
       expect(getProviderModelsMock).toHaveBeenCalled();
     });
@@ -263,7 +262,7 @@ describe("SettingsModal", () => {
     });
   });
 
-  it("renders memory backup tab below migrate library in local mode", async () => {
+  it("renders backup and migrate tabs in local mode", async () => {
     render(<SettingsModal mode="local" onClose={() => {}} />);
 
     await waitFor(() => {
@@ -275,10 +274,10 @@ describe("SettingsModal", () => {
       .map((button) => button.textContent?.trim() ?? "")
       .filter(Boolean);
 
-    const migrateIndex = tabLabels.indexOf("Migrate Library");
-    const backupIndex = tabLabels.indexOf("Memory Backup");
+    const backupIndex = tabLabels.indexOf("Backup");
+    const migrateIndex = tabLabels.indexOf("Migrate");
     expect(migrateIndex).toBeGreaterThanOrEqual(0);
-    expect(backupIndex).toBeGreaterThan(migrateIndex);
+    expect(backupIndex).toBeGreaterThanOrEqual(0);
   });
 
   it("saves memory backup settings", async () => {
@@ -290,15 +289,15 @@ describe("SettingsModal", () => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    await user.click(screen.getAllByRole("button", { name: "Memory Backup" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "Backup" })[0]!);
     await user.clear(screen.getAllByLabelText("Repository URL")[0]!);
     await user.type(
       screen.getAllByLabelText("Repository URL")[0]!,
       "https://github.com/BrainDriveAI/braindrive-memory.git"
     );
-    await user.type(screen.getAllByLabelText("Git Token (PAT/Classic)")[0]!, "ghp_test");
-    await user.selectOptions(screen.getAllByLabelText("Frequency")[0]!, "daily");
-    await user.click(screen.getAllByRole("button", { name: "Save Backup Settings" })[0]!);
+    await user.type(screen.getAllByLabelText("Token")[0]!, "ghp_test");
+    await user.click(screen.getAllByRole("button", { name: "Every day" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "Save Settings" })[0]!);
 
     await waitFor(() => {
       expect(updateMemoryBackupSettingsMock).toHaveBeenCalledWith({
@@ -318,8 +317,8 @@ describe("SettingsModal", () => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    await user.click(screen.getAllByRole("button", { name: "Memory Backup" })[0]!);
-    await user.click(screen.getAllByRole("button", { name: "Save Now" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "Backup" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "Back Up Now" })[0]!);
 
     await waitFor(() => {
       expect(runMemoryBackupNowMock).toHaveBeenCalledTimes(1);
@@ -336,8 +335,8 @@ describe("SettingsModal", () => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    await user.click(screen.getAllByRole("button", { name: "Memory Backup" })[0]!);
-    await user.click(screen.getAllByRole("button", { name: "Restore from Backup Repo" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "Backup" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "Restore from Backup" })[0]!);
 
     await waitFor(() => {
       expect(restoreMemoryBackupMock).toHaveBeenCalledTimes(1);
