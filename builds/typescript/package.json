@@ -33,7 +33,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "fastify": "^5.8.5",
-    "zod": "^3.24.2"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
