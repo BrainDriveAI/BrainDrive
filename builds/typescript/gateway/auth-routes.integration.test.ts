@@ -376,37 +376,11 @@ describe.sequential("gateway auth route integration", () => {
     expect(parseJson<{ error: string }>(response.body).error).toBe("Unauthorized");
   });
 
-  it("requires authentication for managed account proxy routes by default", async () => {
+  it("allows unauthenticated managed account proxy routes by default", async () => {
     context = await createTestServer({
       authMode: "local-owner",
       deploymentMode: "managed",
       managedApiBase: "https://managed.example",
-    });
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ checkout_url: "https://checkout.stripe.com/c/pay_123" }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      })
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const response = await context.app.inject({
-      method: "POST",
-      url: "/account/topup",
-      payload: { amount_cents: 1000 },
-    });
-
-    expect(response.statusCode).toBe(401);
-    expect(parseJson<{ error: string }>(response.body).error).toBe("Unauthorized");
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("allows unauthenticated managed account proxy routes when explicitly enabled", async () => {
-    context = await createTestServer({
-      authMode: "local-owner",
-      deploymentMode: "managed",
-      managedApiBase: "https://managed.example",
-      allowManagedPublicAccountProxyRoutes: true,
     });
     const fetchMock = vi.fn(async () =>
       new Response(JSON.stringify({ checkout_url: "https://checkout.stripe.com/c/pay_123" }), {
@@ -427,6 +401,32 @@ describe.sequential("gateway auth route integration", () => {
       "https://checkout.stripe.com/c/pay_123"
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("requires authentication for managed account proxy routes when explicitly disabled", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      deploymentMode: "managed",
+      managedApiBase: "https://managed.example",
+      allowManagedPublicAccountProxyRoutes: false,
+    });
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ checkout_url: "https://checkout.stripe.com/c/pay_123" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/account/topup",
+      payload: { amount_cents: 1000 },
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(parseJson<{ error: string }>(response.body).error).toBe("Unauthorized");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("creates, lists, and downloads support bundles for authenticated local JWT sessions", async () => {

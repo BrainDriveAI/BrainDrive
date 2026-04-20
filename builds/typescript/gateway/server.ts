@@ -232,9 +232,13 @@ const DEFAULT_MEMORY_BACKUP_TOKEN_SECRET_REF = "backup/git/token";
 export async function buildServer(rootDir = process.cwd()) {
   const isManaged = process.env.BD_DEPLOYMENT_MODE === "managed";
   const managedApiBase = process.env.BD_MANAGED_API_BASE?.replace(/\/+$/, "") || "";
+  const managedPublicAccountProxyRoutesEnv = process.env.PAA_MANAGED_PUBLIC_ACCOUNT_PROXY_ROUTES;
+  const managedPublicAccountProxyRoutesConfigured =
+    typeof managedPublicAccountProxyRoutesEnv === "string" &&
+    managedPublicAccountProxyRoutesEnv.trim().length > 0;
   const allowManagedPublicAccountProxyRoutes = readBooleanEnv(
-    process.env.PAA_MANAGED_PUBLIC_ACCOUNT_PROXY_ROUTES,
-    false
+    managedPublicAccountProxyRoutesEnv,
+    true
   );
   const publicRoutes = new Set(BASE_PUBLIC_ROUTES);
 
@@ -246,13 +250,16 @@ export async function buildServer(rootDir = process.cwd()) {
       enabled: true,
       route_count: MANAGED_PROXY_ROUTES.size,
       managed_api_base_configured: managedApiBase.length > 0,
-      warning: "Managed /account proxy routes are publicly accessible.",
+      configured_via_env: managedPublicAccountProxyRoutesConfigured,
+      warning:
+        "Managed /account proxy routes are publicly accessible. Set PAA_MANAGED_PUBLIC_ACCOUNT_PROXY_ROUTES=false to require gateway auth.",
     });
   } else if (isManaged) {
     auditLog("startup.managed_public_account_proxy_routes", {
       enabled: false,
       route_count: MANAGED_PROXY_ROUTES.size,
       managed_api_base_configured: managedApiBase.length > 0,
+      configured_via_env: managedPublicAccountProxyRoutesConfigured,
     });
   }
 
