@@ -1,4 +1,4 @@
-import { buildLocalOwnerHeaders } from "./local-auth";
+import { authenticatedFetch } from "./auth-adapter";
 import { GatewayError } from "./types";
 
 export type UpdateStatusPayload = {
@@ -40,9 +40,8 @@ const EMPTY_STATUS: UpdateStatusPayload = {
 };
 
 export async function getUpdateStatus(): Promise<UpdateStatusPayload> {
-  const response = await fetch("/api/updates/status", {
+  const response = await authenticatedFetch("/api/updates/status", {
     method: "GET",
-    headers: buildLocalOwnerHeaders(),
   });
 
   if (!response.ok) {
@@ -54,9 +53,8 @@ export async function getUpdateStatus(): Promise<UpdateStatusPayload> {
 }
 
 export async function startUpdateConversation(): Promise<UpdateConversationStartPayload> {
-  const response = await fetch("/api/updates/conversation/start", {
+  const response = await authenticatedFetch("/api/updates/conversation/start", {
     method: "POST",
-    headers: buildLocalOwnerHeaders(),
   });
 
   if (!response.ok) {
