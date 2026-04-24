@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readdir, rm, stat, writeFile, copyFile } from "node:fs/
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import type { AuthMode, InstallMode } from "../contracts.js";
+import type { AuthMode, InstallLocation, InstallMode } from "../contracts.js";
 
 const SUPPORT_BUNDLE_FILE_NAME_PATTERN = /^support-bundle-\d{13}\.tar\.gz$/;
 const AUDIT_FILE_NAME_PATTERN = /^\d{4}-\d{2}-\d{2}(?:\.\d+)?\.jsonl$/;
@@ -12,6 +12,7 @@ export type CreateSupportBundleOptions = {
   windowHours: number;
   appVersion: string;
   installMode: InstallMode;
+  installLocation: InstallLocation;
   authMode: AuthMode;
   actorId: string;
 };
@@ -55,6 +56,7 @@ export async function createSupportBundle(
       scope: "memory-only",
       app_version: options.appVersion,
       install_mode: options.installMode,
+      install_location: options.installLocation,
       auth_mode: options.authMode,
       actor_id: options.actorId,
       window_hours: options.windowHours,

@@ -14,7 +14,8 @@ import Sidebar from "./Sidebar";
 type AppShellProps = {
   children?: ReactNode;
   deploymentMode?: "local" | "managed";
-  installMode?: "local" | "quickstart" | "prod" | "unknown";
+  installMode?: "dev" | "local" | "prod" | "unknown";
+  installLocation?: "local" | "managed" | "unknown";
   appVersion?: string;
   onLogout?: () => void;
 };
@@ -23,6 +24,7 @@ export default function AppShell({
   children,
   deploymentMode = "local",
   installMode = "unknown",
+  installLocation = "unknown",
   appVersion = "unknown",
   onLogout,
 }: AppShellProps) {
@@ -319,6 +321,7 @@ export default function AppShell({
         <SettingsModal
           mode={deploymentMode}
           installMode={installMode}
+          installLocation={installLocation}
           appVersion={appVersion}
           onClose={() => setIsSettingsOpen(false)}
         />

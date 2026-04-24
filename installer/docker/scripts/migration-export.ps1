@@ -1,17 +1,13 @@
 param(
   [string]$OutputFile = "",
   [string]$BaseUrl = "",
-  [ValidateSet("dev", "local", "quickstart", "prod")]
+  [ValidateSet("dev", "local", "prod")]
   [string]$Mode = "local"
 )
 
 $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $rootDir = Split-Path -Parent $scriptDir
-
-if ($Mode -eq "quickstart") {
-  $Mode = "local"
-}
 
 if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
   if (-not [string]::IsNullOrWhiteSpace($env:BRAINDRIVE_MIGRATION_BASE_URL)) {

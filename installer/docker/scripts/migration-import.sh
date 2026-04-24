@@ -13,9 +13,6 @@ if [[ ! -f "${ARCHIVE_FILE}" ]]; then
 fi
 
 MODE="${BRAINDRIVE_MIGRATION_MODE:-local}"
-if [[ "${MODE}" == "quickstart" ]]; then
-  MODE="local"
-fi
 BASE_URL_DEFAULT="http://127.0.0.1:8080"
 if [[ "${MODE}" == "dev" ]]; then
   BASE_URL_DEFAULT="http://127.0.0.1:5073"

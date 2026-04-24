@@ -2,15 +2,11 @@ param(
   [Parameter(Mandatory = $true)]
   [string]$ArchiveFile,
   [string]$BaseUrl = "",
-  [ValidateSet("dev", "local", "quickstart", "prod")]
+  [ValidateSet("dev", "local", "prod")]
   [string]$Mode = "local"
 )
 
 $ErrorActionPreference = "Stop"
-
-if ($Mode -eq "quickstart") {
-  $Mode = "local"
-}
 
 if (-not (Test-Path $ArchiveFile)) {
   throw "Migration archive not found: $ArchiveFile"

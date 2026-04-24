@@ -5,14 +5,9 @@ MODE="${1:-local}"
 SINCE_WINDOW="${2:-24h}"
 OUTPUT_DIR="${3:-}"
 
-if [[ "${MODE}" != "quickstart" && "${MODE}" != "prod" && "${MODE}" != "local" && "${MODE}" != "dev" ]]; then
-  echo "Usage: ./scripts/support-bundle.sh [local|prod|dev|quickstart] [since-window] [output-dir]" >&2
+if [[ "${MODE}" != "prod" && "${MODE}" != "local" && "${MODE}" != "dev" ]]; then
+  echo "Usage: ./scripts/support-bundle.sh [local|prod|dev] [since-window] [output-dir]" >&2
   exit 1
-fi
-
-if [[ "${MODE}" == "quickstart" ]]; then
-  echo "Mode 'quickstart' is deprecated and now aliases to 'local'." >&2
-  MODE="local"
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

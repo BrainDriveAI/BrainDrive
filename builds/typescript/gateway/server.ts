@@ -36,6 +36,7 @@ import type {
   AdapterConfig,
   ApprovalMode,
   ClientMessageRequest,
+  InstallLocation,
   Preferences,
   RuntimeConfig
 } from "../contracts.js";
@@ -231,6 +232,7 @@ const DEFAULT_MEMORY_BACKUP_TOKEN_SECRET_REF = "backup/git/token";
 
 export async function buildServer(rootDir = process.cwd()) {
   const isManaged = process.env.BD_DEPLOYMENT_MODE === "managed";
+  const installLocation: InstallLocation = isManaged ? "managed" : "local";
   const managedApiBase = process.env.BD_MANAGED_API_BASE?.replace(/\/+$/, "") || "";
   const managedPublicAccountProxyRoutesEnv = process.env.PAA_MANAGED_PUBLIC_ACCOUNT_PROXY_ROUTES;
   const managedPublicAccountProxyRoutesConfigured =
@@ -293,12 +295,16 @@ export async function buildServer(rootDir = process.cwd()) {
   await ensureGitReady(runtimeConfig.memory_root);
   const appConfigSync = await ensureSystemAppConfig(
     runtimeConfig.memory_root,
-    runtimeConfig.install_mode
+    runtimeConfig.install_mode,
+    installLocation
   );
   auditLog("startup.install_mode", {
     install_mode: runtimeConfig.install_mode,
+    install_location: installLocation,
     app_config_path: appConfigSync.path,
     app_config_updated: appConfigSync.updated,
+    app_config_install_mode: appConfigSync.installMode,
+    app_config_install_location: appConfigSync.installLocation,
   });
 
   auditLog("startup.phase", { phase: "preferences" });
@@ -876,6 +882,7 @@ export async function buildServer(rootDir = process.cwd()) {
   app.get("/config", async () => ({
     mode: isManaged ? "managed" : "local",
     install_mode: runtimeConfig.install_mode,
+    install_location: installLocation,
     app_version: appVersion,
     gateway_url: "/api",
     features: {
@@ -1428,9 +1435,16 @@ export async function buildServer(rootDir = process.cwd()) {
         warnings_count: result.warnings.length,
         target_commit_requested: parsed.data.target_commit ?? null,
       });
+      let logoutRequired = false;
+      if (localJwtAuthService) {
+        await localJwtAuthService.logout();
+        reply.header("set-cookie", serializeRefreshCookieClear(isSecureRequest(request)));
+        logoutRequired = true;
+      }
       reply.send({
         result,
         settings: buildSettingsPayload(adapterConfig, refreshedPreferences),
+        logout_required: logoutRequired,
       });
     } catch (error) {
       const safeMessage = error instanceof Error ? error.message : "Memory restore failed";
@@ -1682,10 +1696,17 @@ export async function buildServer(rootDir = process.cwd()) {
         restored_secrets: importResult.restored.secrets,
         warnings_count: importResult.warnings.length,
       });
+      let logoutRequired = false;
+      if (localJwtAuthService) {
+        await localJwtAuthService.logout();
+        reply.header("set-cookie", serializeRefreshCookieClear(isSecureRequest(request)));
+        logoutRequired = true;
+      }
 
       reply.code(201).send({
         ...importResult,
         settings: buildSettingsPayload(adapterConfig, refreshedPreferences),
+        logout_required: logoutRequired,
       });
     } catch (error) {
       auditLog("migration.import.failed", {
@@ -1735,6 +1756,7 @@ export async function buildServer(rootDir = process.cwd()) {
       windowHours,
       appVersion,
       installMode: runtimeConfig.install_mode,
+      installLocation,
       authMode: runtimeConfig.auth_mode,
       actorId: request.authContext.actorId,
     });

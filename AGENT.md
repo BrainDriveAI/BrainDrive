@@ -91,7 +91,7 @@ Keep this mental model:
 2. The engine runs the model loop, streams assistant text, and executes tool calls.
 3. Tools operate against file-backed memory and other registered MCP sources.
 4. The web client talks to the gateway over the local API surface.
-5. Docker packages the app for quickstart, local, dev, and prod modes.
+5. Docker packages the app for local, dev, and prod modes.
 
 Important behavior boundaries:
 

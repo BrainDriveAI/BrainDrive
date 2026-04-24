@@ -32,7 +32,6 @@ Bootstrap behavior:
 2. Installs or refreshes local installer files under `~/.braindrive/installer/docker`.
 3. Runs installer in `local` mode by default (no domain required, pulls published images).
 4. `prod` is supported as an explicit mode override.
-5. `quickstart` remains accepted as a legacy alias for `local`.
 
 Optional bootstrap overrides:
 - `BRAINDRIVE_BOOTSTRAP_REPO` (default: `BrainDriveAI/BrainDrive`)
@@ -51,12 +50,7 @@ For a one-line, no-clone install that does not require DNS/TLS setup:
    - `http://127.0.0.1:8080`
 
 This mode uses prebuilt images and `compose.local.yml`.
-`quickstart` remains accepted as a legacy CLI alias and maps to `local`.
 Lifecycle scripts now always print the access URL and attempt a best-effort browser auto-open on the host.
-
-One-time migration behavior:
-- On first `start` or `upgrade` in `local` mode, scripts detect running legacy `compose.quickstart.yml` containers.
-- If found, scripts stop legacy quickstart containers (volumes are preserved) to prevent port conflicts.
 
 ## Production Bootstrap
 For real public HTTPS deployments:
@@ -120,7 +114,6 @@ If file watching is unreliable (WSL/network mounts), enable polling in `.env`:
 ## Files
 - `compose.prod.yml`: production stack (app + edge, TLS via Caddy).
 - `compose.local.yml`: local stack (HTTP on `${BRAINDRIVE_LOCAL_BIND_HOST:-127.0.0.1}:8080`; set `0.0.0.0` for LAN access).
-- `compose.quickstart.yml`: legacy compatibility stack kept for one-time migration handling.
 - `compose.dev.yml`: developer hot-reload stack (Vite UI on `${BRAINDRIVE_DEV_BIND_HOST:-127.0.0.1}:${BRAINDRIVE_DEV_PORT:-5073}`).
 - `.env.example`: required/optional runtime values.
 - `Caddyfile`: production routing and TLS.
@@ -201,8 +194,8 @@ Lifecycle scripts that start/restart services (`install`, `start`, `upgrade`, `r
 - Backup: `./scripts/backup.sh`
 - Migration export (same method as app UI): `./scripts/migration-export.sh [output-file] [base-url]`
 - Migration import (same method as app UI): `./scripts/migration-import.sh <archive-file> [base-url]`
-- Migration smoke test (export + import roundtrip): `./scripts/migration-smoke.sh [dev|local|prod|quickstart] [base-url]`
-- Support bundle (logs + metadata + audit JSONL): `./scripts/support-bundle.sh [local|prod|dev|quickstart] [24h]`
+- Migration smoke test (export + import roundtrip): `./scripts/migration-smoke.sh [dev|local|prod] [base-url]`
+- Support bundle (logs + metadata + audit JSONL): `./scripts/support-bundle.sh [local|prod|dev] [24h]`
 - Restore:
   - Local: `./scripts/restore.sh memory <backup-file> local`
   - Prod: `./scripts/restore.sh memory <backup-file> prod`

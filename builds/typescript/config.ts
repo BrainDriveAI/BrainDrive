@@ -2,7 +2,13 @@ import path from "node:path";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { z } from "zod";
 
-import type { AdapterConfig, InstallMode, Preferences, RuntimeConfig } from "./contracts.js";
+import type {
+  AdapterConfig,
+  InstallLocation,
+  InstallMode,
+  Preferences,
+  RuntimeConfig
+} from "./contracts.js";
 import { initializeMemoryLayout } from "./memory/init.js";
 import { auditLog } from "./logger.js";
 
@@ -231,10 +237,15 @@ export async function loadRuntimeConfig(rootDir: string): Promise<RuntimeConfig>
   };
 }
 
-export async function ensureSystemAppConfig(memoryRoot: string, installMode: InstallMode): Promise<{
+export async function ensureSystemAppConfig(
+  memoryRoot: string,
+  installMode: InstallMode,
+  installLocation: InstallLocation
+): Promise<{
   path: string;
   backupPath: string;
   installMode: InstallMode;
+  installLocation: InstallLocation;
   updated: boolean;
 }> {
   const configDir = path.join(memoryRoot, "system", "config");
@@ -257,15 +268,21 @@ export async function ensureSystemAppConfig(memoryRoot: string, installMode: Ins
 
   let updated = false;
   const systemSection = getOrCreateObject(document, "system");
-  if (!Object.prototype.hasOwnProperty.call(systemSection, "install_mode")) {
-    systemSection.install_mode = installMode;
+  const existingInstallMode = normalizeInstallMode(systemSection.install_mode);
+  const nextInstallMode = installMode === "unknown" ? existingInstallMode : installMode;
+  if (!Object.prototype.hasOwnProperty.call(systemSection, "install_mode") || systemSection.install_mode !== nextInstallMode) {
+    systemSection.install_mode = nextInstallMode;
     updated = true;
-  } else {
-    const normalized = normalizeInstallMode(systemSection.install_mode);
-    if (normalized !== systemSection.install_mode) {
-      systemSection.install_mode = normalized;
-      updated = true;
-    }
+  }
+
+  const existingInstallLocation = normalizeInstallLocation(systemSection.install_location);
+  const nextInstallLocation = installLocation === "unknown" ? existingInstallLocation : installLocation;
+  if (
+    !Object.prototype.hasOwnProperty.call(systemSection, "install_location") ||
+    systemSection.install_location !== nextInstallLocation
+  ) {
+    systemSection.install_location = nextInstallLocation;
+    updated = true;
   }
 
   if (!hasExistingConfig || updated) {
@@ -279,6 +296,7 @@ export async function ensureSystemAppConfig(memoryRoot: string, installMode: Ins
     path: appConfigPath,
     backupPath,
     installMode: normalizeInstallMode(systemSection.install_mode),
+    installLocation: normalizeInstallLocation(systemSection.install_location),
     updated: !hasExistingConfig || updated,
   };
 }
@@ -445,10 +463,21 @@ function normalizeInstallMode(value: unknown): InstallMode {
     return "unknown";
   }
   const normalized = value.trim().toLowerCase();
-  if (normalized === "quickstart") {
-    return "local";
+  if (normalized === "dev" || normalized === "local" || normalized === "prod") {
+    return normalized;
   }
-  if (normalized === "local" || normalized === "prod") {
+  if (normalized === "unknown") {
+    return "unknown";
+  }
+  return "unknown";
+}
+
+function normalizeInstallLocation(value: unknown): InstallLocation {
+  if (typeof value !== "string") {
+    return "unknown";
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "local" || normalized === "managed") {
     return normalized;
   }
   if (normalized === "unknown") {
