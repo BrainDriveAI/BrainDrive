@@ -710,11 +710,51 @@ describe.sequential("gateway auth route integration", () => {
     const body = parseJson<{
       result: { commit: string; source_branch: string };
       settings: { memory_backup: object | null };
+      logout_required: boolean;
     }>(response.body);
     expect(body.result.commit).toBe("abc123def456");
     expect(body.result.source_branch).toBe("braindrive-memory-backup");
     expect(body.settings.memory_backup).not.toBeNull();
+    expect(body.logout_required).toBe(false);
     expect(restoreMemoryBackupMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("forces logout after memory backup restore in local auth mode", async () => {
+    context = await createTestServer();
+    mockPreferences = {
+      ...mockPreferences,
+      memory_backup: {
+        repository_url: "https://github.com/BrainDriveAI/braindrive-memory.git",
+        frequency: "manual",
+        token_secret_ref: "backup/git/token",
+      },
+    };
+
+    const signupResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/signup",
+      payload: {
+        identifier: "owner",
+        password: "password123",
+      },
+    });
+    expect(signupResponse.statusCode).toBe(201);
+    const tokenPayload = parseJson<{ access_token: string }>(signupResponse.body);
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/settings/memory-backup/restore",
+      headers: {
+        authorization: `Bearer ${tokenPayload.access_token}`,
+      },
+      payload: {},
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = parseJson<{ logout_required: boolean }>(response.body);
+    expect(body.logout_required).toBe(true);
+    const setCookieHeader = response.headers["set-cookie"];
+    expect(typeof setCookieHeader === "string" ? setCookieHeader : "").toContain("Max-Age=0");
   });
 
   it("round-trips memory backup save then restore through the settings API", async () => {
@@ -822,10 +862,14 @@ describe.sequential("gateway auth route integration", () => {
       restored: { memory: boolean; secrets: boolean };
       source_format: string;
       settings: { approval_mode: string };
+      logout_required: boolean;
     }>(importResponse.body);
     expect(imported.restored.memory).toBe(true);
     expect(imported.source_format).toBe("migration-v1");
     expect(imported.settings.approval_mode).toBe("ask-on-write");
+    expect(imported.logout_required).toBe(true);
+    const importSetCookie = importResponse.headers["set-cookie"];
+    expect(typeof importSetCookie === "string" ? importSetCookie : "").toContain("Max-Age=0");
 
     const restoredFile = await readFile(path.join(memoryRoot, "documents", "migration-note.md"), "utf8");
     expect(restoredFile).toBe("original\n");

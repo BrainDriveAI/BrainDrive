@@ -187,6 +187,7 @@ export type GatewayMemoryBackupRunResponse = {
 export type GatewayMemoryBackupRestoreResponse = {
   result: GatewayMemoryBackupRestoreResult;
   settings: GatewaySettings;
+  logout_required?: boolean;
 };
 
 export type GatewaySettings = {
@@ -287,6 +288,7 @@ export type GatewayMigrationImportResult = {
   };
   warnings: string[];
   settings: GatewaySettings;
+  logout_required?: boolean;
 };
 
 export class GatewayError extends Error {

@@ -19,7 +19,7 @@ import {
 import MarkdownContent from "@/components/markdown/MarkdownContent";
 import { openTrustedBillingUrl } from "@/utils/billing-url";
 
-import { authenticatedFetch, getSession } from "@/api/auth-adapter";
+import { authenticatedFetch, getSession, logout } from "@/api/auth-adapter";
 import {
   deleteProviderModel,
   downloadLibraryExport,
@@ -258,6 +258,10 @@ export default function SettingsModal({
     setSettings(updated.settings);
     setSettingsError(null);
     resetGatewayChatRuntime();
+    if (updated.logout_required) {
+      await logout();
+      window.location.reload();
+    }
     return updated.result;
   }
 
@@ -293,6 +297,10 @@ export default function SettingsModal({
         setSettings(result.settings);
         resetGatewayChatRuntime();
         setCatalogRefreshKey((current) => current + 1);
+        if (result.logout_required) {
+          await logout();
+          window.location.reload();
+        }
       }
     } catch (error) {
       setImportError(error instanceof Error ? error.message : String(error));

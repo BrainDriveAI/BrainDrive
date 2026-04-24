@@ -1428,9 +1428,16 @@ export async function buildServer(rootDir = process.cwd()) {
         warnings_count: result.warnings.length,
         target_commit_requested: parsed.data.target_commit ?? null,
       });
+      let logoutRequired = false;
+      if (localJwtAuthService) {
+        await localJwtAuthService.logout();
+        reply.header("set-cookie", serializeRefreshCookieClear(isSecureRequest(request)));
+        logoutRequired = true;
+      }
       reply.send({
         result,
         settings: buildSettingsPayload(adapterConfig, refreshedPreferences),
+        logout_required: logoutRequired,
       });
     } catch (error) {
       const safeMessage = error instanceof Error ? error.message : "Memory restore failed";
@@ -1682,10 +1689,17 @@ export async function buildServer(rootDir = process.cwd()) {
         restored_secrets: importResult.restored.secrets,
         warnings_count: importResult.warnings.length,
       });
+      let logoutRequired = false;
+      if (localJwtAuthService) {
+        await localJwtAuthService.logout();
+        reply.header("set-cookie", serializeRefreshCookieClear(isSecureRequest(request)));
+        logoutRequired = true;
+      }
 
       reply.code(201).send({
         ...importResult,
         settings: buildSettingsPayload(adapterConfig, refreshedPreferences),
+        logout_required: logoutRequired,
       });
     } catch (error) {
       auditLog("migration.import.failed", {
