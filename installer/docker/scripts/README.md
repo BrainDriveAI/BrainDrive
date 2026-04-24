@@ -69,11 +69,10 @@
 - `prod` -> `compose.prod.yml`
 - `local` -> `compose.local.yml`
 - `dev` -> `compose.dev.yml`
-- `quickstart` -> legacy alias that resolves to `local` (legacy stack file kept at `compose.quickstart.yml` for one-time migration handling)
 
 Notes:
 - `install/start/stop` support `dev`.
-- `check-update/upgrade` support `local|prod` (plus legacy `quickstart` alias).
+- `check-update/upgrade` support `local|prod`.
 
 ## Script Catalog
 
@@ -87,8 +86,8 @@ What it does:
 - In `prod`, validates `DOMAIN` and digest-ref pairing (`BRAINDRIVE_APP_REF` and `BRAINDRIVE_EDGE_REF`).
 
 Usage:
-- Shell: `./installer/docker/scripts/install.sh [local|prod|dev|quickstart]`
-- PowerShell: `.\installer\docker\scripts\install.ps1 [-Mode local|prod|dev|quickstart]`
+- Shell: `./installer/docker/scripts/install.sh [local|prod|dev]`
+- PowerShell: `.\installer\docker\scripts\install.ps1 [-Mode local|prod|dev]`
 
 Arguments:
 - `Mode` (default: `local`)
@@ -96,7 +95,7 @@ Arguments:
 Key behavior:
 - Fails if `.env` already exists (protects existing account/secrets state).
 - `dev` builds images.
-- `local` and `prod` pull images (`quickstart` aliases to `local`).
+- `local` and `prod` pull images.
 - On Apple Silicon macOS, shell install defaults local/prod pulls to `linux/amd64` unless `BRAINDRIVE_DOCKER_PLATFORM` is set.
 - Always prints the access URL and attempts a best-effort browser auto-open on the host.
 
@@ -109,12 +108,11 @@ Env/config touched:
 What it does:
 - Starts services for selected mode.
 - Runs startup update policy check for `local` and `prod` before `docker compose up -d`.
-- Includes one-time migration handling to stop running legacy `quickstart` containers before local startup.
 - Creates required volumes in `dev` mode.
 
 Usage:
-- Shell: `./installer/docker/scripts/start.sh [local|prod|dev|quickstart]`
-- PowerShell: `.\installer\docker\scripts\start.ps1 [-Mode local|prod|dev|quickstart]`
+- Shell: `./installer/docker/scripts/start.sh [local|prod|dev]`
+- PowerShell: `.\installer\docker\scripts\start.ps1 [-Mode local|prod|dev]`
 
 Arguments:
 - `Mode` (default: `local`)
@@ -133,8 +131,8 @@ What it does:
 - Stops containers for selected compose stack and prints `docker compose ps`.
 
 Usage:
-- Shell: `./installer/docker/scripts/stop.sh [local|prod|dev|quickstart]`
-- PowerShell: `.\installer\docker\scripts\stop.ps1 [-Mode local|prod|dev|quickstart]`
+- Shell: `./installer/docker/scripts/stop.sh [local|prod|dev]`
+- PowerShell: `.\installer\docker\scripts\stop.ps1 [-Mode local|prod|dev]`
 
 Arguments:
 - `Mode` (default: `local`)
@@ -142,13 +140,12 @@ Arguments:
 ### upgrade (`upgrade.sh`, `upgrade.ps1`)
 
 What it does:
-- Performs upgrade flow for `local|prod` (legacy `quickstart` aliases to `local`).
-- Includes one-time migration handling to stop running legacy `quickstart` containers before local upgrade.
+- Performs upgrade flow for `local|prod`.
 - Fetches remote metadata, resolves target refs, validates signatures (if required), then pulls and restarts.
 
 Usage:
-- Shell: `./installer/docker/scripts/upgrade.sh [local|prod|quickstart]`
-- PowerShell: `.\installer\docker\scripts\upgrade.ps1 [-Mode local|prod|quickstart]`
+- Shell: `./installer/docker/scripts/upgrade.sh [local|prod]`
+- PowerShell: `.\installer\docker\scripts\upgrade.ps1 [-Mode local|prod]`
 
 Arguments:
 - `Mode` (default: `local`)
@@ -189,8 +186,8 @@ What it does:
 - Uses state tracking and lock to avoid concurrent checks.
 
 Usage:
-- Shell: `./installer/docker/scripts/check-update.sh [local|prod|quickstart]`
-- PowerShell: `.\installer\docker\scripts\check-update.ps1 [-Mode local|prod|quickstart]`
+- Shell: `./installer/docker/scripts/check-update.sh [local|prod]`
+- PowerShell: `.\installer\docker\scripts\check-update.ps1 [-Mode local|prod]`
 
 Arguments:
 - `Mode` (default: `local`)
@@ -274,7 +271,7 @@ What it does:
 
 Usage:
 - Shell: `./installer/docker/scripts/migration-export.sh [output-file] [base-url]`
-- PowerShell: `.\installer\docker\scripts\migration-export.ps1 [-OutputFile <path>] [-BaseUrl <url>] [-Mode dev|local|prod|quickstart]`
+- PowerShell: `.\installer\docker\scripts\migration-export.ps1 [-OutputFile <path>] [-BaseUrl <url>] [-Mode dev|local|prod]`
 
 Authentication:
 - Uses `BRAINDRIVE_MIGRATION_ACCESS_TOKEN` when set.
@@ -289,7 +286,7 @@ What it does:
 
 Usage:
 - Shell: `./installer/docker/scripts/migration-import.sh <archive-file> [base-url]`
-- PowerShell: `.\installer\docker\scripts\migration-import.ps1 -ArchiveFile <path> [-BaseUrl <url>] [-Mode dev|local|prod|quickstart]`
+- PowerShell: `.\installer\docker\scripts\migration-import.ps1 -ArchiveFile <path> [-BaseUrl <url>] [-Mode dev|local|prod]`
 
 Authentication:
 - Same credential resolution as `migration-export`.
@@ -301,7 +298,7 @@ What it does:
 
 Usage:
 - Shell: `./installer/docker/scripts/migration-smoke.sh [mode] [base-url]`
-- PowerShell: `.\installer\docker\scripts\migration-smoke.ps1 [-Mode dev|local|prod|quickstart] [-BaseUrl <url>]`
+- PowerShell: `.\installer\docker\scripts\migration-smoke.ps1 [-Mode dev|local|prod] [-BaseUrl <url>]`
 
 ### support-bundle (`support-bundle.sh`, `support-bundle.ps1`)
 
@@ -314,8 +311,8 @@ What it does:
 - Redacts common secret patterns before packaging.
 
 Usage:
-- Shell: `./installer/docker/scripts/support-bundle.sh [local|prod|dev|quickstart] [since-window] [output-dir]`
-- PowerShell: `.\installer\docker\scripts\support-bundle.ps1 [-Mode local|prod|dev|quickstart] [-SinceWindow 24h] [-OutputDir <path>] [-SkipHealth]`
+- Shell: `./installer/docker/scripts/support-bundle.sh [local|prod|dev] [since-window] [output-dir]`
+- PowerShell: `.\installer\docker\scripts\support-bundle.ps1 [-Mode local|prod|dev] [-SinceWindow 24h] [-OutputDir <path>] [-SkipHealth]`
 
 Arguments:
 - `Mode` (default: `local`)
@@ -333,13 +330,13 @@ What it does:
 - After completion, prints the access URL and attempts a best-effort browser auto-open on the host.
 
 Usage:
-- Shell: `./installer/docker/scripts/restore.sh <memory|secrets> <backup-file> [local|prod|quickstart]`
-- PowerShell: `.\installer\docker\scripts\restore.ps1 -Target <memory|secrets> -BackupFile <path> [-Mode local|prod|quickstart]`
+- Shell: `./installer/docker/scripts/restore.sh <memory|secrets> <backup-file> [local|prod]`
+- PowerShell: `.\installer\docker\scripts\restore.ps1 -Target <memory|secrets> -BackupFile <path> [-Mode local|prod]`
 
 Arguments:
 - `Target`: `memory` or `secrets`
 - `BackupFile`: required path to `.tar.gz`
-- `Mode`: `local`, `prod`, or legacy alias `quickstart` (default `local`)
+- `Mode`: `local` or `prod` (default `local`)
 
 ### reset-new-user (`reset-new-user.sh`, `reset-new-user.ps1`)
 

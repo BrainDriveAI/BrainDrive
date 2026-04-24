@@ -3,8 +3,8 @@ set -euo pipefail
 
 MODE="${1:-local}"
 
-if [[ "${MODE}" != "prod" && "${MODE}" != "local" && "${MODE}" != "quickstart" && "${MODE}" != "dev" ]]; then
-  echo "Usage: ./scripts/start.sh [local|prod|dev|quickstart]"
+if [[ "${MODE}" != "prod" && "${MODE}" != "local" && "${MODE}" != "dev" ]]; then
+  echo "Usage: ./scripts/start.sh [local|prod|dev]"
   exit 1
 fi
 
@@ -12,11 +12,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
 source "${SCRIPT_DIR}/browser-helper.sh"
-
-if [[ "${MODE}" == "quickstart" ]]; then
-  echo "Mode 'quickstart' is deprecated and now aliases to 'local'." >&2
-  MODE="local"
-fi
 
 get_env_value() {
   local key="$1"
@@ -59,33 +54,6 @@ elif [[ "${MODE}" == "dev" ]]; then
   COMPOSE_FILE="compose.dev.yml"
 fi
 
-run_quickstart_migration_once() {
-  if [[ "${MODE}" != "local" ]]; then
-    return 0
-  fi
-
-  local runtime_dir marker_file legacy_ids
-  runtime_dir="${ROOT_DIR}/.runtime"
-  marker_file="${runtime_dir}/quickstart-migration-v1.done"
-  mkdir -p "${runtime_dir}"
-
-  if [[ -f "${marker_file}" ]]; then
-    return 0
-  fi
-
-  echo "Migration note: 'quickstart' has been replaced by 'local'."
-  legacy_ids="$(docker compose -f compose.quickstart.yml ps -q 2>/dev/null || true)"
-  if [[ -n "${legacy_ids}" ]]; then
-    echo "Found running legacy quickstart containers; stopping them to avoid port conflicts."
-    docker compose -f compose.quickstart.yml down --remove-orphans >/dev/null 2>&1 || true
-  fi
-
-  {
-    echo "migrated_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    echo "reason=quickstart-renamed-to-local"
-  } > "${marker_file}"
-}
-
 if [[ "${MODE}" == "prod" ]]; then
   DOMAIN_VALUE="$(get_env_value DOMAIN | tr -d '"')"
   if [[ -z "${DOMAIN_VALUE}" || "${DOMAIN_VALUE}" == "app.example.com" ]]; then
@@ -96,8 +64,6 @@ if [[ "${MODE}" == "prod" ]]; then
 fi
 
 configure_docker_platform
-
-run_quickstart_migration_once
 
 if [[ "${MODE}" == "prod" || "${MODE}" == "local" ]]; then
   set +e

@@ -104,15 +104,15 @@ The system runs as two Docker containers: an app server (Gateway + tools) and an
 
 | Command | What it does |
 |---------|-------------|
-| `./installer/docker/scripts/install.sh local` | First-time local setup — pulls images and starts everything |
+| `./installer/docker/scripts/install.sh local` | First-time local setup — pulls prebuilt images and starts everything |
+| `./installer/docker/scripts/install.sh dev` | Developer setup — builds from source and starts hot-reload stack |
+| `./installer/docker/scripts/install.sh prod` | Production setup on managed hosting infrastructure |
 | `./installer/docker/scripts/start.sh local` | Start local stack after stopping |
 | `./installer/docker/scripts/stop.sh local` | Stop local stack without removing data |
 | `./installer/docker/scripts/upgrade.sh local` | Upgrade local stack to latest published images |
 | `./installer/docker/scripts/backup.sh` | Back up Your Memory and secrets |
 | `./installer/docker/scripts/support-bundle.sh local 24h` | Create a redacted support bundle archive for sharing with support |
 | `./installer/docker/scripts/restore.sh memory <file> local` | Restore from backup (local stack) |
-
-`quickstart` is still accepted as a legacy alias and maps to `local`.
 
 See [`installer/docker/README.md`](installer/docker/README.md) for production deployment, Windows equivalents, and advanced operations.
 

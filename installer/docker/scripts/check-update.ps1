@@ -1,5 +1,5 @@
 ﻿param(
-  [ValidateSet("quickstart", "prod", "local")]
+  [ValidateSet("prod", "local")]
   [string]$Mode = "local"
 )
 
@@ -8,11 +8,6 @@ $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $rootDir = Split-Path -Parent $scriptDir
 Set-Location $rootDir
-
-if ($Mode -eq "quickstart") {
-  Write-Warning "Mode 'quickstart' is deprecated and now aliases to 'local'."
-  $Mode = "local"
-}
 
 $stateFallbackPath = Join-Path $rootDir "release-cache/startup-update-state.json"
 $configVolumePath = "/data/memory/system/config/app-config.json"

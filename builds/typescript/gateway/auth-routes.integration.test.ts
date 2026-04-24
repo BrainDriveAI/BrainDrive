@@ -77,6 +77,7 @@ vi.mock("../config.js", () => ({
     path: "/tmp/app-config.json",
     backupPath: "/tmp/app-config.bak.json",
     installMode: "local",
+    installLocation: "local",
     updated: false,
   })),
   readBootstrapPrompt: vi.fn(async () => "You are a test bootstrap prompt."),

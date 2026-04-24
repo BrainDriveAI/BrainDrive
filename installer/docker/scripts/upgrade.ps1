@@ -1,5 +1,5 @@
 param(
-  [ValidateSet("quickstart", "prod", "local")]
+  [ValidateSet("prod", "local")]
   [string]$Mode = "local"
 )
 
@@ -9,11 +9,6 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $rootDir = Split-Path -Parent $scriptDir
 Set-Location $rootDir
 . "$scriptDir/browser-helper.ps1"
-
-if ($Mode -eq "quickstart") {
-  Write-Warning "Mode 'quickstart' is deprecated and now aliases to 'local'."
-  $Mode = "local"
-}
 
 function Get-EnvValue {
   param([string]$Key)
@@ -333,42 +328,7 @@ function Get-CurrentServiceImage {
   return ($configuredImage | Select-Object -First 1).Trim()
 }
 
-function Invoke-QuickstartMigrationOnce {
-  if ($Mode -ne "local") {
-    return
-  }
-
-  $runtimeDir = Join-Path $rootDir ".runtime"
-  $markerPath = Join-Path $runtimeDir "quickstart-migration-v1.done"
-  New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null
-  if (Test-Path $markerPath) {
-    return
-  }
-
-  Write-Host "Migration note: 'quickstart' has been replaced by 'local'."
-  $legacyIds = @()
-  try {
-    $legacyIds = @(docker compose -f compose.quickstart.yml ps -q 2>$null | Where-Object { $_ -and $_.Trim().Length -gt 0 })
-  } catch {
-    $legacyIds = @()
-  }
-  if ($legacyIds.Count -gt 0) {
-    Write-Host "Found running legacy quickstart containers; stopping them to avoid port conflicts."
-    try {
-      docker compose -f compose.quickstart.yml down --remove-orphans | Out-Null
-    } catch {
-      # Continue upgrade even if legacy stack cleanup fails.
-    }
-  }
-
-  @(
-    "migrated_at_utc=$((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'))"
-    "reason=quickstart-renamed-to-local"
-  ) | Set-Content -LiteralPath $markerPath -Encoding utf8
-}
-
 $composeFile = if ($Mode -eq "prod") { "compose.prod.yml" } else { "compose.local.yml" }
-Invoke-QuickstartMigrationOnce
 
 & "$scriptDir/fetch-release-metadata.ps1"
 Resolve-ProdImageRefsFromManifest

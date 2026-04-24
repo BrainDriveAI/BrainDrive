@@ -10,9 +10,10 @@ type AppScreen = "loading" | "auth" | "main";
 export default function App() {
   const [screen, setScreen] = useState<AppScreen>("loading");
   const [deploymentMode, setDeploymentMode] = useState<"local" | "managed">("local");
-  const [installMode, setInstallMode] = useState<"local" | "quickstart" | "prod" | "unknown">(
+  const [installMode, setInstallMode] = useState<"dev" | "local" | "prod" | "unknown">(
     "unknown"
   );
+  const [installLocation, setInstallLocation] = useState<"local" | "managed" | "unknown">("unknown");
   const [appVersion, setAppVersion] = useState<string>("unknown");
 
   useEffect(() => {
@@ -23,6 +24,7 @@ export default function App() {
       }
       setDeploymentMode(config.mode);
       setInstallMode(config.installMode);
+      setInstallLocation(config.installLocation);
       setAppVersion(config.appVersion);
 
       if (config.mode === "managed") {
@@ -57,6 +59,7 @@ export default function App() {
     <AppShell
       deploymentMode={deploymentMode}
       installMode={installMode}
+      installLocation={installLocation}
       appVersion={appVersion}
       onLogout={() => {
         void logout().finally(() => {

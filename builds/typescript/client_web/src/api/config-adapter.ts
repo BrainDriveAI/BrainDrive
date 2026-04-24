@@ -1,12 +1,14 @@
 import { buildLocalOwnerHeaders } from "./local-auth";
 
-export type GatewayInstallMode = "local" | "quickstart" | "prod" | "unknown";
+export type GatewayInstallMode = "dev" | "local" | "prod" | "unknown";
+export type GatewayInstallLocation = "local" | "managed" | "unknown";
 
 type GatewayConfig = {
   mode?: string;
   gateway_url?: string;
   billing_url?: string;
   install_mode?: string;
+  install_location?: string;
   app_version?: string;
 };
 
@@ -15,6 +17,7 @@ export type GatewayClientConfig = {
   gatewayUrl: string;
   billingUrl: string;
   installMode: GatewayInstallMode;
+  installLocation: GatewayInstallLocation;
   appVersion: string;
 };
 
@@ -24,7 +27,14 @@ export async function getConfig(): Promise<GatewayClientConfig> {
       headers: buildLocalOwnerHeaders(),
     });
     if (!response.ok) {
-      return { mode: "local", gatewayUrl: "/api", billingUrl: "https://my.braindrive.ai/credits", installMode: "unknown", appVersion: "unknown" };
+      return {
+        mode: "local",
+        gatewayUrl: "/api",
+        billingUrl: "https://my.braindrive.ai/credits",
+        installMode: "unknown",
+        installLocation: "unknown",
+        appVersion: "unknown"
+      };
     }
 
     const payload = (await response.json()) as GatewayConfig;
@@ -33,10 +43,18 @@ export async function getConfig(): Promise<GatewayClientConfig> {
       gatewayUrl: payload.gateway_url || "/api",
       billingUrl: payload.billing_url ?? "https://my.braindrive.ai/credits",
       installMode: toInstallMode(payload.install_mode),
+      installLocation: toInstallLocation(payload.install_location),
       appVersion: toAppVersion(payload.app_version),
     };
   } catch {
-    return { mode: "local", gatewayUrl: "/api", billingUrl: "https://my.braindrive.ai/credits", installMode: "unknown", appVersion: "unknown" };
+    return {
+      mode: "local",
+      gatewayUrl: "/api",
+      billingUrl: "https://my.braindrive.ai/credits",
+      installMode: "unknown",
+      installLocation: "unknown",
+      appVersion: "unknown"
+    };
   }
 }
 
@@ -45,10 +63,14 @@ function toDeploymentMode(value: unknown): "local" | "managed" {
 }
 
 function toInstallMode(value: unknown): GatewayInstallMode {
-  if (value === "quickstart") {
-    return "local";
+  if (value === "dev" || value === "local" || value === "prod") {
+    return value;
   }
-  if (value === "local" || value === "prod") {
+  return "unknown";
+}
+
+function toInstallLocation(value: unknown): GatewayInstallLocation {
+  if (value === "local" || value === "managed") {
     return value;
   }
   return "unknown";

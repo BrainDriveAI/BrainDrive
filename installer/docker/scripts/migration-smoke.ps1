@@ -1,5 +1,5 @@
 param(
-  [ValidateSet("dev", "local", "quickstart", "prod")]
+  [ValidateSet("dev", "local", "prod")]
   [string]$Mode = "dev",
   [string]$BaseUrl = ""
 )

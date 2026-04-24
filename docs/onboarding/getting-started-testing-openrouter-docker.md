@@ -5,7 +5,7 @@ This guide walks through a local BrainDrive test run with OpenRouter and validat
 ## Prerequisites
 
 1. Docker Desktop (or Docker Engine + Compose) is installed.
-2. BrainDrive local stack is installed and running (`quickstart` still works as a legacy alias).
+2. BrainDrive local stack is installed and running.
 3. You have an OpenRouter API key.
 4. You have a git repository for memory backups and a PAT that can push to that repository.
 
