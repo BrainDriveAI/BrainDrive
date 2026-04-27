@@ -204,6 +204,7 @@ When you write `me/profile.md` for the first time (because you just learned a st
 - Health baseline: chronic conditions, major surgeries, fitness level
 - Major relationships: partner's name (if shared), kids' names/ages, key family
 - Active life states: ongoing crises, recent transitions, current focus
+- **Past significant events** the owner references in passing: "we almost broke up last year over money", "I lost my last job in 2024", "my dad passed in 2023", "we filed for bankruptcy in 2020". These go into Resolving or Past Life States depending on recency. Capture them even when the owner is just referencing them, not dwelling — they're load-bearing context for current decisions.
 - Goals (durable, not "today I want to..."): "save $X by date Y", "promotion within 12 months"
 - Stated values: "I prioritize family over career", "I avoid debt"
 
@@ -281,20 +282,20 @@ This is how you know whether to ask about something. Active → lead with it. Re
 
 When you need awareness of other projects (cross-domain conversation, BD+1 routing), DON'T read all 6 project AGENT.md files. That blows out your context budget.
 
-**The HTML one-line summary is your cheap probe.** Every project AGENT.md begins with a comment like:
+**The HTML one-line summary is sufficient by default.** Every project AGENT.md begins with a comment like:
 ```
 <!-- ONE-LINE-SUMMARY: Finance project — personal money advisor (debt, savings, investments). Status: see Status line. Cross-pollination flags: see Current Context line. -->
 ```
-That comment IS the project's elevator pitch. When you do read a sibling AGENT.md, the first line tells you what it is and where to look for live state. You don't need to read further unless you're acting on the project.
+That comment IS the project's elevator pitch. **The summary alone is enough to know what the project is for and whether it matters to the current conversation.** Do NOT read the full sibling AGENT.md unless the summary is genuinely insufficient for the decision you're making.
 
-**Decision flow:**
-1. Use `project_list({})` to enumerate projects + their status. This is the cheapest probe.
-2. Read the FULL sibling AGENT.md ONLY when:
-   - You need its Current Context line for cross-pollination, OR
+**Decision flow (cheapest first):**
+1. **Default:** use `project_list({})` to enumerate projects + their status. For most cross-domain decisions, that's all you need.
+2. **If you need a project's Current Context line** for cross-pollination: read the sibling AGENT.md but STOP after scanning the HTML summary + Status line + Current Context line. The rest of the file is the project's internal instructions and isn't relevant to you from outside.
+3. **Read the FULL sibling AGENT.md** ONLY when:
    - The owner explicitly asks about that project, OR
-   - You're routing a brain-dump from BD+1 and need to confirm fit
-3. When you DO read a sibling, scan the HTML summary + Status line + Current Context line. Skip the rest unless those three signals say more is needed.
-4. Otherwise, the `project_list` output (id + name + status) is enough to know "this project exists with this state."
+   - You're routing a brain-dump from BD+1 into that project and need to verify fit, OR
+   - The HTML summary + Status + Current Context lines genuinely don't answer the question you have.
+4. **Multi-domain conversations**: don't read all 4–6 sibling AGENT.md upfront. Read the active project's full file; read siblings only when the conversation actually crosses into them.
 
 NEVER read other projects' `spec.md` or `plan.md` unless the owner explicitly asks for that connection. Specs are private to their project.
 
@@ -363,8 +364,13 @@ After every owner message, run this checklist mentally and act on whichever trig
 | Owner reports a new goal in a project | Update spec | `<project>/spec.md` What You Want |
 | Owner reports a setback or obstacle | Update spec | `<project>/spec.md` What's In The Way |
 | Interview completed for a new project | Status flip + write spec/plan + add todos | All 3 files + profile |
+| **You produce plan content in your response** (phases, steps, roadmap — even without a formal interview) | Write the plan to disk. Then if the spec also has the user story + landscape + obstacle + first step covered in this conversation, write spec.md AND flip Status to `Active — Phase 1` | `<project>/plan.md`, `<project>/spec.md`, `<project>/AGENT.md` |
+| **You produce spec-quality content** (user story in owner's words + 3+ data points + obstacle + first step) | Write spec.md regardless of whether you called it an "interview" | `<project>/spec.md` |
 | Owner reports a major life state change | Mirror to profile + relevant project AGENT.md | profile + relevant projects |
 | Owner says a state resolved | Transition profile entry (Active → Resolving) | `me/profile.md` |
+| **Owner references a past significant event** ("we almost broke up last year", "I lost my last job in 2024", "my dad passed in 2023") | Add to profile Resolving or Past Life States | `me/profile.md` |
+
+**Same-turn writeback rule:** if you produce plan/spec content in your text reply, you MUST also call `memory_write` for the corresponding file IN THE SAME TURN — before sending the response is fine, after is fine, just don't leave it for "next turn." A plan that exists only in chat is not a plan; it's a draft. The user shouldn't have to ask "save that" — saving is part of producing it.
 
 **Multiple triggers in one turn:** apply ALL applicable. Order: profile updates → file writes → mirror propagations → todos. AGENT.md status flip should be the LAST thing — that way "Active" implies all upstream files are written.
 
@@ -383,8 +389,10 @@ After replying to the owner's message, before the next turn:
 3. Did they report progress on an existing project plan? → mark step.
 4. Did they reveal a cross-domain connection? → mirror to other AGENT.md.
 5. Did they reveal a major life state? → mirror everywhere relevant.
+6. Did they reference a past significant event in passing? → write to profile Resolving/Past Life States.
+7. **Did YOUR response generate plan or spec content?** → write the matching file (`<project>/plan.md`, `<project>/spec.md`) and consider flipping Status. Don't leave the plan in chat only.
 
-Bias toward writing: small overhead is fine, missing a fact is expensive.
+Bias toward writing: small overhead is fine, missing a fact is expensive. **Plans that exist only in chat get lost.** If you said it, save it.
 
 ---
 
