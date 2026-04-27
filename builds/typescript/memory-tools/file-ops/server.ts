@@ -51,6 +51,16 @@ async function editTool(context: ToolContext, input: Record<string, unknown>): P
       throw new ToolExecutionFailure("invalid_input", "Edit target not found");
     }
 
+    // Detect ambiguous find: if `find` matches more than once, force the caller to disambiguate
+    // by adding more surrounding context. Avoids silent partial replacement that String#replace
+    // would otherwise do (replaces only the first occurrence). See L17 in master plan.
+    if (original.indexOf(find) !== original.lastIndexOf(find)) {
+      throw new ToolExecutionFailure(
+        "invalid_input",
+        "Edit `find` matches multiple locations — make it unique by adding surrounding context (e.g., a preceding header or neighboring line)"
+      );
+    }
+
     const updated = original.replace(find, replace);
     await writeFile(absolutePath, updated, "utf8");
     auditLog("memory.write", {
