@@ -111,6 +111,7 @@ vi.mock("./memory-backup-scheduler.js", () => ({
 }));
 
 import { buildServer } from "./server.js";
+import { loadPreferences as loadPreferencesConfigMock } from "../config.js";
 
 type TestServerContext = {
   app: Awaited<ReturnType<typeof buildServer>>["app"];
@@ -521,6 +522,81 @@ describe.sequential("gateway auth route integration", () => {
 
     expect(response.statusCode).toBe(401);
     expect(parseJson<{ error: string }>(response.body).error).toBe("Unauthorized");
+  });
+
+  it("requires onboarding when active provider credential is unset", async () => {
+    context = await createTestServer({ authMode: "local-owner" });
+
+    const response = await context.app.inject({
+      method: "GET",
+      url: "/settings/onboarding-status",
+      headers: localOwnerAdminHeaders(),
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = parseJson<{
+      onboarding_required: boolean;
+      providers: Array<{
+        provider_id: string;
+        credential_mode: "plain" | "secret_ref" | "unset";
+        requires_secret: boolean;
+        credential_resolved: boolean;
+      }>;
+    }>(response.body);
+    expect(body.onboarding_required).toBe(true);
+    expect(body.providers[0]).toMatchObject({
+      provider_id: "openrouter",
+      credential_mode: "unset",
+      requires_secret: true,
+      credential_resolved: false,
+    });
+  });
+
+  it("applies credential updates immediately without requiring restart", async () => {
+    context = await createTestServer({ authMode: "local-owner" });
+
+    const saveCredentialResponse = await context.app.inject({
+      method: "PUT",
+      url: "/settings/credentials",
+      headers: localOwnerAdminHeaders(),
+      payload: {
+        provider_profile: "default",
+        mode: "secret_ref",
+        api_key: "sk-test-openrouter-key",
+      },
+    });
+
+    expect(saveCredentialResponse.statusCode).toBe(200);
+    const saveBody = parseJson<{
+      settings: {
+        active_provider_profile: string | null;
+        provider_profiles: Array<{ id: string; credential_mode: "plain" | "secret_ref" | "unset" }>;
+      };
+    }>(saveCredentialResponse.body);
+    expect(saveBody.settings.active_provider_profile).toBe("default");
+    expect(saveBody.settings.provider_profiles.find((profile) => profile.id === "default")?.credential_mode).toBe(
+      "secret_ref"
+    );
+
+    vi.mocked(loadPreferencesConfigMock).mockImplementationOnce(async () => {
+      throw new Error("simulated transient read failure");
+    });
+
+    const settingsResponse = await context.app.inject({
+      method: "GET",
+      url: "/settings",
+      headers: localOwnerAdminHeaders(),
+    });
+
+    expect(settingsResponse.statusCode).toBe(200);
+    const settingsBody = parseJson<{
+      active_provider_profile: string | null;
+      provider_profiles: Array<{ id: string; credential_mode: "plain" | "secret_ref" | "unset" }>;
+    }>(settingsResponse.body);
+    expect(settingsBody.active_provider_profile).toBe("default");
+    expect(settingsBody.provider_profiles.find((profile) => profile.id === "default")?.credential_mode).toBe(
+      "secret_ref"
+    );
   });
 
   it("persists memory backup settings and returns a safe payload", async () => {
