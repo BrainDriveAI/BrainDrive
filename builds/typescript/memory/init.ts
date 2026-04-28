@@ -1,5 +1,5 @@
 import path from "node:path";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 
 import { bootstrapSkillsFromStarterPack, MemorySkillStore } from "./skills.js";
 import { resolveMemoryPath, toMemoryRelativePath } from "./paths.js";
@@ -24,6 +24,8 @@ export type MemoryInitSummary = {
   seeded_projects: string[];
   seeded_skills: string[];
   skipped_skills: string[];
+  seeded_playbook: string[];
+  skipped_playbook: string[];
 };
 
 export type ProjectManifestEntry = {
@@ -37,7 +39,8 @@ export type ProjectManifestEntry = {
 const STARTER_PACK_ENV = "PAA_STARTER_PACK_DIR";
 const STARTER_PACK_RELATIVE_PATH = "memory/starter-pack";
 
-const ROOT_DIRECTORIES = ["conversations", "documents", "preferences", "exports", "skills"];
+const ROOT_DIRECTORIES = ["conversations", "documents", "preferences", "exports", "skills", "playbook"];
+const PLAYBOOK_RELATIVE_DIR = "playbook";
 const ROOT_AGENT_RELATIVE_PATH = "AGENT.md";
 const PREFERENCES_RELATIVE_PATH = "preferences/default.json";
 const TODO_RELATIVE_PATH = "me/todo.md";
@@ -134,6 +137,8 @@ export async function initializeMemoryLayout(
     seeded_projects: [],
     seeded_skills: [],
     skipped_skills: [],
+    seeded_playbook: [],
+    skipped_playbook: [],
   };
 
   await ensureDirectory(absoluteMemoryRoot, absoluteMemoryRoot, summary, dryRun);
@@ -204,7 +209,52 @@ export async function initializeMemoryLayout(
     }
   }
 
+  await bootstrapPlaybookFromStarterPack(absoluteMemoryRoot, starterPackDir, force, dryRun, summary);
+
   return summary;
+}
+
+async function bootstrapPlaybookFromStarterPack(
+  memoryRoot: string,
+  starterPackDir: string | null,
+  force: boolean,
+  dryRun: boolean,
+  summary: MemoryInitSummary
+): Promise<void> {
+  if (!starterPackDir) {
+    summary.warnings.push("Starter pack source not found; no playbook files were seeded");
+    return;
+  }
+
+  const sourceDir = path.join(starterPackDir, "base", PLAYBOOK_RELATIVE_DIR);
+  let entries: string[];
+  try {
+    const dirInfo = await stat(sourceDir);
+    if (!dirInfo.isDirectory()) {
+      return;
+    }
+    entries = await readdir(sourceDir);
+  } catch {
+    summary.warnings.push(`Playbook source directory missing: ${sourceDir}`);
+    return;
+  }
+
+  const playbookFiles = entries.filter((name) => name.endsWith(".md"));
+  for (const fileName of playbookFiles) {
+    const sourcePath = path.join(sourceDir, fileName);
+    const relativePath = `${PLAYBOOK_RELATIVE_DIR}/${fileName}`;
+    const beforeCreated = summary.created.length;
+    const beforeUpdated = summary.updated.length;
+    const beforeSkipped = summary.skipped.length;
+
+    await ensureFileFromTemplate(memoryRoot, relativePath, sourcePath, "", force, dryRun, summary);
+
+    if (summary.created.length > beforeCreated || summary.updated.length > beforeUpdated) {
+      summary.seeded_playbook.push(fileName);
+    } else if (summary.skipped.length > beforeSkipped) {
+      summary.skipped_playbook.push(fileName);
+    }
+  }
 }
 
 export async function scaffoldProjectFiles(
@@ -263,6 +313,8 @@ function createDetachedSummary(): MemoryInitSummary {
     seeded_projects: [],
     seeded_skills: [],
     skipped_skills: [],
+    seeded_playbook: [],
+    skipped_playbook: [],
   };
 }
 
