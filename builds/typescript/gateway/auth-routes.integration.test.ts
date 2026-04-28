@@ -77,6 +77,7 @@ vi.mock("../config.js", () => ({
     path: "/tmp/app-config.json",
     backupPath: "/tmp/app-config.bak.json",
     installMode: "local",
+    installLocation: "local",
     updated: false,
   })),
   readBootstrapPrompt: vi.fn(async () => "You are a test bootstrap prompt."),
@@ -110,6 +111,7 @@ vi.mock("./memory-backup-scheduler.js", () => ({
 }));
 
 import { buildServer } from "./server.js";
+import { loadPreferences as loadPreferencesConfigMock } from "../config.js";
 
 type TestServerContext = {
   app: Awaited<ReturnType<typeof buildServer>>["app"];
@@ -522,6 +524,81 @@ describe.sequential("gateway auth route integration", () => {
     expect(parseJson<{ error: string }>(response.body).error).toBe("Unauthorized");
   });
 
+  it("requires onboarding when active provider credential is unset", async () => {
+    context = await createTestServer({ authMode: "local-owner" });
+
+    const response = await context.app.inject({
+      method: "GET",
+      url: "/settings/onboarding-status",
+      headers: localOwnerAdminHeaders(),
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = parseJson<{
+      onboarding_required: boolean;
+      providers: Array<{
+        provider_id: string;
+        credential_mode: "plain" | "secret_ref" | "unset";
+        requires_secret: boolean;
+        credential_resolved: boolean;
+      }>;
+    }>(response.body);
+    expect(body.onboarding_required).toBe(true);
+    expect(body.providers[0]).toMatchObject({
+      provider_id: "openrouter",
+      credential_mode: "unset",
+      requires_secret: true,
+      credential_resolved: false,
+    });
+  });
+
+  it("applies credential updates immediately without requiring restart", async () => {
+    context = await createTestServer({ authMode: "local-owner" });
+
+    const saveCredentialResponse = await context.app.inject({
+      method: "PUT",
+      url: "/settings/credentials",
+      headers: localOwnerAdminHeaders(),
+      payload: {
+        provider_profile: "default",
+        mode: "secret_ref",
+        api_key: "sk-test-openrouter-key",
+      },
+    });
+
+    expect(saveCredentialResponse.statusCode).toBe(200);
+    const saveBody = parseJson<{
+      settings: {
+        active_provider_profile: string | null;
+        provider_profiles: Array<{ id: string; credential_mode: "plain" | "secret_ref" | "unset" }>;
+      };
+    }>(saveCredentialResponse.body);
+    expect(saveBody.settings.active_provider_profile).toBe("default");
+    expect(saveBody.settings.provider_profiles.find((profile) => profile.id === "default")?.credential_mode).toBe(
+      "secret_ref"
+    );
+
+    vi.mocked(loadPreferencesConfigMock).mockImplementationOnce(async () => {
+      throw new Error("simulated transient read failure");
+    });
+
+    const settingsResponse = await context.app.inject({
+      method: "GET",
+      url: "/settings",
+      headers: localOwnerAdminHeaders(),
+    });
+
+    expect(settingsResponse.statusCode).toBe(200);
+    const settingsBody = parseJson<{
+      active_provider_profile: string | null;
+      provider_profiles: Array<{ id: string; credential_mode: "plain" | "secret_ref" | "unset" }>;
+    }>(settingsResponse.body);
+    expect(settingsBody.active_provider_profile).toBe("default");
+    expect(settingsBody.provider_profiles.find((profile) => profile.id === "default")?.credential_mode).toBe(
+      "secret_ref"
+    );
+  });
+
   it("persists memory backup settings and returns a safe payload", async () => {
     context = await createTestServer({ authMode: "local-owner" });
 
@@ -710,11 +787,51 @@ describe.sequential("gateway auth route integration", () => {
     const body = parseJson<{
       result: { commit: string; source_branch: string };
       settings: { memory_backup: object | null };
+      logout_required: boolean;
     }>(response.body);
     expect(body.result.commit).toBe("abc123def456");
     expect(body.result.source_branch).toBe("braindrive-memory-backup");
     expect(body.settings.memory_backup).not.toBeNull();
+    expect(body.logout_required).toBe(false);
     expect(restoreMemoryBackupMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("forces logout after memory backup restore in local auth mode", async () => {
+    context = await createTestServer();
+    mockPreferences = {
+      ...mockPreferences,
+      memory_backup: {
+        repository_url: "https://github.com/BrainDriveAI/braindrive-memory.git",
+        frequency: "manual",
+        token_secret_ref: "backup/git/token",
+      },
+    };
+
+    const signupResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/signup",
+      payload: {
+        identifier: "owner",
+        password: "password123",
+      },
+    });
+    expect(signupResponse.statusCode).toBe(201);
+    const tokenPayload = parseJson<{ access_token: string }>(signupResponse.body);
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/settings/memory-backup/restore",
+      headers: {
+        authorization: `Bearer ${tokenPayload.access_token}`,
+      },
+      payload: {},
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = parseJson<{ logout_required: boolean }>(response.body);
+    expect(body.logout_required).toBe(true);
+    const setCookieHeader = response.headers["set-cookie"];
+    expect(typeof setCookieHeader === "string" ? setCookieHeader : "").toContain("Max-Age=0");
   });
 
   it("round-trips memory backup save then restore through the settings API", async () => {
@@ -822,10 +939,14 @@ describe.sequential("gateway auth route integration", () => {
       restored: { memory: boolean; secrets: boolean };
       source_format: string;
       settings: { approval_mode: string };
+      logout_required: boolean;
     }>(importResponse.body);
     expect(imported.restored.memory).toBe(true);
     expect(imported.source_format).toBe("migration-v1");
     expect(imported.settings.approval_mode).toBe("ask-on-write");
+    expect(imported.logout_required).toBe(true);
+    const importSetCookie = importResponse.headers["set-cookie"];
+    expect(typeof importSetCookie === "string" ? importSetCookie : "").toContain("Max-Age=0");
 
     const restoredFile = await readFile(path.join(memoryRoot, "documents", "migration-note.md"), "utf8");
     expect(restoredFile).toBe("original\n");

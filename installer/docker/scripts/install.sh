@@ -3,14 +3,9 @@ set -euo pipefail
 
 MODE="${1:-local}"
 
-if [[ "${MODE}" != "prod" && "${MODE}" != "local" && "${MODE}" != "quickstart" && "${MODE}" != "dev" ]]; then
-  echo "Usage: ./scripts/install.sh [local|prod|dev|quickstart]"
+if [[ "${MODE}" != "prod" && "${MODE}" != "local" && "${MODE}" != "dev" ]]; then
+  echo "Usage: ./scripts/install.sh [local|prod|dev]"
   exit 1
-fi
-
-if [[ "${MODE}" == "quickstart" ]]; then
-  echo "Mode 'quickstart' is deprecated and now aliases to 'local'." >&2
-  MODE="local"
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -109,6 +104,32 @@ PY
   exit 1
 }
 
+pull_with_retry() {
+  local compose_file="$1"
+  local attempts="${BRAINDRIVE_PULL_RETRIES:-3}"
+  local delay=5
+  local i
+
+  for ((i=1; i<=attempts; i++)); do
+    if docker compose -f "${compose_file}" pull; then
+      return 0
+    fi
+    if (( i < attempts )); then
+      echo "" >&2
+      echo "Image pull failed (attempt ${i}/${attempts}). This is usually a transient registry hiccup." >&2
+      echo "Retrying in ${delay}s..." >&2
+      sleep "${delay}"
+      delay=$(( delay * 2 ))
+    fi
+  done
+
+  echo "" >&2
+  echo "Image pull failed after ${attempts} attempts." >&2
+  echo "Your .env is preserved. To resume once the network is healthy, run:" >&2
+  echo "  bash ${ROOT_DIR}/scripts/start.sh ${MODE}" >&2
+  return 1
+}
+
 require_cmd docker
 
 if ! docker compose version >/dev/null 2>&1; then
@@ -166,7 +187,7 @@ if [[ "${MODE}" == "dev" ]]; then
   docker compose -f "${COMPOSE_FILE}" up -d --build
 else
   echo "Pulling images using ${COMPOSE_FILE}"
-  docker compose -f "${COMPOSE_FILE}" pull
+  pull_with_retry "${COMPOSE_FILE}"
   echo "Starting stack"
   docker compose -f "${COMPOSE_FILE}" up -d
 fi

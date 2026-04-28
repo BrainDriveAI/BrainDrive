@@ -1,5 +1,5 @@
 param(
-  [ValidateSet("quickstart", "prod", "local", "dev")]
+  [ValidateSet("prod", "local", "dev")]
   [string]$Mode = "local",
   [string]$SinceWindow = "24h",
   [string]$OutputDir = "",
@@ -11,11 +11,6 @@ $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $rootDir = Split-Path -Parent $scriptDir
 Set-Location $rootDir
-
-if ($Mode -eq "quickstart") {
-  Write-Warning "Mode 'quickstart' is deprecated and now aliases to 'local'."
-  $Mode = "local"
-}
 
 if (-not $OutputDir) {
   $OutputDir = Join-Path $rootDir "support-bundles"

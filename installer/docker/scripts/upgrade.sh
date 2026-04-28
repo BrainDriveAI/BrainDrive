@@ -3,14 +3,9 @@ set -euo pipefail
 
 MODE="${1:-local}"
 
-if [[ "${MODE}" != "prod" && "${MODE}" != "local" && "${MODE}" != "quickstart" ]]; then
-  echo "Usage: ./scripts/upgrade.sh [local|prod|quickstart]"
+if [[ "${MODE}" != "prod" && "${MODE}" != "local" ]]; then
+  echo "Usage: ./scripts/upgrade.sh [local|prod]"
   exit 1
-fi
-
-if [[ "${MODE}" == "quickstart" ]]; then
-  echo "Mode 'quickstart' is deprecated and now aliases to 'local'." >&2
-  MODE="local"
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -437,35 +432,7 @@ if [[ "${MODE}" == "prod" ]]; then
   COMPOSE_FILE="compose.prod.yml"
 fi
 
-run_quickstart_migration_once() {
-  if [[ "${MODE}" != "local" ]]; then
-    return 0
-  fi
-
-  local runtime_dir marker_file legacy_ids
-  runtime_dir="${ROOT_DIR}/.runtime"
-  marker_file="${runtime_dir}/quickstart-migration-v1.done"
-  mkdir -p "${runtime_dir}"
-
-  if [[ -f "${marker_file}" ]]; then
-    return 0
-  fi
-
-  echo "Migration note: 'quickstart' has been replaced by 'local'."
-  legacy_ids="$(docker compose -f compose.quickstart.yml ps -q 2>/dev/null || true)"
-  if [[ -n "${legacy_ids}" ]]; then
-    echo "Found running legacy quickstart containers; stopping them to avoid port conflicts."
-    docker compose -f compose.quickstart.yml down --remove-orphans >/dev/null 2>&1 || true
-  fi
-
-  {
-    echo "migrated_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    echo "reason=quickstart-renamed-to-local"
-  } > "${marker_file}"
-}
-
 configure_docker_platform
-run_quickstart_migration_once
 
 bash "${SCRIPT_DIR}/fetch-release-metadata.sh"
 resolve_prod_image_refs_from_manifest

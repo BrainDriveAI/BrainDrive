@@ -2,17 +2,10 @@
 set -euo pipefail
 
 MODE="${1:-local}"
-QUICKSTART_ALIAS_USED="false"
 
-if [[ "${MODE}" != "prod" && "${MODE}" != "local" && "${MODE}" != "quickstart" && "${MODE}" != "dev" ]]; then
-  echo "Usage: ./scripts/stop.sh [local|prod|dev|quickstart]"
+if [[ "${MODE}" != "prod" && "${MODE}" != "local" && "${MODE}" != "dev" ]]; then
+  echo "Usage: ./scripts/stop.sh [local|prod|dev]"
   exit 1
-fi
-
-if [[ "${MODE}" == "quickstart" ]]; then
-  echo "Mode 'quickstart' is deprecated and now aliases to 'local'." >&2
-  MODE="local"
-  QUICKSTART_ALIAS_USED="true"
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -27,9 +20,6 @@ elif [[ "${MODE}" == "dev" ]]; then
 fi
 
 docker compose -f "${COMPOSE_FILE}" stop
-if [[ "${QUICKSTART_ALIAS_USED}" == "true" ]]; then
-  docker compose -f compose.quickstart.yml stop >/dev/null 2>&1 || true
-fi
 docker compose -f "${COMPOSE_FILE}" ps
 
 echo "Stop complete for ${MODE} stack."

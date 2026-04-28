@@ -1,5 +1,5 @@
 param(
-  [ValidateSet("quickstart", "prod", "local", "dev")]
+  [ValidateSet("prod", "local", "dev")]
   [string]$Mode = "local"
 )
 
@@ -9,11 +9,6 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $rootDir = Split-Path -Parent $scriptDir
 Set-Location $rootDir
 . "$scriptDir/browser-helper.ps1"
-
-if ($Mode -eq "quickstart") {
-  Write-Warning "Mode 'quickstart' is deprecated and now aliases to 'local'."
-  $Mode = "local"
-}
 
 $composeFile = "compose.local.yml"
 if ($Mode -eq "prod") {
@@ -76,6 +71,33 @@ function New-MasterKey {
   return [Convert]::ToBase64String($bytes)
 }
 
+function Invoke-PullWithRetry {
+  param([string]$ComposeFile)
+
+  $attempts = if ($env:BRAINDRIVE_PULL_RETRIES) { [int]$env:BRAINDRIVE_PULL_RETRIES } else { 3 }
+  $delay = 5
+
+  for ($i = 1; $i -le $attempts; $i++) {
+    docker compose -f $ComposeFile pull
+    if ($LASTEXITCODE -eq 0) {
+      return
+    }
+    if ($i -lt $attempts) {
+      Write-Host ""
+      Write-Host "Image pull failed (attempt $i/$attempts). This is usually a transient registry hiccup." -ForegroundColor Yellow
+      Write-Host "Retrying in ${delay}s..." -ForegroundColor Yellow
+      Start-Sleep -Seconds $delay
+      $delay = $delay * 2
+    }
+  }
+
+  Write-Host ""
+  Write-Host "Image pull failed after $attempts attempts." -ForegroundColor Red
+  Write-Host "Your .env is preserved. To resume once the network is healthy, run:" -ForegroundColor Red
+  Write-Host "  ./scripts/start.ps1 $Mode" -ForegroundColor Red
+  throw "docker compose pull failed after $attempts attempts."
+}
+
 Require-Command docker
 
 try {
@@ -128,7 +150,7 @@ if ($Mode -eq "dev") {
   docker compose -f $composeFile up -d --build
 } else {
   Write-Host "Pulling images using $composeFile"
-  docker compose -f $composeFile pull
+  Invoke-PullWithRetry -ComposeFile $composeFile
   Write-Host "Starting stack"
   docker compose -f $composeFile up -d
 }

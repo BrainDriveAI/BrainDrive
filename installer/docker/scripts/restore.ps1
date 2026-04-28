@@ -5,7 +5,7 @@
   [Parameter(Mandatory = $true)]
   [string]$BackupFile,
 
-  [ValidateSet("quickstart", "prod", "local")]
+  [ValidateSet("prod", "local")]
   [string]$Mode = "local"
 )
 
@@ -15,11 +15,6 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $rootDir = Split-Path -Parent $scriptDir
 Set-Location $rootDir
 . "$scriptDir/browser-helper.ps1"
-
-if ($Mode -eq "quickstart") {
-  Write-Warning "Mode 'quickstart' is deprecated and now aliases to 'local'."
-  $Mode = "local"
-}
 
 $composeFile = if ($Mode -eq "prod") { "compose.prod.yml" } else { "compose.local.yml" }
 $volumeName = if ($Target -eq "memory") { "braindrive_memory" } else { "braindrive_secrets" }

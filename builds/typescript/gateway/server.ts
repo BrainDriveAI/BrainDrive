@@ -36,6 +36,7 @@ import type {
   AdapterConfig,
   ApprovalMode,
   ClientMessageRequest,
+  InstallLocation,
   Preferences,
   RuntimeConfig
 } from "../contracts.js";
@@ -231,6 +232,7 @@ const DEFAULT_MEMORY_BACKUP_TOKEN_SECRET_REF = "backup/git/token";
 
 export async function buildServer(rootDir = process.cwd()) {
   const isManaged = process.env.BD_DEPLOYMENT_MODE === "managed";
+  const installLocation: InstallLocation = isManaged ? "managed" : "local";
   const managedApiBase = process.env.BD_MANAGED_API_BASE?.replace(/\/+$/, "") || "";
   const managedPublicAccountProxyRoutesEnv = process.env.PAA_MANAGED_PUBLIC_ACCOUNT_PROXY_ROUTES;
   const managedPublicAccountProxyRoutesConfigured =
@@ -293,16 +295,37 @@ export async function buildServer(rootDir = process.cwd()) {
   await ensureGitReady(runtimeConfig.memory_root);
   const appConfigSync = await ensureSystemAppConfig(
     runtimeConfig.memory_root,
-    runtimeConfig.install_mode
+    runtimeConfig.install_mode,
+    installLocation
   );
   auditLog("startup.install_mode", {
     install_mode: runtimeConfig.install_mode,
+    install_location: installLocation,
     app_config_path: appConfigSync.path,
     app_config_updated: appConfigSync.updated,
+    app_config_install_mode: appConfigSync.installMode,
+    app_config_install_location: appConfigSync.installLocation,
   });
 
   auditLog("startup.phase", { phase: "preferences" });
   const preferences = await loadPreferences(runtimeConfig.memory_root);
+  let livePreferencesCache = preferences;
+  const loadLivePreferences = async (): Promise<Preferences> => {
+    try {
+      const latest = await loadPreferences(runtimeConfig.memory_root);
+      livePreferencesCache = latest;
+      return latest;
+    } catch (error) {
+      auditLog("preferences.load_failed_using_cached", {
+        message: error instanceof Error ? error.message : "Unknown preferences load error",
+      });
+      return livePreferencesCache;
+    }
+  };
+  const saveLivePreferences = async (nextPreferences: Preferences): Promise<void> => {
+    await savePreferences(runtimeConfig.memory_root, nextPreferences);
+    livePreferencesCache = nextPreferences;
+  };
   let authState = await ensureAuthState(runtimeConfig.memory_root, { mode: runtimeConfig.auth_mode });
   const systemPrompt = await readBootstrapPrompt(runtimeConfig.memory_root);
   auditLog("startup.phase", { phase: "secrets" });
@@ -676,7 +699,7 @@ export async function buildServer(rootDir = process.cwd()) {
     const pendingToolCalls = new Map<string, { name: string; input: Record<string, unknown> }>();
 
     try {
-      const livePreferences = await loadPreferences(runtimeConfig.memory_root);
+      const livePreferences = await loadLivePreferences();
       const liveAdapterConfig = resolveAdapterConfigForPreferences(adapterConfig, livePreferences);
       const liveProviderCredential = await resolveProviderCredentialForStartup(
         runtimeConfig.provider_adapter,
@@ -876,6 +899,7 @@ export async function buildServer(rootDir = process.cwd()) {
   app.get("/config", async () => ({
     mode: isManaged ? "managed" : "local",
     install_mode: runtimeConfig.install_mode,
+    install_location: installLocation,
     app_version: appVersion,
     gateway_url: "/api",
     features: {
@@ -903,7 +927,7 @@ export async function buildServer(rootDir = process.cwd()) {
 
   app.get("/credits/status", async (request, reply) => {
     try {
-      const currentPreferences = await loadPreferences(runtimeConfig.memory_root);
+      const currentPreferences = await loadLivePreferences();
       const currentAdapterConfig = resolveAdapterConfigForPreferences(adapterConfig, currentPreferences);
       const credential = await resolveProviderCredentialForStartup(
         runtimeConfig.provider_adapter, currentAdapterConfig, currentPreferences
@@ -982,13 +1006,13 @@ export async function buildServer(rootDir = process.cwd()) {
 
   app.get("/settings", async (request) => {
     authorize(request.authContext, "administration");
-    const currentPreferences = await loadPreferences(runtimeConfig.memory_root);
+    const currentPreferences = await loadLivePreferences();
     return buildSettingsPayload(adapterConfig, currentPreferences);
   });
 
   app.get("/settings/onboarding-status", async (request) => {
     authorize(request.authContext, "administration");
-    const currentPreferences = await loadPreferences(runtimeConfig.memory_root);
+    const currentPreferences = await loadLivePreferences();
     return buildOnboardingStatusPayload(adapterConfig, currentPreferences);
   });
 
@@ -1000,7 +1024,7 @@ export async function buildServer(rootDir = process.cwd()) {
       return;
     }
 
-    const currentPreferences = await loadPreferences(runtimeConfig.memory_root);
+    const currentPreferences = await loadLivePreferences();
     const selectedProfile = resolveSettingsModelProfile(
       adapterConfig,
       currentPreferences,
@@ -1083,7 +1107,7 @@ export async function buildServer(rootDir = process.cwd()) {
       return;
     }
 
-    const currentPreferences = await loadPreferences(runtimeConfig.memory_root);
+    const currentPreferences = await loadLivePreferences();
     const profileId = parsed.data.provider_profile ??
       currentPreferences.active_provider_profile ??
       adapterConfig.default_provider_profile ??
@@ -1188,7 +1212,7 @@ export async function buildServer(rootDir = process.cwd()) {
       return;
     }
 
-    const currentPreferences = await loadPreferences(runtimeConfig.memory_root);
+    const currentPreferences = await loadLivePreferences();
     const profileId = parsed.data.provider_profile ??
       currentPreferences.active_provider_profile ??
       adapterConfig.default_provider_profile ??
@@ -1258,7 +1282,7 @@ export async function buildServer(rootDir = process.cwd()) {
     }
 
     const body = parsed.data;
-    const currentPreferences = await loadPreferences(runtimeConfig.memory_root);
+    const currentPreferences = await loadLivePreferences();
     const nextPreferences = { ...currentPreferences };
 
     if (body.default_model !== undefined) {
@@ -1308,7 +1332,7 @@ export async function buildServer(rootDir = process.cwd()) {
       nextPreferences.provider_base_urls = urls;
     }
 
-    await savePreferences(runtimeConfig.memory_root, nextPreferences);
+    await saveLivePreferences(nextPreferences);
     reply.send(buildSettingsPayload(adapterConfig, nextPreferences));
   });
 
@@ -1321,7 +1345,7 @@ export async function buildServer(rootDir = process.cwd()) {
     }
 
     const body = parsed.data;
-    const currentPreferences = await loadPreferences(runtimeConfig.memory_root);
+    const currentPreferences = await loadLivePreferences();
     const currentBackup = currentPreferences.memory_backup;
     const hasExistingTokenReference = Boolean(
       currentBackup?.token_secret_ref && currentBackup.token_secret_ref.trim().length > 0
@@ -1363,7 +1387,7 @@ export async function buildServer(rootDir = process.cwd()) {
       },
     };
 
-    await savePreferences(runtimeConfig.memory_root, nextPreferences);
+    await saveLivePreferences(nextPreferences);
     await memoryBackupScheduler.reconfigure();
     auditLog("settings.memory_backup_update", {
       actor_id: request.authContext.actorId,
@@ -1377,7 +1401,7 @@ export async function buildServer(rootDir = process.cwd()) {
 
   app.post("/settings/memory-backup/save", async (request, reply) => {
     authorize(request.authContext, "administration");
-    const currentPreferences = await loadPreferences(runtimeConfig.memory_root);
+    const currentPreferences = await loadLivePreferences();
     if (!currentPreferences.memory_backup) {
       sendInvalidRequest(reply, "/settings/memory-backup/save", 1);
       return;
@@ -1405,7 +1429,7 @@ export async function buildServer(rootDir = process.cwd()) {
       sendInvalidRequest(reply, "/settings/memory-backup/restore", parsed.error.issues.length);
       return;
     }
-    const currentPreferences = await loadPreferences(runtimeConfig.memory_root);
+    const currentPreferences = await loadLivePreferences();
     if (!currentPreferences.memory_backup) {
       sendInvalidRequest(reply, "/settings/memory-backup/restore", 1);
       return;
@@ -1420,7 +1444,7 @@ export async function buildServer(rootDir = process.cwd()) {
       const result = await restoreMemoryBackup(runtimeConfig.memory_root, currentPreferences, {
         targetCommit: parsed.data.target_commit,
       });
-      const refreshedPreferences = await loadPreferences(runtimeConfig.memory_root);
+      const refreshedPreferences = await loadLivePreferences();
       auditLog("settings.memory_backup_restore", {
         actor_id: request.authContext.actorId,
         commit: result.commit,
@@ -1428,9 +1452,16 @@ export async function buildServer(rootDir = process.cwd()) {
         warnings_count: result.warnings.length,
         target_commit_requested: parsed.data.target_commit ?? null,
       });
+      let logoutRequired = false;
+      if (localJwtAuthService) {
+        await localJwtAuthService.logout();
+        reply.header("set-cookie", serializeRefreshCookieClear(isSecureRequest(request)));
+        logoutRequired = true;
+      }
       reply.send({
         result,
         settings: buildSettingsPayload(adapterConfig, refreshedPreferences),
+        logout_required: logoutRequired,
       });
     } catch (error) {
       const safeMessage = error instanceof Error ? error.message : "Memory restore failed";
@@ -1460,7 +1491,7 @@ export async function buildServer(rootDir = process.cwd()) {
       return;
     }
 
-    const currentPreferences = await loadPreferences(runtimeConfig.memory_root);
+    const currentPreferences = await loadLivePreferences();
     const nextPreferences: Preferences = {
       ...currentPreferences,
       provider_credentials: { ...(currentPreferences.provider_credentials ?? {}) },
@@ -1519,18 +1550,44 @@ export async function buildServer(rootDir = process.cwd()) {
       };
     }
 
-    if (body.set_active_provider) {
+    let shouldSetActiveProvider = body.set_active_provider ?? false;
+    if (body.set_active_provider === undefined) {
+      try {
+        const activeAdapterConfig = resolveAdapterConfigForPreferences(adapterConfig, currentPreferences);
+        const activeCredential = await resolveProviderCredentialForStartup(
+          runtimeConfig.provider_adapter,
+          activeAdapterConfig,
+          currentPreferences
+        );
+        const activeProfileId = resolveSettingsModelProfile(adapterConfig, currentPreferences);
+        const activeProviderId = activeAdapterConfig.provider_id ?? activeProfileId;
+        const activePreference = currentPreferences.provider_credentials?.[activeProviderId];
+        const activeCredentialFromEnv = process.env[activeAdapterConfig.api_key_env]?.trim() ?? "";
+        const activeRequiresSecret = activeProviderId !== "ollama" && activePreference?.mode !== "plain";
+        const activeIsUsable = activeCredentialFromEnv.length > 0 || Boolean(activeCredential) || !activeRequiresSecret;
+        if (!activeIsUsable) {
+          shouldSetActiveProvider = true;
+        }
+      } catch {
+        // Current active provider is not usable yet (missing or unresolved credential),
+        // so make the newly configured provider active immediately.
+        shouldSetActiveProvider = true;
+      }
+    }
+
+    if (shouldSetActiveProvider) {
       nextPreferences.active_provider_profile = body.provider_profile;
     }
 
-    await savePreferences(runtimeConfig.memory_root, nextPreferences);
+    await saveLivePreferences(nextPreferences);
     const onboardingStatus = await buildOnboardingStatusPayload(adapterConfig, nextPreferences);
     auditLog("settings.credentials_update", {
       provider_profile: body.provider_profile,
       provider_id: providerId,
       mode,
       required: mode === "plain" ? body.required ?? false : body.required ?? true,
-      set_active_provider: Boolean(body.set_active_provider),
+      set_active_provider: shouldSetActiveProvider,
+      set_active_provider_explicit: body.set_active_provider ?? null,
       secret_ref: secretRef,
     });
 
@@ -1673,7 +1730,7 @@ export async function buildServer(rootDir = process.cwd()) {
       await ensureGitReady(runtimeConfig.memory_root);
       authState = await ensureAuthState(runtimeConfig.memory_root, { mode: runtimeConfig.auth_mode });
       localJwtAuthService?.resetCache();
-      const refreshedPreferences = await loadPreferences(runtimeConfig.memory_root);
+      const refreshedPreferences = await loadLivePreferences();
 
       auditLog("migration.import.completed", {
         actor_id: request.authContext.actorId,
@@ -1682,10 +1739,17 @@ export async function buildServer(rootDir = process.cwd()) {
         restored_secrets: importResult.restored.secrets,
         warnings_count: importResult.warnings.length,
       });
+      let logoutRequired = false;
+      if (localJwtAuthService) {
+        await localJwtAuthService.logout();
+        reply.header("set-cookie", serializeRefreshCookieClear(isSecureRequest(request)));
+        logoutRequired = true;
+      }
 
       reply.code(201).send({
         ...importResult,
         settings: buildSettingsPayload(adapterConfig, refreshedPreferences),
+        logout_required: logoutRequired,
       });
     } catch (error) {
       auditLog("migration.import.failed", {
@@ -1735,6 +1799,7 @@ export async function buildServer(rootDir = process.cwd()) {
       windowHours,
       appVersion,
       installMode: runtimeConfig.install_mode,
+      installLocation,
       authMode: runtimeConfig.auth_mode,
       actorId: request.authContext.actorId,
     });
@@ -2406,6 +2471,7 @@ async function buildOnboardingStatusPayload(
   const profiles = listProviderProfiles(adapterConfig);
   const providerStatuses = await Promise.all(
     profiles.map(async (profile) => {
+      const requiresSecretByDefault = providerRequiresSecretByDefault(profile.provider_id);
       const preference = preferences.provider_credentials?.[profile.provider_id];
       if (!preference) {
         return {
@@ -2413,10 +2479,10 @@ async function buildOnboardingStatusPayload(
           provider_id: profile.provider_id,
           credential_mode: "unset" as const,
           credential_ref: null,
-          requires_secret: false,
-          credential_resolved: true,
+          requires_secret: requiresSecretByDefault,
+          credential_resolved: !requiresSecretByDefault,
           resolution_source: "none" as const,
-          resolution_error: null,
+          resolution_error: requiresSecretByDefault ? "Provider credential is not configured" : null,
         };
       }
 
@@ -2440,7 +2506,7 @@ async function buildOnboardingStatusPayload(
           provider_id: profile.provider_id,
           credential_mode: "secret_ref" as const,
           credential_ref: preference.secret_ref,
-          requires_secret: preference.required ?? true,
+          requires_secret: preference.required ?? requiresSecretByDefault,
           credential_resolved: true,
           resolution_source: "env_ref" as const,
           resolution_error: null,
@@ -2456,7 +2522,7 @@ async function buildOnboardingStatusPayload(
           provider_id: profile.provider_id,
           credential_mode: "secret_ref" as const,
           credential_ref: preference.secret_ref,
-          requires_secret: preference.required ?? true,
+          requires_secret: preference.required ?? requiresSecretByDefault,
           credential_resolved: Boolean(value && value.trim().length > 0),
           resolution_source: value ? ("vault" as const) : ("none" as const),
           resolution_error: value ? null : "Secret reference is not set in vault",
@@ -2467,7 +2533,7 @@ async function buildOnboardingStatusPayload(
           provider_id: profile.provider_id,
           credential_mode: "secret_ref" as const,
           credential_ref: preference.secret_ref,
-          requires_secret: preference.required ?? true,
+          requires_secret: preference.required ?? requiresSecretByDefault,
           credential_resolved: false,
           resolution_source: "none" as const,
           resolution_error: sanitizeCredentialResolutionError(error),
@@ -2480,7 +2546,6 @@ async function buildOnboardingStatusPayload(
   const selectedProvider = providerStatuses.find((provider) => provider.profile_id === selectedProfile) ?? null;
   const onboardingRequired = Boolean(
     selectedProvider &&
-      selectedProvider.credential_mode === "secret_ref" &&
       selectedProvider.requires_secret &&
       !selectedProvider.credential_resolved
   );
@@ -2491,6 +2556,10 @@ async function buildOnboardingStatusPayload(
     default_provider_profile: adapterConfig.default_provider_profile ?? null,
     providers: providerStatuses,
   };
+}
+
+function providerRequiresSecretByDefault(providerId: string): boolean {
+  return providerId.trim().toLowerCase() !== "ollama";
 }
 
 function listProviderProfiles(adapterConfig: AdapterConfig): Array<{

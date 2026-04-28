@@ -56,7 +56,7 @@ services:
         npx tsx watch gateway/server.ts
     environment:
       NODE_ENV: development
-      BRAINDRIVE_INSTALL_MODE: local
+      BRAINDRIVE_INSTALL_MODE: dev
       HOST: 0.0.0.0
       PORT: 8787
       MCP_SERVERS_FILE: mcp/servers.full-mcp.json

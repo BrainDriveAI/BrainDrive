@@ -1,5 +1,5 @@
 param(
-  [ValidateSet("quickstart", "prod", "local")]
+  [ValidateSet("prod", "local")]
   [string]$Mode = "local"
 )
 
@@ -9,13 +9,8 @@ if (-not $PSBoundParameters.ContainsKey("Mode") -and $env:BRAINDRIVE_BOOTSTRAP_M
   $Mode = $env:BRAINDRIVE_BOOTSTRAP_MODE
 }
 
-if ($Mode -notin @("quickstart", "prod", "local")) {
-  throw "Usage: install.ps1 [-Mode local|prod|quickstart]"
-}
-
-if ($Mode -eq "quickstart") {
-  Write-Warning "Mode 'quickstart' is deprecated and now aliases to 'local'."
-  $Mode = "local"
+if ($Mode -notin @("prod", "local")) {
+  throw "Usage: install.ps1 [-Mode local|prod]"
 }
 
 function Convert-ToBool {

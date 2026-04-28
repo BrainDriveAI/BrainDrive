@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -lt 2 || $# -gt 3 ]]; then
-  echo "Usage: ./scripts/restore.sh <memory|secrets> <backup-file> [local|prod|quickstart]"
+  echo "Usage: ./scripts/restore.sh <memory|secrets> <backup-file> [local|prod]"
   exit 1
 fi
 
@@ -10,14 +10,9 @@ TARGET="$1"
 BACKUP_FILE="$2"
 MODE="${3:-local}"
 
-if [[ "${MODE}" != "quickstart" && "${MODE}" != "prod" && "${MODE}" != "local" ]]; then
-  echo "Mode must be local, prod, or quickstart"
+if [[ "${MODE}" != "prod" && "${MODE}" != "local" ]]; then
+  echo "Mode must be local or prod"
   exit 1
-fi
-
-if [[ "${MODE}" == "quickstart" ]]; then
-  echo "Mode 'quickstart' is deprecated and now aliases to 'local'." >&2
-  MODE="local"
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

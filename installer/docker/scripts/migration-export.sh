@@ -5,9 +5,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 MODE="${BRAINDRIVE_MIGRATION_MODE:-local}"
-if [[ "${MODE}" == "quickstart" ]]; then
-  MODE="local"
-fi
 BASE_URL_DEFAULT="http://127.0.0.1:8080"
 if [[ "${MODE}" == "dev" ]]; then
   BASE_URL_DEFAULT="http://127.0.0.1:5073"

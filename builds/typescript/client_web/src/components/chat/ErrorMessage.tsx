@@ -30,7 +30,7 @@ export default function ErrorMessage({
           className="mt-0.5 shrink-0 text-bd-danger"
         />
         <div className="min-w-0 flex-1">
-          <p className="text-sm text-bd-text-primary">{message}</p>
+          <p className="whitespace-pre-line text-sm text-bd-text-primary">{message}</p>
           <div className="mt-2 flex gap-2">
             {onPrimaryAction && primaryActionLabel && (
               <button

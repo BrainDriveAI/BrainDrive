@@ -14,7 +14,8 @@ import Sidebar from "./Sidebar";
 type AppShellProps = {
   children?: ReactNode;
   deploymentMode?: "local" | "managed";
-  installMode?: "local" | "quickstart" | "prod" | "unknown";
+  installMode?: "dev" | "local" | "prod" | "unknown";
+  installLocation?: "local" | "managed" | "unknown";
   appVersion?: string;
   onLogout?: () => void;
 };
@@ -23,6 +24,7 @@ export default function AppShell({
   children,
   deploymentMode = "local",
   installMode = "unknown",
+  installLocation = "unknown",
   appVersion = "unknown",
   onLogout,
 }: AppShellProps) {
@@ -77,9 +79,12 @@ export default function AppShell({
       if (cancelled) return;
       const activeId = status.active_provider_profile ?? status.default_provider_profile;
       const activeProvider = status.providers.find((p) => p.profile_id === activeId);
-      const needsSetup = activeProvider &&
-        activeProvider.provider_id === "braindrive-models" &&
-        activeProvider.credential_mode === "unset";
+      const needsSetup = Boolean(
+        status.onboarding_required ||
+        (activeProvider &&
+          activeProvider.provider_id.toLowerCase() !== "ollama" &&
+          activeProvider.credential_mode === "unset")
+      );
       if (needsSetup) {
         setIsSettingsOpen(true);
       }
@@ -319,6 +324,7 @@ export default function AppShell({
         <SettingsModal
           mode={deploymentMode}
           installMode={installMode}
+          installLocation={installLocation}
           appVersion={appVersion}
           onClose={() => setIsSettingsOpen(false)}
         />

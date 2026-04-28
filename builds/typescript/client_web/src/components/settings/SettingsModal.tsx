@@ -19,7 +19,7 @@ import {
 import MarkdownContent from "@/components/markdown/MarkdownContent";
 import { openTrustedBillingUrl } from "@/utils/billing-url";
 
-import { authenticatedFetch, getSession } from "@/api/auth-adapter";
+import { authenticatedFetch, getSession, logout } from "@/api/auth-adapter";
 import {
   deleteProviderModel,
   downloadLibraryExport,
@@ -63,7 +63,8 @@ type SettingsPatch = Partial<Pick<GatewaySettings, "default_model" | "active_pro
 
 type SettingsModalProps = {
   mode?: "local" | "managed";
-  installMode?: "local" | "quickstart" | "prod" | "unknown";
+  installMode?: "dev" | "local" | "prod" | "unknown";
+  installLocation?: "local" | "managed" | "unknown";
   appVersion?: string;
   onClose: () => void;
 };
@@ -86,6 +87,7 @@ const allTabs: TabDef[] = [
 export default function SettingsModal({
   mode = "local",
   installMode = "unknown",
+  installLocation = "unknown",
   appVersion = "unknown",
   onClose,
 }: SettingsModalProps) {
@@ -258,6 +260,10 @@ export default function SettingsModal({
     setSettings(updated.settings);
     setSettingsError(null);
     resetGatewayChatRuntime();
+    if (updated.logout_required) {
+      await logout();
+      window.location.reload();
+    }
     return updated.result;
   }
 
@@ -293,6 +299,10 @@ export default function SettingsModal({
         setSettings(result.settings);
         resetGatewayChatRuntime();
         setCatalogRefreshKey((current) => current + 1);
+        if (result.logout_required) {
+          await logout();
+          window.location.reload();
+        }
       }
     } catch (error) {
       setImportError(error instanceof Error ? error.message : String(error));
@@ -371,6 +381,7 @@ export default function SettingsModal({
               importError={importError}
               importResult={importResult}
               installMode={installMode}
+              installLocation={installLocation}
               appVersion={appVersion}
               onRefreshCatalog={() => setCatalogRefreshKey((k) => k + 1)}
               onNavigateToTab={setActiveTab}
@@ -441,6 +452,7 @@ export default function SettingsModal({
             importError={importError}
             importResult={importResult}
             installMode={installMode}
+            installLocation={installLocation}
             appVersion={appVersion}
             onNavigateToTab={setActiveTab}
           />
@@ -528,6 +540,7 @@ function TabContent({
   importError,
   importResult,
   installMode,
+  installLocation,
   appVersion,
   onRefreshCatalog,
   onNavigateToTab,
@@ -558,7 +571,8 @@ function TabContent({
   isImporting: boolean;
   importError: string | null;
   importResult: GatewayMigrationImportResult | null;
-  installMode: "local" | "quickstart" | "prod" | "unknown";
+  installMode: "dev" | "local" | "prod" | "unknown";
+  installLocation: "local" | "managed" | "unknown";
   appVersion: string;
   onRefreshCatalog: () => void;
   onNavigateToTab: (tab: SettingsTab) => void;
@@ -617,6 +631,7 @@ function TabContent({
       return (
         <ExportSection
           installMode={installMode}
+          installLocation={installLocation}
           appVersion={appVersion}
           onDownload={onDownloadExport}
           isExporting={isExporting}
@@ -2765,6 +2780,7 @@ function AccountSection() {
 
 function ExportSection({
   installMode,
+  installLocation,
   appVersion,
   onDownload,
   isExporting,
@@ -2774,7 +2790,8 @@ function ExportSection({
   importError,
   importResult,
 }: {
-  installMode: "local" | "quickstart" | "prod" | "unknown";
+  installMode: "dev" | "local" | "prod" | "unknown";
+  installLocation: "local" | "managed" | "unknown";
   appVersion: string;
   onDownload: () => Promise<void>;
   isExporting: boolean;
@@ -2787,6 +2804,7 @@ function ExportSection({
   const [selectedImportFile, setSelectedImportFile] = useState<File | null>(null);
   const isImportDisabled = isImporting || !selectedImportFile;
   const installLabel = formatInstallModeLabel(installMode);
+  const installLocationLabel = formatInstallLocationLabel(installLocation);
   const versionLabel = appVersion.trim().length > 0 ? appVersion : "unknown";
 
   return (
@@ -2900,6 +2918,7 @@ function ExportSection({
       <div className="mt-auto rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2.5">
         <div className="flex flex-wrap items-center gap-4 text-xs text-bd-text-muted">
           <span>Install Type: {installLabel}</span>
+          <span>Install Location: {installLocationLabel}</span>
           <span>App Version: {versionLabel}</span>
         </div>
       </div>
@@ -2907,14 +2926,25 @@ function ExportSection({
   );
 }
 
-function formatInstallModeLabel(mode: "local" | "quickstart" | "prod" | "unknown"): string {
+function formatInstallModeLabel(mode: "dev" | "local" | "prod" | "unknown"): string {
   switch (mode) {
-    case "quickstart":
-      return "local";
+    case "dev":
+      return "developer";
     case "prod":
       return "production";
     case "local":
       return "local";
+    default:
+      return "unknown";
+  }
+}
+
+function formatInstallLocationLabel(location: "local" | "managed" | "unknown"): string {
+  switch (location) {
+    case "local":
+      return "local hardware";
+    case "managed":
+      return "managed hosting";
     default:
       return "unknown";
   }
