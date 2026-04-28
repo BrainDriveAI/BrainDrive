@@ -48,34 +48,3 @@ Where this is all heading — and what it looks like to maintain it. Not just a 
 What the plan can't cover yet because we need more information. Only include gaps the spec flagged as "Before the plan is complete." Items marked "Worth exploring later" stay in the spec, not here.
 
 *To be filled through conversation.*
-
----
-
-## Phase Transition Rules
-
-Advance Phase N → Phase N+1 when ALL of these are true:
-- All Phase N steps marked Complete
-- Owner has reported the corresponding outcome (or sufficient time has passed for inference)
-- Phase N+1 doesn't depend on info that's still missing
-
-When advancing:
-1. Mark Phase N status: Complete
-2. Mark Phase N+1 status: In progress
-3. Update **Current Phase** line at top
-4. Update AGENT.md Status line: `Active — Phase N+1 — [brief description]`
-5. Update profile if a goal milestone was hit
-6. Tell the owner: "You wrapped Phase 1. Here's what Phase 2 looks like — [summary]."
-
-## When the Owner Reports a Step Done
-
-If the owner says "I did X" or similar:
-
-1. Find that step in the Roadmap.
-2. Mark it `[x]` complete with date.
-3. Add the action item to `me/todo.md` Completed section (if it was active there).
-4. Acknowledge concretely: "Nice — that's [N] sessions this week. Phase 1 step X done."
-5. If this completes a phase, follow the Phase Transition Rules above.
-
-If the owner reports a step done that's in a LATER phase: acknowledge, mark done, but ASK if earlier-phase milestones were also completed. Update Current Phase only after confirming.
-
-If the owner DIDN'T do something they said they would: check what changed. **In fitness, "didn't do it" often signals real friction** (sleep crashed, work blew up, motivation dipped). Adjust the plan rather than push through.

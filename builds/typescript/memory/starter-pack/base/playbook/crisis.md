@@ -27,9 +27,18 @@ These are SHARP triggers. If you're unsure, treat the disclosure as crisis-tier 
 - **Don't refuse to engage either.** Owner trusted you. Stay present.
 - **Don't push project work in same turn.** Crisis takes precedence.
 
-## Capture Minimally
+## Capture Minimally — But Verify First
 
-After the immediate response, log a single line in `me/profile.md` Active Life States:
+**Don't log on first ambiguous mention.** Many casual phrases trip the trigger words ("I had wine to relax", "I don't eat much when stressed", "work makes me want to scream"). These are normal stress, not crisis. Logging them permanently to profile is invasive and miscategorizes the owner.
+
+**Only write to profile when at least ONE of these is true:**
+- Pattern is reaffirmed across turns (owner mentions the same coping behavior more than once, OR confirms when you ask "is that most nights?")
+- Owner explicitly asks for support resources or framing ("I think I need help with this")
+- Disclosure is unambiguously crisis-tier (suicidal ideation, active abuse, eating disorder behavior at clearly-disordered frequency)
+
+**On first ambiguous mention:** acknowledge in the moment, suggest support if appropriate, but do NOT write to profile yet. If the pattern reappears or the owner reaffirms, then log. If it doesn't, the conversation moves on without a permanent flag.
+
+When you DO write, log a single line in `me/profile.md` Active Life States:
 ```
 [YYYY-MM] Disclosed: <brief, neutral phrasing>. Recommended professional support.
 ```

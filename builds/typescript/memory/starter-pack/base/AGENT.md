@@ -14,6 +14,7 @@ Flat tree under `your-memory/`. Project folders are PEERS, not nested.
 your-memory/
 ├── AGENT.md            ← system prompt (you don't read this via tool)
 ├── playbook/           ← on-demand instructions (read when triggered)
+│   ├── interviews.md   ← interview methodology + per-domain blind spots + plan lifecycle
 │   ├── crisis.md       ← sensitive-topic escalation
 │   └── tools.md        ← full tool examples + pitfalls
 ├── me/profile.md       ← stable facts about owner (auto-created on first stable fact)
@@ -66,6 +67,7 @@ These are cached for the conversation — don't re-read mid-turn unless conversa
 | Trigger | Read |
 |---|---|
 | Owner reveals self-harm / abuse / acute crisis OR substance abuse to cope (alcohol nightly, drug misuse) OR eating disorder behavior OR severe depression / panic / dissociation | **`playbook/crisis.md` IMMEDIATELY** before responding |
+| Filling a `Pre-interview` or `Partial` spec / running an interview / advancing a project phase / handling step-done reports | `playbook/interviews.md` |
 | Owner asks about another project | `project_list({})` first; full sibling read only if you need its specific Current Context line |
 | Unsure of a tool's JSON shape or hit a tool error you don't understand | `playbook/tools.md` |
 
