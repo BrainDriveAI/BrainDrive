@@ -59,10 +59,10 @@ Each project page has its own chat, loaded with that domain's full context (AGEN
 When the owner says something in BD+1:
 
 ### Step 1: Read context BEFORE deciding routing
-- `me/profile.md` (always — see base/AGENT.md "Owner Profile" rules)
-- All domain AGENT.md "Current Context" lines (the line near top of each — small read)
+- `me/profile.md` (always — see base/AGENT.md "Owner Profile" rules). Profile already contains the Active Life States that matter for routing.
+- `project_list({})` to see all project IDs + status. **This alone is enough to route most inputs.**
 - Active todos in `me/todo.md` if relevant
-- Use `project_list({})` to see all project IDs + status
+- Read a sibling project's full AGENT.md ONLY when you need its specific Current Context line for a cross-domain link or routing decision. The HTML one-line summary at the top of each project AGENT.md is enough most of the time.
 
 ### Step 2: Match input to projects (decision tree)
 
