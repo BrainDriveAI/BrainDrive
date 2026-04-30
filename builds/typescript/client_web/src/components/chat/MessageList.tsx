@@ -23,6 +23,7 @@ export default function MessageList({
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
   const isNearBottomRef = useRef(true);
   const prevMessageCountRef = useRef(0);
+  const hasRenderedMessagesRef = useRef(false);
 
   useEffect(() => {
     const container = scrollRef.current;
@@ -40,14 +41,24 @@ export default function MessageList({
     return () => container.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // Only auto-scroll when a new message is added (not on content updates during streaming)
+  // Keep assistant replies anchored so users can read from the start as content streams in.
+  // User messages still scroll down to reveal the submitted prompt and response area.
   useEffect(() => {
     const messageCount = messages.length;
-    if (messageCount > prevMessageCountRef.current && isNearBottomRef.current) {
+    const lastMessage = messages[messageCount - 1];
+    const shouldScrollForNewUserMessage =
+      hasRenderedMessagesRef.current &&
+      messageCount > prevMessageCountRef.current &&
+      lastMessage?.role === "user" &&
+      isNearBottomRef.current;
+
+    if (shouldScrollForNewUserMessage) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
+
+    hasRenderedMessagesRef.current = true;
     prevMessageCountRef.current = messageCount;
-  }, [messages.length]);
+  }, [messages]);
 
   function scrollToBottom() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
