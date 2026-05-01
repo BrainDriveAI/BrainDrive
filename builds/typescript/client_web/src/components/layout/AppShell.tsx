@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Menu } from "lucide-react";
+import { CheckCircle2, Menu, X } from "lucide-react";
 import { createPortal } from "react-dom";
 
-import { getOnboardingStatus } from "@/api/gateway-adapter";
+import { getMemoryUpdateReport, getMemoryUpdateStatus, getOnboardingStatus } from "@/api/gateway-adapter";
 import ChatPanel from "@/components/chat/ChatPanel";
 import DocumentView from "@/components/document/DocumentView";
 import SettingsModal from "@/components/settings/SettingsModal";
@@ -32,6 +32,12 @@ export default function AppShell({
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [activeFile, setActiveFile] = useState<ProjectFile | null>(null);
+  const [memoryUpdateNotice, setMemoryUpdateNotice] = useState<{
+    migrationId: string;
+    report: string;
+    hasDeferred: boolean;
+  } | null>(null);
+  const [isMemoryUpdateReportOpen, setIsMemoryUpdateReportOpen] = useState(false);
   const [mobileHeaderHeight, setMobileHeaderHeight] = useState(0);
   const stableAppHeightRef = useRef(0);
   const mobileHeaderRef = useRef<HTMLDivElement | null>(null);
@@ -95,6 +101,33 @@ export default function AppShell({
   useEffect(() => {
     setActiveFile(null);
   }, [selectedProjectId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getMemoryUpdateStatus()
+      .then(async (status) => {
+        if (!status.report_path || cancelled) {
+          return;
+        }
+        const storageKey = `braindrive.memoryUpdateReportSeen.${status.migration_id}`;
+        if (window.localStorage.getItem(storageKey) === "1") {
+          return;
+        }
+        const report = await getMemoryUpdateReport(status.migration_id);
+        if (cancelled) {
+          return;
+        }
+        setMemoryUpdateNotice({
+          migrationId: status.migration_id,
+          report,
+          hasDeferred: status.deferred_paths.length > 0,
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!mobileHeaderRef.current) {
@@ -177,6 +210,14 @@ export default function AppShell({
 
   function handleReturnToChat() {
     setActiveFile(null);
+  }
+
+  function dismissMemoryUpdateNotice() {
+    if (memoryUpdateNotice) {
+      window.localStorage.setItem(`braindrive.memoryUpdateReportSeen.${memoryUpdateNotice.migrationId}`, "1");
+    }
+    setMemoryUpdateNotice(null);
+    setIsMemoryUpdateReportOpen(false);
   }
 
   const documentContent = activeFile && selectedProject ? (
@@ -299,6 +340,41 @@ export default function AppShell({
       ) : null}
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-bd-bg-primary" style={appShellVars}>
+        {memoryUpdateNotice ? (
+          <div className="border-b border-bd-border bg-bd-bg-secondary px-4 py-3 md:px-5">
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" strokeWidth={1.8} />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-bd-text-primary">BrainDrive is up to date.</p>
+                <p className="mt-0.5 text-xs leading-5 text-bd-text-secondary">
+                  {memoryUpdateNotice.hasDeferred
+                    ? "Safe memory updates were applied. One item was left unchanged because it has custom content."
+                    : "Memory instructions were updated so the latest features work correctly."}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setIsMemoryUpdateReportOpen((current) => !current)}
+                  className="mt-2 text-xs font-medium text-bd-amber hover:text-bd-amber-hover"
+                >
+                  {isMemoryUpdateReportOpen ? "Hide details" : "View details"}
+                </button>
+                {isMemoryUpdateReportOpen ? (
+                  <pre className="mt-3 max-h-56 overflow-auto whitespace-pre-wrap rounded-md border border-bd-border bg-bd-bg-primary p-3 text-xs leading-5 text-bd-text-secondary">
+                    {memoryUpdateNotice.report}
+                  </pre>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                aria-label="Dismiss memory update notice"
+                onClick={dismissMemoryUpdateNotice}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-bd-text-muted hover:bg-bd-bg-hover hover:text-bd-text-primary"
+              >
+                <X size={15} strokeWidth={1.7} />
+              </button>
+            </div>
+          </div>
+        ) : null}
         <div
           className="flex min-h-0 flex-1 flex-col overflow-hidden pt-[var(--mobile-header-height)] md:pt-0"
         >
