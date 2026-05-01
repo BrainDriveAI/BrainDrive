@@ -2563,8 +2563,9 @@ function AccountSection() {
               <button
                 type="button"
                 onClick={() => setShowTopupOptions(true)}
-                className="text-xs text-bd-text-muted hover:text-bd-text-secondary transition-colors"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-semibold text-bd-bg-primary shadow-sm transition-colors hover:bg-bd-amber-hover"
               >
+                <span aria-hidden="true">+</span>
                 Need more credits?
               </button>
             ) : (
