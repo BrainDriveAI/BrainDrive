@@ -9,6 +9,7 @@ export type MemoryInitProfile = "local-dev" | "openrouter-secret-ref" | "braindr
 export type MemoryInitOptions = {
   profile?: MemoryInitProfile;
   seedDefaultProjects?: boolean;
+  seedStarterSkills?: boolean;
   force?: boolean;
   dryRun?: boolean;
 };
@@ -123,6 +124,7 @@ export async function initializeMemoryLayout(
   const force = options.force ?? false;
   const dryRun = options.dryRun ?? false;
   const seedDefaultProjects = options.seedDefaultProjects ?? true;
+  const seedStarterSkills = options.seedStarterSkills ?? true;
   const absoluteMemoryRoot = path.resolve(memoryRoot);
   const starterPackDir = await resolveStarterPackDir(rootDir);
 
@@ -196,7 +198,9 @@ export async function initializeMemoryLayout(
     summary
   );
 
-  if (dryRun) {
+  if (!seedStarterSkills) {
+    summary.skipped.push("skills/bootstrap (disabled)");
+  } else if (dryRun) {
     summary.skipped.push("skills/bootstrap (dry-run)");
   } else {
     const skillStore = new MemorySkillStore(absoluteMemoryRoot);

@@ -92,6 +92,11 @@ vi.mock("../tools.js", () => ({
 
 vi.mock("../git.js", () => ({
   ensureGitReady: vi.fn(async () => {}),
+  commitMemoryChange: vi.fn(async () => {}),
+  exportMemoryArchive: vi.fn(async (_memoryRoot: string, destinationPath: string) => {
+    await mkdir(path.dirname(destinationPath), { recursive: true });
+    await writeFile(destinationPath, "backup", "utf8");
+  }),
 }));
 
 vi.mock("../secrets/resolver.js", () => ({
@@ -126,6 +131,7 @@ async function createTestServer(
     deploymentMode?: "managed" | "local";
     managedApiBase?: string;
     allowManagedPublicAccountProxyRoutes?: boolean;
+    starterPack?: boolean;
   } = {}
 ): Promise<TestServerContext> {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "paa-auth-int-"));
@@ -135,6 +141,9 @@ async function createTestServer(
 
   await mkdir(preferencesRoot, { recursive: true });
   await mkdir(secretsRoot, { recursive: true });
+  if (options.starterPack) {
+    await writeTestStarterPack(tempRoot);
+  }
 
   mockRuntimeConfig = {
     memory_root: memoryRoot,
@@ -160,8 +169,12 @@ async function createTestServer(
   const previousDeploymentMode = process.env.BD_DEPLOYMENT_MODE;
   const previousManagedApiBase = process.env.BD_MANAGED_API_BASE;
   const previousManagedPublicAccountProxyRoutes = process.env.PAA_MANAGED_PUBLIC_ACCOUNT_PROXY_ROUTES;
+  const previousMemoryAutoUpdateEnabled = process.env.PAA_MEMORY_AUTO_UPDATE_ENABLED;
+  const previousAppVersion = process.env.BRAINDRIVE_APP_VERSION;
 
   process.env.PAA_SECRETS_HOME = secretsRoot;
+  process.env.PAA_MEMORY_AUTO_UPDATE_ENABLED = "false";
+  process.env.BRAINDRIVE_APP_VERSION = "26.4.20";
   if (typeof options.bootstrapToken === "string") {
     process.env.PAA_AUTH_BOOTSTRAP_TOKEN = options.bootstrapToken;
   } else {
@@ -217,6 +230,16 @@ async function createTestServer(
       } else {
         delete process.env.PAA_MANAGED_PUBLIC_ACCOUNT_PROXY_ROUTES;
       }
+      if (typeof previousMemoryAutoUpdateEnabled === "string") {
+        process.env.PAA_MEMORY_AUTO_UPDATE_ENABLED = previousMemoryAutoUpdateEnabled;
+      } else {
+        delete process.env.PAA_MEMORY_AUTO_UPDATE_ENABLED;
+      }
+      if (typeof previousAppVersion === "string") {
+        process.env.BRAINDRIVE_APP_VERSION = previousAppVersion;
+      } else {
+        delete process.env.BRAINDRIVE_APP_VERSION;
+      }
     },
   };
 }
@@ -249,6 +272,13 @@ function localOwnerAdminHeaders(): Record<string, string> {
       administration: true,
     }),
   };
+}
+
+async function writeTestStarterPack(rootDir: string): Promise<void> {
+  const starterRoot = path.join(rootDir, "memory", "starter-pack");
+  await mkdir(path.join(starterRoot, "base", "me"), { recursive: true });
+  await writeFile(path.join(starterRoot, "base", "AGENT.md"), "# BrainDrive Agent\n\nUse current guidance.\n", "utf8");
+  await writeFile(path.join(starterRoot, "base", "me", "todo.md"), "# My Todos\n\n## Active\n", "utf8");
 }
 
 describe.sequential("gateway auth route integration", () => {
@@ -505,6 +535,55 @@ describe.sequential("gateway auth route integration", () => {
 
     expect(response.statusCode).toBe(403);
     expect(parseJson<{ error: string }>(response.body).error).toBe("support_bundle_requires_local_jwt_auth");
+  });
+
+  it("exposes memory update status, apply, and report endpoints", async () => {
+    context = await createTestServer({ authMode: "local-owner", starterPack: true });
+    const memoryRoot = path.join(context.tempRoot, "memory");
+    await mkdir(memoryRoot, { recursive: true });
+    await writeFile(path.join(memoryRoot, "AGENT.md"), "# Custom Agent\n\nKeep this.\n", "utf8");
+
+    const statusResponse = await context.app.inject({
+      method: "GET",
+      url: "/updates/memory/status",
+      headers: localOwnerAdminHeaders(),
+    });
+    expect(statusResponse.statusCode).toBe(200);
+    const status = parseJson<{ pending: boolean; migration_id: string }>(statusResponse.body);
+    expect(status.pending).toBe(true);
+    expect(status.migration_id).toBe("starter-pack-26.4.20");
+
+    const planResponse = await context.app.inject({
+      method: "POST",
+      url: "/updates/memory/plan",
+      headers: localOwnerAdminHeaders(),
+      payload: {},
+    });
+    expect(planResponse.statusCode).toBe(200);
+    const plan = parseJson<{ items: Array<{ path: string; action: string }> }>(planResponse.body);
+    expect(plan.items.some((item) => item.path === "AGENT.md" && item.action === "defer")).toBe(true);
+
+    const applyResponse = await context.app.inject({
+      method: "POST",
+      url: "/updates/memory/apply",
+      headers: localOwnerAdminHeaders(),
+      payload: {},
+    });
+    expect(applyResponse.statusCode).toBe(201);
+    const applied = parseJson<{ status: string; applied_paths: string[]; deferred_paths: string[]; report_path: string }>(
+      applyResponse.body
+    );
+    expect(applied.status).toBe("partially_applied");
+    expect(applied.applied_paths).toContain("me/todo.md");
+    expect(applied.deferred_paths).toContain("AGENT.md");
+
+    const reportResponse = await context.app.inject({
+      method: "GET",
+      url: `/updates/memory/reports/${status.migration_id}`,
+      headers: localOwnerAdminHeaders(),
+    });
+    expect(reportResponse.statusCode).toBe(200);
+    expect(reportResponse.body).toContain("BrainDrive Memory Update 26.4.20");
   });
 
   it("rejects unauthenticated memory backup settings updates", async () => {
