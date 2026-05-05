@@ -80,7 +80,7 @@ The same client serves both local (Docker) and managed (braindrive.ai) hosting. 
 - **Settings tabs** — Account + Billing only show for managed
 - **Model Provider** — API key entry (local) vs "managed by BrainDrive" (managed)
 - **Export messaging** — more prominent on managed (exit-to-ownership)
-- **Tier label** — "BrainDrive Local" / "BrainDrive Hosted" / "BrainDrive Concierge"
+- **Tier label** — "BrainDrive Local" / "BrainDrive Concierge"
 
 In production, mode comes from `GET /api/config`. During development, a toggle in the bottom-right corner switches modes.
 
