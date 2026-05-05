@@ -291,6 +291,17 @@ export type GatewayMigrationImportResult = {
   logout_required?: boolean;
 };
 
+export type GatewayMemoryUpdateStatus = {
+  current_app_version: string;
+  memory_pack_version: string;
+  target_memory_pack_version: string;
+  pending: boolean;
+  migration_id: string;
+  report_path: string | null;
+  applied_paths: string[];
+  deferred_paths: string[];
+};
+
 export class GatewayError extends Error {
   readonly status: number;
   readonly code?: string;

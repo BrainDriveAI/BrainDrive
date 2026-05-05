@@ -357,6 +357,7 @@ function applyAdapterEnvironmentOverrides(config: AdapterConfig): AdapterConfig 
 export async function ensureMemoryLayout(rootDir: string, memoryRoot: string): Promise<void> {
   const summary = await initializeMemoryLayout(rootDir, memoryRoot, {
     seedDefaultProjects: true,
+    seedStarterSkills: false,
   });
   auditLog("memory.init", {
     memory_root: memoryRoot,
