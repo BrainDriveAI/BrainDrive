@@ -1099,7 +1099,7 @@ function BrainDriveDefaultSection({
             Managed by BrainDrive
           </h3>
           <p className="mt-1 text-sm text-bd-text-muted">
-            We pick the best AI model for you — just add credits and go.
+            We pick the best AI model for you — just add BrainDrive Models Credits and go.
           </p>
         </div>
 
@@ -1109,8 +1109,8 @@ function BrainDriveDefaultSection({
             <div className="flex items-start gap-3">
               <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-bd-bg-secondary text-xs font-bold text-bd-text-muted">1</div>
               <div className="flex-1">
-                <div className="text-sm font-medium text-bd-text-heading">Purchase credits</div>
-                <p className="mt-1 text-xs text-bd-text-muted">Add credits to start chatting.</p>
+                <div className="text-sm font-medium text-bd-text-heading">Purchase BrainDrive Models Credits</div>
+                <p className="mt-1 text-xs text-bd-text-muted">Add BrainDrive Models Credits to start chatting.</p>
                 {emailSaved && !isEditingEmail ? (
                   <div className="mt-3 flex items-center gap-2">
                     <span className="text-sm text-bd-text-primary">{billingEmail}</span>
@@ -1201,7 +1201,7 @@ function BrainDriveDefaultSection({
               <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-bd-bg-secondary text-xs font-bold text-bd-text-muted">3</div>
               <div className="flex-1">
                 <div className="text-sm font-medium text-bd-text-heading">Start chatting</div>
-                <p className="mt-1 text-xs text-bd-text-muted">Your credit balance will update here in real time and you can add additional credits at anytime.</p>
+                <p className="mt-1 text-xs text-bd-text-muted">Your BrainDrive Models Credits balance will update here in real time and you can add additional BrainDrive Models Credits at anytime.</p>
               </div>
             </div>
           </div>
@@ -1217,7 +1217,7 @@ function BrainDriveDefaultSection({
           Managed by BrainDrive
         </h3>
         <p className="mt-1 text-sm text-bd-text-muted">
-          We pick the best AI model for you — just add credits and go.
+          We pick the best AI model for you — just add BrainDrive Models Credits and go.
         </p>
       </div>
 
@@ -1234,7 +1234,7 @@ function BrainDriveDefaultSection({
         </div>
 
         <div>
-          <div className="mb-2 text-xs font-medium text-bd-text-secondary">Add credits</div>
+          <div className="mb-2 text-xs font-medium text-bd-text-secondary">Add BrainDrive Models Credits</div>
           {emailSaved && !isEditingEmail ? (
             <div className="mb-2 flex items-center gap-2">
               <span className="text-sm text-bd-text-primary">{billingEmail}</span>
@@ -1504,7 +1504,7 @@ function ProviderSection({
                       </div>
                       <div className="text-xs text-bd-text-muted">
                         {isBrainDriveModels
-                          ? <>We pick the best AI model for you — just add credits and go</>
+                          ? <>We pick the best AI model for you — just add BrainDrive Models Credits and go</>
                           : isOllama
                           ? <>Runs on your computer, free — <a href="https://ollama.com" target="_blank" rel="noopener noreferrer" className="text-bd-text-muted hover:text-bd-text-secondary hover:underline" onClick={(e) => e.stopPropagation()}>ollama.com</a></>
                           : <>Cloud-based, requires API key — <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="text-bd-text-muted hover:text-bd-text-secondary hover:underline" onClick={(e) => e.stopPropagation()}>openrouter.ai/keys</a></>}
@@ -1522,7 +1522,7 @@ function ProviderSection({
                           onClick={(e) => { e.stopPropagation(); onNavigateToTab("model"); }}
                           className="flex items-center gap-1 text-sm font-medium text-bd-amber transition-colors hover:text-bd-amber-hover"
                         >
-                          Add Credits
+                          Add BrainDrive Models Credits
                           <span aria-hidden="true">&rarr;</span>
                         </button>
                       ) : (
@@ -2523,7 +2523,7 @@ function AccountSection() {
           </div>
           {accountInfo?.credits_exhausted && (
             <div className="mt-2 text-xs text-bd-danger">
-              Credits exhausted — your AI features are paused until next billing cycle.
+              BrainDrive Models Credits exhausted — your AI features are paused until next billing cycle.
             </div>
           )}
         </div>
@@ -2533,7 +2533,7 @@ function AccountSection() {
           <div>
             {accountInfo.credits_exhausted ? (
               <div className="rounded-lg border border-bd-amber-border bg-bd-amber-bg/30 p-3 space-y-3">
-                <div className="text-xs font-medium text-bd-text-primary">Buy additional credits</div>
+                <div className="text-xs font-medium text-bd-text-primary">Buy additional BrainDrive Models Credits</div>
                 <div className="flex items-center gap-2">
                   <select
                     value={topupAmount}
@@ -2552,11 +2552,11 @@ function AccountSection() {
                     onClick={handleTopup}
                     className="rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:opacity-50"
                   >
-                    {isLoadingTopup ? "Opening..." : "Buy Credits"}
+                    {isLoadingTopup ? "Opening..." : "Buy BrainDrive Models Credits"}
                   </button>
                 </div>
                 <div className="text-[11px] text-bd-text-muted">
-                  Credits are added instantly after payment. 5% processing fee applies.
+                  BrainDrive Models Credits are added instantly after payment. 5% processing fee applies.
                 </div>
               </div>
             ) : !showTopupOptions ? (
@@ -2566,12 +2566,12 @@ function AccountSection() {
                 className="inline-flex items-center gap-1.5 rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-semibold text-bd-bg-primary shadow-sm transition-colors hover:bg-bd-amber-hover"
               >
                 <span aria-hidden="true">+</span>
-                Need more credits?
+                Need more BrainDrive Models Credits?
               </button>
             ) : (
               <div className="rounded-lg border border-bd-border p-3 space-y-3">
                 <div className="flex items-center justify-between">
-                  <div className="text-xs font-medium text-bd-text-primary">Buy additional credits</div>
+                  <div className="text-xs font-medium text-bd-text-primary">Buy additional BrainDrive Models Credits</div>
                   <button
                     type="button"
                     onClick={() => setShowTopupOptions(false)}
@@ -2598,11 +2598,11 @@ function AccountSection() {
                     onClick={handleTopup}
                     className="rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:opacity-50"
                   >
-                    {isLoadingTopup ? "Opening..." : "Buy Credits"}
+                    {isLoadingTopup ? "Opening..." : "Buy BrainDrive Models Credits"}
                   </button>
                 </div>
                 <div className="text-[11px] text-bd-text-muted">
-                  Credits are added instantly after payment. 5% processing fee applies.
+                  BrainDrive Models Credits are added instantly after payment. 5% processing fee applies.
                 </div>
               </div>
             )}

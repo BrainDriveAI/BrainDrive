@@ -33,7 +33,7 @@ type SidebarProps = {
   onAddProject?: (name: string) => Promise<void>;
   onRemoveProject?: (id: string) => Promise<void>;
   onRenameProject?: (id: string, name: string) => Promise<void>;
-  tier?: "local" | "hosted" | "concierge";
+  tier?: "local" | "concierge";
   onClose?: () => void;
 };
 
@@ -459,7 +459,7 @@ export default function Sidebar({
                 {user.name}
               </div>
               <div className="truncate text-[11px] text-bd-text-muted">
-                {tier === "concierge" ? "BrainDrive Concierge" : tier === "hosted" ? "BrainDrive Hosted" : "BrainDrive Local"}
+                {tier === "concierge" ? "BrainDrive Concierge" : "BrainDrive Local"}
               </div>
             </div>
             <div className="shrink-0 text-base leading-none text-bd-text-muted">
