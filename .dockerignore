@@ -1,0 +1,15 @@
+.git
+.gitignore
+
+**/node_modules
+**/dist
+**/target
+**/.turbo
+**/.vite
+**/.cache
+
+builds/typescript/client_web
+builds/typescript/src-tauri
+
+*.log
+*.tmp

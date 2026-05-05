@@ -8,6 +8,10 @@ RUN apt-get update \
 
 WORKDIR /app
 
+ENV BRAINDRIVE_BIND_ADDRESS=0.0.0.0 \
+    BRAINDRIVE_PORT=8787 \
+    BRAINDRIVE_TRUST_PROXY=true
+
 COPY package.json tsconfig.json ./
 RUN npm install
 

@@ -225,6 +225,8 @@ export async function loadRuntimeConfig(rootDir: string): Promise<RuntimeConfig>
     authModeOverride && ["local-owner", "local", "managed"].includes(authModeOverride)
       ? (authModeOverride as "local-owner" | "local" | "managed")
       : parsed.auth_mode;
+  const bindAddressOverride = process.env.BRAINDRIVE_BIND_ADDRESS?.trim();
+  const portOverride = parsePositivePort(process.env.BRAINDRIVE_PORT);
 
   return {
     ...parsed,
@@ -232,8 +234,8 @@ export async function loadRuntimeConfig(rootDir: string): Promise<RuntimeConfig>
     conversation_store: parsed.conversation_store ?? "markdown",
     install_mode: resolvedInstallMode,
     memory_root: path.resolve(rootDir, resolvedMemoryRoot),
-    bind_address: parsed.bind_address ?? "127.0.0.1",
-    port: parsed.port ?? 8787,
+    bind_address: bindAddressOverride && bindAddressOverride.length > 0 ? bindAddressOverride : parsed.bind_address ?? "127.0.0.1",
+    port: portOverride ?? parsed.port ?? 8787,
   };
 }
 
@@ -496,6 +498,19 @@ function parseObjectOrDefault(raw: string): Record<string, unknown> {
     // Fall back to an empty object when parsing fails.
   }
   return {};
+}
+
+function parsePositivePort(value: string | undefined): number | undefined {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return undefined;
+  }
+
+  const parsed = Number.parseInt(normalized, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 65535) {
+    throw new Error(`BRAINDRIVE_PORT must be a positive integer between 1 and 65535`);
+  }
+  return parsed;
 }
 
 function getOrCreateObject(

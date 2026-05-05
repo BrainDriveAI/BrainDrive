@@ -65,6 +65,9 @@ services:
     command: ["node", "dist/gateway/server.js"]
     environment:
       MCP_SERVERS_FILE: ${MCP_SERVERS_FILE:-mcp/servers.full-mcp.docker.json}
+      BRAINDRIVE_BIND_ADDRESS: 0.0.0.0
+      BRAINDRIVE_PORT: 8787
+      BRAINDRIVE_TRUST_PROXY: "true"
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
       PAA_SECRETS_HOME: /run/paa-secrets

@@ -57,6 +57,9 @@ services:
     environment:
       NODE_ENV: development
       BRAINDRIVE_INSTALL_MODE: dev
+      BRAINDRIVE_BIND_ADDRESS: 0.0.0.0
+      BRAINDRIVE_PORT: 8787
+      BRAINDRIVE_TRUST_PROXY: "true"
       HOST: 0.0.0.0
       PORT: 8787
       MCP_SERVERS_FILE: mcp/servers.full-mcp.json

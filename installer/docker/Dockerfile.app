@@ -21,6 +21,9 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 ENV NODE_ENV=production \
+    BRAINDRIVE_BIND_ADDRESS=0.0.0.0 \
+    BRAINDRIVE_PORT=8787 \
+    BRAINDRIVE_TRUST_PROXY=true \
     HOST=0.0.0.0 \
     PORT=8787 \
     MCP_SERVERS_FILE=mcp/servers.full-mcp.json \

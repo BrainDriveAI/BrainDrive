@@ -1,4 +1,5 @@
 import { buildLocalOwnerHeaders } from "./local-auth";
+import { apiFetch } from "./runtime-api-base";
 import type { Session } from "./types";
 
 export type AuthMode = "local" | "local-owner" | "managed";
@@ -30,7 +31,7 @@ let accessToken: string | null = null;
 let refreshInFlight: Promise<string | null> | null = null;
 
 export async function fetchBootstrapStatus(): Promise<AuthBootstrapStatus> {
-  const response = await fetch("/api/auth/bootstrap-status", {
+  const response = await apiFetch("/api/auth/bootstrap-status", {
     method: "GET",
     credentials: "include",
   });
@@ -69,7 +70,7 @@ export async function signup(credentials: AuthCredentials): Promise<void> {
     throw new Error("Password sign-up is unavailable in the current auth mode.");
   }
 
-  const response = await fetch("/api/auth/signup", {
+  const response = await apiFetch("/api/auth/signup", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -92,7 +93,7 @@ export async function login(credentials: AuthCredentials): Promise<void> {
     throw new Error("Password sign-in is unavailable in the current auth mode.");
   }
 
-  const response = await fetch("/api/auth/login", {
+  const response = await apiFetch("/api/auth/login", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -150,14 +151,14 @@ export async function authenticatedFetch(
   const authMode = await getAuthMode();
 
   if (authMode === "local-owner") {
-    return fetch(input, {
+    return apiFetch(input, {
       ...init,
       headers: mergeHeaders(buildLocalOwnerHeaders(), init.headers),
     });
   }
 
   if (authMode === "managed") {
-    const response = await fetch(input, init);
+    const response = await apiFetch(input, init);
     if (response.status === 401) {
       // Session expired or container stopped — redirect to login
       window.location.href = "/login";
@@ -166,7 +167,7 @@ export async function authenticatedFetch(
   }
 
   await ensureAccessToken();
-  let response = await fetch(input, {
+  let response = await apiFetch(input, {
     ...init,
     credentials: "include",
     headers: mergeHeaders(buildBearerHeaders(), init.headers),
@@ -181,7 +182,7 @@ export async function authenticatedFetch(
     return response;
   }
 
-  response = await fetch(input, {
+  response = await apiFetch(input, {
     ...init,
     credentials: "include",
     headers: mergeHeaders(buildBearerHeaders(), init.headers),
@@ -229,7 +230,7 @@ async function refreshAccessToken(): Promise<string | null> {
 
   refreshInFlight = (async () => {
     try {
-      const response = await fetch("/api/auth/refresh", {
+      const response = await apiFetch("/api/auth/refresh", {
         method: "POST",
         credentials: "include",
       });

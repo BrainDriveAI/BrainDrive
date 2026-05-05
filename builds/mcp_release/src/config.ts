@@ -11,7 +11,7 @@ const DEFAULT_PORTS: Record<ServerKind, number> = {
 
 const EnvSchema = z.object({
   SERVER_KIND: ServerKindSchema.default("memory"),
-  HOST: z.string().min(1).default("0.0.0.0"),
+  HOST: z.string().min(1).default("127.0.0.1"),
   PORT: z
     .string()
     .optional()

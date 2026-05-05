@@ -2,6 +2,7 @@ import path from "node:path";
 import { createReadStream, existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
 import { z } from "zod";
 
@@ -234,6 +235,9 @@ export async function buildServer(rootDir = process.cwd()) {
   const isManaged = process.env.BD_DEPLOYMENT_MODE === "managed";
   const installLocation: InstallLocation = isManaged ? "managed" : "local";
   const managedApiBase = process.env.BD_MANAGED_API_BASE?.replace(/\/+$/, "") || "";
+  const clientGatewayUrl = process.env.BRAINDRIVE_CLIENT_GATEWAY_URL?.trim() || "/api";
+  const desktopApiToken = process.env.BRAINDRIVE_DESKTOP_API_TOKEN?.trim() || "";
+  const desktopCorsOrigin = process.env.BRAINDRIVE_DESKTOP_CORS_ORIGIN?.trim() || "";
   const managedPublicAccountProxyRoutesEnv = process.env.PAA_MANAGED_PUBLIC_ACCOUNT_PROXY_ROUTES;
   const managedPublicAccountProxyRoutesConfigured =
     typeof managedPublicAccountProxyRoutesEnv === "string" &&
@@ -357,7 +361,7 @@ export async function buildServer(rootDir = process.cwd()) {
 
   const app = Fastify({
     logger: false,
-    trustProxy: true,
+    trustProxy: readBooleanEnv(process.env.BRAINDRIVE_TRUST_PROXY, true),
     bodyLimit: readPositiveIntEnv(process.env.PAA_MIGRATION_IMPORT_BODY_LIMIT_BYTES, 1024 * 1024 * 1024),
   });
   app.addContentTypeParser(
@@ -367,6 +371,30 @@ export async function buildServer(rootDir = process.cwd()) {
       done(null, body);
     }
   );
+
+  app.addHook("onRequest", async (request, reply) => {
+    applyDesktopCorsHeaders(request.headers.origin, reply, desktopCorsOrigin, Boolean(desktopApiToken));
+
+    if (request.method === "OPTIONS") {
+      return reply.code(204).send();
+    }
+  });
+
+  app.addHook("preHandler", async (request, reply) => {
+    if (!desktopApiToken) {
+      return;
+    }
+
+    const requestPath = stripQueryString(request.url);
+    if (requestPath === "/health" || requestPath === "/config") {
+      return;
+    }
+
+    const providedToken = request.headers["x-braindrive-desktop-token"];
+    if (providedToken !== desktopApiToken) {
+      return reply.code(403).send({ error: "desktop_api_token_required" });
+    }
+  });
   const approvalStore = new ApprovalStore();
   const toolExecutor = new ToolExecutor(tools);
   const conversations = new GatewayConversationService(createConversationRepository(runtimeConfig));
@@ -901,7 +929,7 @@ export async function buildServer(rootDir = process.cwd()) {
     install_mode: runtimeConfig.install_mode,
     install_location: installLocation,
     app_version: appVersion,
-    gateway_url: "/api",
+    gateway_url: clientGatewayUrl,
     features: {
       approvals: true,
       projects: true,
@@ -2173,6 +2201,30 @@ function readBooleanEnv(value: string | undefined, defaultValue = false): boolea
   return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
 }
 
+function applyDesktopCorsHeaders(
+  origin: string | undefined,
+  reply: import("fastify").FastifyReply,
+  configuredOrigin: string,
+  desktopTokenEnabled: boolean
+): void {
+  if (!desktopTokenEnabled || !origin) {
+    return;
+  }
+
+  if (configuredOrigin && origin !== configuredOrigin) {
+    return;
+  }
+
+  reply.header("access-control-allow-origin", origin);
+  reply.header("vary", "origin");
+  reply.header("access-control-allow-methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  reply.header(
+    "access-control-allow-headers",
+    "authorization,content-type,x-actor-id,x-actor-type,x-auth-mode,x-actor-permissions,x-braindrive-desktop-token,x-conversation-id"
+  );
+  reply.header("access-control-allow-credentials", "true");
+}
+
 function readPositiveIntEnv(value: string | undefined, defaultValue: number): number {
   const normalized = value?.trim();
   if (!normalized) {
@@ -2699,7 +2751,7 @@ function isKnownProviderProfile(
   return profileId === (adapterConfig.default_provider_profile ?? "default");
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
+if (isDirectEntrypoint(process.argv[1], import.meta.url)) {
   const rootDir = process.cwd();
   buildServer(rootDir)
     .then(async ({ app, runtimeConfig }) => {
@@ -2712,4 +2764,17 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(im
       });
       process.exitCode = 1;
     });
+}
+
+function isDirectEntrypoint(argvPath: string | undefined, moduleUrl: string): boolean {
+  if (!argvPath) {
+    return false;
+  }
+
+  return normalizeEntrypointPath(argvPath) === normalizeEntrypointPath(fileURLToPath(moduleUrl));
+}
+
+function normalizeEntrypointPath(value: string): string {
+  const normalized = path.normalize(path.resolve(value)).replace(/^\\\\\?\\/, "");
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "BrainDrive",
+  "version": "26.4.20",
+  "identifier": "ai.braindrive.desktop",
+  "build": {
+    "beforeDevCommand": "npm run desktop:preflight && npm run desktop:dev:web",
+    "beforeBuildCommand": "npm run desktop:preflight && npm run desktop:build:frontend && npm run desktop:stage-runtime",
+    "devUrl": "http://localhost:5073",
+    "frontendDist": "../client_web/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "BrainDrive",
+        "width": 1280,
+        "height": 860,
+        "minWidth": 960,
+        "minHeight": 640,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "publisher": "BrainDrive",
+    "category": "Productivity",
+    "resources": {
+      "desktop-runtime/": "desktop-runtime"
+    },
+    "shortDescription": "BrainDrive native desktop app",
+    "longDescription": "BrainDrive is a personal AI system with user-owned local memory."
+  }
+}

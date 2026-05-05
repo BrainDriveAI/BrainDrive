@@ -25,6 +25,8 @@ builds/typescript/.paa-secrets/
 builds/typescript/your-memory/
 builds/typescript/.reset-backups/
 builds/typescript/.your-memory.root-owned.backup/
+builds/typescript/src-tauri/desktop-runtime/
+builds/typescript/src-tauri/target/
 
 # Dev notes / server-specific docs (contain IPs, internal ports)
 builds/typescript/status.md

@@ -28,7 +28,14 @@
     "web:install": "npm --prefix client_web ci",
     "web:typecheck": "npm --prefix client_web run typecheck",
     "web:test": "npm --prefix client_web run test",
-    "web:build": "npm --prefix client_web run build"
+    "web:build": "npm --prefix client_web run build",
+    "desktop:preflight": "npm run build && npm --prefix ../mcp_release run build && npm --prefix client_web run typecheck",
+    "desktop:stage-runtime": "powershell -ExecutionPolicy Bypass -File scripts/desktop-stage-runtime.ps1",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build",
+    "desktop:build:frontend": "npm --prefix client_web run build",
+    "desktop:dev:web": "npm --prefix client_web run dev",
+    "desktop:test": "npm run test && npm --prefix ../mcp_release run build && npm --prefix client_web run test && cargo test --manifest-path src-tauri/Cargo.toml"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -36,6 +43,7 @@
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.10.1",
     "@types/node": "^22.13.10",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2",
