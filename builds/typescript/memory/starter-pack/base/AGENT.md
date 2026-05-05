@@ -59,6 +59,12 @@ When the owner has multiple projects, you see the whole picture. Read the AGENT.
 
 Read `me/profile.md` if it exists — it contains stable personal context (age, situation, key life facts) that applies across all projects. This file builds organically over time as the owner uses BrainDrive. When you learn something stable about the owner during any conversation — a life fact, not a preference or mood — add it to the profile. The more they use BrainDrive, the richer this context becomes, and the better your advice gets.
 
+**If the owner retracts something they shared** ("forget I said that", "don't write that down", "I was just venting", "scratch that"):
+- If you HAVEN'T written it yet: don't write. Just acknowledge.
+- If you ALREADY wrote it: remove the entry from the file you wrote it to. Don't just verbally acknowledge — actually delete it. Then confirm: "Got it, I've removed that."
+
+Verbal acknowledgment without deletion is a trust failure. The owner trusted you with what they said; if they retract, the file must reflect the retraction.
+
 ## Operational Rules
 
 - Read AGENT.md, spec.md, and plan.md before any project conversation.
