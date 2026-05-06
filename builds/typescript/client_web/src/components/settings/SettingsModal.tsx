@@ -2523,7 +2523,7 @@ function AccountSection() {
           </div>
           {accountInfo?.credits_exhausted && (
             <div className="mt-2 text-xs text-bd-danger">
-              BrainDrive Models Credits exhausted — your AI features are paused until next billing cycle.
+              BrainDrive Concierge balance exhausted — your AI features are paused until next billing cycle.
             </div>
           )}
         </div>
@@ -2537,12 +2537,12 @@ function AccountSection() {
           {isLoadingPortal ? "Opening..." : "Manage Subscription"}
         </button>
 
-        {/* Top-up credits */}
+        {/* BrainDrive Concierge Topup */}
         {accountInfo?.topup_available && (
           <div>
             {accountInfo.credits_exhausted ? (
               <div className="rounded-lg border border-bd-amber-border bg-bd-amber-bg/30 p-3 space-y-3">
-                <div className="text-xs font-medium text-bd-text-primary">Buy additional BrainDrive Models Credits</div>
+                <div className="text-xs font-medium text-bd-text-primary">BrainDrive Concierge Topup</div>
                 <div className="flex items-center gap-2">
                   <select
                     value={topupAmount}
@@ -2561,11 +2561,11 @@ function AccountSection() {
                     onClick={handleTopup}
                     className="rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:opacity-50"
                   >
-                    {isLoadingTopup ? "Opening..." : "Buy BrainDrive Models Credits"}
+                    {isLoadingTopup ? "Opening..." : "BrainDrive Concierge Topup"}
                   </button>
                 </div>
                 <div className="text-[11px] text-bd-text-muted">
-                  BrainDrive Models Credits are added instantly after payment. 5% processing fee applies.
+                  BrainDrive Concierge Topup is added instantly after payment.
                 </div>
               </div>
             ) : !showTopupOptions ? (
@@ -2575,12 +2575,12 @@ function AccountSection() {
                 className="inline-flex items-center gap-1.5 rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-semibold text-bd-bg-primary shadow-sm transition-colors hover:bg-bd-amber-hover"
               >
                 <span aria-hidden="true">+</span>
-                Need more BrainDrive Models Credits?
+                BrainDrive Concierge Topup
               </button>
             ) : (
               <div className="rounded-lg border border-bd-border p-3 space-y-3">
                 <div className="flex items-center justify-between">
-                  <div className="text-xs font-medium text-bd-text-primary">Buy additional BrainDrive Models Credits</div>
+                  <div className="text-xs font-medium text-bd-text-primary">BrainDrive Concierge Topup</div>
                   <button
                     type="button"
                     onClick={() => setShowTopupOptions(false)}
@@ -2607,11 +2607,11 @@ function AccountSection() {
                     onClick={handleTopup}
                     className="rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:opacity-50"
                   >
-                    {isLoadingTopup ? "Opening..." : "Buy BrainDrive Models Credits"}
+                    {isLoadingTopup ? "Opening..." : "BrainDrive Concierge Topup"}
                   </button>
                 </div>
                 <div className="text-[11px] text-bd-text-muted">
-                  BrainDrive Models Credits are added instantly after payment. 5% processing fee applies.
+                  BrainDrive Concierge Topup is added instantly after payment.
                 </div>
               </div>
             )}
