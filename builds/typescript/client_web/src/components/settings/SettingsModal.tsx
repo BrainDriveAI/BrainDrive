@@ -2483,7 +2483,7 @@ function AccountSection() {
         <div>
           <div className="flex items-center justify-between">
             <div className="text-sm font-medium text-bd-text-primary">
-              BrainDrive Managed Hosting
+              BrainDrive Concierge
             </div>
             <div className="flex items-center gap-2">
               <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
@@ -2527,6 +2527,15 @@ function AccountSection() {
             </div>
           )}
         </div>
+
+        <button
+          type="button"
+          disabled={isLoadingPortal}
+          onClick={handleManageSubscription}
+          className="rounded-lg bg-bd-bg-tertiary px-3 py-1.5 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover disabled:opacity-50"
+        >
+          {isLoadingPortal ? "Opening..." : "Manage Subscription"}
+        </button>
 
         {/* Top-up credits */}
         {accountInfo?.topup_available && (
@@ -2608,15 +2617,6 @@ function AccountSection() {
             )}
           </div>
         )}
-
-        <button
-          type="button"
-          disabled={isLoadingPortal}
-          onClick={handleManageSubscription}
-          className="rounded-lg bg-bd-bg-tertiary px-3 py-1.5 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover disabled:opacity-50"
-        >
-          {isLoadingPortal ? "Opening..." : "Manage Subscription"}
-        </button>
       </div>
 
       {/* Email & Password */}
@@ -2945,7 +2945,7 @@ function formatInstallLocationLabel(location: "local" | "managed" | "unknown"): 
     case "local":
       return "local hardware";
     case "managed":
-      return "managed hosting";
+      return "BrainDrive Concierge";
     default:
       return "unknown";
   }
