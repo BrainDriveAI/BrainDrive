@@ -11,6 +11,8 @@ const scriptRoot = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptRoot, "..");
 const mcpRoot = path.resolve(projectRoot, "..", "mcp_release");
 const outputRoot = path.join(projectRoot, "src-tauri", "desktop-runtime");
+const isWindows = process.platform === "win32";
+const npmExecutable = process.platform === "win32" ? "npm.cmd" : "npm";
 
 async function assertPathExists(targetPath, label) {
   try {
@@ -33,8 +35,9 @@ async function copyFile(source, destination) {
 }
 
 async function pruneDevDependencies(runtimeRoot) {
-  await execFileAsync("npm", ["prune", "--omit=dev"], {
+  await execFileAsync(npmExecutable, ["prune", "--omit=dev"], {
     cwd: runtimeRoot,
+    shell: isWindows,
     env: {
       ...process.env,
       NODE_ENV: "production",
