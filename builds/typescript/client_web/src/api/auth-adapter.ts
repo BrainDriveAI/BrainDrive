@@ -1,5 +1,5 @@
 import { buildLocalOwnerHeaders } from "./local-auth";
-import { apiFetch } from "./runtime-api-base";
+import { apiFetch, isTauriRuntime } from "./runtime-api-base";
 import type { Session } from "./types";
 
 export type AuthMode = "local" | "local-owner" | "managed";
@@ -60,7 +60,20 @@ export async function restoreSession(): Promise<boolean> {
   }
 
   const token = await refreshAccessToken();
-  return Boolean(token);
+  if (token) {
+    return true;
+  }
+
+  if (!isTauriRuntime()) {
+    return false;
+  }
+
+  try {
+    const response = await authenticatedFetch("/api/session", { method: "GET" }, { retryOnUnauthorized: false });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 export async function signup(credentials: AuthCredentials): Promise<void> {

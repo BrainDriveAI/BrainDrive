@@ -187,6 +187,17 @@ export default function SettingsModal({
       return;
     }
 
+    const selectedProvider = settings.provider_profiles.find((profile) => profile.id === providerProfile);
+    if (
+      selectedProvider?.provider_id?.toLowerCase() === "braindrive-models" &&
+      selectedProvider.credential_mode === "unset"
+    ) {
+      setModelCatalog(null);
+      setModelCatalogError(null);
+      setIsLoadingModelCatalog(false);
+      return;
+    }
+
     let cancelled = false;
     setIsLoadingModelCatalog(true);
     setModelCatalogError(null);
@@ -1548,11 +1559,12 @@ function ProviderSection({
                                     role="tooltip"
                                     className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 w-72 -translate-x-1/2 rounded-md border border-bd-border bg-bd-bg-secondary px-3 py-2 text-xs leading-5 text-bd-text-secondary opacity-0 shadow-[0_12px_30px_rgba(2,8,23,0.45)] transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100"
                                   >
-                                    If BrainDrive is running in Docker and Ollama is installed on this computer, use
+                                    If BrainDrive is installed on this computer, use
                                     {" "}
                                     <span className="font-medium text-bd-text-primary">
-                                      http://host.docker.internal:11434/v1
+                                      http://127.0.0.1:11434/v1
                                     </span>
+                                    . If BrainDrive runs in Docker, use http://host.docker.internal:11434/v1.
                                   </div>
                                 </div>
                               </div>
@@ -1566,7 +1578,7 @@ function ProviderSection({
                                     setOllamaUrl(event.target.value);
                                     setUrlError(null);
                                   }}
-                                  placeholder="http://host.docker.internal:11434/v1"
+                                  placeholder="http://127.0.0.1:11434/v1"
                                   className="h-10 flex-1 rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
                                 />
                                 <button

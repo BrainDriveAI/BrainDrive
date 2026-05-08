@@ -63,10 +63,14 @@ export async function resolveApiInput(input: RequestInfo | URL): Promise<Request
 
 export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
   const resolvedInput = await resolveApiInput(input);
-  return fetch(resolvedInput, {
-    ...init,
-    headers: mergeHeaders(await getDesktopApiHeaders(), init.headers),
-  });
+  try {
+    return await fetch(resolvedInput, {
+      ...init,
+      headers: mergeHeaders(await getDesktopApiHeaders(), init.headers),
+    });
+  } catch (error) {
+    throw normalizeFetchError(error, resolvedInput);
+  }
 }
 
 export async function getDesktopApiHeaders(): Promise<Record<string, string>> {
@@ -111,3 +115,12 @@ function mergeHeaders(base: Record<string, string>, headers?: HeadersInit): Reco
   return merged;
 }
 
+function normalizeFetchError(error: unknown, input: RequestInfo | URL): Error {
+  if (!isTauriRuntime()) {
+    return error instanceof Error ? error : new Error(String(error));
+  }
+
+  const target = typeof input === "string" ? input : input instanceof URL ? input.toString() : "the local gateway";
+  const message = error instanceof Error ? error.message : String(error);
+  return new Error(`Unable to reach the local BrainDrive runtime at ${target}: ${message}`);
+}

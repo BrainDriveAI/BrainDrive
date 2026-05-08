@@ -249,27 +249,24 @@ struct RuntimePaths {
 }
 
 impl RuntimePaths {
-    fn resolve(_app: &tauri::AppHandle) -> Result<Self, String> {
-        let data_base = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or(
-            std::env::current_dir()
-                .map_err(display_error)?
-                .join(".braindrive-data"),
-        );
-        let local_base = std::env::var_os("LOCALAPPDATA")
-            .map(PathBuf::from)
-            .unwrap_or(
-                std::env::current_dir()
-                    .map_err(display_error)?
-                    .join(".braindrive-local"),
-            );
-        let data_root = data_base.join("BrainDrive");
-        let local_root = local_base.join("BrainDrive");
+    fn resolve(app: &tauri::AppHandle) -> Result<Self, String> {
+        let data_root = if let Some(data_base) = std::env::var_os("APPDATA").map(PathBuf::from) {
+            data_base.join("BrainDrive")
+        } else {
+            app.path().app_data_dir().map_err(display_error)?
+        };
+        let log_root = if let Some(local_base) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from)
+        {
+            local_base.join("BrainDrive").join("logs")
+        } else {
+            app.path().app_log_dir().map_err(display_error)?
+        };
 
         Ok(Self {
             memory_root: data_root.join("memory"),
             secrets_root: data_root.join("secrets"),
             config_root: data_root.join("config"),
-            log_root: local_root.join("logs"),
+            log_root,
             data_root,
         })
     }

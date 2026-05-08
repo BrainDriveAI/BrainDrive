@@ -400,6 +400,11 @@ export async function buildServer(rootDir = process.cwd()) {
 
     const providedToken = request.headers["x-braindrive-desktop-token"];
     if (providedToken !== desktopApiToken) {
+      auditLog("desktop_api_token.denied", {
+        method: request.method,
+        path: request.url,
+        token_present: Boolean(providedToken),
+      });
       return reply.code(403).send({ error: "desktop_api_token_required" });
     }
   });
@@ -644,6 +649,9 @@ export async function buildServer(rootDir = process.cwd()) {
       authenticateLocalJwtAccessToken: localJwtAuthService
         ? async (accessToken: string) => localJwtAuthService.authenticateAccessToken(accessToken)
         : undefined,
+      isDesktopRequestAuthorized: desktopApiToken
+        ? (candidate) => candidate.headers["x-braindrive-desktop-token"] === desktopApiToken
+        : undefined,
     });
   });
 
@@ -749,6 +757,7 @@ export async function buildServer(rootDir = process.cwd()) {
     });
 
     const streamHeaders: Record<string, string> = {
+      ...buildDesktopCorsHeaders(request.headers.origin, desktopCorsOrigin, Boolean(desktopApiToken)),
       "content-type": "text/event-stream",
       "cache-control": "no-cache",
       connection: "keep-alive",
@@ -1468,8 +1477,10 @@ export async function buildServer(rootDir = process.cwd()) {
         sendInvalidRequest(reply, "/settings", 1);
         return;
       }
+      const profileConfig = resolveAdapterProfile(adapterConfig, provider_profile);
       const urls = { ...nextPreferences.provider_base_urls };
-      urls[provider_profile] = base_url;
+      urls[provider_profile] =
+        profileConfig.provider_id?.toLowerCase() === "ollama" ? normalizeOllamaOpenAIBaseUrl(base_url) : base_url;
       nextPreferences.provider_base_urls = urls;
     }
 
@@ -1641,6 +1652,12 @@ export async function buildServer(rootDir = process.cwd()) {
     const selectedProfile = resolveAdapterProfile(adapterConfig, body.provider_profile);
     const providerId = selectedProfile.provider_id ?? body.provider_profile;
     const mode = body.mode ?? "secret_ref";
+    auditLog("settings.credentials_update_start", {
+      provider_profile: body.provider_profile,
+      provider_id: providerId,
+      mode,
+      set_active_provider: body.set_active_provider ?? null,
+    });
 
     // Validate BrainDrive Models API keys before persisting
     if (mode === "secret_ref" && body.api_key && providerId === "braindrive-models") {
@@ -1656,12 +1673,27 @@ export async function buildServer(rootDir = process.cwd()) {
           headers: { Authorization: `Bearer ${trimmedKey}` },
         });
         if (verifyResp.status === 401 || verifyResp.status === 403) {
+          auditLog("settings.credentials_validation_failed", {
+            provider_profile: body.provider_profile,
+            provider_id: providerId,
+            status: verifyResp.status,
+          });
           reply.code(400).send({
             error: "This API key wasn't recognized. Please check that you copied the full key from your purchase confirmation email.",
           });
           return;
         }
-      } catch {
+        auditLog("settings.credentials_validation_completed", {
+          provider_profile: body.provider_profile,
+          provider_id: providerId,
+          status: verifyResp.status,
+        });
+      } catch (error) {
+        auditLog("settings.credentials_validation_unavailable", {
+          provider_profile: body.provider_profile,
+          provider_id: providerId,
+          message: error instanceof Error ? error.message : String(error),
+        });
         // Upstream unreachable — proceed with save
       }
     }
@@ -2320,22 +2352,35 @@ function applyDesktopCorsHeaders(
   configuredOrigin: string,
   desktopTokenEnabled: boolean
 ): void {
+  const headers = buildDesktopCorsHeaders(origin, configuredOrigin, desktopTokenEnabled);
+  for (const [name, value] of Object.entries(headers)) {
+    reply.header(name, value);
+  }
+}
+
+function buildDesktopCorsHeaders(
+  origin: string | undefined,
+  configuredOrigin: string,
+  desktopTokenEnabled: boolean
+): Record<string, string> {
   if (!desktopTokenEnabled || !origin) {
-    return;
+    return {};
   }
 
   if (configuredOrigin && origin !== configuredOrigin) {
-    return;
+    return {};
   }
 
-  reply.header("access-control-allow-origin", origin);
-  reply.header("vary", "origin");
-  reply.header("access-control-allow-methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-  reply.header(
-    "access-control-allow-headers",
-    "authorization,content-type,x-actor-id,x-actor-type,x-auth-mode,x-actor-permissions,x-braindrive-desktop-token,x-conversation-id"
-  );
-  reply.header("access-control-allow-credentials", "true");
+  return {
+    "access-control-allow-origin": origin,
+    vary: "origin",
+    "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+    "access-control-allow-headers":
+      "authorization,content-type,x-actor-id,x-actor-type,x-auth-mode,x-actor-permissions,x-braindrive-desktop-token,x-conversation-id",
+    "access-control-expose-headers":
+      "x-conversation-id,x-context-window-warning,x-context-window-estimated-tokens,x-context-window-budget-tokens,x-context-window-ratio,x-context-window-threshold,x-context-window-managed,x-context-window-message",
+    "access-control-allow-credentials": "true",
+  };
 }
 
 function readPositiveIntEnv(value: string | undefined, defaultValue: number): number {
@@ -2887,6 +2932,25 @@ function isKnownProviderProfile(
   }
 
   return profileId === (adapterConfig.default_provider_profile ?? "default");
+}
+
+function normalizeOllamaOpenAIBaseUrl(baseUrl: string): string {
+  const parsed = new URL(baseUrl);
+  const normalizedPath = parsed.pathname.replace(/\/+$/, "");
+
+  if (normalizedPath === "" || normalizedPath === "/api") {
+    parsed.pathname = "/v1";
+  } else if (normalizedPath.endsWith("/api/chat") || normalizedPath.endsWith("/api/generate")) {
+    parsed.pathname = normalizedPath.replace(/\/api\/(?:chat|generate)$/, "/v1");
+  } else if (normalizedPath.endsWith("/chat/completions") || normalizedPath.endsWith("/models")) {
+    parsed.pathname = normalizedPath.replace(/\/(?:chat\/completions|models)$/, "");
+  } else {
+    parsed.pathname = normalizedPath;
+  }
+
+  parsed.search = "";
+  parsed.hash = "";
+  return parsed.toString().replace(/\/$/, "");
 }
 
 if (isDirectEntrypoint(process.argv[1], import.meta.url)) {

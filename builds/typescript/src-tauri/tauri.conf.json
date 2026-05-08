@@ -27,11 +27,35 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": "all",
     "publisher": "BrainDrive",
     "category": "Productivity",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
     "resources": {
       "desktop-runtime/": "desktop-runtime"
+    },
+    "macOS": {
+      "dmg": {
+        "background": "dmg-background.png",
+        "windowSize": {
+          "width": 760,
+          "height": 480
+        },
+        "appPosition": {
+          "x": 190,
+          "y": 300
+        },
+        "applicationFolderPosition": {
+          "x": 570,
+          "y": 300
+        }
+      }
     },
     "shortDescription": "BrainDrive native desktop app",
     "longDescription": "BrainDrive is a personal AI system with user-owned local memory."
