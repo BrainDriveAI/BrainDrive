@@ -292,7 +292,7 @@ export default function AppShell({
           onFileClick={handleFileClick}
           onOpenSettings={() => setIsSettingsOpen(true)}
           onLogout={() => onLogout?.()}
-          tier={deploymentMode === "managed" ? "hosted" : "local"}
+          tier={deploymentMode === "managed" ? "concierge" : "local"}
           onAddProject={addProject}
           onRemoveProject={removeProject}
           onRenameProject={renameProject}
@@ -328,7 +328,7 @@ export default function AppShell({
                 setIsSettingsOpen(true);
               }}
               onLogout={() => onLogout?.()}
-              tier={deploymentMode === "managed" ? "hosted" : "local"}
+              tier={deploymentMode === "managed" ? "concierge" : "local"}
               onAddProject={addProject}
               onRemoveProject={removeProject}
               onClose={() => {
