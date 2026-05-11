@@ -127,22 +127,40 @@ export async function* runAgentLoop(
     }
 
     for (const toolCall of completion.toolCalls) {
-      const tool = toolExecutor.getTool(toolCall.name);
-      if (!tool) {
-        yield {
-          type: "error",
-          code: "tool_error",
-          message: "Tool execution failed",
-        };
-        return;
-      }
-
       yield {
         type: "tool-call",
         id: toolCall.id,
         name: toolCall.name,
         input: toolCall.input,
       };
+
+      const tool = toolExecutor.getTool(toolCall.name);
+      if (!tool) {
+        const unavailableOutput = {
+          code: "tool_unavailable",
+          message: `Tool is not available: ${toolCall.name}`,
+          recoverable: true,
+        };
+        auditLog("tool.unavailable", {
+          tool: toolCall.name,
+          correlation_id: request.metadata.correlation_id,
+        });
+        yield {
+          type: "tool-result",
+          id: toolCall.id,
+          status: "error",
+          output: unavailableOutput,
+        };
+        messages.push({
+          role: "tool",
+          tool_call_id: toolCall.id,
+          content: JSON.stringify({
+            status: "error",
+            output: unavailableOutput,
+          }),
+        });
+        continue;
+      }
 
       const toolCallKey = `${toolCall.name}:${stableToolInput(toolCall.input)}`;
       const seenCount = (seenToolCallKeys.get(toolCallKey) ?? 0) + 1;

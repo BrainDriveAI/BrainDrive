@@ -514,12 +514,14 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
             case "done":
               if (isActive()) {
                 setToolStatus(null);
+                setError(null);
                 setErrorCode(null);
                 updateConversationId(event.conversation_id);
               } else {
                 updateBackground(() => ({
                   toolStatus: null,
                   isLoading: false,
+                  error: null,
                   errorCode: null,
                   conversationId: event.conversation_id ?? null,
                 }));
