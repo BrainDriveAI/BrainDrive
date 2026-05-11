@@ -37,7 +37,7 @@ const adapterConfigSchema = z
     model: z.string().min(1).optional(),
     api_key_env: z.string().min(1).optional(),
     provider_id: z.string().min(1).optional(),
-    provider_profiles: z.record(adapterProfileSchema).optional(),
+    provider_profiles: z.record(z.string(), adapterProfileSchema).optional(),
     default_provider_profile: z.string().min(1).optional(),
   })
   .strict()
@@ -189,9 +189,9 @@ const preferencesSchema = z
     default_model: z.string().min(1),
     approval_mode: z.enum(["ask-on-write", "auto-approve"]),
     active_provider_profile: z.string().min(1).optional(),
-    provider_credentials: z.record(providerCredentialSchema).optional(),
-    provider_base_urls: z.record(z.string().url()).optional(),
-    provider_default_models: z.record(z.string().min(1)).optional(),
+    provider_credentials: z.record(z.string(), providerCredentialSchema).optional(),
+    provider_base_urls: z.record(z.string(), z.string().url()).optional(),
+    provider_default_models: z.record(z.string(), z.string().min(1)).optional(),
     secret_resolution: secretResolutionSchema.optional(),
     memory_backup: memoryBackupPreferenceSchema.optional(),
   })
