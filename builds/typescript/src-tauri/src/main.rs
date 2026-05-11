@@ -2,6 +2,8 @@
 
 use serde::Serialize;
 use serde_json::json;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
@@ -39,6 +41,16 @@ struct ServiceStatus {
 
 struct RuntimeManager {
     inner: Mutex<RuntimeInner>,
+}
+
+struct LaunchState {
+    inner: Mutex<LaunchInner>,
+}
+
+struct LaunchInner {
+    frontend_ready: bool,
+    runtime_finished: bool,
+    main_shown: bool,
 }
 
 struct RuntimeInner {
@@ -109,6 +121,18 @@ impl RuntimeManager {
     }
 }
 
+impl LaunchState {
+    fn new() -> Self {
+        Self {
+            inner: Mutex::new(LaunchInner {
+                frontend_ready: false,
+                runtime_finished: false,
+                main_shown: false,
+            }),
+        }
+    }
+}
+
 impl Drop for RuntimeManager {
     fn drop(&mut self) {
         self.stop();
@@ -117,7 +141,14 @@ impl Drop for RuntimeManager {
 
 #[tauri::command]
 fn get_runtime_status(runtime: State<Arc<RuntimeManager>>) -> RuntimeStatus {
-    runtime.status()
+    let deadline = Instant::now() + Duration::from_secs(35);
+    loop {
+        let status = runtime.status();
+        if status.state != "starting" || Instant::now() >= deadline {
+            return status;
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
 }
 
 #[tauri::command]
@@ -129,29 +160,128 @@ fn restart_runtime(
     runtime.start(&app)
 }
 
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    validate_external_url(&url)?;
+
+    let mut command = if cfg!(windows) {
+        let mut command = Command::new("rundll32");
+        command.arg("url.dll,FileProtocolHandler").arg(&url);
+        #[cfg(windows)]
+        command.creation_flags(CREATE_NO_WINDOW);
+        command
+    } else if cfg!(target_os = "macos") {
+        let mut command = Command::new("open");
+        command.arg(&url);
+        command
+    } else {
+        let mut command = Command::new("xdg-open");
+        command.arg(&url);
+        command
+    };
+
+    command.spawn().map_err(display_error)?;
+    Ok(())
+}
+
+#[tauri::command]
+fn frontend_ready(app: tauri::AppHandle, launch: State<Arc<LaunchState>>) -> Result<(), String> {
+    {
+        let mut state = launch
+            .inner
+            .lock()
+            .map_err(|_| "launch state lock poisoned")?;
+        state.frontend_ready = true;
+    }
+    maybe_show_main_window(&app, &launch)
+}
+
 fn main() {
     let runtime = Arc::new(RuntimeManager::new());
+    let launch_state = Arc::new(LaunchState::new());
     let setup_runtime = runtime.clone();
+    let setup_launch_state = launch_state.clone();
     let window_runtime = runtime.clone();
     tauri::Builder::default()
         .manage(runtime.clone())
+        .manage(launch_state.clone())
         .invoke_handler(tauri::generate_handler![
             get_runtime_status,
-            restart_runtime
+            restart_runtime,
+            open_external_url,
+            frontend_ready
         ])
         .setup(move |app| {
-            setup_runtime
-                .start(app.handle())
-                .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+            let app_handle = app.handle().clone();
+            let runtime = setup_runtime.clone();
+            let launch_state = setup_launch_state.clone();
+            thread::spawn(move || {
+                if let Err(error) = runtime.start(&app_handle) {
+                    append_supervisor_log_from_app(
+                        &app_handle,
+                        &format!("runtime failed: {error}"),
+                    );
+                }
+
+                if let Ok(mut state) = launch_state.inner.lock() {
+                    state.runtime_finished = true;
+                }
+
+                let _ = maybe_show_main_window(&app_handle, &launch_state);
+            });
             Ok(())
         })
-        .on_window_event(move |_window, event| {
-            if matches!(event, tauri::WindowEvent::Destroyed) {
+        .on_window_event(move |window, event| {
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
                 window_runtime.stop();
             }
         })
         .run(tauri::generate_context!())
         .expect("error while running BrainDrive desktop");
+}
+
+fn maybe_show_main_window(app: &tauri::AppHandle, launch: &Arc<LaunchState>) -> Result<(), String> {
+    let should_show = {
+        let mut state = launch
+            .inner
+            .lock()
+            .map_err(|_| "launch state lock poisoned")?;
+        if state.main_shown || !state.frontend_ready || !state.runtime_finished {
+            false
+        } else {
+            state.main_shown = true;
+            true
+        }
+    };
+
+    if !should_show {
+        return Ok(());
+    }
+
+    if let Some(main_window) = app.get_webview_window("main") {
+        main_window.show().map_err(display_error)?;
+        main_window.set_focus().map_err(display_error)?;
+    }
+
+    if let Some(splash_window) = app.get_webview_window("splashscreen") {
+        splash_window.close().map_err(display_error)?;
+    }
+
+    Ok(())
+}
+
+fn validate_external_url(url: &str) -> Result<(), String> {
+    if url.len() > 2048 || url.trim() != url {
+        return Err("invalid external URL".to_string());
+    }
+
+    let lower_url = url.to_ascii_lowercase();
+    let has_allowed_scheme = lower_url.starts_with("https://") || lower_url.starts_with("http://");
+    if !has_allowed_scheme || url.chars().any(char::is_control) {
+        return Err("only http and https URLs can be opened externally".to_string());
+    }
+
+    Ok(())
 }
 
 fn start_runtime(app: &tauri::AppHandle) -> Result<(RuntimeStatus, Vec<Child>), String> {
@@ -562,6 +692,12 @@ fn append_supervisor_log(log_root: &Path, message: &str) {
     let path = log_root.join("supervisor.log");
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
         let _ = writeln!(file, "{message}");
+    }
+}
+
+fn append_supervisor_log_from_app(app: &tauri::AppHandle, message: &str) {
+    if let Ok(paths) = RuntimePaths::resolve(app) {
+        append_supervisor_log(&paths.log_root, message);
     }
 }
 

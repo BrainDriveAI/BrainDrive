@@ -1,10 +1,8 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
-    <!-- Fonts self-hosted in /public/fonts/ — no external requests -->
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BrainDrive</title>
     <style>
       @font-face {
@@ -23,74 +21,77 @@
         src: url("./fonts/Questrial-Regular.ttf") format("truetype");
       }
 
+      * {
+        box-sizing: border-box;
+      }
+
       html,
       body {
         margin: 0;
-        min-width: 320px;
-        min-height: 100%;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
         background: #03050a;
-        color: #c5daed;
       }
 
-      #startup-splash {
-        position: fixed;
-        inset: 0;
-        z-index: 2147483647;
+      body {
         display: grid;
         place-items: center;
+        color: #c5daed;
+        font-family: "Questrial", system-ui, sans-serif;
+        user-select: none;
+      }
+
+      .splash {
+        display: grid;
+        width: 100%;
+        height: 100%;
+        place-items: center;
         background:
-          radial-gradient(circle at 50% 42%, rgba(50, 93, 135, 0.22), transparent 34rem),
+          radial-gradient(circle at 50% 40%, rgba(50, 93, 135, 0.32), transparent 18rem),
           linear-gradient(180deg, #071124 0%, #03050a 58%, #010208 100%);
-        opacity: 1;
-        transition: opacity 220ms ease;
       }
 
-      #startup-splash.startup-splash--hidden {
-        opacity: 0;
-        pointer-events: none;
-      }
-
-      .startup-splash__content {
+      .splash__content {
         display: flex;
-        width: min(88vw, 420px);
+        width: min(82vw, 360px);
         flex-direction: column;
         align-items: center;
-        gap: 14px;
+        gap: 13px;
         text-align: center;
       }
 
-      .startup-splash__brand {
+      .splash__brand {
         display: inline-flex;
         align-items: center;
         justify-content: center;
         gap: 12px;
       }
 
-      .startup-splash__brand-icon {
+      .splash__brand-icon {
         width: 44px;
         height: 44px;
         flex: 0 0 auto;
         filter: drop-shadow(0 18px 38px rgba(0, 0, 0, 0.34));
       }
 
-      .startup-splash__title {
+      .splash__title {
         margin: 0;
+        color: #ffffff;
         font-family: "Montserrat", system-ui, sans-serif;
         font-size: 32px;
         font-weight: 700;
         line-height: 1.12;
-        color: #ffffff;
       }
 
-      .startup-splash__message {
+      .splash__message {
         margin: 0;
-        font-family: "Questrial", system-ui, sans-serif;
+        color: #7ca7d1;
         font-size: 16px;
         line-height: 1.45;
-        color: #7ca7d1;
       }
 
-      .startup-splash__bar {
+      .splash__bar {
         position: relative;
         width: min(220px, 64vw);
         height: 3px;
@@ -100,7 +101,7 @@
         background: rgba(124, 167, 209, 0.18);
       }
 
-      .startup-splash__bar::after {
+      .splash__bar::after {
         position: absolute;
         top: 0;
         bottom: 0;
@@ -110,44 +111,38 @@
         background: #f5a623;
         box-shadow: 0 0 18px rgba(245, 166, 35, 0.62);
         content: "";
-        animation: startup-splash-loading 1.25s ease-in-out infinite;
+        animation: loading 1.25s ease-in-out infinite;
       }
 
-      @keyframes startup-splash-loading {
-        0% {
+      @keyframes loading {
+        from {
           transform: translateX(0);
         }
 
-        100% {
+        to {
           transform: translateX(350%);
         }
       }
 
       @media (prefers-reduced-motion: reduce) {
-        #startup-splash {
-          transition: none;
-        }
-
-        .startup-splash__bar::after {
-          animation: none;
+        .splash__bar::after {
           left: 0;
           width: 100%;
+          animation: none;
         }
       }
     </style>
   </head>
   <body>
-    <div id="root"></div>
-    <div id="startup-splash" role="status" aria-live="polite" aria-label="BrainDrive is loading">
-      <div class="startup-splash__content">
-        <div class="startup-splash__brand">
-          <img class="startup-splash__brand-icon" src="./braindrive-icon.svg" alt="" />
-          <h1 class="startup-splash__title">BrainDrive</h1>
+    <main class="splash" role="status" aria-live="polite" aria-label="BrainDrive is loading">
+      <div class="splash__content">
+        <div class="splash__brand">
+          <img class="splash__brand-icon" src="./braindrive-icon.svg" alt="" />
+          <h1 class="splash__title">BrainDrive</h1>
         </div>
-        <p class="startup-splash__message">Your Personal AI System is Loading...</p>
-        <div class="startup-splash__bar" aria-hidden="true"></div>
+        <p class="splash__message">Your Personal AI System is Loading...</p>
+        <div class="splash__bar" aria-hidden="true"></div>
       </div>
-    </div>
-    <script type="module" src="/src/main.tsx"></script>
+    </main>
   </body>
 </html>

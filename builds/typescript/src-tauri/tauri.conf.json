@@ -12,12 +12,25 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "BrainDrive",
         "width": 1280,
         "height": 860,
         "minWidth": 960,
         "minHeight": 640,
+        "visible": false,
         "resizable": true,
+        "fullscreen": false
+      },
+      {
+        "label": "splashscreen",
+        "url": "splash.html",
+        "title": "BrainDrive",
+        "width": 520,
+        "height": 360,
+        "center": true,
+        "resizable": false,
+        "decorations": false,
         "fullscreen": false
       }
     ],
