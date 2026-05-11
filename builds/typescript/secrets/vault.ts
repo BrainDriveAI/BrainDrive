@@ -8,7 +8,7 @@ import { resolveSecretsPaths, type SecretsPaths, writePrivateFile } from "./path
 const secretVaultSchema = z
   .object({
     schema_version: z.literal(1),
-    entries: z.record(encryptedSecretEntrySchema),
+    entries: z.record(z.string(), encryptedSecretEntrySchema),
   })
   .strict();
 
