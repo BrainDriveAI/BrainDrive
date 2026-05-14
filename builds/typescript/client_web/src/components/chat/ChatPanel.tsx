@@ -5,12 +5,13 @@ import { createPortal } from "react-dom";
 import {
   isAcceptedFile,
   formatFileSize,
+  requiresMarkdownConversion,
   rejectFileMessage,
   type AttachedFile
 } from "@/utils/file-utils";
 import { getConversation, type ConversationDetail } from "@/api/gateway-adapter";
 import { useGatewayChat } from "@/api/useGatewayChat";
-import type { Message } from "@/types/ui";
+import type { Message, ProjectFile } from "@/types/ui";
 
 import Composer from "./Composer";
 import ConnectionBanner from "./ConnectionBanner";
@@ -46,6 +47,7 @@ type ChatPanelProps = {
   messageMetadata?: Record<string, unknown>;
   contentOverride?: ReactNode;
   onSendMessage?: () => void;
+  onUploadDocument?: (file: File) => Promise<ProjectFile | void>;
   onOpenSettings?: () => void;
 };
 
@@ -70,6 +72,7 @@ export default function ChatPanel({
   messageMetadata,
   contentOverride,
   onSendMessage,
+  onUploadDocument,
   onOpenSettings
 }: ChatPanelProps) {
   const [attachment, setAttachment] = useState<AttachedFile | null>(null);
@@ -251,9 +254,7 @@ export default function ChatPanel({
 
   function handleAttach(attached: AttachedFile) {
     if (!isAcceptedFile(attached.file)) {
-      setFileError(
-        `"${attached.file.name}" is not supported. Upload .txt, .md, or .vtt files.`
-      );
+      setFileError(rejectFileMessage(attached.file.name));
       return;
     }
 
@@ -264,6 +265,30 @@ export default function ChatPanel({
   const composerProps = {
     onSend: (message: string, file?: File) => {
       if (file) {
+        if (onUploadDocument && activeProjectId && activeProjectId !== "braindrive-plus-one") {
+          void (async () => {
+            try {
+              const uploadedFile = await onUploadDocument(file);
+              const uploadedPath = uploadedFile?.path ?? file.name;
+              setAttachment(null);
+
+              if (message.trim().length > 0) {
+                const combined = `${message}\n\nUploaded ${file.name} to this folder as ${uploadedPath}.`;
+                onSendMessage?.();
+                append(combined, { metadata: messageMetadata });
+              }
+            } catch (uploadError) {
+              setFileError(uploadError instanceof Error ? uploadError.message : "Document upload failed.");
+            }
+          })();
+          return;
+        }
+
+        if (requiresMarkdownConversion(file)) {
+          setFileError("Open a project folder to upload images or PDFs for markdown conversion.");
+          return;
+        }
+
         const reader = new FileReader();
         reader.onload = () => {
           const fileContent = reader.result as string;
@@ -338,7 +363,7 @@ export default function ChatPanel({
               Drop file here
             </div>
             <div className="text-xs text-bd-text-muted">
-              .txt, .md, or .vtt
+              .txt, .md, .vtt, .csv, images, or .pdf
             </div>
           </div>
         </div>

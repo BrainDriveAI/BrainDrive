@@ -71,8 +71,13 @@ import { initializeMasterKey, loadMasterKey } from "../secrets/key-provider.js";
 import { resolveSecretsPaths } from "../secrets/paths.js";
 import { getVaultSecret, upsertVaultSecret } from "../secrets/vault.js";
 import { GatewayConversationService } from "./conversations.js";
+import {
+  buildUploadedMarkdownDocument,
+  convertUploadedDocumentToMarkdown,
+  DocumentConversionProviderError,
+} from "./document-upload.js";
 import { createMemoryBackupScheduler } from "./memory-backup-scheduler.js";
-import { GatewayProjectService, isProjectMetadata, ProtectedProjectError } from "./projects.js";
+import { GatewayProjectService, isProjectMetadata, ProtectedProjectError, type GatewayProjectFile } from "./projects.js";
 import { GatewaySkillService } from "./skills.js";
 import { prepareContextWindow } from "./context-window.js";
 
@@ -92,6 +97,15 @@ const projectRenameSchema = z.object({
 const fileContentWriteSchema = z.object({
   content: z.string(),
 });
+
+const projectDocumentUploadSchema = z
+  .object({
+    file_name: z.string().trim().min(1),
+    mime_type: z.string().trim().optional(),
+    content_base64: z.string().trim().min(1),
+    size: z.number().int().nonnegative().optional(),
+  })
+  .strict();
 
 const skillCreateSchema = z
   .object({
@@ -685,7 +699,7 @@ export async function buildServer(rootDir = process.cwd()) {
     // Without this, the AI sees the base prompt but doesn't know which project
     // files to read — it would read all projects and behave like BD+1.
     const projectContext = projectId
-      ? `\n\n## Active Project\n\nYou are currently in the **${projectId}** project. Read this project's AGENT.md, spec.md, and plan.md from the documents/${projectId}/ folder. Stay focused on this domain — do not read or reference other projects unless the conversation specifically calls for cross-domain connections.`
+      ? buildProjectChatContext(projectId, (await projects.listProjectFiles(projectId))?.files ?? [])
       : "";
     const finalPrompt = promptWithSkills.prompt + projectContext;
 
@@ -2162,6 +2176,96 @@ export async function buildServer(rootDir = process.cwd()) {
     }
   });
 
+  app.post("/projects/:id/uploads", async (request, reply) => {
+    const params = request.params as { id: string };
+    const parsed = projectDocumentUploadSchema.safeParse(request.body);
+    if (!parsed.success) {
+      sendInvalidRequest(reply, "/projects/:id/uploads", parsed.error.issues.length);
+      return;
+    }
+
+    if (params.id === "braindrive-plus-one") {
+      reply.code(403).send({ error: "Open a folder to upload documents" });
+      return;
+    }
+
+    const project = await projects.getProject(params.id);
+    if (!project) {
+      reply.code(404).send({ error: "Project not found" });
+      return;
+    }
+
+    let data: Buffer;
+    try {
+      data = Buffer.from(parsed.data.content_base64, "base64");
+    } catch {
+      reply.code(400).send({ error: "Invalid file content" });
+      return;
+    }
+
+    if (data.length === 0) {
+      reply.code(400).send({ error: "Uploaded file is empty" });
+      return;
+    }
+
+    const sizeLimit = uploadSizeLimitFor(parsed.data.file_name, parsed.data.mime_type ?? "");
+    if (data.length > sizeLimit) {
+      reply.code(413).send({ error: "Uploaded file is too large" });
+      return;
+    }
+
+    try {
+      const converted = await convertUploadedDocumentToMarkdown(
+        {
+          fileName: parsed.data.file_name,
+          mimeType: parsed.data.mime_type ?? "application/octet-stream",
+          data,
+          projectId: project.id,
+          projectName: project.name,
+        },
+        runtimeConfig.provider_adapter,
+        adapterConfig,
+        await loadLivePreferences()
+      );
+      const markdown = buildUploadedMarkdownDocument(
+        {
+          fileName: parsed.data.file_name,
+          mimeType: parsed.data.mime_type ?? "application/octet-stream",
+          data,
+          projectId: project.id,
+          projectName: project.name,
+        },
+        converted
+      );
+      const file = await projects.createUploadedMarkdownFile(project.id, parsed.data.file_name, markdown);
+      if (!file) {
+        reply.code(404).send({ error: "Project not found" });
+        return;
+      }
+
+      reply.code(201).send({
+        file,
+        conversion: converted.conversion,
+      });
+    } catch (error) {
+      if (error instanceof ProtectedProjectError) {
+        reply.code(403).send({ error: "Open a folder to upload documents" });
+        return;
+      }
+
+      if (error instanceof DocumentConversionProviderError) {
+        reply.code(502).send({
+          error: "Document conversion provider failed",
+          detail: error.message,
+          status: error.status,
+        });
+        return;
+      }
+
+      reply.code(400).send({ error: error instanceof Error ? error.message : "Document upload failed" });
+    }
+  });
+
   // --- Managed mode proxy endpoints ---
   if (isManaged && managedApiBase) {
     app.get("/account", async (request, reply) => proxyToGateway(request, reply, "GET", "/api/gateway/auth/account"));
@@ -2219,6 +2323,21 @@ async function proxyToGateway(
 function stripQueryString(url: string): string {
   const index = url.indexOf("?");
   return index >= 0 ? url.slice(0, index) : url;
+}
+
+function uploadSizeLimitFor(fileName: string, mimeType: string): number {
+  const extension = fileName.toLowerCase().slice(fileName.lastIndexOf("."));
+  const normalizedMime = mimeType.toLowerCase();
+
+  if (extension === ".pdf" || normalizedMime === "application/pdf") {
+    return 25 * 1024 * 1024;
+  }
+
+  if (normalizedMime.startsWith("image/") || [".png", ".jpg", ".jpeg", ".webp"].includes(extension)) {
+    return 15 * 1024 * 1024;
+  }
+
+  return 5 * 1024 * 1024;
 }
 
 function readRefreshTokenFromRequest(cookieHeader: unknown): string | undefined {
@@ -2835,6 +2954,38 @@ function isKnownProviderProfile(
   }
 
   return profileId === (adapterConfig.default_provider_profile ?? "default");
+}
+
+export function buildProjectChatContext(projectId: string, files: GatewayProjectFile[]): string {
+  const sortedFiles = [...files].sort((left, right) => left.name.localeCompare(right.name));
+  const visibleFiles = sortedFiles.slice(0, 80);
+  const omittedCount = Math.max(0, sortedFiles.length - visibleFiles.length);
+  const fileList = visibleFiles.length > 0
+    ? visibleFiles.map((file) => `- ${file.path}`).join("\n")
+    : "- No files currently exist in this project folder.";
+  const omittedLine = omittedCount > 0
+    ? `\n- ... ${omittedCount} additional files omitted from this context. Use memory_list to inspect the full folder.`
+    : "";
+
+  return [
+    "",
+    "",
+    "## Active Project",
+    "",
+    `You are currently in the **${projectId}** project.`,
+    `Read this project's AGENT.md, spec.md, and plan.md from the documents/${projectId}/ folder.`,
+    "Stay focused on this domain; do not read or reference other projects unless the conversation specifically calls for cross-domain connections.",
+    "",
+    "### Current Project Files",
+    "",
+    "This is the current file list at the start of this user turn:",
+    `${fileList}${omittedLine}`,
+    "",
+    "When the user asks to read, edit, delete, or confirm the existence of a project file, use this current list as the starting point.",
+    "Do not rely on earlier conversation claims that a file was already deleted or missing if the current list shows a matching file.",
+    `For delete requests in this project, prefer exact paths under documents/${projectId}/ and call memory_delete when a matching file exists.`,
+    "If the current list is ambiguous or incomplete, call memory_list before claiming the file cannot be found.",
+  ].join("\n");
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {

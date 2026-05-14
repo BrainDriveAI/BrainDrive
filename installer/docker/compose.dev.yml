@@ -13,7 +13,15 @@ services:
       - |
         set -euo pipefail
         cd /app/typescript
-        npm install --no-audit --no-fund
+        HOST_UID="$${BRAINDRIVE_DEV_HOST_UID:-1000}"
+        HOST_GID="$${BRAINDRIVE_DEV_HOST_GID:-1000}"
+        chown -R "$${HOST_UID}:$${HOST_GID}" "$${PAA_MEMORY_ROOT}" "$${PAA_SECRETS_HOME}" /app/typescript/node_modules
+
+        run_as_host() {
+          setpriv --reuid="$${HOST_UID}" --regid="$${HOST_GID}" --clear-groups "$$@"
+        }
+
+        run_as_host npm install --no-audit --no-fund
         pids=()
         cleanup() {
           for pid in "$${pids[@]:-}"; do
@@ -28,7 +36,7 @@ services:
         start_mcp() {
           local kind="$1"
           local port="$2"
-          SERVER_KIND="$${kind}" HOST="127.0.0.1" PORT="$${port}" MEMORY_ROOT="$${PAA_MEMORY_ROOT}" \
+          run_as_host env SERVER_KIND="$${kind}" HOST="127.0.0.1" PORT="$${port}" MEMORY_ROOT="$${PAA_MEMORY_ROOT}" \
             node /app/mcp_release/dist/src/index.js &
           pids+=("$$!")
         }
@@ -53,7 +61,7 @@ services:
         wait_for_mcp "$${MCP_AUTH_PORT:-8912}"
         wait_for_mcp "$${MCP_PROJECT_PORT:-8913}"
 
-        npx tsx watch gateway/server.ts
+        run_as_host npx tsx watch gateway/server.ts
     environment:
       NODE_ENV: development
       BRAINDRIVE_INSTALL_MODE: dev
@@ -70,12 +78,14 @@ services:
       PAA_AUDIT_MAX_FILE_BYTES: ${PAA_AUDIT_MAX_FILE_BYTES:-5242880}
       PAA_AUDIT_RETENTION_DAYS: ${PAA_AUDIT_RETENTION_DAYS:-14}
       TZ: ${TZ:-UTC}
+      BRAINDRIVE_DEV_HOST_UID: ${BRAINDRIVE_DEV_HOST_UID:-1000}
+      BRAINDRIVE_DEV_HOST_GID: ${BRAINDRIVE_DEV_HOST_GID:-1000}
       CHOKIDAR_USEPOLLING: ${BRAINDRIVE_DEV_CHOKIDAR_POLLING:-false}
       CHOKIDAR_INTERVAL: ${BRAINDRIVE_DEV_CHOKIDAR_INTERVAL:-250}
     volumes:
       - ../../builds/typescript:/app/typescript
       - braindrive_dev_app_node_modules:/app/typescript/node_modules
-      - braindrive_memory:/data/memory
+      - ${PAA_LIBRARY_HOST_PATH:-../../builds/typescript/your-memory}:/data/memory
       - braindrive_secrets:/run/paa-secrets
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
@@ -115,9 +125,6 @@ volumes:
     name: braindrive_dev_app_node_modules
   braindrive_dev_web_node_modules:
     name: braindrive_dev_web_node_modules
-  braindrive_memory:
-    external: true
-    name: braindrive_memory
   braindrive_secrets:
     external: true
     name: braindrive_secrets

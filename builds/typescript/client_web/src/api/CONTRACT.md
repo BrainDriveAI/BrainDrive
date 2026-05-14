@@ -270,6 +270,52 @@ Response:
 }
 ```
 
+### `POST /api/projects/:id/uploads`
+
+Uploads a document into a writable project folder and saves the result as markdown.
+
+`braindrive-plus-one` is not a valid upload target. Markdown and text files are saved directly. CSV files are converted directly to markdown tables. Images and PDFs are converted to markdown through the configured provider before the markdown file is written.
+
+Supported inputs:
+
+- Markdown/text: `.md`, `.markdown`, `.txt`, `.vtt`
+- CSV: `.csv`, `text/csv`, `application/csv`, `application/x-csv`, `application/vnd.ms-excel`, `text/comma-separated-values`
+- Images: `.png`, `.jpg`, `.jpeg`, `.webp`
+- PDF: `.pdf`
+
+Request body:
+
+```json
+{
+  "file_name": "dummy_statement.pdf",
+  "mime_type": "application/pdf",
+  "content_base64": "JVBERi0xLjY...",
+  "size": 184320
+}
+```
+
+201 response:
+
+```json
+{
+  "file": {
+    "name": "dummy-statement.md",
+    "path": "documents/finance/dummy-statement.md"
+  },
+  "conversion": "ai_pdf_to_markdown"
+}
+```
+
+CSV uploads return `conversion: "direct_csv_upload"`.
+
+403 response:
+
+```json
+{
+  "error": "Open a folder to upload documents"
+}
+```
+
 ## SSE Events
 
 The gateway uses standard server-sent events:

@@ -180,6 +180,40 @@ export class GatewayProjectService {
     return true;
   }
 
+  async createUploadedMarkdownFile(
+    projectId: string,
+    requestedFileName: string,
+    content: string
+  ): Promise<GatewayProjectFile | null> {
+    const project = await this.getProject(projectId);
+    if (!project) {
+      return null;
+    }
+
+    if (isProtectedProjectId(projectId)) {
+      throw new ProtectedProjectError(projectId);
+    }
+
+    const projectRoot = this.projectRootPath(projectId);
+    await mkdir(projectRoot, { recursive: true });
+
+    const fileName = await this.nextAvailableMarkdownFileName(projectId, requestedFileName);
+    const requestedPath = `documents/${projectId}/${fileName}`;
+    const resolvedPath = this.resolveProjectScopedPath(projectId, requestedPath);
+    if (!resolvedPath) {
+      throw new Error("Invalid path");
+    }
+
+    await writeFile(resolvedPath, content, "utf8");
+    const relativePath = path.relative(this.memoryRoot, resolvedPath);
+    await commitMemoryChange(this.memoryRoot, `Upload ${relativePath} via UI`).catch(() => {});
+
+    return {
+      name: fileName,
+      path: requestedPath,
+    };
+  }
+
   async attachConversation(projectId: string, conversationId: string): Promise<void> {
     const projects = await this.readProjects();
     const index = projects.findIndex((project) => project.id === projectId);
@@ -224,6 +258,25 @@ export class GatewayProjectService {
 
   private projectRootPath(projectId: string): string {
     return resolveMemoryPath(this.memoryRoot, `documents/${projectId}`);
+  }
+
+  private async nextAvailableMarkdownFileName(projectId: string, requestedFileName: string): Promise<string> {
+    const baseName = slugifyFileName(stripKnownExtension(requestedFileName));
+    const projectRoot = this.projectRootPath(projectId);
+    let index = 1;
+
+    while (true) {
+      const suffix = index === 1 ? "" : `-${index}`;
+      const fileName = `${baseName}${suffix}.md`;
+      const candidate = resolveMemoryPath(this.memoryRoot, `documents/${projectId}/${fileName}`);
+      if (!existsSync(candidate) || !candidate.startsWith(`${projectRoot}${path.sep}`)) {
+        if (!candidate.startsWith(`${projectRoot}${path.sep}`)) {
+          throw new Error("Invalid path");
+        }
+        return fileName;
+      }
+      index += 1;
+    }
   }
 
   private resolveProjectScopedPath(projectId: string, requestedPath: string): string | null {
@@ -337,6 +390,20 @@ function slugifyProjectName(name: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return value.length > 0 ? value : "project";
+}
+
+function stripKnownExtension(fileName: string): string {
+  const parsed = path.parse(fileName.replace(/\\/g, "/"));
+  const baseName = parsed.name || parsed.base || "uploaded-document";
+  return baseName;
+}
+
+function slugifyFileName(name: string): string {
+  const value = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return value.length > 0 ? value : "uploaded-document";
 }
 
 function nextAvailableProjectId(baseId: string, existingIds: Set<string>): string {

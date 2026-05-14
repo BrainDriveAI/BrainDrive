@@ -1,5 +1,5 @@
 import path from "node:path";
-import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 
 import type { ToolContext, ToolDefinition } from "../../contracts.js";
 import { commitMemoryChange } from "../../git.js";
@@ -70,7 +70,8 @@ async function deleteTool(context: ToolContext, input: Record<string, unknown>):
 
   try {
     const absolutePath = resolveToolPath(context, targetPath);
-    await rm(absolutePath, { recursive: true, force: true });
+    await access(absolutePath);
+    await rm(absolutePath, { recursive: true });
     auditLog("memory.write", {
       action: "file.delete",
       path: absolutePath,
@@ -301,4 +302,3 @@ export function fileOpsTools(): ToolDefinition[] {
     },
   ];
 }
-
