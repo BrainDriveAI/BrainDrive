@@ -72,9 +72,12 @@ import { resolveSecretsPaths } from "../secrets/paths.js";
 import { getVaultSecret, upsertVaultSecret } from "../secrets/vault.js";
 import { GatewayConversationService } from "./conversations.js";
 import {
+  buildUploadedDocumentIndexEntry,
   buildUploadedMarkdownDocument,
   convertUploadedDocumentToMarkdown,
   DocumentConversionProviderError,
+  inferUploadedDocumentMetadata,
+  sanitizeSuggestedMarkdownFileName,
 } from "./document-upload.js";
 import { createMemoryBackupScheduler } from "./memory-backup-scheduler.js";
 import { GatewayProjectService, isProjectMetadata, ProtectedProjectError, type GatewayProjectFile } from "./projects.js";
@@ -2215,29 +2218,57 @@ export async function buildServer(rootDir = process.cwd()) {
     }
 
     try {
+      const uploadInput = {
+        fileName: parsed.data.file_name,
+        mimeType: parsed.data.mime_type ?? "application/octet-stream",
+        data,
+        projectId: project.id,
+        projectName: project.name,
+      };
+      const livePreferences = await loadLivePreferences();
       const converted = await convertUploadedDocumentToMarkdown(
-        {
-          fileName: parsed.data.file_name,
-          mimeType: parsed.data.mime_type ?? "application/octet-stream",
-          data,
-          projectId: project.id,
-          projectName: project.name,
-        },
+        uploadInput,
         runtimeConfig.provider_adapter,
         adapterConfig,
-        await loadLivePreferences()
+        livePreferences
       );
-      const markdown = buildUploadedMarkdownDocument(
+      const metadata = await inferUploadedDocumentMetadata(
+        uploadInput,
+        converted,
+        runtimeConfig.provider_adapter,
+        adapterConfig,
+        livePreferences
+      );
+      const importedAt = new Date().toISOString();
+      const markdown = buildUploadedMarkdownDocument(uploadInput, converted, { importedAt, metadata });
+      const uploadDirectory = project.id === "finance" && metadata.statementLike ? "statements" : undefined;
+      const preferredFileName = uploadDirectory
+        ? sanitizeSuggestedMarkdownFileName(metadata.suggestedFileName, parsed.data.file_name)
+        : undefined;
+      const file = await projects.createUploadedMarkdownFile(
+        project.id,
+        parsed.data.file_name,
+        markdown,
         {
-          fileName: parsed.data.file_name,
-          mimeType: parsed.data.mime_type ?? "application/octet-stream",
-          data,
-          projectId: project.id,
-          projectName: project.name,
-        },
-        converted
+          directory: uploadDirectory,
+          preferredFileName,
+          indexEntry: (filePath, fileName) => {
+            const entry = buildUploadedDocumentIndexEntry(
+              uploadInput,
+              converted,
+              filePath,
+              importedAt,
+              metadata
+            );
+            return {
+              type: entry.type,
+              summary: entry.summary,
+              readWhen: entry.readWhen,
+              importedAt: entry.importedAt,
+            };
+          },
+        }
       );
-      const file = await projects.createUploadedMarkdownFile(project.id, parsed.data.file_name, markdown);
       if (!file) {
         reply.code(404).send({ error: "Project not found" });
         return;
@@ -2960,6 +2991,13 @@ export function buildProjectChatContext(projectId: string, files: GatewayProject
   const sortedFiles = [...files].sort((left, right) => left.name.localeCompare(right.name));
   const visibleFiles = sortedFiles.slice(0, 80);
   const omittedCount = Math.max(0, sortedFiles.length - visibleFiles.length);
+  const hasIndex = sortedFiles.some((file) => file.name === "index.md" || file.path === `documents/${projectId}/index.md`);
+  const financeBudgetGuidance = projectId === "finance"
+    ? [
+        "For budgeting questions, also read documents/finance/budget.md and documents/finance/rules.md when they exist.",
+        "Use documents/finance/statements/ as source evidence and documents/finance/reports/ as derived output for budget reports.",
+      ]
+    : [];
   const fileList = visibleFiles.length > 0
     ? visibleFiles.map((file) => `- ${file.path}`).join("\n")
     : "- No files currently exist in this project folder.";
@@ -2974,6 +3012,10 @@ export function buildProjectChatContext(projectId: string, files: GatewayProject
     "",
     `You are currently in the **${projectId}** project.`,
     `Read this project's AGENT.md, spec.md, and plan.md from the documents/${projectId}/ folder.`,
+    hasIndex
+      ? `Read documents/${projectId}/index.md before deciding which supporting documents to open. It is this folder's document map.`
+      : `If documents/${projectId}/index.md appears later in the file list, read it before deciding which supporting documents to open.`,
+    ...financeBudgetGuidance,
     "Stay focused on this domain; do not read or reference other projects unless the conversation specifically calls for cross-domain connections.",
     "",
     "### Current Project Files",

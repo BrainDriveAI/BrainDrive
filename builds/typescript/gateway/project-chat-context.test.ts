@@ -13,10 +13,25 @@ describe("project chat context", () => {
         name: "plan.md",
         path: "documents/finance/plan.md",
       },
+      {
+        name: "index.md",
+        path: "documents/finance/index.md",
+      },
+      {
+        name: "budget.md",
+        path: "documents/finance/budget.md",
+      },
+      {
+        name: "rules.md",
+        path: "documents/finance/rules.md",
+      },
     ]);
 
     expect(context).toContain("## Active Project");
     expect(context).toContain("documents/finance/dummy-statement.md");
+    expect(context).toContain("Read documents/finance/index.md before deciding which supporting documents to open");
+    expect(context).toContain("For budgeting questions, also read documents/finance/budget.md and documents/finance/rules.md");
+    expect(context).toContain("Use documents/finance/statements/ as source evidence");
     expect(context).toContain("current file list at the start of this user turn");
     expect(context).toContain("Do not rely on earlier conversation claims");
     expect(context).toContain("call memory_delete when a matching file exists");

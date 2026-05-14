@@ -98,6 +98,7 @@ Important behavior boundaries:
 - BrainDrive supports both `local` and `managed` deployment modes.
 - The UI changes behavior by mode, especially auth, settings, and model/provider flows.
 - Memory is file-backed and git-aware. Avoid casual changes to path resolution, backup, restore, import/export, or history semantics.
+- Memory template changes are paired work. When changing files in the local test memory fixture (`builds/typescript/your-memory/`), make the corresponding starter-pack change under `builds/typescript/memory/starter-pack/` so new users receive the same baseline. When starter-pack defaults change, also account for existing users through the memory update/migration flow, preserving customized owner files and avoiding overwrites unless explicitly approved.
 - Secrets are handled separately from memory backup/restore.
 
 ---

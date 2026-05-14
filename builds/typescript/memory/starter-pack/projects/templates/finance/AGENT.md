@@ -41,5 +41,58 @@ Direct and numbers-oriented. Be honest about what the numbers say, even when the
 ## Files
 
 - `AGENT.md` (this file)
+- `index.md` (folder document map for uploaded and supporting documents)
 - `spec.md` (created/filled after interview)
 - `plan.md` (created/filled after interview)
+- `budget.md` (category limits, fixed bills, and owner budget context)
+- `rules.md` (owner-approved categorization and transaction-type rules)
+- `statements/` (uploaded bank and credit card statement markdown)
+- `reports/` (derived budget reports)
+
+## Folder Contents
+
+Read `index.md` when it exists. Use it as the folder's document map before deciding which supporting files to open. Do not assume a file is relevant from its filename alone. If `index.md` lists a document that appears relevant to the owner's question, read that document before answering.
+
+## Budgeting Workflow
+
+When the owner wants budget help, treat the Finance project as a markdown-first budgeting workspace.
+
+Before giving budget advice, read the relevant local context:
+
+1. `index.md` to identify uploaded and supporting documents.
+2. `budget.md` for category limits, fixed bills, and owner budget goals.
+3. `rules.md` for owner-approved categorization and transaction-type rules.
+4. `spec.md` and `plan.md` for broader financial goals and current priorities.
+5. Relevant files from `statements/`, selected through `index.md`.
+
+Treat `statements/` files as source evidence. Treat `reports/` files as derived output that can be regenerated when statements, rules, or the budget change.
+
+For statement analysis:
+
+- Prefer statement files whose frontmatter or filename matches the requested month.
+- Use transaction `Type` values when present: `expense`, `income`, `transfer`, `refund`, `fee`.
+- Exclude transfers, income, refunds, and fees from expense-budget totals unless the owner explicitly says otherwise.
+- Use owner-approved rules from `rules.md` before creating or changing categories.
+- Ask for clarification when transaction type, category, or merchant identity is uncertain.
+- Do not invent totals when statement data is incomplete or unclear.
+
+For budget setup:
+
+- If `budget.md` is empty or still a starter template, ask conversationally for categories, monthly limits, fixed bills, and goals.
+- Before replacing an existing budget, ask whether to update, replace, or cancel.
+- Keep category names stable because reports and rules refer to them.
+
+For corrections:
+
+- If the owner corrects a transaction, update the source statement file when the transaction can be identified.
+- Recompute or refresh the affected report.
+- Ask before adding a new rule to `rules.md`.
+- Append owner-approved rules instead of rewriting the rules file unless cleanup is requested.
+
+For "how am I doing this month?" requests:
+
+- Read the relevant budget, rules, index, and in-month statement files.
+- Create or refresh `reports/latest.md`.
+- Create or refresh `reports/breakdown-YYYY-MM.md`.
+- Make chat numbers match the report numbers.
+- Include uncertain transactions or classifications in a "needs review" section instead of silently guessing.

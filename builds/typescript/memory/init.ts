@@ -3,6 +3,7 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 
 import { bootstrapSkillsFromStarterPack, MemorySkillStore } from "./skills.js";
 import { resolveMemoryPath, toMemoryRelativePath } from "./paths.js";
+import { defaultFolderIndexContent } from "./folder-index.js";
 
 export type MemoryInitProfile = "local-dev" | "openrouter-secret-ref" | "braindrive-managed-secret-ref";
 
@@ -46,7 +47,8 @@ const CONVERSATIONS_INDEX_RELATIVE_PATH = "conversations/index.json";
 const PROJECTS_MANIFEST_RELATIVE_PATH = "documents/projects.json";
 const PROJECTS_SEEDED_MARKER_RELATIVE_PATH = "preferences/projects-seeded-v1.json";
 
-const PROJECT_TEMPLATE_FILES = ["AGENT.md", "spec.md", "plan.md"] as const;
+const PROJECT_TEMPLATE_FILES = ["AGENT.md", "index.md", "spec.md", "plan.md"] as const;
+const FINANCE_PROJECT_TEMPLATE_FILES = ["budget.md", "rules.md", "reports/latest.md"] as const;
 const PROJECTS_SEED_RELATIVE_PATH = "projects/projects.seed.json";
 const PROJECT_TEMPLATES_ROOT_RELATIVE_PATH = "projects/templates";
 
@@ -233,26 +235,68 @@ export async function scaffoldProjectFiles(
   await ensureDirectory(resolveMemoryPath(absoluteMemoryRoot, `documents/${projectId}`), absoluteMemoryRoot, summary, dryRun);
 
   for (const templateFile of PROJECT_TEMPLATE_FILES) {
-    const relativePath = `documents/${projectId}/${templateFile}`;
-    const templatePath = starterPackDir
-      ? path.join(starterPackDir, PROJECT_TEMPLATES_ROOT_RELATIVE_PATH, templateId, templateFile)
-      : null;
-    const fallbackContent = fallbackProjectTemplateContent(projectName, templateFile);
-    await ensureFileFromTemplate(
+    await ensureProjectTemplateFile(
       absoluteMemoryRoot,
-      relativePath,
-      templatePath,
-      fallbackContent,
+      starterPackDir,
+      templateId,
+      projectId,
+      projectName,
+      templateFile,
       force,
       dryRun,
       summary
     );
   }
 
+  if (projectId === "finance" || templateId === "finance") {
+    await ensureDirectory(resolveMemoryPath(absoluteMemoryRoot, `documents/${projectId}/statements`), absoluteMemoryRoot, summary, dryRun);
+    await ensureDirectory(resolveMemoryPath(absoluteMemoryRoot, `documents/${projectId}/reports`), absoluteMemoryRoot, summary, dryRun);
+    for (const templateFile of FINANCE_PROJECT_TEMPLATE_FILES) {
+      await ensureProjectTemplateFile(
+        absoluteMemoryRoot,
+        starterPackDir,
+        "finance",
+        projectId,
+        projectName,
+        templateFile,
+        force,
+        dryRun,
+        summary
+      );
+    }
+  }
+
   return {
     template_id: templateId,
     starter_pack_dir: starterPackDir,
   };
+}
+
+async function ensureProjectTemplateFile(
+  absoluteMemoryRoot: string,
+  starterPackDir: string | null,
+  templateId: string,
+  projectId: string,
+  projectName: string,
+  templateFile: string,
+  force: boolean,
+  dryRun: boolean,
+  summary: MemoryInitSummary
+): Promise<void> {
+  const relativePath = `documents/${projectId}/${templateFile}`;
+  const templatePath = starterPackDir
+    ? path.join(starterPackDir, PROJECT_TEMPLATES_ROOT_RELATIVE_PATH, templateId, templateFile)
+    : null;
+  const fallbackContent = fallbackProjectTemplateContent(projectName, templateFile);
+  await ensureFileFromTemplate(
+    absoluteMemoryRoot,
+    relativePath,
+    templatePath,
+    fallbackContent,
+    force,
+    dryRun,
+    summary
+  );
 }
 
 function createDetachedSummary(): MemoryInitSummary {
@@ -629,7 +673,8 @@ function fallbackRootAgentPrompt(): string {
     "For explicit user commands to read/list/write/edit/delete files, execute the matching tool directly rather than asking for an extra confirmation message.",
     "For mutating actions, perform only the explicitly requested changes and avoid extra cleanup or deletion steps unless the user requested them.",
     "When writes are needed, request approval through the contract-visible approval flow before any mutating tool executes.",
-    "When asked to create a project folder, produce AGENT.md, spec.md, and plan.md inside that folder unless the user asks for a smaller subset.",
+    "When asked to create a project folder, produce AGENT.md, index.md, spec.md, and plan.md inside that folder unless the user asks for a smaller subset.",
+    "Read index.md in the current project folder when it exists. It summarizes uploaded and supporting documents so you can decide what to read.",
     "For project discovery requests, prefer project_list and report projects from documents scope only.",
     "If the user asks to remember something for this chat, keep it in conversational context for this session without requiring file storage.",
     "Only ask for a safe explicit destination when the user asks to persist information into memory files.",
@@ -661,7 +706,7 @@ function fallbackTodoSeed(): string {
   ].join("\n");
 }
 
-function fallbackProjectTemplateContent(projectName: string, fileName: (typeof PROJECT_TEMPLATE_FILES)[number]): string {
+function fallbackProjectTemplateContent(projectName: string, fileName: string): string {
   if (fileName === "AGENT.md") {
     return [
       `# ${projectName} - Agent Context`,
@@ -697,6 +742,115 @@ function fallbackProjectTemplateContent(projectName: string, fileName: (typeof P
       "## Gaps",
       "",
       "- Capture what is missing or unclear.",
+      "",
+    ].join("\n");
+  }
+
+  if (fileName === "index.md") {
+    return defaultFolderIndexContent();
+  }
+
+  if (fileName === "budget.md") {
+    return [
+      "# Budget",
+      "",
+      "## Instructions",
+      "",
+      "Use this file as the source of truth for category limits and owner budget goals.",
+      "",
+      "## Monthly Context",
+      "",
+      "| Field | Value | Notes |",
+      "|---|---:|---|",
+      "| Target month |  | YYYY-MM |",
+      "| Expected income |  | Optional |",
+      "| Savings goal |  | Optional |",
+      "| Debt payoff goal |  | Optional |",
+      "",
+      "## Category Limits",
+      "",
+      "| Category | Monthly Limit | Notes |",
+      "|---|---:|---|",
+      "| Groceries |  |  |",
+      "| Eating Out |  |  |",
+      "| Transportation |  |  |",
+      "| Subscriptions |  |  |",
+      "| Shopping |  |  |",
+      "| Fun |  |  |",
+      "",
+      "## Fixed Bills",
+      "",
+      "| Bill | Amount | Due Day | Notes |",
+      "|---|---:|---:|---|",
+      "",
+      "## Owner Notes",
+      "",
+      "-",
+      "",
+    ].join("\n");
+  }
+
+  if (fileName === "rules.md") {
+    return [
+      "# Budget Rules",
+      "",
+      "## Instructions",
+      "",
+      "Use these owner-approved rules before making new categorization decisions. Ask before adding new rules.",
+      "",
+      "## Merchant Category Rules",
+      "",
+      "| Pattern | Category | Notes |",
+      "|---|---|---|",
+      "",
+      "## Transaction Type Rules",
+      "",
+      "| Pattern | Type | Notes |",
+      "|---|---|---|",
+      "",
+      "Allowed types: `expense`, `income`, `transfer`, `refund`, `fee`.",
+      "",
+      "## Exclusions",
+      "",
+      "| Pattern | Reason | Notes |",
+      "|---|---|---|",
+      "",
+    ].join("\n");
+  }
+
+  if (fileName === "reports/latest.md") {
+    return [
+      "# Latest Budget Report",
+      "",
+      "**Month:**  ",
+      "**Generated:**  ",
+      "**Source statements:** ",
+      "",
+      "## Summary",
+      "",
+      "- Overall status:",
+      "- Largest over-budget category:",
+      "- Largest under-budget category:",
+      "- Items needing owner review:",
+      "",
+      "## Category Breakdown",
+      "",
+      "| Category | Limit | Spent | Remaining | Status | Notes |",
+      "|---|---:|---:|---:|---|---|",
+      "",
+      "## Excluded From Expense Totals",
+      "",
+      "| Type | Amount | Notes |",
+      "|---|---:|---|",
+      "",
+      "## Needs Review",
+      "",
+      "| Date | Description | Amount | Reason |",
+      "|---|---|---:|---|",
+      "",
+      "## Next Actions",
+      "",
+      "-",
       "",
     ].join("\n");
   }

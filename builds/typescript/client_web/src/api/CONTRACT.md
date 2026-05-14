@@ -275,6 +275,9 @@ Response:
 Uploads a document into a writable project folder and saves the result as markdown.
 
 `braindrive-plus-one` is not a valid upload target. Markdown and text files are saved directly. CSV files are converted directly to markdown tables. Images and PDFs are converted to markdown through the configured provider before the markdown file is written.
+Successful uploads also create or update `documents/{project}/index.md` with a supporting-document entry for the saved markdown file.
+
+Finance uploads include an additional metadata pass after conversion. Statement-like bank and credit card uploads may be saved under `documents/finance/statements/` with a safe model-suggested filename such as `2026-05-capital-one.md`; the final response path is authoritative.
 
 Supported inputs:
 
@@ -306,7 +309,17 @@ Request body:
 }
 ```
 
-CSV uploads return `conversion: "direct_csv_upload"`.
+CSV uploads return `conversion: "direct_csv_upload"`. A Finance statement upload can instead return a nested path:
+
+```json
+{
+  "file": {
+    "name": "2026-05-capital-one.md",
+    "path": "documents/finance/statements/2026-05-capital-one.md"
+  },
+  "conversion": "direct_csv_upload"
+}
+```
 
 403 response:
 

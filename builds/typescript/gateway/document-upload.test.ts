@@ -1,8 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  buildUploadedDocumentIndexEntry,
   buildUploadedMarkdownDocument,
   convertUploadedDocumentToMarkdown,
+  inferUploadedDocumentMetadata,
+  inferUploadedDocumentMetadataDeterministic,
+  sanitizeSuggestedMarkdownFileName,
   type UploadedDocumentInput,
 } from "./document-upload.js";
 import type { AdapterConfig, Preferences } from "../contracts.js";
@@ -35,6 +39,10 @@ function baseInput(overrides: Partial<UploadedDocumentInput>): UploadedDocumentI
     ...overrides,
   };
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("document upload conversion", () => {
   it("preserves markdown uploads without adding duplicate frontmatter", async () => {
@@ -185,5 +193,133 @@ describe("document upload conversion", () => {
     expect(request.messages[1].content[1].type).toBe("file");
     expect(request.messages[1].content[1].file.file_data).toMatch(/^data:application\/pdf;base64,/);
     expect(request.plugins).toBeUndefined();
+  });
+
+  it("infers finance statement metadata deterministically for CSV uploads", async () => {
+    const input = baseInput({
+      fileName: "Capital One May 2026.csv",
+      mimeType: "text/csv",
+      data: Buffer.from("Date,Description,Amount\n2026-05-12,Coffee,-4.50\n"),
+    });
+    const converted = await convertUploadedDocumentToMarkdown(
+      input,
+      "openai-compatible",
+      adapterConfig,
+      preferences
+    );
+
+    const metadata = inferUploadedDocumentMetadataDeterministic(input, converted);
+
+    expect(metadata).toMatchObject({
+      documentType: "credit_card_statement",
+      statementLike: true,
+      institution: "Capital One",
+      accountType: "credit_card",
+      statementMonth: "2026-05",
+      suggestedFileName: "2026-05-capital-one.md",
+    });
+    expect(metadata.tags).toEqual(expect.arrayContaining(["finance", "statement", "credit-card-statement"]));
+  });
+
+  it("normalizes LLM metadata into safe statement filenames", async () => {
+    const input = baseInput({
+      fileName: "upload.pdf",
+      mimeType: "application/pdf",
+      data: Buffer.from("%PDF-1.6\n%%EOF"),
+    });
+    const converted = {
+      title: "Statement",
+      conversion: "ai_pdf_to_markdown" as const,
+      markdown: "# Statement\n\nCapital One\nStatement period: 2026-05-01 to 2026-05-31\n",
+    };
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  document_type: "credit_card_statement",
+                  statement_like: true,
+                  institution: "Capital One",
+                  account_type: "credit_card",
+                  statement_month: "2026-05",
+                  statement_period_start: "2026-05-01",
+                  statement_period_end: "2026-05-31",
+                  suggested_file_name: "../../2026-05-Capital One.pdf",
+                  summary: "Capital One credit card statement for May 2026.",
+                  tags: ["Finance", "Statement", "Credit Card Statement"],
+                  confidence: "high",
+                }),
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const metadata = await inferUploadedDocumentMetadata(
+      input,
+      converted,
+      "openai-compatible",
+      adapterConfig,
+      preferences
+    );
+
+    expect(metadata).toMatchObject({
+      documentType: "credit_card_statement",
+      statementLike: true,
+      institution: "Capital One",
+      statementMonth: "2026-05",
+      statementPeriodStart: "2026-05-01",
+      statementPeriodEnd: "2026-05-31",
+      suggestedFileName: "2026-05-capital-one.md",
+      summary: "Capital One credit card statement for May 2026.",
+      confidence: "high",
+    });
+    expect(metadata.tags).toEqual(["finance", "statement", "credit-card-statement"]);
+  });
+
+  it("adds statement metadata to uploaded markdown and index entries", () => {
+    const input = baseInput({
+      fileName: "Capital One May 2026.csv",
+      mimeType: "text/csv",
+    });
+    const converted = {
+      title: "Capital One May 2026",
+      conversion: "direct_csv_upload" as const,
+      markdown: "| Date | Description | Amount |\n|---|---|---:|\n| 2026-05-12 | Coffee | -4.50 |",
+    };
+    const metadata = inferUploadedDocumentMetadataDeterministic(input, converted);
+    const document = buildUploadedMarkdownDocument(input, converted, {
+      importedAt: "2026-05-14T16:00:00.000Z",
+      metadata,
+    });
+    const entry = buildUploadedDocumentIndexEntry(
+      input,
+      converted,
+      "statements/2026-05-capital-one.md",
+      "2026-05-14T16:00:00.000Z",
+      metadata
+    );
+
+    expect(document).toContain('document_type: "credit_card_statement"');
+    expect(document).toContain('statement_month: "2026-05"');
+    expect(document).toContain("tags:\n  - \"statement\"");
+    expect(entry.fileName).toBe("statements/2026-05-capital-one.md");
+    expect(entry.type).toBe("Credit card statement");
+    expect(entry.readWhen).toContain("2026-05");
+  });
+
+  it("sanitizes suggested markdown filenames", () => {
+    expect(sanitizeSuggestedMarkdownFileName("../../2026-05 Capital One.pdf", "fallback.pdf"))
+      .toBe("2026-05-capital-one.md");
+    expect(sanitizeSuggestedMarkdownFileName("", "Bank of America June 2026.csv"))
+      .toBe("bank-of-america-june-2026.md");
   });
 });

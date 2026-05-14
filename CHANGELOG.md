@@ -1,3 +1,25 @@
+## [26.05.12] - 2026-05-14
+
+### Added
+- Project folders now include `index.md` as a managed folder map for uploaded and supporting documents.
+- Document uploads update the current project folder index so agents can choose relevant supporting files before answering.
+- Finance statement uploads can now use AI-derived metadata to save bank and credit card statements under `statements/YYYY-MM-institution.md`.
+- Finance starter memory now includes markdown-first budgeting files for category limits, owner rules, statements, and reports.
+- Starter-pack memory updates now include seeded project index files for existing users.
+
+### Changed
+- Project scaffolding and project completeness checks now treat `index.md` as a default project file alongside `AGENT.md`, `spec.md`, and `plan.md`.
+- Project chat context now points agents to `index.md` when it exists.
+- Project file listings now include nested supporting documents such as Finance statement files.
+- Finance project chat context now points budget questions to `budget.md`, `rules.md`, `statements/`, and `reports/`.
+
+### Fixed
+- Deleting a project document through memory tools now removes the stale supporting-document entry from `index.md`.
+- Deleting nested project documents now removes matching relative paths from `index.md`.
+
+### Removed
+- No user-facing removals this week.
+
 ## [26.05.11] - 2026-05-11
 
 ### Added
