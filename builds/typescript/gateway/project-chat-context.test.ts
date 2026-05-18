@@ -35,12 +35,15 @@ describe("project chat context", () => {
     expect(context).toContain("treat documents/finance/budget.md as the saved budget");
     expect(context).toContain("Use documents/finance/statements/ as source evidence");
     expect(context).toContain("Do not write to documents/finance/budget.md during a saved-budget comparison");
+    expect(context).toContain("do not call memory_write, memory_edit, or memory_delete on documents/finance/budget.md");
     expect(context).toContain("Put saved-budget comparison findings in documents/finance/reports/latest.md");
     expect(context).toContain("Check for duplicate or overlapping statement evidence");
     expect(context).toContain("account for named merchants");
+    expect(context).toContain("date range overlaps the requested month");
     expect(context).toContain("call memory_list on documents/finance and documents/finance/statements");
+    expect(context).toContain("do not accept a later conversational guess that it was absent");
     expect(context).toContain("Budget report summaries must agree with their category tables");
-    expect(context).toContain("partner coaching belongs in the Relationships project");
+    expect(context).toContain("never pause, stop, or redirect unfinished budget");
     expect(context).toContain("current file list at the start of this user turn");
     expect(context).toContain("Do not rely on earlier conversation claims");
     expect(context).toContain("call memory_delete when a matching file exists");

@@ -12,6 +12,8 @@ During monthly "how did I do?" comparisons, preserve these saved limits and comp
 
 Do not rewrite this file during a saved-budget comparison. This file is not the monthly comparison report and should not be used for actuals, variance notes, new-merchant findings, or one-month coaching. Put that work in `reports/latest.md` and leave this saved plan intact.
 
+During saved-budget comparison mode, do not call memory write/edit/delete tools on this file. If the comparison reveals that this plan should change, list recommended changes in `reports/latest.md` and wait for the owner to explicitly ask for a budget revision.
+
 Focus this budget on monthly spending goals. Investment balances and portfolio performance belong elsewhere unless the owner explicitly asks to connect them to budget planning.
 
 ## Monthly Context

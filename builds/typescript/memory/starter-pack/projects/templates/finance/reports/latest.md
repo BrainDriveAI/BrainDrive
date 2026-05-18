@@ -12,9 +12,15 @@ For "how did I do?" or monthly comparison requests, use `budget.md` as the saved
 
 Monthly comparison report rule: leave `budget.md` unchanged unless the owner explicitly asks to revise the saved budget. If the saved plan needs changes, list recommended changes under Next Actions instead of editing the saved plan.
 
+Tool-use rule: this report is the write target for saved-budget comparison findings. Do not write, edit, or delete `budget.md` while producing this report.
+
 Before finalizing this report, verify source coverage: list the statement files/date ranges used, account for any merchant the owner specifically asked about, and do not say a named merchant is absent unless the relevant source files were checked.
 
 If an uploaded statement was mentioned in chat but seems missing, inspect the Finance file list and `statements/` folder before saying it is unavailable or asking for a re-upload. Use converted statement filenames and date ranges, not only the original upload filename.
+
+Statement-cycle files may be named by the start month or converted upload path. Include statement files whose date range overlaps the requested month even when the filename month is different.
+
+If the owner asks about a named merchant or transaction, search statement evidence for the exact name. If the source statement shows the transaction, report it even if the owner later guesses it was absent.
 
 The spent amount for each category should equal the sum of included in-month expense transactions for that category. List income, transfers, credit-card payments, refunds, finance charges, and investment movement outside expense totals.
 
@@ -36,6 +42,8 @@ When this report is created or refreshed because the owner asked for a first-pas
 
 | Source File | Date Range Used | Notes |
 |---|---|---|
+
+List every statement file read for this comparison. Include files read because their statement period overlaps the requested month even if their filename month differs.
 
 ## Category Breakdown
 

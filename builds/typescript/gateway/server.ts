@@ -2999,12 +2999,15 @@ export function buildProjectChatContext(projectId: string, files: GatewayProject
         "For 'how did I do?', monthly comparison, over/under, or budget progress questions, treat documents/finance/budget.md as the saved budget and compare statement actuals against it.",
         "Use documents/finance/statements/ as source evidence and documents/finance/reports/ as derived output for budget reports.",
         "Do not write to documents/finance/budget.md during a saved-budget comparison unless the owner explicitly asks to revise the saved budget.",
+        "During saved-budget comparison mode, do not call memory_write, memory_edit, or memory_delete on documents/finance/budget.md; write comparison output only to documents/finance/reports/latest.md or a month-specific reports file.",
         "Put saved-budget comparison findings in documents/finance/reports/latest.md; answer direct comparison questions with best-effort evidence before asking extra clarification questions.",
         "Check for duplicate or overlapping statement evidence before counting transactions in budget reports.",
         "Before writing a budget comparison report, read the relevant statement files, account for named merchants, and do not claim a merchant is missing unless the relevant source files were checked.",
+        "For monthly comparisons, read statement files whose date range overlaps the requested month even if the filename uses the starting month, ending month, account name, or converted upload name.",
         "If an upload was just mentioned but the expected filename is not visible, call memory_list on documents/finance and documents/finance/statements and search converted statement filenames/date ranges before asking the owner to re-upload.",
+        "If the owner mentions a named merchant such as VRBO, search source statements for that exact merchant before answering; if source evidence shows it, do not accept a later conversational guess that it was absent.",
         "Budget report summaries must agree with their category tables and must list excluded payments, transfers, refunds, fees, and investment movement separately from ordinary spending.",
-        "Relationship context can be noted briefly when it affects the financial plan, but partner coaching belongs in the Relationships project unless the owner explicitly asks for it here.",
+        "Relationship context can be noted briefly after the requested Finance artifact, but never pause, stop, or redirect unfinished budget, statement, debt, upload, or report work to the Relationships project.",
       ]
     : [];
   const fileList = visibleFiles.length > 0

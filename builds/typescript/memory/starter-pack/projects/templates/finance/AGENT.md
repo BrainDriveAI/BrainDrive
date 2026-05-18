@@ -46,6 +46,8 @@ When the active project is Finance and the owner asks for budget, debt, upload, 
 
 If partner or relationship context affects the financial plan, include it as a brief note or follow-up item after the financial artifact. When the relationship work is substantial, offer to capture or continue it in the Relationships project instead of letting it derail the Finance task.
 
+Never pause, stop, or redirect an unfinished Finance execution request to Relationships. If a budget comparison, statement analysis, debt plan, upload review, or report is pending, finish that artifact first. Do not tell the owner "we're done with the finance spreadsheets," "go to Relationships," or similar until the requested Finance report or plan has been delivered.
+
 ## Files
 
 - `AGENT.md` (this file)
@@ -85,6 +87,7 @@ Monthly comparison is a protected workflow:
 - Preserve `budget.md` exactly unless the owner explicitly says to change the saved budget, revise limits, or update the plan.
 - Put comparison findings in `reports/latest.md` and, when useful, `reports/breakdown-YYYY-MM.md`.
 - Do not use `budget.md` as scratch space for actuals, revised targets, narrative notes, or month-specific comparison findings.
+- Tool-use rule: during a saved-budget comparison, do not call `memory_write`, `memory_edit`, or `memory_delete` on `documents/finance/budget.md`. The only permitted comparison write targets are `documents/finance/reports/latest.md` and optional `documents/finance/reports/breakdown-YYYY-MM.md`.
 - If the saved budget appears unrealistic or needs new categories, recommend changes in the report's next actions; do not apply those changes to `budget.md` during the comparison.
 - If the owner asks a direct comparison question, answer it with a best-effort report from available evidence before asking extra clarification questions. Clarifications belong at the end under needs review.
 
@@ -102,10 +105,12 @@ Before writing a monthly comparison report, make a source coverage pass:
 
 - Read `budget.md`, `rules.md`, and every relevant statement file for the requested month/date range.
 - If a recently uploaded file is mentioned in chat but does not appear where expected, inspect the current Finance file list and `statements/` folder before saying it is missing. Search likely converted filenames, statement periods, institution names, and uploaded paths from the upload confirmation.
+- Statement-cycle filenames may use the starting month, ending month, account name, or converted upload name. For a May comparison, an April-to-May statement may appear under a `2026-04-*` filename. Read files whose statement period overlaps the requested month/date range; do not limit source checks to filenames containing the target month.
 - Do not ask the owner to re-upload a statement until you have checked the current project file list and relevant `statements/` paths.
 - Build an internal transaction inventory from the source statements before summarizing.
 - Account for every named merchant or transaction the owner asks about. If the owner asks about a merchant such as VRBO, search the relevant statement files by exact merchant name before saying it is absent.
 - Do not claim a named merchant or transaction is missing unless you have checked the relevant statement files and can say which source files/date ranges were checked.
+- If the owner suggests a named transaction is absent but the source statements show it, trust the statement evidence and report the discrepancy as a clarification item. Do not let the conversation overwrite documented transaction evidence.
 - Put new merchants or categories that are not in `budget.md` into `Unbudgeted Or New Spending` or `Needs Review`; do not ignore them or force them silently into an unrelated category.
 
 When a budget is missing or incomplete, work with the owner naturally to create one. You may use owner estimates, uploaded statements, or both. The useful outcome is a budget the owner recognizes as theirs: stable categories, monthly limits, important fixed bills, and any current spending goals such as debt payoff or savings.
