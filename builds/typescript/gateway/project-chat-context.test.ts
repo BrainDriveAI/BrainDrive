@@ -36,6 +36,8 @@ describe("project chat context", () => {
     expect(context).toContain("Use documents/finance/statements/ as source evidence");
     expect(context).toContain("Do not replace saved budget limits during comparison");
     expect(context).toContain("Check for duplicate or overlapping statement evidence");
+    expect(context).toContain("account for named merchants");
+    expect(context).toContain("Budget report summaries must agree with their category tables");
     expect(context).toContain("partner coaching belongs in the Relationships project");
     expect(context).toContain("current file list at the start of this user turn");
     expect(context).toContain("Do not rely on earlier conversation claims");

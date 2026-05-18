@@ -3000,6 +3000,8 @@ export function buildProjectChatContext(projectId: string, files: GatewayProject
         "Use documents/finance/statements/ as source evidence and documents/finance/reports/ as derived output for budget reports.",
         "Do not replace saved budget limits during comparison unless the owner explicitly asks to revise the budget.",
         "Check for duplicate or overlapping statement evidence before counting transactions in budget reports.",
+        "Before writing a budget comparison report, read the relevant statement files, account for named merchants, and do not claim a merchant is missing unless the relevant source files were checked.",
+        "Budget report summaries must agree with their category tables and must list excluded payments, transfers, refunds, fees, and investment movement separately from ordinary spending.",
         "Relationship context can be noted briefly when it affects the financial plan, but partner coaching belongs in the Relationships project unless the owner explicitly asks for it here.",
       ]
     : [];

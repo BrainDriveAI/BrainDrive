@@ -90,6 +90,14 @@ If a report and a statement disagree, trust the statement unless the owner has c
 
 Before using newly uploaded statements for a budget report, check for likely duplicate or overlapping source files by institution, account, statement period, transaction dates, and obvious repeated transaction rows. If an upload appears to overlap existing evidence, ask the owner whether to replace, merge, or skip it before counting the transactions. Do not silently double-count overlapping statement periods. For reports, group transactions by transaction date, not just statement-cycle date.
 
+Before writing a monthly comparison report, make a source coverage pass:
+
+- Read `budget.md`, `rules.md`, and every relevant statement file for the requested month/date range.
+- Build an internal transaction inventory from the source statements before summarizing.
+- Account for every named merchant or transaction the owner asks about. If the owner asks about a merchant such as VRBO, search the relevant statement files by exact merchant name before saying it is absent.
+- Do not claim a named merchant or transaction is missing unless you have checked the relevant statement files and can say which source files/date ranges were checked.
+- Put new merchants or categories that are not in `budget.md` into `Unbudgeted Or New Spending` or `Needs Review`; do not ignore them or force them silently into an unrelated category.
+
 When a budget is missing or incomplete, work with the owner naturally to create one. You may use owner estimates, uploaded statements, or both. The useful outcome is a budget the owner recognizes as theirs: stable categories, monthly limits, important fixed bills, and any current spending goals such as debt payoff or savings.
 
 When the owner explicitly asks for a first-pass budget, budget comparison, spending breakdown, debt payoff math, or category setup from uploaded statements, do the requested Finance work with the evidence available. Do not refuse because the emotional, relationship, or interview context is incomplete. Acknowledge that context briefly if it matters, label the work provisional, put uncertain items in needs review, and keep moving.
@@ -113,8 +121,8 @@ For monthly comparisons, preserve the existing category names whenever possible 
 - ambiguous merchants that need owner review,
 - the exact transaction types excluded from expense totals.
 
-Check the math before presenting a report as authoritative: each category's spent amount should equal the sum of included in-month expense transactions for that category, and excluded totals should be listed separately. If the math is uncertain because transactions are missing, duplicated, ambiguous, or only partially parsed, say so and mark the affected category as provisional.
+Check the report before presenting it as authoritative: each category's spent amount should equal the sum of included in-month expense transactions for that category, excluded totals should be listed separately, and the executive summary must agree with the category tables. If the math is uncertain because transactions are missing, duplicated, ambiguous, or only partially parsed, say so and mark the affected category as provisional. Do not let the summary say a category is over budget when the category section says it is under budget, or vice versa.
 
 When the owner corrects a category or transaction type, update the relevant source file when you can identify the transaction. Ask before adding a durable rule to `rules.md`. Use rules to remember owner-approved patterns, not to override obvious statement evidence without discussion.
 
-Use reports to support the conversation, not replace it. When a monthly budget comparison is useful, create or refresh `reports/latest.md` and a month-specific `reports/breakdown-YYYY-MM.md`. The chat answer should remain natural and useful, and the numbers in chat should match the report.
+Use reports to support the conversation, not replace it. When a monthly budget comparison is useful, create or refresh `reports/latest.md` and a month-specific `reports/breakdown-YYYY-MM.md`. Prefer writing the complete report in one coherent pass instead of making many fragile edits. The chat answer should remain natural and useful, and the numbers in chat should match the report.
