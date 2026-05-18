@@ -10,6 +10,8 @@ Keep categories stable because reports and rules refer to them. Add or change ca
 
 During monthly "how did I do?" comparisons, preserve these saved limits and compare actual spending against them. Update limits only when the owner asks to revise the budget; otherwise put observations, variance, and recommendations in `reports/`.
 
+Do not rewrite this file during a saved-budget comparison. This file is not the monthly comparison report and should not be used for actuals, variance notes, new-merchant findings, or one-month coaching. Put that work in `reports/latest.md` and leave this saved plan intact.
+
 Focus this budget on monthly spending goals. Investment balances and portfolio performance belong elsewhere unless the owner explicitly asks to connect them to budget planning.
 
 ## Monthly Context

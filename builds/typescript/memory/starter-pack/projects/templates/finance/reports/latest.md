@@ -10,7 +10,11 @@ This report supports the budget conversation. It should summarize what the owner
 
 For "how did I do?" or monthly comparison requests, use `budget.md` as the saved plan and uploaded statements as source evidence. This report is derived output; do not silently change saved budget limits here.
 
+Monthly comparison report rule: leave `budget.md` unchanged unless the owner explicitly asks to revise the saved budget. If the saved plan needs changes, list recommended changes under Next Actions instead of editing the saved plan.
+
 Before finalizing this report, verify source coverage: list the statement files/date ranges used, account for any merchant the owner specifically asked about, and do not say a named merchant is absent unless the relevant source files were checked.
+
+If an uploaded statement was mentioned in chat but seems missing, inspect the Finance file list and `statements/` folder before saying it is unavailable or asking for a re-upload. Use converted statement filenames and date ranges, not only the original upload filename.
 
 The spent amount for each category should equal the sum of included in-month expense transactions for that category. List income, transfers, credit-card payments, refunds, finance charges, and investment movement outside expense totals.
 
@@ -25,6 +29,7 @@ When this report is created or refreshed because the owner asked for a first-pas
 - Overall status:
 - Largest over-budget category:
 - Largest under-budget category:
+- Major new/unbudgeted item:
 - Items needing owner review:
 
 ## Source Coverage
@@ -36,6 +41,8 @@ When this report is created or refreshed because the owner asked for a first-pas
 
 | Category | Limit | Spent | Remaining | Status | Notes |
 |---|---:|---:|---:|---|---|
+
+Use the saved category names from `budget.md` where possible. Put categories or merchants not present in `budget.md` in the next section instead of changing the saved budget.
 
 ## Unbudgeted Or New Spending
 

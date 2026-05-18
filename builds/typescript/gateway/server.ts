@@ -2998,9 +2998,11 @@ export function buildProjectChatContext(projectId: string, files: GatewayProject
         "For explicit Finance execution requests about budgets, debt, uploads, statements, spending, or reports, complete the Finance task before coaching or cross-domain discussion.",
         "For 'how did I do?', monthly comparison, over/under, or budget progress questions, treat documents/finance/budget.md as the saved budget and compare statement actuals against it.",
         "Use documents/finance/statements/ as source evidence and documents/finance/reports/ as derived output for budget reports.",
-        "Do not replace saved budget limits during comparison unless the owner explicitly asks to revise the budget.",
+        "Do not write to documents/finance/budget.md during a saved-budget comparison unless the owner explicitly asks to revise the saved budget.",
+        "Put saved-budget comparison findings in documents/finance/reports/latest.md; answer direct comparison questions with best-effort evidence before asking extra clarification questions.",
         "Check for duplicate or overlapping statement evidence before counting transactions in budget reports.",
         "Before writing a budget comparison report, read the relevant statement files, account for named merchants, and do not claim a merchant is missing unless the relevant source files were checked.",
+        "If an upload was just mentioned but the expected filename is not visible, call memory_list on documents/finance and documents/finance/statements and search converted statement filenames/date ranges before asking the owner to re-upload.",
         "Budget report summaries must agree with their category tables and must list excluded payments, transfers, refunds, fees, and investment movement separately from ordinary spending.",
         "Relationship context can be noted briefly when it affects the financial plan, but partner coaching belongs in the Relationships project unless the owner explicitly asks for it here.",
       ]

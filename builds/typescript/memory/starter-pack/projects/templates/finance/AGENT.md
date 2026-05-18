@@ -80,6 +80,14 @@ Use the available Finance memory as context, not as a script:
 
 Treat `budget.md` as the saved budget. When the owner asks "how did I do?", "compare this month", "am I over budget?", or similar, read `budget.md` first and compare actual spending against those saved limits. Do not replace the saved limits during a comparison unless the owner explicitly asks to revise the budget. If the saved budget is missing, create a first-pass budget before presenting a variance report.
 
+Monthly comparison is a protected workflow:
+
+- Preserve `budget.md` exactly unless the owner explicitly says to change the saved budget, revise limits, or update the plan.
+- Put comparison findings in `reports/latest.md` and, when useful, `reports/breakdown-YYYY-MM.md`.
+- Do not use `budget.md` as scratch space for actuals, revised targets, narrative notes, or month-specific comparison findings.
+- If the saved budget appears unrealistic or needs new categories, recommend changes in the report's next actions; do not apply those changes to `budget.md` during the comparison.
+- If the owner asks a direct comparison question, answer it with a best-effort report from available evidence before asking extra clarification questions. Clarifications belong at the end under needs review.
+
 Use a clear source hierarchy:
 
 - Source evidence: uploaded statement files in `statements/`, owner corrections, and owner-approved rules.
@@ -93,6 +101,8 @@ Before using newly uploaded statements for a budget report, check for likely dup
 Before writing a monthly comparison report, make a source coverage pass:
 
 - Read `budget.md`, `rules.md`, and every relevant statement file for the requested month/date range.
+- If a recently uploaded file is mentioned in chat but does not appear where expected, inspect the current Finance file list and `statements/` folder before saying it is missing. Search likely converted filenames, statement periods, institution names, and uploaded paths from the upload confirmation.
+- Do not ask the owner to re-upload a statement until you have checked the current project file list and relevant `statements/` paths.
 - Build an internal transaction inventory from the source statements before summarizing.
 - Account for every named merchant or transaction the owner asks about. If the owner asks about a merchant such as VRBO, search the relevant statement files by exact merchant name before saying it is absent.
 - Do not claim a named merchant or transaction is missing unless you have checked the relevant statement files and can say which source files/date ranges were checked.
@@ -120,6 +130,16 @@ For monthly comparisons, preserve the existing category names whenever possible 
 - likely duplicate payments or transfers,
 - ambiguous merchants that need owner review,
 - the exact transaction types excluded from expense totals.
+
+A complete monthly comparison report must include:
+
+- source coverage with statement files and date ranges reviewed,
+- saved budget versus actuals by category,
+- over/under or variance status for each material category,
+- unbudgeted or new spending, including named transactions the owner asked about,
+- excluded-from-expense treatment for credit-card payments, transfers, refunds, finance charges, and investment movement,
+- needs-review questions for ambiguous merchants or missing context,
+- next actions that preserve the saved budget unless the owner asks to revise it.
 
 Check the report before presenting it as authoritative: each category's spent amount should equal the sum of included in-month expense transactions for that category, excluded totals should be listed separately, and the executive summary must agree with the category tables. If the math is uncertain because transactions are missing, duplicated, ambiguous, or only partially parsed, say so and mark the affected category as provisional. Do not let the summary say a category is over budget when the category section says it is under budget, or vice versa.
 
