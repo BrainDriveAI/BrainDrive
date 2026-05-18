@@ -2995,10 +2995,12 @@ export function buildProjectChatContext(projectId: string, files: GatewayProject
   const financeBudgetGuidance = projectId === "finance"
     ? [
         "For budgeting questions, also read documents/finance/budget.md and documents/finance/rules.md when they exist.",
+        "For explicit Finance execution requests about budgets, debt, uploads, statements, spending, or reports, complete the Finance task before coaching or cross-domain discussion.",
         "For 'how did I do?', monthly comparison, over/under, or budget progress questions, treat documents/finance/budget.md as the saved budget and compare statement actuals against it.",
         "Use documents/finance/statements/ as source evidence and documents/finance/reports/ as derived output for budget reports.",
         "Do not replace saved budget limits during comparison unless the owner explicitly asks to revise the budget.",
         "Check for duplicate or overlapping statement evidence before counting transactions in budget reports.",
+        "Relationship context can be noted briefly when it affects the financial plan, but partner coaching belongs in the Relationships project unless the owner explicitly asks for it here.",
       ]
     : [];
   const fileList = visibleFiles.length > 0
