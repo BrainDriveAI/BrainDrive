@@ -20,10 +20,10 @@ export type UploadedDocumentMarkdown = {
 };
 
 export type UploadedDocumentMetadata = {
-  documentType: "bank_statement" | "credit_card_statement" | "budget_export" | "receipt" | "tax_document" | "paystub" | "other";
+  documentType: "bank_statement" | "credit_card_statement" | "investment_statement" | "budget_export" | "receipt" | "tax_document" | "paystub" | "other";
   statementLike: boolean;
   institution: string | null;
-  accountType: "checking" | "savings" | "credit_card" | "bank_account" | "unknown";
+  accountType: "checking" | "savings" | "credit_card" | "bank_account" | "investment" | "unknown";
   statementMonth: string | null;
   statementPeriodStart: string | null;
   statementPeriodEnd: string | null;
@@ -280,14 +280,17 @@ export function inferUploadedDocumentMetadataDeterministic(
   const hasTransactions = /\b(date|posted|description|merchant|amount|debit|credit|balance)\b/.test(text);
   const isCreditCard = /\b(credit card|capital one|visa|mastercard|payment due|minimum payment)\b/.test(text);
   const isBank = /\b(bank|checking|savings|deposit|withdrawal|beginning balance|ending balance)\b/.test(text);
+  const isInvestment = /\b(investment|brokerage|roth|ira|retirement|portfolio|holding|holdings|position|positions|market value|asset allocation|fund|etf|dividend|harborline|vanguard|fidelity|schwab|e\*?trade)\b/.test(text);
   const isBudget = /\b(budget|category|monthly limit|planned)\b/.test(text) && !isBank && !isCreditCard;
   const documentType = isCreditCard
     ? "credit_card_statement"
-    : isBank || hasTransactions
-      ? "bank_statement"
-      : isBudget
-        ? "budget_export"
-        : "other";
+    : isInvestment
+      ? "investment_statement"
+      : isBank || hasTransactions
+        ? "bank_statement"
+        : isBudget
+          ? "budget_export"
+          : "other";
   const statementMonth = inferStatementMonth(input.fileName, converted.markdown);
   const institution = inferInstitution(input.fileName, converted.markdown);
   const statementLike = documentType === "bank_statement" || documentType === "credit_card_statement";
@@ -296,7 +299,7 @@ export function inferUploadedDocumentMetadataDeterministic(
     documentType,
     statementLike,
     institution,
-    accountType: isCreditCard ? "credit_card" : isBank || hasTransactions ? "bank_account" : "unknown",
+    accountType: isCreditCard ? "credit_card" : isInvestment ? "investment" : isBank || hasTransactions ? "bank_account" : "unknown",
     statementMonth,
     statementPeriodStart: null,
     statementPeriodEnd: null,
@@ -329,10 +332,10 @@ function buildMetadataPrompt(input: UploadedDocumentInput, converted: UploadedDo
     "",
     "Expected JSON shape:",
     JSON.stringify({
-      document_type: "bank_statement|credit_card_statement|budget_export|receipt|tax_document|paystub|other",
+      document_type: "bank_statement|credit_card_statement|investment_statement|budget_export|receipt|tax_document|paystub|other",
       statement_like: true,
       institution: "Capital One or null",
-      account_type: "checking|savings|credit_card|bank_account|unknown",
+      account_type: "checking|savings|credit_card|bank_account|investment|unknown",
       statement_month: "YYYY-MM or null",
       statement_period_start: "YYYY-MM-DD or null",
       statement_period_end: "YYYY-MM-DD or null",
@@ -344,6 +347,7 @@ function buildMetadataPrompt(input: UploadedDocumentInput, converted: UploadedDo
     "",
     "Filename rules:",
     "- For bank or credit card statements, prefer YYYY-MM-institution.md.",
+    "- Investment, brokerage, IRA, retirement, portfolio, holdings, or market-value statements are investment_statement and statement_like false unless they are clearly checking or credit card transaction statements.",
     "- Use the transaction/statement period, not today's date.",
     "- If the period is unclear, use null for statement_month and suggested_file_name.",
     "- Suggested filename must not include directories.",
@@ -394,6 +398,7 @@ function normalizeDocumentType(value: unknown, fallback: UploadedDocumentMetadat
   switch (normalized) {
     case "bank_statement":
     case "credit_card_statement":
+    case "investment_statement":
     case "budget_export":
     case "receipt":
     case "tax_document":
@@ -412,6 +417,7 @@ function normalizeAccountType(value: unknown, fallback: UploadedDocumentMetadata
     case "savings":
     case "credit_card":
     case "bank_account":
+    case "investment":
     case "unknown":
       return normalized;
     default:
@@ -566,6 +572,8 @@ function readableDocumentType(
       return "Bank statement";
     case "credit_card_statement":
       return "Credit card statement";
+    case "investment_statement":
+      return "Investment statement";
     case "budget_export":
       return "Budget export";
     case "receipt":

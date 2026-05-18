@@ -31,7 +31,10 @@ describe("project chat context", () => {
     expect(context).toContain("documents/finance/dummy-statement.md");
     expect(context).toContain("Read documents/finance/index.md before deciding which supporting documents to open");
     expect(context).toContain("For budgeting questions, also read documents/finance/budget.md and documents/finance/rules.md");
+    expect(context).toContain("treat documents/finance/budget.md as the saved budget");
     expect(context).toContain("Use documents/finance/statements/ as source evidence");
+    expect(context).toContain("Do not replace saved budget limits during comparison");
+    expect(context).toContain("Check for duplicate or overlapping statement evidence");
     expect(context).toContain("current file list at the start of this user turn");
     expect(context).toContain("Do not rely on earlier conversation claims");
     expect(context).toContain("call memory_delete when a matching file exists");

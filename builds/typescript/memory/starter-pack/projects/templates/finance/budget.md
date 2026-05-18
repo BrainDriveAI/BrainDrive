@@ -8,6 +8,8 @@ This is a living spending plan, not a form the owner must perfectly complete bef
 
 Keep categories stable because reports and rules refer to them. Add or change categories only when the owner understands the change and it fits how they want to think about spending.
 
+During monthly "how did I do?" comparisons, preserve these saved limits and compare actual spending against them. Update limits only when the owner asks to revise the budget; otherwise put observations, variance, and recommendations in `reports/`.
+
 Focus this budget on monthly spending goals. Investment balances and portfolio performance belong elsewhere unless the owner explicitly asks to connect them to budget planning.
 
 ## Monthly Context

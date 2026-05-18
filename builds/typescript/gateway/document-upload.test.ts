@@ -221,6 +221,32 @@ describe("document upload conversion", () => {
     expect(metadata.tags).toEqual(expect.arrayContaining(["finance", "statement", "credit-card-statement"]));
   });
 
+  it("keeps investment statements out of budget statement routing", async () => {
+    const input = baseInput({
+      fileName: "HarborlineInvestments_RothIRA_2026-04.csv",
+      mimeType: "text/csv",
+      data: Buffer.from("Date,Description,Amount\n2026-04-30,Ending market value,7799.83\n"),
+    });
+    const converted = await convertUploadedDocumentToMarkdown(
+      input,
+      "openai-compatible",
+      adapterConfig,
+      preferences
+    );
+
+    const metadata = inferUploadedDocumentMetadataDeterministic(input, converted);
+
+    expect(metadata).toMatchObject({
+      documentType: "investment_statement",
+      statementLike: false,
+      accountType: "investment",
+      statementMonth: "2026-04",
+      suggestedFileName: null,
+    });
+    expect(metadata.tags).toEqual(expect.arrayContaining(["finance", "investment-statement"]));
+    expect(metadata.tags).not.toContain("statement");
+  });
+
   it("normalizes LLM metadata into safe statement filenames", async () => {
     const input = baseInput({
       fileName: "upload.pdf",
