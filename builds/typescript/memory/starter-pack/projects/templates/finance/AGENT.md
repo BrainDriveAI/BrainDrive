@@ -88,6 +88,8 @@ Monthly comparison is a protected workflow:
 - Put comparison findings in `reports/latest.md` and, when useful, `reports/breakdown-YYYY-MM.md`.
 - Do not use `budget.md` as scratch space for actuals, revised targets, narrative notes, or month-specific comparison findings.
 - Tool-use rule: during a saved-budget comparison, do not call `memory_write`, `memory_edit`, or `memory_delete` on `documents/finance/budget.md`. The only permitted comparison write targets are `documents/finance/reports/latest.md` and optional `documents/finance/reports/breakdown-YYYY-MM.md`.
+- If you are about to write `documents/finance/budget.md` during a comparison, stop. Read it if needed, but write the comparison report instead.
+- A user request such as "leave the saved budget alone", "do not rewrite the saved budget", or "compare against the saved budget" means `budget.md` is read-only for this turn.
 - If the saved budget appears unrealistic or needs new categories, recommend changes in the report's next actions; do not apply those changes to `budget.md` during the comparison.
 - If the owner asks a direct comparison question, answer it with a best-effort report from available evidence before asking extra clarification questions. Clarifications belong at the end under needs review.
 
@@ -111,7 +113,9 @@ Before writing a monthly comparison report, make a source coverage pass:
 - Account for every named merchant or transaction the owner asks about. If the owner asks about a merchant such as VRBO, search the relevant statement files by exact merchant name before saying it is absent.
 - Do not claim a named merchant or transaction is missing unless you have checked the relevant statement files and can say which source files/date ranges were checked.
 - If the owner suggests a named transaction is absent but the source statements show it, trust the statement evidence and report the discrepancy as a clarification item. Do not let the conversation overwrite documented transaction evidence.
-- Put new merchants or categories that are not in `budget.md` into `Unbudgeted Or New Spending` or `Needs Review`; do not ignore them or force them silently into an unrelated category.
+- Put new merchants or categories that are not in `budget.md` into `New Or Unbudgeted Items` or `Needs Review`; do not ignore them or force them silently into an unrelated category.
+- Always scan uploaded checking and credit-card transactions for new, unusual, travel, lodging, vacation, entertainment, shopping, or unclear merchants during monthly comparison. Include them in the report even when the overall month is under budget.
+- If a VRBO, hotel, lodging, travel, trip, weekend, vacation, airline, or rental merchant appears, list it by exact statement description, amount, date, account/source, and likely category. If the transaction description contains context such as `VRBO Beach Weekend`, use that exact item name in the report.
 
 When a budget is missing or incomplete, work with the owner naturally to create one. You may use owner estimates, uploaded statements, or both. The useful outcome is a budget the owner recognizes as theirs: stable categories, monthly limits, important fixed bills, and any current spending goals such as debt payoff or savings.
 
@@ -141,7 +145,7 @@ A complete monthly comparison report must include:
 - source coverage with statement files and date ranges reviewed,
 - saved budget versus actuals by category,
 - over/under or variance status for each material category,
-- unbudgeted or new spending, including named transactions the owner asked about,
+- a `New Or Unbudgeted Items` section, including named transactions the owner asked about and travel/lodging/vacation-style charges such as VRBO,
 - a literal `Excluded From Expense Totals` section for credit-card payments, debt payments, transfers, refunds, finance charges, and investment movement,
 - needs-review questions for ambiguous merchants or missing context,
 - next actions that preserve the saved budget unless the owner asks to revise it.
@@ -149,6 +153,14 @@ A complete monthly comparison report must include:
 The `Excluded From Expense Totals` section is required even when the rest of the report already discusses payments or interest. Use a table with `Type`, `Payee/Account`, `Amount`, `Source`, and `Why Excluded`. List each debt or credit-card payment by name when source statements show it. For example, if checking shows payments to Summit Trail or Northbridge, include rows such as `Debt payment | Summit Trail | $160.00 | checking statement | payment/transfer, not ordinary spending` and `Debt payment | Northbridge | $250.00 | checking statement | payment/transfer, not ordinary spending`. Finance charges or interest should be listed separately from ordinary spending and separately from principal payments.
 
 Check the report before presenting it as authoritative: each category's spent amount should equal the sum of included in-month expense transactions for that category, excluded totals should be listed separately, and the executive summary must agree with the category tables. If the math is uncertain because transactions are missing, duplicated, ambiguous, or only partially parsed, say so and mark the affected category as provisional. Do not let the summary say a category is over budget when the category section says it is under budget, or vice versa.
+
+Before finishing a monthly comparison, run this self-check:
+
+- `budget.md` was not written, edited, or deleted unless the owner explicitly asked for a budget revision.
+- `reports/latest.md` includes every named item from the owner's request that source statements support.
+- Credit-card payments, debt payments, transfers, refunds, investment movement, and interest/finance charges are excluded from ordinary spending totals and listed under `Excluded From Expense Totals`.
+- New or unbudgeted credit-card charges are still included in category analysis or `New Or Unbudgeted Items`.
+- Any VRBO/travel/lodging/vacation charge found in source evidence is named explicitly in `New Or Unbudgeted Items`.
 
 When the owner corrects a category or transaction type, update the relevant source file when you can identify the transaction. Ask before adding a durable rule to `rules.md`. Use rules to remember owner-approved patterns, not to override obvious statement evidence without discussion.
 
