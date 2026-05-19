@@ -36,12 +36,15 @@ describe("project chat context", () => {
     expect(context).toContain("Use documents/finance/statements/ as source evidence");
     expect(context).toContain("Do not write to documents/finance/budget.md during a saved-budget comparison");
     expect(context).toContain("do not call memory_write, memory_edit, or memory_delete on documents/finance/budget.md");
+    expect(context).toContain("Preserve documents/finance/budget.md byte-for-byte");
+    expect(context).toContain("formatting-only, table-alignment, whitespace");
     expect(context).toContain("documents/finance/budget.md is read-only for that turn");
     expect(context).toContain("If you are about to write documents/finance/budget.md during a comparison, stop");
     expect(context).toContain("Put saved-budget comparison findings in documents/finance/reports/latest.md");
     expect(context).toContain("Check for duplicate or overlapping statement evidence");
     expect(context).toContain("build a source evidence ledger");
     expect(context).toContain("locked evidence for the comparison turn");
+    expect(context).toContain("verify that every owner-named item found in source statements appears by exact statement description");
     expect(context).toContain("account for named merchants");
     expect(context).toContain("date range overlaps the requested month");
     expect(context).toContain("call memory_list on documents/finance and documents/finance/statements");

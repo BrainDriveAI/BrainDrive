@@ -14,6 +14,8 @@ Monthly comparison report rule: leave `budget.md` unchanged unless the owner exp
 
 Tool-use rule: this report is the write target for saved-budget comparison findings. Do not write, edit, or delete `budget.md` while producing this report.
 
+Preserve `budget.md` byte-for-byte during saved-budget comparisons. Do not make formatting-only, table-alignment, whitespace, note, category, or no-op rewrites to the saved budget.
+
 If the owner asks to compare against the saved budget or to leave the saved budget alone, treat `budget.md` as read-only for the turn. Read it for limits; do not use it as a write target.
 
 Before finalizing this report, verify source coverage: list the statement files/date ranges used, account for any merchant the owner specifically asked about, and do not say a named merchant is absent unless the relevant source files were checked.
@@ -27,6 +29,8 @@ Statement-cycle files may be named by the start month or converted upload path. 
 Build a source evidence ledger before summarizing. At minimum, capture date, exact statement description, amount, account/source file, transaction type, proposed category, and whether the item is ordinary spending, excluded money movement, or needs review.
 
 Treat ledger rows as locked evidence for this report. If an item appears in the ledger and is named by the owner, new/unusual, material, excluded, or needs review, it must appear in the final report.
+
+Before finalizing this report, verify that every owner-named item found in source statements appears by exact statement description in the final report. If a required item is missing from the report draft, revise the report before answering.
 
 If the owner asks about a named merchant or transaction, search statement evidence for the exact name and close variants. If the source statement shows the transaction, report it even if the owner later guesses it was absent.
 
@@ -110,6 +114,7 @@ If no excluded items exist, write `None found in reviewed source statements`.
 ## Final Self-Check
 
 - `budget.md` was not written, edited, or deleted unless the owner explicitly asked for a budget revision.
+- `budget.md` was preserved byte-for-byte; no formatting-only or table-alignment rewrite was made.
 - Every named item from the owner request that source statements support appears in this report.
 - Every ledger item is either included in the final report or explicitly explained as out of scope with source/file reasoning.
 - No ledger item is later described as absent unless the correction cites the checked source files/date ranges.

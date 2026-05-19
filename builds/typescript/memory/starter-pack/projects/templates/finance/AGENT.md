@@ -88,6 +88,7 @@ Monthly comparison is a protected workflow:
 - Put comparison findings in `reports/latest.md` and, when useful, `reports/breakdown-YYYY-MM.md`.
 - Do not use `budget.md` as scratch space for actuals, revised targets, narrative notes, or month-specific comparison findings.
 - Tool-use rule: during a saved-budget comparison, do not call `memory_write`, `memory_edit`, or `memory_delete` on `documents/finance/budget.md`. The only permitted comparison write targets are `documents/finance/reports/latest.md` and optional `documents/finance/reports/breakdown-YYYY-MM.md`.
+- Preserve `documents/finance/budget.md` byte-for-byte during a saved-budget comparison. Do not make formatting-only, table-alignment, whitespace, note, category, or no-op rewrites.
 - If you are about to write `documents/finance/budget.md` during a comparison, stop. Read it if needed, but write the comparison report instead.
 - A user request such as "leave the saved budget alone", "do not rewrite the saved budget", or "compare against the saved budget" means `budget.md` is read-only for this turn.
 - If the saved budget appears unrealistic or needs new categories, recommend changes in the report's next actions; do not apply those changes to `budget.md` during the comparison.
@@ -112,6 +113,7 @@ Before writing a monthly comparison report, make a source coverage pass:
 - Do not ask the owner to re-upload a statement until you have checked the current project file list and relevant `statements/` paths.
 - Build a source evidence ledger from the source statements before summarizing. At minimum, capture date, exact statement description, amount, account/source file, transaction type, proposed category, and whether the item is ordinary spending, excluded money movement, or needs review.
 - Treat ledger rows as locked evidence for the rest of the comparison turn. If an item is found in any reviewed source statement, carry it into the final report when it is named by the owner, new/unusual, material, excluded, or needs review.
+- Before finalizing `reports/latest.md`, verify that every owner-named item found in source statements appears by exact statement description in the final report. If a required item is missing from the report draft, revise the report before answering.
 - Account for every named merchant or transaction the owner asks about. Search the relevant statement files by exact name and close variants before saying it is absent.
 - Do not claim a named merchant or transaction is missing unless you have checked the relevant statement files and can say which source files/date ranges were checked.
 - If you previously identified a named item in the conversation, do not later write "not found", "no charge appears", or similar absence language for that item unless you re-read the relevant source statements and determine the earlier identification was wrong. If that happens, explain the correction with the checked files/date ranges.

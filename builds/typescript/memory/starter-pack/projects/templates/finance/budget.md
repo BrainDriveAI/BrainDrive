@@ -14,6 +14,8 @@ Do not rewrite this file during a saved-budget comparison. This file is not the 
 
 During saved-budget comparison mode, do not call memory write/edit/delete tools on this file. If the comparison reveals that this plan should change, list recommended changes in `reports/latest.md` and wait for the owner to explicitly ask for a budget revision.
 
+Preserve this file byte-for-byte during saved-budget comparisons. Do not make formatting-only, table-alignment, whitespace, note, category, or no-op rewrites.
+
 If you are about to write this file during a comparison, stop and write to `reports/latest.md` instead. A request to compare against the saved budget or leave the saved budget alone makes this file read-only for that turn.
 
 Focus this budget on monthly spending goals. Investment balances and portfolio performance belong elsewhere unless the owner explicitly asks to connect them to budget planning.
