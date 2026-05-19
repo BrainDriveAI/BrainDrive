@@ -36,11 +36,13 @@ import type {
   AdapterConfig,
   ApprovalMode,
   ClientMessageRequest,
+  ConversationDetail,
   InstallLocation,
   Preferences,
-  RuntimeConfig
+  RuntimeConfig,
+  ToolExecutionResult
 } from "../contracts.js";
-import { runAgentLoop } from "../engine/loop.js";
+import { runAgentLoop, type ToolExecutionGuard } from "../engine/loop.js";
 import { classifyProviderError } from "../engine/errors.js";
 import { formatSseEvent } from "../engine/stream.js";
 import { ToolExecutor } from "../engine/tool-executor.js";
@@ -790,6 +792,7 @@ export async function buildServer(rootDir = process.cwd()) {
           memoryRoot: runtimeConfig.memory_root,
           approvalMode: livePreferences.approval_mode,
           safetyIterationLimit: runtimeConfig.safety_iteration_limit,
+          toolExecutionGuard: createFinanceBudgetProtectionGuard(projectId, conversations.detail(conversationId)),
         }
       )) {
         if (event.type === "tool-call") {
@@ -3049,6 +3052,154 @@ export function buildProjectChatContext(projectId: string, files: GatewayProject
     `For delete requests in this project, prefer exact paths under documents/${projectId}/ and call memory_delete when a matching file exists.`,
     "If the current list is ambiguous or incomplete, call memory_list before claiming the file cannot be found.",
   ].join("\n");
+}
+
+const FINANCE_BUDGET_PROTECTED_PATH = "documents/finance/budget.md";
+const FINANCE_BUDGET_MUTATION_TOOLS = new Set(["memory_write", "memory_edit", "memory_delete"]);
+
+export function createFinanceBudgetProtectionGuard(
+  projectId: string | null,
+  conversation: ConversationDetail | null
+): ToolExecutionGuard | undefined {
+  if (projectId !== "finance" || !conversationHasSavedBudgetComparison(conversation)) {
+    return undefined;
+  }
+
+  const latestUserMessage = latestUserMessageContent(conversation);
+  if (latestUserMessage && isExplicitSavedBudgetRevisionRequest(latestUserMessage)) {
+    return undefined;
+  }
+
+  return (toolName, input) => {
+    if (!isProtectedFinanceBudgetMutation(toolName, input)) {
+      return null;
+    }
+
+    const output = {
+      code: "permission_denied",
+      message:
+        "documents/finance/budget.md is read-only during a saved-budget comparison. Read it for saved limits and write comparison findings to documents/finance/reports/latest.md instead. Only revise the saved budget when the owner explicitly asks to change the budget.",
+      path: FINANCE_BUDGET_PROTECTED_PATH,
+      recoverable: true,
+    };
+
+    return {
+      status: "error",
+      output,
+      recoverable: true,
+    } satisfies ToolExecutionResult;
+  };
+}
+
+export function isProtectedFinanceBudgetMutation(toolName: string, input: Record<string, unknown>): boolean {
+  if (!FINANCE_BUDGET_MUTATION_TOOLS.has(toolName)) {
+    return false;
+  }
+
+  return normalizeMemoryRelativePath(input.path) === FINANCE_BUDGET_PROTECTED_PATH;
+}
+
+export function conversationHasSavedBudgetComparison(conversation: ConversationDetail | null): boolean {
+  if (!conversation) {
+    return false;
+  }
+
+  return conversation.messages
+    .filter((message) => message.role === "user")
+    .slice(-12)
+    .some((message) => isSavedBudgetComparisonRequest(message.content));
+}
+
+function latestUserMessageContent(conversation: ConversationDetail | null): string | null {
+  if (!conversation) {
+    return null;
+  }
+
+  for (let index = conversation.messages.length - 1; index >= 0; index -= 1) {
+    const message = conversation.messages[index];
+    if (message.role === "user") {
+      return message.content;
+    }
+  }
+
+  return null;
+}
+
+function isSavedBudgetComparisonRequest(content: string): boolean {
+  const text = normalizeComparisonText(content);
+  if (!text) {
+    return false;
+  }
+
+  if (
+    text.includes("do not rewrite the saved budget") ||
+    text.includes("dont rewrite the saved budget") ||
+    text.includes("leave the saved budget alone") ||
+    text.includes("saved budget alone")
+  ) {
+    return true;
+  }
+
+  const savedBudgetCue =
+    text.includes("saved budget") ||
+    text.includes("budget md") ||
+    text.includes("documents finance budget md") ||
+    text.includes("saved limits");
+  const comparisonCue =
+    text.includes("how did i do") ||
+    text.includes("compare") ||
+    text.includes("comparison") ||
+    text.includes("actual spending") ||
+    text.includes("over under") ||
+    text.includes("over budget") ||
+    text.includes("under budget") ||
+    text.includes("variance") ||
+    text.includes("against the saved limits") ||
+    text.includes("against saved limits");
+
+  return savedBudgetCue && comparisonCue;
+}
+
+function isExplicitSavedBudgetRevisionRequest(content: string): boolean {
+  const text = normalizeComparisonText(content);
+  if (!text || text.includes("do not") || text.includes("dont") || text.includes("leave")) {
+    return false;
+  }
+
+  const budgetCue = text.includes("budget") || text.includes("budget md") || text.includes("saved plan");
+  const revisionCue =
+    text.includes("change") ||
+    text.includes("revise") ||
+    text.includes("update") ||
+    text.includes("edit") ||
+    text.includes("rewrite") ||
+    text.includes("replace") ||
+    text.includes("set the limit") ||
+    text.includes("set my limit");
+
+  return budgetCue && revisionCue;
+}
+
+function normalizeComparisonText(content: string): string {
+  return content
+    .toLowerCase()
+    .replace(/[`'"]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeMemoryRelativePath(value: unknown): string {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  let normalized = value.trim().replace(/\\/g, "/");
+  while (normalized.startsWith("./")) {
+    normalized = normalized.slice(2);
+  }
+  normalized = normalized.replace(/^\/+/, "");
+  return path.posix.normalize(normalized);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {

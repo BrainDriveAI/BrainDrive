@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { buildProjectChatContext } from "./server.js";
+import {
+  buildProjectChatContext,
+  conversationHasSavedBudgetComparison,
+  createFinanceBudgetProtectionGuard,
+  isProtectedFinanceBudgetMutation,
+} from "./server.js";
+import type { ConversationDetail } from "../contracts.js";
 
 describe("project chat context", () => {
   it("includes current project files and warns against stale delete claims", () => {
@@ -59,4 +65,76 @@ describe("project chat context", () => {
     expect(context).toContain("Do not rely on earlier conversation claims");
     expect(context).toContain("call memory_delete when a matching file exists");
   });
+
+  it("blocks Finance saved-budget comparison writes to budget.md", () => {
+    const guard = createFinanceBudgetProtectionGuard("finance", conversationWithUserMessages([
+      "I uploaded another month of transactions. Using the saved budget in documents/finance/budget.md, how did I do? Do not rewrite the saved budget unless I ask.",
+    ]));
+
+    const result = guard?.("memory_write", {
+      path: "documents/finance/budget.md",
+      content: "# Rewritten budget\n",
+    });
+
+    expect(result?.status).toBe("error");
+    expect(result?.recoverable).toBe(true);
+    expect(result?.output).toMatchObject({
+      code: "permission_denied",
+      path: "documents/finance/budget.md",
+      recoverable: true,
+    });
+  });
+
+  it("allows report writes during Finance saved-budget comparisons", () => {
+    const guard = createFinanceBudgetProtectionGuard("finance", conversationWithUserMessages([
+      "Compare actual spending against the saved limits in budget.md and refresh reports/latest.md.",
+    ]));
+
+    const result = guard?.("memory_write", {
+      path: "documents/finance/reports/latest.md",
+      content: "# Report\n",
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it("allows explicit saved-budget revisions", () => {
+    const guard = createFinanceBudgetProtectionGuard("finance", conversationWithUserMessages([
+      "Using the saved budget in documents/finance/budget.md, how did I do this month?",
+      "Please update the saved budget and change my dining limit to 100.",
+    ]));
+
+    expect(guard).toBeUndefined();
+  });
+
+  it("detects protected Finance budget mutation paths", () => {
+    expect(isProtectedFinanceBudgetMutation("memory_edit", { path: "./documents/finance/budget.md" })).toBe(true);
+    expect(isProtectedFinanceBudgetMutation("memory_delete", { path: "documents\\finance\\budget.md" })).toBe(true);
+    expect(isProtectedFinanceBudgetMutation("memory_read", { path: "documents/finance/budget.md" })).toBe(false);
+    expect(isProtectedFinanceBudgetMutation("memory_write", { path: "documents/finance/reports/latest.md" })).toBe(false);
+  });
+
+  it("recognizes saved-budget comparison conversation state", () => {
+    expect(conversationHasSavedBudgetComparison(conversationWithUserMessages([
+      "Using the saved budget in documents/finance/budget.md, compare actual spending against saved limits.",
+    ]))).toBe(true);
+    expect(conversationHasSavedBudgetComparison(conversationWithUserMessages([
+      "Please build my first budget from these statements.",
+    ]))).toBe(false);
+  });
 });
+
+function conversationWithUserMessages(messages: string[]): ConversationDetail {
+  return {
+    id: "conversation-test",
+    title: null,
+    created_at: "2026-05-19T00:00:00.000Z",
+    updated_at: "2026-05-19T00:00:00.000Z",
+    messages: messages.map((content, index) => ({
+      id: `message-${index}`,
+      role: "user",
+      content,
+      timestamp: "2026-05-19T00:00:00.000Z",
+    })),
+  };
+}
