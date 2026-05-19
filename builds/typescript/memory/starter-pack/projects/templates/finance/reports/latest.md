@@ -32,6 +32,12 @@ Treat ledger rows as locked evidence for this report. If an item appears in the 
 
 Before finalizing this report, verify that every owner-named item found in source statements appears by exact statement description in the final report. If a required item is missing from the report draft, revise the report before answering.
 
+Extract owner-requested merchant, item, trip, bill, and transaction names from the current request and recent follow-ups, then complete `Owner-Requested Items Audit`. The audit must list each requested item, search result, sources checked, exact source match, amount, date, and final report treatment.
+
+If an owner-requested item is found in source statements, include the exact source description in the audit and also include the item in a treatment section such as `New Or Unbudgeted Items`, `Category Breakdown`, `Excluded From Expense Totals`, or `Needs Review`. If it is not found, say which source files/date ranges were checked. If uncertain, mark it `Needs Review` instead of omitting it.
+
+Before answering, compare the audit rows against final report sections and revise this report if any found or needs-review owner-requested item is missing from its treatment section.
+
 If the owner asks about a named merchant or transaction, search statement evidence for the exact name and close variants. If the source statement shows the transaction, report it even if the owner later guesses it was absent.
 
 If you previously identified a named item in the conversation, do not later write "not found", "no charge appears", or similar absence language for that item unless you re-read the relevant source statements and determine the earlier identification was wrong. If that happens, explain the correction with the checked files/date ranges.
@@ -71,6 +77,13 @@ Use this section for named, new, unusual, material, excluded, or needs-review tr
 
 | Date | Exact Statement Description | Amount | Account/Source | Treatment | Report Section |
 |---|---|---:|---|---|---|
+
+## Owner-Requested Items Audit
+
+Use this section to reconcile every merchant, item, trip, bill, or transaction the owner specifically asked about. Search exact names and close variants across relevant source statements before marking anything absent.
+
+| Requested Item | Search Result | Sources Checked | Exact Source Match | Amount | Date | Report Treatment |
+|---|---|---|---|---:|---|---|
 
 ## Category Breakdown
 
@@ -116,6 +129,7 @@ If no excluded items exist, write `None found in reviewed source statements`.
 - `budget.md` was not written, edited, or deleted unless the owner explicitly asked for a budget revision.
 - `budget.md` was preserved byte-for-byte; no formatting-only or table-alignment rewrite was made.
 - Every named item from the owner request that source statements support appears in this report.
+- `Owner-Requested Items Audit` lists every owner-requested item, including not-found and needs-review items, and every found item also appears in its named treatment section.
 - Every ledger item is either included in the final report or explicitly explained as out of scope with source/file reasoning.
 - No ledger item is later described as absent unless the correction cites the checked source files/date ranges.
 - Credit-card payments, debt payments, transfers, refunds, investment movement, and interest/finance charges are excluded from ordinary spending totals and listed above.

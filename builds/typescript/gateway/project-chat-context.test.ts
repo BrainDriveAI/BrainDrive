@@ -51,6 +51,9 @@ describe("project chat context", () => {
     expect(context).toContain("build a source evidence ledger");
     expect(context).toContain("locked evidence for the comparison turn");
     expect(context).toContain("verify that every owner-named item found in source statements appears by exact statement description");
+    expect(context).toContain("Owner-Requested Items Audit");
+    expect(context).toContain("sources checked, exact source match, amount, date, and final report treatment");
+    expect(context).toContain("compare the Owner-Requested Items Audit rows against the final report sections");
     expect(context).toContain("account for named merchants");
     expect(context).toContain("date range overlaps the requested month");
     expect(context).toContain("call memory_list on documents/finance and documents/finance/statements");

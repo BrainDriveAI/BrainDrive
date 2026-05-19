@@ -115,6 +115,10 @@ Before writing a monthly comparison report, make a source coverage pass:
 - Treat ledger rows as locked evidence for the rest of the comparison turn. If an item is found in any reviewed source statement, carry it into the final report when it is named by the owner, new/unusual, material, excluded, or needs review.
 - Before finalizing `reports/latest.md`, verify that every owner-named item found in source statements appears by exact statement description in the final report. If a required item is missing from the report draft, revise the report before answering.
 - Account for every named merchant or transaction the owner asks about. Search the relevant statement files by exact name and close variants before saying it is absent.
+- Extract owner-requested merchant, item, trip, bill, and transaction names from the current request and recent follow-ups, then include an `Owner-Requested Items Audit` in the final report.
+- The audit must list each requested item, search result, sources checked, exact source match, amount, date, and final report treatment. If the item is not found, say which source files/date ranges were checked. If uncertain, mark it `Needs Review` instead of omitting it.
+- Every found owner-requested item must appear both in the audit and in a final treatment section such as `New Or Unbudgeted Items`, `Category Breakdown`, `Excluded From Expense Totals`, or `Needs Review`.
+- Before answering, compare audit rows against the final report sections and revise `reports/latest.md` if any found or needs-review owner-requested item is missing from its treatment section.
 - Do not claim a named merchant or transaction is missing unless you have checked the relevant statement files and can say which source files/date ranges were checked.
 - If you previously identified a named item in the conversation, do not later write "not found", "no charge appears", or similar absence language for that item unless you re-read the relevant source statements and determine the earlier identification was wrong. If that happens, explain the correction with the checked files/date ranges.
 - If the owner suggests a named transaction is absent but the source statements show it, trust the statement evidence and report the discrepancy as a clarification item. Do not let the conversation overwrite documented transaction evidence.
@@ -148,6 +152,7 @@ For monthly comparisons, preserve the existing category names whenever possible 
 A complete monthly comparison report must include:
 
 - source coverage with statement files and date ranges reviewed,
+- an `Owner-Requested Items Audit` that reconciles each owner-requested named item against source statements and identifies its final report treatment,
 - saved budget versus actuals by category,
 - over/under or variance status for each material category,
 - a `New Or Unbudgeted Items` section, including named transactions the owner asked about and travel/lodging/vacation-style charges,
@@ -163,6 +168,7 @@ Before finishing a monthly comparison, run this self-check:
 
 - `budget.md` was not written, edited, or deleted unless the owner explicitly asked for a budget revision.
 - `reports/latest.md` includes every named item from the owner's request that source statements support.
+- `Owner-Requested Items Audit` lists every owner-requested item, including not-found and needs-review items, and every found item also appears in its named treatment section.
 - Any item found in the source evidence ledger is not later described as absent unless the correction cites the checked source files/date ranges.
 - Credit-card payments, debt payments, transfers, refunds, investment movement, and interest/finance charges are excluded from ordinary spending totals and listed under `Excluded From Expense Totals`.
 - New or unbudgeted credit-card charges are still included in category analysis or `New Or Unbudgeted Items`.
