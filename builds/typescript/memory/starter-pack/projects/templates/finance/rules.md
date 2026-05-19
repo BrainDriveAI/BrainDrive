@@ -20,13 +20,19 @@ Good rules capture durable intent, such as recurring merchant categories, credit
 | Pattern | Type | Notes |
 |---|---|---|
 
-Allowed types: `expense`, `income`, `transfer`, `refund`, `fee`.
+Allowed types: `expense`, `income`, `transfer`, `refund`, `fee`, `debt_payment`, `finance_charge`.
 
 Use transaction type rules to keep budget spending separate from money movement. Credit card payments, transfers between owner accounts, income deposits, refunds, and fees should be handled explicitly instead of folded into normal expenses by accident.
+
+For monthly budget comparisons, credit-card and debt payments are `debt_payment`, not ordinary spending. Interest or finance-charge lines from card statements are `finance_charge`, tracked separately from ordinary spending and separately from principal payments.
 
 ## Exclusions
 
 | Pattern | Reason | Notes |
 |---|---|---|
+| Summit Trail payment | Debt payment / transfer | Exclude from ordinary expense totals; list by name in `Excluded From Expense Totals`. |
+| Northbridge payment | Debt payment / transfer | Exclude from ordinary expense totals; list by name in `Excluded From Expense Totals`. |
+| Interest charge | Finance charge | Exclude from ordinary expense totals; track separately from principal payments. |
+| Finance charge | Finance charge | Exclude from ordinary expense totals; track separately from principal payments. |
 
 Transfers, income, refunds, investment account movement, and credit card payments should not count against expense categories by default. Fees may be tracked as expenses only when that matches the owner's budget goals.

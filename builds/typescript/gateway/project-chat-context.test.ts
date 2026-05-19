@@ -43,6 +43,8 @@ describe("project chat context", () => {
     expect(context).toContain("call memory_list on documents/finance and documents/finance/statements");
     expect(context).toContain("do not accept a later conversational guess that it was absent");
     expect(context).toContain("Budget report summaries must agree with their category tables");
+    expect(context).toContain("literal 'Excluded From Expense Totals' section");
+    expect(context).toContain("payments to Summit Trail or Northbridge");
     expect(context).toContain("never pause, stop, or redirect unfinished budget");
     expect(context).toContain("current file list at the start of this user turn");
     expect(context).toContain("Do not rely on earlier conversation claims");

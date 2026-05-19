@@ -3007,6 +3007,8 @@ export function buildProjectChatContext(projectId: string, files: GatewayProject
         "If an upload was just mentioned but the expected filename is not visible, call memory_list on documents/finance and documents/finance/statements and search converted statement filenames/date ranges before asking the owner to re-upload.",
         "If the owner mentions a named merchant such as VRBO, search source statements for that exact merchant before answering; if source evidence shows it, do not accept a later conversational guess that it was absent.",
         "Budget report summaries must agree with their category tables and must list excluded payments, transfers, refunds, fees, and investment movement separately from ordinary spending.",
+        "Every monthly comparison report must include a literal 'Excluded From Expense Totals' section with a table of Type, Payee/Account, Amount, Source, and Why Excluded.",
+        "When source statements include payments to Summit Trail or Northbridge, list those rows by payee in Excluded From Expense Totals as debt payments/transfers, not ordinary spending; list interest or finance charges separately.",
         "Relationship context can be noted briefly after the requested Finance artifact, but never pause, stop, or redirect unfinished budget, statement, debt, upload, or report work to the Relationships project.",
       ]
     : [];

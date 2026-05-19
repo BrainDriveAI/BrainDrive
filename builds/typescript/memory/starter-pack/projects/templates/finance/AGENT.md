@@ -142,9 +142,11 @@ A complete monthly comparison report must include:
 - saved budget versus actuals by category,
 - over/under or variance status for each material category,
 - unbudgeted or new spending, including named transactions the owner asked about,
-- excluded-from-expense treatment for credit-card payments, transfers, refunds, finance charges, and investment movement,
+- a literal `Excluded From Expense Totals` section for credit-card payments, debt payments, transfers, refunds, finance charges, and investment movement,
 - needs-review questions for ambiguous merchants or missing context,
 - next actions that preserve the saved budget unless the owner asks to revise it.
+
+The `Excluded From Expense Totals` section is required even when the rest of the report already discusses payments or interest. Use a table with `Type`, `Payee/Account`, `Amount`, `Source`, and `Why Excluded`. List each debt or credit-card payment by name when source statements show it. For example, if checking shows payments to Summit Trail or Northbridge, include rows such as `Debt payment | Summit Trail | $160.00 | checking statement | payment/transfer, not ordinary spending` and `Debt payment | Northbridge | $250.00 | checking statement | payment/transfer, not ordinary spending`. Finance charges or interest should be listed separately from ordinary spending and separately from principal payments.
 
 Check the report before presenting it as authoritative: each category's spent amount should equal the sum of included in-month expense transactions for that category, excluded totals should be listed separately, and the executive summary must agree with the category tables. If the math is uncertain because transactions are missing, duplicated, ambiguous, or only partially parsed, say so and mark the affected category as provisional. Do not let the summary say a category is over budget when the category section says it is under budget, or vice versa.
 

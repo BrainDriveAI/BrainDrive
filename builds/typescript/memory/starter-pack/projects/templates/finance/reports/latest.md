@@ -24,6 +24,8 @@ If the owner asks about a named merchant or transaction, search statement eviden
 
 The spent amount for each category should equal the sum of included in-month expense transactions for that category. List income, transfers, credit-card payments, refunds, finance charges, and investment movement outside expense totals.
 
+Every monthly comparison report must include the literal heading `Excluded From Expense Totals`. Do not replace it with a differently named section such as "Interest Charges" or "Credit Card Balance Tracking." Those can be additional sections, but they do not replace the required exclusion section.
+
 The summary must match the category tables. If a category is under budget in its detail section, do not list it as over budget in the summary.
 
 Do not include investment-account movement in expense-budget totals unless the owner explicitly asks for investment context.
@@ -59,8 +61,19 @@ Use the saved category names from `budget.md` where possible. Put categories or 
 
 ## Excluded From Expense Totals
 
-| Type | Amount | Notes |
-|---|---:|---|
+This section is required for monthly comparisons. Include all non-expense money movement that was intentionally left out of ordinary spending totals.
+
+| Type | Payee/Account | Amount | Source | Why Excluded |
+|---|---|---:|---|---|
+
+Required examples when present in source statements:
+
+- `Debt payment | Summit Trail | $160.00 | checking statement | credit-card payment/transfer, not ordinary spending`
+- `Debt payment | Northbridge | $250.00 | checking statement | credit-card payment/transfer, not ordinary spending`
+- `Finance charge | Summit Trail | $64.15 | card statement | interest cost tracked separately from ordinary spending`
+- `Finance charge | Northbridge | $78.22 | card statement | interest cost tracked separately from ordinary spending`
+
+If no excluded items exist, write `None found in reviewed source statements`.
 
 ## Needs Review
 
