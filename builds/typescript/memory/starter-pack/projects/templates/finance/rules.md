@@ -30,8 +30,7 @@ For monthly budget comparisons, credit-card and debt payments are `debt_payment`
 
 | Pattern | Reason | Notes |
 |---|---|---|
-| Summit Trail payment | Debt payment / transfer | Exclude from ordinary expense totals; list by name in `Excluded From Expense Totals`. |
-| Northbridge payment | Debt payment / transfer | Exclude from ordinary expense totals; list by name in `Excluded From Expense Totals`. |
+| payment to credit-card issuer or debt account | Debt payment / transfer | Exclude from ordinary expense totals; list by source payee/account in `Excluded From Expense Totals`. |
 | Interest charge | Finance charge | Exclude from ordinary expense totals; track separately from principal payments. |
 | Finance charge | Finance charge | Exclude from ordinary expense totals; track separately from principal payments. |
 

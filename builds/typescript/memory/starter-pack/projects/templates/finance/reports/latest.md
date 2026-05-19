@@ -18,15 +18,23 @@ If the owner asks to compare against the saved budget or to leave the saved budg
 
 Before finalizing this report, verify source coverage: list the statement files/date ranges used, account for any merchant the owner specifically asked about, and do not say a named merchant is absent unless the relevant source files were checked.
 
+Do not generate this report from conversation summary alone. Re-read `budget.md`, `rules.md`, and the relevant source statements immediately before writing or refreshing this report.
+
 If an uploaded statement was mentioned in chat but seems missing, inspect the Finance file list and `statements/` folder before saying it is unavailable or asking for a re-upload. Use converted statement filenames and date ranges, not only the original upload filename.
 
 Statement-cycle files may be named by the start month or converted upload path. Include statement files whose date range overlaps the requested month even when the filename month is different.
 
-If the owner asks about a named merchant or transaction, search statement evidence for the exact name. If the source statement shows the transaction, report it even if the owner later guesses it was absent.
+Build a source evidence ledger before summarizing. At minimum, capture date, exact statement description, amount, account/source file, transaction type, proposed category, and whether the item is ordinary spending, excluded money movement, or needs review.
+
+Treat ledger rows as locked evidence for this report. If an item appears in the ledger and is named by the owner, new/unusual, material, excluded, or needs review, it must appear in the final report.
+
+If the owner asks about a named merchant or transaction, search statement evidence for the exact name and close variants. If the source statement shows the transaction, report it even if the owner later guesses it was absent.
+
+If you previously identified a named item in the conversation, do not later write "not found", "no charge appears", or similar absence language for that item unless you re-read the relevant source statements and determine the earlier identification was wrong. If that happens, explain the correction with the checked files/date ranges.
 
 Always scan checking and credit-card statements for new, unusual, travel, lodging, vacation, entertainment, shopping, and unclear merchants. Include these in `New Or Unbudgeted Items` even when total ordinary spending is under budget.
 
-If a VRBO, hotel, lodging, travel, trip, weekend, vacation, airline, or rental merchant appears, list it with the exact statement description, amount, date, account/source, and likely category. If the source evidence says `VRBO Beach Weekend`, the report must mention `VRBO Beach Weekend`.
+If a travel, lodging, trip, weekend, vacation, airline, rental, large discretionary, or otherwise unusual merchant appears, list it with the exact statement description, amount, date, account/source, and likely category.
 
 The spent amount for each category should equal the sum of included in-month expense transactions for that category. List income, transfers, credit-card payments, refunds, finance charges, and investment movement outside expense totals.
 
@@ -53,6 +61,13 @@ When this report is created or refreshed because the owner asked for a first-pas
 
 List every statement file read for this comparison. Include files read because their statement period overlaps the requested month even if their filename month differs.
 
+## Source Evidence Ledger
+
+Use this section for named, new, unusual, material, excluded, or needs-review transactions that must not be lost later in the report.
+
+| Date | Exact Statement Description | Amount | Account/Source | Treatment | Report Section |
+|---|---|---:|---|---|---|
+
 ## Category Breakdown
 
 | Category | Limit | Spent | Remaining | Status | Notes |
@@ -67,7 +82,7 @@ This section is required for monthly comparisons. Include new, unusual, travel/l
 | Date | Description | Amount | Account/Source | Suggested Category | Notes |
 |---|---|---:|---|---|---|
 
-If source statements include `VRBO Beach Weekend`, list it here by that name.
+Use exact statement descriptions for any listed item so the owner can trace the item back to source evidence.
 
 ## Excluded From Expense Totals
 
@@ -76,12 +91,10 @@ This section is required for monthly comparisons. Include all non-expense money 
 | Type | Payee/Account | Amount | Source | Why Excluded |
 |---|---|---:|---|---|
 
-Required examples when present in source statements:
+Required treatment when present in source statements:
 
-- `Debt payment | Summit Trail | $160.00 | checking statement | credit-card payment/transfer, not ordinary spending`
-- `Debt payment | Northbridge | $250.00 | checking statement | credit-card payment/transfer, not ordinary spending`
-- `Finance charge | Summit Trail | $64.15 | card statement | interest cost tracked separately from ordinary spending`
-- `Finance charge | Northbridge | $78.22 | card statement | interest cost tracked separately from ordinary spending`
+- `Debt payment | [source payee/account] | [amount] | [source statement] | credit-card/debt payment or transfer, not ordinary spending`
+- `Finance charge | [source account] | [amount] | [source statement] | interest cost tracked separately from ordinary spending and principal payments`
 
 If no excluded items exist, write `None found in reviewed source statements`.
 
@@ -98,6 +111,8 @@ If no excluded items exist, write `None found in reviewed source statements`.
 
 - `budget.md` was not written, edited, or deleted unless the owner explicitly asked for a budget revision.
 - Every named item from the owner request that source statements support appears in this report.
+- Every ledger item is either included in the final report or explicitly explained as out of scope with source/file reasoning.
+- No ledger item is later described as absent unless the correction cites the checked source files/date ranges.
 - Credit-card payments, debt payments, transfers, refunds, investment movement, and interest/finance charges are excluded from ordinary spending totals and listed above.
 - New or unbudgeted credit-card charges are included in category analysis or `New Or Unbudgeted Items`.
-- Any VRBO/travel/lodging/vacation charge found in source evidence is named explicitly in `New Or Unbudgeted Items`.
+- Any travel/lodging/vacation, large discretionary, or otherwise unusual charge found in source evidence is named explicitly in `New Or Unbudgeted Items` using the exact statement description.

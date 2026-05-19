@@ -106,16 +106,19 @@ Before using newly uploaded statements for a budget report, check for likely dup
 Before writing a monthly comparison report, make a source coverage pass:
 
 - Read `budget.md`, `rules.md`, and every relevant statement file for the requested month/date range.
+- Do not generate monthly comparison reports from conversation summary alone. Re-read the saved budget, rules, and relevant source statements immediately before writing or refreshing `reports/latest.md`.
 - If a recently uploaded file is mentioned in chat but does not appear where expected, inspect the current Finance file list and `statements/` folder before saying it is missing. Search likely converted filenames, statement periods, institution names, and uploaded paths from the upload confirmation.
 - Statement-cycle filenames may use the starting month, ending month, account name, or converted upload name. For a May comparison, an April-to-May statement may appear under a `2026-04-*` filename. Read files whose statement period overlaps the requested month/date range; do not limit source checks to filenames containing the target month.
 - Do not ask the owner to re-upload a statement until you have checked the current project file list and relevant `statements/` paths.
-- Build an internal transaction inventory from the source statements before summarizing.
-- Account for every named merchant or transaction the owner asks about. If the owner asks about a merchant such as VRBO, search the relevant statement files by exact merchant name before saying it is absent.
+- Build a source evidence ledger from the source statements before summarizing. At minimum, capture date, exact statement description, amount, account/source file, transaction type, proposed category, and whether the item is ordinary spending, excluded money movement, or needs review.
+- Treat ledger rows as locked evidence for the rest of the comparison turn. If an item is found in any reviewed source statement, carry it into the final report when it is named by the owner, new/unusual, material, excluded, or needs review.
+- Account for every named merchant or transaction the owner asks about. Search the relevant statement files by exact name and close variants before saying it is absent.
 - Do not claim a named merchant or transaction is missing unless you have checked the relevant statement files and can say which source files/date ranges were checked.
+- If you previously identified a named item in the conversation, do not later write "not found", "no charge appears", or similar absence language for that item unless you re-read the relevant source statements and determine the earlier identification was wrong. If that happens, explain the correction with the checked files/date ranges.
 - If the owner suggests a named transaction is absent but the source statements show it, trust the statement evidence and report the discrepancy as a clarification item. Do not let the conversation overwrite documented transaction evidence.
 - Put new merchants or categories that are not in `budget.md` into `New Or Unbudgeted Items` or `Needs Review`; do not ignore them or force them silently into an unrelated category.
 - Always scan uploaded checking and credit-card transactions for new, unusual, travel, lodging, vacation, entertainment, shopping, or unclear merchants during monthly comparison. Include them in the report even when the overall month is under budget.
-- If a VRBO, hotel, lodging, travel, trip, weekend, vacation, airline, or rental merchant appears, list it by exact statement description, amount, date, account/source, and likely category. If the transaction description contains context such as `VRBO Beach Weekend`, use that exact item name in the report.
+- If a travel, lodging, trip, weekend, vacation, airline, rental, large discretionary, or otherwise unusual merchant appears, list it by exact statement description, amount, date, account/source, and likely category. Preserve the exact statement description in the report.
 
 When a budget is missing or incomplete, work with the owner naturally to create one. You may use owner estimates, uploaded statements, or both. The useful outcome is a budget the owner recognizes as theirs: stable categories, monthly limits, important fixed bills, and any current spending goals such as debt payoff or savings.
 
@@ -145,12 +148,12 @@ A complete monthly comparison report must include:
 - source coverage with statement files and date ranges reviewed,
 - saved budget versus actuals by category,
 - over/under or variance status for each material category,
-- a `New Or Unbudgeted Items` section, including named transactions the owner asked about and travel/lodging/vacation-style charges such as VRBO,
+- a `New Or Unbudgeted Items` section, including named transactions the owner asked about and travel/lodging/vacation-style charges,
 - a literal `Excluded From Expense Totals` section for credit-card payments, debt payments, transfers, refunds, finance charges, and investment movement,
 - needs-review questions for ambiguous merchants or missing context,
 - next actions that preserve the saved budget unless the owner asks to revise it.
 
-The `Excluded From Expense Totals` section is required even when the rest of the report already discusses payments or interest. Use a table with `Type`, `Payee/Account`, `Amount`, `Source`, and `Why Excluded`. List each debt or credit-card payment by name when source statements show it. For example, if checking shows payments to Summit Trail or Northbridge, include rows such as `Debt payment | Summit Trail | $160.00 | checking statement | payment/transfer, not ordinary spending` and `Debt payment | Northbridge | $250.00 | checking statement | payment/transfer, not ordinary spending`. Finance charges or interest should be listed separately from ordinary spending and separately from principal payments.
+The `Excluded From Expense Totals` section is required even when the rest of the report already discusses payments or interest. Use a table with `Type`, `Payee/Account`, `Amount`, `Source`, and `Why Excluded`. List each debt or credit-card payment by the payee/account name that appears in source statements. Finance charges or interest should be listed separately from ordinary spending and separately from principal payments.
 
 Check the report before presenting it as authoritative: each category's spent amount should equal the sum of included in-month expense transactions for that category, excluded totals should be listed separately, and the executive summary must agree with the category tables. If the math is uncertain because transactions are missing, duplicated, ambiguous, or only partially parsed, say so and mark the affected category as provisional. Do not let the summary say a category is over budget when the category section says it is under budget, or vice versa.
 
@@ -158,9 +161,10 @@ Before finishing a monthly comparison, run this self-check:
 
 - `budget.md` was not written, edited, or deleted unless the owner explicitly asked for a budget revision.
 - `reports/latest.md` includes every named item from the owner's request that source statements support.
+- Any item found in the source evidence ledger is not later described as absent unless the correction cites the checked source files/date ranges.
 - Credit-card payments, debt payments, transfers, refunds, investment movement, and interest/finance charges are excluded from ordinary spending totals and listed under `Excluded From Expense Totals`.
 - New or unbudgeted credit-card charges are still included in category analysis or `New Or Unbudgeted Items`.
-- Any VRBO/travel/lodging/vacation charge found in source evidence is named explicitly in `New Or Unbudgeted Items`.
+- Any travel/lodging/vacation, large discretionary, or otherwise unusual charge found in source evidence is named explicitly in `New Or Unbudgeted Items` using the exact statement description.
 
 When the owner corrects a category or transaction type, update the relevant source file when you can identify the transaction. Ask before adding a durable rule to `rules.md`. Use rules to remember owner-approved patterns, not to override obvious statement evidence without discussion.
 
