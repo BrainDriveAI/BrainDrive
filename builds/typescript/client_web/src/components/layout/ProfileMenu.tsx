@@ -1,5 +1,7 @@
 import { LayoutGrid, LogOut, Users } from "lucide-react";
 
+import { openExternalUrl } from "@/utils/external-url";
+
 type ProfileMenuProps = {
   onClose: () => void;
   onOpenSettings: () => void;
@@ -25,7 +27,7 @@ export default function ProfileMenu({
       <button
         type="button"
         onClick={() => {
-          window.open("https://community.braindrive.ai", "_blank", "noopener");
+          void openExternalUrl("https://community.braindrive.ai");
           onClose();
         }}
         className="flex w-full items-center gap-2.5 rounded-lg px-3.5 py-2.5 text-left text-sm text-bd-text-primary transition-all duration-200 hover:bg-bd-bg-hover"

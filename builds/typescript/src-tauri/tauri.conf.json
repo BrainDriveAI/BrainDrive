@@ -1,0 +1,76 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "BrainDrive",
+  "version": "26.4.20",
+  "identifier": "ai.braindrive.desktop",
+  "build": {
+    "beforeDevCommand": "npm run desktop:preflight && npm run desktop:dev:web",
+    "beforeBuildCommand": "npm run desktop:preflight && npm run desktop:build:frontend && npm run desktop:stage-runtime",
+    "devUrl": "http://localhost:5073",
+    "frontendDist": "../client_web/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "BrainDrive",
+        "width": 1280,
+        "height": 860,
+        "minWidth": 960,
+        "minHeight": 640,
+        "visible": false,
+        "resizable": true,
+        "fullscreen": false
+      },
+      {
+        "label": "splashscreen",
+        "url": "splash.html",
+        "title": "BrainDrive",
+        "width": 520,
+        "height": 360,
+        "center": true,
+        "resizable": false,
+        "decorations": false,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "publisher": "BrainDrive",
+    "category": "Productivity",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "desktop-runtime/": "desktop-runtime"
+    },
+    "macOS": {
+      "dmg": {
+        "background": "dmg-background.png",
+        "windowSize": {
+          "width": 760,
+          "height": 480
+        },
+        "appPosition": {
+          "x": 190,
+          "y": 300
+        },
+        "applicationFolderPosition": {
+          "x": 570,
+          "y": 300
+        }
+      }
+    },
+    "shortDescription": "BrainDrive native desktop app",
+    "longDescription": "BrainDrive is a personal AI system with user-owned local memory."
+  }
+}

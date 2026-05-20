@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="480" viewBox="0 0 760 480">
+  <rect width="760" height="480" fill="#f8fafc"/>
+  <text x="380" y="82" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="33" font-weight="700" fill="#000515">Drag BrainDrive into your</text>
+  <text x="380" y="124" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="33" font-weight="700" fill="#000515">Applications folder</text>
+  <image href="dmg-arrow.svg" x="315" y="250" width="130" height="65" preserveAspectRatio="xMidYMid meet"/>
+</svg>

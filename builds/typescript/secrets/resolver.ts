@@ -114,6 +114,10 @@ function findProviderCredentialPreference(
     }
   }
 
+  if (adapterConfig.provider_profiles && Object.keys(adapterConfig.provider_profiles).length > 0) {
+    return undefined;
+  }
+
   const allProviderIds = Object.keys(credentialMap);
   if (allProviderIds.length === 1) {
     const providerId = allProviderIds[0];

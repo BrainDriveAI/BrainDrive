@@ -61,7 +61,7 @@ const { runMemoryBackupMock, restoreMemoryBackupMock, createMemoryBackupSchedule
   })),
 }));
 
-const mockAdapterConfig: AdapterConfig = {
+let mockAdapterConfig: AdapterConfig = {
   base_url: "https://openrouter.ai/api/v1",
   model: "openai/gpt-4o-mini",
   api_key_env: "OPENROUTER_API_KEY",
@@ -132,6 +132,8 @@ async function createTestServer(
     managedApiBase?: string;
     allowManagedPublicAccountProxyRoutes?: boolean;
     starterPack?: boolean;
+    desktopApiToken?: string;
+    adapterConfig?: AdapterConfig;
   } = {}
 ): Promise<TestServerContext> {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "paa-auth-int-"));
@@ -163,6 +165,12 @@ async function createTestServer(
       on_missing: "fail_closed",
     },
   };
+  mockAdapterConfig = options.adapterConfig ?? {
+    base_url: "https://openrouter.ai/api/v1",
+    model: "openai/gpt-4o-mini",
+    api_key_env: "OPENROUTER_API_KEY",
+    provider_id: "openrouter",
+  };
 
   const previousSecretsHome = process.env.PAA_SECRETS_HOME;
   const previousBootstrapToken = process.env.PAA_AUTH_BOOTSTRAP_TOKEN;
@@ -171,6 +179,7 @@ async function createTestServer(
   const previousManagedPublicAccountProxyRoutes = process.env.PAA_MANAGED_PUBLIC_ACCOUNT_PROXY_ROUTES;
   const previousMemoryAutoUpdateEnabled = process.env.PAA_MEMORY_AUTO_UPDATE_ENABLED;
   const previousAppVersion = process.env.BRAINDRIVE_APP_VERSION;
+  const previousDesktopApiToken = process.env.BRAINDRIVE_DESKTOP_API_TOKEN;
 
   process.env.PAA_SECRETS_HOME = secretsRoot;
   process.env.PAA_MEMORY_AUTO_UPDATE_ENABLED = "false";
@@ -196,6 +205,11 @@ async function createTestServer(
       : "false";
   } else {
     delete process.env.PAA_MANAGED_PUBLIC_ACCOUNT_PROXY_ROUTES;
+  }
+  if (typeof options.desktopApiToken === "string") {
+    process.env.BRAINDRIVE_DESKTOP_API_TOKEN = options.desktopApiToken;
+  } else {
+    delete process.env.BRAINDRIVE_DESKTOP_API_TOKEN;
   }
 
   const { app } = await buildServer(tempRoot);
@@ -239,6 +253,11 @@ async function createTestServer(
         process.env.BRAINDRIVE_APP_VERSION = previousAppVersion;
       } else {
         delete process.env.BRAINDRIVE_APP_VERSION;
+      }
+      if (typeof previousDesktopApiToken === "string") {
+        process.env.BRAINDRIVE_DESKTOP_API_TOKEN = previousDesktopApiToken;
+      } else {
+        delete process.env.BRAINDRIVE_DESKTOP_API_TOKEN;
       }
     },
   };
@@ -336,6 +355,33 @@ describe.sequential("gateway auth route integration", () => {
 
     const setCookieHeader = logoutResponse.headers["set-cookie"];
     expect(typeof setCookieHeader === "string" ? setCookieHeader : "").toContain("Max-Age=0");
+  });
+
+  it("allows desktop-token requests in local mode after account initialization", async () => {
+    context = await createTestServer({ desktopApiToken: "desktop-test-token" });
+
+    const signupResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/signup",
+      headers: {
+        "x-braindrive-desktop-token": "desktop-test-token",
+      },
+      payload: {
+        identifier: "owner",
+        password: "password123",
+      },
+    });
+    expect(signupResponse.statusCode).toBe(201);
+
+    const response = await context.app.inject({
+      method: "GET",
+      url: "/settings",
+      headers: {
+        "x-braindrive-desktop-token": "desktop-test-token",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
   });
 
   it("requires bootstrap token for first signup when configured", async () => {
@@ -676,6 +722,49 @@ describe.sequential("gateway auth route integration", () => {
     expect(settingsBody.provider_profiles.find((profile) => profile.id === "default")?.credential_mode).toBe(
       "secret_ref"
     );
+  });
+
+  it("normalizes local Ollama server URLs to the OpenAI-compatible base URL", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: {
+        base_url: "https://my.braindrive.ai/credits/v1",
+        model: "claude-haiku-4-5-20251001",
+        api_key_env: "AI_GATEWAY_API_KEY",
+        provider_id: "braindrive-models",
+        default_provider_profile: "braindrive-models",
+        provider_profiles: {
+          "braindrive-models": {
+            base_url: "https://my.braindrive.ai/credits/v1",
+            model: "claude-haiku-4-5-20251001",
+            api_key_env: "AI_GATEWAY_API_KEY",
+            provider_id: "braindrive-models",
+          },
+          ollama: {
+            base_url: "http://host.docker.internal:11434/v1",
+            model: "",
+            api_key_env: "OLLAMA_API_KEY",
+            provider_id: "ollama",
+          },
+        },
+      },
+    });
+
+    const response = await context.app.inject({
+      method: "PUT",
+      url: "/settings",
+      headers: localOwnerAdminHeaders(),
+      payload: {
+        active_provider_profile: "ollama",
+        provider_base_url: {
+          provider_profile: "ollama",
+          base_url: "http://localhost:11434",
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockPreferences.provider_base_urls?.ollama).toBe("http://localhost:11434/v1");
   });
 
   it("persists memory backup settings and returns a safe payload", async () => {

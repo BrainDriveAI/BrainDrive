@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BrainDrive</title>
+    <style>
+      @font-face {
+        font-family: "Montserrat";
+        font-weight: 700;
+        font-style: normal;
+        font-display: swap;
+        src: url("./fonts/Montserrat-Bold.ttf") format("truetype");
+      }
+
+      @font-face {
+        font-family: "Questrial";
+        font-weight: 400;
+        font-style: normal;
+        font-display: swap;
+        src: url("./fonts/Questrial-Regular.ttf") format("truetype");
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #03050a;
+      }
+
+      body {
+        display: grid;
+        place-items: center;
+        color: #c5daed;
+        font-family: "Questrial", system-ui, sans-serif;
+        user-select: none;
+      }
+
+      .splash {
+        display: grid;
+        width: 100%;
+        height: 100%;
+        place-items: center;
+        background:
+          radial-gradient(circle at 50% 40%, rgba(50, 93, 135, 0.32), transparent 18rem),
+          linear-gradient(180deg, #071124 0%, #03050a 58%, #010208 100%);
+      }
+
+      .splash__content {
+        display: flex;
+        width: min(82vw, 360px);
+        flex-direction: column;
+        align-items: center;
+        gap: 13px;
+        text-align: center;
+      }
+
+      .splash__brand {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+      }
+
+      .splash__brand-icon {
+        width: 44px;
+        height: 44px;
+        flex: 0 0 auto;
+        filter: drop-shadow(0 18px 38px rgba(0, 0, 0, 0.34));
+      }
+
+      .splash__title {
+        margin: 0;
+        color: #ffffff;
+        font-family: "Montserrat", system-ui, sans-serif;
+        font-size: 32px;
+        font-weight: 700;
+        line-height: 1.12;
+      }
+
+      .splash__message {
+        margin: 0;
+        color: #7ca7d1;
+        font-size: 16px;
+        line-height: 1.45;
+      }
+
+      .splash__bar {
+        position: relative;
+        width: min(220px, 64vw);
+        height: 3px;
+        margin-top: 8px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: rgba(124, 167, 209, 0.18);
+      }
+
+      .splash__bar::after {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: -40%;
+        width: 40%;
+        border-radius: inherit;
+        background: #f5a623;
+        box-shadow: 0 0 18px rgba(245, 166, 35, 0.62);
+        content: "";
+        animation: loading 1.25s ease-in-out infinite;
+      }
+
+      @keyframes loading {
+        from {
+          transform: translateX(0);
+        }
+
+        to {
+          transform: translateX(350%);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .splash__bar::after {
+          left: 0;
+          width: 100%;
+          animation: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="splash" role="status" aria-live="polite" aria-label="BrainDrive is loading">
+      <div class="splash__content">
+        <div class="splash__brand">
+          <img class="splash__brand-icon" src="./braindrive-icon.svg" alt="" />
+          <h1 class="splash__title">BrainDrive</h1>
+        </div>
+        <p class="splash__message">Your Personal AI System is Loading...</p>
+        <div class="splash__bar" aria-hidden="true"></div>
+      </div>
+    </main>
+  </body>
+</html>

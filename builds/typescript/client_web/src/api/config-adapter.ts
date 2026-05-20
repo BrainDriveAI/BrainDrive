@@ -1,4 +1,5 @@
 import { buildLocalOwnerHeaders } from "./local-auth";
+import { apiFetch } from "./runtime-api-base";
 
 export type GatewayInstallMode = "dev" | "local" | "prod" | "unknown";
 export type GatewayInstallLocation = "local" | "managed" | "unknown";
@@ -49,7 +50,7 @@ export async function getConfig(): Promise<GatewayClientConfig> {
       await new Promise((r) => setTimeout(r, attempts[i]));
     }
     try {
-      const response = await fetch("/api/config", {
+      const response = await apiFetch("/api/config", {
         headers: buildLocalOwnerHeaders(),
       });
       if (!response.ok) {

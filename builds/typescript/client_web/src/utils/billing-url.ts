@@ -1,3 +1,5 @@
+import { openExternalUrl } from "./external-url";
+
 const TRUSTED_BILLING_DOMAINS = ["stripe.com"] as const;
 
 export function isTrustedBillingUrl(url: string): boolean {
@@ -21,6 +23,6 @@ export function openTrustedBillingUrl(url: string): boolean {
     return false;
   }
 
-  window.open(url, "_blank", "noopener,noreferrer");
+  void openExternalUrl(url);
   return true;
 }

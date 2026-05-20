@@ -10,6 +10,7 @@ const gatewayProxyTarget =
   process.env.VITE_GATEWAY_PROXY_TARGET ?? "http://127.0.0.1:8787";
 
 export default defineConfig({
+  base: "./",
   plugins: [react(), tailwindcss()],
   server: {
     host: "0.0.0.0",

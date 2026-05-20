@@ -4,7 +4,7 @@
   "conversation_store": "markdown",
   "auth_mode": "local",
   "tool_sources": [
-    "mcp/servers.local.json"
+    "mcp/servers.full-mcp.json"
   ],
-  "bind_address": "0.0.0.0"
+  "bind_address": "127.0.0.1"
 }

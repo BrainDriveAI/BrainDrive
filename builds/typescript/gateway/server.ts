@@ -2,6 +2,7 @@ import path from "node:path";
 import { createReadStream, existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
 import { z } from "zod";
 
@@ -260,6 +261,9 @@ export async function buildServer(rootDir = process.cwd()) {
   const isManaged = process.env.BD_DEPLOYMENT_MODE === "managed";
   const installLocation: InstallLocation = isManaged ? "managed" : "local";
   const managedApiBase = process.env.BD_MANAGED_API_BASE?.replace(/\/+$/, "") || "";
+  const clientGatewayUrl = process.env.BRAINDRIVE_CLIENT_GATEWAY_URL?.trim() || "/api";
+  const desktopApiToken = process.env.BRAINDRIVE_DESKTOP_API_TOKEN?.trim() || "";
+  const desktopCorsOrigin = process.env.BRAINDRIVE_DESKTOP_CORS_ORIGIN?.trim() || "";
   const managedPublicAccountProxyRoutesEnv = process.env.PAA_MANAGED_PUBLIC_ACCOUNT_PROXY_ROUTES;
   const managedPublicAccountProxyRoutesConfigured =
     typeof managedPublicAccountProxyRoutesEnv === "string" &&
@@ -384,7 +388,7 @@ export async function buildServer(rootDir = process.cwd()) {
 
   const app = Fastify({
     logger: false,
-    trustProxy: true,
+    trustProxy: readBooleanEnv(process.env.BRAINDRIVE_TRUST_PROXY, true),
     bodyLimit: readPositiveIntEnv(process.env.PAA_MIGRATION_IMPORT_BODY_LIMIT_BYTES, 1024 * 1024 * 1024),
   });
   app.addContentTypeParser(
@@ -394,6 +398,35 @@ export async function buildServer(rootDir = process.cwd()) {
       done(null, body);
     }
   );
+
+  app.addHook("onRequest", async (request, reply) => {
+    applyDesktopCorsHeaders(request.headers.origin, reply, desktopCorsOrigin, Boolean(desktopApiToken));
+
+    if (request.method === "OPTIONS") {
+      return reply.code(204).send();
+    }
+  });
+
+  app.addHook("preHandler", async (request, reply) => {
+    if (!desktopApiToken) {
+      return;
+    }
+
+    const requestPath = stripQueryString(request.url);
+    if (requestPath === "/health" || requestPath === "/config") {
+      return;
+    }
+
+    const providedToken = request.headers["x-braindrive-desktop-token"];
+    if (providedToken !== desktopApiToken) {
+      auditLog("desktop_api_token.denied", {
+        method: request.method,
+        path: request.url,
+        token_present: Boolean(providedToken),
+      });
+      return reply.code(403).send({ error: "desktop_api_token_required" });
+    }
+  });
   const approvalStore = new ApprovalStore();
   const toolExecutor = new ToolExecutor(tools);
   const conversations = new GatewayConversationService(createConversationRepository(runtimeConfig));
@@ -635,6 +668,9 @@ export async function buildServer(rootDir = process.cwd()) {
       authenticateLocalJwtAccessToken: localJwtAuthService
         ? async (accessToken: string) => localJwtAuthService.authenticateAccessToken(accessToken)
         : undefined,
+      isDesktopRequestAuthorized: desktopApiToken
+        ? (candidate) => candidate.headers["x-braindrive-desktop-token"] === desktopApiToken
+        : undefined,
     });
   });
 
@@ -740,6 +776,7 @@ export async function buildServer(rootDir = process.cwd()) {
     });
 
     const streamHeaders: Record<string, string> = {
+      ...buildDesktopCorsHeaders(request.headers.origin, desktopCorsOrigin, Boolean(desktopApiToken)),
       "content-type": "text/event-stream",
       "cache-control": "no-cache",
       connection: "keep-alive",
@@ -966,7 +1003,7 @@ export async function buildServer(rootDir = process.cwd()) {
     install_mode: runtimeConfig.install_mode,
     install_location: installLocation,
     app_version: appVersion,
-    gateway_url: "/api",
+    gateway_url: clientGatewayUrl,
     features: {
       approvals: true,
       projects: true,
@@ -1460,8 +1497,10 @@ export async function buildServer(rootDir = process.cwd()) {
         sendInvalidRequest(reply, "/settings", 1);
         return;
       }
+      const profileConfig = resolveAdapterProfile(adapterConfig, provider_profile);
       const urls = { ...nextPreferences.provider_base_urls };
-      urls[provider_profile] = base_url;
+      urls[provider_profile] =
+        profileConfig.provider_id?.toLowerCase() === "ollama" ? normalizeOllamaOpenAIBaseUrl(base_url) : base_url;
       nextPreferences.provider_base_urls = urls;
     }
 
@@ -1633,6 +1672,12 @@ export async function buildServer(rootDir = process.cwd()) {
     const selectedProfile = resolveAdapterProfile(adapterConfig, body.provider_profile);
     const providerId = selectedProfile.provider_id ?? body.provider_profile;
     const mode = body.mode ?? "secret_ref";
+    auditLog("settings.credentials_update_start", {
+      provider_profile: body.provider_profile,
+      provider_id: providerId,
+      mode,
+      set_active_provider: body.set_active_provider ?? null,
+    });
 
     // Validate BrainDrive Models API keys before persisting
     if (mode === "secret_ref" && body.api_key && providerId === "braindrive-models") {
@@ -1648,12 +1693,27 @@ export async function buildServer(rootDir = process.cwd()) {
           headers: { Authorization: `Bearer ${trimmedKey}` },
         });
         if (verifyResp.status === 401 || verifyResp.status === 403) {
+          auditLog("settings.credentials_validation_failed", {
+            provider_profile: body.provider_profile,
+            provider_id: providerId,
+            status: verifyResp.status,
+          });
           reply.code(400).send({
             error: "This API key wasn't recognized. Please check that you copied the full key from your purchase confirmation email.",
           });
           return;
         }
-      } catch {
+        auditLog("settings.credentials_validation_completed", {
+          provider_profile: body.provider_profile,
+          provider_id: providerId,
+          status: verifyResp.status,
+        });
+      } catch (error) {
+        auditLog("settings.credentials_validation_unavailable", {
+          provider_profile: body.provider_profile,
+          provider_id: providerId,
+          message: error instanceof Error ? error.message : String(error),
+        });
         // Upstream unreachable — proceed with save
       }
     }
@@ -2439,6 +2499,43 @@ function readBooleanEnv(value: string | undefined, defaultValue = false): boolea
   return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
 }
 
+function applyDesktopCorsHeaders(
+  origin: string | undefined,
+  reply: import("fastify").FastifyReply,
+  configuredOrigin: string,
+  desktopTokenEnabled: boolean
+): void {
+  const headers = buildDesktopCorsHeaders(origin, configuredOrigin, desktopTokenEnabled);
+  for (const [name, value] of Object.entries(headers)) {
+    reply.header(name, value);
+  }
+}
+
+function buildDesktopCorsHeaders(
+  origin: string | undefined,
+  configuredOrigin: string,
+  desktopTokenEnabled: boolean
+): Record<string, string> {
+  if (!desktopTokenEnabled || !origin) {
+    return {};
+  }
+
+  if (configuredOrigin && origin !== configuredOrigin) {
+    return {};
+  }
+
+  return {
+    "access-control-allow-origin": origin,
+    vary: "origin",
+    "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+    "access-control-allow-headers":
+      "authorization,content-type,x-actor-id,x-actor-type,x-auth-mode,x-actor-permissions,x-braindrive-desktop-token,x-conversation-id",
+    "access-control-expose-headers":
+      "x-conversation-id,x-context-window-warning,x-context-window-estimated-tokens,x-context-window-budget-tokens,x-context-window-ratio,x-context-window-threshold,x-context-window-managed,x-context-window-message",
+    "access-control-allow-credentials": "true",
+  };
+}
+
 function readPositiveIntEnv(value: string | undefined, defaultValue: number): number {
   const normalized = value?.trim();
   if (!normalized) {
@@ -2990,6 +3087,25 @@ function isKnownProviderProfile(
   return profileId === (adapterConfig.default_provider_profile ?? "default");
 }
 
+function normalizeOllamaOpenAIBaseUrl(baseUrl: string): string {
+  const parsed = new URL(baseUrl);
+  const normalizedPath = parsed.pathname.replace(/\/+$/, "");
+
+  if (normalizedPath === "" || normalizedPath === "/api") {
+    parsed.pathname = "/v1";
+  } else if (normalizedPath.endsWith("/api/chat") || normalizedPath.endsWith("/api/generate")) {
+    parsed.pathname = normalizedPath.replace(/\/api\/(?:chat|generate)$/, "/v1");
+  } else if (normalizedPath.endsWith("/chat/completions") || normalizedPath.endsWith("/models")) {
+    parsed.pathname = normalizedPath.replace(/\/(?:chat\/completions|models)$/, "");
+  } else {
+    parsed.pathname = normalizedPath;
+  }
+
+  parsed.search = "";
+  parsed.hash = "";
+  return parsed.toString().replace(/\/$/, "");
+}
+
 export function buildProjectChatContext(projectId: string, files: GatewayProjectFile[]): string {
   const sortedFiles = [...files].sort((left, right) => left.name.localeCompare(right.name));
   const visibleFiles = sortedFiles.slice(0, 80);
@@ -3206,7 +3322,7 @@ function normalizeMemoryRelativePath(value: unknown): string {
   return path.posix.normalize(normalized);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname)) {
+if (isDirectEntrypoint(process.argv[1], import.meta.url)) {
   const rootDir = process.cwd();
   buildServer(rootDir)
     .then(async ({ app, runtimeConfig }) => {
@@ -3219,4 +3335,17 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(im
       });
       process.exitCode = 1;
     });
+}
+
+function isDirectEntrypoint(argvPath: string | undefined, moduleUrl: string): boolean {
+  if (!argvPath) {
+    return false;
+  }
+
+  return normalizeEntrypointPath(argvPath) === normalizeEntrypointPath(fileURLToPath(moduleUrl));
+}
+
+function normalizeEntrypointPath(value: string): string {
+  const normalized = path.normalize(path.resolve(value)).replace(/^\\\\\?\\/, "");
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
