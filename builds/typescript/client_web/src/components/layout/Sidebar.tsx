@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { getSession } from "@/api/auth-adapter";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Project, ProjectFile, UserProfile } from "@/types/ui";
+import { ACCEPTED_FILE_INPUT } from "@/utils/file-utils";
 
 import ProfileMenu from "./ProfileMenu";
 import { getProjectIcon } from "./project-icons";
@@ -33,6 +34,9 @@ type SidebarProps = {
   onAddProject?: (name: string) => Promise<void>;
   onRemoveProject?: (id: string) => Promise<void>;
   onRenameProject?: (id: string, name: string) => Promise<void>;
+  onUploadDocument?: (file: File) => Promise<unknown>;
+  uploadStatus?: string | null;
+  uploadError?: string | null;
   tier?: "local" | "concierge";
   onClose?: () => void;
 };
@@ -55,6 +59,9 @@ export default function Sidebar({
   onAddProject,
   onRemoveProject,
   onRenameProject,
+  onUploadDocument,
+  uploadStatus,
+  uploadError,
   tier = "local",
   onClose
 }: SidebarProps) {
@@ -66,6 +73,7 @@ export default function Sidebar({
   const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const newProjectInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const projectMenuRef = useRef<HTMLDivElement | null>(null);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -214,12 +222,48 @@ export default function Sidebar({
             >
               {selectedProject.name}
             </button>
+            {onUploadDocument ? (
+              <>
+                <input
+                  ref={uploadInputRef}
+                  type="file"
+                  accept={ACCEPTED_FILE_INPUT}
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    if (!file) {
+                      return;
+                    }
+                    void onUploadDocument(file).catch(() => {});
+                  }}
+                />
+                <button
+                  type="button"
+                  aria-label={`Upload document to ${selectedProject.name}`}
+                  disabled={Boolean(uploadStatus)}
+                  onClick={() => {
+                    uploadInputRef.current?.click();
+                  }}
+                  className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-bd-text-secondary transition-colors duration-200 hover:bg-bd-bg-hover hover:text-bd-text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                  title="Upload document"
+                >
+                  <Plus size={16} strokeWidth={1.5} />
+                </button>
+              </>
+            ) : null}
           </div>
         ) : null}
 
         <ScrollArea className="min-h-0 flex-1 px-2 pb-4">
           {isProjectView ? (
             <div className="space-y-1 px-2">
+              {uploadStatus ? (
+                <div className="px-3 py-2 text-xs text-bd-text-muted">{uploadStatus}</div>
+              ) : null}
+              {uploadError ? (
+                <div className="px-3 py-2 text-xs leading-5 text-red-400">{uploadError}</div>
+              ) : null}
               {isLoadingFiles ? (
                 <div className="px-3 py-4 text-sm text-bd-text-muted">Loading files...</div>
               ) : projectFiles.length === 0 ? (

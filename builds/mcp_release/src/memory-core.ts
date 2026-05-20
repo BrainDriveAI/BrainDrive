@@ -5,7 +5,7 @@ import { commitMemoryChange, ensureGitReady, exportMemoryArchive, historyForPath
 import { ownerPermissions, type PermissionSet } from "./request-context.js";
 
 const reservedMemoryRoots = new Set([".git"]);
-const expectedProjectFiles = ["AGENT.md", "spec.md", "plan.md"];
+const expectedProjectFiles = ["AGENT.md", "index.md", "spec.md", "plan.md"];
 
 export type ToolFailureCode =
   | "not_found"
@@ -179,13 +179,110 @@ export async function editMemoryFile(
 export async function deleteMemoryPath(memoryRoot: string, requestedPath: string): Promise<{ path: string; deleted: true }> {
   try {
     const absolutePath = resolveMemoryPath(memoryRoot, requestedPath);
+    const details = await stat(absolutePath).catch(() => null);
+    const indexTarget = details ? projectIndexTargetForDeletedPath(memoryRoot, absolutePath, details.isFile()) : null;
     await rm(absolutePath, { recursive: true, force: true });
+    if (indexTarget) {
+      await removeProjectIndexEntry(memoryRoot, indexTarget.projectId, indexTarget.fileName);
+    }
     await ensureGitReady(memoryRoot);
     await commitMemoryChange(memoryRoot, `Delete ${toMemoryRelativePath(memoryRoot, absolutePath)}`);
     return { path: absolutePath, deleted: true };
   } catch (error) {
     throw toToolFailure(error);
   }
+}
+
+async function removeProjectIndexEntry(memoryRoot: string, projectId: string, fileName: string): Promise<void> {
+  const indexPath = resolveMemoryPath(memoryRoot, `documents/${projectId}/index.md`);
+  let current: string;
+  try {
+    current = await readFile(indexPath, "utf8");
+  } catch {
+    return;
+  }
+
+  const next = removeProjectIndexEntryContent(current, fileName);
+  if (next !== current) {
+    await writeFile(indexPath, next, "utf8");
+  }
+}
+
+function removeProjectIndexEntryContent(content: string, fileName: string): string {
+  const normalizedFileName = normalizeIndexFilePath(fileName);
+  if (!normalizedFileName) {
+    return content;
+  }
+
+  const lines = content.split(/\r?\n/);
+  const nextLines = lines.filter((line) => !indexRowReferencesFile(line, normalizedFileName));
+  if (nextLines.length === lines.length) {
+    return content;
+  }
+
+  const supportingHeadingIndex = nextLines.findIndex((line) => line.trim() === "## Supporting Documents");
+  if (supportingHeadingIndex !== -1) {
+    const nextHeadingIndex = nextLines.findIndex((line, index) => index > supportingHeadingIndex && /^##\s+/.test(line));
+    const sectionEnd = nextHeadingIndex === -1 ? nextLines.length : nextHeadingIndex;
+    const hasDocumentRow = nextLines
+      .slice(supportingHeadingIndex, sectionEnd)
+      .some((line) => /^\|\s*`[^`]+`/.test(line.trim()));
+    if (!hasDocumentRow) {
+      const separatorIndex = nextLines.findIndex((line, index) =>
+        index > supportingHeadingIndex && line.trim() === "|---|---|---|---|---|"
+      );
+      if (separatorIndex !== -1) {
+        nextLines.splice(separatorIndex + 1, 0, "| _No supporting documents yet._ | | | | |");
+      }
+    }
+  }
+
+  return `${nextLines.join("\n").replace(/\n*$/, "")}\n`;
+}
+
+function indexRowReferencesFile(line: string, fileName: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("|")) {
+    return false;
+  }
+  const match = /^\|\s*`([^`]+)`/.exec(trimmed);
+  return match ? normalizeIndexFilePath(match[1] ?? "") === fileName : false;
+}
+
+function normalizeIndexFilePath(fileName: string): string {
+  const normalized = fileName.trim().replace(/\\/g, "/").replace(/^\/+/, "");
+  if (!normalized) {
+    return "";
+  }
+  const parts = normalized.split("/");
+  if (parts.some((part) => !part || part === "." || part === "..")) {
+    return "";
+  }
+  return parts.join("/");
+}
+
+function projectIndexTargetForDeletedPath(
+  memoryRoot: string,
+  absolutePath: string,
+  isFile: boolean
+): { projectId: string; fileName: string } | null {
+  if (!isFile) {
+    return null;
+  }
+
+  const relativePath = toMemoryRelativePath(memoryRoot, absolutePath).replace(/\\/g, "/");
+  const parts = relativePath.split("/");
+  if (parts.length < 3 || parts[0] !== "documents") {
+    return null;
+  }
+
+  const projectId = parts[1] ?? "";
+  const fileName = parts.slice(2).join("/");
+  if (!projectId || ["AGENT.md", "index.md", "spec.md", "plan.md"].includes(fileName)) {
+    return null;
+  }
+
+  return { projectId, fileName };
 }
 
 export async function listMemoryPath(memoryRoot: string, requestedPath = "."): Promise<{ path: string; entries: string[] }> {

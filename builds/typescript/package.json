@@ -1,6 +1,6 @@
 {
   "name": "braindrive",
-  "version": "26.4.20",
+  "version": "26.5.23",
   "description": "BrainDrive core runtime: gateway, engine, auth, memory, and web client",
   "private": true,
   "type": "module",
@@ -20,6 +20,7 @@
     "dev:cli": "tsx client/repl.ts",
     "dev:web": "npm --prefix client_web run dev",
     "memory:init": "tsx scripts/memory-init.ts",
+    "smoke:upload": "tsx scripts/upload-smoke.ts",
     "secrets": "tsx secrets/cli.ts",
     "start": "node dist/main.js",
     "start:server": "node dist/gateway/server.js",

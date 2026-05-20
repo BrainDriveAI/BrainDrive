@@ -1,9 +1,10 @@
 import path from "node:path";
-import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 
 import type { ToolContext, ToolDefinition } from "../../contracts.js";
 import { commitMemoryChange } from "../../git.js";
 import { auditLog } from "../../logger.js";
+import { removeProjectIndexEntry } from "../../memory/folder-index.js";
 import { isReservedMemoryPath, resolveMemoryPath, toMemoryRelativePath } from "../../memory/paths.js";
 import { ToolExecutionFailure, toToolFailure } from "../../tool-error.js";
 
@@ -70,7 +71,13 @@ async function deleteTool(context: ToolContext, input: Record<string, unknown>):
 
   try {
     const absolutePath = resolveToolPath(context, targetPath);
-    await rm(absolutePath, { recursive: true, force: true });
+    await access(absolutePath);
+    const details = await stat(absolutePath);
+    const indexTarget = projectIndexTargetForDeletedPath(context.memoryRoot, absolutePath, details.isFile());
+    await rm(absolutePath, { recursive: true });
+    if (indexTarget) {
+      await removeProjectIndexEntry(context.memoryRoot, indexTarget.projectId, indexTarget.fileName);
+    }
     auditLog("memory.write", {
       action: "file.delete",
       path: absolutePath,
@@ -81,6 +88,34 @@ async function deleteTool(context: ToolContext, input: Record<string, unknown>):
   } catch (error) {
     throw toToolFailure(error);
   }
+}
+
+function projectIndexTargetForDeletedPath(
+  memoryRoot: string,
+  absolutePath: string,
+  isFile: boolean
+): { projectId: string; fileName: string } | null {
+  if (!isFile) {
+    return null;
+  }
+
+  const relativePath = toMemoryRelativePath(memoryRoot, absolutePath).replace(/\\/g, "/");
+  const parts = relativePath.split("/");
+  if (parts.length < 3 || parts[0] !== "documents") {
+    return null;
+  }
+
+  const projectId = parts[1] ?? "";
+  const fileName = parts.slice(2).join("/");
+  if (!projectId || isCoreProjectFile(fileName)) {
+    return null;
+  }
+
+  return { projectId, fileName };
+}
+
+function isCoreProjectFile(fileName: string): boolean {
+  return ["AGENT.md", "index.md", "spec.md", "plan.md"].includes(fileName);
 }
 
 async function listTool(context: ToolContext, input: Record<string, unknown>): Promise<unknown> {
@@ -301,4 +336,3 @@ export function fileOpsTools(): ToolDefinition[] {
     },
   ];
 }
-

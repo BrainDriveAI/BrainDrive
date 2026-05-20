@@ -37,11 +37,13 @@ import type {
   AdapterConfig,
   ApprovalMode,
   ClientMessageRequest,
+  ConversationDetail,
   InstallLocation,
   Preferences,
-  RuntimeConfig
+  RuntimeConfig,
+  ToolExecutionResult
 } from "../contracts.js";
-import { runAgentLoop } from "../engine/loop.js";
+import { runAgentLoop, type ToolExecutionGuard } from "../engine/loop.js";
 import { classifyProviderError } from "../engine/errors.js";
 import { formatSseEvent } from "../engine/stream.js";
 import { ToolExecutor } from "../engine/tool-executor.js";
@@ -72,8 +74,16 @@ import { initializeMasterKey, loadMasterKey } from "../secrets/key-provider.js";
 import { resolveSecretsPaths } from "../secrets/paths.js";
 import { getVaultSecret, upsertVaultSecret } from "../secrets/vault.js";
 import { GatewayConversationService } from "./conversations.js";
+import {
+  buildUploadedDocumentIndexEntry,
+  buildUploadedMarkdownDocument,
+  convertUploadedDocumentToMarkdown,
+  DocumentConversionProviderError,
+  inferUploadedDocumentMetadata,
+  sanitizeSuggestedMarkdownFileName,
+} from "./document-upload.js";
 import { createMemoryBackupScheduler } from "./memory-backup-scheduler.js";
-import { GatewayProjectService, isProjectMetadata, ProtectedProjectError } from "./projects.js";
+import { GatewayProjectService, isProjectMetadata, ProtectedProjectError, type GatewayProjectFile } from "./projects.js";
 import { GatewaySkillService } from "./skills.js";
 import { prepareContextWindow } from "./context-window.js";
 
@@ -93,6 +103,15 @@ const projectRenameSchema = z.object({
 const fileContentWriteSchema = z.object({
   content: z.string(),
 });
+
+const projectDocumentUploadSchema = z
+  .object({
+    file_name: z.string().trim().min(1),
+    mime_type: z.string().trim().optional(),
+    content_base64: z.string().trim().min(1),
+    size: z.number().int().nonnegative().optional(),
+  })
+  .strict();
 
 const skillCreateSchema = z
   .object({
@@ -721,7 +740,7 @@ export async function buildServer(rootDir = process.cwd()) {
     // Without this, the AI sees the base prompt but doesn't know which project
     // files to read — it would read all projects and behave like BD+1.
     const projectContext = projectId
-      ? `\n\n## Active Project\n\nYou are currently in the **${projectId}** project. Read this project's AGENT.md, spec.md, and plan.md from the documents/${projectId}/ folder. Stay focused on this domain — do not read or reference other projects unless the conversation specifically calls for cross-domain connections.`
+      ? buildProjectChatContext(projectId, (await projects.listProjectFiles(projectId))?.files ?? [])
       : "";
     const finalPrompt = promptWithSkills.prompt + projectContext;
 
@@ -810,6 +829,7 @@ export async function buildServer(rootDir = process.cwd()) {
           memoryRoot: runtimeConfig.memory_root,
           approvalMode: livePreferences.approval_mode,
           safetyIterationLimit: runtimeConfig.safety_iteration_limit,
+          toolExecutionGuard: createFinanceBudgetProtectionGuard(projectId, conversations.detail(conversationId)),
         }
       )) {
         if (event.type === "tool-call") {
@@ -2222,6 +2242,124 @@ export async function buildServer(rootDir = process.cwd()) {
     }
   });
 
+  app.post("/projects/:id/uploads", async (request, reply) => {
+    const params = request.params as { id: string };
+    const parsed = projectDocumentUploadSchema.safeParse(request.body);
+    if (!parsed.success) {
+      sendInvalidRequest(reply, "/projects/:id/uploads", parsed.error.issues.length);
+      return;
+    }
+
+    if (params.id === "braindrive-plus-one") {
+      reply.code(403).send({ error: "Open a folder to upload documents" });
+      return;
+    }
+
+    const project = await projects.getProject(params.id);
+    if (!project) {
+      reply.code(404).send({ error: "Project not found" });
+      return;
+    }
+
+    let data: Buffer;
+    try {
+      data = Buffer.from(parsed.data.content_base64, "base64");
+    } catch {
+      reply.code(400).send({ error: "Invalid file content" });
+      return;
+    }
+
+    if (data.length === 0) {
+      reply.code(400).send({ error: "Uploaded file is empty" });
+      return;
+    }
+
+    const sizeLimit = uploadSizeLimitFor(parsed.data.file_name, parsed.data.mime_type ?? "");
+    if (data.length > sizeLimit) {
+      reply.code(413).send({ error: "Uploaded file is too large" });
+      return;
+    }
+
+    try {
+      const uploadInput = {
+        fileName: parsed.data.file_name,
+        mimeType: parsed.data.mime_type ?? "application/octet-stream",
+        data,
+        projectId: project.id,
+        projectName: project.name,
+      };
+      const livePreferences = await loadLivePreferences();
+      const converted = await convertUploadedDocumentToMarkdown(
+        uploadInput,
+        runtimeConfig.provider_adapter,
+        adapterConfig,
+        livePreferences
+      );
+      const metadata = await inferUploadedDocumentMetadata(
+        uploadInput,
+        converted,
+        runtimeConfig.provider_adapter,
+        adapterConfig,
+        livePreferences
+      );
+      const importedAt = new Date().toISOString();
+      const markdown = buildUploadedMarkdownDocument(uploadInput, converted, { importedAt, metadata });
+      const uploadDirectory = project.id === "finance" && metadata.statementLike ? "statements" : undefined;
+      const preferredFileName = uploadDirectory
+        ? sanitizeSuggestedMarkdownFileName(metadata.suggestedFileName, parsed.data.file_name)
+        : undefined;
+      const file = await projects.createUploadedMarkdownFile(
+        project.id,
+        parsed.data.file_name,
+        markdown,
+        {
+          directory: uploadDirectory,
+          preferredFileName,
+          indexEntry: (filePath, fileName) => {
+            const entry = buildUploadedDocumentIndexEntry(
+              uploadInput,
+              converted,
+              filePath,
+              importedAt,
+              metadata
+            );
+            return {
+              type: entry.type,
+              summary: entry.summary,
+              readWhen: entry.readWhen,
+              importedAt: entry.importedAt,
+            };
+          },
+        }
+      );
+      if (!file) {
+        reply.code(404).send({ error: "Project not found" });
+        return;
+      }
+
+      reply.code(201).send({
+        file,
+        conversion: converted.conversion,
+      });
+    } catch (error) {
+      if (error instanceof ProtectedProjectError) {
+        reply.code(403).send({ error: "Open a folder to upload documents" });
+        return;
+      }
+
+      if (error instanceof DocumentConversionProviderError) {
+        reply.code(502).send({
+          error: "Document conversion provider failed",
+          detail: error.message,
+          status: error.status,
+        });
+        return;
+      }
+
+      reply.code(400).send({ error: error instanceof Error ? error.message : "Document upload failed" });
+    }
+  });
+
   // --- Managed mode proxy endpoints ---
   if (isManaged && managedApiBase) {
     app.get("/account", async (request, reply) => proxyToGateway(request, reply, "GET", "/api/gateway/auth/account"));
@@ -2279,6 +2417,21 @@ async function proxyToGateway(
 function stripQueryString(url: string): string {
   const index = url.indexOf("?");
   return index >= 0 ? url.slice(0, index) : url;
+}
+
+function uploadSizeLimitFor(fileName: string, mimeType: string): number {
+  const extension = fileName.toLowerCase().slice(fileName.lastIndexOf("."));
+  const normalizedMime = mimeType.toLowerCase();
+
+  if (extension === ".pdf" || normalizedMime === "application/pdf") {
+    return 25 * 1024 * 1024;
+  }
+
+  if (normalizedMime.startsWith("image/") || [".png", ".jpg", ".jpeg", ".webp"].includes(extension)) {
+    return 15 * 1024 * 1024;
+  }
+
+  return 5 * 1024 * 1024;
 }
 
 function readRefreshTokenFromRequest(cookieHeader: unknown): string | undefined {
@@ -2951,6 +3104,222 @@ function normalizeOllamaOpenAIBaseUrl(baseUrl: string): string {
   parsed.search = "";
   parsed.hash = "";
   return parsed.toString().replace(/\/$/, "");
+}
+
+export function buildProjectChatContext(projectId: string, files: GatewayProjectFile[]): string {
+  const sortedFiles = [...files].sort((left, right) => left.name.localeCompare(right.name));
+  const visibleFiles = sortedFiles.slice(0, 80);
+  const omittedCount = Math.max(0, sortedFiles.length - visibleFiles.length);
+  const hasIndex = sortedFiles.some((file) => file.name === "index.md" || file.path === `documents/${projectId}/index.md`);
+  const financeBudgetGuidance = projectId === "finance"
+    ? [
+        "For budgeting questions, also read documents/finance/budget.md and documents/finance/rules.md when they exist.",
+        "For explicit Finance execution requests about budgets, debt, uploads, statements, spending, or reports, complete the Finance task before coaching or cross-domain discussion.",
+        "For 'how did I do?', monthly comparison, over/under, or budget progress questions, treat documents/finance/budget.md as the saved budget and compare statement actuals against it.",
+        "Use documents/finance/statements/ as source evidence and documents/finance/reports/ as derived output for budget reports.",
+        "Do not write to documents/finance/budget.md during a saved-budget comparison unless the owner explicitly asks to revise the saved budget.",
+        "During saved-budget comparison mode, do not call memory_write, memory_edit, or memory_delete on documents/finance/budget.md; write comparison output only to documents/finance/reports/latest.md or a month-specific reports file.",
+        "Preserve documents/finance/budget.md byte-for-byte during saved-budget comparisons. Do not make formatting-only, table-alignment, whitespace, note, category, or no-op rewrites.",
+        "If the owner says to leave the saved budget alone, not rewrite the saved budget, or compare against the saved budget, documents/finance/budget.md is read-only for that turn.",
+        "If you are about to write documents/finance/budget.md during a comparison, stop and write the comparison findings to documents/finance/reports/latest.md instead.",
+        "Put saved-budget comparison findings in documents/finance/reports/latest.md; answer direct comparison questions with best-effort evidence before asking extra clarification questions.",
+        "Check for duplicate or overlapping statement evidence before counting transactions in budget reports.",
+        "Before writing a budget comparison report, re-read the relevant statement files, build a source evidence ledger, account for named merchants, and do not claim a merchant is missing unless the relevant source files were checked.",
+        "For monthly comparisons, read statement files whose date range overlaps the requested month even if the filename uses the starting month, ending month, account name, or converted upload name.",
+        "If an upload was just mentioned but the expected filename is not visible, call memory_list on documents/finance and documents/finance/statements and search converted statement filenames/date ranges before asking the owner to re-upload.",
+        "Treat source evidence ledger rows as locked evidence for the comparison turn; if a found item is named by the owner, new/unusual, material, excluded, or needs review, carry it into the final report.",
+        "Before finalizing reports/latest.md, verify that every owner-named item found in source statements appears by exact statement description in the final report; if it is absent, revise the report before answering.",
+        "If the owner mentions a named merchant or transaction, search source statements for that exact item and close variants before answering; if source evidence shows it, do not accept a later conversational guess that it was absent.",
+        "For monthly comparisons, extract owner-requested merchant, item, trip, bill, and transaction names from the current request and recent follow-ups, then include an Owner-Requested Items Audit in reports/latest.md.",
+        "The Owner-Requested Items Audit must list each requested item, search result, sources checked, exact source match, amount, date, and final report treatment. If a requested item is not found, say which source files/date ranges were checked; if uncertain, mark Needs Review instead of omitting it.",
+        "Every found owner-requested item must appear both in the audit and in a final treatment section such as New Or Unbudgeted Items, Category Breakdown, Excluded From Expense Totals, or Needs Review.",
+        "Before answering, compare the Owner-Requested Items Audit rows against the final report sections and revise reports/latest.md if any found or needs-review owner-requested item is missing from its treatment section.",
+        "Every monthly comparison report must include a New Or Unbudgeted Items section for new, unusual, travel, lodging, vacation, entertainment, shopping, or unclear merchants, even when the overall month is under budget.",
+        "If source evidence includes travel, lodging, trip, weekend, vacation, airline, rental, large discretionary, or otherwise unusual charges, list the exact transaction description, amount, date, account/source, and likely category.",
+        "Budget report summaries must agree with their category tables and must list excluded payments, transfers, refunds, fees, and investment movement separately from ordinary spending.",
+        "Every monthly comparison report must include a literal 'Excluded From Expense Totals' section with a table of Type, Payee/Account, Amount, Source, and Why Excluded.",
+        "When source statements include credit-card or debt payments, list those rows by source payee/account in Excluded From Expense Totals as debt payments/transfers, not ordinary spending; list interest or finance charges separately.",
+        "Relationship context can be noted briefly after the requested Finance artifact, but never pause, stop, or redirect unfinished budget, statement, debt, upload, or report work to the Relationships project.",
+      ]
+    : [];
+  const fileList = visibleFiles.length > 0
+    ? visibleFiles.map((file) => `- ${file.path}`).join("\n")
+    : "- No files currently exist in this project folder.";
+  const omittedLine = omittedCount > 0
+    ? `\n- ... ${omittedCount} additional files omitted from this context. Use memory_list to inspect the full folder.`
+    : "";
+
+  return [
+    "",
+    "",
+    "## Active Project",
+    "",
+    `You are currently in the **${projectId}** project.`,
+    `Read this project's AGENT.md, spec.md, and plan.md from the documents/${projectId}/ folder.`,
+    hasIndex
+      ? `Read documents/${projectId}/index.md before deciding which supporting documents to open. It is this folder's document map.`
+      : `If documents/${projectId}/index.md appears later in the file list, read it before deciding which supporting documents to open.`,
+    ...financeBudgetGuidance,
+    "Stay focused on this domain; do not read or reference other projects unless the conversation specifically calls for cross-domain connections.",
+    "",
+    "### Current Project Files",
+    "",
+    "This is the current file list at the start of this user turn:",
+    `${fileList}${omittedLine}`,
+    "",
+    "When the user asks to read, edit, delete, or confirm the existence of a project file, use this current list as the starting point.",
+    "Do not rely on earlier conversation claims that a file was already deleted or missing if the current list shows a matching file.",
+    `For delete requests in this project, prefer exact paths under documents/${projectId}/ and call memory_delete when a matching file exists.`,
+    "If the current list is ambiguous or incomplete, call memory_list before claiming the file cannot be found.",
+  ].join("\n");
+}
+
+const FINANCE_BUDGET_PROTECTED_PATH = "documents/finance/budget.md";
+const FINANCE_BUDGET_MUTATION_TOOLS = new Set(["memory_write", "memory_edit", "memory_delete"]);
+
+export function createFinanceBudgetProtectionGuard(
+  projectId: string | null,
+  conversation: ConversationDetail | null
+): ToolExecutionGuard | undefined {
+  if (projectId !== "finance" || !conversationHasSavedBudgetComparison(conversation)) {
+    return undefined;
+  }
+
+  const latestUserMessage = latestUserMessageContent(conversation);
+  if (latestUserMessage && isExplicitSavedBudgetRevisionRequest(latestUserMessage)) {
+    return undefined;
+  }
+
+  return (toolName, input) => {
+    if (!isProtectedFinanceBudgetMutation(toolName, input)) {
+      return null;
+    }
+
+    const output = {
+      code: "permission_denied",
+      message:
+        "documents/finance/budget.md is read-only during a saved-budget comparison. Read it for saved limits and write comparison findings to documents/finance/reports/latest.md instead. Only revise the saved budget when the owner explicitly asks to change the budget.",
+      path: FINANCE_BUDGET_PROTECTED_PATH,
+      recoverable: true,
+    };
+
+    return {
+      status: "error",
+      output,
+      recoverable: true,
+    } satisfies ToolExecutionResult;
+  };
+}
+
+export function isProtectedFinanceBudgetMutation(toolName: string, input: Record<string, unknown>): boolean {
+  if (!FINANCE_BUDGET_MUTATION_TOOLS.has(toolName)) {
+    return false;
+  }
+
+  return normalizeMemoryRelativePath(input.path) === FINANCE_BUDGET_PROTECTED_PATH;
+}
+
+export function conversationHasSavedBudgetComparison(conversation: ConversationDetail | null): boolean {
+  if (!conversation) {
+    return false;
+  }
+
+  return conversation.messages
+    .filter((message) => message.role === "user")
+    .slice(-12)
+    .some((message) => isSavedBudgetComparisonRequest(message.content));
+}
+
+function latestUserMessageContent(conversation: ConversationDetail | null): string | null {
+  if (!conversation) {
+    return null;
+  }
+
+  for (let index = conversation.messages.length - 1; index >= 0; index -= 1) {
+    const message = conversation.messages[index];
+    if (message.role === "user") {
+      return message.content;
+    }
+  }
+
+  return null;
+}
+
+function isSavedBudgetComparisonRequest(content: string): boolean {
+  const text = normalizeComparisonText(content);
+  if (!text) {
+    return false;
+  }
+
+  if (
+    text.includes("do not rewrite the saved budget") ||
+    text.includes("dont rewrite the saved budget") ||
+    text.includes("leave the saved budget alone") ||
+    text.includes("saved budget alone")
+  ) {
+    return true;
+  }
+
+  const savedBudgetCue =
+    text.includes("saved budget") ||
+    text.includes("budget md") ||
+    text.includes("documents finance budget md") ||
+    text.includes("saved limits");
+  const comparisonCue =
+    text.includes("how did i do") ||
+    text.includes("compare") ||
+    text.includes("comparison") ||
+    text.includes("actual spending") ||
+    text.includes("over under") ||
+    text.includes("over budget") ||
+    text.includes("under budget") ||
+    text.includes("variance") ||
+    text.includes("against the saved limits") ||
+    text.includes("against saved limits");
+
+  return savedBudgetCue && comparisonCue;
+}
+
+function isExplicitSavedBudgetRevisionRequest(content: string): boolean {
+  const text = normalizeComparisonText(content);
+  if (!text || text.includes("do not") || text.includes("dont") || text.includes("leave")) {
+    return false;
+  }
+
+  const budgetCue = text.includes("budget") || text.includes("budget md") || text.includes("saved plan");
+  const revisionCue =
+    text.includes("change") ||
+    text.includes("revise") ||
+    text.includes("update") ||
+    text.includes("edit") ||
+    text.includes("rewrite") ||
+    text.includes("replace") ||
+    text.includes("set the limit") ||
+    text.includes("set my limit");
+
+  return budgetCue && revisionCue;
+}
+
+function normalizeComparisonText(content: string): string {
+  return content
+    .toLowerCase()
+    .replace(/[`'"]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeMemoryRelativePath(value: unknown): string {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  let normalized = value.trim().replace(/\\/g, "/");
+  while (normalized.startsWith("./")) {
+    normalized = normalized.slice(2);
+  }
+  normalized = normalized.replace(/^\/+/, "");
+  return path.posix.normalize(normalized);
 }
 
 if (isDirectEntrypoint(process.argv[1], import.meta.url)) {

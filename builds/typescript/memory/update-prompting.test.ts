@@ -8,6 +8,7 @@ import type { ModelAdapter, ModelResponse } from "../adapters/base.js";
 import type { GatewayEngineRequest, ToolDefinition } from "../contracts.js";
 import { initializeMemoryLayout } from "./init.js";
 import {
+  generateStarterPackManifest,
   generateMemoryUpdatePlan,
   getMemoryUpdateStatus,
   readMemoryUpdateReport,
@@ -33,6 +34,19 @@ async function writeStarterPack(rootDir: string): Promise<void> {
   await writeFile(path.join(starterRoot, "base", "AGENT.md"), "# BrainDrive Agent\n\nUse the latest guidance.\n", "utf8");
   await writeFile(path.join(starterRoot, "base", "me", "todo.md"), "# My Todos\n\n## Active\n", "utf8");
   await writeFile(path.join(starterRoot, "skills", "focus.md"), "# Focus\n\nHelp the owner focus.\n", "utf8");
+}
+
+async function writeProjectTemplate(rootDir: string, projectId: string): Promise<void> {
+  const templateRoot = path.join(rootDir, "memory", "starter-pack", "projects", "templates", projectId);
+  await mkdir(templateRoot, { recursive: true });
+  await writeFile(path.join(templateRoot, "AGENT.md"), `# ${projectId} Agent\n\nRead index.md.\n`, "utf8");
+  await writeFile(path.join(templateRoot, "index.md"), "# Folder Index\n\n## Supporting Documents\n\n| File | Type | Summary | Read When | Imported |\n|---|---|---|---|---|\n| _No supporting documents yet._ | | | | |\n", "utf8");
+  if (projectId === "finance") {
+    await mkdir(path.join(templateRoot, "reports"), { recursive: true });
+    await writeFile(path.join(templateRoot, "budget.md"), "# Budget\n\n## Category Limits\n", "utf8");
+    await writeFile(path.join(templateRoot, "rules.md"), "# Budget Rules\n\n## Merchant Category Rules\n", "utf8");
+    await writeFile(path.join(templateRoot, "reports", "latest.md"), "# Latest Budget Report\n", "utf8");
+  }
 }
 
 describe("memory update prompting", () => {
@@ -94,6 +108,47 @@ describe("memory update prompting", () => {
       expect(result?.status).toBe("applied");
       expect(result?.applied_paths).toContain("skills/focus/SKILL.md");
       await expect(readFile(path.join(memoryRoot, "skills", "focus", "SKILL.md"), "utf8")).resolves.toContain("# Focus");
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("includes seeded project templates in the starter-pack manifest and creates missing indexes", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "memory-update-project-index-test-"));
+    const rootDir = path.join(tempRoot, "repo");
+    const memoryRoot = path.join(tempRoot, "memory");
+
+    try {
+      await writeStarterPack(rootDir);
+      await writeProjectTemplate(rootDir, "finance");
+      await mkdir(path.join(memoryRoot, "documents", "finance"), { recursive: true });
+      await mkdir(path.join(memoryRoot, "me"), { recursive: true });
+      await writeFile(path.join(memoryRoot, "AGENT.md"), "# BrainDrive Agent\n\nUse the latest guidance.\n", "utf8");
+      await writeFile(path.join(memoryRoot, "me", "todo.md"), "# My Todos\n\n## Active\n", "utf8");
+      await writeFile(path.join(memoryRoot, "documents", "finance", "AGENT.md"), "# Custom Finance Agent\n", "utf8");
+
+      const manifest = await generateStarterPackManifest(rootDir, "26.5.7");
+      expect(manifest.files.map((file) => file.path)).toContain("documents/finance/index.md");
+      expect(manifest.files.map((file) => file.path)).toContain("documents/finance/AGENT.md");
+      expect(manifest.files.map((file) => file.path)).toContain("documents/finance/budget.md");
+      expect(manifest.files.map((file) => file.path)).toContain("documents/finance/rules.md");
+      expect(manifest.files.map((file) => file.path)).toContain("documents/finance/reports/latest.md");
+
+      const result = await runAutomaticMemoryUpdate(rootDir, memoryRoot, "26.5.7");
+
+      expect(result?.applied_paths).toContain("documents/finance/index.md");
+      expect(result?.applied_paths).toContain("documents/finance/budget.md");
+      expect(result?.applied_paths).toContain("documents/finance/rules.md");
+      expect(result?.applied_paths).toContain("documents/finance/reports/latest.md");
+      expect(result?.deferred_paths).toContain("documents/finance/AGENT.md");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "index.md"), "utf8"))
+        .resolves.toContain("# Folder Index");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget.md"), "utf8"))
+        .resolves.toContain("# Budget");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "rules.md"), "utf8"))
+        .resolves.toContain("# Budget Rules");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "reports", "latest.md"), "utf8"))
+        .resolves.toContain("# Latest Budget Report");
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }

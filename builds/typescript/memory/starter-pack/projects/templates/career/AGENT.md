@@ -40,5 +40,10 @@ Strategic and clear-eyed. If someone wants to move into management but hasn't to
 ## Files
 
 - `AGENT.md` (this file)
+- `index.md` (folder document map for uploaded and supporting documents)
 - `spec.md` (created/filled after interview)
 - `plan.md` (created/filled after interview)
+
+## Folder Contents
+
+Read `index.md` when it exists. Use it as the folder's document map before deciding which supporting files to open. Do not assume a file is relevant from its filename alone. If `index.md` lists a document that appears relevant to the owner's question, read that document before answering.

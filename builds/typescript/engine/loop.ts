@@ -17,7 +17,13 @@ type LoopOptions = {
   approvalMode?: ApprovalMode;
   safetyIterationLimit?: number;
   repeatToolCallThreshold?: number;
+  toolExecutionGuard?: ToolExecutionGuard;
 };
+
+export type ToolExecutionGuard = (
+  toolName: string,
+  input: Record<string, unknown>
+) => ToolExecutionResult | null | undefined;
 
 export async function* runAgentLoop(
   adapter: ModelAdapter,
@@ -191,6 +197,26 @@ export async function* runAgentLoop(
           content: JSON.stringify({
             status: "error",
             output: loopGuardOutput,
+          }),
+        });
+        continue;
+      }
+
+      const guardedResult = options.toolExecutionGuard?.(toolCall.name, toolCall.input);
+      if (guardedResult) {
+        auditLog("tool.execution_guard", {
+          tool: toolCall.name,
+          correlation_id: request.metadata.correlation_id,
+          status: guardedResult.status,
+        });
+
+        yield* toolResultEvents(guardedResult, toolCall.id);
+        messages.push({
+          role: "tool",
+          tool_call_id: toolCall.id,
+          content: JSON.stringify({
+            status: guardedResult.status,
+            output: guardedResult.output,
           }),
         });
         continue;

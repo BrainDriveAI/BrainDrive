@@ -66,6 +66,11 @@ type ProjectFileListResponse = {
   files: ProjectFile[];
 };
 
+type ProjectDocumentUploadResponse = {
+  file: ProjectFile;
+  conversion: string;
+};
+
 type SkillListResponse = {
   skills: GatewaySkillSummary[];
 };
@@ -469,6 +474,50 @@ export async function writeFileContent(
   if (!response.ok) {
     throw await toGatewayError(response);
   }
+}
+
+export async function uploadProjectDocument(projectId: string, file: File): Promise<ProjectFile> {
+  const contentBase64 = await fileToBase64(file);
+  const response = await authenticatedFetch(
+    `${GATEWAY_BASE_URL}/projects/${encodeURIComponent(projectId)}/uploads`,
+    {
+      method: "POST",
+      headers: withLocalOwnerHeaders({
+        "Content-Type": "application/json",
+      }),
+      body: JSON.stringify({
+        file_name: file.name,
+        mime_type: file.type || "application/octet-stream",
+        content_base64: contentBase64,
+        size: file.size,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+
+  const payload = (await response.json()) as ProjectDocumentUploadResponse;
+  if (!payload.file || typeof payload.file.name !== "string" || typeof payload.file.path !== "string") {
+    throw new GatewayError("Invalid upload response", 502, "invalid_payload");
+  }
+
+  return payload.file;
+}
+
+async function fileToBase64(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  let binary = "";
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    const chunk = bytes.subarray(offset, offset + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+
+  return btoa(binary);
 }
 
 export async function createProject(name: string, icon = "folder"): Promise<Project> {

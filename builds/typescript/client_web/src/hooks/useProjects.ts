@@ -30,6 +30,7 @@ export function useProjects(): {
   selectProject: (id: string) => void;
   deselectProject: () => void;
   refreshProjects: () => void;
+  refreshSelectedProjectFiles: () => Promise<ProjectFile[]>;
   addProject: (name: string) => Promise<void>;
   removeProject: (id: string) => Promise<void>;
   renameProject: (id: string, name: string) => Promise<void>;
@@ -147,6 +148,35 @@ export function useProjects(): {
     })();
   }
 
+  async function refreshSelectedProjectFiles(): Promise<ProjectFile[]> {
+    if (!selectedProjectId) {
+      return [];
+    }
+
+    setIsLoadingFiles(true);
+    setFilesError(null);
+    const requestId = filesRequestIdRef.current + 1;
+    filesRequestIdRef.current = requestId;
+
+    try {
+      const nextFiles = await getProjectFiles(selectedProjectId);
+      if (filesRequestIdRef.current === requestId) {
+        setProjectFiles(nextFiles);
+      }
+      return nextFiles;
+    } catch (error) {
+      if (filesRequestIdRef.current === requestId) {
+        setProjectFiles([]);
+        setFilesError(toError(error));
+      }
+      throw error;
+    } finally {
+      if (filesRequestIdRef.current === requestId) {
+        setIsLoadingFiles(false);
+      }
+    }
+  }
+
   function deselectProject() {
     selectProject("braindrive-plus-one");
   }
@@ -185,6 +215,7 @@ export function useProjects(): {
     selectProject,
     deselectProject,
     refreshProjects,
+    refreshSelectedProjectFiles,
     addProject,
     removeProject,
     renameProject: renameProjectFn

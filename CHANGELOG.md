@@ -1,3 +1,88 @@
+## [26.05.12] - 2026-05-14
+
+### Added
+- Project folders now include `index.md` as a managed folder map for uploaded and supporting documents.
+- Document uploads update the current project folder index so agents can choose relevant supporting files before answering.
+- Finance statement uploads can now use AI-derived metadata to save bank and credit card statements under `statements/YYYY-MM-institution.md`.
+- Finance starter memory now includes markdown-first budgeting files for category limits, owner rules, statements, and reports.
+- Starter-pack memory updates now include seeded project index files for existing users.
+
+### Changed
+- Project scaffolding and project completeness checks now treat `index.md` as a default project file alongside `AGENT.md`, `spec.md`, and `plan.md`.
+- Project chat context now points agents to `index.md` when it exists.
+- Project file listings now include nested supporting documents such as Finance statement files.
+- Finance project chat context now points budget questions to `budget.md`, `rules.md`, `statements/`, and `reports/`.
+
+### Fixed
+- Deleting a project document through memory tools now removes the stale supporting-document entry from `index.md`.
+- Deleting nested project documents now removes matching relative paths from `index.md`.
+
+### Removed
+- No user-facing removals this week.
+
+## [26.05.11] - 2026-05-11
+
+### Added
+- No user-facing additions this week.
+
+### Changed
+- Renamed the managed hosting tier to BrainDrive Concierge and updated credits labeling across the app. (`#107`)
+- Refined BrainDrive Concierge account and top-up wording, layout, and fee messaging for clearer managed-mode billing. (`#109`)
+- Updated MCP release validation dependencies to improve compatibility and reliability. (`#103`)
+- Updated TypeScript validation dependencies to improve compatibility and reliability. (`#104`)
+- Updated MCP release development type definitions to keep Node.js tooling current. (`#110`)
+- Updated TypeScript development type definitions to keep Node.js tooling current. (`#111`)
+- Refreshed client web dependencies to bring in framework, styling, icon, and build tooling improvements. (`#112`)
+
+### Fixed
+- No user-facing fixes this week.
+
+### Removed
+- No user-facing removals this week.
+
+## [26.05.04] - 2026-05-04
+
+### Added
+- Starter-pack memory updates can now be detected, planned, applied, and reported automatically during startup. (`#102`)
+
+### Changed
+- No user-facing changes this week.
+
+### Fixed
+- Mobile chat now stays at the start of new assistant replies instead of jumping past them. (`#100`)
+- Managed-mode relogin no longer falls back to the local login screen, and the credits top-up prompt is easier to find. (`#101`)
+
+### Removed
+- No user-facing removals this week.
+
+## [26.04.27] - 2026-04-27
+
+### Added
+- A new public agent onboarding guide was added to help contributors and coding agents get started faster. (`#56`)
+
+### Changed
+- The weekly release notes were refreshed to keep the published changelog current. (`#84`)
+- Automated dependency update policy was reorganized by workspace and semantic version level for more predictable maintenance updates. (`#85`)
+- Client web dependencies were updated to newer non-major versions to improve compatibility and keep the frontend stack current. (`#86`)
+- The public roadmap was reorganized to accurately reflect what is shipped, in progress, and planned next. (`#87`)
+- The latest weekly changelog entry was expanded to include newly merged work. (`#88`)
+- Updated MCP release test tooling to Vitest 4.1.5 to keep development and CI behavior current. (`#94`)
+- Upgraded TypeScript build test tooling to Vitest 4.1.5 for newer test framework behavior and fixes. (`#95`)
+- Upgraded the web client icon library to lucide-react 1.11.0 to align with the latest icon package updates. (`#98`)
+- Updated the web client build toolchain from Vite 7 to Vite 8 for current bundler and dev-server behavior. (`#97`)
+- Updated core web client dependencies to newer non-major versions for improved compatibility and stability. (`#96`)
+
+### Fixed
+- Startup now remains stable when saved preferences contain unknown keys, and outdated entries are cleaned up automatically. (`#63`)
+- Dependency vulnerabilities were remediated across packages to improve security and reduce exposure to known issues. (`#64`)
+- Billing and managed account flows were hardened to block untrusted URLs and strengthen default security boundaries. (`#89`)
+- Managed credits purchase routes now work out of the box again without requiring environment configuration changes. (`#90`)
+- Improved first-run installation reliability by retrying transient Docker image pull failures and guiding users to resume safely if retries are exhausted. (`#93`)
+- Provider credential and settings updates now take effect immediately, onboarding correctly flags missing setup, and chat shows clearer multi-line provider error guidance. (`#99`)
+
+### Removed
+- Removed the deprecated quickstart installation path and standardized install mode and location reporting across the app. (`#92`)
+
 ## [26.04.20] - 2026-04-20
 
 ### Added

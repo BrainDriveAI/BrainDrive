@@ -12,6 +12,7 @@ import { MemorySkillStore, slugifySkillName } from "./skills.js";
 export type StarterPackManifestFileKind =
   | "agent_prompt"
   | "user_memory_template"
+  | "project_template"
   | "starter_skill";
 
 export type StarterPackMergePolicy =
@@ -422,6 +423,37 @@ export async function generateStarterPackManifest(
       kind: "user_memory_template",
       mergePolicy: "create_if_missing_else_llm_merge",
     });
+
+    const projectTemplatesDir = path.join(starterPackDir, "projects", "templates");
+    if (existsSync(projectTemplatesDir)) {
+      const entries = await readdir(projectTemplatesDir, { withFileTypes: true });
+      for (const entry of entries
+        .filter((item) => item.isDirectory() && item.name !== "braindrive-plus-one")
+        .sort((left, right) => left.name.localeCompare(right.name))) {
+        await addManifestFile(files, starterPackDir, {
+          path: `documents/${entry.name}/AGENT.md`,
+          sourcePath: `projects/templates/${entry.name}/AGENT.md`,
+          kind: "project_template",
+          mergePolicy: "create_if_missing_else_llm_merge",
+        });
+        await addManifestFile(files, starterPackDir, {
+          path: `documents/${entry.name}/index.md`,
+          sourcePath: `projects/templates/${entry.name}/index.md`,
+          kind: "project_template",
+          mergePolicy: "create_if_missing_else_defer",
+        });
+        if (entry.name === "finance") {
+          for (const financeFile of ["budget.md", "rules.md", "reports/latest.md"]) {
+            await addManifestFile(files, starterPackDir, {
+              path: `documents/finance/${financeFile}`,
+              sourcePath: `projects/templates/finance/${financeFile}`,
+              kind: "project_template",
+              mergePolicy: "create_if_missing_else_defer",
+            });
+          }
+        }
+      }
+    }
 
     const skillsDir = path.join(starterPackDir, "skills");
     if (existsSync(skillsDir)) {

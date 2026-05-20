@@ -103,4 +103,30 @@ describe("Sidebar", () => {
     expect(onDeselectProject).toHaveBeenCalledTimes(1);
     expect(onReturnToChat).toHaveBeenCalledTimes(1);
   });
+
+  it("uploads a document from a selected project", async () => {
+    const user = userEvent.setup();
+    const onUploadDocument = vi.fn(async () => {});
+
+    const { container } = render(
+      <Sidebar
+        {...baseProps}
+        selectedProjectId="finance"
+        selectedProject={mockProjects[0]!}
+        projectFiles={[{ name: "budget.md", path: "finance/budget.md" }]}
+        onUploadDocument={onUploadDocument}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Upload document to Finance" })).toBeInTheDocument();
+
+    const input = container.querySelector('input[type="file"]');
+    expect(input).toBeInstanceOf(HTMLInputElement);
+    expect((input as HTMLInputElement).accept).toContain(".csv");
+
+    const file = new File(["Date,Amount\n2026-05-12,4.50"], "transactions.csv", { type: "text/csv" });
+    await user.upload(input as HTMLInputElement, file);
+
+    expect(onUploadDocument).toHaveBeenCalledWith(file);
+  });
 });

@@ -9,6 +9,7 @@ import {
 import { ArrowUp, FileText, Plus, Square, X } from "lucide-react";
 
 import {
+  ACCEPTED_FILE_INPUT,
   isAcceptedFile,
   formatFileSize,
   type AttachedFile
@@ -188,7 +189,7 @@ export default function Composer({
           <input
             ref={fileInputRef}
             type="file"
-            accept=".txt,.md,.vtt,text/plain,text/markdown,text/vtt"
+            accept={ACCEPTED_FILE_INPUT}
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
