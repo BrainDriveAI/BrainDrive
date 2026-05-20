@@ -110,7 +110,8 @@ Common commands:
 ```bash
 cd builds/typescript
 npm test
-npm run dev:server
+npm run dev        # MCP sidecars + gateway + web
+npm run dev:server # MCP sidecars + gateway only
 ```
 
 Web client:

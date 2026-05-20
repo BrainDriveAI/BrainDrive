@@ -1,12 +1,25 @@
 import { spawn } from "node:child_process";
-import { access, cp, mkdir, mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 type GitResult = {
   stdout: string;
   stderr: string;
 };
+
+const MEMORY_GITIGNORE_ENTRIES = [
+  "conversations/*.db-wal",
+  "conversations/*.db-shm",
+  "exports/*.tar.gz",
+  "system/updates/backups/*.tar.gz",
+];
+
+const MEMORY_ARCHIVE_EXCLUDES = [
+  "./.git",
+  "./.git/*",
+  "./exports/*.tar.gz",
+  "./system/updates/backups/*.tar.gz",
+];
 
 async function runGit(args: string[], cwd: string): Promise<GitResult> {
   const safeArgs = ["-c", `safe.directory=${cwd}`, ...args];
@@ -51,7 +64,7 @@ export async function ensureGitReady(memoryRoot: string): Promise<void> {
   }
 
   const gitignorePath = path.join(memoryRoot, ".gitignore");
-  await BunFileCompat.writeIfMissing(gitignorePath, "conversations/*.db-wal\nconversations/*.db-shm\nexports/*.tar.gz\n");
+  await ensureGitIgnoreEntries(gitignorePath, MEMORY_GITIGNORE_ENTRIES);
 
   const status = await runGit(["status", "--porcelain"], memoryRoot);
   if (status.stdout.trim().length > 0) {
@@ -109,21 +122,26 @@ export async function readFileAtCommit(memoryRoot: string, targetPath: string, c
 }
 
 export async function exportMemoryArchive(memoryRoot: string, destinationPath: string): Promise<void> {
-  const snapshotParent = await mkdtemp(path.join(tmpdir(), "paa-memory-export-"));
-  const snapshotRoot = path.join(snapshotParent, "snapshot");
-
-  try {
-    await cp(memoryRoot, snapshotRoot, { recursive: true, force: true });
-    await mkdir(path.dirname(destinationPath), { recursive: true });
-    await createTarArchive(snapshotRoot, destinationPath);
-  } finally {
-    await rm(snapshotParent, { recursive: true, force: true });
-  }
+  await mkdir(path.dirname(destinationPath), { recursive: true });
+  await createTarArchive(memoryRoot, destinationPath, buildMemoryArchiveExcludes(memoryRoot, destinationPath));
 }
 
-async function createTarArchive(sourceRoot: string, destinationPath: string): Promise<void> {
+function buildMemoryArchiveExcludes(memoryRoot: string, destinationPath: string): string[] {
+  const excludes = [...MEMORY_ARCHIVE_EXCLUDES];
+  const relativeDestination = path.relative(memoryRoot, destinationPath);
+  if (relativeDestination && !relativeDestination.startsWith("..") && !path.isAbsolute(relativeDestination)) {
+    excludes.push(`./${relativeDestination.split(path.sep).join("/")}`);
+  }
+  return excludes;
+}
+
+async function createTarArchive(sourceRoot: string, destinationPath: string, excludePatterns: string[] = []): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    const child = spawn("tar", ["-czf", destinationPath, "."], { cwd: sourceRoot });
+    const child = spawn(
+      "tar",
+      [...excludePatterns.map((pattern) => `--exclude=${pattern}`), "-czf", destinationPath, "."],
+      { cwd: sourceRoot }
+    );
 
     let stderr = "";
     child.stderr.on("data", (chunk) => {
@@ -142,14 +160,25 @@ async function createTarArchive(sourceRoot: string, destinationPath: string): Pr
   });
 }
 
-class BunFileCompat {
-  static async writeIfMissing(filePath: string, content: string): Promise<void> {
-    const { access, writeFile } = await import("node:fs/promises");
-
-    try {
-      await access(filePath);
-    } catch {
-      await writeFile(filePath, content, "utf8");
-    }
+async function ensureGitIgnoreEntries(filePath: string, entries: string[]): Promise<void> {
+  let existing = "";
+  try {
+    existing = await readFile(filePath, "utf8");
+  } catch {
+    // Create the file below.
   }
+
+  const existingEntries = new Set(
+    existing
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+  );
+  const missingEntries = entries.filter((entry) => !existingEntries.has(entry));
+  if (missingEntries.length === 0) {
+    return;
+  }
+
+  const prefix = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
+  await writeFile(filePath, `${existing}${prefix}${missingEntries.join("\n")}\n`, "utf8");
 }

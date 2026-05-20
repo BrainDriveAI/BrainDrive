@@ -16,7 +16,9 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev:server": "tsx gateway/server.ts",
+    "dev": "node scripts/dev-runtime.mjs --web",
+    "dev:server": "node scripts/dev-runtime.mjs",
+    "dev:gateway": "tsx gateway/server.ts",
     "dev:cli": "tsx client/repl.ts",
     "dev:web": "npm --prefix client_web run dev",
     "memory:init": "tsx scripts/memory-init.ts",

@@ -15,10 +15,13 @@ services:
         cd /app/typescript
         HOST_UID="$${BRAINDRIVE_DEV_HOST_UID:-1000}"
         HOST_GID="$${BRAINDRIVE_DEV_HOST_GID:-1000}"
-        chown -R "$${HOST_UID}:$${HOST_GID}" "$${PAA_MEMORY_ROOT}" "$${PAA_SECRETS_HOME}" /app/typescript/node_modules
+        DEV_HOME=/tmp/braindrive-dev-home
+        mkdir -p "$${DEV_HOME}/.npm"
+        chown -R "$${HOST_UID}:$${HOST_GID}" "$${PAA_MEMORY_ROOT}" "$${PAA_SECRETS_HOME}" /app/typescript/node_modules "$${DEV_HOME}"
 
         run_as_host() {
-          setpriv --reuid="$${HOST_UID}" --regid="$${HOST_GID}" --clear-groups "$$@"
+          HOME="$${DEV_HOME}" NPM_CONFIG_CACHE="$${DEV_HOME}/.npm" \
+            setpriv --reuid="$${HOST_UID}" --regid="$${HOST_GID}" --clear-groups "$$@"
         }
 
         run_as_host npm install --no-audit --no-fund
