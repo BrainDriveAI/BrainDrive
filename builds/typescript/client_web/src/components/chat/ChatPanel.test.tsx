@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 import type { Message } from "@/types/ui";
 
@@ -111,5 +112,36 @@ describe("ChatPanel typing indicator behavior", () => {
     expect(screen.getByRole("button", { name: "Continue in New Conversation" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open Settings" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Try Again" })).not.toBeInTheDocument();
+  });
+
+  it("uploads PDF attachments through the selected project instead of reading them into chat", async () => {
+    const user = userEvent.setup();
+    const hookState = makeHookState();
+    const onUploadDocument = vi.fn(async () => ({
+      name: "statement.md",
+      path: "documents/finance/statement.md",
+    }));
+    useGatewayChatMock.mockReturnValue(hookState);
+
+    const { container } = render(
+      <ChatPanel
+        activeConversationId={null}
+        activeProjectId="finance"
+        isEmpty={false}
+        onUploadDocument={onUploadDocument}
+      />
+    );
+
+    const input = container.querySelector('input[type="file"]');
+    expect(input).toBeInstanceOf(HTMLInputElement);
+
+    const file = new File(["%PDF-1.6"], "statement.pdf", { type: "application/pdf" });
+    await user.upload(input as HTMLInputElement, file);
+    await user.click(screen.getAllByRole("button", { name: "Send message" })[0]!);
+
+    await waitFor(() => {
+      expect(onUploadDocument).toHaveBeenCalledWith(file);
+    });
+    expect(hookState.append).not.toHaveBeenCalled();
   });
 });

@@ -15,7 +15,21 @@
   ],
   "default_project_template_files": [
     "AGENT.md",
+    "index.md",
     "spec.md",
     "plan.md"
+  ],
+  "finance_project_template_files": [
+    "AGENT.md",
+    "index.md",
+    "spec.md",
+    "plan.md",
+    "budget.md",
+    "rules.md",
+    "reports/latest.md"
+  ],
+  "finance_project_generated_directories": [
+    "reports",
+    "statements"
   ]
 }

@@ -14,7 +14,7 @@ type ProjectEntry = {
   files_present: string[];
 };
 
-const expectedProjectFiles = ["AGENT.md", "spec.md", "plan.md"];
+const expectedProjectFiles = ["AGENT.md", "index.md", "spec.md", "plan.md"];
 const PROJECTS_MANIFEST_RELATIVE_PATH = "documents/projects.json";
 
 export function projectTools(): ToolDefinition[] {

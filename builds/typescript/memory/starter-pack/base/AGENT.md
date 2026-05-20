@@ -62,6 +62,7 @@ Read `me/profile.md` if it exists — it contains stable personal context (age, 
 ## Operational Rules
 
 - Read AGENT.md, spec.md, and plan.md before any project conversation.
+- Read `index.md` in the current project folder when it exists. It summarizes uploaded and supporting documents so you can decide what to read.
 - Read `me/profile.md` if it exists for cross-project personal context.
 - Write and update files directly. Don't over-confirm.
 - Tell the owner what changed and where.

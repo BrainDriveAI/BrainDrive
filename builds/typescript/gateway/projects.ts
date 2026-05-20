@@ -4,6 +4,8 @@ import { existsSync } from "node:fs";
 
 import { commitMemoryChange } from "../git.js";
 import { isProtectedProjectId, scaffoldProjectFiles } from "../memory/init.js";
+import type { ProjectIndexEntry } from "../memory/folder-index.js";
+import { upsertProjectIndexEntry } from "../memory/folder-index.js";
 import { resolveMemoryPath, toMemoryRelativePath } from "../memory/paths.js";
 
 export type GatewayProject = {
@@ -26,6 +28,14 @@ type ProjectListEnvelope = {
 type ProjectFileListEnvelope = {
   files: GatewayProjectFile[];
 };
+
+type UploadedMarkdownOptions =
+  | (Omit<ProjectIndexEntry, "fileName"> | ((filePath: string, fileName: string) => Omit<ProjectIndexEntry, "fileName">))
+  | {
+      directory?: string;
+      preferredFileName?: string;
+      indexEntry?: Omit<ProjectIndexEntry, "fileName"> | ((filePath: string, fileName: string) => Omit<ProjectIndexEntry, "fileName">);
+    };
 
 const PROJECTS_MANIFEST_RELATIVE_PATH = "documents/projects.json";
 const DEFAULT_PROJECT_ICON = "folder";
@@ -136,14 +146,7 @@ export class GatewayProjectService {
       return { files: [] };
     }
 
-    const entries = await readdir(root, { withFileTypes: true });
-    const files = entries
-      .filter((entry) => entry.isFile() && !entry.name.startsWith("."))
-      .sort((left, right) => left.name.localeCompare(right.name))
-      .map((entry) => ({
-        name: entry.name,
-        path: `documents/${projectId}/${entry.name}`,
-      }));
+    const files = await this.listProjectFilesRecursive(projectId, root);
 
     return { files };
   }
@@ -178,6 +181,58 @@ export class GatewayProjectService {
     const relativePath = path.relative(this.memoryRoot, resolvedPath);
     await commitMemoryChange(this.memoryRoot, `Update ${relativePath} via UI`).catch(() => {});
     return true;
+  }
+
+  async createUploadedMarkdownFile(
+    projectId: string,
+    requestedFileName: string,
+    content: string,
+    options?: UploadedMarkdownOptions
+  ): Promise<GatewayProjectFile | null> {
+    const project = await this.getProject(projectId);
+    if (!project) {
+      return null;
+    }
+
+    if (isProtectedProjectId(projectId)) {
+      throw new ProtectedProjectError(projectId);
+    }
+
+    const projectRoot = this.projectRootPath(projectId);
+    const normalizedOptions = normalizeUploadedMarkdownOptions(options);
+    const uploadDirectory = normalizeProjectSubdirectory(normalizedOptions.directory);
+    const uploadRoot = uploadDirectory ? path.join(projectRoot, uploadDirectory) : projectRoot;
+    await mkdir(uploadRoot, { recursive: true });
+
+    const fileName = await this.nextAvailableMarkdownFileName(
+      projectId,
+      normalizedOptions.preferredFileName ?? requestedFileName,
+      uploadDirectory
+    );
+    const projectRelativePath = uploadDirectory ? `${uploadDirectory}/${fileName}` : fileName;
+    const requestedPath = `documents/${projectId}/${projectRelativePath}`;
+    const resolvedPath = this.resolveProjectScopedPath(projectId, requestedPath);
+    if (!resolvedPath) {
+      throw new Error("Invalid path");
+    }
+
+    await writeFile(resolvedPath, content, "utf8");
+    if (normalizedOptions.indexEntry) {
+      const resolvedIndexEntry = typeof normalizedOptions.indexEntry === "function"
+        ? normalizedOptions.indexEntry(projectRelativePath, fileName)
+        : normalizedOptions.indexEntry;
+      await upsertProjectIndexEntry(this.memoryRoot, projectId, {
+        fileName: projectRelativePath,
+        ...resolvedIndexEntry,
+      });
+    }
+    const relativePath = path.relative(this.memoryRoot, resolvedPath);
+    await commitMemoryChange(this.memoryRoot, `Upload ${relativePath} via UI`).catch(() => {});
+
+    return {
+      name: fileName,
+      path: requestedPath,
+    };
   }
 
   async attachConversation(projectId: string, conversationId: string): Promise<void> {
@@ -224,6 +279,32 @@ export class GatewayProjectService {
 
   private projectRootPath(projectId: string): string {
     return resolveMemoryPath(this.memoryRoot, `documents/${projectId}`);
+  }
+
+  private async nextAvailableMarkdownFileName(
+    projectId: string,
+    requestedFileName: string,
+    subdirectory = ""
+  ): Promise<string> {
+    const baseName = slugifyFileName(stripKnownExtension(requestedFileName));
+    const targetRoot = subdirectory
+      ? path.join(this.projectRootPath(projectId), subdirectory)
+      : this.projectRootPath(projectId);
+    let index = 1;
+
+    while (true) {
+      const suffix = index === 1 ? "" : `-${index}`;
+      const fileName = `${baseName}${suffix}.md`;
+      const candidateRelativePath = subdirectory ? `${subdirectory}/${fileName}` : fileName;
+      const candidate = resolveMemoryPath(this.memoryRoot, `documents/${projectId}/${candidateRelativePath}`);
+      if (!existsSync(candidate) || !candidate.startsWith(`${targetRoot}${path.sep}`)) {
+        if (!candidate.startsWith(`${targetRoot}${path.sep}`)) {
+          throw new Error("Invalid path");
+        }
+        return fileName;
+      }
+      index += 1;
+    }
   }
 
   private resolveProjectScopedPath(projectId: string, requestedPath: string): string | null {
@@ -286,6 +367,64 @@ export class GatewayProjectService {
       await writeFile(this.manifestPath, "[]\n", "utf8");
     }
   }
+
+  private async listProjectFilesRecursive(projectId: string, root: string): Promise<GatewayProjectFile[]> {
+    const files: GatewayProjectFile[] = [];
+    const visit = async (directory: string, relativeDirectory = ""): Promise<void> => {
+      const entries = await readdir(directory, { withFileTypes: true });
+      for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+        if (entry.name.startsWith(".")) {
+          continue;
+        }
+        const relativePath = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
+        const absolutePath = path.join(directory, entry.name);
+        if (entry.isDirectory()) {
+          await visit(absolutePath, relativePath);
+          continue;
+        }
+        if (entry.isFile()) {
+          files.push({
+            name: relativePath,
+            path: `documents/${projectId}/${relativePath}`,
+          });
+        }
+      }
+    };
+    await visit(root);
+    return files.sort((left, right) => left.name.localeCompare(right.name));
+  }
+}
+
+function normalizeUploadedMarkdownOptions(options: UploadedMarkdownOptions | undefined): {
+  directory?: string;
+  preferredFileName?: string;
+  indexEntry?: Omit<ProjectIndexEntry, "fileName"> | ((filePath: string, fileName: string) => Omit<ProjectIndexEntry, "fileName">);
+} {
+  if (!options) {
+    return {};
+  }
+  if (typeof options === "function") {
+    return { indexEntry: options };
+  }
+  if ("type" in options && "summary" in options && "readWhen" in options) {
+    return { indexEntry: options };
+  }
+  return options;
+}
+
+function normalizeProjectSubdirectory(value: string | undefined): string {
+  if (!value) {
+    return "";
+  }
+  const normalized = value.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  if (!normalized) {
+    return "";
+  }
+  const parts = normalized.split("/");
+  if (parts.some((part) => !part || part === "." || part === "..")) {
+    throw new Error("Invalid path");
+  }
+  return parts.join("/");
 }
 
 function parseProjectRecord(value: unknown): GatewayProject | null {
@@ -337,6 +476,20 @@ function slugifyProjectName(name: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return value.length > 0 ? value : "project";
+}
+
+function stripKnownExtension(fileName: string): string {
+  const parsed = path.parse(fileName.replace(/\\/g, "/"));
+  const baseName = parsed.name || parsed.base || "uploaded-document";
+  return baseName;
+}
+
+function slugifyFileName(name: string): string {
+  const value = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return value.length > 0 ? value : "uploaded-document";
 }
 
 function nextAvailableProjectId(baseId: string, existingIds: Set<string>): string {

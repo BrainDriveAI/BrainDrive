@@ -46,4 +46,43 @@ describe("Composer", () => {
       expect(textarea).toHaveFocus();
     });
   });
+
+  it("accepts CSV, image, and PDF attachments from the file picker", async () => {
+    const user = userEvent.setup();
+    const onAttach = vi.fn();
+
+    const { container } = render(<Composer onAttach={onAttach} />);
+    const input = container.querySelector('input[type="file"]');
+    expect(input).toBeInstanceOf(HTMLInputElement);
+    expect((input as HTMLInputElement).accept).toContain(".csv");
+    expect((input as HTMLInputElement).accept).toContain(".png");
+    expect((input as HTMLInputElement).accept).toContain(".pdf");
+
+    const csvFile = new File(["a,b\n1,2"], "transactions.csv", { type: "text/csv" });
+    await user.upload(input as HTMLInputElement, csvFile);
+
+    expect(onAttach).toHaveBeenCalledWith({
+      file: csvFile,
+      name: "transactions.csv",
+      size: "7 B",
+    });
+
+    const imageFile = new File(["png"], "receipt.png", { type: "image/png" });
+    await user.upload(input as HTMLInputElement, imageFile);
+
+    expect(onAttach).toHaveBeenLastCalledWith({
+      file: imageFile,
+      name: "receipt.png",
+      size: "3 B",
+    });
+
+    const pdfFile = new File(["%PDF-1.6"], "statement.pdf", { type: "application/pdf" });
+    await user.upload(input as HTMLInputElement, pdfFile);
+
+    expect(onAttach).toHaveBeenLastCalledWith({
+      file: pdfFile,
+      name: "statement.pdf",
+      size: "8 B",
+    });
+  });
 });
