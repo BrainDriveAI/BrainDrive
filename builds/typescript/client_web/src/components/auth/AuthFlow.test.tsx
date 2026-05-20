@@ -43,6 +43,22 @@ describe("AuthFlow", () => {
     expect(screen.queryByRole("button", { name: "Create account" })).not.toBeInTheDocument();
   });
 
+  it("defaults to signup on first load before account initialization", async () => {
+    fetchBootstrapStatusMock.mockResolvedValue({
+      account_initialized: false,
+      mode: "local",
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <AuthFlow mode="local" onAuthenticated={() => {}} />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText("Setup Your Login")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create account" })).toBeInTheDocument();
+  });
+
   it("redirects /signup to login when account is initialized", async () => {
     fetchBootstrapStatusMock.mockResolvedValue({
       account_initialized: true,

@@ -1,11 +1,15 @@
 import path from "node:path";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
 import { exportMemoryArchive } from "../git.js";
 import { exportMigrationArchive, importMigrationArchive } from "./migration.js";
+
+const execFileAsync = promisify(execFile);
 
 async function writeFixtureMemory(memoryRoot: string, marker: string): Promise<void> {
   await mkdir(path.join(memoryRoot, "conversations"), { recursive: true });
@@ -104,6 +108,34 @@ describe("memory migration archive", () => {
       expect(importedPreferences).toContain("legacy-source-model");
       const existingVault = await readFile(targetSecretsPaths.vaultPath, "utf8");
       expect(existingVault).toContain("existing");
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("excludes generated archives and git internals from memory archives", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "paa-migration-exclude-test-"));
+    const sourceMemory = path.join(tempRoot, "source-memory");
+    const archivePath = path.join(sourceMemory, "system", "updates", "backups", "starter-pack-test.tar.gz");
+
+    try {
+      await writeFixtureMemory(sourceMemory, "source-model");
+      await mkdir(path.join(sourceMemory, ".git", "objects"), { recursive: true });
+      await mkdir(path.join(sourceMemory, "exports"), { recursive: true });
+      await mkdir(path.join(sourceMemory, "system", "updates", "backups"), { recursive: true });
+      await writeFile(path.join(sourceMemory, ".git", "objects", "large-pack"), "git internals\n", "utf8");
+      await writeFile(path.join(sourceMemory, "exports", "old-export.tar.gz"), "old export\n", "utf8");
+      await writeFile(path.join(sourceMemory, "system", "updates", "backups", "old-backup.tar.gz"), "old backup\n", "utf8");
+
+      await exportMemoryArchive(sourceMemory, archivePath);
+
+      const { stdout } = await execFileAsync("tar", ["-tzf", archivePath]);
+      const entries = stdout.split("\n").filter(Boolean);
+
+      expect(entries).toContain("./documents/projects.json");
+      expect(entries.some((entry) => entry.startsWith("./.git"))).toBe(false);
+      expect(entries.some((entry) => entry.startsWith("./exports/") && entry.endsWith(".tar.gz"))).toBe(false);
+      expect(entries.some((entry) => entry.startsWith("./system/updates/backups/") && entry.endsWith(".tar.gz"))).toBe(false);
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }

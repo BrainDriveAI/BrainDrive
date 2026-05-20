@@ -78,7 +78,7 @@ export default function AuthFlow({ mode, onAuthenticated }: AuthFlowProps) {
   function applyRouteScreen(isInitialized: boolean): void {
     const wantsSignup = location.pathname.startsWith("/signup");
 
-    if (wantsSignup && !isInitialized && mode === "local") {
+    if (!isInitialized && mode === "local") {
       setScreen("signup");
       return;
     }
