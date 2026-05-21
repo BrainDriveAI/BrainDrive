@@ -1,13 +1,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
-    net::{Shutdown, TcpListener, TcpStream},
+    net::{Shutdown, TcpListener, TcpStream, UdpSocket},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
@@ -19,6 +19,9 @@ use uuid::Uuid;
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+const BROWSER_ACCESS_DEFAULT_PORT: u16 = 18088;
+const BROWSER_ACCESS_FALLBACK_END_PORT: u16 = 18107;
+const FIREWALL_RULE_NAME: &str = "BrainDrive Browser Access";
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -29,6 +32,7 @@ struct RuntimeStatus {
     services: Vec<ServiceStatus>,
     data_root: String,
     log_root: String,
+    browser_access: BrowserAccessStatus,
 }
 
 #[derive(Clone, Serialize)]
@@ -37,6 +41,74 @@ struct ServiceStatus {
     id: String,
     state: String,
     port: u16,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BrowserAccessSettings {
+    enabled: bool,
+    network_scope: BrowserAccessNetworkScope,
+    port: u16,
+    bind_address: String,
+    transport_secret: String,
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum BrowserAccessNetworkScope {
+    ThisComputer,
+    PrivateNetwork,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BrowserAccessSettingsUpdate {
+    enabled: bool,
+    network_scope: BrowserAccessNetworkScope,
+    port: u16,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BrowserAccessStatus {
+    enabled: bool,
+    state: String,
+    network_scope: BrowserAccessNetworkScope,
+    bind_address: String,
+    requested_port: u16,
+    port: Option<u16>,
+    urls: Vec<String>,
+    config_path: String,
+    firewall_hint: String,
+    last_error: Option<String>,
+    account_initialized: Option<bool>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FirewallRuleResult {
+    ok: bool,
+    message: String,
+    command: String,
+}
+
+struct RuntimeStartup {
+    status: RuntimeStatus,
+    children: Vec<Child>,
+    bridge_child: Option<Child>,
+    context: RuntimeContext,
+}
+
+#[derive(Clone)]
+struct RuntimeContext {
+    node: PathBuf,
+    typescript_root: PathBuf,
+    web_root: PathBuf,
+    gateway_base_url: String,
+    desktop_api_token: String,
+    internal_transport_token: String,
+    config_root: PathBuf,
+    log_root: PathBuf,
 }
 
 struct RuntimeManager {
@@ -56,6 +128,8 @@ struct LaunchInner {
 struct RuntimeInner {
     status: RuntimeStatus,
     children: Vec<Child>,
+    bridge_child: Option<Child>,
+    context: Option<RuntimeContext>,
 }
 
 impl RuntimeManager {
@@ -69,8 +143,11 @@ impl RuntimeManager {
                     services: Vec::new(),
                     data_root: String::new(),
                     log_root: String::new(),
+                    browser_access: BrowserAccessStatus::not_started(),
                 },
                 children: Vec::new(),
+                bridge_child: None,
+                context: None,
             }),
         }
     }
@@ -95,9 +172,11 @@ impl RuntimeManager {
         let result = start_runtime(app);
         let mut inner = self.inner.lock().map_err(|_| "runtime lock poisoned")?;
         match result {
-            Ok((status, children)) => {
-                inner.status = status;
-                inner.children = children;
+            Ok(startup) => {
+                inner.status = startup.status;
+                inner.children = startup.children;
+                inner.bridge_child = startup.bridge_child;
+                inner.context = Some(startup.context);
                 Ok(inner.status.clone())
             }
             Err(error) => {
@@ -109,14 +188,213 @@ impl RuntimeManager {
 
     fn stop(&self) {
         if let Ok(mut inner) = self.inner.lock() {
+            if let Some(child) = &mut inner.bridge_child {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            inner.bridge_child = None;
             for child in &mut inner.children {
                 let _ = child.kill();
                 let _ = child.wait();
             }
             inner.children.clear();
+            inner.context = None;
             if inner.status.state != "not-started" {
                 inner.status.state = "stopped".to_string();
+                inner.status.browser_access.state = "stopped".to_string();
+                inner.status.browser_access.port = None;
+                inner.status.browser_access.urls.clear();
             }
+        }
+    }
+
+    fn browser_access_status(&self, app: &tauri::AppHandle) -> BrowserAccessStatus {
+        if let Ok(inner) = self.inner.lock() {
+            if inner.status.state == "ready" || inner.status.state == "starting" {
+                return inner.status.browser_access.clone();
+            }
+        }
+
+        match RuntimePaths::resolve(app) {
+            Ok(paths) => {
+                let config_path = browser_access_settings_path(&paths.config_root);
+                let settings = load_browser_access_settings(&config_path)
+                    .unwrap_or_else(|_| default_browser_access_settings());
+                BrowserAccessStatus::from_settings(
+                    &settings,
+                    &config_path,
+                    "stopped",
+                    None,
+                    None,
+                    None,
+                )
+            }
+            Err(error) => BrowserAccessStatus::error("unknown", error),
+        }
+    }
+
+    fn update_browser_access(
+        &self,
+        app: &tauri::AppHandle,
+        update: BrowserAccessSettingsUpdate,
+    ) -> Result<BrowserAccessStatus, String> {
+        let paths = RuntimePaths::resolve(app)?;
+        fs::create_dir_all(&paths.config_root).map_err(display_error)?;
+        let config_path = browser_access_settings_path(&paths.config_root);
+        let mut settings = load_browser_access_settings(&config_path)
+            .unwrap_or_else(|_| default_browser_access_settings());
+        settings.enabled = update.enabled;
+        settings.network_scope = update.network_scope;
+        settings.port = normalize_browser_port(update.port);
+        settings.bind_address = bind_address_for_scope(settings.network_scope);
+        if settings.transport_secret.trim().is_empty() {
+            settings.transport_secret = Uuid::new_v4().to_string();
+        }
+
+        let mut inner = self.inner.lock().map_err(|_| "runtime lock poisoned")?;
+        if settings.enabled {
+            if let Some(context) = &inner.context {
+                if !gateway_account_initialized(context).unwrap_or(false) {
+                    let status = BrowserAccessStatus::from_settings(
+                        &settings,
+                        &config_path,
+                        "failed",
+                        None,
+                        Some(
+                            "Create your local BrainDrive account before enabling Browser Access."
+                                .to_string(),
+                        ),
+                        Some(false),
+                    );
+                    inner.status.browser_access = status.clone();
+                    return Ok(status);
+                }
+            }
+        }
+
+        save_browser_access_settings(&config_path, &settings)?;
+
+        if let Some(child) = &mut inner.bridge_child {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        inner.bridge_child = None;
+
+        let (status, bridge_child) = if let Some(context) = &inner.context {
+            reconcile_browser_access_process(context, settings, None)?
+        } else {
+            (
+                BrowserAccessStatus::from_settings(
+                    &settings,
+                    &config_path,
+                    "stopped",
+                    None,
+                    None,
+                    None,
+                ),
+                None,
+            )
+        };
+        inner.bridge_child = bridge_child;
+        inner.status.browser_access = status.clone();
+        rebuild_browser_access_service_status(&mut inner.status.services, &status);
+        Ok(status)
+    }
+
+    fn restart_browser_access(
+        &self,
+        app: &tauri::AppHandle,
+    ) -> Result<BrowserAccessStatus, String> {
+        let paths = RuntimePaths::resolve(app)?;
+        let config_path = browser_access_settings_path(&paths.config_root);
+        let settings = load_browser_access_settings(&config_path)
+            .unwrap_or_else(|_| default_browser_access_settings());
+
+        let mut inner = self.inner.lock().map_err(|_| "runtime lock poisoned")?;
+        if let Some(child) = &mut inner.bridge_child {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        inner.bridge_child = None;
+
+        let (status, bridge_child) = if let Some(context) = &inner.context {
+            reconcile_browser_access_process(context, settings, None)?
+        } else {
+            (
+                BrowserAccessStatus::from_settings(
+                    &settings,
+                    &config_path,
+                    "stopped",
+                    None,
+                    None,
+                    None,
+                ),
+                None,
+            )
+        };
+        inner.bridge_child = bridge_child;
+        inner.status.browser_access = status.clone();
+        rebuild_browser_access_service_status(&mut inner.status.services, &status);
+        Ok(status)
+    }
+}
+
+impl BrowserAccessStatus {
+    fn not_started() -> Self {
+        Self {
+            enabled: false,
+            state: "not-started".to_string(),
+            network_scope: BrowserAccessNetworkScope::ThisComputer,
+            bind_address: "127.0.0.1".to_string(),
+            requested_port: BROWSER_ACCESS_DEFAULT_PORT,
+            port: None,
+            urls: Vec::new(),
+            config_path: String::new(),
+            firewall_hint: "Browser Access is disabled.".to_string(),
+            last_error: None,
+            account_initialized: None,
+        }
+    }
+
+    fn error(config_path: &str, error: String) -> Self {
+        Self {
+            enabled: false,
+            state: "failed".to_string(),
+            network_scope: BrowserAccessNetworkScope::ThisComputer,
+            bind_address: "127.0.0.1".to_string(),
+            requested_port: BROWSER_ACCESS_DEFAULT_PORT,
+            port: None,
+            urls: Vec::new(),
+            config_path: config_path.to_string(),
+            firewall_hint: "Browser Access status is unavailable.".to_string(),
+            last_error: Some(error),
+            account_initialized: None,
+        }
+    }
+
+    fn from_settings(
+        settings: &BrowserAccessSettings,
+        config_path: &Path,
+        state: &str,
+        bound_port: Option<u16>,
+        last_error: Option<String>,
+        account_initialized: Option<bool>,
+    ) -> Self {
+        let urls = bound_port
+            .map(|port| browser_access_urls(settings, port))
+            .unwrap_or_default();
+        Self {
+            enabled: settings.enabled,
+            state: state.to_string(),
+            network_scope: settings.network_scope,
+            bind_address: settings.bind_address.clone(),
+            requested_port: settings.port,
+            port: bound_port,
+            urls,
+            config_path: config_path.display().to_string(),
+            firewall_hint: firewall_hint_for(settings, bound_port),
+            last_error,
+            account_initialized,
         }
     }
 }
@@ -149,6 +427,41 @@ fn get_runtime_status(runtime: State<Arc<RuntimeManager>>) -> RuntimeStatus {
         }
         thread::sleep(Duration::from_millis(100));
     }
+}
+
+#[tauri::command]
+fn get_browser_access_status(
+    app: tauri::AppHandle,
+    runtime: State<Arc<RuntimeManager>>,
+) -> BrowserAccessStatus {
+    runtime.browser_access_status(&app)
+}
+
+#[tauri::command]
+fn update_browser_access_settings(
+    app: tauri::AppHandle,
+    runtime: State<Arc<RuntimeManager>>,
+    settings: BrowserAccessSettingsUpdate,
+) -> Result<BrowserAccessStatus, String> {
+    runtime.update_browser_access(&app, settings)
+}
+
+#[tauri::command]
+fn restart_browser_access(
+    app: tauri::AppHandle,
+    runtime: State<Arc<RuntimeManager>>,
+) -> Result<BrowserAccessStatus, String> {
+    runtime.restart_browser_access(&app)
+}
+
+#[tauri::command]
+fn apply_browser_access_firewall_rule(
+    app: tauri::AppHandle,
+    runtime: State<Arc<RuntimeManager>>,
+    enabled: bool,
+) -> FirewallRuleResult {
+    let status = runtime.browser_access_status(&app);
+    apply_firewall_rule_for_status(&status, enabled)
 }
 
 #[tauri::command]
@@ -207,6 +520,10 @@ fn main() {
         .manage(launch_state.clone())
         .invoke_handler(tauri::generate_handler![
             get_runtime_status,
+            get_browser_access_status,
+            update_browser_access_settings,
+            restart_browser_access,
+            apply_browser_access_firewall_rule,
             restart_runtime,
             open_external_url,
             frontend_ready
@@ -284,7 +601,7 @@ fn validate_external_url(url: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn start_runtime(app: &tauri::AppHandle) -> Result<(RuntimeStatus, Vec<Child>), String> {
+fn start_runtime(app: &tauri::AppHandle) -> Result<RuntimeStartup, String> {
     let paths = RuntimePaths::resolve(app)?;
     fs::create_dir_all(&paths.memory_root).map_err(display_error)?;
     fs::create_dir_all(&paths.secrets_root).map_err(display_error)?;
@@ -294,6 +611,8 @@ fn start_runtime(app: &tauri::AppHandle) -> Result<(RuntimeStatus, Vec<Child>), 
 
     let runtime_roots = RuntimeRoots::resolve(app)?;
     let node = resolve_node(app)?;
+    let browser_access_config_path = browser_access_settings_path(&paths.config_root);
+    let browser_access_settings = ensure_browser_access_settings(&browser_access_config_path)?;
     let gateway_port = find_free_port()?;
     let memory_port = find_free_port()?;
     let auth_port = find_free_port()?;
@@ -348,26 +667,355 @@ fn start_runtime(app: &tauri::AppHandle) -> Result<(RuntimeStatus, Vec<Child>), 
         gateway_port,
         &gateway_base_url,
         &desktop_api_token,
+        &browser_access_settings.transport_secret,
         &mcp_servers_file,
     )?);
     wait_for_health(gateway_port, "/health", "gateway", &paths.log_root)?;
+
+    let context = RuntimeContext {
+        node,
+        typescript_root: runtime_roots.typescript_root.clone(),
+        web_root: runtime_roots.web_root.clone(),
+        gateway_base_url: gateway_base_url.clone(),
+        desktop_api_token: desktop_api_token.clone(),
+        internal_transport_token: browser_access_settings.transport_secret.clone(),
+        config_root: paths.config_root.clone(),
+        log_root: paths.log_root.clone(),
+    };
+
+    let (browser_access_status, bridge_child) =
+        reconcile_browser_access_process(&context, browser_access_settings, None)?;
 
     let status = RuntimeStatus {
         state: "ready".to_string(),
         gateway_base_url,
         desktop_api_token,
-        services: vec![
+        services: build_service_statuses(
             service_status("mcp-memory", memory_port),
             service_status("mcp-auth", auth_port),
             service_status("mcp-project", project_port),
             service_status("gateway", gateway_port),
-        ],
+            browser_access_status.clone(),
+        ),
         data_root: paths.data_root.display().to_string(),
         log_root: paths.log_root.display().to_string(),
+        browser_access: browser_access_status,
     };
     append_supervisor_log(&paths.log_root, "BrainDrive desktop runtime ready");
 
-    Ok((status, children))
+    Ok(RuntimeStartup {
+        status,
+        children,
+        bridge_child,
+        context,
+    })
+}
+
+fn default_browser_access_settings() -> BrowserAccessSettings {
+    BrowserAccessSettings {
+        enabled: false,
+        network_scope: BrowserAccessNetworkScope::ThisComputer,
+        port: BROWSER_ACCESS_DEFAULT_PORT,
+        bind_address: "127.0.0.1".to_string(),
+        transport_secret: String::new(),
+    }
+}
+
+fn browser_access_settings_path(config_root: &Path) -> PathBuf {
+    config_root.join("browser-access.json")
+}
+
+fn load_browser_access_settings(path: &Path) -> Result<BrowserAccessSettings, String> {
+    let raw = fs::read_to_string(path).map_err(display_error)?;
+    let mut settings: BrowserAccessSettings = serde_json::from_str(&raw).map_err(display_error)?;
+    settings.port = normalize_browser_port(settings.port);
+    settings.bind_address = bind_address_for_scope(settings.network_scope);
+    Ok(settings)
+}
+
+fn ensure_browser_access_settings(path: &Path) -> Result<BrowserAccessSettings, String> {
+    let mut settings =
+        load_browser_access_settings(path).unwrap_or_else(|_| default_browser_access_settings());
+    settings.port = normalize_browser_port(settings.port);
+    settings.bind_address = bind_address_for_scope(settings.network_scope);
+    if settings.transport_secret.trim().is_empty() {
+        settings.transport_secret = Uuid::new_v4().to_string();
+    }
+    save_browser_access_settings(path, &settings)?;
+    Ok(settings)
+}
+
+fn save_browser_access_settings(
+    path: &Path,
+    settings: &BrowserAccessSettings,
+) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(display_error)?;
+    }
+    let mut file = File::create(path).map_err(display_error)?;
+    file.write_all(
+        serde_json::to_string_pretty(settings)
+            .map_err(display_error)?
+            .as_bytes(),
+    )
+    .map_err(display_error)?;
+    file.write_all(b"\n").map_err(display_error)?;
+    Ok(())
+}
+
+fn normalize_browser_port(port: u16) -> u16 {
+    if (BROWSER_ACCESS_DEFAULT_PORT..=BROWSER_ACCESS_FALLBACK_END_PORT).contains(&port) {
+        port
+    } else {
+        BROWSER_ACCESS_DEFAULT_PORT
+    }
+}
+
+fn bind_address_for_scope(scope: BrowserAccessNetworkScope) -> String {
+    match scope {
+        BrowserAccessNetworkScope::ThisComputer => "127.0.0.1".to_string(),
+        BrowserAccessNetworkScope::PrivateNetwork => "0.0.0.0".to_string(),
+    }
+}
+
+fn reconcile_browser_access_process(
+    context: &RuntimeContext,
+    mut settings: BrowserAccessSettings,
+    known_account_initialized: Option<bool>,
+) -> Result<(BrowserAccessStatus, Option<Child>), String> {
+    let config_path = browser_access_settings_path(&context.config_root);
+    settings.port = normalize_browser_port(settings.port);
+    settings.bind_address = bind_address_for_scope(settings.network_scope);
+
+    if !settings.enabled {
+        return Ok((
+            BrowserAccessStatus::from_settings(
+                &settings,
+                &config_path,
+                "stopped",
+                None,
+                None,
+                known_account_initialized,
+            ),
+            None,
+        ));
+    }
+
+    let account_initialized = known_account_initialized
+        .or_else(|| gateway_account_initialized(context).ok())
+        .unwrap_or(false);
+    if !account_initialized {
+        return Ok((
+            BrowserAccessStatus::from_settings(
+                &settings,
+                &config_path,
+                "failed",
+                None,
+                Some(
+                    "Create your local BrainDrive account before enabling Browser Access."
+                        .to_string(),
+                ),
+                Some(false),
+            ),
+            None,
+        ));
+    }
+
+    let (port, port_error) = select_browser_access_port(&settings.bind_address, settings.port);
+    let Some(port) = port else {
+        return Ok((
+            BrowserAccessStatus::from_settings(
+                &settings,
+                &config_path,
+                "failed",
+                None,
+                Some(
+                    port_error
+                        .unwrap_or_else(|| "No Browser Access port is available.".to_string()),
+                ),
+                Some(true),
+            ),
+            None,
+        ));
+    };
+
+    match spawn_bridge(context, &settings, port) {
+        Ok(child) => {
+            wait_for_health(port, "/healthz", "browser-access", &context.log_root)?;
+            Ok((
+                BrowserAccessStatus::from_settings(
+                    &settings,
+                    &config_path,
+                    "running",
+                    Some(port),
+                    None,
+                    Some(true),
+                ),
+                Some(child),
+            ))
+        }
+        Err(error) => Ok((
+            BrowserAccessStatus::from_settings(
+                &settings,
+                &config_path,
+                "failed",
+                None,
+                Some(error),
+                Some(true),
+            ),
+            None,
+        )),
+    }
+}
+
+fn select_browser_access_port(
+    bind_address: &str,
+    requested_port: u16,
+) -> (Option<u16>, Option<String>) {
+    if port_is_available(bind_address, requested_port) {
+        return (Some(requested_port), None);
+    }
+
+    for port in BROWSER_ACCESS_DEFAULT_PORT..=BROWSER_ACCESS_FALLBACK_END_PORT {
+        if port != requested_port && port_is_available(bind_address, port) {
+            return (
+                Some(port),
+                Some(format!("Port {requested_port} is already in use.")),
+            );
+        }
+    }
+
+    (
+        None,
+        Some(format!(
+            "Ports {BROWSER_ACCESS_DEFAULT_PORT}-{BROWSER_ACCESS_FALLBACK_END_PORT} are already in use."
+        )),
+    )
+}
+
+fn port_is_available(bind_address: &str, port: u16) -> bool {
+    TcpListener::bind((bind_address, port)).is_ok()
+}
+
+fn spawn_bridge(
+    context: &RuntimeContext,
+    settings: &BrowserAccessSettings,
+    port: u16,
+) -> Result<Child, String> {
+    let script = context
+        .typescript_root
+        .join("dist")
+        .join("desktop")
+        .join("bridge.js");
+    if !script.exists() {
+        return Err(format!(
+            "Desktop bridge build was not found at {}",
+            script.display()
+        ));
+    }
+    if !context.web_root.exists() {
+        return Err(format!(
+            "Desktop bridge web assets were not found at {}",
+            context.web_root.display()
+        ));
+    }
+
+    let mut command = Command::new(&context.node);
+    command
+        .arg(script)
+        .current_dir(&context.typescript_root)
+        .env("BRAINDRIVE_BROWSER_BRIDGE_HOST", &settings.bind_address)
+        .env("BRAINDRIVE_BROWSER_BRIDGE_PORT", port.to_string())
+        .env("BRAINDRIVE_BROWSER_BRIDGE_WEB_ROOT", &context.web_root)
+        .env(
+            "BRAINDRIVE_BROWSER_BRIDGE_GATEWAY_URL",
+            &context.gateway_base_url,
+        )
+        .env(
+            "BRAINDRIVE_INTERNAL_TRANSPORT_TOKEN",
+            &context.internal_transport_token,
+        );
+    spawn_logged(command, &context.log_root, "browser-access")
+}
+
+fn browser_access_urls(settings: &BrowserAccessSettings, port: u16) -> Vec<String> {
+    let mut urls = vec![format!("http://127.0.0.1:{port}")];
+    if matches!(
+        settings.network_scope,
+        BrowserAccessNetworkScope::PrivateNetwork
+    ) {
+        if let Some(ip) = primary_private_ipv4() {
+            let url = format!("http://{ip}:{port}");
+            if !urls.contains(&url) {
+                urls.push(url);
+            }
+        }
+    }
+    urls
+}
+
+fn primary_private_ipv4() -> Option<String> {
+    let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("8.8.8.8:80").ok()?;
+    let address = socket.local_addr().ok()?.ip();
+    let std::net::IpAddr::V4(ip) = address else {
+        return None;
+    };
+    let octets = ip.octets();
+    let is_private = octets[0] == 10
+        || (octets[0] == 172 && (16..=31).contains(&octets[1]))
+        || (octets[0] == 192 && octets[1] == 168);
+    if is_private {
+        Some(ip.to_string())
+    } else {
+        None
+    }
+}
+
+fn firewall_hint_for(settings: &BrowserAccessSettings, port: Option<u16>) -> String {
+    if !settings.enabled {
+        return "Browser Access is disabled.".to_string();
+    }
+    if matches!(
+        settings.network_scope,
+        BrowserAccessNetworkScope::ThisComputer
+    ) {
+        return "This computer only; no firewall rule is needed.".to_string();
+    }
+    let selected_port = port.unwrap_or(settings.port);
+    if cfg!(windows) {
+        return format!(
+            "Private-network access may require a Windows Firewall rule for TCP port {selected_port}."
+        );
+    }
+    if cfg!(target_os = "macos") {
+        return "macOS may ask you to allow incoming connections for BrainDrive.".to_string();
+    }
+    "Private-network access may require a local firewall rule.".to_string()
+}
+
+fn build_service_statuses(
+    memory: ServiceStatus,
+    auth: ServiceStatus,
+    project: ServiceStatus,
+    gateway: ServiceStatus,
+    browser_access: BrowserAccessStatus,
+) -> Vec<ServiceStatus> {
+    let mut services = vec![memory, auth, project, gateway];
+    rebuild_browser_access_service_status(&mut services, &browser_access);
+    services
+}
+
+fn rebuild_browser_access_service_status(
+    services: &mut Vec<ServiceStatus>,
+    status: &BrowserAccessStatus,
+) {
+    services.retain(|service| service.id != "browser-access");
+    if status.state == "running" {
+        if let Some(port) = status.port {
+            services.push(service_status("browser-access", port));
+        }
+    }
 }
 
 struct RuntimePaths {
@@ -405,6 +1053,7 @@ impl RuntimePaths {
 struct RuntimeRoots {
     typescript_root: PathBuf,
     mcp_root: PathBuf,
+    web_root: PathBuf,
 }
 
 impl RuntimeRoots {
@@ -415,9 +1064,13 @@ impl RuntimeRoots {
             let mcp_root = std::env::var_os("BRAINDRIVE_DESKTOP_MCP_ROOT")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| root.parent().unwrap_or(&root).join("mcp_release"));
+            let web_root = std::env::var_os("BRAINDRIVE_DESKTOP_WEB_ROOT")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| root.join("client_web").join("dist"));
             return Ok(Self {
                 typescript_root: root,
                 mcp_root,
+                web_root,
             });
         }
 
@@ -427,10 +1080,12 @@ impl RuntimeRoots {
         {
             let typescript_root = resource_root.join("typescript");
             let mcp_root = resource_root.join("mcp_release");
+            let web_root = resource_root.join("web");
             if typescript_root.exists() && mcp_root.exists() {
                 return Ok(Self {
                     typescript_root,
                     mcp_root,
+                    web_root,
                 });
             }
         }
@@ -446,6 +1101,7 @@ impl RuntimeRoots {
             .join("mcp_release");
 
         Ok(Self {
+            web_root: typescript_root.join("client_web").join("dist"),
             typescript_root,
             mcp_root,
         })
@@ -478,6 +1134,7 @@ fn spawn_gateway(
     port: u16,
     gateway_base_url: &str,
     desktop_api_token: &str,
+    internal_transport_token: &str,
     mcp_servers_file: &Path,
 ) -> Result<Child, String> {
     let script = typescript_root
@@ -495,6 +1152,10 @@ fn spawn_gateway(
         .env("BRAINDRIVE_TRUST_PROXY", "false")
         .env("BRAINDRIVE_CLIENT_GATEWAY_URL", gateway_base_url)
         .env("BRAINDRIVE_DESKTOP_API_TOKEN", desktop_api_token)
+        .env(
+            "BRAINDRIVE_INTERNAL_TRANSPORT_TOKEN",
+            internal_transport_token,
+        )
         .env("PAA_MEMORY_ROOT", &paths.memory_root)
         .env("PAA_SECRETS_HOME", &paths.secrets_root)
         .env("PAA_SECRETS_MASTER_KEY_ID", "owner-master-v1")
@@ -668,6 +1329,241 @@ fn http_health_ok(port: u16, path: &str) -> bool {
     }
 
     response.starts_with(b"HTTP/1.1 200") || response.starts_with(b"HTTP/1.0 200")
+}
+
+fn gateway_account_initialized(context: &RuntimeContext) -> Result<bool, String> {
+    let port = gateway_port_from_base_url(&context.gateway_base_url)?;
+    let response = http_get_local(
+        port,
+        "/auth/bootstrap-status",
+        Some((
+            "x-braindrive-desktop-token",
+            context.desktop_api_token.as_str(),
+        )),
+    )?;
+    if !response.status_line.starts_with("HTTP/1.1 200")
+        && !response.status_line.starts_with("HTTP/1.0 200")
+    {
+        return Err(format!(
+            "Gateway bootstrap status returned {}",
+            response.status_line
+        ));
+    }
+
+    let payload: serde_json::Value =
+        serde_json::from_slice(&response.body).map_err(display_error)?;
+    Ok(payload
+        .get("account_initialized")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false))
+}
+
+fn gateway_port_from_base_url(base_url: &str) -> Result<u16, String> {
+    let remainder = base_url
+        .strip_prefix("http://127.0.0.1:")
+        .or_else(|| base_url.strip_prefix("http://localhost:"))
+        .ok_or_else(|| format!("Unsupported local gateway URL: {base_url}"))?;
+    let port = remainder.split('/').next().unwrap_or(remainder);
+    port.parse::<u16>().map_err(display_error)
+}
+
+struct LocalHttpResponse {
+    status_line: String,
+    body: Vec<u8>,
+}
+
+fn http_get_local(
+    port: u16,
+    path: &str,
+    extra_header: Option<(&str, &str)>,
+) -> Result<LocalHttpResponse, String> {
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).map_err(display_error)?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .map_err(display_error)?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(5)))
+        .map_err(display_error)?;
+
+    let mut request =
+        format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n");
+    if let Some((name, value)) = extra_header {
+        request.push_str(name);
+        request.push_str(": ");
+        request.push_str(value);
+        request.push_str("\r\n");
+    }
+    request.push_str("\r\n");
+
+    stream
+        .write_all(request.as_bytes())
+        .map_err(display_error)?;
+    let _ = stream.shutdown(Shutdown::Write);
+
+    let mut response = Vec::new();
+    stream.read_to_end(&mut response).map_err(display_error)?;
+    let header_end = response
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .ok_or_else(|| "Local gateway returned an invalid HTTP response".to_string())?;
+    let headers = String::from_utf8_lossy(&response[..header_end]);
+    let status_line = headers
+        .lines()
+        .next()
+        .unwrap_or("HTTP/1.1 000 Unknown")
+        .to_string();
+
+    Ok(LocalHttpResponse {
+        status_line,
+        body: response[(header_end + 4)..].to_vec(),
+    })
+}
+
+fn apply_firewall_rule_for_status(
+    status: &BrowserAccessStatus,
+    enabled: bool,
+) -> FirewallRuleResult {
+    let command = firewall_rule_command(status, enabled);
+    if matches!(
+        status.network_scope,
+        BrowserAccessNetworkScope::ThisComputer
+    ) {
+        return FirewallRuleResult {
+            ok: true,
+            message: "This-computer scope does not need an inbound firewall rule.".to_string(),
+            command,
+        };
+    }
+
+    let Some(port) = status.port.or(Some(status.requested_port)) else {
+        return FirewallRuleResult {
+            ok: false,
+            message: "Browser Access does not have a selected port yet.".to_string(),
+            command,
+        };
+    };
+
+    if cfg!(windows) {
+        if enabled {
+            let _ = run_netsh(&[
+                "advfirewall",
+                "firewall",
+                "delete",
+                "rule",
+                &format!("name={FIREWALL_RULE_NAME}"),
+            ]);
+            return run_netsh_with_result(
+                &[
+                    "advfirewall",
+                    "firewall",
+                    "add",
+                    "rule",
+                    &format!("name={FIREWALL_RULE_NAME}"),
+                    "dir=in",
+                    "action=allow",
+                    "protocol=TCP",
+                    &format!("localport={port}"),
+                    "profile=private",
+                ],
+                command,
+                format!("Windows Firewall private-network rule added for TCP port {port}."),
+            );
+        }
+
+        return run_netsh_with_result(
+            &[
+                "advfirewall",
+                "firewall",
+                "delete",
+                "rule",
+                &format!("name={FIREWALL_RULE_NAME}"),
+            ],
+            command,
+            "Windows Firewall rule removed.".to_string(),
+        );
+    }
+
+    if cfg!(target_os = "macos") {
+        return FirewallRuleResult {
+            ok: false,
+            message: "macOS firewall rules are app-based. If prompted, allow incoming connections for BrainDrive in System Settings.".to_string(),
+            command,
+        };
+    }
+
+    FirewallRuleResult {
+        ok: false,
+        message: format!(
+            "Allow inbound TCP {port} on private networks using your operating system firewall."
+        ),
+        command,
+    }
+}
+
+fn firewall_rule_command(status: &BrowserAccessStatus, enabled: bool) -> String {
+    let port = status.port.unwrap_or(status.requested_port);
+    if cfg!(windows) {
+        if enabled {
+            format!(
+                "netsh advfirewall firewall add rule name=\"{FIREWALL_RULE_NAME}\" dir=in action=allow protocol=TCP localport={port} profile=private"
+            )
+        } else {
+            format!("netsh advfirewall firewall delete rule name=\"{FIREWALL_RULE_NAME}\"")
+        }
+    } else if cfg!(target_os = "macos") {
+        "Open System Settings > Network > Firewall and allow incoming connections for BrainDrive."
+            .to_string()
+    } else if enabled {
+        format!("Allow inbound TCP {port} from your private network.")
+    } else {
+        format!("Remove the inbound TCP {port} private-network firewall rule.")
+    }
+}
+
+#[cfg(windows)]
+fn run_netsh(args: &[&str]) -> Result<String, String> {
+    let output = Command::new("netsh")
+        .args(args)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(display_error)?;
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let error_text = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if output.status.success() {
+        Ok(if text.is_empty() {
+            "ok".to_string()
+        } else {
+            text
+        })
+    } else if error_text.is_empty() {
+        Err(text)
+    } else {
+        Err(error_text)
+    }
+}
+
+#[cfg(not(windows))]
+fn run_netsh(_args: &[&str]) -> Result<String, String> {
+    Err("netsh is only available on Windows.".to_string())
+}
+
+fn run_netsh_with_result(
+    args: &[&str],
+    command: String,
+    success_message: String,
+) -> FirewallRuleResult {
+    match run_netsh(args) {
+        Ok(_) => FirewallRuleResult {
+            ok: true,
+            message: success_message,
+            command,
+        },
+        Err(error) => FirewallRuleResult {
+            ok: false,
+            message: format!("Unable to update Windows Firewall automatically: {error}"),
+            command,
+        },
+    }
 }
 
 fn resolve_node(app: &tauri::AppHandle) -> Result<PathBuf, String> {

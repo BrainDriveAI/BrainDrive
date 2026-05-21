@@ -19,6 +19,13 @@ describe("signup bootstrap gate", () => {
     });
   });
 
+  it("rejects bridge-proxied browser signup even when the gateway peer is loopback", () => {
+    expect(evaluateSignupBootstrapAccess({ ip: "127.0.0.1", isBrowserAccess: true })).toMatchObject({
+      allowed: false,
+      reason: "signup_local_only",
+    });
+  });
+
   it("requires a matching bootstrap token when configured", () => {
     expect(
       evaluateSignupBootstrapAccess(

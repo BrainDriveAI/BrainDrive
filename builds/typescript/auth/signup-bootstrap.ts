@@ -16,6 +16,7 @@ export function evaluateSignupBootstrapAccess(
   input: {
     ip?: string;
     headers?: Record<string, unknown>;
+    isBrowserAccess?: boolean;
   },
   configuredBootstrapToken?: string
 ): SignupBootstrapDecision {
@@ -35,7 +36,7 @@ export function evaluateSignupBootstrapAccess(
     };
   }
 
-  if (isLoopbackIp(input.ip)) {
+  if (!input.isBrowserAccess && isLoopbackIp(input.ip)) {
     return {
       allowed: true,
       reason: "loopback",

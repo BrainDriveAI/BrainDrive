@@ -1,11 +1,16 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
+  Copy,
   Download,
+  ExternalLink,
   Key,
   Cpu,
   LoaderCircle,
+  Network,
   PencilLine,
+  RotateCcw,
   Save,
+  ShieldCheck,
   User,
   UserCog,
   X,
@@ -18,8 +23,17 @@ import {
 
 import MarkdownContent from "@/components/markdown/MarkdownContent";
 import { openTrustedBillingUrl } from "@/utils/billing-url";
+import { openExternalUrl } from "@/utils/external-url";
 
 import { authenticatedFetch, getSession, logout } from "@/api/auth-adapter";
+import {
+  applyBrowserAccessFirewallRule,
+  getBrowserAccessStatus,
+  restartBrowserAccess,
+  updateBrowserAccessSettings,
+  type BrowserAccessNetworkScope,
+  type BrowserAccessStatus,
+} from "@/api/desktop-browser-access";
 import {
   deleteProviderModel,
   downloadLibraryExport,
@@ -42,6 +56,7 @@ import {
   createTopupSession,
   type AccountInfo,
 } from "@/api/gateway-adapter";
+import { isTauriRuntime } from "@/api/runtime-api-base";
 import { resetGatewayChatRuntime } from "@/api/useGatewayChat";
 import type {
   GatewayCredentialUpdateRequest,
@@ -69,9 +84,9 @@ type SettingsModalProps = {
   onClose: () => void;
 };
 
-type SettingsTab = "provider" | "model" | "profile" | "account" | "export" | "memory-backup";
+type SettingsTab = "provider" | "model" | "profile" | "account" | "export" | "memory-backup" | "browser-access";
 
-type TabDef = { id: SettingsTab; label: string; icon: typeof Key; managedOnly?: boolean; localOnly?: boolean };
+type TabDef = { id: SettingsTab; label: string; icon: typeof Key; managedOnly?: boolean; localOnly?: boolean; desktopOnly?: boolean };
 
 // Managed hosting shows: Account, Owner Profile, Export (D93).
 // Local shows: Default Model, Model Providers, Owner Profile, Export, Memory Backup.
@@ -81,8 +96,12 @@ const allTabs: TabDef[] = [
   { id: "provider", label: "Model Providers", icon: Key, localOnly: true },
   { id: "profile", label: "Your Profile", icon: User },
   { id: "memory-backup", label: "Backup", icon: Save, localOnly: true },
+  { id: "browser-access", label: "Browser Access", icon: Network, localOnly: true, desktopOnly: true },
   { id: "export", label: "Migrate", icon: Download },
 ];
+
+const BROWSER_ACCESS_DEFAULT_PORT = 18088;
+const BROWSER_ACCESS_MAX_PORT = 18107;
 
 export default function SettingsModal({
   mode = "local",
@@ -94,6 +113,7 @@ export default function SettingsModal({
   const tabs = allTabs.filter((tab) => {
     if (tab.managedOnly && mode !== "managed") return false;
     if (tab.localOnly && mode !== "local") return false;
+    if (tab.desktopOnly && !isTauriRuntime()) return false;
     return true;
   });
   const [activeTab, setActiveTab] = useState<SettingsTab>(mode === "managed" ? "account" : "model");
@@ -634,6 +654,8 @@ function TabContent({
           onRestoreMemoryBackup={onRestoreMemoryBackup}
         />
       );
+    case "browser-access":
+      return <BrowserAccessSection />;
     case "profile":
       return <ProfileSection />;
     case "account":
@@ -654,6 +676,362 @@ function TabContent({
         />
       );
   }
+}
+
+function BrowserAccessSection() {
+  const [status, setStatus] = useState<BrowserAccessStatus | null>(null);
+  const [enabled, setEnabled] = useState(false);
+  const [networkScope, setNetworkScope] = useState<BrowserAccessNetworkScope>("thisComputer");
+  const [port, setPort] = useState(String(BROWSER_ACCESS_DEFAULT_PORT));
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isRestarting, setIsRestarting] = useState(false);
+  const [isApplyingFirewall, setIsApplyingFirewall] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [copyMessage, setCopyMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!isTauriRuntime()) {
+      setIsLoading(false);
+      setActionError("Browser Access is only available in the BrainDrive desktop app.");
+      return;
+    }
+
+    setIsLoading(true);
+    setActionError(null);
+    void getBrowserAccessStatus()
+      .then((nextStatus) => {
+        if (!cancelled) {
+          applyBrowserStatus(nextStatus);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setActionError(error instanceof Error ? error.message : String(error));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function applyBrowserStatus(nextStatus: BrowserAccessStatus) {
+    setStatus(nextStatus);
+    setEnabled(nextStatus.enabled);
+    setNetworkScope(nextStatus.networkScope);
+    setPort(String(nextStatus.requestedPort || nextStatus.port || BROWSER_ACCESS_DEFAULT_PORT));
+  }
+
+  async function handleSave() {
+    const parsedPort = Number(port);
+    if (!Number.isInteger(parsedPort) || parsedPort < BROWSER_ACCESS_DEFAULT_PORT || parsedPort > BROWSER_ACCESS_MAX_PORT) {
+      setActionError(`Choose a port from ${BROWSER_ACCESS_DEFAULT_PORT} to ${BROWSER_ACCESS_MAX_PORT}.`);
+      setActionMessage(null);
+      return;
+    }
+
+    if (
+      enabled &&
+      networkScope === "privateNetwork" &&
+      status?.networkScope !== "privateNetwork" &&
+      !window.confirm("Private-network Browser Access can be reached by other devices on your local network. Continue?")
+    ) {
+      return;
+    }
+
+    setIsSaving(true);
+    setActionError(null);
+    setActionMessage(null);
+    try {
+      const nextStatus = await updateBrowserAccessSettings({
+        enabled,
+        networkScope,
+        port: parsedPort,
+      });
+      applyBrowserStatus(nextStatus);
+      setActionMessage(nextStatus.state === "running" ? "Browser Access is running." : "Browser Access settings saved.");
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleRestart() {
+    setIsRestarting(true);
+    setActionError(null);
+    setActionMessage(null);
+    try {
+      const nextStatus = await restartBrowserAccess();
+      applyBrowserStatus(nextStatus);
+      setActionMessage(nextStatus.state === "running" ? "Browser Access restarted." : "Browser Access is not running.");
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsRestarting(false);
+    }
+  }
+
+  async function handleApplyFirewall() {
+    setIsApplyingFirewall(true);
+    setActionError(null);
+    setActionMessage(null);
+    try {
+      const result = await applyBrowserAccessFirewallRule(true);
+      if (result.ok) {
+        setActionMessage(result.message);
+      } else {
+        setActionError(result.command ? `${result.message} Command: ${result.command}` : result.message);
+      }
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsApplyingFirewall(false);
+    }
+  }
+
+  async function handleCopy(value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopyMessage("Copied.");
+      window.setTimeout(() => setCopyMessage(null), 1800);
+    } catch {
+      setCopyMessage("Copy failed.");
+      window.setTimeout(() => setCopyMessage(null), 1800);
+    }
+  }
+
+  const primaryUrl = status?.urls[0] ?? null;
+  const isBusy = isLoading || isSaving || isRestarting || isApplyingFirewall;
+  const canApplyFirewall = status?.networkScope === "privateNetwork" && status.enabled;
+
+  return (
+    <section className="space-y-5">
+      <div>
+        <h3 className="text-lg font-semibold text-bd-text-heading">Browser Access</h3>
+        <p className="mt-1 text-sm text-bd-text-muted">
+          Share this desktop runtime through a dedicated local browser port without exposing the gateway or MCP services directly.
+        </p>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center gap-2 rounded-lg bg-bd-bg-tertiary px-3 py-2.5 text-sm text-bd-text-muted">
+          <LoaderCircle size={16} strokeWidth={1.5} className="animate-spin" />
+          Loading Browser Access status...
+        </div>
+      ) : null}
+
+      {status ? (
+        <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className={browserAccessStateClasses(status.state)} />
+                <span className="text-sm font-medium text-bd-text-heading">
+                  {formatBrowserAccessState(status.state)}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-bd-text-muted">{status.firewallHint}</p>
+            </div>
+            {status.port ? (
+              <span className="rounded-md bg-bd-bg-secondary px-2 py-1 font-mono text-xs text-bd-text-secondary">
+                :{status.port}
+              </span>
+            ) : null}
+          </div>
+
+          {status.lastError ? (
+            <div className="mt-3 rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
+              {status.lastError}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="space-y-4 rounded-lg border border-bd-border p-4">
+        <label className="flex items-center justify-between gap-4">
+          <span>
+            <span className="block text-sm font-medium text-bd-text-heading">Enable Browser Access</span>
+            <span className="block text-xs text-bd-text-muted">Runs the browser bridge on demand.</span>
+          </span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={enabled}
+            onClick={() => setEnabled((current) => !current)}
+            className={[
+              "relative h-7 w-12 rounded-full transition-colors",
+              enabled ? "bg-bd-amber" : "bg-bd-bg-tertiary border border-bd-border"
+            ].join(" ")}
+          >
+            <span
+              className={[
+                "absolute top-1 h-5 w-5 rounded-full bg-bd-bg-primary transition-transform",
+                enabled ? "translate-x-5" : "translate-x-1"
+              ].join(" ")}
+            />
+          </button>
+        </label>
+
+        <div>
+          <span className="block text-sm font-medium text-bd-text-heading">Network Scope</span>
+          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {[
+              { id: "thisComputer" as const, label: "This computer", description: "Only browsers on this PC." },
+              { id: "privateNetwork" as const, label: "Private network", description: "Devices on your LAN." },
+            ].map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setNetworkScope(option.id)}
+                className={[
+                  "rounded-lg border px-3 py-2 text-left transition-colors",
+                  networkScope === option.id
+                    ? "border-bd-amber bg-bd-bg-tertiary"
+                    : "border-bd-border hover:bg-bd-bg-hover"
+                ].join(" ")}
+              >
+                <span className="block text-sm font-medium text-bd-text-primary">{option.label}</span>
+                <span className="mt-0.5 block text-xs text-bd-text-muted">{option.description}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <label className="block">
+          <span className="text-sm font-medium text-bd-text-heading">Port</span>
+          <input
+            type="number"
+            min={BROWSER_ACCESS_DEFAULT_PORT}
+            max={BROWSER_ACCESS_MAX_PORT}
+            value={port}
+            onChange={(event) => setPort(event.target.value)}
+            className="mt-1 h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+          />
+          <span className="mt-1 block text-xs text-bd-text-muted">
+            Default {BROWSER_ACCESS_DEFAULT_PORT}; fallback range {BROWSER_ACCESS_DEFAULT_PORT}-{BROWSER_ACCESS_MAX_PORT}.
+          </span>
+        </label>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={isBusy}
+            className="rounded-lg bg-bd-amber px-3 py-2 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Save
+          </button>
+          <button
+            type="button"
+            onClick={handleRestart}
+            disabled={isBusy}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-bd-border px-3 py-2 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <RotateCcw size={14} strokeWidth={1.5} />
+            Restart
+          </button>
+          {canApplyFirewall ? (
+            <button
+              type="button"
+              onClick={handleApplyFirewall}
+              disabled={isBusy}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-bd-border px-3 py-2 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <ShieldCheck size={14} strokeWidth={1.5} />
+              Firewall
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {status?.urls.length ? (
+        <div className="space-y-2">
+          <h4 className="text-sm font-medium text-bd-text-heading">Addresses</h4>
+          {status.urls.map((url) => (
+            <div key={url} className="flex min-w-0 items-center gap-2 rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2">
+              <span className="min-w-0 flex-1 truncate font-mono text-xs text-bd-text-secondary">{url}</span>
+              <button
+                type="button"
+                aria-label={`Copy ${url}`}
+                onClick={() => handleCopy(url)}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-bd-text-muted transition-colors hover:bg-bd-bg-hover hover:text-bd-text-secondary"
+              >
+                <Copy size={15} strokeWidth={1.5} />
+              </button>
+              <button
+                type="button"
+                aria-label={`Open ${url}`}
+                onClick={() => openExternalUrl(url)}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-bd-text-muted transition-colors hover:bg-bd-bg-hover hover:text-bd-text-secondary"
+              >
+                <ExternalLink size={15} strokeWidth={1.5} />
+              </button>
+            </div>
+          ))}
+          {primaryUrl ? (
+            <button
+              type="button"
+              onClick={() => openExternalUrl(primaryUrl)}
+              className="rounded-lg bg-bd-bg-tertiary px-3 py-1.5 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover"
+            >
+              Open primary address
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {copyMessage ? (
+        <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-sm text-bd-text-secondary">
+          {copyMessage}
+        </div>
+      ) : null}
+      {actionMessage ? (
+        <div className="rounded-lg border border-bd-success-border bg-bd-success-bg px-3 py-2 text-sm text-bd-text-primary">
+          {actionMessage}
+        </div>
+      ) : null}
+      {actionError ? (
+        <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
+          {actionError}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function formatBrowserAccessState(state: string): string {
+  switch (state) {
+    case "running":
+      return "Running";
+    case "failed":
+      return "Needs attention";
+    case "stopped":
+      return "Stopped";
+    case "not-started":
+      return "Not started";
+    default:
+      return state;
+  }
+}
+
+function browserAccessStateClasses(state: string): string {
+  const color =
+    state === "running"
+      ? "bg-bd-success"
+      : state === "failed"
+        ? "bg-bd-danger"
+        : "bg-bd-text-muted";
+  return `h-2.5 w-2.5 rounded-full ${color}`;
 }
 
 function MemoryBackupSection({

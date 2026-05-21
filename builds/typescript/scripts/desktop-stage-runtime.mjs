@@ -73,6 +73,10 @@ async function main() {
     path.join(mcpRoot, "node_modules"),
     "BrainDrive MCP dependencies",
   );
+  await assertPathExists(
+    path.join(projectRoot, "client_web", "dist"),
+    "BrainDrive desktop web build",
+  );
 
   await rm(outputRoot, { recursive: true, force: true });
   await mkdir(outputRoot, { recursive: true });
@@ -80,6 +84,7 @@ async function main() {
   await copyFile(nodePath, path.join(outputRoot, "node", nodeExeName));
 
   await copyDirectory(path.join(projectRoot, "dist"), path.join(outputRoot, "typescript", "dist"));
+  await copyDirectory(path.join(projectRoot, "client_web", "dist"), path.join(outputRoot, "web"));
   await copyDirectory(path.join(projectRoot, "adapters"), path.join(outputRoot, "typescript", "adapters"));
   await copyDirectory(
     path.join(projectRoot, "memory", "starter-pack"),

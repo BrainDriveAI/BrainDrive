@@ -133,6 +133,7 @@ async function createTestServer(
     allowManagedPublicAccountProxyRoutes?: boolean;
     starterPack?: boolean;
     desktopApiToken?: string;
+    internalTransportToken?: string;
     adapterConfig?: AdapterConfig;
   } = {}
 ): Promise<TestServerContext> {
@@ -180,6 +181,7 @@ async function createTestServer(
   const previousMemoryAutoUpdateEnabled = process.env.PAA_MEMORY_AUTO_UPDATE_ENABLED;
   const previousAppVersion = process.env.BRAINDRIVE_APP_VERSION;
   const previousDesktopApiToken = process.env.BRAINDRIVE_DESKTOP_API_TOKEN;
+  const previousInternalTransportToken = process.env.BRAINDRIVE_INTERNAL_TRANSPORT_TOKEN;
 
   process.env.PAA_SECRETS_HOME = secretsRoot;
   process.env.PAA_MEMORY_AUTO_UPDATE_ENABLED = "false";
@@ -210,6 +212,11 @@ async function createTestServer(
     process.env.BRAINDRIVE_DESKTOP_API_TOKEN = options.desktopApiToken;
   } else {
     delete process.env.BRAINDRIVE_DESKTOP_API_TOKEN;
+  }
+  if (typeof options.internalTransportToken === "string") {
+    process.env.BRAINDRIVE_INTERNAL_TRANSPORT_TOKEN = options.internalTransportToken;
+  } else {
+    delete process.env.BRAINDRIVE_INTERNAL_TRANSPORT_TOKEN;
   }
 
   const { app } = await buildServer(tempRoot);
@@ -258,6 +265,11 @@ async function createTestServer(
         process.env.BRAINDRIVE_DESKTOP_API_TOKEN = previousDesktopApiToken;
       } else {
         delete process.env.BRAINDRIVE_DESKTOP_API_TOKEN;
+      }
+      if (typeof previousInternalTransportToken === "string") {
+        process.env.BRAINDRIVE_INTERNAL_TRANSPORT_TOKEN = previousInternalTransportToken;
+      } else {
+        delete process.env.BRAINDRIVE_INTERNAL_TRANSPORT_TOKEN;
       }
     },
   };
@@ -382,6 +394,54 @@ describe.sequential("gateway auth route integration", () => {
     });
 
     expect(response.statusCode).toBe(200);
+  });
+
+  it("does not treat internal transport token as local owner auth", async () => {
+    context = await createTestServer({ internalTransportToken: "bridge-transport-token" });
+
+    const signupResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/signup",
+      headers: {
+        "x-braindrive-internal-transport-token": "bridge-transport-token",
+      },
+      payload: {
+        identifier: "owner",
+        password: "password123",
+      },
+    });
+    expect(signupResponse.statusCode).toBe(201);
+
+    const response = await context.app.inject({
+      method: "GET",
+      url: "/settings",
+      headers: {
+        "x-braindrive-internal-transport-token": "bridge-transport-token",
+      },
+    });
+
+    expect(response.statusCode).toBe(401);
+  });
+
+  it("blocks first signup through browser access transport without a pairing or bootstrap token", async () => {
+    context = await createTestServer({ internalTransportToken: "bridge-transport-token" });
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/auth/signup",
+      headers: {
+        "x-braindrive-internal-transport-token": "bridge-transport-token",
+        "x-braindrive-browser-access": "1",
+        "x-braindrive-browser-client-ip": "192.168.1.50",
+      },
+      payload: {
+        identifier: "owner",
+        password: "password123",
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(parseJson<{ error: string }>(response.body).error).toBe("signup_local_only");
   });
 
   it("requires bootstrap token for first signup when configured", async () => {
