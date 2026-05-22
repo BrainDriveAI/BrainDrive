@@ -25,6 +25,30 @@ describe("memory init project scaffolding", () => {
         .resolves.toContain("# Budget Rules");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "reports", "latest.md"), "utf8"))
         .resolves.toContain("# Latest Budget Report");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budgeting", "index.md"), "utf8"))
+        .resolves.toContain("# Budgeting Instruction Index");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budgeting", "first-pass-budget.md"), "utf8"))
+        .resolves.toContain("# First-Pass Budget Workflow");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budgeting", "monthly-comparison.md"), "utf8"))
+        .resolves.toContain("# Monthly Comparison Workflow");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budgeting", "source-evidence.md"), "utf8"))
+        .resolves.toContain("# Source Evidence Rules");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budgeting", "report-contract.md"), "utf8"))
+        .resolves.toContain("# Budget Report Contract");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budgeting", "saved-budget-rules.md"), "utf8"))
+        .resolves.toContain("# Saved Budget Rules");
+      await expect(readFile(path.join(memoryRoot, "documents", "fitness", "health-docs", "index.md"), "utf8"))
+        .resolves.toContain("# Health Docs Instruction Index");
+      await expect(readFile(path.join(memoryRoot, "documents", "fitness", "health-docs", "intake-and-disclaimer.md"), "utf8"))
+        .resolves.toContain("# Health Document Intake And Disclaimer");
+      await expect(readFile(path.join(memoryRoot, "documents", "fitness", "health-docs", "relevance-and-routing.md"), "utf8"))
+        .resolves.toContain("# Health Document Relevance And Routing");
+      await expect(readFile(path.join(memoryRoot, "documents", "fitness", "health-docs", "interpretation-voice.md"), "utf8"))
+        .resolves.toContain("# Health Interpretation Voice");
+      await expect(readFile(path.join(memoryRoot, "documents", "fitness", "health-docs", "conflict-and-staleness.md"), "utf8"))
+        .resolves.toContain("# Health Conflict And Staleness Rules");
+      await expect(readFile(path.join(memoryRoot, "documents", "fitness", "health-docs", "update-existing-plan.md"), "utf8"))
+        .resolves.toContain("# Updating An Existing Fitness Plan With New Health Docs");
       const statements = await stat(path.join(memoryRoot, "documents", "finance", "statements"));
       expect(statements.isDirectory()).toBe(true);
     } finally {
