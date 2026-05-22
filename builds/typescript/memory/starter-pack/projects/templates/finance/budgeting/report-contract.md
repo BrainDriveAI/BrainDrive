@@ -61,6 +61,8 @@ Use saved category names from `../budget.md` where possible. The spent amount fo
 
 Put categories or merchants not present in `../budget.md` in `New Or Unbudgeted Items` instead of silently changing the saved budget.
 
+When writing subtotal sentences, make the included set explicit and keep examples aligned with that set. If a subtotal excludes `Needs Review`, refunds, finance charges, or other excluded rows, label it that way and do not list excluded rows in the parenthetical examples for that subtotal. If the text needs to discuss both included and excluded rows, show separate subtotals instead of mixing them in one sentence.
+
 The summary must match the category tables. If a category is under budget in its detail section, do not list it as over budget in the summary.
 
 ## Exclusions
@@ -85,4 +87,5 @@ Before presenting the report as authoritative, verify:
 - Credit-card payments, debt payments, transfers, refunds, investment movement, and interest/finance charges are excluded from ordinary spending totals and listed above.
 - New or unbudgeted ordinary charges still appear in category analysis or `New Or Unbudgeted Items`.
 - Any travel/lodging/vacation, large discretionary, or otherwise unusual charge found in source evidence is named explicitly using the exact statement description.
+- Subtotal examples list only transactions included in that subtotal, or the report shows separate subtotals for included and excluded/review items.
 - Summary numbers match category tables and excluded totals are listed separately.
