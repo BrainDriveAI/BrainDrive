@@ -867,16 +867,17 @@ function BrowserAccessSection() {
             type="button"
             role="switch"
             aria-checked={enabled}
+            aria-label="Enable Browser Access"
             onClick={() => setEnabled((current) => !current)}
             className={[
-              "relative h-7 w-12 rounded-full transition-colors",
-              enabled ? "bg-bd-amber" : "bg-bd-bg-tertiary border border-bd-border"
+              "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bd-amber/60",
+              enabled ? "border-bd-amber bg-bd-amber" : "border-bd-border bg-bd-bg-tertiary"
             ].join(" ")}
           >
             <span
               className={[
-                "absolute top-1 h-5 w-5 rounded-full bg-bd-bg-primary transition-transform",
-                enabled ? "translate-x-5" : "translate-x-1"
+                "absolute left-1 top-1 h-5 w-5 rounded-full bg-white shadow-sm transition-transform",
+                enabled ? "translate-x-5" : "translate-x-0"
               ].join(" ")}
             />
           </button>
