@@ -146,6 +146,14 @@ const PLAN_RELATIVE_DIR = "system/updates/plans";
 const REPORT_RELATIVE_DIR = "system/updates/reports";
 const BACKUP_RELATIVE_DIR = "system/updates/backups";
 const UNKNOWN_MEMORY_PACK_VERSION = "unknown";
+const FITNESS_HEALTH_DOC_FILES = [
+  "health-docs/index.md",
+  "health-docs/intake-and-disclaimer.md",
+  "health-docs/relevance-and-routing.md",
+  "health-docs/interpretation-voice.md",
+  "health-docs/conflict-and-staleness.md",
+  "health-docs/update-existing-plan.md",
+] as const;
 
 export async function getMemoryUpdateStatus(
   rootDir: string,
@@ -443,10 +451,30 @@ export async function generateStarterPackManifest(
           mergePolicy: "create_if_missing_else_defer",
         });
         if (entry.name === "finance") {
-          for (const financeFile of ["budget.md", "rules.md", "reports/latest.md"]) {
+          for (const financeFile of [
+            "budget.md",
+            "rules.md",
+            "reports/latest.md",
+            "budgeting/index.md",
+            "budgeting/first-pass-budget.md",
+            "budgeting/monthly-comparison.md",
+            "budgeting/source-evidence.md",
+            "budgeting/report-contract.md",
+            "budgeting/saved-budget-rules.md",
+          ]) {
             await addManifestFile(files, starterPackDir, {
               path: `documents/finance/${financeFile}`,
               sourcePath: `projects/templates/finance/${financeFile}`,
+              kind: "project_template",
+              mergePolicy: "create_if_missing_else_defer",
+            });
+          }
+        }
+        if (entry.name === "fitness") {
+          for (const fitnessFile of FITNESS_HEALTH_DOC_FILES) {
+            await addManifestFile(files, starterPackDir, {
+              path: `documents/fitness/${fitnessFile}`,
+              sourcePath: `projects/templates/fitness/${fitnessFile}`,
               kind: "project_template",
               mergePolicy: "create_if_missing_else_defer",
             });

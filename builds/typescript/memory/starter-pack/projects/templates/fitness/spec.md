@@ -1,33 +1,37 @@
 # Fitness Spec
 
-*This is where your health and fitness picture comes together. Right now it's a starting point — we'll build it out together through conversation.*
+*This is where your health and fitness picture comes together. Right now it's a starting point - we'll build it out together through conversation.*
 
 ## What You Want
 
-Your goals as specific user stories. Each one captures what you want to change, what's driving it, and what success looks like for you personally. These are the core of your spec — everything else supports them. Use the owner's exact words — quote, don't paraphrase.
+Your goals as specific user stories. Each one captures what you want to change, what's driving it, and what success looks like for you personally. These are the core of your spec - everything else supports them. Use the owner's exact words - quote, don't paraphrase.
 
 *Example:*
 
 > *### I want to lose 25 pounds and feel strong*
-> *As someone who used to be active but has let it slide, I want to get back to a body I'm comfortable in. I'm tired of feeling sluggish and I want to be the active parent, not the tired one. Success looks like having energy after work, feeling good in my clothes, and exercise being part of my week — not a punishment I dread.*
+> *As someone who used to be active but has let it slide, I want to get back to a body I'm comfortable in. I'm tired of feeling sluggish and I want to be the active parent, not the tired one. Success looks like having energy after work, feeling good in my clothes, and exercise being part of my week - not a punishment I dread.*
 
 *To be filled through conversation.*
 
 ## Where You Are
 
-Your full health and fitness landscape — the context that shapes each goal above. Current activity, diet, sleep, stress, injuries, constraints, and how it all fits into your life. Not just the thing you want to change — the whole picture. Not where you wish you were — where you actually are. No judgment, just the baseline.
+Your full health and fitness landscape - the context that shapes each goal above. Current activity, diet, sleep, stress, injuries, constraints, and how it all fits into your life. Not just the thing you want to change - the whole picture. Not where you wish you were - where you actually are. No judgment, just the baseline.
+
+If relevant health records exist, absorb only the practical context here. Summarize recent labs, doctor-note themes, medications that affect training or nutrition, injury/PT constraints, and record age when those details shape Fitness decisions. Do not dump raw records into the spec.
 
 *To be filled through conversation.*
 
 ## What's In The Way
 
-The specific obstacles standing between you and the goals above. Time, energy, motivation, injuries, all-or-nothing thinking? Most people have tried something — understanding what didn't work is as valuable as knowing what did.
+The specific obstacles standing between you and the goals above. Time, energy, motivation, injuries, all-or-nothing thinking? Most people have tried something - understanding what didn't work is as valuable as knowing what did.
+
+If health context conflicts with a stated goal, name the tension here instead of silently overruling the owner. Examples: a desired aggressive bulk that conflicts with metabolic-risk context, or an intense running goal that conflicts with a recent injury note.
 
 *To be filled through conversation.*
 
 ## The Plan
 
-One realistic first move — not a complete overhaul, just the next step. See plan.md for the full action plan.
+One realistic first move - not a complete overhaul, just the next step. See plan.md for the full action plan.
 
 *To be filled through conversation.*
 
@@ -36,6 +40,8 @@ One realistic first move — not a complete overhaul, just the next step. See pl
 ### Before the plan is complete
 
 Gaps that could change the direction. If we fill these in and the answer is different from what we assumed, the plan shifts. These are the next conversations worth having.
+
+Put missing, stale, incomplete, or unclear health context here only when it could change the current plan. Examples: a recent doctor's clearance, PT restrictions, medication side effects relevant to training, or labs old enough that they should not drive decisions.
 
 *To be filled through conversation.*
 

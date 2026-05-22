@@ -42,10 +42,26 @@ async function writeProjectTemplate(rootDir: string, projectId: string): Promise
   await writeFile(path.join(templateRoot, "AGENT.md"), `# ${projectId} Agent\n\nRead index.md.\n`, "utf8");
   await writeFile(path.join(templateRoot, "index.md"), "# Folder Index\n\n## Supporting Documents\n\n| File | Type | Summary | Read When | Imported |\n|---|---|---|---|---|\n| _No supporting documents yet._ | | | | |\n", "utf8");
   if (projectId === "finance") {
+    await mkdir(path.join(templateRoot, "budgeting"), { recursive: true });
     await mkdir(path.join(templateRoot, "reports"), { recursive: true });
     await writeFile(path.join(templateRoot, "budget.md"), "# Budget\n\n## Category Limits\n", "utf8");
     await writeFile(path.join(templateRoot, "rules.md"), "# Budget Rules\n\n## Merchant Category Rules\n", "utf8");
     await writeFile(path.join(templateRoot, "reports", "latest.md"), "# Latest Budget Report\n", "utf8");
+    await writeFile(path.join(templateRoot, "budgeting", "index.md"), "# Budgeting Instruction Index\n", "utf8");
+    await writeFile(path.join(templateRoot, "budgeting", "first-pass-budget.md"), "# First-Pass Budget Workflow\n", "utf8");
+    await writeFile(path.join(templateRoot, "budgeting", "monthly-comparison.md"), "# Monthly Comparison Workflow\n", "utf8");
+    await writeFile(path.join(templateRoot, "budgeting", "source-evidence.md"), "# Source Evidence Rules\n", "utf8");
+    await writeFile(path.join(templateRoot, "budgeting", "report-contract.md"), "# Budget Report Contract\n", "utf8");
+    await writeFile(path.join(templateRoot, "budgeting", "saved-budget-rules.md"), "# Saved Budget Rules\n", "utf8");
+  }
+  if (projectId === "fitness") {
+    await mkdir(path.join(templateRoot, "health-docs"), { recursive: true });
+    await writeFile(path.join(templateRoot, "health-docs", "index.md"), "# Health Docs Instruction Index\n", "utf8");
+    await writeFile(path.join(templateRoot, "health-docs", "intake-and-disclaimer.md"), "# Health Document Intake And Disclaimer\n", "utf8");
+    await writeFile(path.join(templateRoot, "health-docs", "relevance-and-routing.md"), "# Health Document Relevance And Routing\n", "utf8");
+    await writeFile(path.join(templateRoot, "health-docs", "interpretation-voice.md"), "# Health Interpretation Voice\n", "utf8");
+    await writeFile(path.join(templateRoot, "health-docs", "conflict-and-staleness.md"), "# Health Conflict And Staleness Rules\n", "utf8");
+    await writeFile(path.join(templateRoot, "health-docs", "update-existing-plan.md"), "# Updating An Existing Fitness Plan With New Health Docs\n", "utf8");
   }
 }
 
@@ -121,11 +137,14 @@ describe("memory update prompting", () => {
     try {
       await writeStarterPack(rootDir);
       await writeProjectTemplate(rootDir, "finance");
+      await writeProjectTemplate(rootDir, "fitness");
       await mkdir(path.join(memoryRoot, "documents", "finance"), { recursive: true });
+      await mkdir(path.join(memoryRoot, "documents", "fitness"), { recursive: true });
       await mkdir(path.join(memoryRoot, "me"), { recursive: true });
       await writeFile(path.join(memoryRoot, "AGENT.md"), "# BrainDrive Agent\n\nUse the latest guidance.\n", "utf8");
       await writeFile(path.join(memoryRoot, "me", "todo.md"), "# My Todos\n\n## Active\n", "utf8");
       await writeFile(path.join(memoryRoot, "documents", "finance", "AGENT.md"), "# Custom Finance Agent\n", "utf8");
+      await writeFile(path.join(memoryRoot, "documents", "fitness", "AGENT.md"), "# Custom Fitness Agent\n", "utf8");
 
       const manifest = await generateStarterPackManifest(rootDir, "26.5.7");
       expect(manifest.files.map((file) => file.path)).toContain("documents/finance/index.md");
@@ -133,6 +152,20 @@ describe("memory update prompting", () => {
       expect(manifest.files.map((file) => file.path)).toContain("documents/finance/budget.md");
       expect(manifest.files.map((file) => file.path)).toContain("documents/finance/rules.md");
       expect(manifest.files.map((file) => file.path)).toContain("documents/finance/reports/latest.md");
+      expect(manifest.files.map((file) => file.path)).toContain("documents/finance/budgeting/index.md");
+      expect(manifest.files.map((file) => file.path)).toContain("documents/finance/budgeting/first-pass-budget.md");
+      expect(manifest.files.map((file) => file.path)).toContain("documents/finance/budgeting/monthly-comparison.md");
+      expect(manifest.files.map((file) => file.path)).toContain("documents/finance/budgeting/source-evidence.md");
+      expect(manifest.files.map((file) => file.path)).toContain("documents/finance/budgeting/report-contract.md");
+      expect(manifest.files.map((file) => file.path)).toContain("documents/finance/budgeting/saved-budget-rules.md");
+      expect(manifest.files.map((file) => file.path)).toContain("documents/fitness/index.md");
+      expect(manifest.files.map((file) => file.path)).toContain("documents/fitness/AGENT.md");
+      expect(manifest.files.map((file) => file.path)).toContain("documents/fitness/health-docs/index.md");
+      expect(manifest.files.map((file) => file.path)).toContain("documents/fitness/health-docs/intake-and-disclaimer.md");
+      expect(manifest.files.map((file) => file.path)).toContain("documents/fitness/health-docs/relevance-and-routing.md");
+      expect(manifest.files.map((file) => file.path)).toContain("documents/fitness/health-docs/interpretation-voice.md");
+      expect(manifest.files.map((file) => file.path)).toContain("documents/fitness/health-docs/conflict-and-staleness.md");
+      expect(manifest.files.map((file) => file.path)).toContain("documents/fitness/health-docs/update-existing-plan.md");
 
       const result = await runAutomaticMemoryUpdate(rootDir, memoryRoot, "26.5.7");
 
@@ -140,7 +173,21 @@ describe("memory update prompting", () => {
       expect(result?.applied_paths).toContain("documents/finance/budget.md");
       expect(result?.applied_paths).toContain("documents/finance/rules.md");
       expect(result?.applied_paths).toContain("documents/finance/reports/latest.md");
+      expect(result?.applied_paths).toContain("documents/finance/budgeting/index.md");
+      expect(result?.applied_paths).toContain("documents/finance/budgeting/first-pass-budget.md");
+      expect(result?.applied_paths).toContain("documents/finance/budgeting/monthly-comparison.md");
+      expect(result?.applied_paths).toContain("documents/finance/budgeting/source-evidence.md");
+      expect(result?.applied_paths).toContain("documents/finance/budgeting/report-contract.md");
+      expect(result?.applied_paths).toContain("documents/finance/budgeting/saved-budget-rules.md");
       expect(result?.deferred_paths).toContain("documents/finance/AGENT.md");
+      expect(result?.applied_paths).toContain("documents/fitness/index.md");
+      expect(result?.applied_paths).toContain("documents/fitness/health-docs/index.md");
+      expect(result?.applied_paths).toContain("documents/fitness/health-docs/intake-and-disclaimer.md");
+      expect(result?.applied_paths).toContain("documents/fitness/health-docs/relevance-and-routing.md");
+      expect(result?.applied_paths).toContain("documents/fitness/health-docs/interpretation-voice.md");
+      expect(result?.applied_paths).toContain("documents/fitness/health-docs/conflict-and-staleness.md");
+      expect(result?.applied_paths).toContain("documents/fitness/health-docs/update-existing-plan.md");
+      expect(result?.deferred_paths).toContain("documents/fitness/AGENT.md");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "index.md"), "utf8"))
         .resolves.toContain("# Folder Index");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget.md"), "utf8"))
@@ -149,6 +196,14 @@ describe("memory update prompting", () => {
         .resolves.toContain("# Budget Rules");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "reports", "latest.md"), "utf8"))
         .resolves.toContain("# Latest Budget Report");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budgeting", "index.md"), "utf8"))
+        .resolves.toContain("# Budgeting Instruction Index");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budgeting", "report-contract.md"), "utf8"))
+        .resolves.toContain("# Budget Report Contract");
+      await expect(readFile(path.join(memoryRoot, "documents", "fitness", "health-docs", "index.md"), "utf8"))
+        .resolves.toContain("# Health Docs Instruction Index");
+      await expect(readFile(path.join(memoryRoot, "documents", "fitness", "health-docs", "interpretation-voice.md"), "utf8"))
+        .resolves.toContain("# Health Interpretation Voice");
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
