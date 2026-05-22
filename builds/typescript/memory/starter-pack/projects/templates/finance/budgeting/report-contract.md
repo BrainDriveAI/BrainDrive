@@ -29,6 +29,20 @@ Use the ledger for named, new, unusual, material, excluded, or needs-review tran
 
 Before finalizing the report, verify every ledger item is either included in the final report or explicitly explained as out of scope with source/file reasoning.
 
+## Source-To-Report Reconciliation
+
+Before saving or presenting the report, proofread the report against the source evidence ledger instead of relying on conversation memory.
+
+For each reviewed account/source:
+
+- If the ledger has ordinary spending rows, the report must not claim that account had zero active purchases, zero active charges, no spending, or $0 in new purchases.
+- If the ledger has credit-card payments, debt payments, transfers, refunds, income, or other excluded movement, the report must list the treatment in `Excluded From Expense Totals` or clearly explain the equivalent treatment.
+- If the ledger has finance charges or fees, the report must mention them separately from ordinary spending and debt principal payments.
+- If the ledger has needs-review rows, the report must preserve a `Needs Review` treatment unless the owner has already categorized them.
+- If a summary sentence, source coverage row, category table, or next action contradicts the ledger, revise the report before answering.
+
+Only write `none`, `no`, `zero`, `not found`, or `$0` claims after checking the relevant source files and account-level ledger summary.
+
 ## Owner-Requested Items Audit
 
 Reconcile every merchant, item, trip, bill, or transaction the owner specifically asked about.
@@ -67,6 +81,7 @@ Before presenting the report as authoritative, verify:
 - `../budget.md` was not written, edited, or deleted unless the owner explicitly asked for a budget revision.
 - Every owner-requested item is represented in `Owner-Requested Items Audit`.
 - Found owner-requested items also appear in the relevant treatment sections.
+- Every reviewed account/source has report claims that match the account-level source ledger.
 - Credit-card payments, debt payments, transfers, refunds, investment movement, and interest/finance charges are excluded from ordinary spending totals and listed above.
 - New or unbudgeted ordinary charges still appear in category analysis or `New Or Unbudgeted Items`.
 - Any travel/lodging/vacation, large discretionary, or otherwise unusual charge found in source evidence is named explicitly using the exact statement description.

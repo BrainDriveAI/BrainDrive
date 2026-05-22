@@ -37,7 +37,19 @@ At minimum, capture:
 - proposed category,
 - whether the item is ordinary spending, excluded money movement, or needs review.
 
+Also keep an account-level reconciliation summary for every reviewed statement:
+
+- account/source name,
+- source file,
+- ordinary spending row count and total,
+- credit-card/debt payment row count and total,
+- finance-charge or fee row count and total,
+- income/credit/refund row count and total,
+- needs-review row count.
+
 Treat ledger rows as locked evidence for the report turn. If an item is found in a reviewed source statement and is owner-named, new/unusual, material, excluded, or needs review, it must appear in the final report.
+
+Account-level facts are also locked evidence. If a reviewed account has ordinary spending rows, do not later say that account had zero active purchases, zero active charges, no spending, or $0 in new purchases. If a reviewed account has finance charges or fees, do not say there were no interest charges or fees for that account. If the report needs to change one of these facts, re-read the source statement and explain the correction.
 
 ## Owner-Requested Items
 

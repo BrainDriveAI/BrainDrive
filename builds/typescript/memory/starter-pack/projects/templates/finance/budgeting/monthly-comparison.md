@@ -35,6 +35,8 @@ Do not generate monthly comparison reports from conversation summary alone.
 - Separate expenses from income, transfers, credit-card payments, refunds, fees, debt payments, finance charges, and investment movement.
 - Do not include investment-account movement in ordinary expense-budget totals unless the owner explicitly asks for investment context.
 - If source evidence is incomplete, duplicated, ambiguous, or partially parsed, say so and mark the affected sections provisional.
+- Carry the source evidence ledger through the whole comparison turn. If you refresh or rewrite `../reports/latest.md`, reconcile the new prose against the ledger again before saving.
+- Do not downgrade a reviewed source account from "has active purchases/spending" to "zero/no active purchases" unless you re-read the source file and confirm the earlier ledger was wrong.
 
 ## Chat Response
 
