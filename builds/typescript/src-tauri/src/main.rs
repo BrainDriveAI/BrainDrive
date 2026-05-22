@@ -902,15 +902,12 @@ fn spawn_bridge(
     settings: &BrowserAccessSettings,
     port: u16,
 ) -> Result<Child, String> {
-    let script = context
-        .typescript_root
-        .join("dist")
-        .join("desktop")
-        .join("bridge.js");
-    if !script.exists() {
+    let script = PathBuf::from("dist").join("desktop").join("bridge.js");
+    let script_path = context.typescript_root.join(&script);
+    if !script_path.exists() {
         return Err(format!(
             "Desktop bridge build was not found at {}",
-            script.display()
+            script_path.display()
         ));
     }
     if !context.web_root.exists() {
@@ -1115,7 +1112,14 @@ fn spawn_mcp(
     kind: &str,
     port: u16,
 ) -> Result<Child, String> {
-    let script = mcp_root.join("dist").join("src").join("index.js");
+    let script = PathBuf::from("dist").join("src").join("index.js");
+    let script_path = mcp_root.join(&script);
+    if !script_path.exists() {
+        return Err(format!(
+            "MCP build was not found at {}",
+            script_path.display()
+        ));
+    }
     let mut command = Command::new(node);
     command
         .arg(script)
@@ -1137,10 +1141,14 @@ fn spawn_gateway(
     internal_transport_token: &str,
     mcp_servers_file: &Path,
 ) -> Result<Child, String> {
-    let script = typescript_root
-        .join("dist")
-        .join("gateway")
-        .join("server.js");
+    let script = PathBuf::from("dist").join("gateway").join("server.js");
+    let script_path = typescript_root.join(&script);
+    if !script_path.exists() {
+        return Err(format!(
+            "Gateway build was not found at {}",
+            script_path.display()
+        ));
+    }
     let mut command = Command::new(node);
     command
         .arg(script)
