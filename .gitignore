@@ -86,7 +86,9 @@ pnpm-debug.log*
 builds/typescript/.env
 installer/docker/.env
 builds/typescript/.paa-secrets/
+builds/typescript/.paa-secrets.backup*
 builds/typescript/your-memory/
+builds/typescript/your-memory.backup*
 builds/typescript/.reset-backups/
 builds/typescript/.your-memory.root-owned.backup/
 
