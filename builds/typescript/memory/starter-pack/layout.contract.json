@@ -26,10 +26,32 @@
     "plan.md",
     "budget.md",
     "rules.md",
-    "reports/latest.md"
+    "reports/latest.md",
+    "budgeting/index.md",
+    "budgeting/first-pass-budget.md",
+    "budgeting/monthly-comparison.md",
+    "budgeting/source-evidence.md",
+    "budgeting/report-contract.md",
+    "budgeting/saved-budget-rules.md"
   ],
   "finance_project_generated_directories": [
+    "budgeting",
     "reports",
     "statements"
+  ],
+  "fitness_project_template_files": [
+    "AGENT.md",
+    "index.md",
+    "spec.md",
+    "plan.md",
+    "health-docs/index.md",
+    "health-docs/intake-and-disclaimer.md",
+    "health-docs/relevance-and-routing.md",
+    "health-docs/interpretation-voice.md",
+    "health-docs/conflict-and-staleness.md",
+    "health-docs/update-existing-plan.md"
+  ],
+  "fitness_project_generated_directories": [
+    "health-docs"
   ]
 }
