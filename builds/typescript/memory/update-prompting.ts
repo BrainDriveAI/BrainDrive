@@ -444,23 +444,25 @@ export async function generateStarterPackManifest(
           kind: "project_template",
           mergePolicy: "create_if_missing_else_llm_merge",
         });
-        await addManifestFile(files, starterPackDir, {
-          path: `documents/${entry.name}/index.md`,
-          sourcePath: `projects/templates/${entry.name}/index.md`,
-          kind: "project_template",
-          mergePolicy: "create_if_missing_else_defer",
-        });
+        if (entry.name !== "finance") {
+          await addManifestFile(files, starterPackDir, {
+            path: `documents/${entry.name}/index.md`,
+            sourcePath: `projects/templates/${entry.name}/index.md`,
+            kind: "project_template",
+            mergePolicy: "create_if_missing_else_defer",
+          });
+        }
         if (entry.name === "finance") {
           for (const financeFile of [
-            "budget.md",
-            "rules.md",
-            "reports/latest.md",
-            "budgeting/index.md",
-            "budgeting/first-pass-budget.md",
-            "budgeting/monthly-comparison.md",
-            "budgeting/source-evidence.md",
-            "budgeting/report-contract.md",
-            "budgeting/saved-budget-rules.md",
+            "run-interview.md",
+            "run-planning.md",
+            "budget/AGENT.md",
+            "budget/budget.md",
+            "budget/budget-rules.md",
+            "budget/create.md",
+            "budget/compare.md",
+            "statements/README.md",
+            "reports/README.md",
           ]) {
             await addManifestFile(files, starterPackDir, {
               path: `documents/finance/${financeFile}`,

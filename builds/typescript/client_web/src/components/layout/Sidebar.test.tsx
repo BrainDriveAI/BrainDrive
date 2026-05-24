@@ -72,7 +72,7 @@ describe("Sidebar", () => {
         {...baseProps}
         selectedProjectId="finance"
         selectedProject={mockProjects[0]!}
-        projectFiles={[{ name: "budget.md", path: "finance/budget.md" }]}
+        projectFiles={[{ name: "budget.md", path: "finance/budget/budget.md" }]}
       />
     );
 
@@ -91,7 +91,7 @@ describe("Sidebar", () => {
         {...baseProps}
         selectedProjectId="finance"
         selectedProject={mockProjects[0]!}
-        projectFiles={[{ name: "budget.md", path: "finance/budget.md" }]}
+        projectFiles={[{ name: "budget.md", path: "finance/budget/budget.md" }]}
         onDeselectProject={onDeselectProject}
         onReturnToChat={onReturnToChat}
       />
@@ -113,7 +113,7 @@ describe("Sidebar", () => {
         {...baseProps}
         selectedProjectId="finance"
         selectedProject={mockProjects[0]!}
-        projectFiles={[{ name: "budget.md", path: "finance/budget.md" }]}
+        projectFiles={[{ name: "budget.md", path: "finance/budget/budget.md" }]}
         onUploadDocument={onUploadDocument}
       />
     );

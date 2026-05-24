@@ -195,7 +195,7 @@ Response example for `/api/projects/finance/files`:
   },
   {
     "name": "budget.md",
-    "path": "finance/budget.md"
+    "path": "finance/budget/budget.md"
   }
 ]
 ```

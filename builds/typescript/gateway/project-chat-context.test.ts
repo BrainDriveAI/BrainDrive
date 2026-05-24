@@ -25,27 +25,27 @@ describe("project chat context", () => {
       },
       {
         name: "budget.md",
-        path: "documents/finance/budget.md",
+        path: "documents/finance/budget/budget.md",
       },
       {
         name: "rules.md",
-        path: "documents/finance/rules.md",
+        path: "documents/finance/budget/budget-rules.md",
       },
     ]);
 
     expect(context).toContain("## Active Project");
     expect(context).toContain("documents/finance/dummy-statement.md");
     expect(context).toContain("Read documents/finance/index.md before deciding which supporting documents to open");
-    expect(context).toContain("For budgeting questions, also read documents/finance/budget.md and documents/finance/rules.md");
+    expect(context).toContain("For budgeting questions, first read documents/finance/budget/AGENT.md");
     expect(context).toContain("complete the Finance task before coaching or cross-domain discussion");
-    expect(context).toContain("treat documents/finance/budget.md as the saved budget");
+    expect(context).toContain("treat documents/finance/budget/budget.md as the saved budget");
     expect(context).toContain("Use documents/finance/statements/ as source evidence");
-    expect(context).toContain("Do not write to documents/finance/budget.md during a saved-budget comparison");
-    expect(context).toContain("do not call memory_write, memory_edit, or memory_delete on documents/finance/budget.md");
-    expect(context).toContain("Preserve documents/finance/budget.md byte-for-byte");
+    expect(context).toContain("Do not write to documents/finance/budget/budget.md during a saved-budget comparison");
+    expect(context).toContain("do not call memory_write, memory_edit, or memory_delete on documents/finance/budget/budget.md");
+    expect(context).toContain("Preserve documents/finance/budget/budget.md byte-for-byte");
     expect(context).toContain("formatting-only, table-alignment, whitespace");
-    expect(context).toContain("documents/finance/budget.md is read-only for that turn");
-    expect(context).toContain("If you are about to write documents/finance/budget.md during a comparison, stop");
+    expect(context).toContain("documents/finance/budget/budget.md is read-only for that turn");
+    expect(context).toContain("If you are about to write documents/finance/budget/budget.md during a comparison, stop");
     expect(context).toContain("Put saved-budget comparison findings in documents/finance/reports/latest.md");
     expect(context).toContain("Check for duplicate or overlapping statement evidence");
     expect(context).toContain("build a source evidence ledger");
@@ -71,11 +71,11 @@ describe("project chat context", () => {
 
   it("blocks Finance saved-budget comparison writes to budget.md", () => {
     const guard = createFinanceBudgetProtectionGuard("finance", conversationWithUserMessages([
-      "I uploaded another month of transactions. Using the saved budget in documents/finance/budget.md, how did I do? Do not rewrite the saved budget unless I ask.",
+      "I uploaded another month of transactions. Using the saved budget in documents/finance/budget/budget.md, how did I do? Do not rewrite the saved budget unless I ask.",
     ]));
 
     const result = guard?.("memory_write", {
-      path: "documents/finance/budget.md",
+      path: "documents/finance/budget/budget.md",
       content: "# Rewritten budget\n",
     });
 
@@ -83,7 +83,7 @@ describe("project chat context", () => {
     expect(result?.recoverable).toBe(true);
     expect(result?.output).toMatchObject({
       code: "permission_denied",
-      path: "documents/finance/budget.md",
+      path: "documents/finance/budget/budget.md",
       recoverable: true,
     });
   });
@@ -103,7 +103,7 @@ describe("project chat context", () => {
 
   it("allows explicit saved-budget revisions", () => {
     const guard = createFinanceBudgetProtectionGuard("finance", conversationWithUserMessages([
-      "Using the saved budget in documents/finance/budget.md, how did I do this month?",
+      "Using the saved budget in documents/finance/budget/budget.md, how did I do this month?",
       "Please update the saved budget and change my dining limit to 100.",
     ]));
 
@@ -111,15 +111,15 @@ describe("project chat context", () => {
   });
 
   it("detects protected Finance budget mutation paths", () => {
-    expect(isProtectedFinanceBudgetMutation("memory_edit", { path: "./documents/finance/budget.md" })).toBe(true);
-    expect(isProtectedFinanceBudgetMutation("memory_delete", { path: "documents\\finance\\budget.md" })).toBe(true);
-    expect(isProtectedFinanceBudgetMutation("memory_read", { path: "documents/finance/budget.md" })).toBe(false);
+    expect(isProtectedFinanceBudgetMutation("memory_edit", { path: "./documents/finance/budget/budget.md" })).toBe(true);
+    expect(isProtectedFinanceBudgetMutation("memory_delete", { path: "documents\\finance\\budget\\budget.md" })).toBe(true);
+    expect(isProtectedFinanceBudgetMutation("memory_read", { path: "documents/finance/budget/budget.md" })).toBe(false);
     expect(isProtectedFinanceBudgetMutation("memory_write", { path: "documents/finance/reports/latest.md" })).toBe(false);
   });
 
   it("recognizes saved-budget comparison conversation state", () => {
     expect(conversationHasSavedBudgetComparison(conversationWithUserMessages([
-      "Using the saved budget in documents/finance/budget.md, compare actual spending against saved limits.",
+      "Using the saved budget in documents/finance/budget/budget.md, compare actual spending against saved limits.",
     ]))).toBe(true);
     expect(conversationHasSavedBudgetComparison(conversationWithUserMessages([
       "Please build my first budget from these statements.",

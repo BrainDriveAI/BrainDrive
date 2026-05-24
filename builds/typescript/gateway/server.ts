@@ -3174,15 +3174,15 @@ export function buildProjectChatContext(projectId: string, files: GatewayProject
   const hasIndex = sortedFiles.some((file) => file.name === "index.md" || file.path === `documents/${projectId}/index.md`);
   const financeBudgetGuidance = projectId === "finance"
     ? [
-        "For budgeting questions, also read documents/finance/budget.md and documents/finance/rules.md when they exist.",
+        "For budgeting questions, first read documents/finance/budget/AGENT.md, then read documents/finance/budget/budget.md and documents/finance/budget/budget-rules.md when they exist.",
         "For explicit Finance execution requests about budgets, debt, uploads, statements, spending, or reports, complete the Finance task before coaching or cross-domain discussion.",
-        "For 'how did I do?', monthly comparison, over/under, or budget progress questions, treat documents/finance/budget.md as the saved budget and compare statement actuals against it.",
+        "For 'how did I do?', monthly comparison, over/under, or budget progress questions, treat documents/finance/budget/budget.md as the saved budget and compare statement actuals against it.",
         "Use documents/finance/statements/ as source evidence and documents/finance/reports/ as derived output for budget reports.",
-        "Do not write to documents/finance/budget.md during a saved-budget comparison unless the owner explicitly asks to revise the saved budget.",
-        "During saved-budget comparison mode, do not call memory_write, memory_edit, or memory_delete on documents/finance/budget.md; write comparison output only to documents/finance/reports/latest.md or a month-specific reports file.",
-        "Preserve documents/finance/budget.md byte-for-byte during saved-budget comparisons. Do not make formatting-only, table-alignment, whitespace, note, category, or no-op rewrites.",
-        "If the owner says to leave the saved budget alone, not rewrite the saved budget, or compare against the saved budget, documents/finance/budget.md is read-only for that turn.",
-        "If you are about to write documents/finance/budget.md during a comparison, stop and write the comparison findings to documents/finance/reports/latest.md instead.",
+        "Do not write to documents/finance/budget/budget.md during a saved-budget comparison unless the owner explicitly asks to revise the saved budget.",
+        "During saved-budget comparison mode, do not call memory_write, memory_edit, or memory_delete on documents/finance/budget/budget.md; write comparison output only to documents/finance/reports/latest.md or a month-specific reports file.",
+        "Preserve documents/finance/budget/budget.md byte-for-byte during saved-budget comparisons. Do not make formatting-only, table-alignment, whitespace, note, category, or no-op rewrites.",
+        "If the owner says to leave the saved budget alone, not rewrite the saved budget, or compare against the saved budget, documents/finance/budget/budget.md is read-only for that turn.",
+        "If you are about to write documents/finance/budget/budget.md during a comparison, stop and write the comparison findings to documents/finance/reports/latest.md instead.",
         "Put saved-budget comparison findings in documents/finance/reports/latest.md; answer direct comparison questions with best-effort evidence before asking extra clarification questions.",
         "Check for duplicate or overlapping statement evidence before counting transactions in budget reports.",
         "Before writing a budget comparison report, re-read the relevant statement files, build a source evidence ledger, account for named merchants, and do not claim a merchant is missing unless the relevant source files were checked.",
@@ -3235,7 +3235,7 @@ export function buildProjectChatContext(projectId: string, files: GatewayProject
   ].join("\n");
 }
 
-const FINANCE_BUDGET_PROTECTED_PATH = "documents/finance/budget.md";
+const FINANCE_BUDGET_PROTECTED_PATH = "documents/finance/budget/budget.md";
 const FINANCE_BUDGET_MUTATION_TOOLS = new Set(["memory_write", "memory_edit", "memory_delete"]);
 
 export function createFinanceBudgetProtectionGuard(
@@ -3259,7 +3259,7 @@ export function createFinanceBudgetProtectionGuard(
     const output = {
       code: "permission_denied",
       message:
-        "documents/finance/budget.md is read-only during a saved-budget comparison. Read it for saved limits and write comparison findings to documents/finance/reports/latest.md instead. Only revise the saved budget when the owner explicitly asks to change the budget.",
+        "documents/finance/budget/budget.md is read-only during a saved-budget comparison. Read it for saved limits and write comparison findings to documents/finance/reports/latest.md instead. Only revise the saved budget when the owner explicitly asks to change the budget.",
       path: FINANCE_BUDGET_PROTECTED_PATH,
       recoverable: true,
     };
