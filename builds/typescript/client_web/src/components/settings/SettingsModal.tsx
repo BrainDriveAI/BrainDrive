@@ -89,14 +89,14 @@ type SettingsTab = "provider" | "model" | "profile" | "account" | "export" | "me
 type TabDef = { id: SettingsTab; label: string; icon: typeof Key; managedOnly?: boolean; localOnly?: boolean; desktopOnly?: boolean };
 
 // Managed hosting shows: Account, Owner Profile, Export (D93).
-// Local shows: Default Model, Model Providers, Owner Profile, Export, Memory Backup.
+// Local shows: Default Model, Model Providers, Owner Profile, Browser Access, Memory Backup, Export.
 const allTabs: TabDef[] = [
   { id: "account", label: "Account", icon: UserCog, managedOnly: true },
   { id: "model", label: "AI Model", icon: Cpu, localOnly: true },
   { id: "provider", label: "Model Providers", icon: Key, localOnly: true },
   { id: "profile", label: "Your Profile", icon: User },
-  { id: "memory-backup", label: "Backup", icon: Save, localOnly: true },
   { id: "browser-access", label: "Browser Access", icon: Network, localOnly: true, desktopOnly: true },
+  { id: "memory-backup", label: "Backup", icon: Save, localOnly: true },
   { id: "export", label: "Migrate", icon: Download },
 ];
 
@@ -813,13 +813,19 @@ function BrowserAccessSection() {
   const primaryUrl = status?.urls[0] ?? null;
   const isBusy = isLoading || isSaving || isRestarting || isApplyingFirewall;
   const canApplyFirewall = status?.networkScope === "privateNetwork" && status.enabled;
+  const currentPort = status?.port ?? status?.requestedPort ?? Number(port);
+  const currentScopeLabel = status?.networkScope === "privateNetwork" ? "Private network" : "This computer";
+  const statusPanelHint =
+    status?.networkScope === "privateNetwork"
+      ? "Private-network access may require a Windows Firewall rule."
+      : "Access is limited to browsers on this computer.";
 
   return (
     <section className="space-y-5">
       <div>
         <h3 className="text-lg font-semibold text-bd-text-heading">Browser Access</h3>
-        <p className="mt-1 text-sm text-bd-text-muted">
-          Share this desktop runtime through a dedicated local browser port without exposing the gateway or MCP services directly.
+        <p className="mt-1 text-sm leading-5 text-bd-text-secondary">
+          Let browsers on this computer or your private network connect to BrainDrive through a local browser bridge.
         </p>
       </div>
 
@@ -831,22 +837,36 @@ function BrowserAccessSection() {
       ) : null}
 
       {status ? (
-        <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className={browserAccessStateClasses(status.state)} />
-                <span className="text-sm font-medium text-bd-text-heading">
-                  {formatBrowserAccessState(status.state)}
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-bd-text-muted">{status.firewallHint}</p>
-            </div>
-            {status.port ? (
-              <span className="rounded-md bg-bd-bg-secondary px-2 py-1 font-mono text-xs text-bd-text-secondary">
-                :{status.port}
+        <div className="rounded-lg border border-bd-border bg-bd-bg-secondary/60 p-4 shadow-[0_0_24px_rgba(50,93,135,0.08)]">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className={browserAccessStateClasses(status.state)} />
+              <span className="text-sm font-medium text-bd-text-heading">
+                {formatBrowserAccessState(status.state)}
               </span>
-            ) : null}
+            </div>
+            <span className="rounded-full border border-bd-steel/50 bg-bd-steel/35 px-2.5 py-1 text-[11px] font-medium text-bd-text-primary">
+              Local bridge
+            </span>
+          </div>
+
+          <div className="mt-4 divide-y divide-bd-border/80">
+            <div className="flex items-center gap-3 pb-3 text-sm">
+              <Network size={16} strokeWidth={1.5} className="shrink-0 text-bd-text-secondary" />
+              <span className="w-16 shrink-0 text-bd-text-secondary">Scope:</span>
+              <span className="min-w-0 flex-1 text-bd-text-heading">{currentScopeLabel}</span>
+            </div>
+            <div className="flex items-center gap-3 py-3 text-sm">
+              <Cpu size={16} strokeWidth={1.5} className="shrink-0 text-bd-text-secondary" />
+              <span className="w-16 shrink-0 text-bd-text-secondary">Port:</span>
+              <span className="min-w-0 flex-1 font-mono text-bd-text-heading">
+                {currentPort || BROWSER_ACCESS_DEFAULT_PORT}
+              </span>
+            </div>
+            <div className="flex items-start gap-3 pt-3 text-xs leading-4 text-bd-text-secondary">
+              <ShieldCheck size={16} strokeWidth={1.5} className="mt-0.5 shrink-0" />
+              <p>{statusPanelHint}</p>
+            </div>
           </div>
 
           {status.lastError ? (
@@ -861,7 +881,7 @@ function BrowserAccessSection() {
         <label className="flex items-center justify-between gap-4">
           <span>
             <span className="block text-sm font-medium text-bd-text-heading">Enable Browser Access</span>
-            <span className="block text-xs text-bd-text-muted">Runs the browser bridge on demand.</span>
+            <span className="block text-xs text-bd-text-secondary">Runs only when needed.</span>
           </span>
           <button
             type="button"
@@ -876,8 +896,8 @@ function BrowserAccessSection() {
           >
             <span
               className={[
-                "absolute left-1 top-1 h-5 w-5 rounded-full bg-white shadow-sm transition-transform",
-                enabled ? "translate-x-5" : "translate-x-0"
+                "absolute left-1 top-[3px] h-5 w-5 rounded-full shadow-sm transition-transform",
+                enabled ? "translate-x-5 bg-bd-bg-tertiary" : "translate-x-0 bg-bd-sky"
               ].join(" ")}
             />
           </button>
@@ -895,13 +915,24 @@ function BrowserAccessSection() {
                 type="button"
                 onClick={() => setNetworkScope(option.id)}
                 className={[
-                  "rounded-lg border px-3 py-2 text-left transition-colors",
+                  "rounded-lg border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bd-amber/60",
                   networkScope === option.id
                     ? "border-bd-amber bg-bd-bg-tertiary"
                     : "border-bd-border hover:bg-bd-bg-hover"
                 ].join(" ")}
               >
-                <span className="block text-sm font-medium text-bd-text-primary">{option.label}</span>
+                <span className="flex items-center gap-2 text-sm font-medium text-bd-text-primary">
+                  <span
+                    className={[
+                      "flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border",
+                      networkScope === option.id ? "border-bd-amber" : "border-bd-border"
+                    ].join(" ")}
+                    aria-hidden="true"
+                  >
+                    {networkScope === option.id ? <span className="h-1.5 w-1.5 rounded-full bg-bd-amber" /> : null}
+                  </span>
+                  {option.label}
+                </span>
                 <span className="mt-0.5 block text-xs text-bd-text-muted">{option.description}</span>
               </button>
             ))}
@@ -918,7 +949,7 @@ function BrowserAccessSection() {
             onChange={(event) => setPort(event.target.value)}
             className="mt-1 h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
           />
-          <span className="mt-1 block text-xs text-bd-text-muted">
+          <span className="mt-1 block text-xs text-bd-text-secondary">
             Default {BROWSER_ACCESS_DEFAULT_PORT}; fallback range {BROWSER_ACCESS_DEFAULT_PORT}-{BROWSER_ACCESS_MAX_PORT}.
           </span>
         </label>
@@ -936,7 +967,7 @@ function BrowserAccessSection() {
             type="button"
             onClick={handleRestart}
             disabled={isBusy}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-bd-border px-3 py-2 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-bd-border bg-bd-bg-secondary px-3 py-2 text-xs font-medium text-bd-text-secondary transition-colors hover:border-bd-amber/60 hover:bg-bd-bg-hover hover:text-bd-text-primary disabled:cursor-not-allowed disabled:opacity-60"
           >
             <RotateCcw size={14} strokeWidth={1.5} />
             Restart
@@ -946,7 +977,7 @@ function BrowserAccessSection() {
               type="button"
               onClick={handleApplyFirewall}
               disabled={isBusy}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-bd-border px-3 py-2 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-bd-border bg-bd-bg-secondary px-3 py-2 text-xs font-medium text-bd-text-secondary transition-colors hover:border-bd-amber/60 hover:bg-bd-bg-hover hover:text-bd-text-primary disabled:cursor-not-allowed disabled:opacity-60"
             >
               <ShieldCheck size={14} strokeWidth={1.5} />
               Firewall
@@ -956,35 +987,57 @@ function BrowserAccessSection() {
       </div>
 
       {status?.urls.length ? (
-        <div className="space-y-2">
+        <div className="rounded-lg border border-bd-border bg-bd-bg-secondary/50 p-4">
           <h4 className="text-sm font-medium text-bd-text-heading">Addresses</h4>
-          {status.urls.map((url) => (
-            <div key={url} className="flex min-w-0 items-center gap-2 rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2">
-              <span className="min-w-0 flex-1 truncate font-mono text-xs text-bd-text-secondary">{url}</span>
-              <button
-                type="button"
-                aria-label={`Copy ${url}`}
-                onClick={() => handleCopy(url)}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-bd-text-muted transition-colors hover:bg-bd-bg-hover hover:text-bd-text-secondary"
-              >
-                <Copy size={15} strokeWidth={1.5} />
-              </button>
-              <button
-                type="button"
-                aria-label={`Open ${url}`}
-                onClick={() => openExternalUrl(url)}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-bd-text-muted transition-colors hover:bg-bd-bg-hover hover:text-bd-text-secondary"
-              >
-                <ExternalLink size={15} strokeWidth={1.5} />
-              </button>
-            </div>
-          ))}
+          <div className="mt-3 space-y-2">
+            {status.urls.map((url, index) => {
+              const label = browserAccessUrlLabel(url, index);
+              const isPrivateNetwork = label === "Private network";
+
+              return (
+                <div key={url} className="flex min-w-0 items-center gap-3 rounded-lg border border-bd-border bg-bd-bg-secondary/80 px-3 py-2.5">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center text-bd-text-secondary">
+                    {isPrivateNetwork ? (
+                      <Network size={18} strokeWidth={1.5} />
+                    ) : (
+                      <Cpu size={18} strokeWidth={1.5} />
+                    )}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <span className="block text-xs font-medium text-bd-text-heading">{label}</span>
+                    <span className="mt-1 block truncate font-mono text-xs text-bd-text-secondary">{url}</span>
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    <button
+                      type="button"
+                      aria-label={`Copy ${url}`}
+                      title="Copy address"
+                      onClick={() => handleCopy(url)}
+                      className="flex h-8 w-8 items-center justify-center rounded-md border border-bd-steel/60 text-bd-text-secondary transition-colors hover:border-bd-amber/70 hover:bg-bd-bg-hover hover:text-bd-text-heading"
+                    >
+                      <Copy size={15} strokeWidth={1.5} />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Open ${url}`}
+                      title="Open address"
+                      onClick={() => openExternalUrl(url)}
+                      className="flex h-8 w-8 items-center justify-center rounded-md border border-bd-steel/60 text-bd-text-secondary transition-colors hover:border-bd-amber/70 hover:bg-bd-bg-hover hover:text-bd-text-heading"
+                    >
+                      <ExternalLink size={15} strokeWidth={1.5} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
           {primaryUrl ? (
             <button
               type="button"
               onClick={() => openExternalUrl(primaryUrl)}
-              className="rounded-lg bg-bd-bg-tertiary px-3 py-1.5 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover"
+              className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-bd-amber/70 px-3 py-1.5 text-xs font-medium text-bd-amber transition-colors hover:bg-bd-amber hover:text-bd-bg-primary"
             >
+              <ExternalLink size={14} strokeWidth={1.5} />
               Open primary address
             </button>
           ) : null}
@@ -1033,6 +1086,13 @@ function browserAccessStateClasses(state: string): string {
         ? "bg-bd-danger"
         : "bg-bd-text-muted";
   return `h-2.5 w-2.5 rounded-full ${color}`;
+}
+
+function browserAccessUrlLabel(url: string, index: number): string {
+  if (index === 0 || url.includes("127.0.0.1") || url.includes("localhost")) {
+    return "This computer";
+  }
+  return "Private network";
 }
 
 function MemoryBackupSection({
