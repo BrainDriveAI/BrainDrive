@@ -263,6 +263,7 @@ export async function buildServer(rootDir = process.cwd()) {
   const managedApiBase = process.env.BD_MANAGED_API_BASE?.replace(/\/+$/, "") || "";
   const clientGatewayUrl = process.env.BRAINDRIVE_CLIENT_GATEWAY_URL?.trim() || "/api";
   const desktopApiToken = process.env.BRAINDRIVE_DESKTOP_API_TOKEN?.trim() || "";
+  const internalTransportToken = process.env.BRAINDRIVE_INTERNAL_TRANSPORT_TOKEN?.trim() || "";
   const desktopCorsOrigin = process.env.BRAINDRIVE_DESKTOP_CORS_ORIGIN?.trim() || "";
   const managedPublicAccountProxyRoutesEnv = process.env.PAA_MANAGED_PUBLIC_ACCOUNT_PROXY_ROUTES;
   const managedPublicAccountProxyRoutesConfigured =
@@ -408,7 +409,7 @@ export async function buildServer(rootDir = process.cwd()) {
   });
 
   app.addHook("preHandler", async (request, reply) => {
-    if (!desktopApiToken) {
+    if (!desktopApiToken && !internalTransportToken) {
       return;
     }
 
@@ -417,14 +418,22 @@ export async function buildServer(rootDir = process.cwd()) {
       return;
     }
 
-    const providedToken = request.headers["x-braindrive-desktop-token"];
-    if (providedToken !== desktopApiToken) {
-      auditLog("desktop_api_token.denied", {
+    if (isDesktopTransportAuthorized(request.headers, desktopApiToken)) {
+      return;
+    }
+
+    if (isInternalTransportAuthorized(request.headers, internalTransportToken)) {
+      return;
+    }
+
+    {
+      auditLog("gateway_transport.denied", {
         method: request.method,
         path: request.url,
-        token_present: Boolean(providedToken),
+        desktop_token_present: Boolean(request.headers["x-braindrive-desktop-token"]),
+        internal_token_present: Boolean(request.headers["x-braindrive-internal-transport-token"]),
       });
-      return reply.code(403).send({ error: "desktop_api_token_required" });
+      return reply.code(403).send({ error: "gateway_transport_token_required" });
     }
   });
   const approvalStore = new ApprovalStore();
@@ -501,7 +510,7 @@ export async function buildServer(rootDir = process.cwd()) {
       return;
     }
 
-    if (!signupRateLimiter.allow(request.ip)) {
+    if (!signupRateLimiter.allow(rateLimitKeyForRequest(request, internalTransportToken))) {
       reply.code(429).send({ error: "too_many_requests" });
       return;
     }
@@ -509,15 +518,16 @@ export async function buildServer(rootDir = process.cwd()) {
     if (!authState.account_initialized && !allowFirstSignupFromAnyIp) {
       const signupAccess = evaluateSignupBootstrapAccess(
         {
-          ip: request.ip,
+          ip: clientIpForRequest(request, internalTransportToken),
           headers: request.headers as Record<string, unknown>,
+          isBrowserAccess: isBrowserAccessRequest(request.headers, internalTransportToken),
         },
         signupBootstrapToken
       );
       if (!signupAccess.allowed) {
         auditLog("auth.signup.denied", {
           reason: signupAccess.reason,
-          ip: request.ip,
+          ip: clientIpForRequest(request, internalTransportToken),
         });
         reply.code(403).send({ error: signupAccess.reason });
         return;
@@ -525,7 +535,7 @@ export async function buildServer(rootDir = process.cwd()) {
     } else if (!authState.account_initialized && allowFirstSignupFromAnyIp) {
       auditLog("auth.signup.bootstrap_override", {
         reason: "allow_first_signup_any_ip",
-        ip: request.ip,
+        ip: clientIpForRequest(request, internalTransportToken),
       });
     }
 
@@ -571,7 +581,7 @@ export async function buildServer(rootDir = process.cwd()) {
       return;
     }
 
-    if (!loginRateLimiter.allow(request.ip)) {
+    if (!loginRateLimiter.allow(rateLimitKeyForRequest(request, internalTransportToken))) {
       reply.code(429).send({ error: "too_many_requests" });
       return;
     }
@@ -609,7 +619,7 @@ export async function buildServer(rootDir = process.cwd()) {
       return;
     }
 
-    if (!refreshRateLimiter.allow(request.ip)) {
+    if (!refreshRateLimiter.allow(rateLimitKeyForRequest(request, internalTransportToken))) {
       reply.code(429).send({ error: "too_many_requests" });
       return;
     }
@@ -2534,6 +2544,57 @@ function buildDesktopCorsHeaders(
       "x-conversation-id,x-context-window-warning,x-context-window-estimated-tokens,x-context-window-budget-tokens,x-context-window-ratio,x-context-window-threshold,x-context-window-managed,x-context-window-message",
     "access-control-allow-credentials": "true",
   };
+}
+
+function isDesktopTransportAuthorized(headers: Record<string, unknown>, desktopApiToken: string): boolean {
+  return desktopApiToken.length > 0 && firstHeaderValue(headers["x-braindrive-desktop-token"]) === desktopApiToken;
+}
+
+function isInternalTransportAuthorized(headers: Record<string, unknown>, internalTransportToken: string): boolean {
+  return (
+    internalTransportToken.length > 0 &&
+    firstHeaderValue(headers["x-braindrive-internal-transport-token"]) === internalTransportToken
+  );
+}
+
+function isBrowserAccessRequest(headers: Record<string, unknown>, internalTransportToken: string): boolean {
+  return (
+    isInternalTransportAuthorized(headers, internalTransportToken) &&
+    firstHeaderValue(headers["x-braindrive-browser-access"]) === "1"
+  );
+}
+
+function clientIpForRequest(
+  request: { ip: string; headers: Record<string, unknown> },
+  internalTransportToken: string
+): string {
+  if (isBrowserAccessRequest(request.headers, internalTransportToken)) {
+    const browserClientIp = firstHeaderValue(request.headers["x-braindrive-browser-client-ip"]);
+    if (browserClientIp && browserClientIp.length <= 128) {
+      return browserClientIp;
+    }
+  }
+
+  return request.ip;
+}
+
+function rateLimitKeyForRequest(
+  request: { ip: string; headers: Record<string, unknown> },
+  internalTransportToken: string
+): string {
+  return clientIpForRequest(request, internalTransportToken);
+}
+
+function firstHeaderValue(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (Array.isArray(value) && typeof value[0] === "string") {
+    return value[0];
+  }
+
+  return undefined;
 }
 
 function readPositiveIntEnv(value: string | undefined, defaultValue: number): number {

@@ -130,7 +130,10 @@ describe("memory migration archive", () => {
       await exportMemoryArchive(sourceMemory, archivePath);
 
       const { stdout } = await execFileAsync("tar", ["-tzf", archivePath]);
-      const entries = stdout.split("\n").filter(Boolean);
+      const entries = stdout
+        .split("\n")
+        .map((entry) => entry.replace(/\r$/, ""))
+        .filter(Boolean);
 
       expect(entries).toContain("./documents/projects.json");
       expect(entries.some((entry) => entry.startsWith("./.git"))).toBe(false);
