@@ -1,21 +1,19 @@
-## [26.05.12] - 2026-05-14
+## [26.05.25] - 2026-05-25
 
 ### Added
-- Project folders now include `index.md` as a managed folder map for uploaded and supporting documents.
-- Document uploads update the current project folder index so agents can choose relevant supporting files before answering.
-- Finance statement uploads can now use AI-derived metadata to save bank and credit card statements under `statements/YYYY-MM-institution.md`.
-- Finance starter memory now includes markdown-first budgeting files for category limits, owner rules, statements, and reports.
-- Starter-pack memory updates now include seeded project index files for existing users.
+- Users can upload project documents in common formats and get richer finance budget context from saved supporting files. (`#118`)
+- The app now includes a native Tauri desktop installer with desktop runtime support and current mainline features. (`#119`)
+- Desktop users can enable Browser Access to use the local web UI and gateway API from a browser with configurable access controls. (`#124`)
 
 ### Changed
-- Project scaffolding and project completeness checks now treat `index.md` as a default project file alongside `AGENT.md`, `spec.md`, and `plan.md`.
-- Project chat context now points agents to `index.md` when it exists.
-- Project file listings now include nested supporting documents such as Finance statement files.
-- Finance project chat context now points budget questions to `budget.md`, `rules.md`, `statements/`, and `reports/`.
+- Finance and Fitness starter projects now use more focused executable prompts for budgeting and health document workflows. (`#123`)
+- The client web React build plugin was updated for newer Vite compatibility and reduced build tooling overhead. (`#117`)
+- MCP release development dependencies were updated to improve test tooling, TypeScript execution, and Node compatibility. (`#114`)
+- Client web dependencies were updated to bring in newer UI, routing, testing, and build tooling improvements. (`#126`)
+- TypeScript workspace development dependencies were updated to improve runtime loading, testing stability, and Node type coverage. (`#125`)
 
 ### Fixed
-- Deleting a project document through memory tools now removes the stale supporting-document entry from `index.md`.
-- Deleting nested project documents now removes matching relative paths from `index.md`.
+- Local development startup is more reliable, memory exports avoid unwanted artifacts, and first-run installs route new users to registration. (`#122`)
 
 ### Removed
 - No user-facing removals this week.
