@@ -43,6 +43,7 @@ Phase 2 turns BrainDrive from "an AI you own" into "a partner you rely on." The 
 
 | Feature | Status |
 |---------|--------|
+| Desktop installers (Mac + Windows) — native one-click install | Done |
 | Docker install — one command, you're running | Done |
 | Web interface — browser-based, no terminal needed | Done |
 | Cloud models — access SOTA models via API key | Done |
@@ -55,18 +56,23 @@ Phase 2 turns BrainDrive from "an AI you own" into "a partner you rely on." The 
 | Owner profile — AI knows who you are across conversations | Done |
 | Security — sandboxed, auth-first, export anytime | Done |
 | Remote backup — push your library to a git remote you control | Done |
+| Update system — receive code + library updates with AI-mediated review | Done |
 
 ### What's In Progress
 
 | Feature | Status |
 |---------|--------|
-| Managed hosting — sign up and start talking | Testing |
 | Version history — every change reversible | Verifying |
 | Working sessions — discuss decisions, get plan-grounded advice | Testing |
 | Progress capture — tell your partner what you did, plans update automatically | Testing |
 | Plan review — walk through what's done, what's overdue, adapt when things change | Testing |
-| Cross-pollination — changes in one area ripple across your library | Testing |
-| Pulse — unified task view across all projects | Testing |
+| Document processing — upload a file, AI extracts it into your library as memory | Building |
+
+### Parked
+
+These were in flight but have been deprioritized. They're not gone — they're waiting for the moment they make sense.
+
+- **Managed hosting (Concierge)** — paused. The signup-and-start path will return when the local-install owner experience is sticky enough that hosted demand pulls it back in.
 
 ### What's Next (V1.1+)
 
@@ -79,6 +85,7 @@ These capabilities complete Phase 2 — the execution partnership:
 - **Messaging surfaces** — your partner reaches you (and you reply) via SMS, email, or phone call. Async, outbound too.
 - **Context gardening** — automated library health checks
 - **Conversations build memory** — every chat becomes searchable knowledge
+- **Cross-pollination** — changes in one area ripple across your library
 - **Interfaces** — where you sit down to work with your BrainDrive: web, mobile app, desktop, voice assistant, hardware device.
 - **WhyFinder** — deep onboarding that explores your values and purpose
 
