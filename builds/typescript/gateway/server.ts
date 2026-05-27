@@ -62,6 +62,7 @@ import {
   readMemoryUpdateReport,
   runAutomaticMemoryUpdate,
 } from "../memory/update-prompting.js";
+import { canWriteGeneratedReportArchive } from "../memory/brain-drive-layout.js";
 import {
   createSupportBundle,
   listSupportBundles,
@@ -839,7 +840,7 @@ export async function buildServer(rootDir = process.cwd()) {
           memoryRoot: runtimeConfig.memory_root,
           approvalMode: livePreferences.approval_mode,
           safetyIterationLimit: runtimeConfig.safety_iteration_limit,
-          toolExecutionGuard: createFinanceBudgetProtectionGuard(projectId, conversations.detail(conversationId)),
+          toolExecutionGuard: createBrainDriveMemorySafetyGuard(projectId, conversations.detail(conversationId)),
         }
       )) {
         if (event.type === "tool-call") {
@@ -3174,16 +3175,20 @@ export function buildProjectChatContext(projectId: string, files: GatewayProject
   const hasIndex = sortedFiles.some((file) => file.name === "index.md" || file.path === `documents/${projectId}/index.md`);
   const financeBudgetGuidance = projectId === "finance"
     ? [
-        "For budgeting questions, also read documents/finance/budget.md and documents/finance/rules.md when they exist.",
+        "Read documents/finance/AGENT.md, then documents/finance/AGENT-user.md if present. For project alignment, read documents/finance/spec.md and documents/finance/plan.md.",
+        "For budget work, read documents/finance/budget/AGENT.md, then documents/finance/budget/AGENT-user.md if present.",
+        "For budgeting questions, read documents/finance/budget/budget.md, documents/finance/budget/budget-rules.md, and documents/finance/budget/budget-rules-user.md when present.",
+        "For a Budget procedure, read the managed procedure first, then the matching -user.md overlay if present, such as compare.md before compare-user.md.",
         "For explicit Finance execution requests about budgets, debt, uploads, statements, spending, or reports, complete the Finance task before coaching or cross-domain discussion.",
-        "For 'how did I do?', monthly comparison, over/under, or budget progress questions, treat documents/finance/budget.md as the saved budget and compare statement actuals against it.",
+        "For 'how did I do?', monthly comparison, over/under, or budget progress questions, treat documents/finance/budget/budget.md as the saved budget and compare statement actuals against it.",
         "Use documents/finance/statements/ as source evidence and documents/finance/reports/ as derived output for budget reports.",
-        "Do not write to documents/finance/budget.md during a saved-budget comparison unless the owner explicitly asks to revise the saved budget.",
-        "During saved-budget comparison mode, do not call memory_write, memory_edit, or memory_delete on documents/finance/budget.md; write comparison output only to documents/finance/reports/latest.md or a month-specific reports file.",
-        "Preserve documents/finance/budget.md byte-for-byte during saved-budget comparisons. Do not make formatting-only, table-alignment, whitespace, note, category, or no-op rewrites.",
-        "If the owner says to leave the saved budget alone, not rewrite the saved budget, or compare against the saved budget, documents/finance/budget.md is read-only for that turn.",
-        "If you are about to write documents/finance/budget.md during a comparison, stop and write the comparison findings to documents/finance/reports/latest.md instead.",
+        "Do not write to documents/finance/budget/budget.md during a saved-budget comparison unless the owner explicitly asks to revise the saved budget.",
+        "During saved-budget comparison mode, do not call memory_write, memory_edit, or memory_delete on documents/finance/budget/budget.md; write comparison output only to documents/finance/reports/latest.md or a closed-period reports file.",
+        "Preserve documents/finance/budget/budget.md byte-for-byte during saved-budget comparisons. Do not make formatting-only, table-alignment, whitespace, note, category, or no-op rewrites.",
+        "If the owner says to leave the saved budget alone, not rewrite the saved budget, or compare against the saved budget, documents/finance/budget/budget.md is read-only for that turn.",
+        "If you are about to write documents/finance/budget/budget.md during a comparison, stop and write the comparison findings to documents/finance/reports/latest.md instead.",
         "Put saved-budget comparison findings in documents/finance/reports/latest.md; answer direct comparison questions with best-effort evidence before asking extra clarification questions.",
+        "Do not write a monthly archive such as documents/finance/reports/monthly-YYYY-MM.md until today's date is after the reported month has closed.",
         "Check for duplicate or overlapping statement evidence before counting transactions in budget reports.",
         "Before writing a budget comparison report, re-read the relevant statement files, build a source evidence ledger, account for named merchants, and do not claim a merchant is missing unless the relevant source files were checked.",
         "For monthly comparisons, read statement files whose date range overlaps the requested month even if the filename uses the starting month, ending month, account name, or converted upload name.",
@@ -3216,8 +3221,10 @@ export function buildProjectChatContext(projectId: string, files: GatewayProject
     "## Active Project",
     "",
     `You are currently in the **${projectId}** project.`,
-    `Read this project's AGENT.md, spec.md, and plan.md from the documents/${projectId}/ folder.`,
-    hasIndex
+    `Read this project's AGENT.md, then AGENT-user.md if present, followed by spec.md and plan.md from the documents/${projectId}/ folder.`,
+    projectId === "finance"
+      ? "Finance uses Draft 3 app folders and reference folders; do not rely on documents/finance/index.md, documents/finance/rules.md, or documents/finance/budgeting/ as active product paths."
+      : hasIndex
       ? `Read documents/${projectId}/index.md before deciding which supporting documents to open. It is this folder's document map.`
       : `If documents/${projectId}/index.md appears later in the file list, read it before deciding which supporting documents to open.`,
     ...financeBudgetGuidance,
@@ -3235,8 +3242,24 @@ export function buildProjectChatContext(projectId: string, files: GatewayProject
   ].join("\n");
 }
 
-const FINANCE_BUDGET_PROTECTED_PATH = "documents/finance/budget.md";
+const FINANCE_BUDGET_PROTECTED_PATH = "documents/finance/budget/budget.md";
 const FINANCE_BUDGET_MUTATION_TOOLS = new Set(["memory_write", "memory_edit", "memory_delete"]);
+
+export function createBrainDriveMemorySafetyGuard(
+  projectId: string | null,
+  conversation: ConversationDetail | null
+): ToolExecutionGuard {
+  const financeBudgetGuard = createFinanceBudgetProtectionGuard(projectId, conversation);
+
+  return (toolName, input) => {
+    const reportArchiveResult = guardGeneratedReportArchiveWrite(toolName, input);
+    if (reportArchiveResult) {
+      return reportArchiveResult;
+    }
+
+    return financeBudgetGuard?.(toolName, input) ?? null;
+  };
+}
 
 export function createFinanceBudgetProtectionGuard(
   projectId: string | null,
@@ -3259,7 +3282,7 @@ export function createFinanceBudgetProtectionGuard(
     const output = {
       code: "permission_denied",
       message:
-        "documents/finance/budget.md is read-only during a saved-budget comparison. Read it for saved limits and write comparison findings to documents/finance/reports/latest.md instead. Only revise the saved budget when the owner explicitly asks to change the budget.",
+        "documents/finance/budget/budget.md is read-only during a saved-budget comparison. Read it for saved limits and write comparison findings to documents/finance/reports/latest.md instead. Only revise the saved budget when the owner explicitly asks to change the budget.",
       path: FINANCE_BUDGET_PROTECTED_PATH,
       recoverable: true,
     };
@@ -3278,6 +3301,29 @@ export function isProtectedFinanceBudgetMutation(toolName: string, input: Record
   }
 
   return normalizeMemoryRelativePath(input.path) === FINANCE_BUDGET_PROTECTED_PATH;
+}
+
+function guardGeneratedReportArchiveWrite(toolName: string, input: Record<string, unknown>): ToolExecutionResult | null {
+  if (!FINANCE_BUDGET_MUTATION_TOOLS.has(toolName)) {
+    return null;
+  }
+
+  const targetPath = normalizeMemoryRelativePath(input.path);
+  const archiveCheck = canWriteGeneratedReportArchive(targetPath);
+  if (archiveCheck.allowed) {
+    return null;
+  }
+
+  return {
+    status: "error",
+    output: {
+      code: "permission_denied",
+      message: archiveCheck.reason ?? "Generated report archive write is not allowed for this path.",
+      path: targetPath,
+      recoverable: true,
+    },
+    recoverable: true,
+  };
 }
 
 export function conversationHasSavedBudgetComparison(conversation: ConversationDetail | null): boolean {

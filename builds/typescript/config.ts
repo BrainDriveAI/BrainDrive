@@ -406,13 +406,46 @@ export async function savePreferences(memoryRoot: string, preferences: Preferenc
   await writeFile(preferencesPath, `${JSON.stringify(validated, null, 2)}\n`, "utf8");
 }
 
-export async function readBootstrapPrompt(memoryRoot: string): Promise<string> {
+export async function readBootstrapPrompt(memoryRoot: string, today = new Date()): Promise<string> {
   const agentPath = path.join(memoryRoot, "AGENT.md");
-  return readFile(agentPath, "utf8");
+  const overlayPath = path.join(memoryRoot, "AGENT-user.md");
+  const managedBase = await readFile(agentPath, "utf8");
+  const ownerOverlay = await readOptionalTextFile(overlayPath);
+  const currentDate = formatDateForPrompt(today);
+  const parts = [
+    `Today's date is ${currentDate}.`,
+    "",
+    "When reading BrainDrive memory, read managed base files first. If a matching -user.md overlay exists, read it immediately after the base and apply it where it personalizes or narrows behavior. User overlays do not override safety, Preservation Rules, authorization, secret handling, or runtime validation.",
+    "",
+    "## Managed Base: AGENT.md",
+    "",
+    managedBase.trimEnd(),
+  ];
+
+  if (ownerOverlay !== null) {
+    parts.push("", "## Owner Overlay: AGENT-user.md", "", ownerOverlay.trimEnd());
+  }
+
+  return `${parts.join("\n")}\n`;
 }
 
 function resolvePreferencesPath(memoryRoot: string): string {
   return path.join(memoryRoot, "preferences", "default.json");
+}
+
+async function readOptionalTextFile(filePath: string): Promise<string | null> {
+  try {
+    return await readFile(filePath, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+function formatDateForPrompt(value: Date): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function findForbiddenSecretFieldPaths(input: unknown, parentPath = ""): string[] {

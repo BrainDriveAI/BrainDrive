@@ -8,7 +8,6 @@
 **/.vite
 **/.cache
 
-builds/typescript/client_web
 builds/typescript/src-tauri
 builds/typescript/your-memory*
 builds/typescript/.reset-backups

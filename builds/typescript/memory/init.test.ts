@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { initializeMemoryLayout, scaffoldProjectFiles } from "./init.js";
 
 describe("memory init project scaffolding", () => {
-  it("scaffolds index.md for default projects without a starter pack", async () => {
+  it("scaffolds Draft 3 Finance layout and indexes for other default projects without a starter pack", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "memory-init-index-test-"));
     const rootDir = path.join(tempRoot, "repo");
     const memoryRoot = path.join(tempRoot, "memory");
@@ -18,25 +18,23 @@ describe("memory init project scaffolding", () => {
       });
 
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "index.md"), "utf8"))
-        .resolves.toContain("# Folder Index");
-      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget.md"), "utf8"))
+        .rejects.toThrow();
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "AGENT.md"), "utf8"))
+        .resolves.toContain("# Budget - Agent Context");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "budget.md"), "utf8"))
         .resolves.toContain("# Budget");
-      await expect(readFile(path.join(memoryRoot, "documents", "finance", "rules.md"), "utf8"))
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "budget-rules.md"), "utf8"))
         .resolves.toContain("# Budget Rules");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "reports", "latest.md"), "utf8"))
         .resolves.toContain("# Latest Budget Report");
-      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budgeting", "index.md"), "utf8"))
-        .resolves.toContain("# Budgeting Instruction Index");
-      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budgeting", "first-pass-budget.md"), "utf8"))
-        .resolves.toContain("# First-Pass Budget Workflow");
-      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budgeting", "monthly-comparison.md"), "utf8"))
-        .resolves.toContain("# Monthly Comparison Workflow");
-      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budgeting", "source-evidence.md"), "utf8"))
-        .resolves.toContain("# Source Evidence Rules");
-      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budgeting", "report-contract.md"), "utf8"))
-        .resolves.toContain("# Budget Report Contract");
-      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budgeting", "saved-budget-rules.md"), "utf8"))
-        .resolves.toContain("# Saved Budget Rules");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "create.md"), "utf8"))
+        .resolves.toContain("# Create Or Revise Saved Budget");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "compare.md"), "utf8"))
+        .resolves.toContain("# Compare Actuals Against Saved Budget");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "statements", "README.md"), "utf8"))
+        .resolves.toContain("# Finance Statements");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "reports", "README.md"), "utf8"))
+        .resolves.toContain("# Finance Reports");
       await expect(readFile(path.join(memoryRoot, "documents", "fitness", "health-docs", "index.md"), "utf8"))
         .resolves.toContain("# Health Docs Instruction Index");
       await expect(readFile(path.join(memoryRoot, "documents", "fitness", "health-docs", "intake-and-disclaimer.md"), "utf8"))

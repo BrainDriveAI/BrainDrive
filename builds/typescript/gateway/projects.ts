@@ -221,10 +221,17 @@ export class GatewayProjectService {
       const resolvedIndexEntry = typeof normalizedOptions.indexEntry === "function"
         ? normalizedOptions.indexEntry(projectRelativePath, fileName)
         : normalizedOptions.indexEntry;
-      await upsertProjectIndexEntry(this.memoryRoot, projectId, {
-        fileName: projectRelativePath,
-        ...resolvedIndexEntry,
-      });
+      if (projectId === "finance" && uploadDirectory === "statements") {
+        await upsertFinanceStatementsReadmeEntry(this.memoryRoot, {
+          fileName: projectRelativePath,
+          ...resolvedIndexEntry,
+        });
+      } else {
+        await upsertProjectIndexEntry(this.memoryRoot, projectId, {
+          fileName: projectRelativePath,
+          ...resolvedIndexEntry,
+        });
+      }
     }
     const relativePath = path.relative(this.memoryRoot, resolvedPath);
     await commitMemoryChange(this.memoryRoot, `Upload ${relativePath} via UI`).catch(() => {});
@@ -393,6 +400,82 @@ export class GatewayProjectService {
     await visit(root);
     return files.sort((left, right) => left.name.localeCompare(right.name));
   }
+}
+
+async function upsertFinanceStatementsReadmeEntry(memoryRoot: string, entry: ProjectIndexEntry): Promise<void> {
+  const readmePath = resolveMemoryPath(memoryRoot, "documents/finance/statements/README.md");
+  await mkdir(path.dirname(readmePath), { recursive: true });
+  const current = await readFile(readmePath, "utf8").catch(() => defaultFinanceStatementsReadme());
+  const next = upsertSourceEvidenceEntryContent(current, entry);
+  if (next !== current) {
+    await writeFile(readmePath, next, "utf8");
+  }
+}
+
+function defaultFinanceStatementsReadme(): string {
+  return [
+    "# Finance Statements",
+    "",
+    "*Source evidence folder for uploaded bank and credit-card statement markdown.*",
+    "",
+    "Files here are source evidence. Do not rewrite statement content except through explicit source-management or conversion-correction workflows.",
+    "",
+    "## Source Evidence",
+    "",
+    "| File | Type | Summary | Read When | Imported |",
+    "|---|---|---|---|---|",
+    "| _No source evidence uploaded yet._ | | | | |",
+    "",
+  ].join("\n");
+}
+
+function upsertSourceEvidenceEntryContent(content: string, entry: ProjectIndexEntry): string {
+  const marker = "## Source Evidence";
+  const tableHeader = "| File | Type | Summary | Read When | Imported |";
+  const separator = "|---|---|---|---|---|";
+  const normalized = normalizeSourceEvidenceEntry(entry);
+  const lines = content.split(/\r?\n/);
+  const markerIndex = lines.findIndex((line) => line.trim() === marker);
+  const prefix = markerIndex >= 0
+    ? lines.slice(0, markerIndex + 1)
+    : [...content.trimEnd().split(/\r?\n/), "", marker];
+  const rows = lines
+    .slice(markerIndex >= 0 ? markerIndex + 1 : lines.length)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("|") && !line.includes("_No source evidence uploaded yet._"))
+    .filter((line) => line !== tableHeader && line !== separator)
+    .filter((line) => !line.startsWith(`| \`${normalized.fileName}\` |`));
+
+  rows.push(renderSourceEvidenceRow(normalized));
+  rows.sort((left, right) => left.localeCompare(right));
+
+  return [
+    ...prefix,
+    "",
+    tableHeader,
+    separator,
+    ...rows,
+    "",
+  ].join("\n");
+}
+
+function normalizeSourceEvidenceEntry(entry: ProjectIndexEntry): ProjectIndexEntry {
+  return {
+    fileName: normalizeSourceEvidenceCell(entry.fileName, "uploaded-source.md"),
+    type: normalizeSourceEvidenceCell(entry.type, "Source"),
+    summary: normalizeSourceEvidenceCell(entry.summary, "Uploaded source evidence."),
+    readWhen: normalizeSourceEvidenceCell(entry.readWhen, `User asks about ${entry.fileName}.`),
+    importedAt: normalizeSourceEvidenceCell(entry.importedAt ?? "", ""),
+  };
+}
+
+function renderSourceEvidenceRow(entry: ProjectIndexEntry): string {
+  return `| \`${entry.fileName}\` | ${entry.type} | ${entry.summary} | ${entry.readWhen} | ${entry.importedAt ?? ""} |`;
+}
+
+function normalizeSourceEvidenceCell(value: string, fallback: string): string {
+  const normalized = value.replace(/\s+/g, " ").replace(/\|/g, "\\|").trim();
+  return normalized.length > 0 ? normalized : fallback;
 }
 
 function normalizeUploadedMarkdownOptions(options: UploadedMarkdownOptions | undefined): {

@@ -71,6 +71,7 @@ export default function Sidebar({
   const [newProjectName, setNewProjectName] = useState("");
   const [menuOpenForProject, setMenuOpenForProject] = useState<string | null>(null);
   const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
+  const [showAdvancedFiles, setShowAdvancedFiles] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const newProjectInputRef = useRef<HTMLInputElement | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -167,6 +168,7 @@ export default function Sidebar({
 
   const isBdPlusOne = selectedProjectId === "braindrive-plus-one";
   const isProjectView = selectedProject !== null && !isBdPlusOne;
+  const groupedProjectFiles = groupProjectFiles(projectFiles, showAdvancedFiles);
 
   return (
     <aside className="flex h-dvh w-[300px] flex-col border-r border-bd-border bg-bd-bg-secondary transition-all duration-200 md:w-sidebar">
@@ -269,20 +271,67 @@ export default function Sidebar({
               ) : projectFiles.length === 0 ? (
                 <div className="px-3 py-4 text-sm text-bd-text-muted">No files yet</div>
               ) : (
-                projectFiles.map((file) => (
+                <>
                   <button
-                    key={file.path}
                     type="button"
-                    onClick={() => {
-                      onFileClick(file);
-                      onClose?.();
-                    }}
-                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-[14px] text-bd-text-primary transition-all duration-200 hover:bg-bd-bg-hover"
+                    onClick={() => setShowAdvancedFiles((value) => !value)}
+                    className="mb-2 flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-xs text-bd-text-muted transition-colors duration-200 hover:bg-bd-bg-hover hover:text-bd-text-primary"
                   >
-                    <FileText size={16} strokeWidth={1.5} className="shrink-0 text-bd-text-muted" />
-                    <span className="truncate">{file.name}</span>
+                    <span>{showAdvancedFiles ? "Hide advanced instructions" : "Show advanced instructions"}</span>
+                    <span>{groupedProjectFiles.advancedCount}</span>
                   </button>
-                ))
+                  {groupedProjectFiles.groups.map((group) => (
+                    <div key={group.label} className="pb-2">
+                      <div className="px-3 pb-1 pt-2 text-[11px] font-medium uppercase tracking-normal text-bd-text-muted">
+                        {group.label}
+                      </div>
+                      <div className="space-y-1">
+                        {group.files.map((file) => {
+                          const meta = classifySidebarFile(file);
+                          const overlayPath = meta.overlayPath;
+                          return (
+                            <div key={file.path} className="group/file flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onFileClick(file);
+                                  onClose?.();
+                                }}
+                                className="flex min-w-0 flex-1 items-center gap-3 rounded-md px-3 py-2 text-left text-[14px] text-bd-text-primary transition-colors duration-200 hover:bg-bd-bg-hover"
+                                title={meta.label}
+                              >
+                                <FileText size={16} strokeWidth={1.5} className="shrink-0 text-bd-text-muted" />
+                                <span className="truncate">{file.name}</span>
+                                {meta.badge ? (
+                                  <span className="ml-auto shrink-0 rounded border border-bd-border px-1.5 py-0.5 text-[10px] text-bd-text-muted">
+                                    {meta.badge}
+                                  </span>
+                                ) : null}
+                              </button>
+                              {overlayPath ? (
+                                <button
+                                  type="button"
+                                  aria-label={`Customize ${file.name}`}
+                                  title={`Customize ${file.name}`}
+                                  onClick={() => {
+                                    onFileClick({
+                                      name: overlayPath.split("/").pop() ?? overlayPath,
+                                      path: overlayPath,
+                                    });
+                                    onClose?.();
+                                  }}
+                                  className="hidden h-7 w-7 shrink-0 items-center justify-center rounded-md text-bd-text-muted transition-colors duration-200 hover:bg-bd-bg-hover hover:text-bd-text-primary group-hover/file:flex focus:flex"
+                                >
+                                  <Pencil size={14} strokeWidth={1.5} />
+                                </button>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </>
               )}
             </div>
           ) : isLoadingProjects ? (
@@ -514,4 +563,144 @@ export default function Sidebar({
       </div>
     </aside>
   );
+}
+
+type SidebarFileGroup = {
+  label: string;
+  files: ProjectFile[];
+};
+
+type SidebarFileMeta = {
+  group: "Overview" | "Goals And Plan" | "Apps" | "Sources" | "Reports" | "Custom Instructions" | "Advanced Instructions";
+  advanced: boolean;
+  label: string;
+  badge?: string;
+  overlayPath?: string;
+};
+
+function groupProjectFiles(files: ProjectFile[], showAdvanced: boolean): {
+  groups: SidebarFileGroup[];
+  advancedCount: number;
+} {
+  const order: SidebarFileMeta["group"][] = [
+    "Overview",
+    "Goals And Plan",
+    "Apps",
+    "Reports",
+    "Sources",
+    "Custom Instructions",
+    "Advanced Instructions",
+  ];
+  const grouped = new Map<SidebarFileMeta["group"], ProjectFile[]>();
+  let advancedCount = 0;
+
+  for (const file of files) {
+    const meta = classifySidebarFile(file);
+    if (meta.advanced) {
+      advancedCount += 1;
+    }
+    if (meta.advanced && !showAdvanced) {
+      continue;
+    }
+    const groupFiles = grouped.get(meta.group) ?? [];
+    groupFiles.push(file);
+    grouped.set(meta.group, groupFiles);
+  }
+
+  return {
+    advancedCount,
+    groups: order
+      .map((label) => ({
+        label,
+        files: (grouped.get(label) ?? []).sort((left, right) => left.name.localeCompare(right.name)),
+      }))
+      .filter((group) => group.files.length > 0),
+  };
+}
+
+function classifySidebarFile(file: ProjectFile): SidebarFileMeta {
+  const normalized = file.path.replace(/\\/g, "/");
+  const fileName = normalized.split("/").pop() ?? file.name;
+  const ownerOverlay = /-user\.md$/i.test(fileName);
+  const reports = normalized.includes("/reports/");
+  const sources = normalized.includes("/statements/") || normalized.includes("/health-docs/");
+  const managedInstruction = isManagedInstructionFile(normalized);
+  const overlayPath = managedInstruction ? overlayPathForSidebarFile(normalized) : undefined;
+
+  if (ownerOverlay) {
+    return {
+      group: "Custom Instructions",
+      advanced: false,
+      label: "Owner-managed custom instruction",
+      badge: "Custom",
+    };
+  }
+
+  if (reports) {
+    return {
+      group: "Reports",
+      advanced: false,
+      label: fileName === "latest.md" ? "Generated report; may be refreshed by BrainDrive" : "Finance report",
+      badge: fileName === "latest.md" ? "Generated" : undefined,
+    };
+  }
+
+  if (sources) {
+    return {
+      group: "Sources",
+      advanced: fileName !== "README.md" && normalized.includes("/health-docs/"),
+      label: fileName === "README.md" ? "Reference folder contract" : "Uploaded source evidence",
+      badge: fileName === "README.md" ? undefined : "Source",
+    };
+  }
+
+  if (fileName === "spec.md" || fileName === "plan.md" || /\/([^/]+)\/\1\.md$/i.test(normalized)) {
+    return {
+      group: "Goals And Plan",
+      advanced: false,
+      label: "Owner state file",
+    };
+  }
+
+  if (managedInstruction) {
+    return {
+      group: "Advanced Instructions",
+      advanced: true,
+      label: "Managed instruction file",
+      badge: "Managed",
+      overlayPath,
+    };
+  }
+
+  if (normalized.includes("/budget/")) {
+    return {
+      group: "Apps",
+      advanced: false,
+      label: "App file",
+    };
+  }
+
+  return {
+    group: fileName === "AGENT.md" ? "Overview" : "Apps",
+    advanced: false,
+    label: fileName === "AGENT.md" ? "Project orientation" : "Project file",
+  };
+}
+
+function isManagedInstructionFile(pathValue: string): boolean {
+  const fileName = pathValue.split("/").pop() ?? "";
+  if (fileName === "AGENT.md" || fileName === "README.md") {
+    return true;
+  }
+  if (/-rules\.md$/i.test(fileName)) {
+    return true;
+  }
+  return /^(create|compare|run-interview|run-planning|generate-report)\.md$/i.test(fileName);
+}
+
+function overlayPathForSidebarFile(pathValue: string): string | undefined {
+  if (!pathValue.toLowerCase().endsWith(".md") || /-user\.md$/i.test(pathValue)) {
+    return undefined;
+  }
+  return pathValue.replace(/\.md$/i, "-user.md");
 }

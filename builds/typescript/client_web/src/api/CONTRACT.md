@@ -194,8 +194,8 @@ Response example for `/api/projects/finance/files`:
     "path": "finance/spec.md"
   },
   {
-    "name": "budget.md",
-    "path": "finance/budget.md"
+    "name": "budget/budget.md",
+    "path": "documents/finance/budget/budget.md"
   }
 ]
 ```
@@ -275,9 +275,9 @@ Response:
 Uploads a document into a writable project folder and saves the result as markdown.
 
 `braindrive-plus-one` is not a valid upload target. Markdown and text files are saved directly. CSV files are converted directly to markdown tables. Images and PDFs are converted to markdown through the configured provider before the markdown file is written.
-Successful uploads also create or update `documents/{project}/index.md` with a supporting-document entry for the saved markdown file.
+Successful uploads create or update the project's document index when that project uses one.
 
-Finance uploads include an additional metadata pass after conversion. Statement-like bank and credit card uploads may be saved under `documents/finance/statements/` with a safe model-suggested filename such as `2026-05-capital-one.md`; the final response path is authoritative.
+Finance uploads include an additional metadata pass after conversion. Statement-like bank and credit card uploads may be saved under `documents/finance/statements/` with a safe model-suggested filename such as `2026-05-capital-one.md`; those source uploads update `documents/finance/statements/README.md`, and the final response path is authoritative.
 
 Supported inputs:
 

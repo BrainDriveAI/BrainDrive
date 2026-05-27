@@ -81,6 +81,47 @@ describe("Sidebar", () => {
     expect(screen.queryByPlaceholderText("Search chats...")).not.toBeInTheDocument();
   });
 
+  it("groups Draft 3 files and hides managed instructions until advanced is shown", async () => {
+    const user = userEvent.setup();
+    const onFileClick = vi.fn();
+
+    render(
+      <Sidebar
+        {...baseProps}
+        selectedProjectId="finance"
+        selectedProject={mockProjects[0]!}
+        projectFiles={[
+          { name: "budget/budget.md", path: "documents/finance/budget/budget.md" },
+          { name: "budget/compare.md", path: "documents/finance/budget/compare.md" },
+          { name: "budget/compare-user.md", path: "documents/finance/budget/compare-user.md" },
+          { name: "reports/latest.md", path: "documents/finance/reports/latest.md" },
+          { name: "statements/2026-05-card.md", path: "documents/finance/statements/2026-05-card.md" }
+        ]}
+        onFileClick={onFileClick}
+      />
+    );
+
+    expect(screen.getByText("Goals And Plan")).toBeInTheDocument();
+    expect(screen.getByText("Reports")).toBeInTheDocument();
+    expect(screen.getByText("Sources")).toBeInTheDocument();
+    expect(screen.getByText("Custom Instructions")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /budget\/compare.md/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /show advanced instructions/i }));
+
+    expect(screen.getByText("Advanced Instructions")).toBeInTheDocument();
+    expect(screen.getByText("budget/compare.md")).toBeInTheDocument();
+    expect(screen.getByText("Generated")).toBeInTheDocument();
+    expect(screen.getByText("Source")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Customize budget/compare.md" }));
+
+    expect(onFileClick).toHaveBeenCalledWith({
+      name: "compare-user.md",
+      path: "documents/finance/budget/compare-user.md"
+    });
+  });
+
   it("keeps project list navigation and return-to-chat separate in drilled-in view", async () => {
     const user = userEvent.setup();
     const onDeselectProject = vi.fn();
