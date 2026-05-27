@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
+  Bot,
   Copy,
   Download,
   ExternalLink,
@@ -84,17 +85,18 @@ type SettingsModalProps = {
   onClose: () => void;
 };
 
-type SettingsTab = "provider" | "model" | "profile" | "account" | "export" | "memory-backup" | "browser-access";
+type SettingsTab = "provider" | "model" | "profile" | "your-agent" | "account" | "export" | "memory-backup" | "browser-access";
 
 type TabDef = { id: SettingsTab; label: string; icon: typeof Key; managedOnly?: boolean; localOnly?: boolean; desktopOnly?: boolean };
 
-// Managed hosting shows: Account, Owner Profile, Export (D93).
-// Local shows: Default Model, Model Providers, Owner Profile, Browser Access, Memory Backup, Export.
+// Managed hosting shows: Account, Your Profile, Your Agent, Export (D93).
+// Local shows: Default Model, Model Providers, Your Profile, Your Agent, Browser Access, Memory Backup, Export.
 const allTabs: TabDef[] = [
   { id: "account", label: "Account", icon: UserCog, managedOnly: true },
   { id: "model", label: "AI Model", icon: Cpu, localOnly: true },
   { id: "provider", label: "Model Providers", icon: Key, localOnly: true },
   { id: "profile", label: "Your Profile", icon: User },
+  { id: "your-agent", label: "Your Agent", icon: Bot },
   { id: "browser-access", label: "Browser Access", icon: Network, localOnly: true, desktopOnly: true },
   { id: "memory-backup", label: "Backup", icon: Save, localOnly: true },
   { id: "export", label: "Migrate", icon: Download },
@@ -658,6 +660,8 @@ function TabContent({
       return <BrowserAccessSection />;
     case "profile":
       return <ProfileSection />;
+    case "your-agent":
+      return <YourAgentSection />;
     case "account":
       return <AccountSection />;
     case "export":
@@ -2640,7 +2644,7 @@ function ProfileSection() {
       <div className="flex items-start justify-between">
         <div>
           <h3 className="font-heading text-base font-semibold text-bd-text-heading">
-            Owner Profile
+            Your Profile
           </h3>
           <p className="mt-1 text-sm text-bd-text-muted">
             Your profile builds naturally through conversation. It captures the
@@ -2734,6 +2738,39 @@ function ProfileSection() {
         </div>
       </div>
 
+    </div>
+  );
+}
+
+function YourAgentSection() {
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="font-heading text-base font-semibold text-bd-text-heading">
+          Your Agent
+        </h3>
+        <p className="mt-1 text-sm text-bd-text-muted">
+          Your global agent — the personality, tone, and operating style your
+          BrainDrive uses across every project. Each project has its own focused
+          agent on top of this one.
+        </p>
+      </div>
+
+      <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary p-4">
+        <div className="flex items-start gap-3">
+          <Info size={18} strokeWidth={1.5} className="mt-0.5 shrink-0 text-bd-text-secondary" />
+          <div className="space-y-2 text-sm text-bd-text-secondary">
+            <p>
+              Direct editing of your global agent is coming soon. For now your
+              agent uses the BrainDrive defaults.
+            </p>
+            <p className="text-xs text-bd-text-muted">
+              The editor will open <code className="rounded bg-bd-bg-secondary px-1 text-[11px] text-bd-text-primary">base/AGENT.md</code> (the managed default) and, when you start customising,
+              create <code className="rounded bg-bd-bg-secondary px-1 text-[11px] text-bd-text-primary">base/AGENT-user.md</code> as your overlay so your changes survive updates.
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
