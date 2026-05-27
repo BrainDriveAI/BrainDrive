@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AuthContext, GatewayEngineRequest } from "../contracts.js";
 import type { ModelAdapter } from "../adapters/base.js";
+import type { PromptAuditRecorder } from "../memory/prompt-audit-store.js";
 import { ApprovalStore } from "./approval-store.js";
 import { runAgentLoop } from "./loop.js";
 import { ToolExecutor } from "./tool-executor.js";
@@ -103,4 +104,97 @@ describe("runAgentLoop", () => {
     ]);
     expect(calls).toBe(2);
   });
+
+  it("records every model request and response during a tool loop", async () => {
+    const auditEvents: Array<{ event: string; details: Record<string, unknown>; modelCallIndex?: number }> = [];
+    let calls = 0;
+    const adapter: ModelAdapter = {
+      async complete() {
+        calls += 1;
+        if (calls === 1) {
+          return {
+            assistantText: "",
+            finishReason: "tool_calls",
+            toolCalls: [
+              {
+                id: "call-1",
+                name: "memory_read",
+                input: { path: "documents/project/spec.md" },
+              },
+            ],
+          };
+        }
+
+        return {
+          assistantText: "Read it.",
+          finishReason: "completed",
+          toolCalls: [],
+        };
+      },
+    };
+
+    const executor = new ToolExecutor([
+      {
+        name: "memory_read",
+        description: "Read memory",
+        requiresApproval: false,
+        readOnly: true,
+        inputSchema: { type: "object" },
+        execute: async () => ({ content: "Spec" }),
+      },
+    ]);
+
+    for await (const _event of runAgentLoop(
+      adapter,
+      executor,
+      new ApprovalStore(),
+      request,
+      ownerAuth,
+      {
+        memoryRoot: "/tmp/brain",
+        safetyIterationLimit: 3,
+        promptAudit: {
+          recorder: fakeRecorder(auditEvents),
+          adapterName: "openai-compatible",
+          providerProfile: "openrouter",
+          model: "test-model",
+        },
+      }
+    )) {
+      // Drain events.
+    }
+
+    expect(auditEvents.filter((entry) => entry.event === "prompt_audit.model_request")).toHaveLength(2);
+    expect(auditEvents.filter((entry) => entry.event === "prompt_audit.model_response")).toHaveLength(2);
+    expect(auditEvents.find((entry) => entry.event === "prompt_audit.tool_result")?.details).toMatchObject({
+      tool_call_id: "call-1",
+      status: "ok",
+      output: { content: "Spec" },
+    });
+    expect(auditEvents.filter((entry) => entry.event === "prompt_audit.model_request").map((entry) => entry.modelCallIndex))
+      .toEqual([1, 2]);
+  });
 });
+
+function fakeRecorder(
+  events: Array<{ event: string; details: Record<string, unknown>; modelCallIndex?: number }>
+): PromptAuditRecorder {
+  return {
+    traceId: "trace-1",
+    conversationId: "conversation-1",
+    correlationId: "correlation-1",
+    detail: "standard",
+    preferences: {
+      enabled: true,
+      detail: "standard",
+      retention_days: 14,
+      max_file_bytes: 5 * 1024 * 1024,
+      include_provider_payload: true,
+      include_provider_response: true,
+      include_source_snapshots: true,
+    },
+    append: async (event, details = {}, modelCall) => {
+      events.push({ event, details, modelCallIndex: modelCall?.model_call_index });
+    },
+  };
+}

@@ -173,6 +173,28 @@ const memoryBackupPreferenceSchema = z
   })
   .strict();
 
+const DEFAULT_PROMPT_AUDIT_PREFERENCE = {
+  enabled: false,
+  detail: "standard" as const,
+  retention_days: 14,
+  max_file_bytes: 5 * 1024 * 1024,
+  include_provider_payload: true,
+  include_provider_response: true,
+  include_source_snapshots: true,
+};
+
+const promptAuditPreferenceSchema = z
+  .object({
+    enabled: z.boolean().default(DEFAULT_PROMPT_AUDIT_PREFERENCE.enabled),
+    detail: z.enum(["minimal", "standard", "verbose"]).default(DEFAULT_PROMPT_AUDIT_PREFERENCE.detail),
+    retention_days: z.number().int().positive().max(3650).default(DEFAULT_PROMPT_AUDIT_PREFERENCE.retention_days),
+    max_file_bytes: z.number().int().positive().default(DEFAULT_PROMPT_AUDIT_PREFERENCE.max_file_bytes),
+    include_provider_payload: z.boolean().default(DEFAULT_PROMPT_AUDIT_PREFERENCE.include_provider_payload),
+    include_provider_response: z.boolean().default(DEFAULT_PROMPT_AUDIT_PREFERENCE.include_provider_response),
+    include_source_snapshots: z.boolean().default(DEFAULT_PROMPT_AUDIT_PREFERENCE.include_source_snapshots),
+  })
+  .strict();
+
 const PREFERENCE_TOP_LEVEL_KEYS = new Set([
   "default_model",
   "approval_mode",
@@ -182,6 +204,7 @@ const PREFERENCE_TOP_LEVEL_KEYS = new Set([
   "provider_default_models",
   "secret_resolution",
   "memory_backup",
+  "prompt_audit",
 ]);
 
 const preferencesSchema = z
@@ -194,6 +217,7 @@ const preferencesSchema = z
     provider_default_models: z.record(z.string(), z.string().min(1)).optional(),
     secret_resolution: secretResolutionSchema.optional(),
     memory_backup: memoryBackupPreferenceSchema.optional(),
+    prompt_audit: promptAuditPreferenceSchema.optional(),
   })
   .strip()
   .superRefine((value, context) => {
@@ -208,6 +232,7 @@ const preferencesSchema = z
   .transform((value): Preferences => ({
     ...value,
     secret_resolution: value.secret_resolution ?? { on_missing: "fail_closed" },
+    prompt_audit: value.prompt_audit ?? DEFAULT_PROMPT_AUDIT_PREFERENCE,
   }));
 
 export async function loadRuntimeConfig(rootDir: string): Promise<RuntimeConfig> {

@@ -39,7 +39,7 @@ export type ProjectManifestEntry = {
 const STARTER_PACK_ENV = "PAA_STARTER_PACK_DIR";
 const STARTER_PACK_RELATIVE_PATH = "memory/starter-pack";
 
-const ROOT_DIRECTORIES = ["conversations", "documents", "preferences", "exports", "skills"];
+const ROOT_DIRECTORIES = ["conversations", "documents", "preferences", "exports", "skills", "diagnostics"];
 const ROOT_AGENT_RELATIVE_PATH = "AGENT.md";
 const PREFERENCES_RELATIVE_PATH = "preferences/default.json";
 const TODO_RELATIVE_PATH = "me/todo.md";
@@ -91,6 +91,15 @@ const FALLBACK_LOCAL_DEV_PREFERENCES = {
   secret_resolution: {
     on_missing: "fail_closed",
   },
+  prompt_audit: {
+    enabled: true,
+    detail: "standard",
+    retention_days: 14,
+    max_file_bytes: 5242880,
+    include_provider_payload: true,
+    include_provider_response: true,
+    include_source_snapshots: true,
+  },
 };
 
 const FALLBACK_OPENROUTER_SECRET_REF_PREFERENCES = {
@@ -106,6 +115,15 @@ const FALLBACK_OPENROUTER_SECRET_REF_PREFERENCES = {
   },
   secret_resolution: {
     on_missing: "fail_closed",
+  },
+  prompt_audit: {
+    enabled: true,
+    detail: "standard",
+    retention_days: 14,
+    max_file_bytes: 5242880,
+    include_provider_payload: true,
+    include_provider_response: true,
+    include_source_snapshots: true,
   },
 };
 
@@ -125,6 +143,15 @@ const FALLBACK_BRAINDRIVE_MANAGED_SECRET_REF_PREFERENCES = {
   },
   secret_resolution: {
     on_missing: "fail_closed",
+  },
+  prompt_audit: {
+    enabled: true,
+    detail: "standard",
+    retention_days: 14,
+    max_file_bytes: 5242880,
+    include_provider_payload: true,
+    include_provider_response: true,
+    include_source_snapshots: true,
   },
 };
 
