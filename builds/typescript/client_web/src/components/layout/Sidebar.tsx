@@ -10,7 +10,7 @@ import AppFilesGrouped from "./AppFilesGrouped";
 import ProfileMenu from "./ProfileMenu";
 import { getProjectIcon } from "./project-icons";
 import ProjectFilesGrouped from "./ProjectFilesGrouped";
-import { appLabel, projectLabel } from "./sidebar-labels";
+import { appLabel } from "./sidebar-labels";
 import SidebarCollapsed from "./SidebarCollapsed";
 
 const DEFAULT_USER: UserProfile = {
@@ -402,7 +402,7 @@ export default function Sidebar({
                       className="flex min-w-0 flex-1 items-center gap-3"
                     >
                       <Icon size={17} strokeWidth={1.5} className="shrink-0 text-bd-text-secondary" />
-                      <span className="truncate text-[14px] text-bd-text-primary">{projectLabel(project.name)}</span>
+                      <span className="truncate text-[14px] text-bd-text-primary">{project.name}</span>
                     </button>
                     {(onRemoveProject || onRenameProject) ? (
                       <div ref={isMenuOpen ? projectMenuRef : undefined} className="relative">

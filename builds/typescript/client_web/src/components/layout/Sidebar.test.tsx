@@ -44,7 +44,7 @@ describe("Sidebar", () => {
 
     render(<Sidebar {...baseProps} onClose={onClose} />);
 
-    await user.click(screen.getByRole("button", { name: "Your Finances" }));
+    await user.click(screen.getByRole("button", { name: "Finance" }));
 
     expect(onClose).toHaveBeenCalledTimes(1);
   });
@@ -128,8 +128,8 @@ describe("Sidebar", () => {
 
     expect(screen.queryByRole("button", { name: "BrainDrive+1" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Your Agent" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Your Finances" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Your Career" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Finance" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Career" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "New project" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Your To-Do" })).toBeInTheDocument();
   });
