@@ -1,4 +1,4 @@
-import { Bot, CheckSquare, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Bot, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { getSession } from "@/api/auth-adapter";
@@ -12,6 +12,7 @@ import { getProjectIcon } from "./project-icons";
 import ProjectFilesGrouped from "./ProjectFilesGrouped";
 import { appLabel } from "./sidebar-labels";
 import SidebarCollapsed from "./SidebarCollapsed";
+import YourTodoRow from "./YourTodoRow";
 
 const DEFAULT_USER: UserProfile = {
   name: "Local Owner",
@@ -497,22 +498,7 @@ export default function Sidebar({
                 </button>
               ) : null}
 
-              <div className="pt-2">
-                <button
-                  type="button"
-                  aria-label="Your To-Do"
-                  title="me/todo.md"
-                  className="flex w-full items-start gap-3 rounded-xl py-2 pl-4 pr-3 text-left text-bd-text-secondary transition-all duration-200 hover:bg-bd-bg-hover hover:text-bd-text-primary"
-                >
-                  <CheckSquare size={17} strokeWidth={1.5} className="mt-0.5 shrink-0 text-bd-text-secondary" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[14px] text-bd-text-primary">Your To-Do</div>
-                    <div className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-bd-text-muted">
-                      No todos yet — your agent will add things here as you work together.
-                    </div>
-                  </div>
-                </button>
-              </div>
+              <YourTodoRow />
             </div>
           )}
         </ScrollArea>
