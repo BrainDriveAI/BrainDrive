@@ -117,7 +117,7 @@ describe("Sidebar", () => {
     expect(onReturnToChat).toHaveBeenCalledTimes(1);
   });
 
-  it("renders BD+1 root sidebar without a BrainDrive+1 row and with Your To-Do at bottom", () => {
+  it("renders BD+1 root sidebar with Your Agent at top and Your To-Do at bottom", () => {
     render(
       <Sidebar
         {...baseProps}
@@ -127,6 +127,7 @@ describe("Sidebar", () => {
     );
 
     expect(screen.queryByRole("button", { name: "BrainDrive+1" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Your Agent" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Your Finances" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Your Career" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "New project" })).toBeInTheDocument();

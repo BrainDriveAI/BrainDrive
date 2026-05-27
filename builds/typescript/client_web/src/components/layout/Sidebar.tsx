@@ -1,4 +1,4 @@
-import { CheckSquare, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Bot, CheckSquare, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { getSession } from "@/api/auth-adapter";
@@ -319,6 +319,28 @@ export default function Sidebar({
             </div>
           ) : (
             <div className="space-y-1 px-2">
+              <div
+                className={[
+                  "group relative flex w-full items-center gap-3 rounded-xl py-2 pl-4 pr-3 text-left transition-all duration-200 hover:bg-bd-bg-hover",
+                  isBdPlusOne &&
+                    "border-l-2 border-bd-amber bg-bd-bg-tertiary pl-[14px]"
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSelectProject("braindrive-plus-one");
+                    onClose?.();
+                  }}
+                  className="flex min-w-0 flex-1 items-center gap-3"
+                >
+                  <Bot size={17} strokeWidth={1.5} className="shrink-0 text-bd-text-secondary" />
+                  <span className="truncate text-[14px] text-bd-text-primary">Your Agent</span>
+                </button>
+              </div>
+
               {projects.filter((p) => p.id !== "braindrive-plus-one").map((project) => {
                 const Icon = getProjectIcon(project.icon);
                 const isActive = project.id === selectedProjectId;
