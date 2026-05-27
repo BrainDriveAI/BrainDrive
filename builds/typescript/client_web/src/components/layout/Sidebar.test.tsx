@@ -44,7 +44,7 @@ describe("Sidebar", () => {
 
     render(<Sidebar {...baseProps} onClose={onClose} />);
 
-    await user.click(screen.getByRole("button", { name: "Finance" }));
+    await user.click(screen.getByRole("button", { name: "Your Finances" }));
 
     expect(onClose).toHaveBeenCalledTimes(1);
   });
@@ -115,6 +115,22 @@ describe("Sidebar", () => {
 
     expect(onDeselectProject).toHaveBeenCalledTimes(1);
     expect(onReturnToChat).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders BD+1 root sidebar without a BrainDrive+1 row and with Your To-Do at bottom", () => {
+    render(
+      <Sidebar
+        {...baseProps}
+        selectedProjectId="braindrive-plus-one"
+        onAddProject={async () => {}}
+      />
+    );
+
+    expect(screen.queryByRole("button", { name: "BrainDrive+1" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Your Finances" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Your Career" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New project" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Your To-Do" })).toBeInTheDocument();
   });
 
   it("enters app scope on Your Budget click and shows breadcrumb", async () => {

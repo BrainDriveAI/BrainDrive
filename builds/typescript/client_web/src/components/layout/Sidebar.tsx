@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Plus, Sparkles, Trash2, X } from "lucide-react";
+import { CheckSquare, ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { getSession } from "@/api/auth-adapter";
@@ -10,7 +10,7 @@ import AppFilesGrouped from "./AppFilesGrouped";
 import ProfileMenu from "./ProfileMenu";
 import { getProjectIcon } from "./project-icons";
 import ProjectFilesGrouped from "./ProjectFilesGrouped";
-import { appLabel } from "./sidebar-labels";
+import { appLabel, projectLabel } from "./sidebar-labels";
 import SidebarCollapsed from "./SidebarCollapsed";
 
 const DEFAULT_USER: UserProfile = {
@@ -319,28 +319,6 @@ export default function Sidebar({
             </div>
           ) : (
             <div className="space-y-1 px-2">
-              <div
-                className={[
-                  "group relative flex w-full items-center gap-3 rounded-xl py-2 pl-4 pr-3 text-left transition-all duration-200 hover:bg-bd-bg-hover",
-                  isBdPlusOne &&
-                    "border-l-2 border-bd-amber bg-bd-bg-tertiary pl-[14px]"
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-              >
-                <button
-                  type="button"
-                  onClick={() => {
-                    onSelectProject("braindrive-plus-one");
-                    onClose?.();
-                  }}
-                  className="flex min-w-0 flex-1 items-center gap-3"
-                >
-                  <Sparkles size={17} strokeWidth={1.5} className="shrink-0 text-bd-text-secondary" />
-                  <span className="truncate text-[14px] text-bd-text-primary">BrainDrive+1</span>
-                </button>
-              </div>
-
               {projects.filter((p) => p.id !== "braindrive-plus-one").map((project) => {
                 const Icon = getProjectIcon(project.icon);
                 const isActive = project.id === selectedProjectId;
@@ -402,7 +380,7 @@ export default function Sidebar({
                       className="flex min-w-0 flex-1 items-center gap-3"
                     >
                       <Icon size={17} strokeWidth={1.5} className="shrink-0 text-bd-text-secondary" />
-                      <span className="truncate text-[14px] text-bd-text-primary">{project.name}</span>
+                      <span className="truncate text-[14px] text-bd-text-primary">{projectLabel(project.name)}</span>
                     </button>
                     {(onRemoveProject || onRenameProject) ? (
                       <div ref={isMenuOpen ? projectMenuRef : undefined} className="relative">
@@ -493,9 +471,21 @@ export default function Sidebar({
                   className="flex w-full items-center gap-3 rounded-xl py-2 pl-4 pr-3 text-left text-bd-text-muted transition-all duration-200 hover:bg-bd-bg-hover hover:text-bd-text-secondary"
                 >
                   <Plus size={17} strokeWidth={1.5} className="shrink-0" />
-                  <span className="text-[14px]">Add project</span>
+                  <span className="text-[14px]">New project</span>
                 </button>
               ) : null}
+
+              <div className="pt-2">
+                <button
+                  type="button"
+                  aria-label="Your To-Do"
+                  title="me/todo.md"
+                  className="flex w-full items-center gap-3 rounded-xl py-2 pl-4 pr-3 text-left text-bd-text-secondary transition-all duration-200 hover:bg-bd-bg-hover hover:text-bd-text-primary"
+                >
+                  <CheckSquare size={17} strokeWidth={1.5} className="shrink-0 text-bd-text-secondary" />
+                  <span className="truncate text-[14px] text-bd-text-primary">Your To-Do</span>
+                </button>
+              </div>
             </div>
           )}
         </ScrollArea>
