@@ -66,18 +66,31 @@ describe("Sidebar", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("shows the selected project's files in drilled-in view", () => {
+  it("shows the selected project's files in drilled-in view with owner-language labels", () => {
     render(
       <Sidebar
         {...baseProps}
         selectedProjectId="finance"
         selectedProject={mockProjects[0]!}
-        projectFiles={[{ name: "budget.md", path: "finance/budget/budget.md" }]}
+        projectFiles={[
+          { name: "AGENT.md", path: "documents/finance/AGENT.md" },
+          { name: "spec.md", path: "documents/finance/spec.md" },
+          { name: "plan.md", path: "documents/finance/plan.md" },
+          { name: "run-interview.md", path: "documents/finance/run-interview.md" },
+          { name: "budget/AGENT.md", path: "documents/finance/budget/AGENT.md" },
+          { name: "budget/budget.md", path: "documents/finance/budget/budget.md" },
+          { name: "reports/README.md", path: "documents/finance/reports/README.md" }
+        ]}
       />
     );
 
     expect(screen.getByRole("button", { name: "Finance" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "budget.md" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Your Agent/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Your Goals/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Your Plan/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Your Budget/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Your Work" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Advanced" })).toBeInTheDocument();
     expect(screen.queryByPlaceholderText("Search chats...")).not.toBeInTheDocument();
   });
 

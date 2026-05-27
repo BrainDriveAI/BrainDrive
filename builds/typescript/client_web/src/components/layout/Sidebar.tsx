@@ -1,4 +1,4 @@
-import { ChevronLeft, FileText, MoreHorizontal, Pencil, Plus, Sparkles, Trash2, X } from "lucide-react";
+import { ChevronLeft, MoreHorizontal, Pencil, Plus, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { getSession } from "@/api/auth-adapter";
@@ -8,6 +8,7 @@ import { ACCEPTED_FILE_INPUT } from "@/utils/file-utils";
 
 import ProfileMenu from "./ProfileMenu";
 import { getProjectIcon } from "./project-icons";
+import ProjectFilesGrouped from "./ProjectFilesGrouped";
 import SidebarCollapsed from "./SidebarCollapsed";
 
 const DEFAULT_USER: UserProfile = {
@@ -257,7 +258,7 @@ export default function Sidebar({
 
         <ScrollArea className="min-h-0 flex-1 px-2 pb-4">
           {isProjectView ? (
-            <div className="space-y-1 px-2">
+            <div className="space-y-1">
               {uploadStatus ? (
                 <div className="px-3 py-2 text-xs text-bd-text-muted">{uploadStatus}</div>
               ) : null}
@@ -266,23 +267,12 @@ export default function Sidebar({
               ) : null}
               {isLoadingFiles ? (
                 <div className="px-3 py-4 text-sm text-bd-text-muted">Loading files...</div>
-              ) : projectFiles.length === 0 ? (
-                <div className="px-3 py-4 text-sm text-bd-text-muted">No files yet</div>
               ) : (
-                projectFiles.map((file) => (
-                  <button
-                    key={file.path}
-                    type="button"
-                    onClick={() => {
-                      onFileClick(file);
-                      onClose?.();
-                    }}
-                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-[14px] text-bd-text-primary transition-all duration-200 hover:bg-bd-bg-hover"
-                  >
-                    <FileText size={16} strokeWidth={1.5} className="shrink-0 text-bd-text-muted" />
-                    <span className="truncate">{file.name}</span>
-                  </button>
-                ))
+                <ProjectFilesGrouped
+                  projectFiles={projectFiles}
+                  onFileClick={onFileClick}
+                  onClose={onClose}
+                />
               )}
             </div>
           ) : isLoadingProjects ? (
