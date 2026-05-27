@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ProjectFile } from "@/types/ui";
 
-import { categorizeProjectFiles } from "./sidebar-categorize";
+import { categorizeAppFiles, categorizeProjectFiles } from "./sidebar-categorize";
 
 function file(relativePath: string): ProjectFile {
   return { name: relativePath, path: `documents/finance/${relativePath}` };
@@ -117,5 +117,82 @@ describe("categorizeProjectFiles", () => {
     const result = categorizeProjectFiles(files);
     expect(result.apps.map((a) => a.name)).toEqual(["a-app", "z-app"]);
     expect(result.workFolders.map((w) => w.name)).toEqual(["a-folder", "z-folder"]);
+  });
+});
+
+describe("categorizeAppFiles", () => {
+  it("groups a realistic Budget app correctly", () => {
+    const files = [
+      file("AGENT.md"),
+      file("spec.md"),
+      file("plan.md"),
+      file("budget/AGENT.md"),
+      file("budget/budget.md"),
+      file("budget/budget-rules.md"),
+      file("budget/budget-rules-user.md"),
+      file("budget/create.md"),
+      file("budget/compare.md"),
+      file("budget/AGENT-user.md")
+    ];
+    const result = categorizeAppFiles(files, "budget");
+
+    expect(result.triad.agent?.name).toBe("budget/AGENT.md");
+    expect(result.triad.goals).toBeUndefined();
+    expect(result.triad.plan).toBeUndefined();
+    expect(result.state?.name).toBe("budget/budget.md");
+    expect(result.rules?.base.name).toBe("budget/budget-rules.md");
+    expect(result.rules?.overlay?.name).toBe("budget/budget-rules-user.md");
+
+    expect(result.advanced.map((f) => f.name)).toEqual([
+      "budget/AGENT-user.md",
+      "budget/budget-rules-user.md",
+      "budget/compare.md",
+      "budget/create.md"
+    ]);
+  });
+
+  it("ignores files outside the app folder", () => {
+    const files = [
+      file("AGENT.md"),
+      file("budget/AGENT.md"),
+      file("other-app/AGENT.md")
+    ];
+    const result = categorizeAppFiles(files, "budget");
+    expect(result.triad.agent?.name).toBe("budget/AGENT.md");
+    expect(result.advanced).toEqual([]);
+  });
+
+  it("surfaces spec.md / plan.md when defined at app scope", () => {
+    const files = [
+      file("budget/AGENT.md"),
+      file("budget/spec.md"),
+      file("budget/plan.md")
+    ];
+    const result = categorizeAppFiles(files, "budget");
+    expect(result.triad.goals?.name).toBe("budget/spec.md");
+    expect(result.triad.plan?.name).toBe("budget/plan.md");
+  });
+
+  it("returns no rules when the rules base file is absent", () => {
+    const files = [
+      file("budget/AGENT.md"),
+      file("budget/budget-rules-user.md")
+    ];
+    const result = categorizeAppFiles(files, "budget");
+    expect(result.rules).toBeUndefined();
+    expect(result.advanced.map((f) => f.name)).toEqual([
+      "budget/budget-rules-user.md"
+    ]);
+  });
+
+  it("treats nested sub-folders inside the app as Advanced", () => {
+    const files = [
+      file("budget/AGENT.md"),
+      file("budget/notes/scratch.md")
+    ];
+    const result = categorizeAppFiles(files, "budget");
+    expect(result.advanced.map((f) => f.name)).toEqual([
+      "budget/notes/scratch.md"
+    ]);
   });
 });

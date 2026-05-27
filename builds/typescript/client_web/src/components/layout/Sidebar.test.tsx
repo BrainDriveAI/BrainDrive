@@ -117,6 +117,54 @@ describe("Sidebar", () => {
     expect(onReturnToChat).toHaveBeenCalledTimes(1);
   });
 
+  it("enters app scope on Your Budget click and shows breadcrumb", async () => {
+    const user = userEvent.setup();
+    render(
+      <Sidebar
+        {...baseProps}
+        selectedProjectId="finance"
+        selectedProject={mockProjects[0]!}
+        projectFiles={[
+          { name: "AGENT.md", path: "documents/finance/AGENT.md" },
+          { name: "budget/AGENT.md", path: "documents/finance/budget/AGENT.md" },
+          { name: "budget/budget.md", path: "documents/finance/budget/budget.md" },
+          { name: "budget/budget-rules.md", path: "documents/finance/budget/budget-rules.md" },
+          { name: "budget/create.md", path: "documents/finance/budget/create.md" }
+        ]}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: /Your Budget/ }));
+
+    expect(screen.getByText("Budget")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Your Rules/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Your Work" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Back to Finance" })).toBeInTheDocument();
+  });
+
+  it("backs out of app scope to project scope via breadcrumb", async () => {
+    const user = userEvent.setup();
+    render(
+      <Sidebar
+        {...baseProps}
+        selectedProjectId="finance"
+        selectedProject={mockProjects[0]!}
+        projectFiles={[
+          { name: "AGENT.md", path: "documents/finance/AGENT.md" },
+          { name: "spec.md", path: "documents/finance/spec.md" },
+          { name: "budget/AGENT.md", path: "documents/finance/budget/AGENT.md" },
+          { name: "budget/budget.md", path: "documents/finance/budget/budget.md" }
+        ]}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: /Your Budget/ }));
+    await user.click(screen.getByRole("button", { name: "Back to Finance" }));
+
+    expect(screen.getByRole("button", { name: /Your Goals/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Back to project list" })).toBeInTheDocument();
+  });
+
   it("uploads a document from a selected project", async () => {
     const user = userEvent.setup();
     const onUploadDocument = vi.fn(async () => {});

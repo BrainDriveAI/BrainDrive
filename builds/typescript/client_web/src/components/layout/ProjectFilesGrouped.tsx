@@ -240,11 +240,11 @@ function AppRow({
   function handleClick() {
     if (onSelectApp) {
       onSelectApp(app);
-    } else {
-      const agentFile = app.files.find((f) => f.name === `${app.path}/AGENT.md`);
-      if (agentFile) {
-        onFileClick(agentFile);
-      }
+      return;
+    }
+    const agentFile = app.files.find((f) => f.name === `${app.path}/AGENT.md`);
+    if (agentFile) {
+      onFileClick(agentFile);
     }
     onClose?.();
   }

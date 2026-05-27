@@ -1,4 +1,4 @@
-import { ChevronLeft, MoreHorizontal, Pencil, Plus, Sparkles, Trash2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, MoreHorizontal, Pencil, Plus, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { getSession } from "@/api/auth-adapter";
@@ -6,9 +6,11 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Project, ProjectFile, UserProfile } from "@/types/ui";
 import { ACCEPTED_FILE_INPUT } from "@/utils/file-utils";
 
+import AppFilesGrouped from "./AppFilesGrouped";
 import ProfileMenu from "./ProfileMenu";
 import { getProjectIcon } from "./project-icons";
 import ProjectFilesGrouped from "./ProjectFilesGrouped";
+import { appLabel } from "./sidebar-labels";
 import SidebarCollapsed from "./SidebarCollapsed";
 
 const DEFAULT_USER: UserProfile = {
@@ -73,6 +75,11 @@ export default function Sidebar({
   const [menuOpenForProject, setMenuOpenForProject] = useState<string | null>(null);
   const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [selectedAppPath, setSelectedAppPath] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelectedAppPath(null);
+  }, [selectedProjectId]);
   const newProjectInputRef = useRef<HTMLInputElement | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const projectMenuRef = useRef<HTMLDivElement | null>(null);
@@ -207,23 +214,46 @@ export default function Sidebar({
           <div className="flex items-center gap-2 px-4 pb-3 pt-2">
             <button
               type="button"
-              aria-label="Back to project list"
-              onClick={onDeselectProject}
+              aria-label={selectedAppPath ? `Back to ${selectedProject.name}` : "Back to project list"}
+              onClick={() => {
+                if (selectedAppPath) {
+                  setSelectedAppPath(null);
+                } else {
+                  onDeselectProject();
+                }
+              }}
               className="flex h-7 w-7 items-center justify-center rounded-md text-bd-text-secondary transition-colors duration-200 hover:bg-bd-bg-hover hover:text-bd-text-primary"
             >
               <ChevronLeft size={16} strokeWidth={1.5} />
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                onReturnToChat();
-                onClose?.();
-              }}
-              className="min-w-0 truncate text-left text-sm text-bd-text-secondary transition-colors duration-200 hover:text-bd-text-primary"
-            >
-              {selectedProject.name}
-            </button>
-            {onUploadDocument ? (
+            <div className="flex min-w-0 flex-1 items-center gap-1 text-sm">
+              <button
+                type="button"
+                onClick={() => {
+                  if (selectedAppPath) {
+                    setSelectedAppPath(null);
+                  } else {
+                    onReturnToChat();
+                    onClose?.();
+                  }
+                }}
+                className={[
+                  "truncate text-left transition-colors duration-200 hover:text-bd-text-primary",
+                  selectedAppPath ? "text-bd-text-muted" : "text-bd-text-secondary"
+                ].join(" ")}
+              >
+                {selectedProject.name}
+              </button>
+              {selectedAppPath && (
+                <>
+                  <ChevronRight size={14} strokeWidth={1.5} className="shrink-0 text-bd-text-muted" />
+                  <span className="truncate text-bd-text-secondary">
+                    {appLabel(selectedAppPath).replace(/^Your /, "")}
+                  </span>
+                </>
+              )}
+            </div>
+            {!selectedAppPath && onUploadDocument ? (
               <>
                 <input
                   ref={uploadInputRef}
@@ -267,10 +297,18 @@ export default function Sidebar({
               ) : null}
               {isLoadingFiles ? (
                 <div className="px-3 py-4 text-sm text-bd-text-muted">Loading files...</div>
+              ) : selectedAppPath ? (
+                <AppFilesGrouped
+                  appPath={selectedAppPath}
+                  projectFiles={projectFiles}
+                  onFileClick={onFileClick}
+                  onClose={onClose}
+                />
               ) : (
                 <ProjectFilesGrouped
                   projectFiles={projectFiles}
                   onFileClick={onFileClick}
+                  onSelectApp={(app) => setSelectedAppPath(app.path)}
                   onClose={onClose}
                 />
               )}
