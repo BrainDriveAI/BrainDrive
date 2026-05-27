@@ -117,7 +117,7 @@ describe("Sidebar", () => {
     expect(onReturnToChat).toHaveBeenCalledTimes(1);
   });
 
-  it("renders BD+1 root sidebar with Your Agent at top and Your To-Do at bottom", () => {
+  it("renders BD+1 root sidebar with Your Agent at top and life areas below", () => {
     render(
       <Sidebar
         {...baseProps}
@@ -131,7 +131,6 @@ describe("Sidebar", () => {
     expect(screen.getByRole("button", { name: "Finance" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Career" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "New project" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Your To-Do" })).toBeInTheDocument();
   });
 
   it("enters app scope on Your Budget click and shows breadcrumb", async () => {

@@ -721,23 +721,6 @@ export async function getOwnerProfile(): Promise<string | null> {
   return payload.content;
 }
 
-export async function getOwnerTodo(): Promise<string | null> {
-  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/todo`, {
-    headers: withLocalOwnerHeaders(),
-  });
-
-  if (response.status === 404) {
-    return null;
-  }
-
-  if (!response.ok) {
-    throw await toGatewayError(response);
-  }
-
-  const payload = (await response.json()) as { content: string | null };
-  return payload.content;
-}
-
 export async function updateOwnerProfile(content: string): Promise<void> {
   const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/profile`, {
     method: "PUT",

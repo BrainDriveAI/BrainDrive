@@ -1169,17 +1169,6 @@ export async function buildServer(rootDir = process.cwd()) {
     return { content };
   });
 
-  app.get("/todo", async (request, reply) => {
-    authorize(request.authContext, "memory_access");
-    const todoPath = path.join(runtimeConfig.memory_root, "me", "todo.md");
-    if (!existsSync(todoPath)) {
-      reply.code(404);
-      return { content: null };
-    }
-    const content = await readFile(todoPath, "utf8");
-    return { content };
-  });
-
   app.put("/profile", async (request) => {
     authorize(request.authContext, "memory_access");
     const body = request.body as { content?: string };

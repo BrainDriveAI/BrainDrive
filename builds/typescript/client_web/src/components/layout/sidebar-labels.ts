@@ -52,7 +52,6 @@ export function fileLabel(filename: string, _scope: SidebarScope): string {
 
   if (base === "AGENT-user") return "Your Agent customization";
   if (base === "profile") return "Your Profile";
-  if (base === "todo") return "Your To-Do";
 
   if (base.endsWith("-rules")) return "Your Rules";
 

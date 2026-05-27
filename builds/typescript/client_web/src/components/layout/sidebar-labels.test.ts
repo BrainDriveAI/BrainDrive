@@ -65,10 +65,6 @@ describe("fileLabel", () => {
     expect(fileLabel("me/profile.md", "root")).toBe("Your Profile");
   });
 
-  it("labels todo.md as Your To-Do", () => {
-    expect(fileLabel("me/todo.md", "root")).toBe("Your To-Do");
-  });
-
   it("labels *-rules.md files as Your Rules", () => {
     expect(fileLabel("budget-rules.md", "app")).toBe("Your Rules");
   });

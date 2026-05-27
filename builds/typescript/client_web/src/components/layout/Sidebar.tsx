@@ -12,7 +12,6 @@ import { getProjectIcon } from "./project-icons";
 import ProjectFilesGrouped from "./ProjectFilesGrouped";
 import { appLabel } from "./sidebar-labels";
 import SidebarCollapsed from "./SidebarCollapsed";
-import YourTodoRow from "./YourTodoRow";
 
 const DEFAULT_USER: UserProfile = {
   name: "Local Owner",
@@ -497,8 +496,6 @@ export default function Sidebar({
                   <span className="text-[14px]">New project</span>
                 </button>
               ) : null}
-
-              <YourTodoRow />
             </div>
           )}
         </ScrollArea>
