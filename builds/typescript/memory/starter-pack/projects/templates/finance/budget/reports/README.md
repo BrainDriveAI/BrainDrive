@@ -1,6 +1,6 @@
-# Finance Reports
+# Budget Reports
 
-*Generated output folder for Finance and Budget reports.*
+*Generated output folder for Budget comparison reports.*
 
 `latest.md` is a working cache and may be overwritten by the next report run. Dated monthly archives are durable and should be written only after the reported month is closed.
 

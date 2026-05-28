@@ -221,7 +221,7 @@ export class GatewayProjectService {
       const resolvedIndexEntry = typeof normalizedOptions.indexEntry === "function"
         ? normalizedOptions.indexEntry(projectRelativePath, fileName)
         : normalizedOptions.indexEntry;
-      if (projectId === "finance" && uploadDirectory === "statements") {
+      if (projectId === "finance" && uploadDirectory === "budget/statements") {
         await upsertFinanceStatementsReadmeEntry(this.memoryRoot, {
           fileName: projectRelativePath,
           ...resolvedIndexEntry,
@@ -403,7 +403,7 @@ export class GatewayProjectService {
 }
 
 async function upsertFinanceStatementsReadmeEntry(memoryRoot: string, entry: ProjectIndexEntry): Promise<void> {
-  const readmePath = resolveMemoryPath(memoryRoot, "documents/finance/statements/README.md");
+  const readmePath = resolveMemoryPath(memoryRoot, "documents/finance/budget/statements/README.md");
   await mkdir(path.dirname(readmePath), { recursive: true });
   const current = await readFile(readmePath, "utf8").catch(() => defaultFinanceStatementsReadme());
   const next = upsertSourceEvidenceEntryContent(current, entry);
@@ -414,7 +414,7 @@ async function upsertFinanceStatementsReadmeEntry(memoryRoot: string, entry: Pro
 
 function defaultFinanceStatementsReadme(): string {
   return [
-    "# Finance Statements",
+    "# Budget Statements",
     "",
     "*Source evidence folder for uploaded bank and credit-card statement markdown.*",
     "",

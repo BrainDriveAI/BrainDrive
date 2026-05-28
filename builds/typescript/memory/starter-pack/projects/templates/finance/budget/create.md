@@ -25,7 +25,7 @@ Use owner estimates and available statements. Label assumptions, ask about mater
 
 ## After Running
 
-Report what changed, update `budget.md`, optionally refresh `../reports/latest.md` only if the owner asked for comparison output, and return to Finance scope.
+Report what changed, update `budget.md`, optionally refresh `reports/latest.md` only if the owner asked for comparison output, and return to Finance scope.
 
 ## What This Procedure Is Not
 

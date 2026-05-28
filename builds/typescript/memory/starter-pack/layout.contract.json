@@ -40,9 +40,9 @@
     "budget/budget-rules.md",
     "budget/create.md",
     "budget/compare.md",
-    "statements/README.md",
-    "reports/README.md",
-    "reports/latest.md"
+    "budget/statements/README.md",
+    "budget/reports/README.md",
+    "budget/reports/latest.md"
   ],
   "finance_optional_overlay_files": [
     "AGENT-user.md",
@@ -52,13 +52,13 @@
     "budget/budget-rules-user.md",
     "budget/create-user.md",
     "budget/compare-user.md",
-    "statements/README-user.md",
-    "reports/README-user.md"
+    "budget/statements/README-user.md",
+    "budget/reports/README-user.md"
   ],
   "finance_project_generated_directories": [
     "budget",
-    "reports",
-    "statements"
+    "budget/reports",
+    "budget/statements"
   ],
   "fitness_project_template_files": [
     "AGENT.md",

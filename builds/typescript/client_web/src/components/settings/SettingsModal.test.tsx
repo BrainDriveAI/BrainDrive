@@ -33,6 +33,10 @@ const runMemoryBackupNowMock = vi.fn<
 const restoreMemoryBackupMock = vi.fn<
   (payload?: GatewayMemoryBackupRestoreRequest) => Promise<{ result: { commit: string }; settings: GatewaySettings }>
 >();
+const getRootAgentMock = vi.fn<
+  () => Promise<{ managedContent: string; overlayContent: string | null }>
+>();
+const updateRootAgentOverlayMock = vi.fn<(content: string) => Promise<void>>();
 
 vi.mock("@/api/gateway-adapter", () => ({
   getSettings: () => getSettingsMock(),
@@ -47,6 +51,8 @@ vi.mock("@/api/gateway-adapter", () => ({
   getProviderModels: (providerProfile?: string) => getProviderModelsMock(providerProfile),
   downloadLibraryExport: () => downloadLibraryExportMock(),
   importLibraryArchive: (file: Blob) => importLibraryArchiveMock(file),
+  getRootAgent: () => getRootAgentMock(),
+  updateRootAgentOverlay: (content: string) => updateRootAgentOverlayMock(content),
 }));
 
 const baseSettings: GatewaySettings = {
@@ -120,6 +126,8 @@ describe("SettingsModal", () => {
     updateMemoryBackupSettingsMock.mockReset();
     runMemoryBackupNowMock.mockReset();
     restoreMemoryBackupMock.mockReset();
+    getRootAgentMock.mockReset();
+    updateRootAgentOverlayMock.mockReset();
     getSettingsMock.mockResolvedValue(baseSettings);
     updateSettingsMock.mockResolvedValue(baseSettings);
     updateProviderCredentialMock.mockResolvedValue({ settings: baseSettings });
@@ -132,6 +140,11 @@ describe("SettingsModal", () => {
       result: { commit: "abc123def456" },
       settings: settingsWithBackup,
     });
+    getRootAgentMock.mockResolvedValue({
+      managedContent: "# BrainDrive Agent\n\nUse the default global instructions.\n",
+      overlayContent: null,
+    });
+    updateRootAgentOverlayMock.mockResolvedValue();
     getProviderModelsMock.mockResolvedValue(providerCatalog);
     downloadLibraryExportMock.mockResolvedValue({
       fileName: "memory-export-123.tar.gz",
@@ -278,6 +291,44 @@ describe("SettingsModal", () => {
     const migrateIndex = tabLabels.indexOf("Migrate");
     expect(migrateIndex).toBeGreaterThanOrEqual(0);
     expect(backupIndex).toBeGreaterThanOrEqual(0);
+  });
+
+  it("edits the owner global agent overlay from the Your Agent tab", async () => {
+    const user = userEvent.setup();
+    getRootAgentMock
+      .mockResolvedValueOnce({
+        managedContent: "# BrainDrive Agent\n\nUse the default global instructions.\n",
+        overlayContent: null,
+      })
+      .mockResolvedValueOnce({
+        managedContent: "# BrainDrive Agent\n\nUse the default global instructions.\n",
+        overlayContent: "Use concise answers.\n",
+      });
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+
+    await waitFor(() => {
+      expect(getSettingsMock).toHaveBeenCalledTimes(1);
+    });
+
+    await user.click(screen.getAllByRole("button", { name: "Your Agent" })[0]!);
+
+    await waitFor(() => {
+      expect(getRootAgentMock).toHaveBeenCalled();
+    });
+
+    expect(screen.getAllByText("AGENT.md").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Use the default global instructions/)).not.toBeInTheDocument();
+    await user.click(screen.getAllByRole("button", { name: /Managed Default/i })[0]!);
+    expect(await screen.findByText(/Use the default global instructions/)).toBeInTheDocument();
+
+    const textarea = screen.getAllByLabelText("Your agent customization")[0]!;
+    await user.type(textarea, "Use concise answers.");
+    await user.click(screen.getAllByRole("button", { name: "Save" })[0]!);
+
+    await waitFor(() => {
+      expect(updateRootAgentOverlayMock).toHaveBeenCalledWith("Use concise answers.");
+    });
+    expect(await screen.findByText("Your agent customization was saved.")).toBeInTheDocument();
   });
 
   it("saves memory backup settings", async () => {

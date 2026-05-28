@@ -169,9 +169,9 @@ const FINANCE_DRAFT3_FILES = [
   "budget/budget-rules.md",
   "budget/create.md",
   "budget/compare.md",
-  "statements/README.md",
-  "reports/README.md",
-  "reports/latest.md",
+  "budget/statements/README.md",
+  "budget/reports/README.md",
+  "budget/reports/latest.md",
 ] as const;
 const FITNESS_HEALTH_DOC_FILES = [
   "health-docs/index.md",

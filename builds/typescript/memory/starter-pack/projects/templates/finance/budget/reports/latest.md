@@ -9,7 +9,7 @@
 
 This is derived output from the Budget app. It may be overwritten by the next comparison run.
 
-Do not use this report as the saved budget. The saved spending plan lives in `../budget/budget.md`.
+Do not use this report as the saved budget. The saved spending plan lives in `../budget.md`.
 
 ## Summary
 

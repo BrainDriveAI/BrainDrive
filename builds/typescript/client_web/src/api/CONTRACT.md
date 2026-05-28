@@ -13,6 +13,8 @@
 > - `PUT /api/settings`
 > - `GET /api/settings/onboarding-status`
 > - `PUT /api/settings/credentials`
+> - `GET /api/agent`
+> - `PUT /api/agent`
 > - `GET /api/export`
 > Streaming canonical event fields are `text-delta.delta` and `tool-call.input`.
 
@@ -24,6 +26,41 @@ This document describes the current local-mode contract between the V1 interface
 - Vite rewrites `/api/*` to the standalone gateway on `http://127.0.0.1:3000/*`
 
 ## Endpoints
+
+### `GET /api/agent`
+
+Reads the runtime global agent files from the owner memory root. The managed default is `AGENT.md`; the owner customization overlay is `AGENT-user.md` when present.
+
+Response example:
+
+```json
+{
+  "managed_content": "# BrainDrive Agent\n\nManaged default...",
+  "overlay_content": "Use concise answers.\n"
+}
+```
+
+When no owner overlay exists, `overlay_content` is `null`.
+
+### `PUT /api/agent`
+
+Writes the owner customization overlay to runtime memory as `AGENT-user.md`. The managed default `AGENT.md` is not edited by this endpoint. After saving, the gateway reloads the active bootstrap prompt so the change applies to new agent turns immediately.
+
+Request body:
+
+```json
+{
+  "overlay_content": "Use concise answers.\n"
+}
+```
+
+Response:
+
+```json
+{
+  "ok": true
+}
+```
 
 ### `POST /api/conversations/messages`
 
@@ -277,7 +314,7 @@ Uploads a document into a writable project folder and saves the result as markdo
 `braindrive-plus-one` is not a valid upload target. Markdown and text files are saved directly. CSV files are converted directly to markdown tables. Images and PDFs are converted to markdown through the configured provider before the markdown file is written.
 Successful uploads create or update the project's document index when that project uses one.
 
-Finance uploads include an additional metadata pass after conversion. Statement-like bank and credit card uploads may be saved under `documents/finance/statements/` with a safe model-suggested filename such as `2026-05-capital-one.md`; those source uploads update `documents/finance/statements/README.md`, and the final response path is authoritative.
+Finance uploads include an additional metadata pass after conversion. Statement-like bank and credit card uploads may be saved under `documents/finance/budget/statements/` with a safe model-suggested filename such as `2026-05-capital-one.md`; those source uploads update `documents/finance/budget/statements/README.md`, and the final response path is authoritative.
 
 Supported inputs:
 
@@ -315,7 +352,7 @@ CSV uploads return `conversion: "direct_csv_upload"`. A Finance statement upload
 {
   "file": {
     "name": "2026-05-capital-one.md",
-    "path": "documents/finance/statements/2026-05-capital-one.md"
+    "path": "documents/finance/budget/statements/2026-05-capital-one.md"
   },
   "conversion": "direct_csv_upload"
 }
