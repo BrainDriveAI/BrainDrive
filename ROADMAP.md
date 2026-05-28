@@ -47,6 +47,8 @@ Built on the [Personal AI Architecture](https://github.com/Personal-AI-Architect
 - **Finances.** Take control of your money — define a budget, track real spend, stay on plan when things shift.
 - **Your Agent.** Talk through anything else that's on your mind — to-dos, hard conversations, meal planning, the everyday decisions that don't have their own page.
 
+**And the ability to make your own.** BrainDrive ships with the surfaces above and the machinery to create and share new ones — yours, and others built by the community.
+
 **Where we are right now.** BrainDrive can already get to know you and help you make a plan. We're now building the parts that help you execute on the plan and let changes in one area ripple into the related ones.
 
 **Wherever you sit down to work with it.** Desktop today. Mobile, voice, and messaging as we get there. Your BrainDrive meets you where you are.
