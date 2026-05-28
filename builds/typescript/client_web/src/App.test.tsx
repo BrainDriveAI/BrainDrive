@@ -112,7 +112,7 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
     expect(
-      (await screen.findAllByPlaceholderText("Message your BrainDrive...")).length
+      (await screen.findAllByPlaceholderText("Message your agent...")).length
     ).toBeGreaterThan(0);
   });
 });

@@ -43,10 +43,10 @@ describe("appLabel", () => {
 });
 
 describe("fileLabel", () => {
-  it("labels AGENT.md as Your Agent at every scope", () => {
+  it("labels AGENT.md as Your Agent only at BD root; canonical at project + app", () => {
     expect(fileLabel("AGENT.md", "root")).toBe("Your Agent");
-    expect(fileLabel("AGENT.md", "project")).toBe("Your Agent");
-    expect(fileLabel("AGENT.md", "app")).toBe("Your Agent");
+    expect(fileLabel("AGENT.md", "project")).toBe("AGENT.md");
+    expect(fileLabel("AGENT.md", "app")).toBe("AGENT.md");
   });
 
   it("labels spec.md as Your Goals", () => {

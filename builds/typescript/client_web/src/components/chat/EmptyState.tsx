@@ -56,13 +56,26 @@ const DEFAULT_INTRO: ProjectIntro = {
   cta: "Let's get started"
 };
 
+const APP_INTROS: Record<string, ProjectIntro> = {
+  budget: {
+    heading: "Let's work on your budget",
+    description:
+      "Upload a statement, ask how a category is tracking, or tell me what you want to change. I'll work from your budget and rules.",
+    cta: "Show me my budget"
+  }
+};
+
 type EmptyStateProps = {
   projectId?: string | null;
+  appPath?: string | null;
   onSuggestionClick?: (suggestion: string) => void;
 };
 
-export default function EmptyState({ projectId, onSuggestionClick }: EmptyStateProps) {
-  const intro = (projectId && PROJECT_INTROS[projectId]) || DEFAULT_INTRO;
+export default function EmptyState({ projectId, appPath, onSuggestionClick }: EmptyStateProps) {
+  const intro =
+    (appPath && APP_INTROS[appPath]) ||
+    (projectId && PROJECT_INTROS[projectId]) ||
+    DEFAULT_INTRO;
 
   return (
     <div

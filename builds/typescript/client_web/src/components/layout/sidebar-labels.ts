@@ -43,10 +43,14 @@ export function appLabel(name: string): string {
  * Falls back to the filename verbatim when no mapping applies (so
  * Advanced-section managed files keep their real names).
  */
-export function fileLabel(filename: string, _scope: SidebarScope): string {
+export function fileLabel(filename: string, scope: SidebarScope): string {
   const base = stripExt(basename(filename));
 
-  if (base === "AGENT") return "Your Agent";
+  // AGENT.md is "Your Agent" only at BD root (where it's consumed by the
+  // Settings page). At project + app scope the agent is rooted at BD+1;
+  // AGENT.md is a customization knob and shows by its canonical name.
+  if (base === "AGENT") return scope === "root" ? "Your Agent" : "AGENT.md";
+
   if (base === "spec") return "Your Goals";
   if (base === "plan") return "Your Plan";
 

@@ -77,7 +77,7 @@ const FALLBACK_PROJECT_SEEDS: Array<{ id: string; name: string; icon: string }> 
   { id: "career", name: "Career", icon: "briefcase" },
   { id: "relationships", name: "Relationships", icon: "users" },
   { id: "fitness", name: "Fitness", icon: "dumbbell" },
-  { id: "finance", name: "Finance", icon: "dollar-sign" },
+  { id: "finance", name: "Finances", icon: "dollar-sign" },
   { id: "new-project", name: "Your New Project", icon: "folder-plus" },
 ];
 

@@ -1,5 +1,4 @@
 import {
-  Bot,
   ChevronDown,
   ChevronRight,
   DollarSign,
@@ -48,7 +47,7 @@ export default function ProjectFilesGrouped({
   const { triad, apps, workFolders, advanced } = categorizeProjectFiles(projectFiles);
 
   const hasAny =
-    Boolean(triad.agent || triad.goals || triad.plan) ||
+    Boolean(triad.goals || triad.plan) ||
     apps.length > 0 ||
     workFolders.length > 0 ||
     advanced.length > 0;
@@ -59,19 +58,8 @@ export default function ProjectFilesGrouped({
 
   return (
     <div className="space-y-4 px-2">
-      {(triad.agent || triad.goals || triad.plan || apps.length > 0) && (
-        <Section label="Your Project">
-          {triad.agent && (
-            <TriadRow
-              icon={Bot}
-              label="Your Agent"
-              canonical={triad.agent.name}
-              onClick={() => {
-                onFileClick(triad.agent!);
-                onClose?.();
-              }}
-            />
-          )}
+      {(triad.goals || triad.plan || apps.length > 0) && (
+        <div className="space-y-1">
           {triad.goals && (
             <TriadRow
               icon={Target}
@@ -103,12 +91,12 @@ export default function ProjectFilesGrouped({
               onClose={onClose}
             />
           ))}
-        </Section>
+        </div>
       )}
 
       {workFolders.length > 0 && (
         <CollapsibleSection
-          label="Your Work"
+          label="Your Files"
           isOpen={isWorkOpen}
           onToggle={() => setIsWorkOpen((current) => !current)}
         >
@@ -147,17 +135,6 @@ export default function ProjectFilesGrouped({
           ))}
         </CollapsibleSection>
       )}
-    </div>
-  );
-}
-
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <div className="px-3 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-bd-text-muted">
-        {label}
-      </div>
-      <div className="space-y-1">{children}</div>
     </div>
   );
 }
@@ -240,11 +217,12 @@ function AppRow({
   function handleClick() {
     if (onSelectApp) {
       onSelectApp(app);
-      return;
     }
+    const stateFile = app.files.find((f) => f.name === `${app.path}/${app.name}.md`);
     const agentFile = app.files.find((f) => f.name === `${app.path}/AGENT.md`);
-    if (agentFile) {
-      onFileClick(agentFile);
+    const target = stateFile ?? agentFile;
+    if (target) {
+      onFileClick(target);
     }
     onClose?.();
   }

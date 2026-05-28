@@ -41,6 +41,8 @@ type SidebarProps = {
   uploadStatus?: string | null;
   uploadError?: string | null;
   tier?: "local" | "concierge";
+  selectedAppPath?: string | null;
+  onSelectAppPath?: (path: string | null) => void;
   onClose?: () => void;
 };
 
@@ -66,6 +68,8 @@ export default function Sidebar({
   uploadStatus,
   uploadError,
   tier = "local",
+  selectedAppPath: selectedAppPathProp,
+  onSelectAppPath,
   onClose
 }: SidebarProps) {
   const [user, setUser] = useState<UserProfile>(DEFAULT_USER);
@@ -75,10 +79,20 @@ export default function Sidebar({
   const [menuOpenForProject, setMenuOpenForProject] = useState<string | null>(null);
   const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
-  const [selectedAppPath, setSelectedAppPath] = useState<string | null>(null);
+  const [internalAppPath, setInternalAppPath] = useState<string | null>(null);
+
+  const selectedAppPath = selectedAppPathProp !== undefined ? selectedAppPathProp : internalAppPath;
+  const setSelectedAppPath = (path: string | null) => {
+    if (onSelectAppPath) {
+      onSelectAppPath(path);
+    } else {
+      setInternalAppPath(path);
+    }
+  };
 
   useEffect(() => {
     setSelectedAppPath(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedProjectId]);
   const newProjectInputRef = useRef<HTMLInputElement | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -247,9 +261,25 @@ export default function Sidebar({
               {selectedAppPath && (
                 <>
                   <ChevronRight size={14} strokeWidth={1.5} className="shrink-0 text-bd-text-muted" />
-                  <span className="truncate text-bd-text-secondary">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const stateFile = projectFiles.find(
+                        (f) => f.name === `${selectedAppPath}/${selectedAppPath}.md`
+                      );
+                      const agentFile = projectFiles.find(
+                        (f) => f.name === `${selectedAppPath}/AGENT.md`
+                      );
+                      const target = stateFile ?? agentFile;
+                      if (target) {
+                        onFileClick(target);
+                      }
+                      onClose?.();
+                    }}
+                    className="truncate text-left text-bd-text-secondary transition-colors duration-200 hover:text-bd-text-primary"
+                  >
                     {appLabel(selectedAppPath).replace(/^Your /, "")}
-                  </span>
+                  </button>
                 </>
               )}
             </div>

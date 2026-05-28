@@ -38,6 +38,7 @@ export default function AppShell({
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [activeFile, setActiveFile] = useState<ProjectFile | null>(null);
+  const [selectedAppPath, setSelectedAppPath] = useState<string | null>(null);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [memoryUpdateNotice, setMemoryUpdateNotice] = useState<{
@@ -67,7 +68,11 @@ export default function AppShell({
   } = useProjects();
 
   const messageMetadata =
-    selectedProjectId !== null ? { client: "web", project: selectedProjectId } : { client: "web" };
+    selectedProjectId !== null
+      ? selectedAppPath !== null
+        ? { client: "web", project: selectedProjectId, app: selectedAppPath }
+        : { client: "web", project: selectedProjectId }
+      : { client: "web" };
 
   // Send heartbeat to gateway every 5 minutes in managed mode so the idle
   // monitor knows the user is still active and won't stop the container.
@@ -109,6 +114,7 @@ export default function AppShell({
 
   useEffect(() => {
     setActiveFile(null);
+    setSelectedAppPath(null);
     setUploadStatus(null);
     setUploadError(null);
   }, [selectedProjectId]);
@@ -358,6 +364,8 @@ export default function AppShell({
           onUploadDocument={handleUploadDocument}
           uploadStatus={uploadStatus}
           uploadError={uploadError}
+          selectedAppPath={selectedAppPath}
+          onSelectAppPath={setSelectedAppPath}
         />
       </div>
 
@@ -397,6 +405,8 @@ export default function AppShell({
               onUploadDocument={handleUploadDocument}
               uploadStatus={uploadStatus}
               uploadError={uploadError}
+              selectedAppPath={selectedAppPath}
+              onSelectAppPath={setSelectedAppPath}
               onClose={() => {
                 setIsMobileSidebarOpen(false);
               }}
@@ -448,7 +458,8 @@ export default function AppShell({
             <ChatPanel
               activeConversationId={activeConversationId}
               activeProjectId={selectedProjectId}
-              draftKey={selectedProjectId}
+              activeAppPath={selectedAppPath}
+              draftKey={selectedAppPath ? `${selectedProjectId}/${selectedAppPath}` : selectedProjectId}
               isEmpty={activeConversationId === null}
               onConversationComplete={handleConversationComplete}
               messageMetadata={messageMetadata}

@@ -85,11 +85,13 @@ describe("Sidebar", () => {
     );
 
     expect(screen.getByRole("button", { name: "Finance" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Your Agent/ })).toBeInTheDocument();
+    // At project scope there is no Your Agent peer — the agent is rooted at BD+1.
+    // AGENT.md lives under Advanced as a customization knob.
+    expect(screen.queryByRole("button", { name: /^Your Agent/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Your Goals/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Your Plan/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Your Budget/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Your Work" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Your Files" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Advanced" })).toBeInTheDocument();
     expect(screen.queryByPlaceholderText("Search chats...")).not.toBeInTheDocument();
   });
@@ -152,9 +154,14 @@ describe("Sidebar", () => {
 
     await user.click(screen.getByRole("button", { name: /Your Budget/ }));
 
-    expect(screen.getByText("Budget")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Your Rules/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Your Work" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Budget" })).toBeInTheDocument();
+    // At app scope there is no Your Agent peer — the agent is rooted at BD+1.
+    // AGENT.md lives under Advanced.
+    expect(screen.queryByRole("button", { name: /^Your Agent/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Your Budget/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Your Rules/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Your Files" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Advanced" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Back to Finance" })).toBeInTheDocument();
   });
 

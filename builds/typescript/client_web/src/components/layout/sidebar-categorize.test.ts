@@ -17,16 +17,15 @@ describe("categorizeProjectFiles", () => {
     expect(result.advanced).toEqual([]);
   });
 
-  it("places AGENT.md / spec.md / plan.md into the triad", () => {
+  it("places spec.md / plan.md into the triad and AGENT.md into Advanced", () => {
     const files = [file("AGENT.md"), file("spec.md"), file("plan.md")];
     const result = categorizeProjectFiles(files);
-    expect(result.triad.agent?.name).toBe("AGENT.md");
     expect(result.triad.goals?.name).toBe("spec.md");
     expect(result.triad.plan?.name).toBe("plan.md");
-    expect(result.advanced).toEqual([]);
+    expect(result.advanced.map((f) => f.name)).toEqual(["AGENT.md"]);
   });
 
-  it("treats run-*.md and *-user.md root files as Advanced", () => {
+  it("treats AGENT.md, run-*.md, and *-user.md root files as Advanced", () => {
     const files = [
       file("AGENT.md"),
       file("run-interview.md"),
@@ -36,6 +35,7 @@ describe("categorizeProjectFiles", () => {
     const result = categorizeProjectFiles(files);
     expect(result.advanced.map((f) => f.name)).toEqual([
       "AGENT-user.md",
+      "AGENT.md",
       "run-interview.md",
       "run-planning.md"
     ]);
@@ -88,7 +88,6 @@ describe("categorizeProjectFiles", () => {
     ];
     const result = categorizeProjectFiles(files);
 
-    expect(result.triad.agent?.name).toBe("AGENT.md");
     expect(result.triad.goals?.name).toBe("spec.md");
     expect(result.triad.plan?.name).toBe("plan.md");
 
@@ -101,6 +100,7 @@ describe("categorizeProjectFiles", () => {
     ]);
 
     expect(result.advanced.map((f) => f.name)).toEqual([
+      "AGENT.md",
       "run-interview.md",
       "run-planning.md"
     ]);
@@ -136,7 +136,6 @@ describe("categorizeAppFiles", () => {
     ];
     const result = categorizeAppFiles(files, "budget");
 
-    expect(result.triad.agent?.name).toBe("budget/AGENT.md");
     expect(result.triad.goals).toBeUndefined();
     expect(result.triad.plan).toBeUndefined();
     expect(result.state?.name).toBe("budget/budget.md");
@@ -145,6 +144,7 @@ describe("categorizeAppFiles", () => {
 
     expect(result.advanced.map((f) => f.name)).toEqual([
       "budget/AGENT-user.md",
+      "budget/AGENT.md",
       "budget/budget-rules-user.md",
       "budget/compare.md",
       "budget/create.md"
@@ -158,8 +158,7 @@ describe("categorizeAppFiles", () => {
       file("other-app/AGENT.md")
     ];
     const result = categorizeAppFiles(files, "budget");
-    expect(result.triad.agent?.name).toBe("budget/AGENT.md");
-    expect(result.advanced).toEqual([]);
+    expect(result.advanced.map((f) => f.name)).toEqual(["budget/AGENT.md"]);
   });
 
   it("surfaces spec.md / plan.md when defined at app scope", () => {
@@ -181,18 +180,32 @@ describe("categorizeAppFiles", () => {
     const result = categorizeAppFiles(files, "budget");
     expect(result.rules).toBeUndefined();
     expect(result.advanced.map((f) => f.name)).toEqual([
+      "budget/AGENT.md",
       "budget/budget-rules-user.md"
     ]);
   });
 
-  it("treats nested sub-folders inside the app as Advanced", () => {
+  it("groups nested sub-folders without AGENT.md into Your Work", () => {
     const files = [
       file("budget/AGENT.md"),
-      file("budget/notes/scratch.md")
+      file("budget/reports/README.md"),
+      file("budget/statements/README.md")
+    ];
+    const result = categorizeAppFiles(files, "budget");
+    expect(result.workFolders.map((f) => f.name)).toEqual(["reports", "statements"]);
+    expect(result.advanced.map((f) => f.name)).toEqual(["budget/AGENT.md"]);
+  });
+
+  it("treats nested sub-folders that contain an AGENT.md as Advanced (no nested apps in V1)", () => {
+    const files = [
+      file("budget/AGENT.md"),
+      file("budget/nested-app/AGENT.md")
     ];
     const result = categorizeAppFiles(files, "budget");
     expect(result.advanced.map((f) => f.name)).toEqual([
-      "budget/notes/scratch.md"
+      "budget/AGENT.md",
+      "budget/nested-app/AGENT.md"
     ]);
+    expect(result.workFolders).toEqual([]);
   });
 });
