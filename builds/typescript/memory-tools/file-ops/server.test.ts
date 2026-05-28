@@ -125,3 +125,81 @@ describe("file ops memory_delete", () => {
     }
   });
 });
+
+describe("file ops memory_search", () => {
+  it("excludes diagnostics audit files from model-facing search results", async () => {
+    const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-file-ops-search-diagnostics-"));
+    const searchTool = fileOpsTools().find((tool) => tool.name === "memory_search");
+
+    try {
+      await mkdir(path.join(memoryRoot, "diagnostics", "prompt-audit"), { recursive: true });
+      await mkdir(path.join(memoryRoot, "documents", "finance"), { recursive: true });
+      await writeFile(
+        path.join(memoryRoot, "diagnostics", "prompt-audit", "2026-05-28.jsonl"),
+        JSON.stringify({ messages: [{ content: "MJP Services recursive prompt audit payload" }] }),
+        "utf8"
+      );
+      await writeFile(
+        path.join(memoryRoot, "documents", "finance", "plan.md"),
+        "Check MJP Services in the April statement.\n",
+        "utf8"
+      );
+
+      const result = await searchTool?.execute(toolContext(memoryRoot), { query: "MJP Services" }) as {
+        matches: Array<{ path: string; content: string }>;
+      };
+
+      expect(result.matches).toHaveLength(1);
+      expect(result.matches[0]?.path).toContain("documents/finance/plan.md");
+      expect(result.matches.map((match) => match.path).join("\n")).not.toContain("diagnostics/prompt-audit");
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("hides diagnostics from memory_list so audit logs are not discoverable through browsing", async () => {
+    const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-file-ops-list-diagnostics-"));
+    const listTool = fileOpsTools().find((tool) => tool.name === "memory_list");
+
+    try {
+      await mkdir(path.join(memoryRoot, "diagnostics", "prompt-audit"), { recursive: true });
+      await mkdir(path.join(memoryRoot, "documents", "finance"), { recursive: true });
+
+      const result = await listTool?.execute(toolContext(memoryRoot), { path: "." }) as {
+        entries: string[];
+      };
+
+      expect(result.entries).toContain("documents/");
+      expect(result.entries).not.toContain("diagnostics/");
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("caps search result size and returns an excerpt around the query", async () => {
+    const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-file-ops-search-cap-"));
+    const searchTool = fileOpsTools().find((tool) => tool.name === "memory_search");
+
+    try {
+      await mkdir(path.join(memoryRoot, "documents", "finance"), { recursive: true });
+      await writeFile(
+        path.join(memoryRoot, "documents", "finance", "statement.md"),
+        `${"A".repeat(5_000)} Blue Door ${"B".repeat(5_000)}\n`,
+        "utf8"
+      );
+
+      const result = await searchTool?.execute(toolContext(memoryRoot), { query: "Blue Door" }) as {
+        matches: Array<{ content: string }>;
+        limits: { max_match_content_chars: number };
+      };
+
+      expect(result.matches).toHaveLength(1);
+      expect(result.matches[0]?.content).toContain("Blue Door");
+      expect(result.matches[0]?.content.length).toBeLessThanOrEqual(result.limits.max_match_content_chars + 16);
+      expect(result.matches[0]?.content).toMatch(/^\[\.\.\.\]/);
+      expect(result.matches[0]?.content).toMatch(/\[\.\.\.\]$/);
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
+});
