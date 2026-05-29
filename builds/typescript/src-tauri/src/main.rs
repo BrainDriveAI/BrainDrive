@@ -1492,10 +1492,19 @@ fn apply_firewall_rule_for_status(
     }
 
     if cfg!(target_os = "macos") {
-        return FirewallRuleResult {
-            ok: false,
-            message: "macOS firewall rules are app-based. If prompted, allow incoming connections for BrainDrive in System Settings.".to_string(),
-            command,
+        return match open_macos_firewall_settings() {
+            Ok(_) => FirewallRuleResult {
+                ok: true,
+                message: "Opened macOS System Settings. In Network > Firewall, allow incoming connections for BrainDrive if prompted.".to_string(),
+                command,
+            },
+            Err(error) => FirewallRuleResult {
+                ok: false,
+                message: format!(
+                    "Open macOS System Settings > Network > Firewall and allow incoming connections for BrainDrive. Unable to open System Settings automatically: {error}"
+                ),
+                command,
+            },
         };
     }
 
@@ -1519,13 +1528,26 @@ fn firewall_rule_command(status: &BrowserAccessStatus, enabled: bool) -> String 
             format!("netsh advfirewall firewall delete rule name=\"{FIREWALL_RULE_NAME}\"")
         }
     } else if cfg!(target_os = "macos") {
-        "Open System Settings > Network > Firewall and allow incoming connections for BrainDrive."
-            .to_string()
+        "open -b com.apple.systempreferences".to_string()
     } else if enabled {
         format!("Allow inbound TCP {port} from your private network.")
     } else {
         format!("Remove the inbound TCP {port} private-network firewall rule.")
     }
+}
+
+#[cfg(target_os = "macos")]
+fn open_macos_firewall_settings() -> Result<(), String> {
+    Command::new("open")
+        .args(["-b", "com.apple.systempreferences"])
+        .spawn()
+        .map(|_| ())
+        .map_err(display_error)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn open_macos_firewall_settings() -> Result<(), String> {
+    Err("macOS System Settings are only available on macOS.".to_string())
 }
 
 #[cfg(windows)]

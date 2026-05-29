@@ -10,6 +10,20 @@ import type {
 
 import SettingsModal from "./SettingsModal";
 
+type BrowserAccessStatus = {
+  enabled: boolean;
+  state: string;
+  networkScope: "thisComputer" | "privateNetwork";
+  bindAddress: string;
+  requestedPort: number;
+  port: number | null;
+  urls: string[];
+  configPath: string;
+  firewallHint: string;
+  lastError: string | null;
+  accountInitialized: boolean | null;
+};
+
 const getSettingsMock = vi.fn<() => Promise<GatewaySettings>>();
 const updateSettingsMock = vi.fn<
   (patch: Partial<Pick<GatewaySettings, "default_model" | "active_provider_profile">>) => Promise<GatewaySettings>
@@ -33,6 +47,10 @@ const runMemoryBackupNowMock = vi.fn<
 const restoreMemoryBackupMock = vi.fn<
   (payload?: GatewayMemoryBackupRestoreRequest) => Promise<{ result: { commit: string }; settings: GatewaySettings }>
 >();
+const getBrowserAccessStatusMock = vi.fn<() => Promise<BrowserAccessStatus>>();
+const updateBrowserAccessSettingsMock = vi.fn();
+const restartBrowserAccessMock = vi.fn();
+const applyBrowserAccessFirewallRuleMock = vi.fn();
 
 vi.mock("@/api/gateway-adapter", () => ({
   getSettings: () => getSettingsMock(),
@@ -47,6 +65,13 @@ vi.mock("@/api/gateway-adapter", () => ({
   getProviderModels: (providerProfile?: string) => getProviderModelsMock(providerProfile),
   downloadLibraryExport: () => downloadLibraryExportMock(),
   importLibraryArchive: (file: Blob) => importLibraryArchiveMock(file),
+}));
+
+vi.mock("@/api/desktop-browser-access", () => ({
+  getBrowserAccessStatus: () => getBrowserAccessStatusMock(),
+  updateBrowserAccessSettings: (settings: unknown) => updateBrowserAccessSettingsMock(settings),
+  restartBrowserAccess: () => restartBrowserAccessMock(),
+  applyBrowserAccessFirewallRule: (enabled: boolean) => applyBrowserAccessFirewallRuleMock(enabled),
 }));
 
 const baseSettings: GatewaySettings = {
@@ -109,6 +134,20 @@ const settingsWithBackup: GatewaySettings = {
   },
 };
 
+const browserAccessStatus: BrowserAccessStatus = {
+  enabled: true,
+  state: "running",
+  networkScope: "privateNetwork",
+  bindAddress: "0.0.0.0",
+  requestedPort: 18088,
+  port: 18088,
+  urls: ["http://127.0.0.1:18088", "http://192.168.1.10:18088"],
+  configPath: "/Users/test/Library/Application Support/ai.braindrive.desktop/browser-access.json",
+  firewallHint: "macOS may ask you to allow incoming connections for BrainDrive.",
+  lastError: null,
+  accountInitialized: true,
+};
+
 describe("SettingsModal", () => {
   beforeEach(() => {
     getSettingsMock.mockReset();
@@ -120,6 +159,10 @@ describe("SettingsModal", () => {
     updateMemoryBackupSettingsMock.mockReset();
     runMemoryBackupNowMock.mockReset();
     restoreMemoryBackupMock.mockReset();
+    getBrowserAccessStatusMock.mockReset();
+    updateBrowserAccessSettingsMock.mockReset();
+    restartBrowserAccessMock.mockReset();
+    applyBrowserAccessFirewallRuleMock.mockReset();
     getSettingsMock.mockResolvedValue(baseSettings);
     updateSettingsMock.mockResolvedValue(baseSettings);
     updateProviderCredentialMock.mockResolvedValue({ settings: baseSettings });
@@ -148,10 +191,20 @@ describe("SettingsModal", () => {
       warnings: [],
       settings: baseSettings,
     });
+    getBrowserAccessStatusMock.mockResolvedValue(browserAccessStatus);
+    updateBrowserAccessSettingsMock.mockResolvedValue(browserAccessStatus);
+    restartBrowserAccessMock.mockResolvedValue(browserAccessStatus);
+    applyBrowserAccessFirewallRuleMock.mockResolvedValue({
+      ok: true,
+      message: "Opened macOS System Settings. In Network > Firewall, allow incoming connections for BrainDrive if prompted.",
+      command: "open -b com.apple.systempreferences",
+    });
+    delete window.__TAURI_INTERNALS__;
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    delete window.__TAURI_INTERNALS__;
   });
 
   it("loads local settings and saves provider profile updates", async () => {
@@ -278,6 +331,41 @@ describe("SettingsModal", () => {
     const migrateIndex = tabLabels.indexOf("Migrate");
     expect(migrateIndex).toBeGreaterThanOrEqual(0);
     expect(backupIndex).toBeGreaterThanOrEqual(0);
+  });
+
+  it("renders platform-specific Browser Access firewall guidance in the desktop app", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+
+    await user.click(screen.getAllByRole("button", { name: "Browser Access" })[0]!);
+
+    await waitFor(() => {
+      expect(getBrowserAccessStatusMock).toHaveBeenCalled();
+    });
+    expect(screen.getAllByText("macOS may ask you to allow incoming connections for BrainDrive.").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Private-network access may require a Windows Firewall rule.")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Only browsers on this computer.").length).toBeGreaterThan(0);
+  });
+
+  it("shows the macOS firewall handoff result from Browser Access", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+
+    await user.click(screen.getAllByRole("button", { name: "Browser Access" })[0]!);
+    await waitFor(() => {
+      expect(screen.getAllByRole("button", { name: /Firewall/i }).length).toBeGreaterThan(0);
+    });
+
+    await user.click(screen.getAllByRole("button", { name: /Firewall/i })[0]!);
+
+    await waitFor(() => {
+      expect(applyBrowserAccessFirewallRuleMock).toHaveBeenCalledWith(true);
+    });
+    expect(
+      screen.getAllByText("Opened macOS System Settings. In Network > Firewall, allow incoming connections for BrainDrive if prompted.").length
+    ).toBeGreaterThan(0);
   });
 
   it("saves memory backup settings", async () => {
