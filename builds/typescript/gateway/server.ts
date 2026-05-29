@@ -113,6 +113,12 @@ const fileContentWriteSchema = z.object({
   content: z.string(),
 });
 
+const rootAgentUpdateSchema = z
+  .object({
+    overlay_content: z.string(),
+  })
+  .strict();
+
 const projectDocumentUploadSchema = z
   .object({
     file_name: z.string().trim().min(1),
@@ -740,6 +746,7 @@ export async function buildServer(rootDir = process.cwd()) {
 
     const { conversationId, message: currentUserMessage } = conversations.persistUserMessage(requestedConversationId, body);
     const projectId = isProjectMetadata(body.metadata) ? body.metadata.project.trim() : null;
+    const appPath = projectId ? normalizeAppMetadataPath(body.metadata) : null;
     if (isProjectMetadata(body.metadata)) {
       await projects.attachConversation(body.metadata.project.trim(), conversationId);
     }
@@ -760,7 +767,7 @@ export async function buildServer(rootDir = process.cwd()) {
     // files to read — it would read all projects and behave like BD+1.
     const projectFiles = projectId ? (await projects.listProjectFiles(projectId))?.files ?? [] : [];
     const projectContext = projectId
-      ? buildProjectChatContext(projectId, projectFiles)
+      ? buildProjectChatContext(projectId, projectFiles, { appPath })
       : "";
     const finalPrompt = promptWithSkills.prompt + projectContext;
 
@@ -806,6 +813,7 @@ export async function buildServer(rootDir = process.cwd()) {
     await promptAuditRecorder?.append("prompt_audit.trace_started", {
       route: "/message",
       project_id: projectId,
+      app_path: appPath,
       requested_conversation_id: requestedConversationId ?? null,
       enabled_detail: promptAuditRecorder.detail,
     });
@@ -813,6 +821,7 @@ export async function buildServer(rootDir = process.cwd()) {
       memoryRoot: runtimeConfig.memory_root,
       conversationId,
       projectId,
+      appPath,
       projectFiles,
       projectContext,
       currentUserMessage,
@@ -1248,6 +1257,38 @@ export async function buildServer(rootDir = process.cwd()) {
     await mkdir(profileDir, { recursive: true });
     await writeFileAsync(profilePath, body.content, "utf8");
     await commitMemoryChange(runtimeConfig.memory_root, "Update owner profile via UI").catch(() => {});
+    return { ok: true };
+  });
+
+  app.get("/agent", async (request, reply) => {
+    authorize(request.authContext, "memory_access");
+    const managedPath = path.join(runtimeConfig.memory_root, "AGENT.md");
+    const overlayPath = path.join(runtimeConfig.memory_root, "AGENT-user.md");
+    if (!existsSync(managedPath)) {
+      reply.code(404).send({ error: "Agent not found" });
+      return;
+    }
+
+    const managedContent = await readFile(managedPath, "utf8");
+    const overlayContent = existsSync(overlayPath) ? await readFile(overlayPath, "utf8") : null;
+    return {
+      managed_content: managedContent,
+      overlay_content: overlayContent,
+    };
+  });
+
+  app.put("/agent", async (request, reply) => {
+    authorize(request.authContext, "memory_access");
+    const parsed = rootAgentUpdateSchema.safeParse(request.body);
+    if (!parsed.success) {
+      sendInvalidRequest(reply, "/agent", parsed.error.issues.length);
+      return;
+    }
+
+    const overlayPath = path.join(runtimeConfig.memory_root, "AGENT-user.md");
+    await writeFile(overlayPath, parsed.data.overlay_content, "utf8");
+    await commitMemoryChange(runtimeConfig.memory_root, "Update global agent overlay via UI").catch(() => {});
+    systemPrompt = await readBootstrapPrompt(runtimeConfig.memory_root);
     return { ok: true };
   });
 
@@ -2381,7 +2422,7 @@ export async function buildServer(rootDir = process.cwd()) {
       );
       const importedAt = new Date().toISOString();
       const markdown = buildUploadedMarkdownDocument(uploadInput, converted, { importedAt, metadata });
-      const uploadDirectory = project.id === "finance" && metadata.statementLike ? "statements" : undefined;
+      const uploadDirectory = project.id === "finance" && metadata.statementLike ? "budget/statements" : undefined;
       const preferredFileName = uploadDirectory
         ? sanitizeSuggestedMarkdownFileName(metadata.suggestedFileName, parsed.data.file_name)
         : undefined;
@@ -3234,11 +3275,19 @@ function normalizeOllamaOpenAIBaseUrl(baseUrl: string): string {
   return parsed.toString().replace(/\/$/, "");
 }
 
-export function buildProjectChatContext(projectId: string, files: GatewayProjectFile[]): string {
+export function buildProjectChatContext(
+  projectId: string,
+  files: GatewayProjectFile[],
+  options: { appPath?: string | null } = {}
+): string {
   const sortedFiles = [...files].sort((left, right) => left.name.localeCompare(right.name));
   const visibleFiles = sortedFiles.slice(0, 80);
   const omittedCount = Math.max(0, sortedFiles.length - visibleFiles.length);
   const hasIndex = sortedFiles.some((file) => file.name === "index.md" || file.path === `documents/${projectId}/index.md`);
+  const appPath = normalizeProjectRelativePath(options.appPath ?? null);
+  const appContextGuidance = appPath
+    ? buildAppChatContextGuidance(projectId, appPath, sortedFiles)
+    : [];
   const financeBudgetGuidance = projectId === "finance"
     ? [
         "Read documents/finance/AGENT.md, then documents/finance/AGENT-user.md if present. For project alignment, read documents/finance/spec.md and documents/finance/plan.md.",
@@ -3247,18 +3296,18 @@ export function buildProjectChatContext(projectId: string, files: GatewayProject
         "For a Budget procedure, read the managed procedure first, then the matching -user.md overlay if present, such as compare.md before compare-user.md.",
         "For explicit Finance execution requests about budgets, debt, uploads, statements, spending, or reports, complete the Finance task before coaching or cross-domain discussion.",
         "For 'how did I do?', monthly comparison, over/under, or budget progress questions, treat documents/finance/budget/budget.md as the saved budget and compare statement actuals against it.",
-        "Use documents/finance/statements/ as source evidence and documents/finance/reports/ as derived output for budget reports.",
+        "Use documents/finance/budget/statements/ as source evidence and documents/finance/budget/reports/ as derived output for budget reports.",
         "Do not write to documents/finance/budget/budget.md during a saved-budget comparison unless the owner explicitly asks to revise the saved budget.",
-        "During saved-budget comparison mode, do not call memory_write, memory_edit, or memory_delete on documents/finance/budget/budget.md; write comparison output only to documents/finance/reports/latest.md or a closed-period reports file.",
+        "During saved-budget comparison mode, do not call memory_write, memory_edit, or memory_delete on documents/finance/budget/budget.md; write comparison output only to documents/finance/budget/reports/latest.md or a closed-period reports file.",
         "Preserve documents/finance/budget/budget.md byte-for-byte during saved-budget comparisons. Do not make formatting-only, table-alignment, whitespace, note, category, or no-op rewrites.",
         "If the owner says to leave the saved budget alone, not rewrite the saved budget, or compare against the saved budget, documents/finance/budget/budget.md is read-only for that turn.",
-        "If you are about to write documents/finance/budget/budget.md during a comparison, stop and write the comparison findings to documents/finance/reports/latest.md instead.",
-        "Put saved-budget comparison findings in documents/finance/reports/latest.md; answer direct comparison questions with best-effort evidence before asking extra clarification questions.",
-        "Do not write a monthly archive such as documents/finance/reports/monthly-YYYY-MM.md until today's date is after the reported month has closed.",
+        "If you are about to write documents/finance/budget/budget.md during a comparison, stop and write the comparison findings to documents/finance/budget/reports/latest.md instead.",
+        "Put saved-budget comparison findings in documents/finance/budget/reports/latest.md; answer direct comparison questions with best-effort evidence before asking extra clarification questions.",
+        "Do not write a monthly archive such as documents/finance/budget/reports/monthly-YYYY-MM.md until today's date is after the reported month has closed.",
         "Check for duplicate or overlapping statement evidence before counting transactions in budget reports.",
         "Before writing a budget comparison report, re-read the relevant statement files, build a source evidence ledger, account for named merchants, and do not claim a merchant is missing unless the relevant source files were checked.",
         "For monthly comparisons, read statement files whose date range overlaps the requested month even if the filename uses the starting month, ending month, account name, or converted upload name.",
-        "If an upload was just mentioned but the expected filename is not visible, call memory_list on documents/finance and documents/finance/statements and search converted statement filenames/date ranges before asking the owner to re-upload.",
+        "If an upload was just mentioned but the expected filename is not visible, call memory_list on documents/finance/budget and documents/finance/budget/statements and search converted statement filenames/date ranges before asking the owner to re-upload.",
         "Treat source evidence ledger rows as locked evidence for the comparison turn; if a found item is named by the owner, new/unusual, material, excluded, or needs review, carry it into the final report.",
         "Before finalizing reports/latest.md, verify that every owner-named item found in source statements appears by exact statement description in the final report; if it is absent, revise the report before answering.",
         "If the owner mentions a named merchant or transaction, search source statements for that exact item and close variants before answering; if source evidence shows it, do not accept a later conversational guess that it was absent.",
@@ -3294,6 +3343,7 @@ export function buildProjectChatContext(projectId: string, files: GatewayProject
       ? `Read documents/${projectId}/index.md before deciding which supporting documents to open. It is this folder's document map.`
       : `If documents/${projectId}/index.md appears later in the file list, read it before deciding which supporting documents to open.`,
     ...financeBudgetGuidance,
+    ...appContextGuidance,
     "Stay focused on this domain; do not read or reference other projects unless the conversation specifically calls for cross-domain connections.",
     "",
     "### Current Project Files",
@@ -3308,10 +3358,84 @@ export function buildProjectChatContext(projectId: string, files: GatewayProject
   ].join("\n");
 }
 
+function buildAppChatContextGuidance(
+  projectId: string,
+  appPath: string,
+  files: GatewayProjectFile[]
+): string[] {
+  const appRootName = appPath.split("/").filter(Boolean).pop() ?? appPath;
+  const appPrefix = `documents/${projectId}/${appPath}/`;
+  const appFiles = files.filter((file) => file.path.startsWith(appPrefix));
+  const hasAppAgent = appFiles.some((file) => file.path === `${appPrefix}AGENT.md`);
+  const hasAppOverlay = appFiles.some((file) => file.path === `${appPrefix}AGENT-user.md`);
+  const hasAppState = appFiles.some((file) => file.path === `${appPrefix}${appRootName}.md`);
+  const hasRules = appFiles.some((file) => file.path === `${appPrefix}${appRootName}-rules.md`);
+  const hasRulesOverlay = appFiles.some((file) => file.path === `${appPrefix}${appRootName}-rules-user.md`);
+  const hasNestedStatements = appFiles.some((file) => file.path.startsWith(`${appPrefix}statements/`));
+  const hasNestedReports = appFiles.some((file) => file.path.startsWith(`${appPrefix}reports/`));
+
+  return [
+    "",
+    "### Active App Scope",
+    "",
+    `The client is focused on the app folder documents/${projectId}/${appPath}/.`,
+    hasAppAgent
+      ? `Read documents/${projectId}/${appPath}/AGENT.md${hasAppOverlay ? `, then documents/${projectId}/${appPath}/AGENT-user.md` : ""} before app-specific work.`
+      : `No AGENT.md is currently listed for documents/${projectId}/${appPath}/; use the project AGENT.md and the app files that are present.`,
+    hasAppState
+      ? `Treat documents/${projectId}/${appPath}/${appRootName}.md as this app's owner state file.`
+      : `No ${appRootName}.md state file is currently listed for this app; inspect the app folder before assuming the state path.`,
+    hasRules
+      ? `For app rules, read documents/${projectId}/${appPath}/${appRootName}-rules.md${hasRulesOverlay ? `, then documents/${projectId}/${appPath}/${appRootName}-rules-user.md` : ""}.`
+      : `No ${appRootName}-rules.md file is currently listed for this app.`,
+    hasNestedStatements
+      ? `Use documents/${projectId}/${appPath}/statements/ as app source evidence when relevant.`
+      : "",
+    hasNestedReports
+      ? `Use documents/${projectId}/${appPath}/reports/ for app-generated reports when relevant.`
+      : "",
+    `Stay inside documents/${projectId}/${appPath}/ for app-specific reads and writes unless the owner asks for project-level work or the app instructions point to project-level source/output folders.`,
+  ].filter(Boolean);
+}
+
+function normalizeAppMetadataPath(metadata: Record<string, unknown> | undefined): string | null {
+  if (typeof metadata?.app !== "string") {
+    return null;
+  }
+
+  return normalizeProjectRelativePath(metadata.app);
+}
+
+function normalizeProjectRelativePath(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "")
+    .replace(/\/+/g, "/")
+    .replace(/\/$/, "")
+    .trim();
+
+  if (
+    normalized.length === 0 ||
+    normalized.startsWith("../") ||
+    normalized.includes("/../") ||
+    normalized === ".." ||
+    normalized.includes("\0")
+  ) {
+    return null;
+  }
+
+  return normalized;
+}
+
 async function buildPromptAuditAssembly(input: {
   memoryRoot: string;
   conversationId: string;
   projectId: string | null;
+  appPath: string | null;
   projectFiles: GatewayProjectFile[];
   projectContext: string;
   currentUserMessage: ConversationMessage;
@@ -3360,6 +3484,7 @@ async function buildPromptAuditAssembly(input: {
     },
     project_context: {
       project_id: input.projectId,
+      app_path: input.appPath,
       files: input.projectFiles.map((file) => ({
         name: file.name,
         path: file.path,
@@ -3471,7 +3596,7 @@ export function createFinanceBudgetProtectionGuard(
     const output = {
       code: "permission_denied",
       message:
-        "documents/finance/budget/budget.md is read-only during a saved-budget comparison. Read it for saved limits and write comparison findings to documents/finance/reports/latest.md instead. Only revise the saved budget when the owner explicitly asks to change the budget.",
+        "documents/finance/budget/budget.md is read-only during a saved-budget comparison. Read it for saved limits and write comparison findings to documents/finance/budget/reports/latest.md instead. Only revise the saved budget when the owner explicitly asks to change the budget.",
       path: FINANCE_BUDGET_PROTECTED_PATH,
       recoverable: true,
     };

@@ -116,7 +116,10 @@ vi.mock("./memory-backup-scheduler.js", () => ({
 }));
 
 import { buildServer } from "./server.js";
-import { loadPreferences as loadPreferencesConfigMock } from "../config.js";
+import {
+  loadPreferences as loadPreferencesConfigMock,
+  readBootstrapPrompt as readBootstrapPromptConfigMock,
+} from "../config.js";
 
 type TestServerContext = {
   app: Awaited<ReturnType<typeof buildServer>>["app"];
@@ -707,6 +710,38 @@ describe.sequential("gateway auth route integration", () => {
 
     expect(response.statusCode).toBe(401);
     expect(parseJson<{ error: string }>(response.body).error).toBe("Unauthorized");
+  });
+
+  it("reads and updates the root agent owner overlay", async () => {
+    context = await createTestServer({ authMode: "local-owner" });
+    const memoryRoot = path.join(context.tempRoot, "memory");
+    await writeFile(path.join(memoryRoot, "AGENT.md"), "# BrainDrive Agent\n\nManaged default.\n", "utf8");
+
+    const readResponse = await context.app.inject({
+      method: "GET",
+      url: "/agent",
+      headers: localOwnerAdminHeaders(),
+    });
+
+    expect(readResponse.statusCode).toBe(200);
+    expect(parseJson<{ managed_content: string; overlay_content: string | null }>(readResponse.body)).toEqual({
+      managed_content: "# BrainDrive Agent\n\nManaged default.\n",
+      overlay_content: null,
+    });
+
+    vi.mocked(readBootstrapPromptConfigMock).mockClear();
+    const updateResponse = await context.app.inject({
+      method: "PUT",
+      url: "/agent",
+      headers: localOwnerAdminHeaders(),
+      payload: {
+        overlay_content: "Use concise answers.\n",
+      },
+    });
+
+    expect(updateResponse.statusCode).toBe(200);
+    await expect(readFile(path.join(memoryRoot, "AGENT-user.md"), "utf8")).resolves.toBe("Use concise answers.\n");
+    expect(readBootstrapPromptConfigMock).toHaveBeenCalledWith(memoryRoot);
   });
 
   it("requires onboarding when active provider credential is unset", async () => {

@@ -1,8 +1,9 @@
-import { ChevronRight, Settings, Sparkles } from "lucide-react";
+import { Bot, ChevronRight, Settings } from "lucide-react";
 
 import type { Project } from "@/types/ui";
 
 import { getProjectIcon } from "./project-icons";
+import { rootProjectDisplayLabel } from "./sidebar-labels";
 
 type SidebarCollapsedProps = {
   onToggle: () => void;
@@ -46,10 +47,10 @@ export default function SidebarCollapsed({
               ? "bg-bd-amber text-bd-bg-primary"
               : "bg-bd-bg-tertiary text-bd-text-primary"
           ].join(" ")}
-          title="BrainDrive+1"
-          aria-label="BrainDrive+1"
+          title="Your Agent"
+          aria-label="Your Agent"
         >
-          <Sparkles size={16} strokeWidth={1.8} />
+          <Bot size={16} strokeWidth={1.8} />
         </button>
         {projects.filter((p) => p.id !== "braindrive-plus-one").map((project) => {
           const Icon = getProjectIcon(project.icon);
@@ -69,8 +70,8 @@ export default function SidebarCollapsed({
                   ? "bg-bd-amber text-bd-bg-primary"
                   : "bg-bd-bg-tertiary text-bd-text-primary"
               ].join(" ")}
-              title={project.name}
-              aria-label={project.name}
+              title={rootProjectDisplayLabel(project.id, project.name)}
+              aria-label={rootProjectDisplayLabel(project.id, project.name)}
             >
               <Icon size={16} strokeWidth={1.8} />
             </button>

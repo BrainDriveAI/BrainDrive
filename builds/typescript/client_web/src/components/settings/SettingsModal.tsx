@@ -1,5 +1,8 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
+  Bot,
+  ChevronDown,
+  ChevronRight,
   Copy,
   Download,
   ExternalLink,
@@ -38,6 +41,7 @@ import {
   deleteProviderModel,
   downloadLibraryExport,
   importLibraryArchive,
+  getRootAgent,
   getOwnerProfile,
   getProviderModels,
   getSettings as getGatewaySettings,
@@ -46,6 +50,7 @@ import {
   pullProviderModel,
   updateMemoryBackupSettings as updateGatewayMemoryBackupSettings,
   updateOwnerProfile,
+  updateRootAgentOverlay,
   updateProviderCredential as updateGatewayProviderCredential,
   updateSettings as updateGatewaySettings,
   getAccount,
@@ -84,17 +89,18 @@ type SettingsModalProps = {
   onClose: () => void;
 };
 
-type SettingsTab = "provider" | "model" | "profile" | "account" | "export" | "memory-backup" | "browser-access";
+type SettingsTab = "provider" | "model" | "profile" | "your-agent" | "account" | "export" | "memory-backup" | "browser-access";
 
 type TabDef = { id: SettingsTab; label: string; icon: typeof Key; managedOnly?: boolean; localOnly?: boolean; desktopOnly?: boolean };
 
-// Managed hosting shows: Account, Owner Profile, Export (D93).
-// Local shows: Default Model, Model Providers, Owner Profile, Browser Access, Memory Backup, Export.
+// Managed hosting shows: Account, Your Profile, Your Agent, Export (D93).
+// Local shows: Default Model, Model Providers, Your Profile, Your Agent, Browser Access, Memory Backup, Export.
 const allTabs: TabDef[] = [
   { id: "account", label: "Account", icon: UserCog, managedOnly: true },
   { id: "model", label: "AI Model", icon: Cpu, localOnly: true },
   { id: "provider", label: "Model Providers", icon: Key, localOnly: true },
   { id: "profile", label: "Your Profile", icon: User },
+  { id: "your-agent", label: "Your Agent", icon: Bot },
   { id: "browser-access", label: "Browser Access", icon: Network, localOnly: true, desktopOnly: true },
   { id: "memory-backup", label: "Backup", icon: Save, localOnly: true },
   { id: "export", label: "Migrate", icon: Download },
@@ -658,6 +664,8 @@ function TabContent({
       return <BrowserAccessSection />;
     case "profile":
       return <ProfileSection />;
+    case "your-agent":
+      return <YourAgentSection />;
     case "account":
       return <AccountSection />;
     case "export":
@@ -2734,6 +2742,195 @@ function ProfileSection() {
         </div>
       </div>
 
+    </div>
+  );
+}
+
+function YourAgentSection() {
+  const [managedContent, setManagedContent] = useState("");
+  const [overlayContent, setOverlayContent] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [isCustomizationOpen, setIsCustomizationOpen] = useState(true);
+  const [isManagedOpen, setIsManagedOpen] = useState(false);
+
+  async function loadAgent() {
+    setIsLoading(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const content = await getRootAgent();
+      setManagedContent(content.managedContent);
+      setOverlayContent(content.overlayContent);
+      setDraft(content.overlayContent ?? "");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load your agent");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleSave() {
+    setIsSaving(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await updateRootAgentOverlay(draft);
+      const content = await getRootAgent();
+      setManagedContent(content.managedContent);
+      setOverlayContent(content.overlayContent);
+      setDraft(content.overlayContent ?? "");
+      setMessage("Your agent customization was saved.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save your agent");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  function handleRevert() {
+    setDraft(overlayContent ?? "");
+    setError(null);
+    setMessage(null);
+  }
+
+  useEffect(() => {
+    void loadAgent();
+  }, []);
+
+  const hasChanges = draft !== (overlayContent ?? "");
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="font-heading text-base font-semibold text-bd-text-heading">
+          Your Agent
+        </h3>
+        <p className="mt-1 text-sm text-bd-text-muted">
+          Your global agent controls the personality, tone, and operating style BrainDrive uses across every project.
+          Project and app agents add focused instructions on top of this one.
+        </p>
+      </div>
+
+      {error && (
+        <div className="flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+          <AlertCircle size={14} className="mt-0.5 shrink-0" />
+          {error}
+        </div>
+      )}
+
+      {message && (
+        <div className="flex items-start gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">
+          <Check size={14} className="mt-0.5 shrink-0" />
+          {message}
+        </div>
+      )}
+
+      <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary p-4">
+        <div className="mb-3 flex items-start gap-3">
+          <Info size={18} strokeWidth={1.5} className="mt-0.5 shrink-0 text-bd-text-secondary" />
+          <div className="space-y-1 text-sm text-bd-text-secondary">
+            <p>
+              BrainDrive keeps the managed default in <code className="rounded bg-bd-bg-secondary px-1 text-[11px] text-bd-text-primary">AGENT.md</code>.
+              Your changes are saved to <code className="rounded bg-bd-bg-secondary px-1 text-[11px] text-bd-text-primary">AGENT-user.md</code> so updates can refresh the default without overwriting your customization.
+            </p>
+          </div>
+        </div>
+
+        {isLoading ? (
+          <div className="flex items-center gap-2 py-4 text-sm text-bd-text-muted">
+            <LoaderCircle size={16} className="animate-spin" />
+            Loading your agent...
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="rounded-lg border border-bd-border bg-bd-bg-secondary/40">
+              <button
+                type="button"
+                onClick={() => setIsCustomizationOpen((open) => !open)}
+                aria-expanded={isCustomizationOpen}
+                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  {isCustomizationOpen ? (
+                    <ChevronDown size={16} className="shrink-0 text-bd-text-muted" />
+                  ) : (
+                    <ChevronRight size={16} className="shrink-0 text-bd-text-muted" />
+                  )}
+                  <span className="text-sm font-semibold text-bd-text-heading">Owner Customization</span>
+                </span>
+                <span className="shrink-0 text-xs text-bd-text-muted">AGENT-user.md</span>
+              </button>
+
+              {isCustomizationOpen && (
+                <div className="border-t border-bd-border px-4 py-4">
+                  <textarea
+                    aria-label="Your agent customization"
+                    value={draft}
+                    onChange={(event) => {
+                      setDraft(event.target.value);
+                      setMessage(null);
+                    }}
+                    placeholder="Add instructions for how your global agent should work with you..."
+                    spellCheck={false}
+                    className="min-h-[320px] w-full resize-y rounded-lg border border-bd-border bg-bd-bg-secondary px-4 py-3 font-mono text-[13px] leading-6 text-bd-text-primary outline-none transition-colors placeholder:text-bd-text-muted focus:border-bd-amber/60"
+                  />
+                  <div className="mt-3 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={handleRevert}
+                      disabled={!hasChanges || isSaving}
+                      className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-secondary hover:text-bd-text-heading disabled:opacity-50"
+                    >
+                      <RotateCcw size={14} />
+                      Revert
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSave}
+                      disabled={!hasChanges || isSaving}
+                      className="flex items-center gap-1.5 rounded-md bg-bd-amber px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-bd-amber-hover disabled:opacity-50"
+                    >
+                      {isSaving ? <LoaderCircle size={14} className="animate-spin" /> : <Save size={14} />}
+                      {isSaving ? "Saving..." : "Save"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-bd-border bg-bd-bg-secondary/40">
+              <button
+                type="button"
+                onClick={() => setIsManagedOpen((open) => !open)}
+                aria-expanded={isManagedOpen}
+                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  {isManagedOpen ? (
+                    <ChevronDown size={16} className="shrink-0 text-bd-text-muted" />
+                  ) : (
+                    <ChevronRight size={16} className="shrink-0 text-bd-text-muted" />
+                  )}
+                  <span className="text-sm font-semibold text-bd-text-heading">Managed Default</span>
+                </span>
+                <span className="shrink-0 text-xs text-bd-text-muted">AGENT.md</span>
+              </button>
+
+              {isManagedOpen && (
+                <div className="border-t border-bd-border px-4 py-4">
+                  <pre className="max-h-[360px] overflow-auto rounded-lg border border-bd-border bg-bd-bg-secondary p-4 text-[12px] leading-5 text-bd-text-secondary">
+                    <code>{managedContent}</code>
+                  </pre>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-# Finance Statements
+# Budget Statements
 
 *Source evidence folder for uploaded bank and credit-card statement markdown.*
 

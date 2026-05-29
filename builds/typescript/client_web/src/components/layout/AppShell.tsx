@@ -38,6 +38,7 @@ export default function AppShell({
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [activeFile, setActiveFile] = useState<ProjectFile | null>(null);
+  const [activeAppPath, setActiveAppPath] = useState<string | null>(null);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [memoryUpdateNotice, setMemoryUpdateNotice] = useState<{
@@ -67,7 +68,18 @@ export default function AppShell({
   } = useProjects();
 
   const messageMetadata =
-    selectedProjectId !== null ? { client: "web", project: selectedProjectId } : { client: "web" };
+    selectedProjectId !== null
+      ? {
+          client: "web",
+          project: selectedProjectId,
+          ...(activeAppPath ? { app: activeAppPath } : {}),
+        }
+      : { client: "web" };
+  const chatDraftKey = selectedProjectId
+    ? activeAppPath
+      ? `${selectedProjectId}:${activeAppPath}`
+      : selectedProjectId
+    : null;
 
   // Send heartbeat to gateway every 5 minutes in managed mode so the idle
   // monitor knows the user is still active and won't stop the container.
@@ -109,6 +121,7 @@ export default function AppShell({
 
   useEffect(() => {
     setActiveFile(null);
+    setActiveAppPath(null);
     setUploadStatus(null);
     setUploadError(null);
   }, [selectedProjectId]);
@@ -342,11 +355,13 @@ export default function AppShell({
           projects={projects}
           selectedProjectId={selectedProjectId}
           selectedProject={selectedProject}
+          activeAppPath={activeAppPath}
           projectFiles={projectFiles}
           isLoadingProjects={isLoadingProjects}
           isLoadingFiles={isLoadingFiles}
           onSelectProject={selectProject}
           onDeselectProject={deselectProject}
+          onSelectAppPath={setActiveAppPath}
           onReturnToChat={handleReturnToChat}
           onFileClick={handleFileClick}
           onOpenSettings={() => setIsSettingsOpen(true)}
@@ -378,11 +393,13 @@ export default function AppShell({
               projects={projects}
               selectedProjectId={selectedProjectId}
               selectedProject={selectedProject}
+              activeAppPath={activeAppPath}
               projectFiles={projectFiles}
               isLoadingProjects={isLoadingProjects}
               isLoadingFiles={isLoadingFiles}
               onSelectProject={selectProject}
               onDeselectProject={deselectProject}
+              onSelectAppPath={setActiveAppPath}
               onReturnToChat={handleReturnToChat}
               onFileClick={handleFileClick}
               onOpenSettings={() => {
@@ -448,7 +465,8 @@ export default function AppShell({
             <ChatPanel
               activeConversationId={activeConversationId}
               activeProjectId={selectedProjectId}
-              draftKey={selectedProjectId}
+              activeAppPath={activeAppPath}
+              draftKey={chatDraftKey}
               isEmpty={activeConversationId === null}
               onConversationComplete={handleConversationComplete}
               messageMetadata={messageMetadata}

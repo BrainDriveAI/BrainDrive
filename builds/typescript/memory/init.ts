@@ -55,9 +55,9 @@ const FINANCE_PROJECT_TEMPLATE_FILES = [
   "budget/budget-rules.md",
   "budget/create.md",
   "budget/compare.md",
-  "statements/README.md",
-  "reports/README.md",
-  "reports/latest.md",
+  "budget/statements/README.md",
+  "budget/reports/README.md",
+  "budget/reports/latest.md",
 ] as const;
 const FITNESS_PROJECT_TEMPLATE_FILES = [
   "health-docs/index.md",
@@ -297,8 +297,8 @@ export async function scaffoldProjectFiles(
 
   if (isFinanceTemplate) {
     await ensureDirectory(resolveMemoryPath(absoluteMemoryRoot, `documents/${projectId}/budget`), absoluteMemoryRoot, summary, dryRun);
-    await ensureDirectory(resolveMemoryPath(absoluteMemoryRoot, `documents/${projectId}/statements`), absoluteMemoryRoot, summary, dryRun);
-    await ensureDirectory(resolveMemoryPath(absoluteMemoryRoot, `documents/${projectId}/reports`), absoluteMemoryRoot, summary, dryRun);
+    await ensureDirectory(resolveMemoryPath(absoluteMemoryRoot, `documents/${projectId}/budget/statements`), absoluteMemoryRoot, summary, dryRun);
+    await ensureDirectory(resolveMemoryPath(absoluteMemoryRoot, `documents/${projectId}/budget/reports`), absoluteMemoryRoot, summary, dryRun);
     for (const templateFile of FINANCE_PROJECT_TEMPLATE_FILES) {
       await ensureProjectTemplateFile(
         absoluteMemoryRoot,
@@ -914,7 +914,7 @@ function fallbackProjectTemplateContent(projectName: string, fileName: string): 
       "|---|---|---|",
       "| Create or revise saved budget | Owner wants to define or change budget limits | `create.md`, then `create-user.md` if present |",
       "| Monthly comparison | Owner asks how actuals compare to the saved budget | `compare.md`, then `compare-user.md` if present |",
-      "| Source upload routing | Owner uploads statements | `../statements/README.md` |",
+      "| Source upload routing | Owner uploads statements | `statements/README.md` |",
       "",
     ].join("\n");
   }
@@ -1003,7 +1003,7 @@ function fallbackProjectTemplateContent(projectName: string, fileName: string): 
     ].join("\n");
   }
 
-  if (fileName === "reports/latest.md") {
+  if (fileName === "budget/reports/latest.md") {
     return [
       "# Latest Budget Report",
       "",
@@ -1016,7 +1016,7 @@ function fallbackProjectTemplateContent(projectName: string, fileName: string): 
       "",
       "This is derived output from the Budget app. It may be overwritten by the next comparison run.",
       "",
-      "Do not use this report as the saved budget. The saved spending plan lives in `../budget/budget.md`.",
+      "Do not use this report as the saved budget. The saved spending plan lives in `../budget.md`.",
       "",
       "## Summary",
       "",
@@ -1122,9 +1122,9 @@ function fallbackProjectTemplateContent(projectName: string, fileName: string): 
       "",
       "## Method",
       "",
-      "Read `budget.md`, `budget-rules.md`, `budget-rules-user.md` if present, `../statements/README.md`, and relevant statements. Build a source evidence ledger before writing the report.",
+      "Read `budget.md`, `budget-rules.md`, `budget-rules-user.md` if present, `statements/README.md`, and relevant statements. Build a source evidence ledger before writing the report.",
       "",
-      "Write `../reports/latest.md` by default. Write `../reports/monthly-YYYY-MM.md` only after the reported month is closed.",
+      "Write `reports/latest.md` by default. Write `reports/monthly-YYYY-MM.md` only after the reported month is closed.",
       "",
       "## Done Criteria",
       "",
@@ -1141,9 +1141,9 @@ function fallbackProjectTemplateContent(projectName: string, fileName: string): 
     ].join("\n");
   }
 
-  if (fileName === "statements/README.md") {
+  if (fileName === "budget/statements/README.md") {
     return [
-      "# Finance Statements",
+      "# Budget Statements",
       "",
       "*Source evidence folder for uploaded bank and credit-card statement markdown.*",
       "",
@@ -1154,9 +1154,9 @@ function fallbackProjectTemplateContent(projectName: string, fileName: string): 
     ].join("\n");
   }
 
-  if (fileName === "reports/README.md") {
+  if (fileName === "budget/reports/README.md") {
     return [
-      "# Finance Reports",
+      "# Budget Reports",
       "",
       "*Generated output folder for Finance and Budget reports.*",
       "",

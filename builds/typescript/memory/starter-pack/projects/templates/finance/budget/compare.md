@@ -18,9 +18,9 @@ Produce an evidence-backed comparison report showing actual spending, budget var
 
 ## Method
 
-Read `budget.md`, `budget-rules.md`, `budget-rules-user.md` if present, `../statements/README.md`, and relevant statements. Build a source evidence ledger before writing the report.
+Read `budget.md`, `budget-rules.md`, `budget-rules-user.md` if present, `statements/README.md`, and relevant statements. Build a source evidence ledger before writing the report.
 
-Write `../reports/latest.md` by default. Write `../reports/monthly-YYYY-MM.md` only after the reported month is closed.
+Write `reports/latest.md` by default. Write `reports/monthly-YYYY-MM.md` only after the reported month is closed.
 
 ## Done Criteria
 

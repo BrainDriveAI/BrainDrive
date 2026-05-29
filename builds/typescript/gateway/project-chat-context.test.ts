@@ -42,14 +42,14 @@ describe("project chat context", () => {
     expect(context).toContain("do not rely on documents/finance/index.md, documents/finance/rules.md, or documents/finance/budgeting/");
     expect(context).toContain("complete the Finance task before coaching or cross-domain discussion");
     expect(context).toContain("treat documents/finance/budget/budget.md as the saved budget");
-    expect(context).toContain("Use documents/finance/statements/ as source evidence");
+    expect(context).toContain("Use documents/finance/budget/statements/ as source evidence");
     expect(context).toContain("Do not write to documents/finance/budget/budget.md during a saved-budget comparison");
     expect(context).toContain("do not call memory_write, memory_edit, or memory_delete on documents/finance/budget/budget.md");
     expect(context).toContain("Preserve documents/finance/budget/budget.md byte-for-byte");
     expect(context).toContain("formatting-only, table-alignment, whitespace");
     expect(context).toContain("documents/finance/budget/budget.md is read-only for that turn");
     expect(context).toContain("If you are about to write documents/finance/budget/budget.md during a comparison, stop");
-    expect(context).toContain("Put saved-budget comparison findings in documents/finance/reports/latest.md");
+    expect(context).toContain("Put saved-budget comparison findings in documents/finance/budget/reports/latest.md");
     expect(context).toContain("Do not write a monthly archive");
     expect(context).toContain("Check for duplicate or overlapping statement evidence");
     expect(context).toContain("build a source evidence ledger");
@@ -60,7 +60,7 @@ describe("project chat context", () => {
     expect(context).toContain("compare the Owner-Requested Items Audit rows against the final report sections");
     expect(context).toContain("account for named merchants");
     expect(context).toContain("date range overlaps the requested month");
-    expect(context).toContain("call memory_list on documents/finance and documents/finance/statements");
+    expect(context).toContain("call memory_list on documents/finance/budget and documents/finance/budget/statements");
     expect(context).toContain("do not accept a later conversational guess that it was absent");
     expect(context).toContain("New Or Unbudgeted Items section");
     expect(context).toContain("exact transaction description");
@@ -71,6 +71,51 @@ describe("project chat context", () => {
     expect(context).toContain("current file list at the start of this user turn");
     expect(context).toContain("Do not rely on earlier conversation claims");
     expect(context).toContain("call memory_delete when a matching file exists");
+  });
+
+  it("adds app-scope context when client metadata selects an app folder", () => {
+    const context = buildProjectChatContext("finance", [
+      {
+        name: "AGENT.md",
+        path: "documents/finance/AGENT.md",
+      },
+      {
+        name: "budget/AGENT.md",
+        path: "documents/finance/budget/AGENT.md",
+      },
+      {
+        name: "budget/AGENT-user.md",
+        path: "documents/finance/budget/AGENT-user.md",
+      },
+      {
+        name: "budget/budget.md",
+        path: "documents/finance/budget/budget.md",
+      },
+      {
+        name: "budget/budget-rules.md",
+        path: "documents/finance/budget/budget-rules.md",
+      },
+      {
+        name: "budget/budget-rules-user.md",
+        path: "documents/finance/budget/budget-rules-user.md",
+      },
+      {
+        name: "budget/statements/2026-05-card.md",
+        path: "documents/finance/budget/statements/2026-05-card.md",
+      },
+      {
+        name: "budget/reports/latest.md",
+        path: "documents/finance/budget/reports/latest.md",
+      },
+    ], { appPath: "budget" });
+
+    expect(context).toContain("### Active App Scope");
+    expect(context).toContain("focused on the app folder documents/finance/budget/");
+    expect(context).toContain("Read documents/finance/budget/AGENT.md, then documents/finance/budget/AGENT-user.md");
+    expect(context).toContain("Treat documents/finance/budget/budget.md as this app's owner state file");
+    expect(context).toContain("read documents/finance/budget/budget-rules.md, then documents/finance/budget/budget-rules-user.md");
+    expect(context).toContain("Use documents/finance/budget/statements/ as app source evidence");
+    expect(context).toContain("Use documents/finance/budget/reports/ for app-generated reports");
   });
 
   it("blocks Finance saved-budget comparison writes to budget.md", () => {
@@ -98,7 +143,7 @@ describe("project chat context", () => {
     ]));
 
     const result = guard?.("memory_write", {
-      path: "documents/finance/reports/latest.md",
+      path: "documents/finance/budget/reports/latest.md",
       content: "# Report\n",
     });
 
@@ -118,7 +163,7 @@ describe("project chat context", () => {
     expect(isProtectedFinanceBudgetMutation("memory_edit", { path: "./documents/finance/budget/budget.md" })).toBe(true);
     expect(isProtectedFinanceBudgetMutation("memory_delete", { path: "documents\\finance\\budget\\budget.md" })).toBe(true);
     expect(isProtectedFinanceBudgetMutation("memory_read", { path: "documents/finance/budget/budget.md" })).toBe(false);
-    expect(isProtectedFinanceBudgetMutation("memory_write", { path: "documents/finance/reports/latest.md" })).toBe(false);
+    expect(isProtectedFinanceBudgetMutation("memory_write", { path: "documents/finance/budget/reports/latest.md" })).toBe(false);
   });
 
   it("recognizes saved-budget comparison conversation state", () => {
@@ -139,17 +184,17 @@ describe("project chat context", () => {
       ]));
 
       const result = guard("memory_write", {
-        path: "documents/finance/reports/monthly-2026-05.md",
+        path: "documents/finance/budget/reports/monthly-2026-05.md",
         content: "# May report\n",
       });
 
       expect(result?.status).toBe("error");
       expect(result?.output).toMatchObject({
         code: "permission_denied",
-        path: "documents/finance/reports/monthly-2026-05.md",
+        path: "documents/finance/budget/reports/monthly-2026-05.md",
       });
       expect(guard("memory_write", {
-        path: "documents/finance/reports/latest.md",
+        path: "documents/finance/budget/reports/latest.md",
         content: "# Latest report\n",
       })).toBeNull();
     } finally {

@@ -58,11 +58,14 @@ const DEFAULT_INTRO: ProjectIntro = {
 
 type EmptyStateProps = {
   projectId?: string | null;
+  appPath?: string | null;
   onSuggestionClick?: (suggestion: string) => void;
 };
 
-export default function EmptyState({ projectId, onSuggestionClick }: EmptyStateProps) {
-  const intro = (projectId && PROJECT_INTROS[projectId]) || DEFAULT_INTRO;
+export default function EmptyState({ projectId, appPath, onSuggestionClick }: EmptyStateProps) {
+  const intro = appPath
+    ? appIntro(appPath)
+    : (projectId && PROJECT_INTROS[projectId]) || DEFAULT_INTRO;
 
   return (
     <div
@@ -107,4 +110,26 @@ export default function EmptyState({ projectId, onSuggestionClick }: EmptyStateP
       ) : null}
     </div>
   );
+}
+
+function appIntro(appPath: string): ProjectIntro {
+  const appName = appPath.split("/").filter(Boolean).pop() ?? appPath;
+  const label = appName
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+  if (appName === "budget") {
+    return {
+      heading: "Let's work on your budget",
+      description:
+        "Ask about your saved budget, uploaded statements, spending progress, or the next budget report.",
+      cta: "Review my budget"
+    };
+  }
+
+  return {
+    heading: `Let's work on your ${label.toLowerCase()}`,
+    description: "Ask a focused question for this part of the project.",
+    cta: "Let's get started"
+  };
 }

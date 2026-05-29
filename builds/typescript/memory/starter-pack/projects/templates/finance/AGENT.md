@@ -24,9 +24,9 @@ When the active project is Finance and the owner asks for budget, debt, upload, 
 - `run-interview.md` - managed procedure for filling `spec.md`.
 - `plan.md` - owner state for current action plan and roadmap.
 - `run-planning.md` - managed procedure for filling `plan.md`.
-- `budget/` - Budget app folder for saved budgets and actuals comparison.
-- `statements/` - source evidence folder for uploaded statement markdown.
-- `reports/` - generated Finance report folder.
+- `budget/` - Budget app folder for saved budgets, statement evidence, and comparison reports.
+- `budget/statements/` - source evidence folder for uploaded statement markdown.
+- `budget/reports/` - generated Budget report folder.
 
 ## Boundaries
 

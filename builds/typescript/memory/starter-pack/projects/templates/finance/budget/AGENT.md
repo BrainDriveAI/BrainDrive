@@ -23,7 +23,7 @@ When touching `budget.md`, update sections in place and never replace the whole 
 |---|---|---|
 | Create or revise saved budget | Owner wants to define or change budget limits | `create.md`, then `create-user.md` if present |
 | Monthly comparison | Owner asks how actuals compare to the saved budget | `compare.md`, then `compare-user.md` if present |
-| Source upload routing | Owner uploads statements | `../statements/README.md` |
+| Source upload routing | Owner uploads statements | `statements/README.md` |
 
 ## High-Stakes Boundary
 

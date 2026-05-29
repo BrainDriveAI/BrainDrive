@@ -38,9 +38,11 @@ describe("alpha Draft 3 memory transition", () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "draft3-transition-apply-"));
     try {
       await mkdir(path.join(tempRoot, "documents", "finance", "budgeting"), { recursive: true });
+      await mkdir(path.join(tempRoot, "documents", "finance", "reports"), { recursive: true });
       await writeFile(path.join(tempRoot, "documents", "finance", "budget.md"), "# Old Budget\n", "utf8");
       await writeFile(path.join(tempRoot, "documents", "finance", "rules.md"), "# Owner Rules\n", "utf8");
       await writeFile(path.join(tempRoot, "documents", "finance", "budgeting", "monthly-comparison.md"), "# Custom Compare\n", "utf8");
+      await writeFile(path.join(tempRoot, "documents", "finance", "reports", "latest.md"), "# Old Report\n", "utf8");
 
       const result = await applyAlphaDraft3Transition(tempRoot);
 
@@ -52,7 +54,11 @@ describe("alpha Draft 3 memory transition", () => {
         .resolves.toContain("# Owner Rules");
       await expect(readFile(path.join(tempRoot, "documents", "finance", "budget", "compare-user.md"), "utf8"))
         .resolves.toContain("# Custom Compare");
+      await expect(readFile(path.join(tempRoot, "documents", "finance", "budget", "reports", "latest.md"), "utf8"))
+        .resolves.toContain("# Old Report");
       await expect(readFile(path.join(tempRoot, "documents", "finance", "budget.md"), "utf8"))
+        .rejects.toThrow();
+      await expect(readFile(path.join(tempRoot, "documents", "finance", "reports", "latest.md"), "utf8"))
         .rejects.toThrow();
       await expect(readFile(path.join(tempRoot, result.report_path), "utf8"))
         .resolves.toContain("# Draft 3 Memory Transition");

@@ -53,6 +53,9 @@ const LEGACY_FINANCE_PATHS = [
   "documents/finance/budgeting/saved-budget-rules.md",
   "documents/finance/budgeting/index.md",
   "documents/finance/index.md",
+  "documents/finance/statements/README.md",
+  "documents/finance/reports/README.md",
+  "documents/finance/reports/latest.md",
 ] as const;
 
 export async function buildAlphaDraft3TransitionPlan(memoryRoot: string): Promise<AlphaDraft3TransitionPlan> {
@@ -80,21 +83,37 @@ export async function buildAlphaDraft3TransitionPlan(memoryRoot: string): Promis
       to: "documents/finance/budget/compare-user.md",
       reason: "Preserve customized legacy comparison procedure guidance as an owner overlay.",
     });
+  }
 
-    for (const legacyPath of LEGACY_FINANCE_PATHS) {
-      if (!existsSync(resolveMemoryPath(memoryRoot, legacyPath))) {
-        continue;
-      }
-      if (items.some((item) => item.from_path === legacyPath)) {
-        continue;
-      }
-      items.push({
-        from_path: legacyPath,
-        to_path: `${ARCHIVE_ROOT}/${legacyPath}`,
-        action: "owner_review",
-        reason: "Legacy content may be useful but does not have a deterministic Draft 3 destination.",
-      });
+  await addCopyIfSourceExists(memoryRoot, items, {
+    from: "documents/finance/statements/README.md",
+    to: "documents/finance/budget/statements/README.md",
+    reason: "Move Budget source evidence folder contract under the Budget app.",
+  });
+  await addCopyIfSourceExists(memoryRoot, items, {
+    from: "documents/finance/reports/README.md",
+    to: "documents/finance/budget/reports/README.md",
+    reason: "Move Budget report folder contract under the Budget app.",
+  });
+  await addCopyIfSourceExists(memoryRoot, items, {
+    from: "documents/finance/reports/latest.md",
+    to: "documents/finance/budget/reports/latest.md",
+    reason: "Move latest Budget comparison output under the Budget app.",
+  });
+
+  for (const legacyPath of LEGACY_FINANCE_PATHS) {
+    if (!existsSync(resolveMemoryPath(memoryRoot, legacyPath))) {
+      continue;
     }
+    if (items.some((item) => item.from_path === legacyPath)) {
+      continue;
+    }
+    items.push({
+      from_path: legacyPath,
+      to_path: `${ARCHIVE_ROOT}/${legacyPath}`,
+      action: "owner_review",
+      reason: "Legacy content may be useful but does not have a deterministic Draft 3 destination.",
+    });
   }
 
   return {

@@ -18,7 +18,7 @@ describe("BrainDrive Draft 3 layout helpers", () => {
     expect(overlayPathForManagedBase("documents/finance/AGENT.md")).toBe("documents/finance/AGENT-user.md");
     expect(overlayPathForManagedBase("documents/finance/budget/compare.md")).toBe("documents/finance/budget/compare-user.md");
     expect(overlayPathForManagedBase("documents/finance/budget/budget-rules.md")).toBe("documents/finance/budget/budget-rules-user.md");
-    expect(overlayPathForManagedBase("documents/finance/reports/README.md")).toBe("documents/finance/reports/README-user.md");
+    expect(overlayPathForManagedBase("documents/finance/budget/reports/README.md")).toBe("documents/finance/budget/reports/README-user.md");
     expect(overlayPathForManagedBase("documents/finance/budget/compare-user.md")).toBeNull();
 
     expect(managedBasePathForOverlay("documents\\finance\\budget\\compare-user.md")).toBe("documents/finance/budget/compare.md");
@@ -44,18 +44,18 @@ describe("BrainDrive Draft 3 layout helpers", () => {
       canStarterPackReplace: false,
     });
 
-    expect(classifyBrainDriveMemoryPath("documents/finance/statements/2026-05-bank.md")).toMatchObject({
+    expect(classifyBrainDriveMemoryPath("documents/finance/budget/statements/2026-05-bank.md")).toMatchObject({
       ownership: "source",
       role: "source",
     });
 
-    expect(classifyBrainDriveMemoryPath("documents/finance/reports/latest.md")).toMatchObject({
+    expect(classifyBrainDriveMemoryPath("documents/finance/budget/reports/latest.md")).toMatchObject({
       ownership: "generated_output",
       role: "report",
       generated: true,
     });
 
-    expect(classifyBrainDriveMemoryPath("documents/finance/reports/monthly-2026-05.md")).toMatchObject({
+    expect(classifyBrainDriveMemoryPath("documents/finance/budget/reports/monthly-2026-05.md")).toMatchObject({
       ownership: "durable_archive",
       role: "report",
       generated: true,
@@ -72,7 +72,7 @@ describe("BrainDrive Draft 3 layout helpers", () => {
   it("provides ownership predicates", () => {
     expect(isManagedBasePath("documents/finance/budget/compare.md")).toBe(true);
     expect(isOwnerStatePath("documents/finance/budget/budget.md")).toBe(true);
-    expect(isGeneratedReportPath("documents/finance/reports/latest.md")).toBe(true);
+    expect(isGeneratedReportPath("documents/finance/budget/reports/latest.md")).toBe(true);
   });
 
   it("validates state artifact preservation", () => {
@@ -105,10 +105,10 @@ describe("BrainDrive Draft 3 layout helpers", () => {
 
   it("blocks open monthly report archives but allows latest reports", () => {
     const today = new Date(Date.UTC(2026, 4, 26));
-    expect(canWriteGeneratedReportArchive("documents/finance/reports/latest.md", today).allowed).toBe(true);
-    expect(canWriteGeneratedReportArchive("documents/finance/reports/monthly-2026-05.md", today)).toMatchObject({
+    expect(canWriteGeneratedReportArchive("documents/finance/budget/reports/latest.md", today).allowed).toBe(true);
+    expect(canWriteGeneratedReportArchive("documents/finance/budget/reports/monthly-2026-05.md", today)).toMatchObject({
       allowed: false,
     });
-    expect(canWriteGeneratedReportArchive("documents/finance/reports/monthly-2026-04.md", today).allowed).toBe(true);
+    expect(canWriteGeneratedReportArchive("documents/finance/budget/reports/monthly-2026-04.md", today).allowed).toBe(true);
   });
 });
