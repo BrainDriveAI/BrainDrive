@@ -1,14 +1,15 @@
 # Latest Budget Report
 
-**Month:**  
-**Generated:**  
-**Source statements:** 
+**Generated report:** May be refreshed by BrainDrive.
+**Month:**
+**Generated:**
+**Source statements:**
 
 ## Report Use
 
-This is derived output from the Budgeting executable. Before refreshing it, read `../budgeting/report-contract.md` and the workflow file relevant to the owner's request.
+This is derived output from the Budget app. It may be overwritten by the next comparison run.
 
-Do not use this report as the saved budget. The saved spending plan lives in `../budget.md`.
+Do not use this report as the saved budget. The saved spending plan lives in `../budget/budget.md`.
 
 ## Summary
 
@@ -17,11 +18,6 @@ Do not use this report as the saved budget. The saved spending plan lives in `..
 - Largest under-budget category:
 - Major new/unbudgeted item:
 - Items needing owner review:
-
-## Source Coverage
-
-| Source File | Date Range Used | Notes |
-|---|---|---|
 
 ## Source Evidence Ledger
 
@@ -56,12 +52,3 @@ Do not use this report as the saved budget. The saved spending plan lives in `..
 ## Next Actions
 
 -
-
-## Final Self-Check
-
-- `budget.md` was not written, edited, or deleted unless the owner explicitly asked for a budget revision.
-- Every owner-requested item is represented in `Owner-Requested Items Audit`.
-- Found owner-requested items also appear in their relevant treatment sections.
-- Credit-card payments, debt payments, transfers, refunds, investment movement, and interest/finance charges are excluded from ordinary spending totals and listed above.
-- New or unbudgeted ordinary charges still appear in category analysis or `New Or Unbudgeted Items`.
-- Summary numbers match the category tables.

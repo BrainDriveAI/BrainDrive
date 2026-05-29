@@ -3,10 +3,12 @@ import type {
   AuthContext,
   GatewayEngineRequest,
   StreamEvent,
+  ToolDefinition,
   ToolExecutionResult
 } from "../contracts.js";
 import type { ModelAdapter } from "../adapters/base.js";
 import { auditLog } from "../logger.js";
+import type { ModelCallAuditContext, PromptAuditRecorder } from "../memory/prompt-audit-store.js";
 import { buildToolContext } from "../tools.js";
 import { ApprovalStore } from "./approval-store.js";
 import { classifyProviderError } from "./errors.js";
@@ -18,6 +20,12 @@ type LoopOptions = {
   safetyIterationLimit?: number;
   repeatToolCallThreshold?: number;
   toolExecutionGuard?: ToolExecutionGuard;
+  promptAudit?: {
+    recorder: PromptAuditRecorder;
+    adapterName: string;
+    providerProfile?: string;
+    model?: string;
+  };
 };
 
 export type ToolExecutionGuard = (
@@ -53,15 +61,39 @@ export async function* runAgentLoop(
 
     let completion;
     let streamedAssistantText = false;
+    const modelCall: ModelCallAuditContext = {
+      model_call_id: crypto.randomUUID(),
+      model_call_index: iteration,
+    };
     try {
       const tools = toolExecutor.listTools(auth);
+      await options.promptAudit?.recorder.append(
+        "prompt_audit.model_request",
+        {
+          adapter_name: options.promptAudit.adapterName,
+          provider_profile: options.promptAudit.providerProfile ?? null,
+          selected_model: options.promptAudit.model ?? null,
+          metadata: request.metadata,
+          messages,
+          tools: tools.map((tool) => serializeToolDefinitionForAudit(tool)),
+        },
+        modelCall
+      );
       if (adapter.completeStream) {
         for await (const chunk of adapter.completeStream(
           {
             messages,
             metadata: request.metadata,
           },
-          tools
+          tools,
+          options.promptAudit
+            ? {
+                promptAudit: {
+                  recorder: options.promptAudit.recorder,
+                  modelCall,
+                },
+              }
+            : undefined
         )) {
           if (chunk.type === "text-delta") {
             streamedAssistantText = true;
@@ -88,10 +120,26 @@ export async function* runAgentLoop(
             messages,
             metadata: request.metadata,
           },
-          tools
+          tools,
+          options.promptAudit
+            ? {
+                promptAudit: {
+                  recorder: options.promptAudit.recorder,
+                  modelCall,
+                },
+              }
+            : undefined
         );
       }
     } catch (error) {
+      await options.promptAudit?.recorder.append(
+        "prompt_audit.error",
+        {
+          stage: "engine_model_call",
+          message: error instanceof Error ? error.message : "Unknown provider error",
+        },
+        modelCall
+      );
       auditLog("provider.error", {
         message: error instanceof Error ? error.message : "Unknown provider error",
       });
@@ -122,6 +170,18 @@ export async function* runAgentLoop(
       };
     }
 
+    await options.promptAudit?.recorder.append(
+      "prompt_audit.model_response",
+      {
+        assistant_text: completion.assistantText,
+        tool_calls: completion.toolCalls,
+        finish_reason: completion.finishReason,
+        usage: completion.usage ?? null,
+        cost: completion.cost ?? { status: "unavailable" },
+      },
+      modelCall
+    );
+
     if (completion.toolCalls.length === 0) {
       yield {
         type: "done",
@@ -133,6 +193,11 @@ export async function* runAgentLoop(
     }
 
     for (const toolCall of completion.toolCalls) {
+      await options.promptAudit?.recorder.append("prompt_audit.tool_call", {
+        tool_call_id: toolCall.id,
+        name: toolCall.name,
+        input: toolCall.input,
+      }, modelCall);
       yield {
         type: "tool-call",
         id: toolCall.id,
@@ -157,6 +222,11 @@ export async function* runAgentLoop(
           status: "error",
           output: unavailableOutput,
         };
+        await options.promptAudit?.recorder.append("prompt_audit.tool_result", {
+          tool_call_id: toolCall.id,
+          status: "error",
+          output: unavailableOutput,
+        }, modelCall);
         messages.push({
           role: "tool",
           tool_call_id: toolCall.id,
@@ -191,6 +261,11 @@ export async function* runAgentLoop(
           status: "error",
           output: loopGuardOutput,
         };
+        await options.promptAudit?.recorder.append("prompt_audit.tool_result", {
+          tool_call_id: toolCall.id,
+          status: "error",
+          output: loopGuardOutput,
+        }, modelCall);
         messages.push({
           role: "tool",
           tool_call_id: toolCall.id,
@@ -211,6 +286,11 @@ export async function* runAgentLoop(
         });
 
         yield* toolResultEvents(guardedResult, toolCall.id);
+        await options.promptAudit?.recorder.append("prompt_audit.tool_result", {
+          tool_call_id: toolCall.id,
+          status: guardedResult.status,
+          output: guardedResult.output,
+        }, modelCall);
         messages.push({
           role: "tool",
           tool_call_id: toolCall.id,
@@ -250,6 +330,11 @@ export async function* runAgentLoop(
           status: "error",
           output: guardOutput,
         };
+        await options.promptAudit?.recorder.append("prompt_audit.tool_result", {
+          tool_call_id: toolCall.id,
+          status: "error",
+          output: guardOutput,
+        }, modelCall);
         messages.push({
           role: "tool",
           tool_call_id: toolCall.id,
@@ -292,6 +377,11 @@ export async function* runAgentLoop(
             status: "denied",
             output: deniedOutput,
           };
+          await options.promptAudit?.recorder.append("prompt_audit.tool_result", {
+            tool_call_id: toolCall.id,
+            status: "denied",
+            output: deniedOutput,
+          }, modelCall);
           messages.push({
             role: "tool",
             tool_call_id: toolCall.id,
@@ -312,6 +402,11 @@ export async function* runAgentLoop(
       );
 
       yield* toolResultEvents(result, toolCall.id);
+      await options.promptAudit?.recorder.append("prompt_audit.tool_result", {
+        tool_call_id: toolCall.id,
+        status: result.status,
+        output: result.output,
+      }, modelCall);
       messages.push({
         role: "tool",
         tool_call_id: toolCall.id,
@@ -333,6 +428,16 @@ export async function* runAgentLoop(
       trackNonDestructiveMutationPath(tool.name, tool.readOnly, toolCall.input, result.status, recentNonDestructiveMutationPaths);
     }
   }
+}
+
+function serializeToolDefinitionForAudit(tool: ToolDefinition): Record<string, unknown> {
+  return {
+    name: tool.name,
+    description: tool.description,
+    requiresApproval: tool.requiresApproval,
+    readOnly: tool.readOnly,
+    inputSchema: tool.inputSchema,
+  };
 }
 
 async function* toolResultEvents(result: ToolExecutionResult, toolCallId: string): AsyncGenerator<StreamEvent> {

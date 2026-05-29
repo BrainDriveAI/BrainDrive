@@ -39,7 +39,7 @@ export type ProjectManifestEntry = {
 const STARTER_PACK_ENV = "PAA_STARTER_PACK_DIR";
 const STARTER_PACK_RELATIVE_PATH = "memory/starter-pack";
 
-const ROOT_DIRECTORIES = ["conversations", "documents", "preferences", "exports", "skills"];
+const ROOT_DIRECTORIES = ["conversations", "documents", "preferences", "exports", "skills", "diagnostics"];
 const ROOT_AGENT_RELATIVE_PATH = "AGENT.md";
 const PREFERENCES_RELATIVE_PATH = "preferences/default.json";
 const TODO_RELATIVE_PATH = "me/todo.md";
@@ -48,16 +48,16 @@ const PROJECTS_MANIFEST_RELATIVE_PATH = "documents/projects.json";
 const PROJECTS_SEEDED_MARKER_RELATIVE_PATH = "preferences/projects-seeded-v1.json";
 
 const PROJECT_TEMPLATE_FILES = ["AGENT.md", "index.md", "spec.md", "plan.md"] as const;
+const FINANCE_PROJECT_CORE_TEMPLATE_FILES = ["AGENT.md", "spec.md", "run-interview.md", "plan.md", "run-planning.md"] as const;
 const FINANCE_PROJECT_TEMPLATE_FILES = [
-  "budget.md",
-  "rules.md",
+  "budget/AGENT.md",
+  "budget/budget.md",
+  "budget/budget-rules.md",
+  "budget/create.md",
+  "budget/compare.md",
+  "statements/README.md",
+  "reports/README.md",
   "reports/latest.md",
-  "budgeting/index.md",
-  "budgeting/first-pass-budget.md",
-  "budgeting/monthly-comparison.md",
-  "budgeting/source-evidence.md",
-  "budgeting/report-contract.md",
-  "budgeting/saved-budget-rules.md",
 ] as const;
 const FITNESS_PROJECT_TEMPLATE_FILES = [
   "health-docs/index.md",
@@ -91,6 +91,15 @@ const FALLBACK_LOCAL_DEV_PREFERENCES = {
   secret_resolution: {
     on_missing: "fail_closed",
   },
+  prompt_audit: {
+    enabled: true,
+    detail: "standard",
+    retention_days: 14,
+    max_file_bytes: 5242880,
+    include_provider_payload: true,
+    include_provider_response: true,
+    include_source_snapshots: true,
+  },
 };
 
 const FALLBACK_OPENROUTER_SECRET_REF_PREFERENCES = {
@@ -106,6 +115,15 @@ const FALLBACK_OPENROUTER_SECRET_REF_PREFERENCES = {
   },
   secret_resolution: {
     on_missing: "fail_closed",
+  },
+  prompt_audit: {
+    enabled: true,
+    detail: "standard",
+    retention_days: 14,
+    max_file_bytes: 5242880,
+    include_provider_payload: true,
+    include_provider_response: true,
+    include_source_snapshots: true,
   },
 };
 
@@ -125,6 +143,15 @@ const FALLBACK_BRAINDRIVE_MANAGED_SECRET_REF_PREFERENCES = {
   },
   secret_resolution: {
     on_missing: "fail_closed",
+  },
+  prompt_audit: {
+    enabled: true,
+    detail: "standard",
+    retention_days: 14,
+    max_file_bytes: 5242880,
+    include_provider_payload: true,
+    include_provider_response: true,
+    include_source_snapshots: true,
   },
 };
 
@@ -252,7 +279,9 @@ export async function scaffoldProjectFiles(
 
   await ensureDirectory(resolveMemoryPath(absoluteMemoryRoot, `documents/${projectId}`), absoluteMemoryRoot, summary, dryRun);
 
-  for (const templateFile of PROJECT_TEMPLATE_FILES) {
+  const isFinanceTemplate = projectId === "finance" || templateId === "finance";
+  const coreTemplateFiles = isFinanceTemplate ? FINANCE_PROJECT_CORE_TEMPLATE_FILES : PROJECT_TEMPLATE_FILES;
+  for (const templateFile of coreTemplateFiles) {
     await ensureProjectTemplateFile(
       absoluteMemoryRoot,
       starterPackDir,
@@ -266,7 +295,8 @@ export async function scaffoldProjectFiles(
     );
   }
 
-  if (projectId === "finance" || templateId === "finance") {
+  if (isFinanceTemplate) {
+    await ensureDirectory(resolveMemoryPath(absoluteMemoryRoot, `documents/${projectId}/budget`), absoluteMemoryRoot, summary, dryRun);
     await ensureDirectory(resolveMemoryPath(absoluteMemoryRoot, `documents/${projectId}/statements`), absoluteMemoryRoot, summary, dryRun);
     await ensureDirectory(resolveMemoryPath(absoluteMemoryRoot, `documents/${projectId}/reports`), absoluteMemoryRoot, summary, dryRun);
     for (const templateFile of FINANCE_PROJECT_TEMPLATE_FILES) {
@@ -784,19 +814,124 @@ function fallbackProjectTemplateContent(projectName: string, fileName: string): 
     return defaultFolderIndexContent();
   }
 
-  if (fileName === "budget.md") {
+  if (fileName === "run-interview.md") {
+    return [
+      "# Finance Interview",
+      "",
+      "*Procedure for filling `spec.md` through conversation.*",
+      "",
+      "## Preservation Rule",
+      "",
+      "Update sections in place in `spec.md`; never replace the whole file. Keep every section header, italic descriptor, Status line, Last updated line, and `## Changelog`.",
+      "",
+      "## What This Procedure Accomplishes",
+      "",
+      "Build a clear financial picture and capture the owner's goals, constraints, current state, and missing information.",
+      "",
+      "## When to Run",
+      "",
+      "- The Finance spec is empty or materially stale.",
+      "- The owner wants to clarify financial goals before planning.",
+      "",
+      "## Method",
+      "",
+      "Map income, expenses, debt, savings, investments, benefits, obligations, and relationship or life-transition context that affects money. Use specific numbers where they matter and mark assumptions plainly.",
+      "",
+      "## Done Criteria",
+      "",
+      "`spec.md` has useful owner-specific content, current unknowns are labeled, and no unsupported financial claims are presented as facts.",
+      "",
+      "## After Running",
+      "",
+      "Update `spec.md`, summarize material changes, and return to Finance scope before proposing planning or budget execution.",
+      "",
+      "## What This Procedure Is Not",
+      "",
+      "It is not investment, tax, legal, or debt-settlement professional advice.",
+      "",
+    ].join("\n");
+  }
+
+  if (fileName === "run-planning.md") {
+    return [
+      "# Finance Planning",
+      "",
+      "*Procedure for filling `plan.md` from the Finance spec.*",
+      "",
+      "## Preservation Rule",
+      "",
+      "Update sections in place in `plan.md`; never replace the whole file. Keep every section header, italic descriptor, Status line, Last updated line, and `## Changelog`.",
+      "",
+      "## What This Procedure Accomplishes",
+      "",
+      "Turn the Finance spec into a concrete sequence with one immediate step and a practical roadmap.",
+      "",
+      "## When to Run",
+      "",
+      "- The spec has enough information to plan.",
+      "- New financial facts materially change the existing plan.",
+      "",
+      "## Method",
+      "",
+      "Lead with the owner's most urgent financial outcome, show the math when it affects priority, and keep later phases high-level until earlier phases are complete.",
+      "",
+      "## Done Criteria",
+      "",
+      "`plan.md` names the first step, roadmap, destination, and remaining blockers without copying full reports into the plan.",
+      "",
+      "## After Running",
+      "",
+      "Update `plan.md`, add concrete todos only when there is an actual next action, and return to the parent Finance scope.",
+      "",
+      "## What This Procedure Is Not",
+      "",
+      "It is not a replacement for professional financial, legal, or tax advice.",
+      "",
+    ].join("\n");
+  }
+
+  if (fileName === "budget/AGENT.md") {
+    return [
+      "# Budget - Agent Context",
+      "",
+      "*App folder for managing the owner's saved monthly spending plan and comparing actual spending against it.*",
+      "",
+      "## What This App Does",
+      "",
+      "Maintain the saved budget in `budget.md` and compare source statements against that saved plan.",
+      "",
+      "## App-Level Flow",
+      "",
+      "Orient here, align with the Finance spec, plan the scope of this run, execute one procedure, then propagate a brief summary back to Finance.",
+      "",
+      "## Preservation Rule",
+      "",
+      "When touching `budget.md`, update sections in place and never replace the whole file. Keep every section header, italic section description, `**Status:**`, `**Last updated:**`, and `## Changelog`.",
+      "",
+      "## Procedures",
+      "",
+      "| Workflow | Use when | Read |",
+      "|---|---|---|",
+      "| Create or revise saved budget | Owner wants to define or change budget limits | `create.md`, then `create-user.md` if present |",
+      "| Monthly comparison | Owner asks how actuals compare to the saved budget | `compare.md`, then `compare-user.md` if present |",
+      "| Source upload routing | Owner uploads statements | `../statements/README.md` |",
+      "",
+    ].join("\n");
+  }
+
+  if (fileName === "budget/budget.md") {
     return [
       "# Budget",
       "",
-      "## How BrainDrive Uses This",
+      "*Saved monthly spending plan used by the Budget app.*",
       "",
-      "This is the owner's saved monthly spending plan. Read it for category limits, fixed bills, budget goals, and owner notes.",
+      "**Status:** Starter template - not yet customized",
       "",
-      "When the owner asks for a first-pass budget, spending breakdown, statement-backed budget work, or monthly comparison, use this file as the saved plan and read `budgeting/index.md` for the current workflow.",
-      "",
-      "During a saved-budget comparison, do not edit this file unless the owner explicitly asks to revise the saved budget. Put comparison findings in `reports/latest.md` and optional month-specific reports.",
+      "**Last updated:** -",
       "",
       "## Monthly Context",
+      "",
+      "*The month, income assumptions, and savings or debt-payoff goals this saved budget is built around.*",
       "",
       "| Field | Value | Notes |",
       "|---|---:|---|",
@@ -806,6 +941,8 @@ function fallbackProjectTemplateContent(projectName: string, fileName: string): 
       "| Debt payoff goal |  | Optional |",
       "",
       "## Category Limits",
+      "",
+      "*The saved monthly spending limits to compare actuals against.*",
       "",
       "| Category | Monthly Limit | Notes |",
       "|---|---:|---|",
@@ -818,40 +955,50 @@ function fallbackProjectTemplateContent(projectName: string, fileName: string): 
       "",
       "## Fixed Bills",
       "",
+      "*Predictable commitments the owner wants represented in the monthly plan.*",
+      "",
       "| Bill | Amount | Due Day | Notes |",
       "|---|---:|---:|---|",
       "",
       "## Owner Notes",
+      "",
+      "*Owner-approved context that affects how the saved budget should be interpreted.*",
+      "",
+      "-",
+      "",
+      "## Changelog",
       "",
       "-",
       "",
     ].join("\n");
   }
 
-  if (fileName === "rules.md") {
+  if (fileName === "budget/budget-rules.md") {
     return [
       "# Budget Rules",
       "",
-      "## Instructions",
+      "*Managed default rule framework for Budget categorization and comparison.*",
       "",
-      "Use these owner-approved rules before making new categorization decisions. Ask before adding new rules.",
+      "Read this file first, then read `budget-rules-user.md` if it exists. Put owner-approved recurring merchant/category mappings and personal rules in `budget-rules-user.md`, not here.",
       "",
-      "## Merchant Category Rules",
+      "## Allowed Transaction Types",
       "",
-      "| Pattern | Category | Notes |",
-      "|---|---|---|",
+      "`expense`, `income`, `transfer`, `refund`, `fee`, `debt_payment`, `finance_charge`.",
       "",
-      "## Transaction Type Rules",
+      "## Default Handling",
       "",
-      "| Pattern | Type | Notes |",
-      "|---|---|---|",
+      "- Credit-card and debt payments are `debt_payment`, not ordinary spending.",
+      "- Interest and finance charges are `finance_charge`, tracked separately from principal payments.",
+      "- Transfers, income, refunds, investment movement, and debt payments do not count against ordinary expense categories by default.",
+      "- Fees may be tracked as expenses only when that matches the owner's budget goals.",
       "",
-      "Allowed types: `expense`, `income`, `transfer`, `refund`, `fee`.",
+      "## Owner Rule Overlay",
       "",
-      "## Exclusions",
+      "When the owner approves a recurring rule, create or update `budget-rules-user.md`. Ask before adding new durable rules.",
       "",
-      "| Pattern | Reason | Notes |",
-      "|---|---|---|",
+      "## Safety Notes",
+      "",
+      "Use source evidence for statement-backed claims. Mark uncertainty as Needs Review instead of guessing.",
       "",
     ].join("\n");
   }
@@ -860,15 +1007,16 @@ function fallbackProjectTemplateContent(projectName: string, fileName: string): 
     return [
       "# Latest Budget Report",
       "",
+      "**Generated report:** May be refreshed by BrainDrive.",
       "**Month:**  ",
       "**Generated:**  ",
       "**Source statements:** ",
       "",
       "## Report Use",
       "",
-      "This is derived output from the Budgeting executable. Before refreshing it, read `../budgeting/report-contract.md` and the workflow file relevant to the owner's request.",
+      "This is derived output from the Budget app. It may be overwritten by the next comparison run.",
       "",
-      "Do not use this report as the saved budget. The saved spending plan lives in `../budget.md`.",
+      "Do not use this report as the saved budget. The saved spending plan lives in `../budget/budget.md`.",
       "",
       "## Summary",
       "",
@@ -915,71 +1063,104 @@ function fallbackProjectTemplateContent(projectName: string, fileName: string): 
     ].join("\n");
   }
 
-  if (fileName === "budgeting/index.md") {
+  if (fileName === "budget/create.md") {
     return [
-      "# Budgeting Instruction Index",
+      "# Create Or Revise Saved Budget",
       "",
-      "Use this file after Finance orientation has routed you to the Budgeting executable.",
+      "*Procedure for creating or intentionally revising `budget.md`.*",
       "",
-      "| Request | Read |",
-      "|---|---|",
-      "| Create or revise the saved budget | `first-pass-budget.md`, `saved-budget-rules.md`, and `source-evidence.md` if statements exist |",
-      "| Compare a month against the saved budget | `monthly-comparison.md`, `source-evidence.md`, `report-contract.md`, `saved-budget-rules.md`, `../rules.md`, and relevant statements |",
-      "| Categorize transactions | `source-evidence.md` and `../rules.md` |",
-      "| Write or refresh a budget report | `report-contract.md` plus the workflow file relevant to the request |",
+      "## Preservation Rule",
+      "",
+      "Update sections in place in `budget.md`; never replace the whole file. Keep every section header, italic descriptor, Status line, Last updated line, and `## Changelog`.",
+      "",
+      "## What This Procedure Accomplishes",
+      "",
+      "Creates a usable saved monthly budget or updates an existing saved budget when the owner explicitly asks for that change.",
+      "",
+      "## When to Run",
+      "",
+      "- The owner asks to create a budget.",
+      "- The owner explicitly asks to revise saved limits, fixed bills, goals, or budget notes.",
+      "",
+      "## Method",
+      "",
+      "Use owner estimates and available statements. Label assumptions, ask about material unknowns, and keep owner-approved rules in `budget-rules-user.md`.",
+      "",
+      "## Done Criteria",
+      "",
+      "`budget.md` has current saved limits and any changes are recorded in the changelog.",
+      "",
+      "## After Running",
+      "",
+      "Report what changed, update `budget.md`, optionally refresh `reports/latest.md` only if the owner asked for comparison output, and return to Finance scope.",
+      "",
+      "## What This Procedure Is Not",
+      "",
+      "It is not a monthly comparison workflow. For actuals versus saved budget, use `compare.md`.",
       "",
     ].join("\n");
   }
 
-  if (fileName === "budgeting/first-pass-budget.md") {
+  if (fileName === "budget/compare.md") {
     return [
-      "# First-Pass Budget Workflow",
+      "# Compare Actuals Against Saved Budget",
       "",
-      "Use this when the owner asks to create or revise a saved monthly budget.",
+      "*Procedure for comparing statements against `budget.md` without rewriting the saved budget.*",
       "",
-      "Create a usable saved budget from owner estimates, uploaded statements, or both. Label assumptions and uncertain items plainly. Update `../budget.md` only when the owner is creating or revising the saved plan.",
+      "## Preservation Rule",
+      "",
+      "Read `budget.md` for saved limits, but do not edit it during comparison unless the owner explicitly asks to revise the saved budget.",
+      "",
+      "## What This Procedure Accomplishes",
+      "",
+      "Produces an evidence-backed comparison report showing actual spending, budget variance, excluded money movement, and items needing review.",
+      "",
+      "## When to Run",
+      "",
+      "- The owner asks how they did this month.",
+      "- The owner asks for over/under, spending, statement, or saved-budget comparison work.",
+      "",
+      "## Method",
+      "",
+      "Read `budget.md`, `budget-rules.md`, `budget-rules-user.md` if present, `../statements/README.md`, and relevant statements. Build a source evidence ledger before writing the report.",
+      "",
+      "Write `../reports/latest.md` by default. Write `../reports/monthly-YYYY-MM.md` only after the reported month is closed.",
+      "",
+      "## Done Criteria",
+      "",
+      "The report includes Summary, Source Evidence Ledger, Owner-Requested Items Audit, Category Breakdown, New Or Unbudgeted Items, Excluded From Expense Totals, Needs Review, Next Actions, and a consistency check.",
+      "",
+      "## After Running",
+      "",
+      "Report what changed, update reports, summarize material parent-level changes briefly in spec or plan only when needed, add todos only for concrete next actions, and return to Finance scope.",
+      "",
+      "## What This Procedure Is Not",
+      "",
+      "It is not permission to change the saved budget. Put recommended saved-budget changes in Next Actions unless the owner explicitly asks for revision.",
       "",
     ].join("\n");
   }
 
-  if (fileName === "budgeting/monthly-comparison.md") {
+  if (fileName === "statements/README.md") {
     return [
-      "# Monthly Comparison Workflow",
+      "# Finance Statements",
       "",
-      "Use this when comparing actual spending against the saved budget.",
+      "*Source evidence folder for uploaded bank and credit-card statement markdown.*",
       "",
-      "During saved-budget comparison mode, preserve `../budget.md` unless the owner explicitly asks to revise it. Write findings to `../reports/latest.md` and optional month-specific reports.",
+      "Files here are source evidence. Do not rewrite statement content except through explicit source-management or conversion-correction workflows.",
+      "",
+      "Use descriptive filenames that include date range and account/source when possible.",
       "",
     ].join("\n");
   }
 
-  if (fileName === "budgeting/source-evidence.md") {
+  if (fileName === "reports/README.md") {
     return [
-      "# Source Evidence Rules",
+      "# Finance Reports",
       "",
-      "Use this when reading uploaded statements, classifying transactions, searching for owner-named items, or preparing source evidence for a budget report.",
+      "*Generated output folder for Finance and Budget reports.*",
       "",
-      "Check relevant statement files before saying an item is missing. Preserve exact statement descriptions for transactions included in reports.",
-      "",
-    ].join("\n");
-  }
-
-  if (fileName === "budgeting/report-contract.md") {
-    return [
-      "# Budget Report Contract",
-      "",
-      "Use this when writing or refreshing `../reports/latest.md` or an optional month-specific report.",
-      "",
-      "Monthly comparison reports should include Summary, Source Coverage, Source Evidence Ledger, Owner-Requested Items Audit, Category Breakdown, New Or Unbudgeted Items, Excluded From Expense Totals, Needs Review, Next Actions, and Final Self-Check.",
-      "",
-    ].join("\n");
-  }
-
-  if (fileName === "budgeting/saved-budget-rules.md") {
-    return [
-      "# Saved Budget Rules",
-      "",
-      "`../budget.md` is the saved monthly spending plan. Preserve it unless the owner is creating, revising, or explicitly approving changes to the saved plan.",
+      "`latest.md` is a working cache and may be overwritten by the next report run. Dated monthly archives are durable and should be written only after the reported month is closed.",
       "",
     ].join("\n");
   }
