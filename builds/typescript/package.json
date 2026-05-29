@@ -39,6 +39,7 @@
     "desktop:release-aliases": "node scripts/desktop-release-aliases.mjs",
     "desktop:build": "tauri build && npm run desktop:release-aliases",
     "desktop:build:mac": "tauri build --bundles dmg && npm run desktop:release-aliases",
+    "desktop:build:mac:remote": "powershell -ExecutionPolicy Bypass -File scripts/remote-mac-build.ps1",
     "desktop:build:windows": "tauri build --bundles nsis && npm run desktop:release-aliases",
     "desktop:build:linux": "tauri build --bundles deb,appimage",
     "desktop:build:frontend": "npm --prefix client_web run build",
