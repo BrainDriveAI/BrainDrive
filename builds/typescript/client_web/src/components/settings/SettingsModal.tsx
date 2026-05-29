@@ -824,9 +824,10 @@ function BrowserAccessSection() {
   const currentPort = status?.port ?? status?.requestedPort ?? Number(port);
   const currentScopeLabel = status?.networkScope === "privateNetwork" ? "Private network" : "This computer";
   const statusPanelHint =
-    status?.networkScope === "privateNetwork"
-      ? "Private-network access may require a Windows Firewall rule."
-      : "Access is limited to browsers on this computer.";
+    status?.firewallHint ||
+    (status?.networkScope === "privateNetwork"
+      ? "Private-network access may require an operating system firewall rule."
+      : "Access is limited to browsers on this computer.");
 
   return (
     <section className="space-y-5">
@@ -915,7 +916,7 @@ function BrowserAccessSection() {
           <span className="block text-sm font-medium text-bd-text-heading">Network Scope</span>
           <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
             {[
-              { id: "thisComputer" as const, label: "This computer", description: "Only browsers on this PC." },
+              { id: "thisComputer" as const, label: "This computer", description: "Only browsers on this computer." },
               { id: "privateNetwork" as const, label: "Private network", description: "Devices on your LAN." },
             ].map((option) => (
               <button
