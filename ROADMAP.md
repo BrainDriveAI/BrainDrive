@@ -37,50 +37,23 @@ Built on the [Personal AI Architecture](https://github.com/Personal-AI-Architect
 
 > Make your AI system so useful for managing your life that you can't imagine going back.
 
-Phase 2 turns BrainDrive from "an AI you own" into "a partner you rely on." The goal: you'd rather use BrainDrive than any Big Tech alternative for managing personal context.
+**The goal:** BrainDrive is useful across all areas of your life — by making it easy to partner with your AI to define and execute on your goals.
 
-### What's Shipped (V1)
+**Where this is showing up:**
 
-| Feature | Status |
-|---------|--------|
-| Docker install — one command, you're running | Done |
-| Web interface — browser-based, no terminal needed | Done |
-| Cloud models — access SOTA models via API key | Done |
-| Local models (Ollama) — run intelligence on your machine | Done |
-| Projects — click in, AI loads your context automatically | Done |
-| Core methodology — interview, spec, plan with an expert partner | Done |
-| Capture — dump anything in, AI routes it | Done |
-| Edit your library — directly or through your partner | Done |
-| Chat with your docs — answers grounded in your content | Done |
-| Owner profile — AI knows who you are across conversations | Done |
-| Security — sandboxed, auth-first, export anytime | Done |
-| Remote backup — push your library to a git remote you control | Done |
+- **Career.** Define what you want, plan how to get there, and stay accountable to the moves that matter.
+- **Relationships.** Remember what matters about the people in your life — what you've discussed, what you want for them, what you want to do next.
+- **Fitness.** Build the body and habits you want — define a plan, log progress, adjust as life happens.
+- **Finances.** Take control of your money — define a budget, track real spend, stay on plan when things shift.
+- **Your Agent.** Talk through anything else that's on your mind — to-dos, hard conversations, meal planning, the everyday decisions that don't have their own page.
 
-### What's In Progress
+**And the ability to make your own.** BrainDrive ships with the surfaces above and the machinery to create and share new ones — yours, and others built by the community.
 
-| Feature | Status |
-|---------|--------|
-| Managed hosting — sign up and start talking | Testing |
-| Version history — every change reversible | Verifying |
-| Working sessions — discuss decisions, get plan-grounded advice | Testing |
-| Progress capture — tell your partner what you did, plans update automatically | Testing |
-| Plan review — walk through what's done, what's overdue, adapt when things change | Testing |
-| Cross-pollination — changes in one area ripple across your library | Testing |
-| Pulse — unified task view across all projects | Testing |
+**Where we are right now.** BrainDrive can already get to know you and help you make a plan. We're now building the parts that help you execute on the plan and let changes in one area ripple into the related ones.
 
-### What's Next (V1.1+)
+**Wherever you sit down to work with it.** Desktop today. Mobile, voice, and messaging as we get there. Your BrainDrive meets you where you are.
 
-These capabilities complete Phase 2 — the execution partnership:
-
-- **Transcript processing** — hand off a meeting, AI handles follow-up
-- **Smart landing page** — your partner greets you with what's relevant
-- **Proactive check-ins** — reminders and follow-ups via email or text
-- **Daily digest** — cross-project briefing that drives action
-- **Messaging surfaces** — your partner reaches you (and you reply) via SMS, email, or phone call. Async, outbound too.
-- **Context gardening** — automated library health checks
-- **Conversations build memory** — every chat becomes searchable knowledge
-- **Interfaces** — where you sit down to work with your BrainDrive: web, mobile app, desktop, voice assistant, hardware device.
-- **WhyFinder** — deep onboarding that explores your values and purpose
+**And it has to be easy.** All of this has to be easy — easy to install, easy to set up, easy to use across the surfaces above, easy to recover when things go wrong. Phase 2 isn't done if every surface delivers value but you still need docs to get there. Easy is a scope item, not a polish pass.
 
 ---
 
