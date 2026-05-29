@@ -53,6 +53,8 @@ Built on the [Personal AI Architecture](https://github.com/Personal-AI-Architect
 
 **Wherever you sit down to work with it.** Desktop today. Mobile, voice, and messaging as we get there. Your BrainDrive meets you where you are.
 
+**And it has to be easy.** All of this has to be easy — easy to install, easy to set up, easy to use across the surfaces above, easy to recover when things go wrong. Phase 2 isn't done if every surface delivers value but you still need docs to get there. Easy is a scope item, not a polish pass.
+
 ---
 
 ## Phase 3: Connect (Vision)
