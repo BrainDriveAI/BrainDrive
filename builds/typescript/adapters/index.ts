@@ -12,6 +12,20 @@ export function createModelAdapter(
   preferences: Preferences,
   runtimeSecrets?: AdapterRuntimeSecrets
 ): ModelAdapter {
+  const resolvedConfig = resolveEffectiveAdapterConfig(adapterConfig, preferences);
+
+  switch (adapterName) {
+    case "openai-compatible":
+      return new OpenAICompatibleAdapter(resolvedConfig, runtimeSecrets);
+    default:
+      throw new Error(`Unsupported provider adapter: ${adapterName}`);
+  }
+}
+
+export function resolveEffectiveAdapterConfig(
+  adapterConfig: AdapterConfig,
+  preferences: Preferences
+): AdapterConfig {
   const selectedAdapterConfig = resolveAdapterConfigForPreferences(adapterConfig, preferences);
   const legacyBootstrapModel = "llama3.1";
   const activeProfile =
@@ -29,17 +43,10 @@ export function createModelAdapter(
     preferenceModel.length === 0 ||
     (preferenceModel === legacyBootstrapModel && selectedAdapterConfig.model !== legacyBootstrapModel);
 
-  const resolvedConfig: AdapterConfig = {
+  return {
     ...selectedAdapterConfig,
     model: useAdapterModel ? selectedAdapterConfig.model : preferenceModel,
   };
-
-  switch (adapterName) {
-    case "openai-compatible":
-      return new OpenAICompatibleAdapter(resolvedConfig, runtimeSecrets);
-    default:
-      throw new Error(`Unsupported provider adapter: ${adapterName}`);
-  }
 }
 
 export function resolveAdapterConfigForPreferences(

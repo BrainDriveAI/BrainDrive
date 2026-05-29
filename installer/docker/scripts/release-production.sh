@@ -13,12 +13,13 @@ Usage: ./installer/docker/scripts/release-production.sh [options]
 
 Automates the Monday production release runbook:
 1. Preflight checks and optional git sync/docker login
-2. Release readiness checks (TypeScript preflight)
-3. Bump package versions
-4. Build and publish images
-5. Move latest tags
-6. Generate/sign/verify release manifest
-7. Print GitHub Release publishing checklist
+2. Set release variables
+3. Normalize package versions
+4. Release readiness checks (TypeScript preflight)
+5. Build and publish images
+6. Move latest tags
+7. Generate/sign/verify release manifest
+8. Print GitHub Release publishing checklist
 
 Options:
   --package-version <yy.m.d>   Release version (default: today's local date, e.g. 26.4.16)
@@ -176,19 +177,72 @@ else
   echo "Skipping docker login."
 fi
 
-log_step "2. Release readiness checks"
-if [[ "${SKIP_PREBUILD_CHECK}" != "true" ]]; then
-  bash ./installer/docker/scripts/preflight-production-build.sh --skip-docker-build
-else
-  echo "Skipping prebuild TypeScript check."
-fi
-
-log_step "3. Set release variables"
+log_step "2. Set release variables"
 export PACKAGE_VERSION IMAGE_TAG APP_IMAGE EDGE_IMAGE COSIGN_KEY_PATH
 
-log_step "4. Bump package versions"
-npm --prefix builds/typescript version "${PACKAGE_VERSION}" --no-git-tag-version
-npm --prefix builds/typescript/client_web version "${PACKAGE_VERSION}" --no-git-tag-version
+log_step "3. Normalize package versions"
+normalize_package_version() {
+  local package_dir="$1"
+
+  node - "${package_dir}" "${PACKAGE_VERSION}" <<'NODE'
+const fs = require("fs");
+const path = require("path");
+
+const [packageDir, releaseVersion] = process.argv.slice(2);
+
+function readJson(filePath) {
+  return JSON.parse(fs.readFileSync(filePath, "utf8"));
+}
+
+function writeJson(filePath, value) {
+  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function setVersion(target, label) {
+  if (!target || typeof target !== "object") {
+    return false;
+  }
+
+  if (target.version === releaseVersion) {
+    return false;
+  }
+
+  const previousVersion = target.version || "<unset>";
+  target.version = releaseVersion;
+  console.log(`${label}: ${previousVersion} -> ${releaseVersion}`);
+  return true;
+}
+
+const packagePath = path.join(packageDir, "package.json");
+const packageJson = readJson(packagePath);
+const packageChanged = setVersion(packageJson, packagePath);
+
+if (packageChanged) {
+  writeJson(packagePath, packageJson);
+} else {
+  console.log(`${packagePath}: already ${releaseVersion}`);
+}
+
+const lockPath = path.join(packageDir, "package-lock.json");
+if (fs.existsSync(lockPath)) {
+  const lockJson = readJson(lockPath);
+  let lockChanged = false;
+
+  lockChanged = setVersion(lockJson, lockPath) || lockChanged;
+  lockChanged = setVersion(lockJson.packages && lockJson.packages[""], `${lockPath} packages[""]`) || lockChanged;
+  lockChanged = setVersion(lockJson.packages && lockJson.packages[".."], `${lockPath} packages[".."]`) || lockChanged;
+
+  if (lockChanged) {
+    writeJson(lockPath, lockJson);
+  } else {
+    console.log(`${lockPath}: already ${releaseVersion}`);
+  }
+}
+NODE
+}
+
+normalize_package_version builds/typescript
+normalize_package_version builds/typescript/client_web
 
 CORE_VERSION="$(node -p 'require("./builds/typescript/package.json").version')"
 WEB_VERSION="$(node -p 'require("./builds/typescript/client_web/package.json").version')"
@@ -197,6 +251,44 @@ echo "builds/typescript/client_web/package.json version=${WEB_VERSION}"
 if [[ "${CORE_VERSION}" != "${PACKAGE_VERSION}" || "${WEB_VERSION}" != "${PACKAGE_VERSION}" ]]; then
   echo "Version bump mismatch. Stop release." >&2
   exit 1
+fi
+
+node - "${PACKAGE_VERSION}" <<'NODE'
+const fs = require("fs");
+
+const releaseVersion = process.argv[2];
+const checks = [
+  ["builds/typescript/package.json", "version"],
+  ["builds/typescript/package-lock.json", "version"],
+  ["builds/typescript/package-lock.json", "packages", "", "version"],
+  ["builds/typescript/client_web/package.json", "version"],
+  ["builds/typescript/client_web/package-lock.json", "version"],
+  ["builds/typescript/client_web/package-lock.json", "packages", "", "version"],
+  ["builds/typescript/client_web/package-lock.json", "packages", "..", "version"],
+];
+
+let failed = false;
+for (const [filePath, ...segments] of checks) {
+  const json = JSON.parse(fs.readFileSync(filePath, "utf8"));
+  const value = segments.reduce((current, segment) => current && current[segment], json);
+  if (value !== releaseVersion) {
+    console.error(`${filePath} ${segments.join(".")}=${value || "<missing>"}; expected ${releaseVersion}`);
+    failed = true;
+  }
+}
+
+if (failed) {
+  process.exit(1);
+}
+
+console.log(`Package and lockfile versions are uniform at ${releaseVersion}.`);
+NODE
+
+log_step "4. Release readiness checks"
+if [[ "${SKIP_PREBUILD_CHECK}" != "true" ]]; then
+  bash ./installer/docker/scripts/preflight-production-build.sh --skip-docker-build
+else
+  echo "Skipping prebuild TypeScript check."
 fi
 
 log_step "5. Build and publish images"

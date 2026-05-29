@@ -184,6 +184,19 @@ export type Preferences = {
   provider_default_models?: Record<string, string>;
   secret_resolution?: SecretResolutionPreference;
   memory_backup?: MemoryBackupPreference;
+  prompt_audit?: PromptAuditPreference;
+};
+
+export type PromptAuditDetail = "minimal" | "standard" | "verbose";
+
+export type PromptAuditPreference = {
+  enabled: boolean;
+  detail: PromptAuditDetail;
+  retention_days: number;
+  max_file_bytes: number;
+  include_provider_payload: boolean;
+  include_provider_response: boolean;
+  include_source_snapshots: boolean;
 };
 
 export type MemoryBackupFrequency = "manual" | "after_changes" | "hourly" | "daily";

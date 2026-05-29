@@ -31,6 +31,16 @@ type FileContentResponse = {
   content: string;
 };
 
+export type RootAgentContent = {
+  managedContent: string;
+  overlayContent: string | null;
+};
+
+type RootAgentResponse = {
+  managed_content: string;
+  overlay_content: string | null;
+};
+
 type ConversationListResponse = {
   conversations: Conversation[];
   total: number;
@@ -726,6 +736,34 @@ export async function updateOwnerProfile(content: string): Promise<void> {
     method: "PUT",
     headers: withLocalOwnerHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ content }),
+  });
+
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+}
+
+export async function getRootAgent(): Promise<RootAgentContent> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/agent`, {
+    headers: withLocalOwnerHeaders(),
+  });
+
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+
+  const payload = (await response.json()) as RootAgentResponse;
+  return {
+    managedContent: payload.managed_content,
+    overlayContent: payload.overlay_content,
+  };
+}
+
+export async function updateRootAgentOverlay(content: string): Promise<void> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/agent`, {
+    method: "PUT",
+    headers: withLocalOwnerHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ overlay_content: content }),
   });
 
   if (!response.ok) {

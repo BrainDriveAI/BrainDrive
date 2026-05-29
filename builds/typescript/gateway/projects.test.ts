@@ -78,7 +78,7 @@ describe("GatewayProjectService uploads", () => {
     }
   });
 
-  it("can place finance uploads in a statements subfolder and index the relative path", async () => {
+  it("can place finance uploads in a statements subfolder and update the source README", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "gateway-project-upload-statement-index-"));
     const memoryRoot = path.join(tempRoot, "memory");
 
@@ -96,7 +96,7 @@ describe("GatewayProjectService uploads", () => {
         "raw-upload.pdf",
         "# Statement\n",
         {
-          directory: "statements",
+          directory: "budget/statements",
           preferredFileName: "2026-05-capital-one.md",
           indexEntry: (filePath) => ({
             type: "Credit card statement",
@@ -109,16 +109,18 @@ describe("GatewayProjectService uploads", () => {
 
       expect(file).toEqual({
         name: "2026-05-capital-one.md",
-        path: "documents/finance/statements/2026-05-capital-one.md",
+        path: "documents/finance/budget/statements/2026-05-capital-one.md",
       });
-      const index = await readFile(path.join(memoryRoot, "documents", "finance", "index.md"), "utf8");
-      expect(index).toContain("| `statements/2026-05-capital-one.md` | Credit card statement | Capital One credit card statement for May 2026. | User asks about statements/2026-05-capital-one.md. | 2026-05-14T16:00:00.000Z |");
+      const readme = await readFile(path.join(memoryRoot, "documents", "finance", "budget", "statements", "README.md"), "utf8");
+      expect(readme).toContain("# Budget Statements");
+      expect(readme).toContain("| `budget/statements/2026-05-capital-one.md` | Credit card statement | Capital One credit card statement for May 2026. | User asks about budget/statements/2026-05-capital-one.md. | 2026-05-14T16:00:00.000Z |");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "index.md"), "utf8")).rejects.toThrow();
 
       const listed = await projects.listProjectFiles("finance");
       expect(listed?.files).toEqual(expect.arrayContaining([
         {
-          name: "statements/2026-05-capital-one.md",
-          path: "documents/finance/statements/2026-05-capital-one.md",
+          name: "budget/statements/2026-05-capital-one.md",
+          path: "documents/finance/budget/statements/2026-05-capital-one.md",
         },
       ]));
     } finally {

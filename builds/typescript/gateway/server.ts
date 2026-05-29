@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { createReadStream, existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -7,7 +8,11 @@ import Fastify from "fastify";
 import { z } from "zod";
 
 import { createGatewayAdapter } from "../adapters/gateway.js";
-import { createModelAdapter, resolveAdapterConfigForPreferences } from "../adapters/index.js";
+import {
+  createModelAdapter,
+  resolveAdapterConfigForPreferences,
+  resolveEffectiveAdapterConfig,
+} from "../adapters/index.js";
 import type { ModelAdapter, ProviderModel } from "../adapters/base.js";
 import { authorize, authorizeApprovalDecision } from "../auth/authorize.js";
 import { authMiddleware } from "../auth/middleware.js";
@@ -38,6 +43,8 @@ import type {
   ApprovalMode,
   ClientMessageRequest,
   ConversationDetail,
+  ConversationMessage,
+  GatewayEngineRequest,
   InstallLocation,
   Preferences,
   RuntimeConfig,
@@ -53,6 +60,7 @@ import { ensureAuthState, saveAuthState } from "../memory/auth-state.js";
 import type { ConversationRepository } from "../memory/conversation-repository.js";
 import { MarkdownConversationStore } from "../memory/conversation-store-markdown.js";
 import { exportMemory } from "../memory/export.js";
+import { createPromptAuditRecorder } from "../memory/prompt-audit-store.js";
 import { restoreMemoryBackup } from "../memory/backup-restore.js";
 import { importMigrationArchive } from "../memory/migration.js";
 import {
@@ -62,6 +70,7 @@ import {
   readMemoryUpdateReport,
   runAutomaticMemoryUpdate,
 } from "../memory/update-prompting.js";
+import { canWriteGeneratedReportArchive } from "../memory/brain-drive-layout.js";
 import {
   createSupportBundle,
   listSupportBundles,
@@ -85,7 +94,7 @@ import {
 import { createMemoryBackupScheduler } from "./memory-backup-scheduler.js";
 import { GatewayProjectService, isProjectMetadata, ProtectedProjectError, type GatewayProjectFile } from "./projects.js";
 import { GatewaySkillService } from "./skills.js";
-import { prepareContextWindow } from "./context-window.js";
+import { prepareContextWindow, type PreparedContextWindow } from "./context-window.js";
 
 const approvalDecisionSchema = z.object({
   decision: z.enum(["approved", "denied"]),
@@ -103,6 +112,12 @@ const projectRenameSchema = z.object({
 const fileContentWriteSchema = z.object({
   content: z.string(),
 });
+
+const rootAgentUpdateSchema = z
+  .object({
+    overlay_content: z.string(),
+  })
+  .strict();
 
 const projectDocumentUploadSchema = z
   .object({
@@ -729,8 +744,9 @@ export async function buildServer(rootDir = process.cwd()) {
       return;
     }
 
-    const { conversationId } = conversations.persistUserMessage(requestedConversationId, body);
+    const { conversationId, message: currentUserMessage } = conversations.persistUserMessage(requestedConversationId, body);
     const projectId = isProjectMetadata(body.metadata) ? body.metadata.project.trim() : null;
+    const appPath = projectId ? normalizeAppMetadataPath(body.metadata) : null;
     if (isProjectMetadata(body.metadata)) {
       await projects.attachConversation(body.metadata.project.trim(), conversationId);
     }
@@ -749,8 +765,9 @@ export async function buildServer(rootDir = process.cwd()) {
     // Inject project context so the AI knows which project it's operating in.
     // Without this, the AI sees the base prompt but doesn't know which project
     // files to read — it would read all projects and behave like BD+1.
+    const projectFiles = projectId ? (await projects.listProjectFiles(projectId))?.files ?? [] : [];
     const projectContext = projectId
-      ? buildProjectChatContext(projectId, (await projects.listProjectFiles(projectId))?.files ?? [])
+      ? buildProjectChatContext(projectId, projectFiles, { appPath })
       : "";
     const finalPrompt = promptWithSkills.prompt + projectContext;
 
@@ -785,6 +802,39 @@ export async function buildServer(rootDir = process.cwd()) {
       ...(body.metadata ? { clientMetadata: body.metadata } : {}),
     });
 
+    const livePreferences = await loadLivePreferences();
+    const promptAuditRecorder = createPromptAuditRecorder({
+      memoryRoot: runtimeConfig.memory_root,
+      preferences: livePreferences,
+      traceId: crypto.randomUUID(),
+      conversationId,
+      correlationId,
+    });
+    await promptAuditRecorder?.append("prompt_audit.trace_started", {
+      route: "/message",
+      project_id: projectId,
+      app_path: appPath,
+      requested_conversation_id: requestedConversationId ?? null,
+      enabled_detail: promptAuditRecorder.detail,
+    });
+    await promptAuditRecorder?.append("prompt_audit.assembly", await buildPromptAuditAssembly({
+      memoryRoot: runtimeConfig.memory_root,
+      conversationId,
+      projectId,
+      appPath,
+      projectFiles,
+      projectContext,
+      currentUserMessage,
+      conversation: conversations.detail(conversationId),
+      requestedProjectSkillIds: projectSkillIds,
+      requestedConversationSkillIds: conversationSkillIds,
+      promptWithSkills,
+      finalSystemPrompt: contextWindow.messages[0]?.role === "system" ? contextWindow.messages[0].content : finalPrompt,
+      contextWindow,
+      engineRequest,
+      includeSourceSnapshots: promptAuditRecorder.preferences.include_source_snapshots,
+    }));
+
     const streamHeaders: Record<string, string> = {
       ...buildDesktopCorsHeaders(request.headers.origin, desktopCorsOrigin, Boolean(desktopApiToken)),
       "content-type": "text/event-stream",
@@ -807,11 +857,11 @@ export async function buildServer(rootDir = process.cwd()) {
     let assistantBuffer = "";
     let currentAssistantMessageId = crypto.randomUUID();
     let lastPersistedAssistantMessageId: string | null = null;
+    let traceStatus: "started" | "completed" | "error" = "started";
     const pendingToolCalls = new Map<string, { name: string; input: Record<string, unknown> }>();
 
     try {
-      const livePreferences = await loadLivePreferences();
-      const liveAdapterConfig = resolveAdapterConfigForPreferences(adapterConfig, livePreferences);
+      const liveAdapterConfig = resolveEffectiveAdapterConfig(adapterConfig, livePreferences);
       const liveProviderCredential = await resolveProviderCredentialForStartup(
         runtimeConfig.provider_adapter,
         liveAdapterConfig,
@@ -825,7 +875,7 @@ export async function buildServer(rootDir = process.cwd()) {
           secret_ref: liveProviderCredential.secretRef,
         });
       }
-      const modelAdapter = createModelAdapter(runtimeConfig.provider_adapter, liveAdapterConfig, livePreferences, {
+      const modelAdapter = createModelAdapter(runtimeConfig.provider_adapter, adapterConfig, livePreferences, {
         apiKey: liveProviderCredential?.apiKey,
       });
 
@@ -839,7 +889,17 @@ export async function buildServer(rootDir = process.cwd()) {
           memoryRoot: runtimeConfig.memory_root,
           approvalMode: livePreferences.approval_mode,
           safetyIterationLimit: runtimeConfig.safety_iteration_limit,
-          toolExecutionGuard: createFinanceBudgetProtectionGuard(projectId, conversations.detail(conversationId)),
+          toolExecutionGuard: createBrainDriveMemorySafetyGuard(projectId, conversations.detail(conversationId)),
+          ...(promptAuditRecorder
+            ? {
+                promptAudit: {
+                  recorder: promptAuditRecorder,
+                  adapterName: runtimeConfig.provider_adapter,
+                  providerProfile: livePreferences.active_provider_profile ?? adapterConfig.default_provider_profile,
+                  model: liveAdapterConfig.model,
+                },
+              }
+            : {}),
         }
       )) {
         if (event.type === "tool-call") {
@@ -851,6 +911,14 @@ export async function buildServer(rootDir = process.cwd()) {
 
         if (event.type === "text-delta") {
           assistantBuffer += event.delta;
+        }
+
+        if (event.type === "error") {
+          traceStatus = "error";
+        }
+
+        if (event.type === "done") {
+          traceStatus = "completed";
         }
 
         if (event.type === "tool-result") {
@@ -887,12 +955,20 @@ export async function buildServer(rootDir = process.cwd()) {
         lastPersistedAssistantMessageId = currentAssistantMessageId;
       }
     } catch (error) {
+      traceStatus = "error";
+      await promptAuditRecorder?.append("prompt_audit.error", {
+        stage: "gateway_message_stream",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
       auditLog("gateway.error", {
         conversation_id: conversationId,
         message: error instanceof Error ? error.message : "Unknown error",
       });
       reply.raw.write(formatSseEvent(classifyProviderError(error)));
     } finally {
+      await promptAuditRecorder?.append("prompt_audit.trace_completed", {
+        status: traceStatus,
+      });
       reply.raw.end();
     }
 
@@ -1181,6 +1257,38 @@ export async function buildServer(rootDir = process.cwd()) {
     await mkdir(profileDir, { recursive: true });
     await writeFileAsync(profilePath, body.content, "utf8");
     await commitMemoryChange(runtimeConfig.memory_root, "Update owner profile via UI").catch(() => {});
+    return { ok: true };
+  });
+
+  app.get("/agent", async (request, reply) => {
+    authorize(request.authContext, "memory_access");
+    const managedPath = path.join(runtimeConfig.memory_root, "AGENT.md");
+    const overlayPath = path.join(runtimeConfig.memory_root, "AGENT-user.md");
+    if (!existsSync(managedPath)) {
+      reply.code(404).send({ error: "Agent not found" });
+      return;
+    }
+
+    const managedContent = await readFile(managedPath, "utf8");
+    const overlayContent = existsSync(overlayPath) ? await readFile(overlayPath, "utf8") : null;
+    return {
+      managed_content: managedContent,
+      overlay_content: overlayContent,
+    };
+  });
+
+  app.put("/agent", async (request, reply) => {
+    authorize(request.authContext, "memory_access");
+    const parsed = rootAgentUpdateSchema.safeParse(request.body);
+    if (!parsed.success) {
+      sendInvalidRequest(reply, "/agent", parsed.error.issues.length);
+      return;
+    }
+
+    const overlayPath = path.join(runtimeConfig.memory_root, "AGENT-user.md");
+    await writeFile(overlayPath, parsed.data.overlay_content, "utf8");
+    await commitMemoryChange(runtimeConfig.memory_root, "Update global agent overlay via UI").catch(() => {});
+    systemPrompt = await readBootstrapPrompt(runtimeConfig.memory_root);
     return { ok: true };
   });
 
@@ -2314,7 +2422,7 @@ export async function buildServer(rootDir = process.cwd()) {
       );
       const importedAt = new Date().toISOString();
       const markdown = buildUploadedMarkdownDocument(uploadInput, converted, { importedAt, metadata });
-      const uploadDirectory = project.id === "finance" && metadata.statementLike ? "statements" : undefined;
+      const uploadDirectory = project.id === "finance" && metadata.statementLike ? "budget/statements" : undefined;
       const preferredFileName = uploadDirectory
         ? sanitizeSuggestedMarkdownFileName(metadata.suggestedFileName, parsed.data.file_name)
         : undefined;
@@ -3167,27 +3275,39 @@ function normalizeOllamaOpenAIBaseUrl(baseUrl: string): string {
   return parsed.toString().replace(/\/$/, "");
 }
 
-export function buildProjectChatContext(projectId: string, files: GatewayProjectFile[]): string {
+export function buildProjectChatContext(
+  projectId: string,
+  files: GatewayProjectFile[],
+  options: { appPath?: string | null } = {}
+): string {
   const sortedFiles = [...files].sort((left, right) => left.name.localeCompare(right.name));
   const visibleFiles = sortedFiles.slice(0, 80);
   const omittedCount = Math.max(0, sortedFiles.length - visibleFiles.length);
   const hasIndex = sortedFiles.some((file) => file.name === "index.md" || file.path === `documents/${projectId}/index.md`);
+  const appPath = normalizeProjectRelativePath(options.appPath ?? null);
+  const appContextGuidance = appPath
+    ? buildAppChatContextGuidance(projectId, appPath, sortedFiles)
+    : [];
   const financeBudgetGuidance = projectId === "finance"
     ? [
-        "For budgeting questions, also read documents/finance/budget.md and documents/finance/rules.md when they exist.",
+        "Read documents/finance/AGENT.md, then documents/finance/AGENT-user.md if present. For project alignment, read documents/finance/spec.md and documents/finance/plan.md.",
+        "For budget work, read documents/finance/budget/AGENT.md, then documents/finance/budget/AGENT-user.md if present.",
+        "For budgeting questions, read documents/finance/budget/budget.md, documents/finance/budget/budget-rules.md, and documents/finance/budget/budget-rules-user.md when present.",
+        "For a Budget procedure, read the managed procedure first, then the matching -user.md overlay if present, such as compare.md before compare-user.md.",
         "For explicit Finance execution requests about budgets, debt, uploads, statements, spending, or reports, complete the Finance task before coaching or cross-domain discussion.",
-        "For 'how did I do?', monthly comparison, over/under, or budget progress questions, treat documents/finance/budget.md as the saved budget and compare statement actuals against it.",
-        "Use documents/finance/statements/ as source evidence and documents/finance/reports/ as derived output for budget reports.",
-        "Do not write to documents/finance/budget.md during a saved-budget comparison unless the owner explicitly asks to revise the saved budget.",
-        "During saved-budget comparison mode, do not call memory_write, memory_edit, or memory_delete on documents/finance/budget.md; write comparison output only to documents/finance/reports/latest.md or a month-specific reports file.",
-        "Preserve documents/finance/budget.md byte-for-byte during saved-budget comparisons. Do not make formatting-only, table-alignment, whitespace, note, category, or no-op rewrites.",
-        "If the owner says to leave the saved budget alone, not rewrite the saved budget, or compare against the saved budget, documents/finance/budget.md is read-only for that turn.",
-        "If you are about to write documents/finance/budget.md during a comparison, stop and write the comparison findings to documents/finance/reports/latest.md instead.",
-        "Put saved-budget comparison findings in documents/finance/reports/latest.md; answer direct comparison questions with best-effort evidence before asking extra clarification questions.",
+        "For 'how did I do?', monthly comparison, over/under, or budget progress questions, treat documents/finance/budget/budget.md as the saved budget and compare statement actuals against it.",
+        "Use documents/finance/budget/statements/ as source evidence and documents/finance/budget/reports/ as derived output for budget reports.",
+        "Do not write to documents/finance/budget/budget.md during a saved-budget comparison unless the owner explicitly asks to revise the saved budget.",
+        "During saved-budget comparison mode, do not call memory_write, memory_edit, or memory_delete on documents/finance/budget/budget.md; write comparison output only to documents/finance/budget/reports/latest.md or a closed-period reports file.",
+        "Preserve documents/finance/budget/budget.md byte-for-byte during saved-budget comparisons. Do not make formatting-only, table-alignment, whitespace, note, category, or no-op rewrites.",
+        "If the owner says to leave the saved budget alone, not rewrite the saved budget, or compare against the saved budget, documents/finance/budget/budget.md is read-only for that turn.",
+        "If you are about to write documents/finance/budget/budget.md during a comparison, stop and write the comparison findings to documents/finance/budget/reports/latest.md instead.",
+        "Put saved-budget comparison findings in documents/finance/budget/reports/latest.md; answer direct comparison questions with best-effort evidence before asking extra clarification questions.",
+        "Do not write a monthly archive such as documents/finance/budget/reports/monthly-YYYY-MM.md until today's date is after the reported month has closed.",
         "Check for duplicate or overlapping statement evidence before counting transactions in budget reports.",
         "Before writing a budget comparison report, re-read the relevant statement files, build a source evidence ledger, account for named merchants, and do not claim a merchant is missing unless the relevant source files were checked.",
         "For monthly comparisons, read statement files whose date range overlaps the requested month even if the filename uses the starting month, ending month, account name, or converted upload name.",
-        "If an upload was just mentioned but the expected filename is not visible, call memory_list on documents/finance and documents/finance/statements and search converted statement filenames/date ranges before asking the owner to re-upload.",
+        "If an upload was just mentioned but the expected filename is not visible, call memory_list on documents/finance/budget and documents/finance/budget/statements and search converted statement filenames/date ranges before asking the owner to re-upload.",
         "Treat source evidence ledger rows as locked evidence for the comparison turn; if a found item is named by the owner, new/unusual, material, excluded, or needs review, carry it into the final report.",
         "Before finalizing reports/latest.md, verify that every owner-named item found in source statements appears by exact statement description in the final report; if it is absent, revise the report before answering.",
         "If the owner mentions a named merchant or transaction, search source statements for that exact item and close variants before answering; if source evidence shows it, do not accept a later conversational guess that it was absent.",
@@ -3216,11 +3336,14 @@ export function buildProjectChatContext(projectId: string, files: GatewayProject
     "## Active Project",
     "",
     `You are currently in the **${projectId}** project.`,
-    `Read this project's AGENT.md, spec.md, and plan.md from the documents/${projectId}/ folder.`,
-    hasIndex
+    `Read this project's AGENT.md, then AGENT-user.md if present, followed by spec.md and plan.md from the documents/${projectId}/ folder.`,
+    projectId === "finance"
+      ? "Finance uses Draft 3 app folders and reference folders; do not rely on documents/finance/index.md, documents/finance/rules.md, or documents/finance/budgeting/ as active product paths."
+      : hasIndex
       ? `Read documents/${projectId}/index.md before deciding which supporting documents to open. It is this folder's document map.`
       : `If documents/${projectId}/index.md appears later in the file list, read it before deciding which supporting documents to open.`,
     ...financeBudgetGuidance,
+    ...appContextGuidance,
     "Stay focused on this domain; do not read or reference other projects unless the conversation specifically calls for cross-domain connections.",
     "",
     "### Current Project Files",
@@ -3235,8 +3358,222 @@ export function buildProjectChatContext(projectId: string, files: GatewayProject
   ].join("\n");
 }
 
-const FINANCE_BUDGET_PROTECTED_PATH = "documents/finance/budget.md";
+function buildAppChatContextGuidance(
+  projectId: string,
+  appPath: string,
+  files: GatewayProjectFile[]
+): string[] {
+  const appRootName = appPath.split("/").filter(Boolean).pop() ?? appPath;
+  const appPrefix = `documents/${projectId}/${appPath}/`;
+  const appFiles = files.filter((file) => file.path.startsWith(appPrefix));
+  const hasAppAgent = appFiles.some((file) => file.path === `${appPrefix}AGENT.md`);
+  const hasAppOverlay = appFiles.some((file) => file.path === `${appPrefix}AGENT-user.md`);
+  const hasAppState = appFiles.some((file) => file.path === `${appPrefix}${appRootName}.md`);
+  const hasRules = appFiles.some((file) => file.path === `${appPrefix}${appRootName}-rules.md`);
+  const hasRulesOverlay = appFiles.some((file) => file.path === `${appPrefix}${appRootName}-rules-user.md`);
+  const hasNestedStatements = appFiles.some((file) => file.path.startsWith(`${appPrefix}statements/`));
+  const hasNestedReports = appFiles.some((file) => file.path.startsWith(`${appPrefix}reports/`));
+
+  return [
+    "",
+    "### Active App Scope",
+    "",
+    `The client is focused on the app folder documents/${projectId}/${appPath}/.`,
+    hasAppAgent
+      ? `Read documents/${projectId}/${appPath}/AGENT.md${hasAppOverlay ? `, then documents/${projectId}/${appPath}/AGENT-user.md` : ""} before app-specific work.`
+      : `No AGENT.md is currently listed for documents/${projectId}/${appPath}/; use the project AGENT.md and the app files that are present.`,
+    hasAppState
+      ? `Treat documents/${projectId}/${appPath}/${appRootName}.md as this app's owner state file.`
+      : `No ${appRootName}.md state file is currently listed for this app; inspect the app folder before assuming the state path.`,
+    hasRules
+      ? `For app rules, read documents/${projectId}/${appPath}/${appRootName}-rules.md${hasRulesOverlay ? `, then documents/${projectId}/${appPath}/${appRootName}-rules-user.md` : ""}.`
+      : `No ${appRootName}-rules.md file is currently listed for this app.`,
+    hasNestedStatements
+      ? `Use documents/${projectId}/${appPath}/statements/ as app source evidence when relevant.`
+      : "",
+    hasNestedReports
+      ? `Use documents/${projectId}/${appPath}/reports/ for app-generated reports when relevant.`
+      : "",
+    `Stay inside documents/${projectId}/${appPath}/ for app-specific reads and writes unless the owner asks for project-level work or the app instructions point to project-level source/output folders.`,
+  ].filter(Boolean);
+}
+
+function normalizeAppMetadataPath(metadata: Record<string, unknown> | undefined): string | null {
+  if (typeof metadata?.app !== "string") {
+    return null;
+  }
+
+  return normalizeProjectRelativePath(metadata.app);
+}
+
+function normalizeProjectRelativePath(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "")
+    .replace(/\/+/g, "/")
+    .replace(/\/$/, "")
+    .trim();
+
+  if (
+    normalized.length === 0 ||
+    normalized.startsWith("../") ||
+    normalized.includes("/../") ||
+    normalized === ".." ||
+    normalized.includes("\0")
+  ) {
+    return null;
+  }
+
+  return normalized;
+}
+
+async function buildPromptAuditAssembly(input: {
+  memoryRoot: string;
+  conversationId: string;
+  projectId: string | null;
+  appPath: string | null;
+  projectFiles: GatewayProjectFile[];
+  projectContext: string;
+  currentUserMessage: ConversationMessage;
+  conversation: ConversationDetail | null;
+  requestedProjectSkillIds: string[];
+  requestedConversationSkillIds: string[];
+  promptWithSkills: {
+    prompt: string;
+    applied: string[];
+    missing: string[];
+    truncated: boolean;
+  };
+  finalSystemPrompt: string;
+  contextWindow: PreparedContextWindow;
+  engineRequest: GatewayEngineRequest;
+  includeSourceSnapshots: boolean;
+}): Promise<Record<string, unknown>> {
+  const bootstrapSources = await Promise.all([
+    buildFileSnapshot(input.memoryRoot, "AGENT.md", input.includeSourceSnapshots),
+    buildFileSnapshot(input.memoryRoot, "AGENT-user.md", input.includeSourceSnapshots),
+  ]);
+  const skillSources = await Promise.all(
+    input.promptWithSkills.applied.map((skillId) =>
+      buildFileSnapshot(input.memoryRoot, `skills/${skillId}/SKILL.md`, input.includeSourceSnapshots).then((snapshot) => ({
+        skill_id: skillId,
+        ...snapshot,
+      }))
+    )
+  );
+  const conversationMessages = input.conversation?.messages ?? [];
+
+  return {
+    bootstrap_prompt: {
+      sources: bootstrapSources,
+      final_content_hash: hashText(input.promptWithSkills.prompt),
+      final_byte_length: Buffer.byteLength(input.promptWithSkills.prompt, "utf8"),
+      ...(input.includeSourceSnapshots ? { assembled_content: input.promptWithSkills.prompt } : {}),
+    },
+    skills: {
+      requested_project_skill_ids: input.requestedProjectSkillIds,
+      requested_conversation_skill_ids: input.requestedConversationSkillIds,
+      applied_skill_ids: input.promptWithSkills.applied,
+      missing_skill_ids: input.promptWithSkills.missing,
+      truncated: input.promptWithSkills.truncated,
+      sources: skillSources,
+    },
+    project_context: {
+      project_id: input.projectId,
+      app_path: input.appPath,
+      files: input.projectFiles.map((file) => ({
+        name: file.name,
+        path: file.path,
+      })),
+      generated_context_hash: hashText(input.projectContext),
+      generated_context_byte_length: Buffer.byteLength(input.projectContext, "utf8"),
+      ...(input.includeSourceSnapshots ? { generated_context: input.projectContext } : {}),
+    },
+    conversation_history: {
+      conversation_id: input.conversationId,
+      replayed_messages: conversationMessages.map((message) => ({
+        id: message.id,
+        role: message.role,
+      })),
+      message_count: conversationMessages.length,
+      estimated_tokens_before_context_window: input.contextWindow.usage.estimatedPromptTokensBefore,
+    },
+    context_window: {
+      estimated_tokens_before: input.contextWindow.usage.estimatedPromptTokensBefore,
+      estimated_tokens_after: input.contextWindow.usage.estimatedPromptTokensAfter,
+      budget_tokens: input.contextWindow.usage.budgetTokens,
+      dropped_units: input.contextWindow.usage.droppedUnits,
+      dropped_message_count: input.contextWindow.usage.droppedMessages,
+      summary_applied: input.contextWindow.usage.summaryApplied,
+      summary_artifact_path: input.contextWindow.usage.summaryArtifactPath,
+      summary_artifact_write_error: input.contextWindow.usage.summaryArtifactWriteError,
+      warning: input.contextWindow.warning,
+    },
+    current_user_message: {
+      message_id: input.currentUserMessage.id,
+      content_hash: hashText(input.currentUserMessage.content),
+      byte_length: Buffer.byteLength(input.currentUserMessage.content, "utf8"),
+      ...(input.includeSourceSnapshots ? { content: input.currentUserMessage.content } : {}),
+    },
+    final_system_prompt: {
+      content_hash: hashText(input.finalSystemPrompt),
+      byte_length: Buffer.byteLength(input.finalSystemPrompt, "utf8"),
+      content: input.finalSystemPrompt,
+    },
+    engine_request: input.engineRequest,
+  };
+}
+
+async function buildFileSnapshot(
+  memoryRoot: string,
+  relativePath: string,
+  includeContent: boolean
+): Promise<Record<string, unknown>> {
+  const absolutePath = path.join(memoryRoot, relativePath);
+  try {
+    const [content, info] = await Promise.all([readFile(absolutePath, "utf8"), stat(absolutePath)]);
+    return {
+      path: relativePath,
+      exists: true,
+      content_hash: hashText(content),
+      byte_length: Buffer.byteLength(content, "utf8"),
+      modified_time: info.mtime.toISOString(),
+      ...(includeContent ? { content } : {}),
+    };
+  } catch {
+    return {
+      path: relativePath,
+      exists: false,
+    };
+  }
+}
+
+function hashText(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+const FINANCE_BUDGET_PROTECTED_PATH = "documents/finance/budget/budget.md";
 const FINANCE_BUDGET_MUTATION_TOOLS = new Set(["memory_write", "memory_edit", "memory_delete"]);
+
+export function createBrainDriveMemorySafetyGuard(
+  projectId: string | null,
+  conversation: ConversationDetail | null
+): ToolExecutionGuard {
+  const financeBudgetGuard = createFinanceBudgetProtectionGuard(projectId, conversation);
+
+  return (toolName, input) => {
+    const reportArchiveResult = guardGeneratedReportArchiveWrite(toolName, input);
+    if (reportArchiveResult) {
+      return reportArchiveResult;
+    }
+
+    return financeBudgetGuard?.(toolName, input) ?? null;
+  };
+}
 
 export function createFinanceBudgetProtectionGuard(
   projectId: string | null,
@@ -3259,7 +3596,7 @@ export function createFinanceBudgetProtectionGuard(
     const output = {
       code: "permission_denied",
       message:
-        "documents/finance/budget.md is read-only during a saved-budget comparison. Read it for saved limits and write comparison findings to documents/finance/reports/latest.md instead. Only revise the saved budget when the owner explicitly asks to change the budget.",
+        "documents/finance/budget/budget.md is read-only during a saved-budget comparison. Read it for saved limits and write comparison findings to documents/finance/budget/reports/latest.md instead. Only revise the saved budget when the owner explicitly asks to change the budget.",
       path: FINANCE_BUDGET_PROTECTED_PATH,
       recoverable: true,
     };
@@ -3278,6 +3615,29 @@ export function isProtectedFinanceBudgetMutation(toolName: string, input: Record
   }
 
   return normalizeMemoryRelativePath(input.path) === FINANCE_BUDGET_PROTECTED_PATH;
+}
+
+function guardGeneratedReportArchiveWrite(toolName: string, input: Record<string, unknown>): ToolExecutionResult | null {
+  if (!FINANCE_BUDGET_MUTATION_TOOLS.has(toolName)) {
+    return null;
+  }
+
+  const targetPath = normalizeMemoryRelativePath(input.path);
+  const archiveCheck = canWriteGeneratedReportArchive(targetPath);
+  if (archiveCheck.allowed) {
+    return null;
+  }
+
+  return {
+    status: "error",
+    output: {
+      code: "permission_denied",
+      message: archiveCheck.reason ?? "Generated report archive write is not allowed for this path.",
+      path: targetPath,
+      recoverable: true,
+    },
+    recoverable: true,
+  };
 }
 
 export function conversationHasSavedBudgetComparison(conversation: ConversationDetail | null): boolean {

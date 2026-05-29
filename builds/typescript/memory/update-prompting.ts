@@ -8,6 +8,12 @@ import { auditLog } from "../logger.js";
 import { commitMemoryChange, exportMemoryArchive } from "../git.js";
 import { resolveMemoryPath } from "./paths.js";
 import { MemorySkillStore, slugifySkillName } from "./skills.js";
+import {
+  classifyBrainDriveMemoryPath,
+  type BrainDriveMemoryFileOwnership,
+  type BrainDriveMemoryFileRole,
+} from "./brain-drive-layout.js";
+import { applyAlphaDraft3Transition } from "./alpha-draft3-transition.js";
 
 export type StarterPackManifestFileKind =
   | "agent_prompt"
@@ -16,9 +22,14 @@ export type StarterPackManifestFileKind =
   | "starter_skill";
 
 export type StarterPackMergePolicy =
+  | "replace_managed_if_current"
+  | "create_if_missing_else_replace_managed"
   | "llm_merge"
   | "create_if_missing_else_llm_merge"
-  | "create_if_missing_else_defer";
+  | "create_if_missing_else_defer"
+  | "preserve_owner_overlay"
+  | "preserve_owner_state"
+  | "generated_output_lifecycle";
 
 export type StarterPackManifestFile = {
   path: string;
@@ -26,6 +37,10 @@ export type StarterPackManifestFile = {
   kind: StarterPackManifestFileKind;
   merge_policy: StarterPackMergePolicy;
   sha256: string;
+  ownership: BrainDriveMemoryFileOwnership;
+  role: BrainDriveMemoryFileRole;
+  overlay_path?: string;
+  managed_base_path?: string;
 };
 
 export type StarterPackManifest = {
@@ -146,6 +161,18 @@ const PLAN_RELATIVE_DIR = "system/updates/plans";
 const REPORT_RELATIVE_DIR = "system/updates/reports";
 const BACKUP_RELATIVE_DIR = "system/updates/backups";
 const UNKNOWN_MEMORY_PACK_VERSION = "unknown";
+const DEFAULT_PROJECT_TEMPLATE_FILES = ["AGENT.md", "index.md", "spec.md", "plan.md"] as const;
+const FINANCE_PROJECT_CORE_TEMPLATE_FILES = ["AGENT.md", "spec.md", "run-interview.md", "plan.md", "run-planning.md"] as const;
+const FINANCE_DRAFT3_FILES = [
+  "budget/AGENT.md",
+  "budget/budget.md",
+  "budget/budget-rules.md",
+  "budget/create.md",
+  "budget/compare.md",
+  "budget/statements/README.md",
+  "budget/reports/README.md",
+  "budget/reports/latest.md",
+] as const;
 const FITNESS_HEALTH_DOC_FILES = [
   "health-docs/index.md",
   "health-docs/intake-and-disclaimer.md",
@@ -377,6 +404,7 @@ export async function runAutomaticMemoryUpdate(
   ) {
     return null;
   }
+  await applyAlphaDraft3Transition(memoryRoot);
   const plan = await generateMemoryUpdatePlan(rootDir, memoryRoot, appVersion, {
     adapter: options.adapter,
   });
@@ -423,13 +451,13 @@ export async function generateStarterPackManifest(
       path: "AGENT.md",
       sourcePath: "base/AGENT.md",
       kind: "agent_prompt",
-      mergePolicy: "llm_merge",
+      mergePolicy: "replace_managed_if_current",
     });
     await addManifestFile(files, starterPackDir, {
       path: "me/todo.md",
       sourcePath: "base/me/todo.md",
       kind: "user_memory_template",
-      mergePolicy: "create_if_missing_else_llm_merge",
+      mergePolicy: "preserve_owner_state",
     });
 
     const projectTemplatesDir = path.join(starterPackDir, "projects", "templates");
@@ -438,35 +466,22 @@ export async function generateStarterPackManifest(
       for (const entry of entries
         .filter((item) => item.isDirectory() && item.name !== "braindrive-plus-one")
         .sort((left, right) => left.name.localeCompare(right.name))) {
-        await addManifestFile(files, starterPackDir, {
-          path: `documents/${entry.name}/AGENT.md`,
-          sourcePath: `projects/templates/${entry.name}/AGENT.md`,
-          kind: "project_template",
-          mergePolicy: "create_if_missing_else_llm_merge",
-        });
-        await addManifestFile(files, starterPackDir, {
-          path: `documents/${entry.name}/index.md`,
-          sourcePath: `projects/templates/${entry.name}/index.md`,
-          kind: "project_template",
-          mergePolicy: "create_if_missing_else_defer",
-        });
+        const projectCoreFiles = entry.name === "finance" ? FINANCE_PROJECT_CORE_TEMPLATE_FILES : DEFAULT_PROJECT_TEMPLATE_FILES;
+        for (const projectFile of projectCoreFiles) {
+          await addManifestFile(files, starterPackDir, {
+            path: `documents/${entry.name}/${projectFile}`,
+            sourcePath: `projects/templates/${entry.name}/${projectFile}`,
+            kind: "project_template",
+            mergePolicy: mergePolicyForTemplatePath(`documents/${entry.name}/${projectFile}`),
+          });
+        }
         if (entry.name === "finance") {
-          for (const financeFile of [
-            "budget.md",
-            "rules.md",
-            "reports/latest.md",
-            "budgeting/index.md",
-            "budgeting/first-pass-budget.md",
-            "budgeting/monthly-comparison.md",
-            "budgeting/source-evidence.md",
-            "budgeting/report-contract.md",
-            "budgeting/saved-budget-rules.md",
-          ]) {
+          for (const financeFile of FINANCE_DRAFT3_FILES) {
             await addManifestFile(files, starterPackDir, {
               path: `documents/finance/${financeFile}`,
               sourcePath: `projects/templates/finance/${financeFile}`,
               kind: "project_template",
-              mergePolicy: "create_if_missing_else_defer",
+              mergePolicy: mergePolicyForTemplatePath(`documents/finance/${financeFile}`),
             });
           }
         }
@@ -632,6 +647,10 @@ async function generateLlmPlan(
             content: [
               "You are BrainDrive's memory update assistant.",
               "Merge starter-pack improvements into existing owner memory while preserving owner customizations.",
+              "Draft 3 uses managed base files plus optional -user.md owner overlays.",
+              "Managed base content may be updated; owner overlays, owner state, sources, and existing generated outputs must not be overwritten.",
+              "Never move owner-specific facts, merchant mappings, preferences, goals, plans, todos, or personal context into a managed base file.",
+              "Put persistent owner rules in the matching -user.md overlay or mark the item for review.",
               "Never remove owner-specific facts, goals, plans, todos, preferences, or personal context.",
               "Return only valid JSON matching the requested schema.",
               "Mark uncertain, destructive, or ambiguous changes as action=defer.",
@@ -667,6 +686,10 @@ async function generateLlmPlan(
                   path: candidate.manifestFile.path,
                   kind: candidate.manifestFile.kind,
                   merge_policy: candidate.manifestFile.merge_policy,
+                  ownership: candidate.manifestFile.ownership,
+                  role: candidate.manifestFile.role,
+                  overlay_path: candidate.manifestFile.overlay_path,
+                  managed_base_path: candidate.manifestFile.managed_base_path,
                   exists: candidate.exists,
                   current_sha256: candidate.currentSha256,
                   target_sha256: candidate.manifestFile.sha256,
@@ -705,6 +728,17 @@ function generateDeterministicPlan(input: {
   candidates: MemoryUpdateCandidate[];
 }): MemoryUpdatePlan {
   const items: MemoryUpdatePlanItem[] = input.candidates.map((candidate) => {
+    const preserveExisting =
+      candidate.exists &&
+      (candidate.manifestFile.ownership === "owner_overlay" ||
+        candidate.manifestFile.ownership === "owner_state" ||
+        candidate.manifestFile.ownership === "generated_output" ||
+        candidate.manifestFile.ownership === "durable_archive" ||
+        candidate.manifestFile.ownership === "source" ||
+        candidate.manifestFile.merge_policy === "preserve_owner_overlay" ||
+        candidate.manifestFile.merge_policy === "preserve_owner_state" ||
+        candidate.manifestFile.merge_policy === "generated_output_lifecycle");
+
     if (candidate.currentSha256 === candidate.manifestFile.sha256) {
       return {
         path: candidate.manifestFile.path,
@@ -713,6 +747,17 @@ function generateDeterministicPlan(input: {
         owner_summary: `${candidate.manifestFile.path} is already current.`,
         risk: "low",
         auto_apply: true,
+      };
+    }
+    if (preserveExisting) {
+      return {
+        path: candidate.manifestFile.path,
+        action: "no_change",
+        confidence: "high",
+        owner_summary: `${candidate.manifestFile.path} is owner-managed or generated and was preserved.`,
+        risk: "low",
+        auto_apply: true,
+        rationale: `Ownership is ${candidate.manifestFile.ownership}; starter-pack updates do not replace existing content for this class.`,
       };
     }
     if (!candidate.exists) {
@@ -767,18 +812,31 @@ function normalizePlan(
     const action = normalizeAction(item.action);
     const risk = normalizeRisk(item.risk);
     const hasContent = typeof item.replacement_content === "string" && item.replacement_content.length > 0;
+    const mustPreserveExisting =
+      candidate.exists &&
+      (candidate.manifestFile.ownership === "owner_overlay" ||
+        candidate.manifestFile.ownership === "owner_state" ||
+        candidate.manifestFile.ownership === "generated_output" ||
+        candidate.manifestFile.ownership === "durable_archive" ||
+        candidate.manifestFile.ownership === "source" ||
+        candidate.manifestFile.merge_policy === "preserve_owner_overlay" ||
+        candidate.manifestFile.merge_policy === "preserve_owner_state" ||
+        candidate.manifestFile.merge_policy === "generated_output_lifecycle");
     const isNoChange = action === "no_change";
     const autoApply =
-      isNoChange ||
+      (isNoChange || mustPreserveExisting) ||
       ((action === "create" || action === "merge" || action === "replace") &&
+        !mustPreserveExisting &&
         hasContent &&
         (risk === "low" || risk === "medium"));
 
     normalizedItems.push({
       path: candidate.manifestFile.path,
-      action: autoApply ? action : isNoChange ? "no_change" : "defer",
+      action: mustPreserveExisting ? "no_change" : autoApply ? action : isNoChange ? "no_change" : "defer",
       confidence: normalizeConfidence(item.confidence),
-      owner_summary: normalizeNonEmptyString(item.owner_summary, `${candidate.manifestFile.path} checked.`),
+      owner_summary: mustPreserveExisting
+        ? `${candidate.manifestFile.path} is owner-managed or generated and was preserved.`
+        : normalizeNonEmptyString(item.owner_summary, `${candidate.manifestFile.path} checked.`),
       risk: autoApply || isNoChange ? risk : "high",
       auto_apply: autoApply,
       ...(hasContent ? { replacement_content: normalizeFileContent(item.replacement_content ?? "") } : {}),
@@ -1054,16 +1112,41 @@ async function addManifestFile(
 ): Promise<void> {
   try {
     const content = normalizeFileContent(await readFile(path.join(starterPackDir, input.sourcePath), "utf8"));
+    const layout = classifyBrainDriveMemoryPath(input.path);
     files.push({
       path: input.path,
       source_path: input.sourcePath,
       kind: input.kind,
       merge_policy: input.mergePolicy,
       sha256: sha256(content),
+      ownership: layout.ownership,
+      role: layout.role,
+      ...(layout.overlayPath ? { overlay_path: layout.overlayPath } : {}),
+      ...(layout.managedBasePath ? { managed_base_path: layout.managedBasePath } : {}),
     });
   } catch {
     // Starter-pack content can be absent in development fixtures.
   }
+}
+
+function mergePolicyForTemplatePath(relativePath: string): StarterPackMergePolicy {
+  const classification = classifyBrainDriveMemoryPath(relativePath);
+  if (classification.ownership === "owner_overlay") {
+    return "preserve_owner_overlay";
+  }
+  if (classification.ownership === "owner_state") {
+    return "preserve_owner_state";
+  }
+  if (classification.ownership === "generated_output" || classification.ownership === "durable_archive") {
+    return "generated_output_lifecycle";
+  }
+  if (classification.ownership === "source") {
+    return "create_if_missing_else_defer";
+  }
+  if (classification.ownership === "managed_base") {
+    return "create_if_missing_else_replace_managed";
+  }
+  return "create_if_missing_else_defer";
 }
 
 async function writeJson(directory: string, fileName: string, payload: unknown): Promise<void> {

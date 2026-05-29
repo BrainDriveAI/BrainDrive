@@ -8,6 +8,11 @@ import { removeProjectIndexEntry } from "../../memory/folder-index.js";
 import { isReservedMemoryPath, resolveMemoryPath, toMemoryRelativePath } from "../../memory/paths.js";
 import { ToolExecutionFailure, toToolFailure } from "../../tool-error.js";
 
+const SEARCH_EXCLUDED_ROOTS = new Set(["diagnostics"]);
+const MAX_SEARCH_MATCHES = 50;
+const MAX_SEARCH_MATCH_CONTENT_CHARS = 500;
+const MAX_SEARCH_TOTAL_CONTENT_CHARS = 20_000;
+
 async function readTool(context: ToolContext, input: Record<string, unknown>): Promise<unknown> {
   const targetPath = String(input.path ?? "");
   try {
@@ -126,7 +131,7 @@ async function listTool(context: ToolContext, input: Record<string, unknown>): P
     return {
       path: absolutePath,
       entries: entries
-        .filter((entry) => !isReservedMemoryPath(context.memoryRoot, path.join(absolutePath, entry.name)))
+        .filter((entry) => !isHiddenFromModelBrowsing(context.memoryRoot, path.join(absolutePath, entry.name)))
         .map((entry) => `${entry.name}${entry.isDirectory() ? "/" : ""}`),
     };
   } catch (error) {
@@ -146,6 +151,8 @@ async function searchTool(context: ToolContext, input: Record<string, unknown>):
   try {
     const absolutePath = resolveToolPath(context, targetPath);
     const matches: Array<{ path: string; line: number; content: string }> = [];
+    let omittedMatches = 0;
+    let totalContentChars = 0;
 
     await visitFiles(
       context.memoryRoot,
@@ -159,10 +166,18 @@ async function searchTool(context: ToolContext, input: Record<string, unknown>):
         const lines = content.split(/\r?\n/);
         lines.forEach((line, index) => {
           if (line.includes(query)) {
+            if (matches.length >= MAX_SEARCH_MATCHES || totalContentChars >= MAX_SEARCH_TOTAL_CONTENT_CHARS) {
+              omittedMatches += 1;
+              return;
+            }
+
+            const remainingChars = MAX_SEARCH_TOTAL_CONTENT_CHARS - totalContentChars;
+            const renderedContent = renderSearchMatchContent(line, query, Math.min(MAX_SEARCH_MATCH_CONTENT_CHARS, remainingChars));
+            totalContentChars += renderedContent.length;
             matches.push({
               path: filePath,
               line: index + 1,
-              content: redactSensitiveContent(line),
+              content: renderedContent,
             });
           }
         });
@@ -170,7 +185,17 @@ async function searchTool(context: ToolContext, input: Record<string, unknown>):
       { includeConversations }
     );
 
-    return { query, include_conversations: includeConversations, matches };
+    return {
+      query,
+      include_conversations: includeConversations,
+      matches,
+      omitted_matches: omittedMatches,
+      limits: {
+        max_matches: MAX_SEARCH_MATCHES,
+        max_match_content_chars: MAX_SEARCH_MATCH_CONTENT_CHARS,
+        max_total_content_chars: MAX_SEARCH_TOTAL_CONTENT_CHARS,
+      },
+    };
   } catch (error) {
     throw toToolFailure(error);
   }
@@ -202,11 +227,42 @@ function redactSensitiveContent(content: string): string {
   return content.replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, "sk-***redacted***");
 }
 
+function renderSearchMatchContent(content: string, query: string, maxChars: number): string {
+  const redacted = redactSensitiveContent(content);
+  if (redacted.length <= maxChars) {
+    return redacted;
+  }
+
+  const queryIndex = redacted.indexOf(query);
+  const markerOverhead = " [...]".length + "[...] ".length;
+  const excerptLength = Math.max(query.length, maxChars - markerOverhead);
+  const start = queryIndex >= 0
+    ? Math.max(0, queryIndex - Math.floor((excerptLength - query.length) / 2))
+    : 0;
+  const end = Math.min(redacted.length, start + excerptLength);
+  const adjustedStart = Math.max(0, end - excerptLength);
+  const prefix = adjustedStart > 0 ? "[...] " : "";
+  const suffix = end < redacted.length ? " [...]" : "";
+
+  return `${prefix}${redacted.slice(adjustedStart, end)}${suffix}`;
+}
+
 function isConversationsPath(memoryRoot: string, absolutePath: string): boolean {
   const relativePath = toMemoryRelativePath(memoryRoot, absolutePath);
   const normalizedRelative = relativePath.replace(/\\/g, "/");
   const firstSegment = normalizedRelative.split("/")[0] ?? "";
   return firstSegment === "conversations";
+}
+
+function isHiddenFromModelBrowsing(memoryRoot: string, absolutePath: string): boolean {
+  if (isReservedMemoryPath(memoryRoot, absolutePath)) {
+    return true;
+  }
+
+  const relativePath = toMemoryRelativePath(memoryRoot, absolutePath);
+  const normalizedRelative = relativePath.replace(/\\/g, "/");
+  const firstSegment = normalizedRelative.split("/")[0] ?? "";
+  return SEARCH_EXCLUDED_ROOTS.has(firstSegment);
 }
 
 async function visitFiles(
@@ -217,6 +273,10 @@ async function visitFiles(
     includeConversations: boolean;
   }
 ): Promise<void> {
+  if (isHiddenFromModelBrowsing(memoryRoot, currentPath)) {
+    return;
+  }
+
   if (!options.includeConversations && isConversationsPath(memoryRoot, currentPath)) {
     return;
   }
@@ -230,7 +290,7 @@ async function visitFiles(
   const entries = await readdir(currentPath, { withFileTypes: true });
   for (const entry of entries) {
     const absoluteEntry = path.join(currentPath, entry.name);
-    if (isReservedMemoryPath(memoryRoot, absoluteEntry)) {
+    if (isHiddenFromModelBrowsing(memoryRoot, absoluteEntry)) {
       continue;
     }
     if (!options.includeConversations && isConversationsPath(memoryRoot, absoluteEntry)) {
