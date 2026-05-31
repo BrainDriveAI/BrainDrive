@@ -36,9 +36,11 @@
     "desktop:stage-runtime": "node scripts/desktop-stage-runtime.mjs",
     "desktop:stage-runtime:powershell": "powershell -ExecutionPolicy Bypass -File scripts/desktop-stage-runtime.ps1",
     "desktop:dev": "tauri dev",
-    "desktop:build": "tauri build",
-    "desktop:build:mac": "tauri build --bundles dmg",
-    "desktop:build:windows": "tauri build --bundles nsis",
+    "desktop:release-aliases": "node scripts/desktop-release-aliases.mjs",
+    "desktop:build": "tauri build && npm run desktop:release-aliases",
+    "desktop:build:mac": "tauri build --bundles dmg && npm run desktop:release-aliases",
+    "desktop:build:mac:remote": "powershell -ExecutionPolicy Bypass -File scripts/remote-mac-build.ps1",
+    "desktop:build:windows": "tauri build --bundles nsis && npm run desktop:release-aliases",
     "desktop:build:linux": "tauri build --bundles deb,appimage",
     "desktop:build:frontend": "npm --prefix client_web run build",
     "desktop:dev:web": "npm --prefix client_web run dev",
@@ -53,7 +55,7 @@
     "@tauri-apps/cli": "^2.11.2",
     "@types/node": "^25.9.1",
     "tsx": "^4.22.3",
-    "typescript": "^5.8.2",
+    "typescript": "^6.0.3",
     "vitest": "^4.1.7"
   }
 }
