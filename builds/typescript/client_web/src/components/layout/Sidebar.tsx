@@ -294,14 +294,19 @@ export default function Sidebar({
                   ref={uploadInputRef}
                   type="file"
                   accept={ACCEPTED_FILE_INPUT}
+                  multiple
                   className="hidden"
                   onChange={(event) => {
-                    const file = event.target.files?.[0];
+                    const files = Array.from(event.target.files ?? []);
                     event.target.value = "";
-                    if (!file) {
+                    if (files.length === 0) {
                       return;
                     }
-                    void onUploadDocument(file).catch(() => {});
+                    void (async () => {
+                      for (const file of files) {
+                        await onUploadDocument(file);
+                      }
+                    })().catch(() => {});
                   }}
                 />
                 <button

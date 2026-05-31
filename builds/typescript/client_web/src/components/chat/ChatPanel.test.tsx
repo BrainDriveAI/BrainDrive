@@ -114,7 +114,7 @@ describe("ChatPanel typing indicator behavior", () => {
     expect(screen.queryByRole("button", { name: "Try Again" })).not.toBeInTheDocument();
   });
 
-  it("uploads PDF attachments through the selected project instead of reading them into chat", async () => {
+  it("uploads PDF attachments through the selected project and sends a durable upload event", async () => {
     const user = userEvent.setup();
     const hookState = makeHookState();
     const onUploadDocument = vi.fn(async () => ({
@@ -142,6 +142,60 @@ describe("ChatPanel typing indicator behavior", () => {
     await waitFor(() => {
       expect(onUploadDocument).toHaveBeenCalledWith(file);
     });
-    expect(hookState.append).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(hookState.append).toHaveBeenCalledWith(
+        expect.stringContaining("Uploaded 1 file:"),
+        expect.any(Object)
+      );
+    });
+    expect(hookState.append).toHaveBeenCalledWith(
+      expect.stringContaining("documents/finance/statement.md"),
+      expect.any(Object)
+    );
+  });
+
+  it("uploads multiple selected project documents sequentially", async () => {
+    const user = userEvent.setup();
+    const hookState = makeHookState();
+    const onUploadDocument = vi
+      .fn()
+      .mockResolvedValueOnce({
+        name: "february.md",
+        path: "documents/finance/budget/statements/february.md",
+      })
+      .mockResolvedValueOnce({
+        name: "march.md",
+        path: "documents/finance/budget/statements/march.md",
+      });
+    useGatewayChatMock.mockReturnValue(hookState);
+
+    const { container } = render(
+      <ChatPanel
+        activeConversationId={null}
+        activeProjectId="finance"
+        isEmpty={false}
+        onUploadDocument={onUploadDocument}
+      />
+    );
+
+    const input = container.querySelector('input[type="file"]');
+    expect(input).toBeInstanceOf(HTMLInputElement);
+
+    const february = new File(["Date,Amount"], "february.csv", { type: "text/csv" });
+    const march = new File(["Date,Amount"], "march.csv", { type: "text/csv" });
+    await user.upload(input as HTMLInputElement, [february, march]);
+    await user.click(screen.getAllByRole("button", { name: "Send message" })[0]!);
+
+    await waitFor(() => {
+      expect(onUploadDocument).toHaveBeenCalledTimes(2);
+    });
+    expect(onUploadDocument.mock.calls[0]?.[0]).toBe(february);
+    expect(onUploadDocument.mock.calls[1]?.[0]).toBe(march);
+    await waitFor(() => {
+      expect(hookState.append).toHaveBeenCalledWith(
+        expect.stringContaining("Uploaded 2 files:"),
+        expect.any(Object)
+      );
+    });
   });
 });

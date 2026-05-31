@@ -19,6 +19,10 @@ Create a usable saved monthly budget or update an existing saved budget when the
 
 Use owner estimates and available statements. Label assumptions, ask about material unknowns, and keep owner-approved rules in `budget-rules-user.md`.
 
+If statements are needed, ask the owner to attach them in chat or use the visible upload button. Do not ask the owner to place files into `documents/...` paths. State the requested statement set as a checklist, then update Received and Still Needed after each upload or batch.
+
+Before creating a statement-backed baseline, read the uploaded source evidence in `statements/`, confirm the covered months/accounts, and label any missing or partial evidence clearly.
+
 ## Done Criteria
 
 `budget.md` has current saved limits and changes are recorded in the changelog.

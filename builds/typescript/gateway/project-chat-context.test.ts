@@ -41,8 +41,11 @@ describe("project chat context", () => {
     expect(context).toContain("read documents/finance/budget/budget.md, documents/finance/budget/budget-rules.md, and documents/finance/budget/budget-rules-user.md");
     expect(context).toContain("do not rely on documents/finance/index.md, documents/finance/rules.md, or documents/finance/budgeting/");
     expect(context).toContain("complete the Finance task before coaching or cross-domain discussion");
+    expect(context).toContain("attach files in chat or use the visible upload button");
+    expect(context).toContain("Do not ask the owner to manually place files into documents/finance");
     expect(context).toContain("treat documents/finance/budget/budget.md as the saved budget");
     expect(context).toContain("Use documents/finance/budget/statements/ as source evidence");
+    expect(context).toContain("visible received/missing statement checklist");
     expect(context).toContain("Do not write to documents/finance/budget/budget.md during a saved-budget comparison");
     expect(context).toContain("do not call memory_write, memory_edit, or memory_delete on documents/finance/budget/budget.md");
     expect(context).toContain("Preserve documents/finance/budget/budget.md byte-for-byte");

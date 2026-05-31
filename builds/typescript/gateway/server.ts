@@ -2466,9 +2466,12 @@ export async function buildServer(rootDir = process.cwd()) {
       }
 
       if (error instanceof DocumentConversionProviderError) {
+        auditLog("document_upload.conversion_provider_error", {
+          status: error.status,
+          message: error.message,
+        });
         reply.code(502).send({
-          error: "Document conversion provider failed",
-          detail: error.message,
+          error: "Document conversion provider failed. Check model credentials or try again.",
           status: error.status,
         });
         return;
@@ -3295,8 +3298,10 @@ export function buildProjectChatContext(
         "For budgeting questions, read documents/finance/budget/budget.md, documents/finance/budget/budget-rules.md, and documents/finance/budget/budget-rules-user.md when present.",
         "For a Budget procedure, read the managed procedure first, then the matching -user.md overlay if present, such as compare.md before compare-user.md.",
         "For explicit Finance execution requests about budgets, debt, uploads, statements, spending, or reports, complete the Finance task before coaching or cross-domain discussion.",
+        "When asking the owner for statements or supporting documents, ask them to attach files in chat or use the visible upload button. Do not ask the owner to manually place files into documents/finance/... paths.",
         "For 'how did I do?', monthly comparison, over/under, or budget progress questions, treat documents/finance/budget/budget.md as the saved budget and compare statement actuals against it.",
         "Use documents/finance/budget/statements/ as source evidence and documents/finance/budget/reports/ as derived output for budget reports.",
+        "Maintain a visible received/missing statement checklist during budget setup, grounded in uploaded source evidence and statement metadata. Do not proceed to a statement-backed baseline until required evidence is present or the owner approves a partial baseline.",
         "Do not write to documents/finance/budget/budget.md during a saved-budget comparison unless the owner explicitly asks to revise the saved budget.",
         "During saved-budget comparison mode, do not call memory_write, memory_edit, or memory_delete on documents/finance/budget/budget.md; write comparison output only to documents/finance/budget/reports/latest.md or a closed-period reports file.",
         "Preserve documents/finance/budget/budget.md byte-for-byte during saved-budget comparisons. Do not make formatting-only, table-alignment, whitespace, note, category, or no-op rewrites.",

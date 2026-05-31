@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type ReactNode } from "react";
-import { FileText } from "lucide-react";
+import { AlertCircle, CheckCircle2, FileText, Loader2, RotateCcw } from "lucide-react";
 import { createPortal } from "react-dom";
 
 import {
@@ -52,6 +52,26 @@ type ChatPanelProps = {
   onOpenSettings?: () => void;
 };
 
+type UploadActivity = {
+  id: string;
+  file: File;
+  fileName: string;
+  status: "uploading" | "converting" | "saved" | "failed";
+  message: string;
+  savedPath?: string;
+  error?: string;
+};
+
+type UploadSuccess = {
+  fileName: string;
+  savedPath: string;
+};
+
+type UploadFailure = {
+  fileName: string;
+  error: string;
+};
+
 function mapConversationMessages(conversation: ConversationDetail): Message[] {
   return conversation.messages
     .filter((message): message is { role: "user" | "assistant"; content: string } =>
@@ -62,6 +82,75 @@ function mapConversationMessages(conversation: ConversationDetail): Message[] {
       role: message.role,
       content: message.content
     }));
+}
+
+function readTextAttachment(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const fileContent = reader.result as string;
+      resolve(`---\n**File: ${file.name}**\n\`\`\`\n${fileContent}\n\`\`\``);
+    };
+    reader.onerror = () => {
+      reject(new Error(`Failed to read file: ${file.name}`));
+    };
+    reader.readAsText(file);
+  });
+}
+
+function UploadActivityList({
+  activities,
+  onRetry
+}: {
+  activities: UploadActivity[];
+  onRetry: (activity: UploadActivity) => void;
+}) {
+  if (activities.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-2 py-2">
+      {activities.map((activity) => {
+        const isPending = activity.status === "uploading" || activity.status === "converting";
+        return (
+          <div
+            key={activity.id}
+            className="flex items-start gap-3 rounded-lg border border-bd-border bg-bd-bg-secondary px-3 py-2 text-sm text-bd-text-primary"
+          >
+            {isPending ? (
+              <Loader2 size={16} strokeWidth={1.7} className="mt-0.5 shrink-0 animate-spin text-bd-amber" />
+            ) : activity.status === "saved" ? (
+              <CheckCircle2 size={16} strokeWidth={1.7} className="mt-0.5 shrink-0 text-emerald-500" />
+            ) : (
+              <AlertCircle size={16} strokeWidth={1.7} className="mt-0.5 shrink-0 text-bd-danger" />
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="truncate">{activity.message}</div>
+              {activity.savedPath ? (
+                <div className="truncate pt-0.5 text-xs text-bd-text-muted">
+                  Source evidence: {activity.savedPath}
+                </div>
+              ) : null}
+              {activity.error ? (
+                <div className="pt-0.5 text-xs leading-5 text-bd-danger">{activity.error}</div>
+              ) : null}
+            </div>
+            {activity.status === "failed" ? (
+              <button
+                type="button"
+                onClick={() => onRetry(activity)}
+                className="inline-flex shrink-0 items-center gap-1 rounded-md border border-bd-border px-2 py-1 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover hover:text-bd-text-primary"
+              >
+                <RotateCcw size={13} strokeWidth={1.7} />
+                Retry
+              </button>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function ChatPanel({
@@ -77,7 +166,8 @@ export default function ChatPanel({
   onUploadDocument,
   onOpenSettings
 }: ChatPanelProps) {
-  const [attachment, setAttachment] = useState<AttachedFile | null>(null);
+  const [attachments, setAttachments] = useState<AttachedFile[]>([]);
+  const [uploadActivities, setUploadActivities] = useState<UploadActivity[]>([]);
   const [fileError, setFileError] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [mobileComposerHeight, setMobileComposerHeight] = useState(0);
@@ -90,6 +180,7 @@ export default function ChatPanel({
   const wasLoadingRef = useRef(false);
   const completedConversationIdRef = useRef<string | null>(null);
   const hasUsedToolRef = useRef(false);
+  const uploadActivityCounterRef = useRef(0);
 
   const {
     messages,
@@ -157,6 +248,12 @@ export default function ChatPanel({
   useEffect(() => {
     setDismissedError(null);
   }, [error, historyError]);
+
+  useEffect(() => {
+    setAttachments([]);
+    setUploadActivities([]);
+    setFileError(null);
+  }, [activeProjectId, activeAppPath]);
 
   useEffect(() => {
     if (wasLoadingRef.current && !isLoading && !error && conversationId) {
@@ -239,79 +336,217 @@ export default function ChatPanel({
     setIsDragOver(false);
     setFileError(null);
 
-    const file = e.dataTransfer.files[0];
-    if (!file) return;
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return;
 
-    if (!isAcceptedFile(file)) {
-      setFileError(rejectFileMessage(file.name));
+    const rejected = files.find((file) => !isAcceptedFile(file));
+    if (rejected) {
+      setFileError(rejectFileMessage(rejected.name));
       return;
     }
 
-    setAttachment({
-      file,
-      name: file.name,
-      size: formatFileSize(file.size)
-    });
+    setAttachments((current) => [
+      ...current,
+      ...files.map((file) => ({
+        file,
+        name: file.name,
+        size: formatFileSize(file.size)
+      }))
+    ]);
   }
 
-  function handleAttach(attached: AttachedFile) {
-    if (!isAcceptedFile(attached.file)) {
-      setFileError(rejectFileMessage(attached.file.name));
+  function handleAttach(attachedFiles: AttachedFile[]) {
+    const rejected = attachedFiles.find((attached) => !isAcceptedFile(attached.file));
+    if (rejected) {
+      setFileError(rejectFileMessage(rejected.file.name));
       return;
     }
 
     setFileError(null);
-    setAttachment(attached);
+    setAttachments((current) => [...current, ...attachedFiles]);
+  }
+
+  function removeAttachment(index: number) {
+    setAttachments((current) => current.filter((_, currentIndex) => currentIndex !== index));
+  }
+
+  function nextUploadActivityId(): string {
+    uploadActivityCounterRef.current += 1;
+    return `upload-${uploadActivityCounterRef.current}`;
+  }
+
+  function updateUploadActivity(
+    id: string,
+    updater: (activity: UploadActivity) => UploadActivity
+  ) {
+    setUploadActivities((current) =>
+      current.map((activity) => activity.id === id ? updater(activity) : activity)
+    );
+  }
+
+  function buildUploadSummaryMessage(
+    message: string,
+    successes: UploadSuccess[],
+    failures: UploadFailure[]
+  ): string {
+    const lines: string[] = [];
+    const trimmed = message.trim();
+    if (trimmed.length > 0) {
+      lines.push(trimmed, "");
+    }
+
+    if (successes.length === 1) {
+      lines.push("Uploaded 1 file:");
+    } else if (successes.length > 1) {
+      lines.push(`Uploaded ${successes.length} files:`);
+    }
+    for (const success of successes) {
+      lines.push(`- ${success.fileName} -> ${success.savedPath}`);
+    }
+
+    if (failures.length > 0) {
+      if (successes.length > 0) {
+        lines.push("");
+      }
+      lines.push(failures.length === 1 ? "1 file did not upload:" : `${failures.length} files did not upload:`);
+      for (const failure of failures) {
+        lines.push(`- ${failure.fileName}: ${failure.error}`);
+      }
+    }
+
+    lines.push("", "Please acknowledge the uploaded statement evidence and update the received/missing checklist for the budget setup before continuing.");
+    return lines.join("\n");
+  }
+
+  async function uploadProjectFiles(message: string, files: File[]) {
+    if (!onUploadDocument || !activeProjectId || activeProjectId === "braindrive-plus-one") {
+      return;
+    }
+
+    const activities = files.map((file) => ({
+      id: nextUploadActivityId(),
+      file,
+      fileName: file.name,
+      status: requiresMarkdownConversion(file) ? "converting" as const : "uploading" as const,
+      message: requiresMarkdownConversion(file)
+        ? `Converting ${file.name} to markdown...`
+        : `Uploading ${file.name}...`,
+    }));
+    setUploadActivities((current) => [...current, ...activities]);
+
+    const successes: UploadSuccess[] = [];
+    const failures: UploadFailure[] = [];
+
+    for (const activity of activities) {
+      try {
+        const uploadedFile = await onUploadDocument(activity.file);
+        const uploadedPath = uploadedFile?.path ?? activity.fileName;
+        successes.push({
+          fileName: activity.fileName,
+          savedPath: uploadedPath,
+        });
+        updateUploadActivity(activity.id, (current) => ({
+          ...current,
+          status: "saved",
+          savedPath: uploadedPath,
+          message: `Saved ${current.fileName}.`,
+        }));
+      } catch (uploadError) {
+        const errorMessage = uploadError instanceof Error ? uploadError.message : "Document upload failed.";
+        failures.push({
+          fileName: activity.fileName,
+          error: errorMessage,
+        });
+        updateUploadActivity(activity.id, (current) => ({
+          ...current,
+          status: "failed",
+          error: errorMessage,
+          message: `Failed to upload ${current.fileName}.`,
+        }));
+      }
+    }
+
+    if (successes.length > 0) {
+      onSendMessage?.();
+      append(buildUploadSummaryMessage(message, successes, failures), { metadata: messageMetadata });
+    } else if (failures.length > 0) {
+      setFileError(failures.length === 1 ? failures[0]!.error : "Document uploads failed.");
+    }
+  }
+
+  async function retryUpload(activity: UploadActivity) {
+    setFileError(null);
+    updateUploadActivity(activity.id, (current) => ({
+      ...current,
+      status: requiresMarkdownConversion(current.file) ? "converting" : "uploading",
+      error: undefined,
+      message: requiresMarkdownConversion(current.file)
+        ? `Converting ${current.fileName} to markdown...`
+        : `Uploading ${current.fileName}...`,
+    }));
+
+    try {
+      const uploadedFile = await onUploadDocument?.(activity.file);
+      const uploadedPath = uploadedFile?.path ?? activity.fileName;
+      updateUploadActivity(activity.id, (current) => ({
+        ...current,
+        status: "saved",
+        savedPath: uploadedPath,
+        message: `Saved ${current.fileName}.`,
+      }));
+      onSendMessage?.();
+      append(buildUploadSummaryMessage("", [{ fileName: activity.fileName, savedPath: uploadedPath }], []), {
+        metadata: messageMetadata
+      });
+    } catch (uploadError) {
+      const errorMessage = uploadError instanceof Error ? uploadError.message : "Document upload failed.";
+      updateUploadActivity(activity.id, (current) => ({
+        ...current,
+        status: "failed",
+        error: errorMessage,
+        message: `Failed to upload ${current.fileName}.`,
+      }));
+      setFileError(errorMessage);
+    }
   }
 
   const composerProps = {
-    onSend: (message: string, file?: File) => {
-      if (file) {
+    onSend: (message: string, files: File[] = []) => {
+      if (files.length > 0) {
         if (onUploadDocument && activeProjectId && activeProjectId !== "braindrive-plus-one") {
-          void (async () => {
-            try {
-              const uploadedFile = await onUploadDocument(file);
-              const uploadedPath = uploadedFile?.path ?? file.name;
-              setAttachment(null);
-
-              if (message.trim().length > 0) {
-                const combined = `${message}\n\nUploaded ${file.name} to this folder as ${uploadedPath}.`;
-                onSendMessage?.();
-                append(combined, { metadata: messageMetadata });
-              }
-            } catch (uploadError) {
-              setFileError(uploadError instanceof Error ? uploadError.message : "Document upload failed.");
-            }
-          })();
+          setAttachments([]);
+          void uploadProjectFiles(message, files);
           return;
         }
 
-        if (requiresMarkdownConversion(file)) {
+        const convertedFile = files.find((file) => requiresMarkdownConversion(file));
+        if (convertedFile) {
           setFileError("Open a project folder to upload images or PDFs for markdown conversion.");
           return;
         }
 
-        const reader = new FileReader();
-        reader.onload = () => {
-          const fileContent = reader.result as string;
-          const combined = message
-            ? `${message}\n\n---\n**File: ${file.name}**\n\`\`\`\n${fileContent}\n\`\`\``
-            : `Here is the content of ${file.name}:\n\n\`\`\`\n${fileContent}\n\`\`\``;
-          onSendMessage?.();
-          append(combined, { metadata: messageMetadata });
-        };
-        reader.onerror = () => {
-          setHistoryError(`Failed to read file: ${file.name}`);
-        };
-        reader.readAsText(file);
+        void (async () => {
+          try {
+            const fileBlocks = await Promise.all(files.map(readTextAttachment));
+            const combined = message
+              ? `${message}\n\n${fileBlocks.join("\n\n")}`
+              : fileBlocks.join("\n\n");
+            setAttachments([]);
+            onSendMessage?.();
+            append(combined, { metadata: messageMetadata });
+          } catch (readError) {
+            setHistoryError(readError instanceof Error ? readError.message : "Failed to read attachment.");
+          }
+        })();
       } else {
         onSendMessage?.();
         append(message, { metadata: messageMetadata });
       }
     },
-    attachment,
+    attachments,
     onAttach: handleAttach,
-    onRemoveAttachment: () => setAttachment(null),
+    onRemoveAttachment: removeAttachment,
+    onClearAttachments: () => setAttachments([]),
     fileError,
     onClearFileError: () => setFileError(null),
     isStreaming: isWaitingForReply,
@@ -385,6 +620,7 @@ export default function ChatPanel({
               isTyping={showTypingFeedback}
               typingStatus={typingStatus}
             >
+              <UploadActivityList activities={uploadActivities} onRetry={retryUpload} />
               {contextWindowWarning && !visibleChatError && (
                 <div className="mx-auto w-full max-w-[780px] py-2">
                   <div className="rounded-xl border border-bd-amber/40 bg-bd-amber/10 px-4 py-3 text-sm text-bd-text-primary">
