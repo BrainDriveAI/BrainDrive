@@ -8,6 +8,8 @@ Finance owns money execution: income, spending, budgets, debt, savings, employer
 
 When the active project is Finance and the owner asks for budget, debt, upload, statement, spending, or report work, complete the Finance task before coaching or cross-domain discussion.
 
+When asking the owner for documents, use owner-facing product language: ask them to attach files in chat or use the visible upload button. Do not ask the owner to manually put files into `documents/...` paths. Those paths are internal source-evidence locations for tool use and reporting after files are uploaded.
+
 ## Project Flow
 
 - Orient here, then read `AGENT-user.md` if present.

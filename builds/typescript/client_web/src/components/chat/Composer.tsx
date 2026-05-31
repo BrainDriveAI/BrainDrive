@@ -16,12 +16,13 @@ import {
 } from "@/utils/file-utils";
 
 type ComposerProps = {
-  onSend?: (message: string, attachment?: File) => void;
+  onSend?: (message: string, attachments?: File[]) => void;
   onStop?: () => void;
   isStreaming?: boolean;
-  attachment?: AttachedFile | null;
-  onAttach?: (file: AttachedFile) => void;
-  onRemoveAttachment?: () => void;
+  attachments?: AttachedFile[];
+  onAttach?: (files: AttachedFile[]) => void;
+  onRemoveAttachment?: (index: number) => void;
+  onClearAttachments?: () => void;
   fileError?: string | null;
   onClearFileError?: () => void;
   layout?: "inline" | "mobile-fixed";
@@ -39,9 +40,10 @@ export default function Composer({
   onSend,
   onStop,
   isStreaming = false,
-  attachment,
+  attachments = [],
   onAttach,
   onRemoveAttachment,
+  onClearAttachments,
   fileError,
   onClearFileError,
   layout = "inline",
@@ -53,7 +55,7 @@ export default function Composer({
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const wasStreamingRef = useRef(isStreaming);
   const trimmedMessage = message.trim();
-  const hasContent = trimmedMessage.length > 0 || attachment != null;
+  const hasContent = trimmedMessage.length > 0 || attachments.length > 0;
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -91,26 +93,28 @@ export default function Composer({
     wasStreamingRef.current = isStreaming;
   }, [isStreaming]);
 
-  function handleFileSelect(file: File) {
+  function handleFileSelect(files: FileList | File[]) {
     onClearFileError?.();
 
-    if (!isAcceptedFile(file)) {
-      return;
-    }
+    const nextAttachments = Array.from(files)
+      .filter((file) => isAcceptedFile(file))
+      .map((file) => ({
+        file,
+        name: file.name,
+        size: formatFileSize(file.size)
+      }));
 
-    onAttach?.({
-      file,
-      name: file.name,
-      size: formatFileSize(file.size)
-    });
+    if (nextAttachments.length > 0) {
+      onAttach?.(nextAttachments);
+    }
   }
 
   function handleSend() {
     if (!hasContent) return;
 
-    onSend?.(trimmedMessage, attachment?.file);
+    onSend?.(trimmedMessage, attachments.map((attached) => attached.file));
     setMessage("");
-    onRemoveAttachment?.();
+    onClearAttachments?.();
 
     if (textareaRef.current) {
       textareaRef.current.style.height = "0px";
@@ -165,23 +169,30 @@ export default function Composer({
           </div>
         )}
 
-        {attachment && (
-          <div className="mb-2 flex items-center gap-2 rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2">
-            <FileText size={16} strokeWidth={1.5} className="shrink-0 text-bd-text-secondary" />
-            <span className="min-w-0 flex-1 truncate text-sm text-bd-text-primary">
-              {attachment.name}
-            </span>
-            <span className="shrink-0 text-xs text-bd-text-muted">
-              {attachment.size}
-            </span>
-            <button
-              type="button"
-              aria-label="Remove attachment"
-              onClick={onRemoveAttachment}
-              className="shrink-0 text-bd-text-muted transition-colors hover:text-bd-text-secondary"
-            >
-              <X size={14} strokeWidth={1.5} />
-            </button>
+        {attachments.length > 0 && (
+          <div className="mb-2 space-y-2">
+            {attachments.map((attachment, index) => (
+              <div
+                key={`${attachment.name}-${attachment.file.size}-${attachment.file.lastModified}-${index}`}
+                className="flex items-center gap-2 rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2"
+              >
+                <FileText size={16} strokeWidth={1.5} className="shrink-0 text-bd-text-secondary" />
+                <span className="min-w-0 flex-1 truncate text-sm text-bd-text-primary">
+                  {attachment.name}
+                </span>
+                <span className="shrink-0 text-xs text-bd-text-muted">
+                  {attachment.size}
+                </span>
+                <button
+                  type="button"
+                  aria-label={`Remove ${attachment.name}`}
+                  onClick={() => onRemoveAttachment?.(index)}
+                  className="shrink-0 text-bd-text-muted transition-colors hover:text-bd-text-secondary"
+                >
+                  <X size={14} strokeWidth={1.5} />
+                </button>
+              </div>
+            ))}
           </div>
         )}
 
@@ -190,10 +201,12 @@ export default function Composer({
             ref={fileInputRef}
             type="file"
             accept={ACCEPTED_FILE_INPUT}
+            multiple
             className="hidden"
             onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleFileSelect(file);
+              if (e.target.files && e.target.files.length > 0) {
+                handleFileSelect(e.target.files);
+              }
               e.target.value = "";
             }}
           />

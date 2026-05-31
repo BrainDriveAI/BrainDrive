@@ -21,7 +21,7 @@ describe("Composer", () => {
 
     await user.click(sendButton);
 
-    expect(onSend).toHaveBeenCalledWith("Hello BrainDrive", undefined);
+    expect(onSend).toHaveBeenCalledWith("Hello BrainDrive", []);
     expect(textarea).toHaveValue("");
     expect(sendButton).toBeDisabled();
 
@@ -61,28 +61,34 @@ describe("Composer", () => {
     const csvFile = new File(["a,b\n1,2"], "transactions.csv", { type: "text/csv" });
     await user.upload(input as HTMLInputElement, csvFile);
 
-    expect(onAttach).toHaveBeenCalledWith({
-      file: csvFile,
-      name: "transactions.csv",
-      size: "7 B",
-    });
+    expect(onAttach).toHaveBeenCalledWith([
+      {
+        file: csvFile,
+        name: "transactions.csv",
+        size: "7 B",
+      }
+    ]);
 
     const imageFile = new File(["png"], "receipt.png", { type: "image/png" });
     await user.upload(input as HTMLInputElement, imageFile);
 
-    expect(onAttach).toHaveBeenLastCalledWith({
-      file: imageFile,
-      name: "receipt.png",
-      size: "3 B",
-    });
+    expect(onAttach).toHaveBeenLastCalledWith([
+      {
+        file: imageFile,
+        name: "receipt.png",
+        size: "3 B",
+      }
+    ]);
 
     const pdfFile = new File(["%PDF-1.6"], "statement.pdf", { type: "application/pdf" });
     await user.upload(input as HTMLInputElement, pdfFile);
 
-    expect(onAttach).toHaveBeenLastCalledWith({
-      file: pdfFile,
-      name: "statement.pdf",
-      size: "8 B",
-    });
+    expect(onAttach).toHaveBeenLastCalledWith([
+      {
+        file: pdfFile,
+        name: "statement.pdf",
+        size: "8 B",
+      }
+    ]);
   });
 });
