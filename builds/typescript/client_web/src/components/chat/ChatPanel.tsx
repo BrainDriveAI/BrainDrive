@@ -9,6 +9,11 @@ import {
   rejectFileMessage,
   type AttachedFile
 } from "@/utils/file-utils";
+import {
+  destinationLabelForMemoryPath,
+  ownerLabelForMemoryPath,
+  statementMonthLabelForMemoryPath
+} from "@/utils/owner-labels";
 import { getConversation, type ConversationDetail } from "@/api/gateway-adapter";
 import { useGatewayChat } from "@/api/useGatewayChat";
 import type { Message, ProjectFile } from "@/types/ui";
@@ -59,12 +64,20 @@ type UploadActivity = {
   status: "uploading" | "converting" | "saved" | "failed";
   message: string;
   savedPath?: string;
+  ownerLabel?: string;
+  statementMonth?: string | null;
+  destinationLabel?: string;
+  detailsOpen?: boolean;
+  collapsed?: boolean;
   error?: string;
 };
 
 type UploadSuccess = {
   fileName: string;
   savedPath: string;
+  ownerLabel: string;
+  statementMonth?: string | null;
+  destinationLabel: string;
 };
 
 type UploadFailure = {
@@ -100,19 +113,46 @@ function readTextAttachment(file: File): Promise<string> {
 
 function UploadActivityList({
   activities,
-  onRetry
+  onRetry,
+  onToggleDetails
 }: {
   activities: UploadActivity[];
   onRetry: (activity: UploadActivity) => void;
+  onToggleDetails: (activity: UploadActivity) => void;
 }) {
   if (activities.length === 0) {
     return null;
   }
 
+  const collapsedSaved = activities.filter((activity) => activity.status === "saved" && activity.collapsed);
+  const visibleActivities = activities.filter((activity) => activity.status !== "saved" || !activity.collapsed);
+
   return (
     <div className="space-y-2 py-2">
-      {activities.map((activity) => {
+      {collapsedSaved.length > 0 ? (
+        <div className="rounded-lg border border-bd-border bg-bd-bg-secondary px-3 py-2 text-sm text-bd-text-primary">
+          <div className="flex items-start gap-3">
+            <CheckCircle2 size={16} strokeWidth={1.7} className="mt-0.5 shrink-0 text-emerald-500" />
+            <div className="min-w-0 flex-1">
+              <div>
+                {collapsedSaved.length === 1
+                  ? "1 statement saved"
+                  : `${collapsedSaved.length} statements saved`}
+              </div>
+              <div className="truncate pt-0.5 text-xs text-bd-text-muted">
+                {collapsedSaved.map((activity) => activity.ownerLabel ?? activity.fileName).join(", ")}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {visibleActivities.map((activity) => {
         const isPending = activity.status === "uploading" || activity.status === "converting";
+        const secondary = [
+          activity.statementMonth,
+          activity.destinationLabel
+        ].filter(Boolean).join(" · ");
         return (
           <div
             key={activity.id}
@@ -127,9 +167,25 @@ function UploadActivityList({
             )}
             <div className="min-w-0 flex-1">
               <div className="truncate">{activity.message}</div>
-              {activity.savedPath ? (
+              {secondary ? (
                 <div className="truncate pt-0.5 text-xs text-bd-text-muted">
-                  Source evidence: {activity.savedPath}
+                  {secondary}
+                </div>
+              ) : null}
+              {activity.savedPath && activity.status === "saved" ? (
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={() => onToggleDetails(activity)}
+                    className="text-xs text-bd-text-muted underline-offset-2 transition-colors hover:text-bd-text-secondary hover:underline"
+                  >
+                    {activity.detailsOpen ? "Hide details" : "Details"}
+                  </button>
+                  {activity.detailsOpen ? (
+                    <div className="truncate pt-0.5 text-xs text-bd-text-muted">
+                      Source evidence path: {activity.savedPath}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
               {activity.error ? (
@@ -256,11 +312,12 @@ export default function ChatPanel({
   }, [activeProjectId, activeAppPath]);
 
   useEffect(() => {
-    if (wasLoadingRef.current && !isLoading && !error && conversationId) {
-      if (completedConversationIdRef.current !== conversationId) {
+    if (wasLoadingRef.current && !isLoading && !error) {
+      if (conversationId && completedConversationIdRef.current !== conversationId) {
         completedConversationIdRef.current = conversationId;
         onConversationComplete?.(conversationId);
       }
+      collapseSavedUploadActivities();
     }
 
     if (isLoading) {
@@ -384,6 +441,37 @@ export default function ChatPanel({
     );
   }
 
+  function collapseSavedUploadActivities() {
+    setUploadActivities((current) =>
+      current.map((activity) =>
+        activity.status === "saved"
+          ? { ...activity, collapsed: true, detailsOpen: false }
+          : activity
+      )
+    );
+  }
+
+  function toggleUploadActivityDetails(activity: UploadActivity) {
+    setUploadActivities((current) =>
+      current.map((currentActivity) =>
+        currentActivity.id === activity.id
+          ? { ...currentActivity, detailsOpen: !currentActivity.detailsOpen }
+          : currentActivity
+      )
+    );
+  }
+
+  function uploadReceiptForFile(uploadedFile: ProjectFile | void, fileName: string): UploadSuccess {
+    const savedPath = uploadedFile?.path ?? fileName;
+    return {
+      fileName,
+      savedPath,
+      ownerLabel: uploadedFile?.ownerLabel ?? ownerLabelForMemoryPath(savedPath, fileName),
+      statementMonth: uploadedFile?.statementMonth ?? statementMonthLabelForMemoryPath(savedPath),
+      destinationLabel: uploadedFile?.destinationLabel ?? destinationLabelForMemoryPath(savedPath),
+    };
+  }
+
   function buildUploadSummaryMessage(
     message: string,
     successes: UploadSuccess[],
@@ -396,12 +484,13 @@ export default function ChatPanel({
     }
 
     if (successes.length === 1) {
-      lines.push("Uploaded 1 file:");
+      lines.push("Uploaded 1 statement:");
     } else if (successes.length > 1) {
-      lines.push(`Uploaded ${successes.length} files:`);
+      lines.push(`Uploaded ${successes.length} statements:`);
     }
     for (const success of successes) {
-      lines.push(`- ${success.fileName} -> ${success.savedPath}`);
+      const secondary = [success.statementMonth, success.destinationLabel].filter(Boolean).join(" · ");
+      lines.push(`- ${success.ownerLabel}${secondary ? ` (${secondary})` : ""}`);
     }
 
     if (failures.length > 0) {
@@ -414,7 +503,10 @@ export default function ChatPanel({
       }
     }
 
-    lines.push("", "Please acknowledge the uploaded statement evidence and update the received/missing checklist for the budget setup before continuing.");
+    lines.push(
+      "",
+      "Please acknowledge the uploaded statement evidence, inspect the current Budget statements source evidence in this project, update the received/missing checklist, and propagate completed statement-gathering state before continuing."
+    );
     return lines.join("\n");
   }
 
@@ -440,16 +532,16 @@ export default function ChatPanel({
     for (const activity of activities) {
       try {
         const uploadedFile = await onUploadDocument(activity.file);
-        const uploadedPath = uploadedFile?.path ?? activity.fileName;
-        successes.push({
-          fileName: activity.fileName,
-          savedPath: uploadedPath,
-        });
+        const receipt = uploadReceiptForFile(uploadedFile, activity.fileName);
+        successes.push(receipt);
         updateUploadActivity(activity.id, (current) => ({
           ...current,
           status: "saved",
-          savedPath: uploadedPath,
-          message: `Saved ${current.fileName}.`,
+          savedPath: receipt.savedPath,
+          ownerLabel: receipt.ownerLabel,
+          statementMonth: receipt.statementMonth,
+          destinationLabel: receipt.destinationLabel,
+          message: `Saved ${receipt.ownerLabel}.`,
         }));
       } catch (uploadError) {
         const errorMessage = uploadError instanceof Error ? uploadError.message : "Document upload failed.";
@@ -487,15 +579,20 @@ export default function ChatPanel({
 
     try {
       const uploadedFile = await onUploadDocument?.(activity.file);
-      const uploadedPath = uploadedFile?.path ?? activity.fileName;
+      const receipt = uploadReceiptForFile(uploadedFile, activity.fileName);
       updateUploadActivity(activity.id, (current) => ({
         ...current,
         status: "saved",
-        savedPath: uploadedPath,
-        message: `Saved ${current.fileName}.`,
+        savedPath: receipt.savedPath,
+        ownerLabel: receipt.ownerLabel,
+        statementMonth: receipt.statementMonth,
+        destinationLabel: receipt.destinationLabel,
+        collapsed: false,
+        detailsOpen: false,
+        message: `Saved ${receipt.ownerLabel}.`,
       }));
       onSendMessage?.();
-      append(buildUploadSummaryMessage("", [{ fileName: activity.fileName, savedPath: uploadedPath }], []), {
+      append(buildUploadSummaryMessage("", [receipt], []), {
         metadata: messageMetadata
       });
     } catch (uploadError) {
@@ -539,6 +636,7 @@ export default function ChatPanel({
           }
         })();
       } else {
+        collapseSavedUploadActivities();
         onSendMessage?.();
         append(message, { metadata: messageMetadata });
       }
@@ -620,7 +718,11 @@ export default function ChatPanel({
               isTyping={showTypingFeedback}
               typingStatus={typingStatus}
             >
-              <UploadActivityList activities={uploadActivities} onRetry={retryUpload} />
+              <UploadActivityList
+                activities={uploadActivities}
+                onRetry={retryUpload}
+                onToggleDetails={toggleUploadActivityDetails}
+              />
               {contextWindowWarning && !visibleChatError && (
                 <div className="mx-auto w-full max-w-[780px] py-2">
                   <div className="rounded-xl border border-bd-amber/40 bg-bd-amber/10 px-4 py-3 text-sm text-bd-text-primary">

@@ -49,6 +49,16 @@ Do not use this report as the saved budget. The saved spending plan lives in `..
 | Date | Description | Amount | Reason |
 |---|---|---:|---|
 
+## Reconciliation Check
+
+| Check | Expected | Actual | Difference | Status |
+|---|---:|---:|---:|---|
+| Category rows equal stated variable spending |  |  |  |  |
+| Excluded rows equal stated exclusions |  |  |  |  |
+| Report totals equal visible rows plus named adjustments |  |  |  |  |
+
+If any difference is not zero, mark the report Needs Review and explain the discrepancy before giving advice from the totals.
+
 ## Next Actions
 
 -

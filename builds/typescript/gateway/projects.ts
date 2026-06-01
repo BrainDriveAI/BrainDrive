@@ -19,6 +19,11 @@ export type GatewayProject = {
 export type GatewayProjectFile = {
   name: string;
   path: string;
+  ownerLabel?: string;
+  statementMonth?: string | null;
+  destinationLabel?: string;
+  sourceType?: string;
+  accountName?: string | null;
 };
 
 type ProjectListEnvelope = {

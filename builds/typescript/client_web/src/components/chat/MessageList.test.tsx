@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 
 import type { Message } from "@/types/ui";
 
@@ -33,5 +33,26 @@ describe("MessageList scroll behavior", () => {
     rerender(<MessageList messages={[userMessage]} />);
 
     expect(scrollIntoViewMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders owner-facing labels instead of internal Memory paths in assistant messages", () => {
+    render(
+      <MessageList
+        messages={[
+          {
+            id: "a-1",
+            role: "assistant",
+            content:
+              "Updated `documents/finance/budget/budget.md`, documents/finance/budget/reports/latest.md, and me/todo.md.",
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByText(/saved Budget/)).toBeInTheDocument();
+    expect(screen.getByText(/latest Budget report/)).toBeInTheDocument();
+    expect(screen.getByText(/Todo list/)).toBeInTheDocument();
+    expect(screen.queryByText(/documents\/finance/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/me\/todo/)).not.toBeInTheDocument();
   });
 });

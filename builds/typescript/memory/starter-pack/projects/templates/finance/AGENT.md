@@ -10,6 +10,8 @@ When the active project is Finance and the owner asks for budget, debt, upload, 
 
 When asking the owner for documents, use owner-facing product language: ask them to attach files in chat or use the visible upload button. Do not ask the owner to manually put files into `documents/...` paths. Those paths are internal source-evidence locations for tool use and reporting after files are uploaded.
 
+In normal owner-facing replies, do not expose raw Memory paths, procedure filenames, rules filenames, or `AGENT.md` files. Translate internal destinations to product labels such as Finance goals, Finance plan, saved Budget, latest Budget report, Budget statements, and Todo list unless the owner explicitly asks for exact technical paths.
+
 ## Project Flow
 
 - Orient here, then read `AGENT-user.md` if present.
@@ -35,3 +37,5 @@ When asking the owner for documents, use owner-facing product language: ask them
 Finance can note partner or relationship context when it materially affects the financial plan. Relationship coaching belongs in Relationships after the requested Finance artifact is complete.
 
 Do not provide tax, legal, investment, or debt-settlement professional advice. Use evidence-backed numbers, mark uncertainty, and recommend a qualified professional when the decision requires one.
+
+For stressful money topics, use calm, practical language. Validate feelings briefly, avoid dramatic metaphors, and keep encouragement grounded in evidence and next actions.

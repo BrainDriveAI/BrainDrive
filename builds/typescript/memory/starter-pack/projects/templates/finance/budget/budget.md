@@ -37,6 +37,40 @@
 | Bill | Amount | Due Day | Notes |
 |---|---:|---:|---|
 
+## Irregular Costs
+
+*Annual, seasonal, lumpy, or owner-estimated costs that should not be mistaken for ordinary monthly spending.*
+
+| Cost | Monthly Set-Aside | Timing | Confidence | Notes |
+|---|---:|---|---|---|
+
+## Transfers And Exclusions
+
+*Account movement, debt payments, refunds, investment movement, and business/startup spending separated from personal living spend.*
+
+| Item | Monthly Amount | Type | Included In Living Spend? | Notes |
+|---|---:|---|---|---|
+
+## Assumptions And Confidence
+
+*Evidence quality for this saved Budget. One-month statement evidence is a draft actuals baseline until confirmed representative or supported by more history.*
+
+| Area | Basis | Confidence | What Would Improve It |
+|---|---|---|---|
+
+## Reconciliation Check
+
+*Visible math tying the saved Budget target to fixed bills, category limits, irregular set-asides, and named exclusions.*
+
+| Line | Amount | Notes |
+|---|---:|---|
+| Fixed bills subtotal |  |  |
+| Variable category subtotal |  |  |
+| Irregular monthly set-aside subtotal |  |  |
+| Included personal living spend total |  | Must equal visible included rows or be marked Needs Review |
+| Excluded transfers/account movement |  | Not part of personal living spend |
+| Unreconciled - Needs Review |  | Use 0 only when totals reconcile |
+
 ## Owner Notes
 
 *Owner-approved context that affects how the saved budget should be interpreted.*

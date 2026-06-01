@@ -43,6 +43,10 @@ describe("project chat context", () => {
     expect(context).toContain("complete the Finance task before coaching or cross-domain discussion");
     expect(context).toContain("attach files in chat or use the visible upload button");
     expect(context).toContain("Do not ask the owner to manually place files into documents/finance");
+    expect(context).toContain("Internal Memory paths are for tool use only");
+    expect(context).toContain("For Budget creation requests, make the saved Budget the primary deliverable");
+    expect(context).toContain("draft actuals baseline, not a stable budget");
+    expect(context).toContain("propagate state to Finance spec, Finance plan, and Todo list");
     expect(context).toContain("treat documents/finance/budget/budget.md as the saved budget");
     expect(context).toContain("Use documents/finance/budget/statements/ as source evidence");
     expect(context).toContain("visible received/missing statement checklist");
@@ -68,6 +72,7 @@ describe("project chat context", () => {
     expect(context).toContain("New Or Unbudgeted Items section");
     expect(context).toContain("exact transaction description");
     expect(context).toContain("Budget report summaries must agree with their category tables");
+    expect(context).toContain("mark the artifact Needs Review");
     expect(context).toContain("literal 'Excluded From Expense Totals' section");
     expect(context).toContain("credit-card or debt payments");
     expect(context).toContain("never pause, stop, or redirect unfinished budget");

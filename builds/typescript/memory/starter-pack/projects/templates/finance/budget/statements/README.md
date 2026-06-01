@@ -13,3 +13,5 @@ For budget setup, maintain a received/missing checklist based on statement metad
 - Received: uploaded statements with month/account/institution when known.
 - Still needed: missing months/accounts/institutions.
 - Needs clarification: uploaded statements whose period or account cannot be identified.
+
+After a statement batch is accepted, update parent Finance state so already-uploaded statements are not still listed as missing or active Todo work. Use owner-facing labels in the chat receipt; keep exact paths here for source evidence only.

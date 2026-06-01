@@ -20,6 +20,8 @@ Turn the Finance spec into a concrete sequence with one immediate step, a practi
 
 Lead with the owner's most urgent financial outcome. Show the math when it changes priority. Keep later phases high-level until earlier phases are complete.
 
+When source statements or other evidence have just been uploaded and accepted, advance the plan from gathering evidence to the next validation or refinement step. Do not leave statement upload as pending if the needed files are now present; list only the specific months/accounts/institutions still missing.
+
 ## Done Criteria
 
 `plan.md` names the first step, roadmap, destination, and remaining blockers without copying full reports into the plan.

@@ -120,6 +120,8 @@ describe("ChatPanel typing indicator behavior", () => {
     const onUploadDocument = vi.fn(async () => ({
       name: "statement.md",
       path: "documents/finance/statement.md",
+      ownerLabel: "Statement",
+      destinationLabel: "Finance",
     }));
     useGatewayChatMock.mockReturnValue(hookState);
 
@@ -144,11 +146,15 @@ describe("ChatPanel typing indicator behavior", () => {
     });
     await waitFor(() => {
       expect(hookState.append).toHaveBeenCalledWith(
-        expect.stringContaining("Uploaded 1 file:"),
+        expect.stringContaining("Uploaded 1 statement:"),
         expect.any(Object)
       );
     });
     expect(hookState.append).toHaveBeenCalledWith(
+      expect.stringContaining("Statement"),
+      expect.any(Object)
+    );
+    expect(hookState.append).not.toHaveBeenCalledWith(
       expect.stringContaining("documents/finance/statement.md"),
       expect.any(Object)
     );
@@ -162,10 +168,14 @@ describe("ChatPanel typing indicator behavior", () => {
       .mockResolvedValueOnce({
         name: "february.md",
         path: "documents/finance/budget/statements/february.md",
+        ownerLabel: "February statement",
+        destinationLabel: "Budget statements",
       })
       .mockResolvedValueOnce({
         name: "march.md",
         path: "documents/finance/budget/statements/march.md",
+        ownerLabel: "March statement",
+        destinationLabel: "Budget statements",
       });
     useGatewayChatMock.mockReturnValue(hookState);
 
@@ -193,9 +203,87 @@ describe("ChatPanel typing indicator behavior", () => {
     expect(onUploadDocument.mock.calls[1]?.[0]).toBe(march);
     await waitFor(() => {
       expect(hookState.append).toHaveBeenCalledWith(
-        expect.stringContaining("Uploaded 2 files:"),
+        expect.stringContaining("Uploaded 2 statements:"),
         expect.any(Object)
       );
     });
+  });
+
+  it("renders friendly upload receipts without raw source paths by default", async () => {
+    const user = userEvent.setup();
+    const hookState = makeHookState();
+    const onUploadDocument = vi.fn(async () => ({
+      name: "2026-04-northbridge.md",
+      path: "documents/finance/budget/statements/2026-04-northbridge.md",
+      ownerLabel: "Northbridge credit card statement",
+      statementMonth: "April 2026",
+      destinationLabel: "Budget statements",
+    }));
+    useGatewayChatMock.mockReturnValue(hookState);
+
+    const { container } = render(
+      <ChatPanel
+        activeConversationId={null}
+        activeProjectId="finance"
+        isEmpty={false}
+        onUploadDocument={onUploadDocument}
+      />
+    );
+
+    const input = container.querySelector('input[type="file"]');
+    expect(input).toBeInstanceOf(HTMLInputElement);
+
+    const statement = new File(["Date,Amount"], "northbridge.csv", { type: "text/csv" });
+    await user.upload(input as HTMLInputElement, statement);
+    await user.click(screen.getAllByRole("button", { name: "Send message" })[0]!);
+
+    expect(await screen.findByText("Saved Northbridge credit card statement.")).toBeInTheDocument();
+    expect(screen.getByText("April 2026 · Budget statements")).toBeInTheDocument();
+    expect(screen.queryByText(/documents\/finance/)).not.toBeInTheDocument();
+  });
+
+  it("collapses completed upload receipts after the assistant acknowledges them", async () => {
+    const user = userEvent.setup();
+    const hookState = makeHookState();
+    const onUploadDocument = vi.fn(async () => ({
+      name: "2026-04-northbridge.md",
+      path: "documents/finance/budget/statements/2026-04-northbridge.md",
+      ownerLabel: "Northbridge credit card statement",
+      statementMonth: "April 2026",
+      destinationLabel: "Budget statements",
+    }));
+    useGatewayChatMock.mockReturnValue(hookState);
+
+    const props = {
+      activeConversationId: null,
+      activeProjectId: "finance",
+      isEmpty: false,
+      onUploadDocument,
+    };
+    const { container, rerender } = render(<ChatPanel {...props} />);
+
+    const input = container.querySelector('input[type="file"]');
+    expect(input).toBeInstanceOf(HTMLInputElement);
+
+    await user.upload(input as HTMLInputElement, new File(["Date,Amount"], "northbridge.csv", { type: "text/csv" }));
+    await user.click(screen.getAllByRole("button", { name: "Send message" })[0]!);
+
+    expect(await screen.findByText("Saved Northbridge credit card statement.")).toBeInTheDocument();
+
+    useGatewayChatMock.mockReturnValue(makeHookState({ isLoading: true }));
+    rerender(<ChatPanel {...props} />);
+    useGatewayChatMock.mockReturnValue(
+      makeHookState({
+        isLoading: false,
+        messages: [{ id: "a-1", role: "assistant", content: "I updated the received checklist." }],
+      })
+    );
+    rerender(<ChatPanel {...props} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("1 statement saved")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("April 2026 · Budget statements")).not.toBeInTheDocument();
+    expect(screen.queryByText(/documents\/finance/)).not.toBeInTheDocument();
   });
 });

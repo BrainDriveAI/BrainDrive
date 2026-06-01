@@ -2456,7 +2456,14 @@ export async function buildServer(rootDir = process.cwd()) {
       }
 
       reply.code(201).send({
-        file,
+        file: {
+          ...file,
+          ownerLabel: ownerLabelForUploadedDocument(metadata, converted.title),
+          statementMonth: statementMonthOwnerLabel(metadata.statementMonth),
+          destinationLabel: uploadDirectory ? "Budget statements" : project.name,
+          sourceType: ownerFacingDocumentType(metadata.documentType),
+          accountName: metadata.institution,
+        },
         conversion: converted.conversion,
       });
     } catch (error) {
@@ -3297,11 +3304,16 @@ export function buildProjectChatContext(
         "For budget work, read documents/finance/budget/AGENT.md, then documents/finance/budget/AGENT-user.md if present.",
         "For budgeting questions, read documents/finance/budget/budget.md, documents/finance/budget/budget-rules.md, and documents/finance/budget/budget-rules-user.md when present.",
         "For a Budget procedure, read the managed procedure first, then the matching -user.md overlay if present, such as compare.md before compare-user.md.",
+        "Internal Memory paths are for tool use only. In normal owner-facing replies, say Finance goals, Finance plan, saved Budget, latest Budget report, Budget statements, or Todo list instead of raw documents/... or me/... paths.",
+        "Do not mention AGENT.md, procedure files, rules files, or markdown filenames in owner copy unless the owner explicitly asks for exact technical paths.",
         "For explicit Finance execution requests about budgets, debt, uploads, statements, spending, or reports, complete the Finance task before coaching or cross-domain discussion.",
         "When asking the owner for statements or supporting documents, ask them to attach files in chat or use the visible upload button. Do not ask the owner to manually place files into documents/finance/... paths.",
+        "For Budget creation requests, make the saved Budget the primary deliverable. Treat statement reports as supporting evidence unless the owner asks how actuals compare.",
+        "When only one month of statements is available, call the result a draft actuals baseline, not a stable budget. Ask for 3-6 months of history or explicit owner confirmation before presenting durable category limits.",
         "For 'how did I do?', monthly comparison, over/under, or budget progress questions, treat documents/finance/budget/budget.md as the saved budget and compare statement actuals against it.",
         "Use documents/finance/budget/statements/ as source evidence and documents/finance/budget/reports/ as derived output for budget reports.",
         "Maintain a visible received/missing statement checklist during budget setup, grounded in uploaded source evidence and statement metadata. Do not proceed to a statement-backed baseline until required evidence is present or the owner approves a partial baseline.",
+        "After accepting uploaded Budget statements, update the Budget checklist and propagate state to Finance spec, Finance plan, and Todo list so completed statement gathering is not left as active missing work.",
         "Do not write to documents/finance/budget/budget.md during a saved-budget comparison unless the owner explicitly asks to revise the saved budget.",
         "During saved-budget comparison mode, do not call memory_write, memory_edit, or memory_delete on documents/finance/budget/budget.md; write comparison output only to documents/finance/budget/reports/latest.md or a closed-period reports file.",
         "Preserve documents/finance/budget/budget.md byte-for-byte during saved-budget comparisons. Do not make formatting-only, table-alignment, whitespace, note, category, or no-op rewrites.",
@@ -3323,6 +3335,7 @@ export function buildProjectChatContext(
         "Every monthly comparison report must include a New Or Unbudgeted Items section for new, unusual, travel, lodging, vacation, entertainment, shopping, or unclear merchants, even when the overall month is under budget.",
         "If source evidence includes travel, lodging, trip, weekend, vacation, airline, rental, large discretionary, or otherwise unusual charges, list the exact transaction description, amount, date, account/source, and likely category.",
         "Budget report summaries must agree with their category tables and must list excluded payments, transfers, refunds, fees, and investment movement separately from ordinary spending.",
+        "If Budget or report totals do not reconcile to visible rows plus named exclusions, mark the artifact Needs Review and state the unreconciled amount instead of presenting it as final.",
         "Every monthly comparison report must include a literal 'Excluded From Expense Totals' section with a table of Type, Payee/Account, Amount, Source, and Why Excluded.",
         "When source statements include credit-card or debt payments, list those rows by source payee/account in Excluded From Expense Totals as debt payments/transfers, not ordinary spending; list interest or finance charges separately.",
         "Relationship context can be noted briefly after the requested Finance artifact, but never pause, stop, or redirect unfinished budget, statement, debt, upload, or report work to the Relationships project.",
@@ -3401,6 +3414,89 @@ function buildAppChatContextGuidance(
       : "",
     `Stay inside documents/${projectId}/${appPath}/ for app-specific reads and writes unless the owner asks for project-level work or the app instructions point to project-level source/output folders.`,
   ].filter(Boolean);
+}
+
+function ownerLabelForUploadedDocument(
+  metadata: { statementLike: boolean; institution: string | null; accountType: string; documentType: string },
+  fallbackTitle: string
+): string {
+  if (!metadata.statementLike) {
+    return fallbackTitle;
+  }
+
+  const accountLabel = ownerFacingAccountType(metadata.accountType);
+  const institution = metadata.institution?.trim();
+  if (institution && accountLabel) {
+    return `${institution} ${accountLabel} statement`;
+  }
+  if (institution) {
+    return `${institution} statement`;
+  }
+  return `${ownerFacingDocumentType(metadata.documentType)} statement`;
+}
+
+function ownerFacingAccountType(value: string): string {
+  switch (value) {
+    case "checking":
+      return "checking";
+    case "savings":
+      return "savings";
+    case "credit_card":
+      return "credit card";
+    case "bank_account":
+      return "bank";
+    default:
+      return "";
+  }
+}
+
+function ownerFacingDocumentType(value: string): string {
+  switch (value) {
+    case "bank_statement":
+      return "Bank";
+    case "credit_card_statement":
+      return "Credit card";
+    case "investment_statement":
+      return "Investment";
+    case "budget_export":
+      return "Budget export";
+    case "receipt":
+      return "Receipt";
+    case "tax_document":
+      return "Tax document";
+    case "paystub":
+      return "Paystub";
+    default:
+      return "Uploaded document";
+  }
+}
+
+function statementMonthOwnerLabel(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const match = /^(20\d{2})-(0[1-9]|1[0-2])$/.exec(value);
+  if (!match) {
+    return null;
+  }
+
+  const monthNames = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+  ];
+  const month = monthNames[Number.parseInt(match[2] ?? "", 10) - 1];
+  return month ? `${month} ${match[1]}` : null;
 }
 
 function normalizeAppMetadataPath(metadata: Record<string, unknown> | undefined): string | null {
