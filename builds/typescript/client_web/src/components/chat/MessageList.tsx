@@ -3,7 +3,7 @@ import { ArrowDown } from "lucide-react";
 
 import type { Message } from "@/types/ui";
 import MarkdownContent from "@/components/markdown/MarkdownContent";
-import { replaceOwnerVisibleMemoryPaths } from "@/utils/owner-labels";
+import { polishOwnerVisibleAssistantCopy } from "@/utils/owner-copy";
 import TypingIndicator from "./TypingIndicator";
 
 type MessageListProps = {
@@ -85,7 +85,7 @@ export default function MessageList({
             return (
               <article key={message.id} className="py-4">
                 <div className="prose-bd max-w-full text-[15px] leading-7 text-bd-text-primary">
-                  <MarkdownContent content={replaceOwnerVisibleMemoryPaths(message.content)} />
+                  <MarkdownContent content={polishOwnerVisibleAssistantCopy(message.content)} />
                 </div>
               </article>
             );

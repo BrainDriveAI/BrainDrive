@@ -55,4 +55,26 @@ describe("MessageList scroll behavior", () => {
     expect(screen.queryByText(/documents\/finance/)).not.toBeInTheDocument();
     expect(screen.queryByText(/me\/todo/)).not.toBeInTheDocument();
   });
+
+  it("softens unsupported finance confidence language in owner-visible assistant messages", () => {
+    render(
+      <MessageList
+        messages={[
+          {
+            id: "a-1",
+            role: "assistant",
+            content:
+              "This is perfect data with a fully completed actuals ledger. Everything is completely reconciled and permanently mapped behind the scenes.",
+          },
+        ]}
+      />
+    );
+
+    const rendered = document.body.textContent ?? "";
+    expect(rendered).toContain("available data");
+    expect(rendered).toContain("draft actuals ledger");
+    expect(rendered).toContain("reconciled based on the visible rows");
+    expect(rendered).toContain("categorized in this budget draft");
+    expect(rendered).not.toMatch(/perfect data|fully completed actuals ledger|completely reconciled|permanently mapped|behind the scenes/i);
+  });
 });

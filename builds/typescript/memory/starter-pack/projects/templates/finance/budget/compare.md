@@ -44,6 +44,8 @@ The report includes Summary, Source Evidence Ledger, Owner-Requested Items Audit
 
 Report what changed using owner-facing labels, update reports, summarize material parent-level changes briefly in spec or plan only when needed, add todos only for concrete next actions, and return to Finance scope. If statement uploads were accepted during this run, update Finance spec, Finance plan, and Todo list so completed statement gathering is not still active.
 
+If the final response says Todo list tasks were added or updated, verify that `me/todo.md` changed and contains those tasks before sending the response. If the todo write cannot be verified, list the recommended next actions without saying they were saved.
+
 ## What This Procedure Is Not
 
 It is not permission to change the saved budget. Put recommended saved-budget changes in Next Actions unless the owner explicitly asks for revision.

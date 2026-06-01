@@ -30,15 +30,24 @@ async function writeTool(context: ToolContext, input: Record<string, unknown>): 
 
   try {
     const absolutePath = resolveToolPath(context, targetPath);
+    const previous = await readFile(absolutePath, "utf8").catch(() => null);
     await mkdir(path.dirname(absolutePath), { recursive: true });
     await writeFile(absolutePath, content, "utf8");
+    const relativePath = toMemoryRelativePath(context.memoryRoot, absolutePath);
     auditLog("memory.write", {
       action: "file.write",
       path: absolutePath,
       correlation_id: context.correlationId,
     });
-    await commitMemoryChange(context.memoryRoot, `Write ${toMemoryRelativePath(context.memoryRoot, absolutePath)}`);
-    return { path: absolutePath, bytes_written: Buffer.byteLength(content) };
+    await commitMemoryChange(context.memoryRoot, `Write ${relativePath}`);
+    return {
+      path: absolutePath,
+      relative_path: relativePath,
+      operation: "write",
+      changed: previous !== content,
+      bytes_written: Buffer.byteLength(content),
+      content_summary: summarizeWrittenContent(content),
+    };
   } catch (error) {
     throw toToolFailure(error);
   }
@@ -59,13 +68,21 @@ async function editTool(context: ToolContext, input: Record<string, unknown>): P
 
     const updated = original.replace(find, replace);
     await writeFile(absolutePath, updated, "utf8");
+    const relativePath = toMemoryRelativePath(context.memoryRoot, absolutePath);
     auditLog("memory.write", {
       action: "file.edit",
       path: absolutePath,
       correlation_id: context.correlationId,
     });
-    await commitMemoryChange(context.memoryRoot, `Edit ${toMemoryRelativePath(context.memoryRoot, absolutePath)}`);
-    return { path: absolutePath, updated: true };
+    await commitMemoryChange(context.memoryRoot, `Edit ${relativePath}`);
+    return {
+      path: absolutePath,
+      relative_path: relativePath,
+      operation: "edit",
+      changed: original !== updated,
+      updated: true,
+      content_summary: summarizeWrittenContent(updated),
+    };
   } catch (error) {
     throw toToolFailure(error);
   }
@@ -83,16 +100,39 @@ async function deleteTool(context: ToolContext, input: Record<string, unknown>):
     if (indexTarget) {
       await removeProjectIndexEntry(context.memoryRoot, indexTarget.projectId, indexTarget.fileName);
     }
+    const relativePath = toMemoryRelativePath(context.memoryRoot, absolutePath);
     auditLog("memory.write", {
       action: "file.delete",
       path: absolutePath,
       correlation_id: context.correlationId,
     });
-    await commitMemoryChange(context.memoryRoot, `Delete ${toMemoryRelativePath(context.memoryRoot, absolutePath)}`);
-    return { path: absolutePath, deleted: true };
+    await commitMemoryChange(context.memoryRoot, `Delete ${relativePath}`);
+    return {
+      path: absolutePath,
+      relative_path: relativePath,
+      operation: "delete",
+      changed: true,
+      deleted: true,
+      content_summary: "Deleted memory item.",
+    };
   } catch (error) {
     throw toToolFailure(error);
   }
+}
+
+function summarizeWrittenContent(content: string): string {
+  const lines = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const heading = lines.find((line) => line.startsWith("#"));
+  const taskCount = lines.filter((line) => /^- \[[ xX]\]/.test(line)).length;
+  const summaryParts = [
+    heading ? `heading: ${heading.replace(/^#+\s*/, "")}` : null,
+    taskCount > 0 ? `${taskCount} checkbox task${taskCount === 1 ? "" : "s"}` : null,
+    `${Buffer.byteLength(content)} bytes`,
+  ].filter(Boolean);
+  return summaryParts.join("; ");
 }
 
 function projectIndexTargetForDeletedPath(

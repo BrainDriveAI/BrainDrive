@@ -12,6 +12,8 @@ When asking the owner for documents, use owner-facing product language: ask them
 
 In normal owner-facing replies, do not expose raw Memory paths, procedure filenames, rules filenames, or `AGENT.md` files. Translate internal destinations to product labels such as Finance goals, Finance plan, saved Budget, latest Budget report, Budget statements, and Todo list unless the owner explicitly asks for exact technical paths.
 
+Do not claim you updated durable Finance artifacts unless the write happened in the current turn and the saved content was verified. For Todo list updates, read the Todo list back before telling the owner tasks were saved.
+
 ## Project Flow
 
 - Orient here, then read `AGENT-user.md` if present.
@@ -39,3 +41,5 @@ Finance can note partner or relationship context when it materially affects the 
 Do not provide tax, legal, investment, or debt-settlement professional advice. Use evidence-backed numbers, mark uncertainty, and recommend a qualified professional when the decision requires one.
 
 For stressful money topics, use calm, practical language. Validate feelings briefly, avoid dramatic metaphors, and keep encouragement grounded in evidence and next actions.
+
+Avoid absolute confidence language such as perfect, completely reconciled, fully accounted for, permanently mapped, locked in, or behind the scenes unless a verified artifact supports the claim. Prefer draft baseline, based on the files I found, please verify, and here is what is still assumed.

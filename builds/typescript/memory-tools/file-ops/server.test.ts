@@ -31,6 +31,64 @@ function toolContext(memoryRoot: string): ToolContext {
 }
 
 describe("file ops memory_delete", () => {
+  it("returns structured write metadata for claim verification", async () => {
+    const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-file-ops-write-metadata-"));
+    const writeTool = fileOpsTools().find((tool) => tool.name === "memory_write");
+
+    try {
+      await ensureGitReady(memoryRoot);
+      const result = await writeTool?.execute(toolContext(memoryRoot), {
+        path: "me/todo.md",
+        content: "# My Todos\n\n## Active\n\n- [ ] Set up credit card autopay #finance\n",
+      }) as {
+        relative_path: string;
+        operation: string;
+        changed: boolean;
+        content_summary: string;
+      };
+
+      expect(result).toMatchObject({
+        relative_path: "me/todo.md",
+        operation: "write",
+        changed: true,
+      });
+      expect(result.content_summary).toContain("My Todos");
+      expect(result.content_summary).toContain("1 checkbox task");
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("returns structured edit metadata for claim verification", async () => {
+    const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-file-ops-edit-metadata-"));
+    const editTool = fileOpsTools().find((tool) => tool.name === "memory_edit");
+
+    try {
+      await mkdir(path.join(memoryRoot, "me"), { recursive: true });
+      await writeFile(path.join(memoryRoot, "me", "todo.md"), "# My Todos\n\n## Active\n\n- [ ] Old task\n", "utf8");
+      await ensureGitReady(memoryRoot);
+      const result = await editTool?.execute(toolContext(memoryRoot), {
+        path: "me/todo.md",
+        find: "Old task",
+        replace: "Set up credit card autopay #finance",
+      }) as {
+        relative_path: string;
+        operation: string;
+        changed: boolean;
+        content_summary: string;
+      };
+
+      expect(result).toMatchObject({
+        relative_path: "me/todo.md",
+        operation: "edit",
+        changed: true,
+      });
+      expect(result.content_summary).toContain("1 checkbox task");
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
+
   it("does not report success for a missing path", async () => {
     const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-file-ops-"));
     const deleteTool = fileOpsTools().find((tool) => tool.name === "memory_delete");

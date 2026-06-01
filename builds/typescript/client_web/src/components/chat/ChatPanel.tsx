@@ -59,8 +59,11 @@ type ChatPanelProps = {
 
 type UploadActivity = {
   id: string;
+  batchId: string;
   file: File;
   fileName: string;
+  fileType: string;
+  fileSize: number;
   status: "uploading" | "converting" | "saved" | "failed";
   message: string;
   savedPath?: string;
@@ -84,6 +87,35 @@ type UploadFailure = {
   fileName: string;
   error: string;
 };
+
+type UploadLifecycleStage =
+  | "selected"
+  | "accepted_by_client_validation"
+  | "conversion_started"
+  | "upload_request_started"
+  | "conversion_completed"
+  | "saved_to_memory"
+  | "visible_receipt_rendered"
+  | "attached_to_message"
+  | "assistant_acknowledged"
+  | "failed";
+
+type UploadLifecycleEventDetail = {
+  batchId: string;
+  stage: UploadLifecycleStage;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  selectedFileCount: number;
+  projectId: string;
+  status: "pending" | "ok" | "error";
+  savedPath?: string;
+  ownerLabel?: string;
+  conversionStatus?: "not_needed" | "started" | "completed" | "failed";
+  error?: string;
+};
+
+const UPLOAD_LIFECYCLE_EVENT = "braindrive:upload-lifecycle";
 
 function mapConversationMessages(conversation: ConversationDetail): Message[] {
   return conversation.messages
@@ -156,6 +188,9 @@ function UploadActivityList({
         return (
           <div
             key={activity.id}
+            data-upload-batch-id={activity.batchId}
+            data-upload-file-name={activity.fileName}
+            data-upload-status={activity.status}
             className="flex items-start gap-3 rounded-lg border border-bd-border bg-bd-bg-secondary px-3 py-2 text-sm text-bd-text-primary"
           >
             {isPending ? (
@@ -237,6 +272,8 @@ export default function ChatPanel({
   const completedConversationIdRef = useRef<string | null>(null);
   const hasUsedToolRef = useRef(false);
   const uploadActivityCounterRef = useRef(0);
+  const uploadBatchCounterRef = useRef(0);
+  const acknowledgedUploadBatchesRef = useRef(new Set<string>());
 
   const {
     messages,
@@ -432,6 +469,18 @@ export default function ChatPanel({
     return `upload-${uploadActivityCounterRef.current}`;
   }
 
+  function nextUploadBatchId(): string {
+    uploadBatchCounterRef.current += 1;
+    return `upload-batch-${Date.now()}-${uploadBatchCounterRef.current}`;
+  }
+
+  function emitUploadLifecycleEvent(detail: UploadLifecycleEventDetail) {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.dispatchEvent(new CustomEvent(UPLOAD_LIFECYCLE_EVENT, { detail }));
+  }
+
   function updateUploadActivity(
     id: string,
     updater: (activity: UploadActivity) => UploadActivity
@@ -442,6 +491,34 @@ export default function ChatPanel({
   }
 
   function collapseSavedUploadActivities() {
+    const unacknowledgedBatchIds = [
+      ...new Set(
+        uploadActivities
+          .filter((activity) => activity.status === "saved" && !acknowledgedUploadBatchesRef.current.has(activity.batchId))
+          .map((activity) => activity.batchId)
+      ),
+    ];
+
+    for (const batchId of unacknowledgedBatchIds) {
+      const batchActivities = uploadActivities.filter((activity) => activity.batchId === batchId);
+      for (const activity of batchActivities.filter((candidate) => candidate.status === "saved")) {
+        emitUploadLifecycleEvent({
+          batchId: activity.batchId,
+          stage: "assistant_acknowledged",
+          fileName: activity.fileName,
+          fileType: activity.fileType,
+          fileSize: activity.fileSize,
+          selectedFileCount: batchActivities.length,
+          projectId: activeProjectId ?? "",
+          status: "ok",
+          savedPath: activity.savedPath,
+          ownerLabel: activity.ownerLabel,
+          conversionStatus: requiresMarkdownConversion(activity.file) ? "completed" : "not_needed",
+        });
+      }
+      acknowledgedUploadBatchesRef.current.add(batchId);
+    }
+
     setUploadActivities((current) =>
       current.map((activity) =>
         activity.status === "saved"
@@ -496,6 +573,7 @@ export default function ChatPanel({
     if (failures.length > 0) {
       if (successes.length > 0) {
         lines.push("");
+        lines.push(`${successes.length} saved, ${failures.length} need attention.`);
       }
       lines.push(failures.length === 1 ? "1 file did not upload:" : `${failures.length} files did not upload:`);
       for (const failure of failures) {
@@ -515,15 +593,54 @@ export default function ChatPanel({
       return;
     }
 
+    const batchId = nextUploadBatchId();
     const activities = files.map((file) => ({
       id: nextUploadActivityId(),
+      batchId,
       file,
       fileName: file.name,
+      fileType: file.type || "application/octet-stream",
+      fileSize: file.size,
       status: requiresMarkdownConversion(file) ? "converting" as const : "uploading" as const,
       message: requiresMarkdownConversion(file)
         ? `Converting ${file.name} to markdown...`
         : `Uploading ${file.name}...`,
     }));
+    for (const activity of activities) {
+      emitUploadLifecycleEvent({
+        batchId,
+        stage: "selected",
+        fileName: activity.fileName,
+        fileType: activity.fileType,
+        fileSize: activity.fileSize,
+        selectedFileCount: files.length,
+        projectId: activeProjectId,
+        status: "ok",
+      });
+      emitUploadLifecycleEvent({
+        batchId,
+        stage: "accepted_by_client_validation",
+        fileName: activity.fileName,
+        fileType: activity.fileType,
+        fileSize: activity.fileSize,
+        selectedFileCount: files.length,
+        projectId: activeProjectId,
+        status: "ok",
+      });
+      if (requiresMarkdownConversion(activity.file)) {
+        emitUploadLifecycleEvent({
+          batchId,
+          stage: "conversion_started",
+          fileName: activity.fileName,
+          fileType: activity.fileType,
+          fileSize: activity.fileSize,
+          selectedFileCount: files.length,
+          projectId: activeProjectId,
+          status: "pending",
+          conversionStatus: "started",
+        });
+      }
+    }
     setUploadActivities((current) => [...current, ...activities]);
 
     const successes: UploadSuccess[] = [];
@@ -531,9 +648,48 @@ export default function ChatPanel({
 
     for (const activity of activities) {
       try {
+        emitUploadLifecycleEvent({
+          batchId,
+          stage: "upload_request_started",
+          fileName: activity.fileName,
+          fileType: activity.fileType,
+          fileSize: activity.fileSize,
+          selectedFileCount: files.length,
+          projectId: activeProjectId,
+          status: "pending",
+          conversionStatus: requiresMarkdownConversion(activity.file) ? "started" : "not_needed",
+        });
         const uploadedFile = await onUploadDocument(activity.file);
         const receipt = uploadReceiptForFile(uploadedFile, activity.fileName);
         successes.push(receipt);
+        if (requiresMarkdownConversion(activity.file)) {
+          emitUploadLifecycleEvent({
+            batchId,
+            stage: "conversion_completed",
+            fileName: activity.fileName,
+            fileType: activity.fileType,
+            fileSize: activity.fileSize,
+            selectedFileCount: files.length,
+            projectId: activeProjectId,
+            status: "ok",
+            savedPath: receipt.savedPath,
+            ownerLabel: receipt.ownerLabel,
+            conversionStatus: "completed",
+          });
+        }
+        emitUploadLifecycleEvent({
+          batchId,
+          stage: "saved_to_memory",
+          fileName: activity.fileName,
+          fileType: activity.fileType,
+          fileSize: activity.fileSize,
+          selectedFileCount: files.length,
+          projectId: activeProjectId,
+          status: "ok",
+          savedPath: receipt.savedPath,
+          ownerLabel: receipt.ownerLabel,
+          conversionStatus: requiresMarkdownConversion(activity.file) ? "completed" : "not_needed",
+        });
         updateUploadActivity(activity.id, (current) => ({
           ...current,
           status: "saved",
@@ -543,11 +699,36 @@ export default function ChatPanel({
           destinationLabel: receipt.destinationLabel,
           message: `Saved ${receipt.ownerLabel}.`,
         }));
+        emitUploadLifecycleEvent({
+          batchId,
+          stage: "visible_receipt_rendered",
+          fileName: activity.fileName,
+          fileType: activity.fileType,
+          fileSize: activity.fileSize,
+          selectedFileCount: files.length,
+          projectId: activeProjectId,
+          status: "ok",
+          savedPath: receipt.savedPath,
+          ownerLabel: receipt.ownerLabel,
+          conversionStatus: requiresMarkdownConversion(activity.file) ? "completed" : "not_needed",
+        });
       } catch (uploadError) {
         const errorMessage = uploadError instanceof Error ? uploadError.message : "Document upload failed.";
         failures.push({
           fileName: activity.fileName,
           error: errorMessage,
+        });
+        emitUploadLifecycleEvent({
+          batchId,
+          stage: "failed",
+          fileName: activity.fileName,
+          fileType: activity.fileType,
+          fileSize: activity.fileSize,
+          selectedFileCount: files.length,
+          projectId: activeProjectId,
+          status: "error",
+          error: errorMessage,
+          conversionStatus: requiresMarkdownConversion(activity.file) ? "failed" : "not_needed",
         });
         updateUploadActivity(activity.id, (current) => ({
           ...current,
@@ -560,6 +741,25 @@ export default function ChatPanel({
 
     if (successes.length > 0) {
       onSendMessage?.();
+      for (const success of successes) {
+        const activity = activities.find((candidate) => candidate.fileName === success.fileName);
+        if (!activity) {
+          continue;
+        }
+        emitUploadLifecycleEvent({
+          batchId,
+          stage: "attached_to_message",
+          fileName: activity.fileName,
+          fileType: activity.fileType,
+          fileSize: activity.fileSize,
+          selectedFileCount: files.length,
+          projectId: activeProjectId,
+          status: "ok",
+          savedPath: success.savedPath,
+          ownerLabel: success.ownerLabel,
+          conversionStatus: requiresMarkdownConversion(activity.file) ? "completed" : "not_needed",
+        });
+      }
       append(buildUploadSummaryMessage(message, successes, failures), { metadata: messageMetadata });
     } else if (failures.length > 0) {
       setFileError(failures.length === 1 ? failures[0]!.error : "Document uploads failed.");

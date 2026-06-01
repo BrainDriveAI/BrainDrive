@@ -163,6 +163,11 @@ describe("ChatPanel typing indicator behavior", () => {
   it("uploads multiple selected project documents sequentially", async () => {
     const user = userEvent.setup();
     const hookState = makeHookState();
+    const lifecycleEvents: Array<Record<string, unknown>> = [];
+    const onLifecycleEvent = (event: Event) => {
+      lifecycleEvents.push({ ...((event as CustomEvent).detail as Record<string, unknown>) });
+    };
+    window.addEventListener("braindrive:upload-lifecycle", onLifecycleEvent);
     const onUploadDocument = vi
       .fn()
       .mockResolvedValueOnce({
@@ -179,34 +184,48 @@ describe("ChatPanel typing indicator behavior", () => {
       });
     useGatewayChatMock.mockReturnValue(hookState);
 
-    const { container } = render(
-      <ChatPanel
-        activeConversationId={null}
-        activeProjectId="finance"
-        isEmpty={false}
-        onUploadDocument={onUploadDocument}
-      />
-    );
-
-    const input = container.querySelector('input[type="file"]');
-    expect(input).toBeInstanceOf(HTMLInputElement);
-
-    const february = new File(["Date,Amount"], "february.csv", { type: "text/csv" });
-    const march = new File(["Date,Amount"], "march.csv", { type: "text/csv" });
-    await user.upload(input as HTMLInputElement, [february, march]);
-    await user.click(screen.getAllByRole("button", { name: "Send message" })[0]!);
-
-    await waitFor(() => {
-      expect(onUploadDocument).toHaveBeenCalledTimes(2);
-    });
-    expect(onUploadDocument.mock.calls[0]?.[0]).toBe(february);
-    expect(onUploadDocument.mock.calls[1]?.[0]).toBe(march);
-    await waitFor(() => {
-      expect(hookState.append).toHaveBeenCalledWith(
-        expect.stringContaining("Uploaded 2 statements:"),
-        expect.any(Object)
+    try {
+      const { container } = render(
+        <ChatPanel
+          activeConversationId={null}
+          activeProjectId="finance"
+          isEmpty={false}
+          onUploadDocument={onUploadDocument}
+        />
       );
-    });
+
+      const input = container.querySelector('input[type="file"]');
+      expect(input).toBeInstanceOf(HTMLInputElement);
+
+      const february = new File(["Date,Amount"], "february.csv", { type: "text/csv" });
+      const march = new File(["Date,Amount"], "march.csv", { type: "text/csv" });
+      await user.upload(input as HTMLInputElement, [february, march]);
+      await user.click(screen.getAllByRole("button", { name: "Send message" })[0]!);
+
+      await waitFor(() => {
+        expect(onUploadDocument).toHaveBeenCalledTimes(2);
+      });
+      expect(onUploadDocument.mock.calls[0]?.[0]).toBe(february);
+      expect(onUploadDocument.mock.calls[1]?.[0]).toBe(march);
+      await waitFor(() => {
+        expect(hookState.append).toHaveBeenCalledWith(
+          expect.stringContaining("Uploaded 2 statements:"),
+          expect.any(Object)
+        );
+      });
+
+      expect(new Set(lifecycleEvents.map((event) => event.batchId)).size).toBe(1);
+      expect(lifecycleEvents).toEqual(expect.arrayContaining([
+        expect.objectContaining({ fileName: "february.csv", selectedFileCount: 2, stage: "selected" }),
+        expect.objectContaining({ fileName: "march.csv", selectedFileCount: 2, stage: "selected" }),
+        expect.objectContaining({ fileName: "february.csv", selectedFileCount: 2, stage: "saved_to_memory" }),
+        expect.objectContaining({ fileName: "march.csv", selectedFileCount: 2, stage: "saved_to_memory" }),
+        expect.objectContaining({ fileName: "february.csv", selectedFileCount: 2, stage: "attached_to_message" }),
+        expect.objectContaining({ fileName: "march.csv", selectedFileCount: 2, stage: "attached_to_message" }),
+      ]));
+    } finally {
+      window.removeEventListener("braindrive:upload-lifecycle", onLifecycleEvent);
+    }
   });
 
   it("renders friendly upload receipts without raw source paths by default", async () => {

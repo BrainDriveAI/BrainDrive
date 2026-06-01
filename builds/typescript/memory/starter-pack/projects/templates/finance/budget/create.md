@@ -68,6 +68,8 @@ Propagate material state changes back to Finance:
 - close or revise active `me/todo.md` statement-gathering tasks;
 - keep remaining missing history specific by month/account/institution.
 
+If you tell the owner you updated the Todo list, first write or edit `me/todo.md`, read it back, and verify the promised tasks are present. The final response must not claim Todo list updates unless the verified Todo list contains the task text. When MJP Services, Blue Door Payment, or other clarification questions are resolved, close or revise stale active todos for those questions in the same turn.
+
 ## What This Procedure Is Not
 
 It is not a monthly comparison workflow. For actuals versus saved budget, use `compare.md`.
