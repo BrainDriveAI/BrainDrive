@@ -44,7 +44,7 @@ Built on the [Personal AI Architecture](https://github.com/Personal-AI-Architect
 - **Career.** Define what you want, plan how to get there, and stay accountable to the moves that matter.
 - **Relationships.** Remember what matters about the people in your life — what you've discussed, what you want for them, what you want to do next.
 - **Fitness.** Build the body and habits you want — define a plan, log progress, adjust as life happens.
-- **Finances.** Take control of your money — define a budget, track real spend, stay on plan when things shift.
+- **Finances.** Take control of your money — define your goals, create a plan, set a budget when it helps, and reconcile uploaded statements against it.
 - **Your Agent.** Talk through anything else that's on your mind — to-dos, hard conversations, meal planning, the everyday decisions that don't have their own page.
 
 **And the ability to make your own.** BrainDrive ships with the surfaces above and the machinery to create and share new ones — yours, and others built by the community.
