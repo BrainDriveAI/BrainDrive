@@ -14,6 +14,8 @@ import { ApprovalStore } from "./approval-store.js";
 import { classifyProviderError } from "./errors.js";
 import { ToolExecutor } from "./tool-executor.js";
 
+const DEFAULT_MAX_TOOL_RESULT_MODEL_CHARS = 16_000;
+
 type LoopOptions = {
   memoryRoot: string;
   approvalMode?: ApprovalMode;
@@ -227,13 +229,15 @@ export async function* runAgentLoop(
           status: "error",
           output: unavailableOutput,
         }, modelCall);
+        const modelToolContent = compactToolResultForModel({
+          status: "error",
+          output: unavailableOutput,
+        });
+        await appendToolResultCompactionAudit(options.promptAudit?.recorder, toolCall.id, modelToolContent, modelCall);
         messages.push({
           role: "tool",
           tool_call_id: toolCall.id,
-          content: JSON.stringify({
-            status: "error",
-            output: unavailableOutput,
-          }),
+          content: modelToolContent.content,
         });
         continue;
       }
@@ -266,13 +270,15 @@ export async function* runAgentLoop(
           status: "error",
           output: loopGuardOutput,
         }, modelCall);
+        const modelToolContent = compactToolResultForModel({
+          status: "error",
+          output: loopGuardOutput,
+        });
+        await appendToolResultCompactionAudit(options.promptAudit?.recorder, toolCall.id, modelToolContent, modelCall);
         messages.push({
           role: "tool",
           tool_call_id: toolCall.id,
-          content: JSON.stringify({
-            status: "error",
-            output: loopGuardOutput,
-          }),
+          content: modelToolContent.content,
         });
         continue;
       }
@@ -291,13 +297,15 @@ export async function* runAgentLoop(
           status: guardedResult.status,
           output: guardedResult.output,
         }, modelCall);
+        const modelToolContent = compactToolResultForModel({
+          status: guardedResult.status,
+          output: guardedResult.output,
+        });
+        await appendToolResultCompactionAudit(options.promptAudit?.recorder, toolCall.id, modelToolContent, modelCall);
         messages.push({
           role: "tool",
           tool_call_id: toolCall.id,
-          content: JSON.stringify({
-            status: guardedResult.status,
-            output: guardedResult.output,
-          }),
+          content: modelToolContent.content,
         });
         continue;
       }
@@ -335,13 +343,15 @@ export async function* runAgentLoop(
           status: "error",
           output: guardOutput,
         }, modelCall);
+        const modelToolContent = compactToolResultForModel({
+          status: "error",
+          output: guardOutput,
+        });
+        await appendToolResultCompactionAudit(options.promptAudit?.recorder, toolCall.id, modelToolContent, modelCall);
         messages.push({
           role: "tool",
           tool_call_id: toolCall.id,
-          content: JSON.stringify({
-            status: "error",
-            output: guardOutput,
-          }),
+          content: modelToolContent.content,
         });
         continue;
       }
@@ -382,13 +392,15 @@ export async function* runAgentLoop(
             status: "denied",
             output: deniedOutput,
           }, modelCall);
+          const modelToolContent = compactToolResultForModel({
+            status: "denied",
+            output: deniedOutput,
+          });
+          await appendToolResultCompactionAudit(options.promptAudit?.recorder, toolCall.id, modelToolContent, modelCall);
           messages.push({
             role: "tool",
             tool_call_id: toolCall.id,
-            content: JSON.stringify({
-              status: "denied",
-              output: deniedOutput,
-            }),
+            content: modelToolContent.content,
           });
           continue;
         }
@@ -407,13 +419,15 @@ export async function* runAgentLoop(
         status: result.status,
         output: result.output,
       }, modelCall);
+      const modelToolContent = compactToolResultForModel({
+        status: result.status,
+        output: result.output,
+      });
+      await appendToolResultCompactionAudit(options.promptAudit?.recorder, toolCall.id, modelToolContent, modelCall);
       messages.push({
         role: "tool",
         tool_call_id: toolCall.id,
-        content: JSON.stringify({
-          status: result.status,
-          output: result.output,
-        }),
+        content: modelToolContent.content,
       });
 
       if (result.status === "error" && result.recoverable === false) {
@@ -438,6 +452,107 @@ function serializeToolDefinitionForAudit(tool: ToolDefinition): Record<string, u
     readOnly: tool.readOnly,
     inputSchema: tool.inputSchema,
   };
+}
+
+function compactToolResultForModel(result: {
+  status: ToolExecutionResult["status"];
+  output: unknown;
+}): { content: string; compacted: boolean; originalChars: number; modelChars: number; maxChars: number } {
+  const maxChars = resolveMaxToolResultModelChars();
+  const serialized = JSON.stringify(result);
+  if (serialized.length <= maxChars) {
+    return {
+      content: serialized,
+      compacted: false,
+      originalChars: serialized.length,
+      modelChars: serialized.length,
+      maxChars,
+    };
+  }
+
+  const compactedResult = {
+    status: result.status,
+    output: compactLargeOutput(result.output, maxChars),
+  };
+  const content = JSON.stringify(compactedResult);
+  return {
+    content,
+    compacted: true,
+    originalChars: serialized.length,
+    modelChars: content.length,
+    maxChars,
+  };
+}
+
+function compactLargeOutput(output: unknown, maxChars: number): unknown {
+  if (typeof output === "string") {
+    return compactString(output, maxChars);
+  }
+
+  if (Array.isArray(output)) {
+    return output.slice(0, 20).map((item) => compactLargeOutput(item, Math.max(500, Math.floor(maxChars / 20))));
+  }
+
+  if (output && typeof output === "object") {
+    const record = output as Record<string, unknown>;
+    const compacted: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(record)) {
+      if (key === "content" && typeof value === "string") {
+        compacted[key] = compactString(value, maxChars);
+      } else if (Array.isArray(value)) {
+        compacted[key] = value.slice(0, 20).map((item) =>
+          compactLargeOutput(item, Math.max(500, Math.floor(maxChars / 20)))
+        );
+        if (value.length > 20) {
+          compacted[`${key}_omitted`] = value.length - 20;
+        }
+      } else if (typeof value === "string") {
+        compacted[key] = compactString(value, Math.min(maxChars, 2_000));
+      } else {
+        compacted[key] = value;
+      }
+    }
+    compacted._model_context_compacted = true;
+    compacted._compaction_note = "Tool result shortened before the next model call; full result remains in prompt audit and streamed tool result.";
+    return compacted;
+  }
+
+  return output;
+}
+
+function compactString(value: string, maxChars: number): string {
+  if (value.length <= maxChars) {
+    return value;
+  }
+
+  const marker = `\n...[truncated ${value.length - maxChars} chars from tool result for model context]...\n`;
+  const remaining = Math.max(0, maxChars - marker.length);
+  const head = Math.ceil(remaining * 0.7);
+  const tail = Math.max(0, remaining - head);
+  return `${value.slice(0, head)}${marker}${value.slice(value.length - tail)}`;
+}
+
+async function appendToolResultCompactionAudit(
+  recorder: PromptAuditRecorder | undefined,
+  toolCallId: string,
+  compaction: ReturnType<typeof compactToolResultForModel>,
+  modelCall: ModelCallAuditContext
+): Promise<void> {
+  if (!compaction.compacted) {
+    return;
+  }
+
+  await recorder?.append("prompt_audit.tool_result_compacted", {
+    tool_call_id: toolCallId,
+    original_chars: compaction.originalChars,
+    model_chars: compaction.modelChars,
+    max_chars: compaction.maxChars,
+  }, modelCall);
+}
+
+function resolveMaxToolResultModelChars(): number {
+  const parsed = Number.parseInt(process.env.BRAINDRIVE_MAX_TOOL_RESULT_MODEL_CHARS ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_TOOL_RESULT_MODEL_CHARS;
 }
 
 async function* toolResultEvents(result: ToolExecutionResult, toolCallId: string): AsyncGenerator<StreamEvent> {

@@ -35,6 +35,8 @@ describe("OpenAICompatibleAdapter prompt audit", () => {
   afterEach(() => {
     delete process.env.BRAINDRIVE_PROVIDER_REQUEST_TIMEOUT_MS;
     delete process.env.BRAINDRIVE_PROVIDER_STREAM_IDLE_TIMEOUT_MS;
+    delete process.env.BRAINDRIVE_PROVIDER_CONTEXT_WINDOW_TOKENS;
+    delete process.env.BRAINDRIVE_PROVIDER_RESPONSE_HEADROOM_TOKENS;
     vi.restoreAllMocks();
   });
 
@@ -184,6 +186,53 @@ describe("OpenAICompatibleAdapter prompt audit", () => {
         stream_idle_timeout_ms: 10,
       }),
     }));
+  });
+
+  it("blocks oversized provider payloads before fetch", async () => {
+    process.env.BRAINDRIVE_PROVIDER_CONTEXT_WINDOW_TOKENS = "100";
+    process.env.BRAINDRIVE_PROVIDER_RESPONSE_HEADROOM_TOKENS = "10";
+    const events: Array<{ event: string; details: Record<string, unknown> }> = [];
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const adapter = new OpenAICompatibleAdapter({
+      base_url: "https://provider.example/v1",
+      model: "test-model",
+      api_key_env: "TEST_API_KEY",
+    });
+
+    await expect(adapter.complete({
+      ...request,
+      messages: [
+        { role: "system", content: "System prompt" },
+        { role: "user", content: "A".repeat(1_000) },
+      ],
+    }, tools, {
+      promptAudit: {
+        recorder: fakeRecorder(events),
+        modelCall: {
+          model_call_id: "model-call-1",
+          model_call_index: 1,
+        },
+      },
+    })).rejects.toThrow("Provider context overflow preflight");
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "prompt_audit.provider_request_preflight",
+      details: expect.objectContaining({
+        blocked: true,
+        context_window_tokens: 100,
+        prompt_budget_tokens: 90,
+      }),
+    }));
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "prompt_audit.provider_request_blocked",
+      details: expect.objectContaining({
+        reason: "context_overflow_preflight",
+      }),
+    }));
+    expect(events.some((entry) => entry.event === "prompt_audit.provider_request")).toBe(false);
   });
 });
 

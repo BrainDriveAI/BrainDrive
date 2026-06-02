@@ -79,4 +79,22 @@ describe("MessageList scroll behavior", () => {
     expect(rendered).toContain("reduce the interest you pay to lenders");
     expect(rendered).not.toMatch(/perfect data|fully completed actuals ledger|completely reconciled|permanently mapped|behind the scenes|destroy the Northbridge Visa|banks' hands out of your pockets/i);
   });
+
+  it("cleans known concatenated budget category typos", () => {
+    render(
+      <MessageList
+        messages={[
+          {
+            id: "a-1",
+            role: "assistant",
+            content: "Category note: hoShopping is higher than expected this month.",
+          },
+        ]}
+      />
+    );
+
+    const rendered = document.body.textContent ?? "";
+    expect(rendered).toContain("Shopping is higher than expected");
+    expect(rendered).not.toContain("hoShopping");
+  });
 });

@@ -43,6 +43,26 @@ function formatToolStatus(toolName: string): string {
   return TOOL_STATUS_LABELS[toolName] ?? `Using ${toolName.replace(/_/g, " ")}...`;
 }
 
+function isBudgetApp(projectId?: string | null, appPath?: string | null): boolean {
+  return projectId === "finance" && (!appPath || appPath.includes("/budget"));
+}
+
+function contextOverflowRecoveryMessage(projectId?: string | null, appPath?: string | null): string {
+  if (isBudgetApp(projectId, appPath)) {
+    return [
+      "This Budget conversation has grown too large to continue in one reply.",
+      "Your uploaded statements, Budget draft, latest report, and Todos are saved in Memory if they appear in the saved files.",
+      "Start a new Budget conversation and I will continue from those saved files.",
+    ].join("\n");
+  }
+
+  return [
+    "This conversation has grown too large to continue in one reply.",
+    "Your saved Memory files remain available.",
+    "Start a new conversation to continue from saved files.",
+  ].join("\n");
+}
+
 type ChatPanelProps = {
   activeConversationId: string | null;
   activeProjectId?: string | null;
@@ -393,6 +413,9 @@ export default function ChatPanel({
   const visibleChatError =
     chatError && chatError !== dismissedError ? chatError : null;
   const isContextOverflowError = errorCode === "context_overflow";
+  const displayedChatError = isContextOverflowError
+    ? contextOverflowRecoveryMessage(activeProjectId, activeAppPath)
+    : visibleChatError;
   const isProviderError = visibleChatError != null && (
     visibleChatError.includes("credentials") ||
     visibleChatError.includes("could not be reached") ||
@@ -934,7 +957,9 @@ export default function ChatPanel({
               typingStatus={typingStatus}
             >
               <UploadActivityList
-                activities={uploadActivities}
+                activities={visibleChatError
+                  ? uploadActivities.filter((activity) => activity.status !== "saved")
+                  : uploadActivities}
                 onRetry={retryUpload}
                 onToggleDetails={toggleUploadActivityDetails}
               />
@@ -957,9 +982,9 @@ export default function ChatPanel({
                   </div>
                 </div>
               )}
-              {visibleChatError && (
+              {displayedChatError && (
                 <ErrorMessage
-                  message={visibleChatError}
+                  message={displayedChatError}
                   onOpenSettings={isProviderError ? onOpenSettings : undefined}
                   onRetry={isContextOverflowError ? undefined : () => resetErrorPresentation()}
                   primaryActionLabel={isContextOverflowError ? "Start New Conversation" : undefined}

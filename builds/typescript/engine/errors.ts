@@ -8,7 +8,7 @@ export function classifyProviderError(error: unknown): StreamEvent {
     return {
       type: "error",
       code: "context_overflow",
-      message: "This session has gotten long. Start a new conversation to continue - all your work is saved.",
+      message: "This conversation has grown too large to continue in one reply. Your saved Memory files remain available. Start a new conversation to continue from saved files.",
     };
   }
 

@@ -126,6 +126,8 @@ type ProviderErrorPayload = {
 
 const DEFAULT_PROVIDER_REQUEST_TIMEOUT_MS = 180_000;
 const DEFAULT_PROVIDER_STREAM_IDLE_TIMEOUT_MS = 60_000;
+const DEFAULT_PROVIDER_CONTEXT_WINDOW_TOKENS = 128_000;
+const DEFAULT_PROVIDER_RESPONSE_HEADROOM_TOKENS = 8_000;
 
 type ProviderTimeoutState = {
   controller: AbortController;
@@ -177,6 +179,7 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
       ...(apiKey.length > 0 ? { authorization: `Bearer ${apiKey}` } : {}),
     };
     const body = buildChatCompletionBody(this.config.model, request, tools, false);
+    await preflightProviderRequest(body, options);
     await options?.promptAudit?.recorder.append(
       "prompt_audit.provider_request",
       {
@@ -245,6 +248,7 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
       ...(apiKey.length > 0 ? { authorization: `Bearer ${apiKey}` } : {}),
     };
     const body = buildChatCompletionBody(this.config.model, request, tools, true);
+    await preflightProviderRequest(body, options);
     await options?.promptAudit?.recorder.append(
       "prompt_audit.provider_request",
       {
@@ -535,6 +539,93 @@ function buildChatCompletionBody(
     })),
     ...(tools.length > 0 ? { tool_choice: "auto" as const } : {}),
   };
+}
+
+async function preflightProviderRequest(
+  body: ReturnType<typeof buildChatCompletionBody>,
+  options?: ModelAdapterCallOptions
+): Promise<void> {
+  const serialized = JSON.stringify(body);
+  const estimatedTokens = estimateTokens(serialized);
+  const contextWindowTokens = resolveProviderContextWindowTokens();
+  const responseHeadroomTokens = resolveProviderResponseHeadroomTokens();
+  const promptBudgetTokens = Math.max(1, contextWindowTokens - responseHeadroomTokens);
+  const largestMessage = largestProviderMessage(body.messages);
+
+  await options?.promptAudit?.recorder.append(
+    "prompt_audit.provider_request_preflight",
+    {
+      estimated_provider_payload_tokens: estimatedTokens,
+      prompt_budget_tokens: promptBudgetTokens,
+      context_window_tokens: contextWindowTokens,
+      response_headroom_tokens: responseHeadroomTokens,
+      largest_message: largestMessage,
+      tool_count: body.tools.length,
+      blocked: estimatedTokens > promptBudgetTokens,
+    },
+    options.promptAudit.modelCall
+  );
+
+  if (estimatedTokens > promptBudgetTokens) {
+    await options?.promptAudit?.recorder.append(
+      "prompt_audit.provider_request_blocked",
+      {
+        reason: "context_overflow_preflight",
+        estimated_provider_payload_tokens: estimatedTokens,
+        prompt_budget_tokens: promptBudgetTokens,
+        largest_message: largestMessage,
+      },
+      options.promptAudit.modelCall
+    );
+    throw new Error(
+      `Provider context overflow preflight: estimated provider payload ${estimatedTokens} tokens exceeds prompt budget ${promptBudgetTokens} tokens.`
+    );
+  }
+}
+
+function estimateTokens(value: string): number {
+  return value.length === 0 ? 0 : Math.ceil(value.length / 4);
+}
+
+function resolveProviderContextWindowTokens(): number {
+  return resolvePositiveIntegerEnv([
+    "BRAINDRIVE_PROVIDER_CONTEXT_WINDOW_TOKENS",
+    "BRAINDRIVE_CONTEXT_WINDOW_TOKENS",
+  ], DEFAULT_PROVIDER_CONTEXT_WINDOW_TOKENS);
+}
+
+function resolveProviderResponseHeadroomTokens(): number {
+  return resolvePositiveIntegerEnv([
+    "BRAINDRIVE_PROVIDER_RESPONSE_HEADROOM_TOKENS",
+    "BRAINDRIVE_CONTEXT_RESPONSE_HEADROOM_TOKENS",
+  ], DEFAULT_PROVIDER_RESPONSE_HEADROOM_TOKENS);
+}
+
+function resolvePositiveIntegerEnv(envNames: string[], fallback: number): number {
+  for (const envName of envNames) {
+    const parsed = Number.parseInt(process.env[envName] ?? "", 10);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return fallback;
+}
+
+function largestProviderMessage(messages: OpenAIMessage[]): Record<string, unknown> | null {
+  let largest: { index: number; role: string; estimatedTokens: number; charLength: number } | null = null;
+  messages.forEach((message, index) => {
+    const serialized = JSON.stringify(message);
+    const estimatedTokens = estimateTokens(serialized);
+    if (!largest || estimatedTokens > largest.estimatedTokens) {
+      largest = {
+        index,
+        role: message.role,
+        estimatedTokens,
+        charLength: serialized.length,
+      };
+    }
+  });
+  return largest;
 }
 
 function createProviderTimeoutState(): ProviderTimeoutState {

@@ -3346,16 +3346,16 @@ export function buildDurableClaimSafeResponse(
     return { text: assistantText, changed: false, unsupportedClaims: [] };
   }
 
-  let text = assistantText;
-  for (const entry of unsupportedClaims) {
-    text = replaceClaimText(text, entry.claim.sourceText, durableClaimRecoveryText(entry.claim.type));
-  }
-  text = collapseDuplicateDurableRecoveryText(text);
+  const unsupportedTypes = [...new Set(unsupportedClaims.map((entry) => entry.claim.type))];
+  const text = appendDurableSaveStatus(
+    removeUnsupportedClaimSentences(assistantText, unsupportedClaims.map((entry) => entry.claim.sourceText)),
+    unsupportedTypes
+  );
 
   return {
     text,
     changed: text !== assistantText,
-    unsupportedClaims: unsupportedClaims.map((entry) => entry.claim.type),
+    unsupportedClaims: unsupportedTypes,
   };
 }
 
@@ -3384,45 +3384,43 @@ function durableClaimLabel(type: string): string {
 
 function durableClaimRecoveryText(type: string): string {
   if (type === "todo_updated") {
-    return "I recommend the related Todo list updates, but I could not verify that they were saved in this turn";
+    return "Not saved yet: Todo updates. I could not verify that the Todo list changed in this turn.";
   }
   if (type === "budget_updated") {
-    return "I prepared the saved Budget guidance, but I could not verify a saved Budget file update in this turn";
+    return "Not saved yet: saved Budget update. I could not verify a Budget file change in this turn.";
   }
   if (type === "report_updated") {
-    return "I prepared the Budget report guidance, but I could not verify a latest Budget report file update in this turn";
+    return "Not saved yet: latest Budget report update. I could not verify a report file change in this turn.";
   }
   if (type === "category_mapped") {
-    return "I recommend this category treatment, but I could not verify that the category mapping was saved in this turn";
+    return "Not saved yet: category mapping. I could not verify that the category mapping changed in this turn.";
   }
-  return `I recommend updating ${durableClaimLabel(type)}, but I could not verify the save in this turn`;
+  return `Not saved yet: ${durableClaimLabel(type)}. I could not verify the save in this turn.`;
 }
 
-function replaceClaimText(text: string, sourceText: string, replacement: string): string {
-  if (!sourceText) {
+function removeUnsupportedClaimSentences(text: string, sourceTexts: string[]): string {
+  const sourceSet = sourceTexts.filter((sourceText) => sourceText.trim().length > 0);
+  if (sourceSet.length === 0) {
     return text;
   }
-  return text.replace(sourceText, replacement);
+
+  return text
+    .split(/(?<=[.!?])\s+|\n{2,}/)
+    .filter((sentence) => !sourceSet.some((sourceText) => sentence.includes(sourceText)))
+    .join("\n\n")
+    .replace(/\bI have\s+(?:saved|updated|created|revised|refreshed).{0,160}\*\*/gi, "")
+    .replace(/\s+\*\*/g, "**")
+    .replace(/\*\*\s+/g, "**")
+    .replace(/\bI have\s+(?=I\b)/gi, "")
+    .replace(/\bI have immediately\s+(?=I recommend\b)/gi, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
-function collapseDuplicateDurableRecoveryText(text: string): string {
-  let collapsed = text;
-  for (const recoveryText of [
-    durableClaimRecoveryText("todo_updated"),
-    durableClaimRecoveryText("budget_updated"),
-    durableClaimRecoveryText("report_updated"),
-    durableClaimRecoveryText("category_mapped"),
-  ]) {
-    let seen = false;
-    collapsed = collapsed.replaceAll(recoveryText, () => {
-      if (seen) {
-        return "";
-      }
-      seen = true;
-      return recoveryText;
-    });
-  }
-  return collapsed.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n");
+function appendDurableSaveStatus(text: string, unsupportedTypes: string[]): string {
+  const lines = unsupportedTypes.map((type) => `- ${durableClaimRecoveryText(type)}`);
+  const block = ["Save status:", ...lines].join("\n");
+  return [text.trim(), block].filter((part) => part.length > 0).join("\n\n");
 }
 
 function observedArtifactFromToolResult(output: unknown): ObservedArtifact | null {

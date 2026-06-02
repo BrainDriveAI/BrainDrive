@@ -16,6 +16,7 @@ const FINANCE_CONFIDENCE_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\bsiphon of interest charges\b/gi, "interest charges"],
   [/\bdirectly to destroy the ([^.]+?)\b/gi, "directly toward paying down the $1"],
   [/\bget the banks' hands out of your pockets\b/gi, "reduce the interest you pay to lenders"],
+  [/\bhoShopping\b/g, "Shopping"],
 ];
 
 export function polishOwnerVisibleAssistantCopy(text: string): string {

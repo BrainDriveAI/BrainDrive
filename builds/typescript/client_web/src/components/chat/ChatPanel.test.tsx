@@ -101,13 +101,22 @@ describe("ChatPanel typing indicator behavior", () => {
     useGatewayChatMock.mockReturnValue(
       makeHookState({
         messages: [{ id: "u-1", role: "user", content: "Continue from this prompt" }],
-        error: new Error("This session has gotten long."),
+        error: new Error("This conversation has grown too large."),
         errorCode: "context_overflow",
       })
     );
 
-    render(<ChatPanel activeConversationId={null} isEmpty={false} />);
+    render(
+      <ChatPanel
+        activeConversationId={null}
+        activeProjectId="finance"
+        activeAppPath="/apps/budget"
+        isEmpty={false}
+      />
+    );
 
+    expect(screen.getByText(/This Budget conversation has grown too large/)).toBeInTheDocument();
+    expect(screen.getByText(/continue from those saved files/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start New Conversation" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Continue in New Conversation" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open Settings" })).not.toBeInTheDocument();

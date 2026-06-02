@@ -65,6 +65,8 @@ If any stated target or subtotal does not equal the visible rows plus named excl
 
 Report what changed in the saved Budget, what is still assumed, what evidence was used, and what targeted questions remain. Optionally refresh `reports/latest.md` only if the owner asked for comparison output.
 
+Keep the chat reply scan-friendly. Use bullets for the owner-facing summary and keep detailed category tables in the saved Budget or report artifacts unless the owner explicitly asks to see a table in chat. Do not send malformed markdown, dangling emphasis markers, or concatenated category words.
+
 Propagate material state changes back to Finance:
 
 - update `spec.md` so uploaded statement data is not still listed as missing;

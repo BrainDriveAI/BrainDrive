@@ -193,8 +193,24 @@ describe("project chat context", () => {
 
     expect(safeResponse.changed).toBe(true);
     expect(safeResponse.text).not.toContain("I have added these actions directly to your Todo list");
-    expect(safeResponse.text).toContain("I recommend the related Todo list updates");
+    expect(safeResponse.text).toContain("Save status:");
+    expect(safeResponse.text).toContain("Not saved yet: Todo updates");
     expect(safeResponse.text).toContain("could not verify");
+  });
+
+  it("renders malformed save rewrites as a separate save-status block", () => {
+    const safeResponse = buildDurableClaimSafeResponse(
+      "I have immediately updated your Todo list with these Budget follow-ups. I have saved the Budget report** for your review.",
+      []
+    );
+
+    expect(safeResponse.changed).toBe(true);
+    expect(safeResponse.text).not.toContain("I have immediately");
+    expect(safeResponse.text).not.toContain("I have I");
+    expect(safeResponse.text).not.toContain("report**");
+    expect(safeResponse.text).toContain("Save status:");
+    expect(safeResponse.text).toContain("Not saved yet: Todo updates");
+    expect(safeResponse.text).toContain("Not saved yet: latest Budget report update");
   });
 
   it("does not rewrite a Todo claim backed by a changed Todo artifact summary", () => {
