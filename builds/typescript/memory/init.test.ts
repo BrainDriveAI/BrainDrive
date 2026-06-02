@@ -24,6 +24,8 @@ describe("memory init project scaffolding", () => {
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "AGENT.md"), "utf8"))
         .resolves.toContain("Debt Payoff Priority");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "AGENT.md"), "utf8"))
+        .resolves.toContain("project_budget_validate_payoff_plan");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "AGENT.md"), "utf8"))
         .resolves.toContain("concrete monthly extra-payment target");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "AGENT.md"), "utf8"))
         .resolves.toContain("Post-upload receipt contract");
@@ -47,6 +49,8 @@ describe("memory init project scaffolding", () => {
         .resolves.toContain("draft actuals baseline");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "create.md"), "utf8"))
         .resolves.toContain("Northbridge Rewards Visa is the higher-APR card at 22.49%");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "create.md"), "utf8"))
+        .resolves.toContain("project_budget_validate_payoff_plan");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "create.md"), "utf8"))
         .resolves.toContain("MJP Services is my therapist");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "compare.md"), "utf8"))

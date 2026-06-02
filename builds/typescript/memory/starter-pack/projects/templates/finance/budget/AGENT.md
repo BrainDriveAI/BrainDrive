@@ -105,6 +105,8 @@ When source evidence includes credit-card APRs and minimum payments, persist a s
 
 Use the same canonical values in chat, `budget.md`, the parent Finance plan, and `reports/latest.md`. For the Katie fixture values, this means: Northbridge Rewards Visa priority at 22.49% APR, Summit Trail Everyday Mastercard secondary at 20.74% APR, Northbridge minimum $139.00, Summit minimum $117.00, extra-payment target $250.00 above minimums, Northbridge target payment $389.00, and total monthly card payment target $506.00. In `budget.md`, do not encode this as only `Debt payoff goal | 250.00 | Target minimum payments + extra`; separate minimum payments from extra-payment target and total target payment.
 
+After writing or revising `budget.md`, `reports/latest.md`, or the parent Finance plan with card payoff guidance, call `project_budget_validate_payoff_plan` with `repair: true`, then read back the changed artifacts. If the validator still reports issues, do not claim the payoff plan was saved consistently; tell the owner the payoff target needs follow-up instead.
+
 Do not stop at "send extra cash to the higher-APR card." If no safe extra-payment target can be derived, save "Extra-payment target: Needs owner confirmation" and ask one targeted question.
 
 ## Partial Classification Rule

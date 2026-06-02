@@ -16,6 +16,7 @@ import {
   readMemoryFile,
   searchMemory,
   toToolFailure,
+  validateFinanceBudgetPayoffPlan,
   writeMemoryFile,
 } from "./memory-core.js";
 import type { RequestContext } from "./request-context.js";
@@ -275,6 +276,26 @@ function registerProjectTools(server: McpServer, config: AppConfig): void {
     async () => {
       try {
         const payload = await listProjects(config.memoryRoot);
+        return success(payload as unknown as Record<string, unknown>);
+      } catch (error) {
+        return failure(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "project_budget_validate_payoff_plan",
+    {
+      title: "Project Budget Validate Payoff Plan",
+      description:
+        "Validate and optionally repair the Finance Budget APR-ranked payoff plan across budget.md, reports/latest.md, and the parent Finance plan.",
+      inputSchema: {
+        repair: z.boolean().default(false),
+      },
+    },
+    async (args) => {
+      try {
+        const payload = await validateFinanceBudgetPayoffPlan(config.memoryRoot, { repair: args.repair });
         return success(payload as unknown as Record<string, unknown>);
       } catch (error) {
         return failure(error);
