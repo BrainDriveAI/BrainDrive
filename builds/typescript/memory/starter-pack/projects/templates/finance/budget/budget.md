@@ -17,6 +17,22 @@
 | Savings goal |  | Optional |
 | Debt payoff goal |  | Optional |
 
+## Debt Payoff Priority
+
+*APR-ranked card payoff plan. Separate minimums from extra-payment targets so the plan is actionable.*
+
+| Field | Value | Notes |
+|---|---:|---|
+| Priority card |  | Highest APR card |
+| Priority APR |  | Percent |
+| Priority card minimum |  | Required minimum payment |
+| Secondary card |  | Next card by APR |
+| Secondary APR |  | Percent |
+| Secondary card minimum |  | Required minimum payment |
+| Extra-payment target |  | Amount above card minimums |
+| Priority card target payment |  | Priority minimum plus extra-payment target |
+| Total monthly card payment target |  | Both card minimums plus extra-payment target |
+
 ## Category Limits
 
 *The saved monthly spending limits to compare actuals against.*
@@ -70,6 +86,7 @@
 | Included personal living spend total |  | Must equal visible included rows or be marked Needs Review |
 | Excluded transfers/account movement |  | Not part of personal living spend |
 | Unreconciled - Needs Review |  | Use 0 only when totals reconcile |
+| Owner review pending |  | Use 0 only when no active Needs Review merchants remain |
 
 ## Owner Notes
 

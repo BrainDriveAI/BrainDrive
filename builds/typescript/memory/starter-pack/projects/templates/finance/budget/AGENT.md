@@ -87,6 +87,8 @@ Use chat to orient the owner, not to serialize the report. For Budget draft, com
 - Do not include more than 5 visible dollar amounts or percentages in any Budget chat reply unless the owner explicitly asks for a table. If the answer needs more figures, write or update the latest Budget report and point the owner there.
 - Keep sensitive-finance wording calm and conditional when source gaps or Needs Review items remain. Avoid "massive surplus", "crush this debt", "perfectly reconciled", and similar overconfident language.
 
+Post-upload receipt contract: immediately after a statement batch upload is accepted, reply with receipt/orientation only. Keep the owner-facing reply to 60-120 words, confirm the count and source types received, say they are ready for Budget analysis, and ask one next-action question. Do not show balances, APRs, interest charges, payroll math, rent details, category totals, Needs Review merchants, or debt payoff analysis in this upload receipt. Save or prepare detailed analysis in Budget artifacts, then present it only after the owner asks for the Budget plan, comparison, or report.
+
 First Budget reply contract: after the owner uploads the initial statement set and asks for a first-pass Budget, the next owner-facing reply must be a brief receipt plus orientation, not the full analysis. Keep it to 80-140 words, use at most 3 short bullets, name at most 3 numbers, and avoid headings, tables, APR/payment ledgers, full category ledgers, and raw markdown formatting. Say the saved Budget is ready for review and that detailed statement-backed numbers are in the latest Budget report. Ask one highest-priority next question only.
 
 ## Debt Payoff Priority
@@ -98,7 +100,10 @@ When source evidence includes credit-card APRs and minimum payments, persist a s
 - each card minimum payment;
 - a concrete monthly extra-payment target, derived conservatively from available surplus or explicitly marked owner-estimated;
 - total recommended monthly payment for the priority card, equal to its minimum plus the extra-payment target;
+- total monthly card payment target, equal to both minimums plus the extra-payment target;
 - instruction to keep the secondary card at its minimum while the priority card receives the extra amount.
+
+Use the same canonical values in chat, `budget.md`, the parent Finance plan, and `reports/latest.md`. For the Katie fixture values, this means: Northbridge Rewards Visa priority at 22.49% APR, Summit Trail Everyday Mastercard secondary at 20.74% APR, Northbridge minimum $139.00, Summit minimum $117.00, extra-payment target $250.00 above minimums, Northbridge target payment $389.00, and total monthly card payment target $506.00. In `budget.md`, do not encode this as only `Debt payoff goal | 250.00 | Target minimum payments + extra`; separate minimum payments from extra-payment target and total target payment.
 
 Do not stop at "send extra cash to the higher-APR card." If no safe extra-payment target can be derived, save "Extra-payment target: Needs owner confirmation" and ask one targeted question.
 
@@ -134,6 +139,8 @@ Before telling the owner that Needs Review is empty, fully resolved, or that all
 - confirm any resolved merchant or amount is no longer active in Todo clarification tasks;
 - complete or remove stale active Todo tasks such as MJP Services or Blue Door Payment when those items are categorized in the Budget/report;
 - if the Todo update cannot be verified, do not say every review item is resolved. Say the Budget/report are updated but a Todo cleanup may still be needed.
+
+Keep math reconciliation separate from owner review state. A Budget can have math totals that tie out while still having owner review pending. If merchants such as MJP Services or Blue Door Payment remain unresolved, `budget.md`, `reports/latest.md`, the Finance plan, and the Todo list must all show those same active Needs Review items and amounts. Do not write `Unreconciled - Needs Review | 0.00 | Reconciled successfully` while unresolved owner-review merchants remain active elsewhere; instead write an explicit `Owner review pending` row with the unresolved amount and merchant names.
 
 ## Evidence Confidence
 

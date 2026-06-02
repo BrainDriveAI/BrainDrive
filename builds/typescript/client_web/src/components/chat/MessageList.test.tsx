@@ -56,6 +56,36 @@ describe("MessageList scroll behavior", () => {
     expect(screen.queryByText(/me\/todo/)).not.toBeInTheDocument();
   });
 
+  it("compacts acknowledged multi-file upload receipts in the chat history", () => {
+    render(
+      <MessageList
+        messages={[
+          {
+            id: "u-1",
+            role: "user",
+            content: [
+              "Uploaded 7 statements:",
+              "- Cedar Atlantic checking statement (April 2026 · Budget statements)",
+              "- Northbridge Rewards Visa statement (April 2026 · Budget statements)",
+              "- Summit Trail Everyday Mastercard statement (April 2026 · Budget statements)",
+              "- Harborline Roth IRA statement (April 2026 · Budget statements)",
+            ].join("\n"),
+          },
+          {
+            id: "a-1",
+            role: "assistant",
+            content: "I received the statements and can build the saved Budget next.",
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByText("7 statements uploaded. Details collapsed after BrainDrive acknowledged them.")).toBeVisible();
+    expect(screen.getByText(/I received the statements/)).toBeVisible();
+    expect(screen.getByText(/Cedar Atlantic checking statement/)).not.toBeVisible();
+    expect(screen.getByText(/Northbridge Rewards Visa statement/)).not.toBeVisible();
+  });
+
   it("hides internal finance artifact filenames in owner-visible assistant messages", () => {
     render(
       <MessageList

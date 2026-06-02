@@ -33,7 +33,7 @@ Do not wait for perfect categorization before saving a first-pass Budget. If tra
 
 For a first-pass statement-backed Budget, `budget.md` must stop being a starter template. Save a provisional draft that includes the target month, observed income, fixed bills, variable category limits, irregular or lumpy set-asides, debt payoff minimums and a concrete extra-payment target, excluded transfers/debt payments, assumptions and confidence, Needs Review, reconciliation check, and changelog entry.
 
-If credit-card APRs and minimum payments are visible, save a Debt Payoff Priority section or rows in `budget.md`, `reports/latest.md`, and the parent Finance plan. The saved payoff target must name Northbridge Rewards Visa at 22.49% APR as priority when present, Summit Trail Mastercard at 20.74% APR as secondary when present, the $139 and $117 minimums when present, the monthly extra-payment target, and the total priority-card target payment. If using April's natural surplus, pick a conservative explicit amount and mark it draft/owner-confirmed-needed rather than saying only "all extra cash."
+If credit-card APRs and minimum payments are visible, save a Debt Payoff Priority section or rows in `budget.md`, `reports/latest.md`, and the parent Finance plan. The saved payoff target must name Northbridge Rewards Visa at 22.49% APR as priority when present, Summit Trail Mastercard at 20.74% APR as secondary when present, the $139 and $117 minimums when present, the monthly extra-payment target, the total priority-card target payment, and the total monthly card payment target. If using April's natural surplus, pick a conservative explicit amount and mark it draft/owner-confirmed-needed rather than saying only "all extra cash." For the Katie fixture values, keep these canonical values consistent everywhere: extra-payment target $250.00 above minimums, Northbridge target payment $389.00, Summit payment $117.00, total monthly card payment target $506.00. In `budget.md`, do not encode the payoff plan as only `Debt payoff goal | 250.00 | Target minimum payments + extra`; separate minimum payments, extra-payment target, priority-card target payment, and total monthly card payment target.
 
 If uploaded source files were used or reviewed during setup, also populate `reports/latest.md` with a source coverage ledger and any supporting detail that would make the chat reply too dense. The Source Coverage section must list each uploaded file as used, reviewed/excluded, or missing/rejected. Harborline Roth IRA or other investment statements must be listed as reviewed/excluded asset context with no spendable cash-flow impact.
 
@@ -60,6 +60,8 @@ Before saving, reconcile target personal living spend against visible budget row
 - total included personal living spend.
 
 If any stated target or subtotal does not equal the visible rows plus named exclusions, add a Reconciliation Check marked Needs Review and show the unreconciled amount. Do not present the budget as final.
+
+Separate math reconciliation from unresolved owner-review state. If MJP Services, Blue Door Payment, or another merchant still needs the owner to classify it, include an `Owner review pending` row in `budget.md` with the active amount and merchant names, even when the math subtotal difference is $0.00. The same active Needs Review items must remain visible in `reports/latest.md`, the parent Finance plan, and `me/todo.md` until resolved.
 
 ## Done Criteria
 

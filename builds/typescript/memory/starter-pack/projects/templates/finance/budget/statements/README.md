@@ -15,3 +15,5 @@ For budget setup, maintain a received/missing checklist based on statement metad
 - Needs clarification: uploaded statements whose period or account cannot be identified.
 
 After a statement batch is accepted, update parent Finance state so already-uploaded statements are not still listed as missing or active Todo work. Use owner-facing labels in the chat receipt; keep exact paths here for source evidence only.
+
+Post-upload chat must stay in receipt phase. Confirm the batch count and source types, state that the files are ready for Budget analysis, and ask one next-action question. Do not present statement-derived balances, APRs, interest charges, income calculations, category totals, rent math, Needs Review merchants, or payoff recommendations until the owner asks for the Budget plan, comparison, or report.

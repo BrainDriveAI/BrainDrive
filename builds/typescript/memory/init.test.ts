@@ -26,6 +26,10 @@ describe("memory init project scaffolding", () => {
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "AGENT.md"), "utf8"))
         .resolves.toContain("concrete monthly extra-payment target");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "AGENT.md"), "utf8"))
+        .resolves.toContain("Post-upload receipt contract");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "AGENT.md"), "utf8"))
+        .resolves.toContain("Owner review pending");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "AGENT.md"), "utf8"))
         .resolves.toContain("Partial Classification Rule");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "AGENT.md"), "utf8"))
         .resolves.toContain("Every uploaded file must be represented in the final Budget source coverage.");
@@ -33,6 +37,8 @@ describe("memory init project scaffolding", () => {
         .resolves.toContain("## Assumptions And Confidence");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "budget.md"), "utf8"))
         .resolves.toContain("## Reconciliation Check");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "budget.md"), "utf8"))
+        .resolves.toContain("## Debt Payoff Priority");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "budget-rules.md"), "utf8"))
         .resolves.toContain("# Budget Rules");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "reports", "latest.md"), "utf8"))
@@ -51,6 +57,8 @@ describe("memory init project scaffolding", () => {
         .resolves.toContain("no more than 5 visible dollar amounts");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "statements", "README.md"), "utf8"))
         .resolves.toContain("# Budget Statements");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "statements", "README.md"), "utf8"))
+        .resolves.toContain("Post-upload chat must stay in receipt phase");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "reports", "README.md"), "utf8"))
         .resolves.toContain("# Budget Reports");
       await expect(readFile(path.join(memoryRoot, "documents", "fitness", "health-docs", "index.md"), "utf8"))

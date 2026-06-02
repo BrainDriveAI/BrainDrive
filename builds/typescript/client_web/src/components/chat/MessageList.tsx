@@ -80,7 +80,7 @@ export default function MessageList({
       }}
     >
       <div className="mx-auto flex w-full max-w-[780px] flex-col gap-4">
-        {messages.map((message) => {
+        {messages.map((message, index) => {
           if (message.role === "assistant") {
             return (
               <article key={message.id} className="py-4">
@@ -91,12 +91,26 @@ export default function MessageList({
             );
           }
 
+          const hasLaterAssistantReply = messages.slice(index + 1).some((candidate) => candidate.role === "assistant");
+          const compactReceipt = hasLaterAssistantReply
+            ? compactAcknowledgedUploadReceipt(message.content)
+            : null;
+
           return (
             <article key={message.id} className="py-4">
               <div className="flex justify-end">
                 <div className="ml-auto w-fit max-w-[80%] rounded-[24px] bg-bd-bg-tertiary px-5 py-4 text-right">
                   <div className="whitespace-pre-wrap text-[15px] leading-7 text-bd-text-primary">
-                    {message.content}
+                    {compactReceipt ? (
+                      <details>
+                        <summary className="cursor-pointer list-none">{compactReceipt.summary}</summary>
+                        <div className="mt-3 text-left text-[13px] leading-6 text-bd-text-secondary">
+                          {message.content}
+                        </div>
+                      </details>
+                    ) : (
+                      message.content
+                    )}
                   </div>
                 </div>
               </div>
@@ -123,4 +137,21 @@ export default function MessageList({
       )}
     </div>
   );
+}
+
+function compactAcknowledgedUploadReceipt(content: string): { summary: string } | null {
+  const match = content.match(/^Uploaded\s+(\d+)\s+statements?:\s*$/im);
+  if (!match) {
+    return null;
+  }
+
+  const failedMatch = content.match(/(?:^|\n)(\d+)\s+(?:file|files)\s+did not upload:/i);
+  const count = Number(match[1]);
+  if (!Number.isFinite(count) || count <= 0 || failedMatch) {
+    return null;
+  }
+
+  return {
+    summary: `${count} statement${count === 1 ? "" : "s"} uploaded. Details collapsed after BrainDrive acknowledged them.`,
+  };
 }
