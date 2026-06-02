@@ -662,7 +662,7 @@ export default function ChatPanel({
     failures: UploadFailure[]
   ): string {
     const lines: string[] = [];
-    const trimmed = message.trim();
+    const trimmed = ownerVisibleUploadMessage(message);
     if (trimmed.length > 0) {
       lines.push(trimmed, "");
     }
@@ -695,10 +695,21 @@ export default function ChatPanel({
     if (failures.length === 0 && successes.length > 0) {
       lines.push(
         "",
-        `I received ${successes.length === 1 ? "this statement" : `all ${successes.length} statements`}. Acknowledge the upload in a short receipt only: 3-5 bullets maximum, no full category ledger, no full APR/payment table, and one next-action question at most. Save detailed statement analysis for the saved Budget and latest Budget report, or wait until I explicitly ask for the first-pass Budget.`
+        `I received ${successes.length === 1 ? "this statement" : `all ${successes.length} statements`}.`
       );
     }
     return lines.join("\n");
+  }
+
+  function ownerVisibleUploadMessage(value: string): string {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return "";
+    }
+    return trimmed
+      .replace(/\bAcknowledge the upload in a short receipt only:[\s\S]*?(?:first-pass Budget\.|$)/gi, "")
+      .replace(/\bSave detailed statement analysis[\s\S]*?(?:first-pass Budget\.|$)/gi, "")
+      .trim();
   }
 
   async function uploadProjectFiles(message: string, files: File[]) {

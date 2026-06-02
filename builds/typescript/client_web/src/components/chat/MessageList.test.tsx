@@ -201,4 +201,34 @@ describe("MessageList scroll behavior", () => {
     expect(rendered).not.toMatch(/Budget Limit \/ Spent|:---|Fixed Obligations \|/);
     expect(rendered).not.toContain("**");
   });
+
+  it("normalizes upload receipts and APR labels that leaked raw markdown markers", () => {
+    render(
+      <MessageList
+        messages={[
+          {
+            id: "a-1",
+            role: "assistant",
+            content: [
+              "Uploaded 7 statements:",
+              "- Cedar Atlantic checking statement (April 2026 · Budget statements)**",
+              "- Summit Trail Everyday Mastercard statement (April 2026 · Budget statements)**",
+              "APR:** 20.74%** | Minimum Payment:** $117.00**",
+              "### Core Numbers*",
+              "tasks:* review payment timing",
+            ].join("\n"),
+          },
+        ]}
+      />
+    );
+
+    const rendered = document.body.textContent ?? "";
+    expect(rendered).toContain("Cedar Atlantic checking statement (April 2026 · Budget statements)");
+    expect(rendered).toContain("Summit Trail Everyday Mastercard statement (April 2026 · Budget statements)");
+    expect(rendered).toContain("APR: 20.74%");
+    expect(rendered).toContain("Minimum payment: $117.00");
+    expect(rendered).toContain("Core Numbers");
+    expect(rendered).toContain("tasks: review payment timing");
+    expect(rendered).not.toMatch(/\*\*|###|tasks:\*/);
+  });
 });
