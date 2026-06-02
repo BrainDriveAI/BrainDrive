@@ -967,7 +967,7 @@ function extractActiveReviewItems(content: string): FinanceBudgetReviewItem[] {
   const reviewText = reviewRelatedText(content);
   const items: FinanceBudgetReviewItem[] = [];
   const patterns = [
-    /\b([A-Z][A-Za-z0-9&' .-]*?(?:Services|Payment|Pay|Group|LLC|Clinic|Market|Shop|Store|Door|Square))\s*\(\$?(\d+(?:\.\d{2})?)\)/g,
+    /\b([A-Z][A-Za-z0-9&' .-]*?(?:Services|Payment|Pay|Group|LLC|Clinic|Market|Shop|Store|Square))\s*\(\$?(\d+(?:\.\d{2})?)\)/g,
     /\|\s*(?:\d{4}-\d{2}-\d{2}\s*\|\s*)?([A-Z][^|\n]*?)\s*\|\s*(\d+(?:\.\d{2})?)\s*\|/g,
   ];
 
@@ -987,24 +987,30 @@ function extractActiveReviewItems(content: string): FinanceBudgetReviewItem[] {
 function extractActiveTodoReviewItems(content: string): FinanceBudgetReviewItem[] {
   return content
     .split(/\r?\n/)
-    .filter((line) => /^-\s*\[\s\]/.test(line) && /\b(?:Clarify|Review|Identify)\b/i.test(line))
+    .filter((line) => /^-\s*\[\s\]/.test(line) && /\b(?:Clarify|Review|Identify|Research)\b/i.test(line))
     .flatMap((line) => extractReviewItemsFromLine(line));
 }
 
 function extractResolvedTodoReviewItems(content: string): FinanceBudgetReviewItem[] {
   return content
     .split(/\r?\n/)
-    .filter((line) => /^-\s*\[x\]/i.test(line) && /\b(?:Clarify|Review|Identify)\b/i.test(line))
+    .filter((line) => /^-\s*\[x\]/i.test(line) && /\b(?:Clarify|Review|Identify|Research)\b/i.test(line))
     .flatMap((line) => extractReviewItemsFromLine(line));
 }
 
 function extractReviewItemsFromLine(line: string): FinanceBudgetReviewItem[] {
   const items: FinanceBudgetReviewItem[] = [];
-  for (const match of line.matchAll(/\b([A-Z][A-Za-z0-9&' .-]*?(?:Services|Payment|Pay|Group|LLC|Clinic|Market|Shop|Store|Door|Square))\s*\(\$?(\d+(?:\.\d{2})?)\)/g)) {
-    const merchant = normalizeReviewMerchant(match[1] ?? "");
-    const amount = match[2] ?? "";
-    if (merchant && amount) {
-      items.push({ merchant, amount });
+  const patterns = [
+    /\b([A-Z][A-Za-z0-9&' .-]*?(?:Services|Payment|Pay|Group|LLC|Clinic|Market|Shop|Store|Square))\s*\(\$?(\d+(?:\.\d{2})?)\)/g,
+    /\b([A-Z][A-Za-z0-9&' .-]*?(?:Services|Payment|Pay|Group|LLC|Clinic|Market|Shop|Store|Square))\b[^()\n]{0,80}\(\$?(\d+(?:\.\d{2})?)\)/g,
+  ];
+  for (const pattern of patterns) {
+    for (const match of line.matchAll(pattern)) {
+      const merchant = normalizeReviewMerchant(match[1] ?? "");
+      const amount = match[2] ?? "";
+      if (merchant && amount) {
+        items.push({ merchant, amount });
+      }
     }
   }
   return items;
@@ -1036,7 +1042,7 @@ function reviewRelatedText(content: string): string {
 function normalizeReviewMerchant(value: string): string {
   const normalized = value
     .replace(/^[-*\s]+/, "")
-    .replace(/^(?:Clarify|Review|Identify)\s+(?:if|what|whether|the)?\s*/i, "")
+    .replace(/^(?:Clarify|Review|Identify|Research)\s+(?:if|what|whether|the)?\s*/i, "")
     .replace(/^the\s+/i, "")
     .replace(/\s+/g, " ")
     .replace(/\b(?:for unclassified|Total for unclassified|Unknown payee|debit on)\b.*$/i, "")
@@ -1045,6 +1051,10 @@ function normalizeReviewMerchant(value: string): string {
     return "";
   }
   return normalized;
+}
+
+function hasStaleReviewLanguage(line: string): boolean {
+  return /\b(?:clarify|unclassified|needs review|mystery|ambiguous)\b/i.test(line);
 }
 
 function reviewStateIssues(
@@ -1074,7 +1084,7 @@ function reviewStateIssues(
       .split(/\r?\n/)
       .some((line) =>
         new RegExp(escapeRegExp(item.merchant), "i").test(line) &&
-        /\b(?:clarify|unclassified|needs review)\b/i.test(line) &&
+        hasStaleReviewLanguage(line) &&
         !/\bresolved review items?\b/i.test(line)
       );
     if (staleLine) {
@@ -1119,7 +1129,26 @@ function repairFinancePlanReviewState(
     repaired = repaired.replace(new RegExp(`\\s*\\([^)]*${escapeRegExp(item.merchant)}[^)]*\\)`, "gi"), "");
   }
 
+  repaired = removeResolvedReviewStaleLines(repaired, resolvedItems);
+
   return repaired.replace(/\n*$/, "\n");
+}
+
+function removeResolvedReviewStaleLines(content: string, resolvedItems: FinanceBudgetReviewItem[]): string {
+  if (resolvedItems.length === 0) {
+    return content;
+  }
+
+  const lines = content.split(/\r?\n/);
+  const filtered = lines.filter((line) => {
+    if (/\bresolved review items?\b/i.test(line)) {
+      return true;
+    }
+    return !resolvedItems.some((item) =>
+      new RegExp(escapeRegExp(item.merchant), "i").test(line) && hasStaleReviewLanguage(line)
+    );
+  });
+  return filtered.join("\n");
 }
 
 function formatReviewItems(items: FinanceBudgetReviewItem[]): string {

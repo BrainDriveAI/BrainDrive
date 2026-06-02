@@ -36,6 +36,39 @@ describe("Finance Budget review-state reconciliation", () => {
       await rm(memoryRoot, { recursive: true, force: true });
     }
   });
+
+  it("removes stale mystery and ambiguous-merchant plan language after all review merchants are resolved", async () => {
+    const memoryRoot = await mkdtemp(path.join(os.tmpdir(), "finance-budget-review-state-resolved-"));
+
+    try {
+      await writeAllResolvedSeedMemory(memoryRoot);
+
+      const invalid = await reconcileFinanceBudgetReviewState(memoryRoot);
+      expect(invalid.status).toBe("invalid");
+      expect(invalid.active_review_items).toEqual([]);
+      expect(invalid.issues.map((issue) => issue.message).join("\n")).toContain(
+        "Resolved review item MJP Services still appears as unresolved in the Finance plan."
+      );
+      expect(invalid.issues.map((issue) => issue.message).join("\n")).toContain(
+        "Resolved review item Blue Door Payment still appears as unresolved in the Finance plan."
+      );
+
+      const repaired = await reconcileFinanceBudgetReviewState(memoryRoot, { repair: true });
+      expect(repaired.status).toBe("repaired");
+      expect(repaired.issues).toEqual([]);
+      expect(repaired.files_changed).toEqual(["documents/finance/plan.md"]);
+
+      const plan = await readFile(path.join(memoryRoot, "documents", "finance", "plan.md"), "utf8");
+      expect(plan).toContain("no active merchant clarification remains");
+      expect(plan).toContain("Resolved review items: MJP Services ($184.00), Blue Door Payment ($67.50).");
+      expect(plan).not.toMatch(/Clarify the mystery transactions/i);
+      expect(plan).not.toMatch(/Understanding Ambiguous Merchants/i);
+      expect(plan).not.toMatch(/MJP Services.*(?:clarify|mystery|ambiguous|needs review)/i);
+      expect(plan).not.toMatch(/Blue Door Payment.*(?:clarify|mystery|ambiguous|needs review)/i);
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
 });
 
 async function writeSeedMemory(memoryRoot: string): Promise<void> {
@@ -99,6 +132,87 @@ async function writeSeedMemory(memoryRoot: string): Promise<void> {
       "## Completed",
       "",
       "- [x] Clarify if MJP Services ($184.00) is a regular medical/therapy bill or another category #finance",
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+}
+
+async function writeAllResolvedSeedMemory(memoryRoot: string): Promise<void> {
+  await mkdir(path.join(memoryRoot, "documents", "finance", "budget", "reports"), { recursive: true });
+  await mkdir(path.join(memoryRoot, "me"), { recursive: true });
+
+  await writeFile(
+    path.join(memoryRoot, "documents", "finance", "budget", "budget.md"),
+    [
+      "# Budget",
+      "",
+      "## Reconciliation Check",
+      "",
+      "| Line | Amount | Notes |",
+      "|---|---:|---|",
+      "| Unreconciled - Needs Review | 0.00 | All rows reconcile to budget sums |",
+      "| Owner review pending | 0.00 | All items resolved. |",
+      "",
+      "## Changelog",
+      "",
+      "- Incorporated owner classifications: MJP Services ($184.00) under Health and Blue Door Payment ($67.50) under Shopping.",
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+  await writeFile(
+    path.join(memoryRoot, "documents", "finance", "budget", "reports", "latest.md"),
+    [
+      "# Latest Budget Report",
+      "",
+      "## Summary",
+      "",
+      "- Items needing owner review: None.",
+      "",
+      "## Needs Review",
+      "",
+      "*No transactions currently need review.*",
+      "",
+      "| Date | Description | Amount | Reason |",
+      "|---|---|---:|---|",
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+  await writeFile(
+    path.join(memoryRoot, "documents", "finance", "plan.md"),
+    [
+      "# Finance Plan",
+      "",
+      "## Right Now - Your First Step",
+      "",
+      "- **Clarify the mystery transactions:** Identify what \"MJP Services\" ($184.00) and \"Blue Door Payment\" ($67.50) represent to complete the category baseline.",
+      "",
+      "## The Roadmap",
+      "",
+      "- **Understanding Ambiguous Merchants:** Solving the mystery of MJP Services and Blue Door Payment.",
+      "",
+      "## What Needs More Work",
+      "",
+      "- **Understanding Ambiguous Merchants:** Solving the mystery of MJP Services and Blue Door Payment.",
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+  await writeFile(
+    path.join(memoryRoot, "me", "todo.md"),
+    [
+      "# My Todos",
+      "",
+      "## Active",
+      "",
+      "- [ ] Clarify recurring nature of April auto/vet costs #finance",
+      "",
+      "## Completed",
+      "",
+      "- [x] Research MJP Services merchant details ($184.00) #finance",
+      "- [x] Research Blue Door Payment merchant details ($67.50) #finance",
       "",
     ].join("\n"),
     "utf8"

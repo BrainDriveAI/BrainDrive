@@ -75,7 +75,7 @@ Never include internal verification diagnostics such as `Save status`, `Not save
 
 If this comparison resolves a Needs Review item such as MJP Services or Blue Door Payment, read `me/todo.md` and close, complete, or remove any active clarification Todo for that same merchant/amount before saying all review items are resolved. If Todo cleanup cannot be verified, say the report is updated but the Todo list may still need cleanup.
 
-After any Needs Review item is resolved or remains active, call `project_budget_reconcile_review_state` with `repair: true` and read the parent Finance plan back. The Finance plan must list only the active remaining merchant and amount, not stale generic language.
+After any Needs Review item is resolved or remains active, call `project_budget_reconcile_review_state` with `repair: true` and read the parent Finance plan back. The Finance plan must list only the active remaining merchant and amount, not stale generic language. When all merchant review items are resolved, the Finance plan must not keep active-work phrases such as `mystery transactions` or `ambiguous merchants` for those resolved merchants; use the actual remaining open decision instead, such as clarifying whether April auto/vet costs are recurring.
 
 If the owner provides one merchant-category mapping in a cut-off message, save the resolved item immediately and leave only the still-unknown item in Needs Review. "MJP Services is my therapist" is enough to classify MJP Services as Health/Therapy even if the next sentence is incomplete.
 
