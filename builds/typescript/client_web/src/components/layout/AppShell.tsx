@@ -243,6 +243,15 @@ export default function AppShell({
     setActiveFile(file);
   }
 
+  function handleOpenProjectFile(filePath: string) {
+    const knownFile = projectFiles.find((file) => file.path === filePath);
+    setActiveFile(knownFile ?? {
+      name: filePath.split("/").pop() ?? filePath,
+      path: filePath,
+    });
+    setIsMobileSidebarOpen(false);
+  }
+
   function handleReturnToChat() {
     setActiveFile(null);
   }
@@ -484,6 +493,7 @@ export default function AppShell({
               contentOverride={documentContent}
               onSendMessage={handleReturnToChat}
               onUploadDocument={handleUploadDocument}
+              onOpenProjectFile={handleOpenProjectFile}
               onOpenSettings={() => setIsSettingsOpen(true)}
             />
           )}

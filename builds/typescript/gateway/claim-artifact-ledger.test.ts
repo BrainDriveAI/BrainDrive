@@ -16,6 +16,19 @@ describe("claim-to-artifact ledger", () => {
     ]);
   });
 
+  it("does not extract positive claims from negative save status lines", () => {
+    const claims = extractAssistantClaims(
+      [
+        "Save status:",
+        "- Not saved yet: Todo updates. I could not verify that the Todo list changed in this turn.",
+        "- Not saved yet: saved Budget update. I could not verify a Budget file change in this turn.",
+        "- Not saved yet: latest Budget report update. I could not verify a report file change in this turn.",
+      ].join("\n")
+    );
+
+    expect(claims).toEqual([]);
+  });
+
   it("marks a promised todo update missing when me/todo.md did not change", () => {
     const ledger = buildClaimToArtifactLedger({
       assistantText: "I've updated your active Todo list with set up autopay.",

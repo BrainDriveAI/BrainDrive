@@ -15,12 +15,13 @@ Produce an evidence-backed comparison report showing actual spending, budget var
 - The owner asks how they did this month.
 - The owner asks for over/under, spending, statement, or saved-budget comparison work.
 - The owner asks to leave the saved budget alone while comparing actuals.
+- The owner asks a practical-budget comparison follow-up during setup, such as whether April/May spending is over or under, what actual spending looked like against a practical budget, or which transactions remain unclear.
 
 ## Method
 
 Read `budget.md`, `budget-rules.md`, `budget-rules-user.md` if present, `statements/README.md`, and relevant statements. Build a source evidence ledger before writing the report.
 
-Write `reports/latest.md` by default. Write `reports/monthly-YYYY-MM.md` only after the reported month is closed.
+Write `reports/latest.md` by default. Write `reports/monthly-YYYY-MM.md` only after the reported month is closed. Do not answer a comparison request only in chat; the saved latest Budget report is the durable comparison artifact and must be populated before the final comparison reply.
 
 Do not claim every transaction was mapped unless the Source Evidence Ledger accounts for every transaction in the relevant source statements. If the ledger is selective, say it is selective and limit claims to the rows reviewed.
 
@@ -35,6 +36,10 @@ Before finalizing, run these reconciliation checks:
 - Any owner-named item found in source evidence appears in the audit and a final treatment section.
 
 If any check fails, mark the report Needs Review, show the exact unreconciled amount, and do not present the result as final or fully trustworthy.
+
+## Required `reports/latest.md` Content
+
+A blank starter `reports/latest.md` is an invalid comparison result. Before replying that a comparison is complete, read the report back and confirm it has non-empty values for Month, Generated, Source statements, Summary totals, at least one Source Evidence Ledger row, at least one Category Breakdown row, Needs Review treatment when unclear items remain, and Reconciliation Check statuses.
 
 ## Done Criteria
 

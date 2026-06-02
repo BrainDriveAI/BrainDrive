@@ -86,6 +86,9 @@ export function extractAssistantClaims(assistantText: string): AssistantClaim[] 
   for (const definition of CLAIM_PATTERNS) {
     for (const match of assistantText.matchAll(definition.pattern)) {
       const sourceText = match[0].trim();
+      if (isNegativeSaveStatusClaim(assistantText, match.index ?? 0, sourceText)) {
+        continue;
+      }
       claims.push({
         type: definition.type,
         sourceText,
@@ -95,6 +98,15 @@ export function extractAssistantClaims(assistantText: string): AssistantClaim[] 
     }
   }
   return claims;
+}
+
+function isNegativeSaveStatusClaim(assistantText: string, matchIndex: number, sourceText: string): boolean {
+  const lookback = assistantText.slice(Math.max(0, matchIndex - 80), matchIndex);
+  const context = `${lookback} ${sourceText}`.toLowerCase();
+  return /\bnot saved yet\b/.test(context) ||
+    /\bcould not verify\b/.test(context) ||
+    /\bnot verified\b/.test(context) ||
+    /\bmay still need\b/.test(context);
 }
 
 function findObservedArtifacts(claim: AssistantClaim, observedArtifacts: ObservedArtifact[]): ObservedArtifact[] {

@@ -63,6 +63,23 @@ function contextOverflowRecoveryMessage(projectId?: string | null, appPath?: str
   ].join("\n");
 }
 
+function shouldShowBudgetFileActions(input: {
+  messages: Message[];
+  activeProjectId?: string | null;
+  activeAppPath?: string | null;
+  canOpenProjectFile: boolean;
+}): boolean {
+  if (!input.canOpenProjectFile || !isBudgetApp(input.activeProjectId, input.activeAppPath)) {
+    return false;
+  }
+
+  const latestAssistantText = [...input.messages]
+    .reverse()
+    .find((message) => message.role === "assistant")?.content ?? "";
+
+  return /\b(?:saved Budget|latest Budget report|Budget report|budget comparison|reports? updated)\b/i.test(latestAssistantText);
+}
+
 type ChatPanelProps = {
   activeConversationId: string | null;
   activeProjectId?: string | null;
@@ -74,6 +91,7 @@ type ChatPanelProps = {
   contentOverride?: ReactNode;
   onSendMessage?: () => void;
   onUploadDocument?: (file: File) => Promise<ProjectFile | void>;
+  onOpenProjectFile?: (filePath: string) => void;
   onOpenSettings?: () => void;
 };
 
@@ -273,6 +291,41 @@ function UploadActivityList({
   );
 }
 
+function BudgetFileActions({ onOpenProjectFile }: { onOpenProjectFile?: (filePath: string) => void }) {
+  return (
+    <div className="mx-auto w-full max-w-[780px] py-2">
+      <div className="rounded-lg border border-bd-border bg-bd-bg-secondary px-4 py-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-bd-text-heading">Budget files are ready to review</div>
+            <div className="mt-1 text-xs leading-5 text-bd-text-secondary">
+              Open the saved Budget or latest Budget report from here.
+            </div>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => onOpenProjectFile?.("documents/finance/budget/budget.md")}
+              className="inline-flex items-center gap-2 rounded-md border border-bd-border px-3 py-2 text-xs font-medium text-bd-text-primary transition-colors hover:bg-bd-bg-hover"
+            >
+              <FileText size={14} strokeWidth={1.7} />
+              Open Budget
+            </button>
+            <button
+              type="button"
+              onClick={() => onOpenProjectFile?.("documents/finance/budget/reports/latest.md")}
+              className="inline-flex items-center gap-2 rounded-md bg-bd-amber px-3 py-2 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover"
+            >
+              <FileText size={14} strokeWidth={1.7} />
+              Open Latest Report
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ChatPanel({
   activeConversationId,
   activeProjectId,
@@ -284,6 +337,7 @@ export default function ChatPanel({
   contentOverride,
   onSendMessage,
   onUploadDocument,
+  onOpenProjectFile,
   onOpenSettings
 }: ChatPanelProps) {
   const [attachments, setAttachments] = useState<AttachedFile[]>([]);
@@ -425,6 +479,12 @@ export default function ChatPanel({
   const lastUserMessage = [...messages].reverse().find((message) => message.role === "user") ?? null;
   const shouldShowEmptyState = isEmpty && messages.length === 0 && !isLoading;
   const shouldShowConversation = contentOverride === undefined;
+  const showBudgetFileActions = shouldShowBudgetFileActions({
+    messages,
+    activeProjectId,
+    activeAppPath,
+    canOpenProjectFile: Boolean(onOpenProjectFile),
+  });
 
   function resetErrorPresentation() {
     setHistoryError(null);
@@ -963,6 +1023,9 @@ export default function ChatPanel({
                 onRetry={retryUpload}
                 onToggleDetails={toggleUploadActivityDetails}
               />
+              {showBudgetFileActions && (
+                <BudgetFileActions onOpenProjectFile={onOpenProjectFile} />
+              )}
               {contextWindowWarning && !visibleChatError && (
                 <div className="mx-auto w-full max-w-[780px] py-2">
                   <div className="rounded-xl border border-bd-amber/40 bg-bd-amber/10 px-4 py-3 text-sm text-bd-text-primary">
