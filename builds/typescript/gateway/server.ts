@@ -3347,10 +3347,7 @@ export function buildDurableClaimSafeResponse(
   }
 
   const unsupportedTypes = [...new Set(unsupportedClaims.map((entry) => entry.claim.type))];
-  const text = appendDurableSaveStatus(
-    removeUnsupportedClaimSentences(assistantText, unsupportedClaims.map((entry) => entry.claim.sourceText)),
-    unsupportedTypes
-  );
+  const text = removeUnsupportedClaimSentences(assistantText, unsupportedClaims.map((entry) => entry.claim.sourceText));
 
   return {
     text,
@@ -3364,38 +3361,6 @@ function isHighRiskDurableClaim(type: string): boolean {
     type === "budget_updated" ||
     type === "report_updated" ||
     type === "category_mapped";
-}
-
-function durableClaimLabel(type: string): string {
-  if (type === "todo_updated") {
-    return "the Todo list";
-  }
-  if (type === "budget_updated") {
-    return "the saved Budget";
-  }
-  if (type === "report_updated") {
-    return "the latest Budget report";
-  }
-  if (type === "category_mapped") {
-    return "the category mapping";
-  }
-  return "the durable artifact";
-}
-
-function durableClaimRecoveryText(type: string): string {
-  if (type === "todo_updated") {
-    return "Not saved yet: Todo updates. I could not verify that the Todo list changed in this turn.";
-  }
-  if (type === "budget_updated") {
-    return "Not saved yet: saved Budget update. I could not verify a Budget file change in this turn.";
-  }
-  if (type === "report_updated") {
-    return "Not saved yet: latest Budget report update. I could not verify a report file change in this turn.";
-  }
-  if (type === "category_mapped") {
-    return "Not saved yet: category mapping. I could not verify that the category mapping changed in this turn.";
-  }
-  return `Not saved yet: ${durableClaimLabel(type)}. I could not verify the save in this turn.`;
 }
 
 function removeUnsupportedClaimSentences(text: string, sourceTexts: string[]): string {
@@ -3415,12 +3380,6 @@ function removeUnsupportedClaimSentences(text: string, sourceTexts: string[]): s
     .replace(/\bI have immediately\s+(?=I recommend\b)/gi, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-}
-
-function appendDurableSaveStatus(text: string, unsupportedTypes: string[]): string {
-  const lines = unsupportedTypes.map((type) => `- ${durableClaimRecoveryText(type)}`);
-  const block = ["Save status:", ...lines].join("\n");
-  return [text.trim(), block].filter((part) => part.length > 0).join("\n\n");
 }
 
 function observedArtifactFromToolResult(output: unknown): ObservedArtifact | null {

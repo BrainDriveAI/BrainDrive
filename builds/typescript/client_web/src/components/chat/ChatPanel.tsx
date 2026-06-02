@@ -73,11 +73,12 @@ function shouldShowBudgetFileActions(input: {
     return false;
   }
 
-  const latestAssistantText = [...input.messages]
-    .reverse()
-    .find((message) => message.role === "assistant")?.content ?? "";
+  const assistantText = input.messages
+    .filter((message) => message.role === "assistant")
+    .map((message) => message.content)
+    .join("\n");
 
-  return /\b(?:saved Budget|latest Budget report|Budget report|budget comparison|reports? updated)\b/i.test(latestAssistantText);
+  return /\b(?:saved Budget|latest Budget report|Budget report|budget comparison|reports? updated|first-pass Budget|draft actuals baseline|Needs Review)\b/i.test(assistantText);
 }
 
 type ChatPanelProps = {

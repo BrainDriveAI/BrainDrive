@@ -49,9 +49,19 @@ The report includes Summary, Source Evidence Ledger, Owner-Requested Items Audit
 
 Report what changed using owner-facing labels, update reports, summarize material parent-level changes briefly in spec or plan only when needed, add todos only for concrete next actions, and return to Finance scope. If statement uploads were accepted during this run, update Finance spec, Finance plan, and Todo list so completed statement gathering is not still active.
 
-Keep the chat reply scan-friendly. Use bullets for the owner-facing summary and keep detailed variance tables in the saved report artifact unless the owner explicitly asks to see a table in chat. Do not send malformed markdown, dangling emphasis markers, or concatenated category words.
+Separate completion state from follow-up state in the final reply:
+
+- Created or updated artifacts.
+- Open owner decisions or assumptions.
+- Active Todo items that still remain.
+
+Keep the chat reply scan-friendly. Use bullets for the owner-facing summary and keep detailed variance tables in the saved report artifact unless the owner explicitly asks to see a table in chat. Do not send malformed markdown, dangling emphasis markers, repeated emphasis markers, concatenated category words, jammed amounts, or adjacent merchant names without line breaks.
+
+End the response with a clear product-facing review affordance sentence, for example: "The latest Budget report is ready to review, with unresolved items still marked Needs Review." Do not use raw file paths in that sentence.
 
 If the final response says Todo list tasks were added or updated, verify that `me/todo.md` changed and contains those tasks before sending the response. If the todo write cannot be verified, list the recommended next actions without saying they were saved.
+
+Never include internal verification diagnostics such as `Save status`, `Not saved yet`, or `could not verify` in owner-facing replies. If a Todo or artifact write was not verified, omit the save claim and state the recommended next action instead.
 
 If this comparison resolves a Needs Review item such as MJP Services or Blue Door Payment, read `me/todo.md` and close, complete, or remove any active clarification Todo for that same merchant/amount before saying all review items are resolved. If Todo cleanup cannot be verified, say the report is updated but the Todo list may still need cleanup.
 

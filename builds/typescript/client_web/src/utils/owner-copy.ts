@@ -2,6 +2,9 @@ import { replaceOwnerVisibleMemoryPaths } from "./owner-labels";
 
 const FINANCE_CONFIDENCE_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\bperfect data\b/gi, "the available data"],
+  [/\bperfectly clear\b/gi, "clear enough to review"],
+  [/\bmatches to the penny\b/gi, "matches the visible statement rows"],
+  [/\breconciles perfectly\b/gi, "reconciles to the current statement rows, with review items still called out"],
   [/\bperfectly reflect(?:s|ed)?\b/gi, "reflect"],
   [/\bfully accounted for\b/gi, "accounted for in this draft"],
   [/\bcompletely reconciled\b/gi, "reconciled based on the visible rows"],
@@ -11,6 +14,9 @@ const FINANCE_CONFIDENCE_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\bupdated everything behind the scenes\b/gi, "updated the relevant saved Budget materials"],
   [/\bbehind the scenes\b/gi, "in your saved Budget materials"],
   [/\bdebt-crushing fuel\b/gi, "extra debt-payment capacity"],
+  [/\bweaponize that surplus\b/gi, "use that surplus"],
+  [/\bmonster in the dark\b/gi, "unclear debt picture"],
+  [/\bominous indicator\b/gi, "Interest cost to monitor"],
   [/\bthe stress is officially a math problem now\b/gi, "the next step is to verify the numbers and choose the payment plan"],
   [/\bover half of your minimum payments disappear into thin air\b/gi, "more than half of your minimum payments went to interest this month"],
   [/\bsiphon of interest charges\b/gi, "interest charges"],
@@ -24,5 +30,26 @@ export function polishOwnerVisibleAssistantCopy(text: string): string {
   for (const [pattern, replacement] of FINANCE_CONFIDENCE_REPLACEMENTS) {
     polished = polished.replace(pattern, replacement);
   }
-  return polished;
+  return normalizeMalformedMarkdownSpacing(polished);
+}
+
+function normalizeMalformedMarkdownSpacing(text: string): string {
+  return text
+    .replace(/\bcashwas\*?\s*(\$)/gi, "cash was $1")
+    .replace(/^(\d+)\.(?=\S)/gm, "$1. ")
+    .replace(/\*+([^*\n]+?\(\$[\d,.]+\))\*+\*+([^*\n]+?\(\$[\d,.]+\))\*+/g, "- $1\n- $2")
+    .replace(/([a-z])(\*\*\$)/g, "$1 $2")
+    .replace(/(\d)([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*:\*+)/g, "$1\n$2")
+    .replace(/(\$[\d,.]+)(balance\b)/gi, "$1 balance")
+    .replace(/(rate:)([\d.]+%)/gi, "$1 $2")
+    .replace(/(payment:)(\$[\d,.]+)/gi, "$1 $2")
+    .replace(/\s*\|\s*/g, " | ")
+    .replace(/(\$[\d,.]+)\s+\*\*([.!?])/g, "$1$2")
+    .replace(/(\*\*+)([A-Z][^*\n]{1,80}\(\$[\d,.]+\))/g, "\n$1$2")
+    .replace(/([A-Za-z])for(\*\*\$[\d,.]+\*\*)/g, "$1 for $2")
+    .replace(/\*{4,}/g, "**")
+    .replace(/([^\s])\*\*([^\s*])/g, "$1 **$2")
+    .replace(/([^\s*])\*\*([^\s])/g, "$1** $2")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }

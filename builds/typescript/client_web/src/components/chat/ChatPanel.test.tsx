@@ -154,6 +154,45 @@ describe("ChatPanel typing indicator behavior", () => {
     expect(onOpenProjectFile).toHaveBeenCalledWith("documents/finance/budget/reports/latest.md");
   });
 
+  it("keeps Budget file open actions visible after later Budget follow-up replies", () => {
+    const onOpenProjectFile = vi.fn();
+    useGatewayChatMock.mockReturnValue(
+      makeHookState({
+        messages: [
+          {
+            id: "a-1",
+            role: "assistant",
+            content: "I saved the Budget and refreshed the latest Budget report.",
+          },
+          {
+            id: "u-1",
+            role: "user",
+            content: "I still feel nervous about telling Evan.",
+          },
+          {
+            id: "a-2",
+            role: "assistant",
+            content: "That makes sense. We can go one step at a time.",
+          },
+        ],
+      })
+    );
+
+    render(
+      <ChatPanel
+        activeConversationId={null}
+        activeProjectId="finance"
+        activeAppPath="/apps/budget"
+        isEmpty={false}
+        onOpenProjectFile={onOpenProjectFile}
+      />
+    );
+
+    expect(screen.getByText("Budget files are ready to review")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open Budget" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open Latest Report" })).toBeInTheDocument();
+  });
+
   it("uploads PDF attachments through the selected project and sends a durable upload event", async () => {
     const user = userEvent.setup();
     const hookState = makeHookState();

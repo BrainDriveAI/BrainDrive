@@ -97,4 +97,37 @@ describe("MessageList scroll behavior", () => {
     expect(rendered).toContain("Shopping is higher than expected");
     expect(rendered).not.toContain("hoShopping");
   });
+
+  it("polishes malformed Budget markdown and loaded finance phrases", () => {
+    render(
+      <MessageList
+        messages={[
+          {
+            id: "a-1",
+            role: "assistant",
+            content: [
+              "Your take-home cashwas*$3,508.84**.",
+              "1.Northbridge Rewards Visa:****$4,378.33balance | Interest rate:22.49% APR| Minimum payment:$139.00",
+              "***MJP Services ($184.00)*****Blue Door Payment ($67.50)**",
+              "Here is the plan to weaponize that surplus. The monster in the dark is solved. Ominous indicator: everything reconciles perfectly.",
+            ].join("\n"),
+          },
+        ]}
+      />
+    );
+
+    const rendered = document.body.textContent ?? "";
+    expect(rendered).toContain("cash");
+    expect(rendered).toContain("$3,508.84");
+    expect(rendered).toContain("$4,378.33 balance");
+    expect(rendered).toContain("Interest rate: 22.49% APR");
+    expect(rendered).toContain("Minimum payment: $139.00");
+    expect(rendered).toContain("MJP Services ($184.00)");
+    expect(rendered).toContain("Blue Door Payment ($67.50)");
+    expect(rendered).toContain("use that surplus");
+    expect(rendered).toContain("unclear debt picture");
+    expect(rendered).toContain("Interest cost to monitor");
+    expect(rendered).toContain("reconciles to the current statement rows");
+    expect(rendered).not.toMatch(/cashwas|\*{4,}|weaponize|monster in the dark|Ominous indicator|reconciles perfectly/i);
+  });
 });

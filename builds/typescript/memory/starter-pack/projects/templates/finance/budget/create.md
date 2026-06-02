@@ -65,7 +65,15 @@ If any stated target or subtotal does not equal the visible rows plus named excl
 
 Report what changed in the saved Budget, what is still assumed, what evidence was used, and what targeted questions remain. Optionally refresh `reports/latest.md` only if the owner asked for comparison output.
 
-Keep the chat reply scan-friendly. Use bullets for the owner-facing summary and keep detailed category tables in the saved Budget or report artifacts unless the owner explicitly asks to see a table in chat. Do not send malformed markdown, dangling emphasis markers, or concatenated category words.
+Separate completion state from follow-up state in the final reply:
+
+- Created or updated artifacts.
+- Open owner decisions or assumptions.
+- Active Todo items that still remain.
+
+Keep the chat reply scan-friendly. Use bullets for the owner-facing summary and keep detailed category tables in the saved Budget or report artifacts unless the owner explicitly asks to see a table in chat. Do not send malformed markdown, dangling emphasis markers, repeated emphasis markers, concatenated category words, jammed amounts, or adjacent merchant names without line breaks.
+
+End the response with a clear product-facing review affordance sentence, for example: "Your saved Budget is ready to review, and the latest Budget report is available if you want the statement-backed details." Do not use raw file paths in that sentence.
 
 Propagate material state changes back to Finance:
 
@@ -75,6 +83,8 @@ Propagate material state changes back to Finance:
 - keep remaining missing history specific by month/account/institution.
 
 If you tell the owner you updated the Todo list, first write or edit `me/todo.md`, read it back, and verify the promised tasks are present. The final response must not claim Todo list updates unless the verified Todo list contains the task text. When MJP Services, Blue Door Payment, or other clarification questions are resolved, close or revise stale active todos for those questions in the same turn.
+
+Never include internal verification diagnostics such as `Save status`, `Not saved yet`, or `could not verify` in owner-facing replies. If a Todo or artifact write was not verified, omit the save claim and state the recommended next action instead.
 
 If the saved Budget or latest Budget report says Needs Review is zero, none, fully resolved, or all mystery items are categorized, verify `me/todo.md` before replying. Active finance Todo tasks must not still ask the owner to clarify those same resolved merchants or amounts. If such a stale task exists, complete it or remove it before saying Needs Review is resolved.
 
