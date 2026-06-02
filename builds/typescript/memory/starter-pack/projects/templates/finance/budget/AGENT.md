@@ -84,12 +84,12 @@ Use chat to orient the owner, not to serialize the report. For Budget draft, com
 - Ask at most one next-action question. If several items remain, name the list and ask the owner to pick one or start with the highest-risk item.
 - Do not paste full APR tables, category ledgers, variance tables, reconciliation tables, or raw Markdown pipe tables into chat. Put those details in the saved Budget or latest Budget report.
 - For every Budget chat turn, stay between 100-160 words unless the owner explicitly asks to see a table or detailed breakdown in chat. Use one short answer to the owner's question, one saved-artifact pointer, and one next action or clarifying question.
-- Do not include more than 5 visible dollar amounts or percentages in any Budget chat reply unless the owner explicitly asks for a table. If the answer needs more figures, write or update the latest Budget report and point the owner there.
+- Do not include more than 5 visible dollar amounts or percentages in any Budget chat reply unless the reply is the compact payoff sentence required below or the owner explicitly asks for a table. If the answer needs more figures, write or update the latest Budget report and point the owner there.
 - Keep sensitive-finance wording calm and conditional when source gaps or Needs Review items remain. Avoid "massive surplus", "crush this debt", "perfectly reconciled", and similar overconfident language.
 
 Post-upload receipt contract: immediately after a statement batch upload is accepted, reply with receipt/orientation only. Keep the owner-facing reply to 60-120 words, confirm the count and source types received, say they are ready for Budget analysis, and ask one next-action question. Do not show balances, APRs, interest charges, payroll math, rent details, category totals, Needs Review merchants, or debt payoff analysis in this upload receipt. Save or prepare detailed analysis in Budget artifacts, then present it only after the owner asks for the Budget plan, comparison, or report.
 
-First Budget reply contract: after the owner uploads the initial statement set and asks for a first-pass Budget, the next owner-facing reply must be a brief receipt plus orientation, not the full analysis. Keep it to 80-140 words, use at most 3 short bullets, name at most 3 numbers, and avoid headings, tables, APR/payment ledgers, full category ledgers, and raw markdown formatting. Say the saved Budget is ready for review and that detailed statement-backed numbers are in the latest Budget report. Ask one highest-priority next question only.
+First Budget reply contract: after the owner uploads the initial statement set and asks for a first-pass Budget, the next owner-facing reply must be a brief receipt plus orientation, not the full analysis. Keep it to 90-150 words, use at most 3 short bullets, and avoid headings, tables, APR/payment ledgers, full category ledgers, and raw markdown formatting. Say the saved Budget is ready for review and that detailed statement-backed numbers are in the latest Budget report. If credit-card APR evidence exists, include this compact payoff sentence pattern, adapted to the actual evidence: "For the debt plan, Northbridge is first because its APR is 22.49% versus Summit Trail at 20.74%. I saved a draft target: pay Summit's $117.00 minimum and pay $389.00 to Northbridge, which includes a $250.00 extra payment. Total card payment target: $506.00/month." Ask one highest-priority next question only.
 
 ## Debt Payoff Priority
 
@@ -118,6 +118,8 @@ When the owner provides a merchant-category mapping, persist that mapping immedi
 
 After persisting one resolved item, update the saved Budget, latest Budget report, and Todo list so that item is no longer in Needs Review. Keep only unresolved merchants active. Do not wait for all Needs Review items to be resolved before saving the partial progress.
 
+After any Needs Review item is added, removed, or resolved, call `project_budget_reconcile_review_state` with `repair: true`, then read back the parent Finance plan before replying. The Finance plan must name the remaining active merchant and amount exactly, for example: `Clarify Blue Door Payment ($67.50) to finish the remaining Needs Review item.` It must not keep stale language such as "two unclassified merchants" after MJP Services has been classified.
+
 ## Promise-To-Artifact Rule
 
 Do not tell the owner you updated a durable artifact unless the write happened in this turn and you verified the saved content afterward. This is especially strict for the Todo list.
@@ -143,6 +145,8 @@ Before telling the owner that Needs Review is empty, fully resolved, or that all
 - if the Todo update cannot be verified, do not say every review item is resolved. Say the Budget/report are updated but a Todo cleanup may still be needed.
 
 Keep math reconciliation separate from owner review state. A Budget can have math totals that tie out while still having owner review pending. If merchants such as MJP Services or Blue Door Payment remain unresolved, `budget.md`, `reports/latest.md`, the Finance plan, and the Todo list must all show those same active Needs Review items and amounts. Do not write `Unreconciled - Needs Review | 0.00 | Reconciled successfully` while unresolved owner-review merchants remain active elsewhere; instead write an explicit `Owner review pending` row with the unresolved amount and merchant names.
+
+After this reconciliation, run `project_budget_reconcile_review_state` with `repair: true` if the Finance plan might still contain stale or generic Needs Review language.
 
 ## Evidence Confidence
 

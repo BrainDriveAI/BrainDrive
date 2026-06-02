@@ -67,11 +67,15 @@ Keep the chat reply scan-friendly. Use bullets for the owner-facing summary and 
 
 End the response with a clear product-facing review affordance sentence, for example: "The latest Budget report is ready to review, with unresolved items still marked Needs Review." Do not use raw file paths in that sentence.
 
+If the comparison refreshes `reports/latest.md` and credit-card payoff guidance remains relevant, call `project_budget_validate_payoff_plan` with `repair: true` before replying so the latest Budget report preserves the same Debt Payoff Recommendation values as the saved Budget and Finance plan.
+
 If the final response says Todo list tasks were added or updated, verify that `me/todo.md` changed and contains those tasks before sending the response. If the todo write cannot be verified, list the recommended next actions without saying they were saved.
 
 Never include internal verification diagnostics such as `Save status`, `Not saved yet`, or `could not verify` in owner-facing replies. If a Todo or artifact write was not verified, omit the save claim and state the recommended next action instead.
 
 If this comparison resolves a Needs Review item such as MJP Services or Blue Door Payment, read `me/todo.md` and close, complete, or remove any active clarification Todo for that same merchant/amount before saying all review items are resolved. If Todo cleanup cannot be verified, say the report is updated but the Todo list may still need cleanup.
+
+After any Needs Review item is resolved or remains active, call `project_budget_reconcile_review_state` with `repair: true` and read the parent Finance plan back. The Finance plan must list only the active remaining merchant and amount, not stale generic language.
 
 If the owner provides one merchant-category mapping in a cut-off message, save the resolved item immediately and leave only the still-unknown item in Needs Review. "MJP Services is my therapist" is enough to classify MJP Services as Health/Therapy even if the next sentence is incomplete.
 

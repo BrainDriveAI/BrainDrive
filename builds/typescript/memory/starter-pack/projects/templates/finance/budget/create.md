@@ -65,6 +65,8 @@ If any stated target or subtotal does not equal the visible rows plus named excl
 
 Separate math reconciliation from unresolved owner-review state. If MJP Services, Blue Door Payment, or another merchant still needs the owner to classify it, include an `Owner review pending` row in `budget.md` with the active amount and merchant names, even when the math subtotal difference is $0.00. The same active Needs Review items must remain visible in `reports/latest.md`, the parent Finance plan, and `me/todo.md` until resolved.
 
+After saving or changing Needs Review state, call `project_budget_reconcile_review_state` with `repair: true`, then read back the parent Finance plan. If Blue Door Payment remains unresolved after MJP Services is classified, the Finance plan must say `Clarify Blue Door Payment ($67.50) to finish the remaining Needs Review item.` and must not say `two unclassified merchants`.
+
 ## Done Criteria
 
 `budget.md` has current saved limits, confidence labels, assumptions, Needs Review for unresolved items, a reconciliation check, and changes recorded in the changelog. For first-pass Budget requests, `budget.md` must not still say `Status: Starter template - not yet customized` when you tell the owner a saved Budget exists.
@@ -79,7 +81,7 @@ Separate completion state from follow-up state in the final reply:
 - Open owner decisions or assumptions.
 - Active Todo items that still remain.
 
-Keep the chat reply scan-friendly. Use bullets for the owner-facing summary and keep detailed category tables in the saved Budget or report artifacts unless the owner explicitly asks to see a table in chat. For the first Budget reply after initial statement intake, confirm the draft exists in 80-140 words, use at most 3 short bullets, name at most 3 numbers, and ask only the highest-priority next question. Do not use headings. Do not send full APR tables, full payment ledgers, full category ledgers, raw pipe tables, malformed markdown, dangling emphasis markers, repeated emphasis markers, concatenated category words, jammed amounts, or adjacent merchant names without line breaks.
+Keep the chat reply scan-friendly. Use bullets for the owner-facing summary and keep detailed category tables in the saved Budget or report artifacts unless the owner explicitly asks to see a table in chat. For the first Budget reply after initial statement intake, confirm the draft exists in 90-150 words, use at most 3 short bullets, and ask only the highest-priority next question. If the reply includes the payoff plan, use one compact sentence that names the APR priority and the $117.00 / $389.00 / $250.00 / $506.00 target values; do not add a payment table or category ledger. Do not use headings. Do not send full APR tables, full payment ledgers, full category ledgers, raw pipe tables, malformed markdown, dangling emphasis markers, repeated emphasis markers, concatenated category words, jammed amounts such as `pay$117.00`, or adjacent merchant names without line breaks.
 
 End the response with a clear product-facing review affordance sentence, for example: "Your saved Budget is ready to review, and the latest Budget report is available if you want the statement-backed details." Do not use raw file paths in that sentence.
 

@@ -14,6 +14,7 @@ import {
   listProjects,
   readAuthState,
   readMemoryFile,
+  reconcileFinanceBudgetReviewState,
   searchMemory,
   toToolFailure,
   validateFinanceBudgetPayoffPlan,
@@ -296,6 +297,26 @@ function registerProjectTools(server: McpServer, config: AppConfig): void {
     async (args) => {
       try {
         const payload = await validateFinanceBudgetPayoffPlan(config.memoryRoot, { repair: args.repair });
+        return success(payload as unknown as Record<string, unknown>);
+      } catch (error) {
+        return failure(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "project_budget_reconcile_review_state",
+    {
+      title: "Project Budget Reconcile Review State",
+      description:
+        "Validate and optionally repair Finance Budget Needs Review continuity across the saved Budget, latest Budget report, Todo list, and parent Finance plan.",
+      inputSchema: {
+        repair: z.boolean().default(false),
+      },
+    },
+    async (args) => {
+      try {
+        const payload = await reconcileFinanceBudgetReviewState(config.memoryRoot, { repair: args.repair });
         return success(payload as unknown as Record<string, unknown>);
       } catch (error) {
         return failure(error);

@@ -86,6 +86,24 @@ type FinanceBudgetPayoffValidationPayload = {
   checked_artifacts: Array<{ key: FinanceBudgetPayoffFileKey; path: string; exists: boolean }>;
 };
 
+type FinanceBudgetReviewStateIssue = {
+  path?: string;
+  message: string;
+};
+
+type FinanceBudgetReviewItem = {
+  merchant: string;
+  amount: string;
+};
+
+type FinanceBudgetReviewStatePayload = {
+  status: "valid" | "invalid" | "repaired";
+  active_review_items: FinanceBudgetReviewItem[];
+  resolved_review_items: FinanceBudgetReviewItem[];
+  issues: FinanceBudgetReviewStateIssue[];
+  files_changed: string[];
+};
+
 const financeBudgetPayoffArtifacts: FinanceBudgetPayoffArtifact[] = [
   { key: "budget", path: "documents/finance/budget/budget.md", required: true },
   { key: "latest_report", path: "documents/finance/budget/reports/latest.md", required: true },
@@ -541,6 +559,45 @@ export async function validateFinanceBudgetPayoffPlan(
   };
 }
 
+export async function reconcileFinanceBudgetReviewState(
+  memoryRoot: string,
+  options: { repair?: boolean } = {}
+): Promise<FinanceBudgetReviewStatePayload> {
+  await ensureMemoryLayout(memoryRoot);
+  const budget = await readOptionalMemoryText(memoryRoot, "documents/finance/budget/budget.md");
+  const latest = await readOptionalMemoryText(memoryRoot, "documents/finance/budget/reports/latest.md");
+  const todo = await readOptionalMemoryText(memoryRoot, "me/todo.md");
+  const plan = await readOptionalMemoryText(memoryRoot, "documents/finance/plan.md");
+
+  const activeReviewItems = uniqueReviewItems([
+    ...extractActiveReviewItems(budget ?? ""),
+    ...extractActiveReviewItems(latest ?? ""),
+    ...extractActiveTodoReviewItems(todo ?? ""),
+  ]);
+  const resolvedReviewItems = uniqueReviewItems(extractResolvedTodoReviewItems(todo ?? ""));
+  const issues = reviewStateIssues(plan, activeReviewItems, resolvedReviewItems);
+  const filesChanged: string[] = [];
+
+  if (options.repair && plan !== null && issues.length > 0) {
+    const repairedPlan = repairFinancePlanReviewState(plan, activeReviewItems, resolvedReviewItems);
+    if (repairedPlan !== plan) {
+      await writeMemoryFile(memoryRoot, "documents/finance/plan.md", repairedPlan);
+      filesChanged.push("documents/finance/plan.md");
+    }
+  }
+
+  const finalPlan = filesChanged.length > 0 ? await readOptionalMemoryText(memoryRoot, "documents/finance/plan.md") : plan;
+  const finalIssues = reviewStateIssues(finalPlan, activeReviewItems, resolvedReviewItems);
+
+  return {
+    status: finalIssues.length === 0 ? (filesChanged.length > 0 ? "repaired" : "valid") : "invalid",
+    active_review_items: activeReviewItems,
+    resolved_review_items: resolvedReviewItems,
+    issues: finalIssues,
+    files_changed: filesChanged,
+  };
+}
+
 export function toToolFailure(error: unknown): ToolFailure {
   if (error instanceof ToolFailure) {
     return error;
@@ -789,7 +846,15 @@ function latestReportPayoffSection(plan: FinanceBudgetPayoffPlan): string {
   return [
     "## Debt Payoff Recommendation",
     "",
-    `${plan.priority_card} is the higher-APR card at ${plan.priority_apr}, so the draft payoff target is to keep ${plan.secondary_card} (${plan.secondary_apr} APR) at its ${money(plan.secondary_minimum)} minimum and pay ${money(plan.priority_target_payment)} to ${plan.priority_card} each month. That includes a ${money(plan.extra_payment_target)} extra-payment target toward ${plan.priority_card} and makes the total monthly card payment target ${money(plan.total_monthly_card_payment_target)}. Review this draft target with the owner before treating it as final.`,
+    `${plan.priority_card} is the priority card because its APR is ${plan.priority_apr}, compared with ${plan.secondary_card} at ${plan.secondary_apr}.`,
+    "",
+    "| Payment Target | Amount | Notes |",
+    "|---|---:|---|",
+    `| ${plan.secondary_card} minimum payment | ${money(plan.secondary_minimum)} | Keep this card at minimum while ${plan.priority_card} receives extra |`,
+    `| ${plan.priority_card} minimum payment | ${money(plan.priority_minimum)} | Required minimum |`,
+    `| Extra-payment target to ${plan.priority_card} | ${money(plan.extra_payment_target)} | Draft target, owner review needed |`,
+    `| ${plan.priority_card} target payment | ${money(plan.priority_target_payment)} | ${money(plan.priority_minimum)} minimum plus ${money(plan.extra_payment_target)} extra |`,
+    `| Total monthly card payment target | ${money(plan.total_monthly_card_payment_target)} | ${money(plan.priority_target_payment)} ${firstWord(plan.priority_card)} plus ${money(plan.secondary_minimum)} ${firstWord(plan.secondary_card)} |`,
     "",
   ].join("\n");
 }
@@ -880,4 +945,183 @@ function addMoneyStrings(...values: string[]): string {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function uniqueReviewItems(items: FinanceBudgetReviewItem[]): FinanceBudgetReviewItem[] {
+  const seen = new Set<string>();
+  const results: FinanceBudgetReviewItem[] = [];
+  for (const item of items) {
+    const merchant = item.merchant.replace(/\s+/g, " ").trim();
+    const amount = Number(item.amount).toFixed(2);
+    const key = `${merchant.toLowerCase()}|${amount}`;
+    if (!merchant || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    results.push({ merchant, amount });
+  }
+  return results;
+}
+
+function extractActiveReviewItems(content: string): FinanceBudgetReviewItem[] {
+  const reviewText = reviewRelatedText(content);
+  const items: FinanceBudgetReviewItem[] = [];
+  const patterns = [
+    /\b([A-Z][A-Za-z0-9&' .-]*?(?:Services|Payment|Pay|Group|LLC|Clinic|Market|Shop|Store|Door|Square))\s*\(\$?(\d+(?:\.\d{2})?)\)/g,
+    /\|\s*(?:\d{4}-\d{2}-\d{2}\s*\|\s*)?([A-Z][^|\n]*?)\s*\|\s*(\d+(?:\.\d{2})?)\s*\|/g,
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of reviewText.matchAll(pattern)) {
+      const merchant = normalizeReviewMerchant(match[1] ?? "");
+      const amount = match[2] ?? "";
+      if (merchant && amount) {
+        items.push({ merchant, amount });
+      }
+    }
+  }
+
+  return items;
+}
+
+function extractActiveTodoReviewItems(content: string): FinanceBudgetReviewItem[] {
+  return content
+    .split(/\r?\n/)
+    .filter((line) => /^-\s*\[\s\]/.test(line) && /\b(?:Clarify|Review|Identify)\b/i.test(line))
+    .flatMap((line) => extractReviewItemsFromLine(line));
+}
+
+function extractResolvedTodoReviewItems(content: string): FinanceBudgetReviewItem[] {
+  return content
+    .split(/\r?\n/)
+    .filter((line) => /^-\s*\[x\]/i.test(line) && /\b(?:Clarify|Review|Identify)\b/i.test(line))
+    .flatMap((line) => extractReviewItemsFromLine(line));
+}
+
+function extractReviewItemsFromLine(line: string): FinanceBudgetReviewItem[] {
+  const items: FinanceBudgetReviewItem[] = [];
+  for (const match of line.matchAll(/\b([A-Z][A-Za-z0-9&' .-]*?(?:Services|Payment|Pay|Group|LLC|Clinic|Market|Shop|Store|Door|Square))\s*\(\$?(\d+(?:\.\d{2})?)\)/g)) {
+    const merchant = normalizeReviewMerchant(match[1] ?? "");
+    const amount = match[2] ?? "";
+    if (merchant && amount) {
+      items.push({ merchant, amount });
+    }
+  }
+  return items;
+}
+
+function reviewRelatedText(content: string): string {
+  const lines = content.split(/\r?\n/);
+  const result: string[] = [];
+  let inNeedsReviewSection = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (/^##\s+Needs Review\b/i.test(trimmed)) {
+      inNeedsReviewSection = true;
+      result.push(line);
+      continue;
+    }
+    if (/^##\s+/.test(trimmed)) {
+      inNeedsReviewSection = false;
+    }
+    if (inNeedsReviewSection || /\bOwner review pending\b/i.test(line)) {
+      result.push(line);
+    }
+  }
+
+  return result.join("\n");
+}
+
+function normalizeReviewMerchant(value: string): string {
+  const normalized = value
+    .replace(/^[-*\s]+/, "")
+    .replace(/^(?:Clarify|Review|Identify)\s+(?:if|what|whether|the)?\s*/i, "")
+    .replace(/^the\s+/i, "")
+    .replace(/\s+/g, " ")
+    .replace(/\b(?:for unclassified|Total for unclassified|Unknown payee|debit on)\b.*$/i, "")
+    .trim();
+  if (/^(?:Owner review pending|Unreconciled - Needs Review|Needs Review|Line|Date|Description|Amount|Reason)$/i.test(normalized)) {
+    return "";
+  }
+  return normalized;
+}
+
+function reviewStateIssues(
+  plan: string | null,
+  activeItems: FinanceBudgetReviewItem[],
+  resolvedItems: FinanceBudgetReviewItem[]
+): FinanceBudgetReviewStateIssue[] {
+  const issues: FinanceBudgetReviewStateIssue[] = [];
+  if (plan === null) {
+    issues.push({ path: "documents/finance/plan.md", message: "Finance plan is missing." });
+    return issues;
+  }
+
+  for (const item of activeItems) {
+    const merchantPattern = new RegExp(escapeRegExp(item.merchant), "i");
+    const amountPattern = new RegExp(escapeRegExp(item.amount), "i");
+    if (!merchantPattern.test(plan) || !amountPattern.test(plan)) {
+      issues.push({
+        path: "documents/finance/plan.md",
+        message: `Active Needs Review item ${item.merchant} (${money(item.amount)}) is missing from the Finance plan.`,
+      });
+    }
+  }
+
+  for (const item of resolvedItems) {
+    const staleLine = plan
+      .split(/\r?\n/)
+      .some((line) =>
+        new RegExp(escapeRegExp(item.merchant), "i").test(line) &&
+        /\b(?:clarify|unclassified|needs review)\b/i.test(line) &&
+        !/\bresolved review items?\b/i.test(line)
+      );
+    if (staleLine) {
+      issues.push({
+        path: "documents/finance/plan.md",
+        message: `Resolved review item ${item.merchant} still appears as unresolved in the Finance plan.`,
+      });
+    }
+  }
+
+  if (/\btwo unclassified merchants\b/i.test(plan) && activeItems.length === 1) {
+    issues.push({
+      path: "documents/finance/plan.md",
+      message: "Finance plan still refers to two unclassified merchants after only one active item remains.",
+    });
+  }
+
+  return issues;
+}
+
+function repairFinancePlanReviewState(
+  content: string,
+  activeItems: FinanceBudgetReviewItem[],
+  resolvedItems: FinanceBudgetReviewItem[]
+): string {
+  const activeSummary = activeItems.length > 0
+    ? `Clarify ${formatReviewItems(activeItems)} to finish the remaining Needs Review item${activeItems.length === 1 ? "" : "s"}.`
+    : "Review the saved Budget and latest Budget report; no active merchant clarification remains.";
+  let repaired = replaceOrAppendSection(content, "Right Now - Your First Step", `## Right Now - Your First Step\n\n${activeSummary}\n`);
+
+  const moreWorkLines = [
+    "## What Needs More Work",
+    "",
+    "- Confirm regular monthly limits for variable spending.",
+    ...(activeItems.length > 0 ? [`- Clarify ${formatReviewItems(activeItems)}.`] : []),
+    ...(resolvedItems.length > 0 ? [`- Resolved review items: ${formatReviewItems(resolvedItems)}.`] : []),
+    "",
+  ];
+  repaired = replaceOrAppendSection(repaired, "What Needs More Work", moreWorkLines.join("\n"));
+
+  for (const item of resolvedItems) {
+    repaired = repaired.replace(new RegExp(`\\s*\\([^)]*${escapeRegExp(item.merchant)}[^)]*\\)`, "gi"), "");
+  }
+
+  return repaired.replace(/\n*$/, "\n");
+}
+
+function formatReviewItems(items: FinanceBudgetReviewItem[]): string {
+  return items.map((item) => `${item.merchant} (${money(item.amount)})`).join(", ");
 }
