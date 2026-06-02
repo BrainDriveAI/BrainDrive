@@ -864,7 +864,7 @@ export async function buildServer(rootDir = process.cwd()) {
     let traceStatus: "started" | "completed" | "error" = "started";
     const pendingToolCalls = new Map<string, { name: string; input: Record<string, unknown> }>();
     const sameTurnObservedArtifacts: ObservedArtifact[] = [];
-    let durableClaimCorrectionSent = false;
+    const validateDurableClaims = shouldValidateDurableClaims(projectId, appPath);
 
     try {
       const liveAdapterConfig = resolveEffectiveAdapterConfig(adapterConfig, livePreferences);
@@ -917,6 +917,9 @@ export async function buildServer(rootDir = process.cwd()) {
 
         if (event.type === "text-delta") {
           assistantBuffer += event.delta;
+          if (validateDurableClaims) {
+            continue;
+          }
         }
 
         if (event.type === "error") {
@@ -924,20 +927,21 @@ export async function buildServer(rootDir = process.cwd()) {
         }
 
         if (event.type === "done") {
-          if (!durableClaimCorrectionSent && shouldValidateDurableClaims(projectId, appPath)) {
-            const correction = buildDurableClaimCorrection(assistantBuffer, sameTurnObservedArtifacts);
-            if (correction) {
-              durableClaimCorrectionSent = true;
-              assistantBuffer = `${assistantBuffer.trimEnd()}\n\n${correction}`;
+          if (validateDurableClaims) {
+            const safeResponse = buildDurableClaimSafeResponse(assistantBuffer, sameTurnObservedArtifacts);
+            if (safeResponse.changed) {
+              assistantBuffer = safeResponse.text;
               await promptAuditRecorder?.append("prompt_audit.response_guardrail", {
-                type: "durable_claim_correction",
+                type: "durable_claim_rewrite",
                 project_id: projectId,
                 app_path: appPath,
-                correction,
+                unsupported_claims: safeResponse.unsupportedClaims,
               });
+            }
+            if (assistantBuffer.trim().length > 0) {
               reply.raw.write(formatSseEvent(gatewayAdapter.toClientStreamEvent({
                 type: "text-delta",
-                delta: `\n\n${correction}`,
+                delta: assistantBuffer,
               }, {
                 conversationId,
                 messageId: lastPersistedAssistantMessageId ?? currentAssistantMessageId,
@@ -957,7 +961,7 @@ export async function buildServer(rootDir = process.cwd()) {
             sameTurnObservedArtifacts.push(observedArtifact);
           }
 
-          if (assistantBuffer.trim().length > 0) {
+          if (!validateDurableClaims && assistantBuffer.trim().length > 0) {
             conversations.appendAssistantMessage(conversationId, currentAssistantMessageId, assistantBuffer);
             lastPersistedAssistantMessageId = currentAssistantMessageId;
             assistantBuffer = "";
@@ -3321,12 +3325,12 @@ function shouldValidateDurableClaims(projectId: string | null, appPath: string |
   return projectId === "finance" && (!appPath || appPath.includes("/budget"));
 }
 
-export function buildDurableClaimCorrection(
+export function buildDurableClaimSafeResponse(
   assistantText: string,
   observedArtifacts: ObservedArtifact[]
-): string | null {
+): { text: string; changed: boolean; unsupportedClaims: string[] } {
   if (assistantText.trim().length === 0) {
-    return null;
+    return { text: assistantText, changed: false, unsupportedClaims: [] };
   }
 
   const ledger = buildClaimToArtifactLedger({
@@ -3339,14 +3343,20 @@ export function buildDurableClaimCorrection(
   );
 
   if (unsupportedClaims.length === 0) {
-    return null;
+    return { text: assistantText, changed: false, unsupportedClaims: [] };
   }
 
-  const labels = [...new Set(unsupportedClaims.map((entry) => durableClaimLabel(entry.claim.type)))];
-  return [
-    `Correction: I cannot verify that I saved ${joinNaturalLanguageList(labels)} in this turn.`,
-    "Treat any related items above as recommended next actions until I explicitly save and verify the matching Budget files.",
-  ].join(" ");
+  let text = assistantText;
+  for (const entry of unsupportedClaims) {
+    text = replaceClaimText(text, entry.claim.sourceText, durableClaimRecoveryText(entry.claim.type));
+  }
+  text = collapseDuplicateDurableRecoveryText(text);
+
+  return {
+    text,
+    changed: text !== assistantText,
+    unsupportedClaims: unsupportedClaims.map((entry) => entry.claim.type),
+  };
 }
 
 function isHighRiskDurableClaim(type: string): boolean {
@@ -3372,14 +3382,47 @@ function durableClaimLabel(type: string): string {
   return "the durable artifact";
 }
 
-function joinNaturalLanguageList(values: string[]): string {
-  if (values.length <= 1) {
-    return values[0] ?? "the durable artifact";
+function durableClaimRecoveryText(type: string): string {
+  if (type === "todo_updated") {
+    return "I recommend the related Todo list updates, but I could not verify that they were saved in this turn";
   }
-  if (values.length === 2) {
-    return `${values[0]} and ${values[1]}`;
+  if (type === "budget_updated") {
+    return "I prepared the saved Budget guidance, but I could not verify a saved Budget file update in this turn";
   }
-  return `${values.slice(0, -1).join(", ")}, and ${values.at(-1)}`;
+  if (type === "report_updated") {
+    return "I prepared the Budget report guidance, but I could not verify a latest Budget report file update in this turn";
+  }
+  if (type === "category_mapped") {
+    return "I recommend this category treatment, but I could not verify that the category mapping was saved in this turn";
+  }
+  return `I recommend updating ${durableClaimLabel(type)}, but I could not verify the save in this turn`;
+}
+
+function replaceClaimText(text: string, sourceText: string, replacement: string): string {
+  if (!sourceText) {
+    return text;
+  }
+  return text.replace(sourceText, replacement);
+}
+
+function collapseDuplicateDurableRecoveryText(text: string): string {
+  let collapsed = text;
+  for (const recoveryText of [
+    durableClaimRecoveryText("todo_updated"),
+    durableClaimRecoveryText("budget_updated"),
+    durableClaimRecoveryText("report_updated"),
+    durableClaimRecoveryText("category_mapped"),
+  ]) {
+    let seen = false;
+    collapsed = collapsed.replaceAll(recoveryText, () => {
+      if (seen) {
+        return "";
+      }
+      seen = true;
+      return recoveryText;
+    });
+  }
+  return collapsed.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n");
 }
 
 function observedArtifactFromToolResult(output: unknown): ObservedArtifact | null {
@@ -3436,6 +3479,7 @@ export function buildProjectChatContext(
         "Do not mention AGENT.md, procedure files, rules files, or markdown filenames in owner copy unless the owner explicitly asks for exact technical paths.",
         "Do not claim that you updated durable artifacts unless the write happened in this turn and the saved content was verified. For Todo list claims, write or edit me/todo.md, read it back, and confirm the promised task text is present before telling the owner it was saved.",
         "If MJP Services, Blue Door Payment, or another clarification item is resolved, close or revise the stale active Todo list item in the same turn before saying the issue is handled.",
+        "Before saying Needs Review is none, zero, fully resolved, or all mystery items are categorized, verify active finance Todo tasks do not still ask for clarification on those same merchants or amounts.",
         "For explicit Finance execution requests about budgets, debt, uploads, statements, spending, or reports, complete the Finance task before coaching or cross-domain discussion.",
         "When asking the owner for statements or supporting documents, ask them to attach files in chat or use the visible upload button. Do not ask the owner to manually place files into documents/finance/... paths.",
         "For Budget creation requests, make the saved Budget the primary deliverable. Treat statement reports as supporting evidence unless the owner asks how actuals compare.",
@@ -3467,7 +3511,7 @@ export function buildProjectChatContext(
         "If source evidence includes travel, lodging, trip, weekend, vacation, airline, rental, large discretionary, or otherwise unusual charges, list the exact transaction description, amount, date, account/source, and likely category.",
         "Budget report summaries must agree with their category tables and must list excluded payments, transfers, refunds, fees, and investment movement separately from ordinary spending.",
         "If Budget or report totals do not reconcile to visible rows plus named exclusions, mark the artifact Needs Review and state the unreconciled amount instead of presenting it as final.",
-        "Avoid unsupported finance certainty language such as perfect data, completely reconciled, fully accounted for, fully completed, permanently mapped, locked in, updated everything behind the scenes, and project documents now perfectly reflect these changes. Prefer draft baseline, based on the files I found, categorized in this budget draft, I saved, I still need, and please verify.",
+        "Avoid unsupported finance certainty language such as perfect data, completely reconciled, fully accounted for, fully completed, permanently mapped, locked in, updated everything behind the scenes, and project documents now perfectly reflect these changes. Avoid charged debt metaphors such as money disappearing into thin air, siphons, destroying a card, or getting banks' hands out of the owner's pockets. Prefer draft baseline, based on the files I found, categorized in this budget draft, I saved, I still need, please verify, and direct extra payments to the higher-APR card.",
         "Every monthly comparison report must include a literal 'Excluded From Expense Totals' section with a table of Type, Payee/Account, Amount, Source, and Why Excluded.",
         "When source statements include credit-card or debt payments, list those rows by source payee/account in Excluded From Expense Totals as debt payments/transfers, not ordinary spending; list interest or finance charges separately.",
         "Relationship context can be noted briefly after the requested Finance artifact, but never pause, stop, or redirect unfinished budget, statement, debt, upload, or report work to the Relationships project.",

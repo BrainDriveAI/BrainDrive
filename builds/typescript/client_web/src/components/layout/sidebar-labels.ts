@@ -57,12 +57,20 @@ export function sidebarFileLabel(file: ProjectFile, projectId: string, appPath?:
   const fileName = relativePath.split("/").pop() ?? file.name;
   const baseName = fileName.replace(/\.md$/i, "");
 
+  if (file.ownerLabel && file.ownerLabel.trim().length > 0) {
+    return file.ownerLabel.trim();
+  }
+
   if (!appPath && relativePath === "spec.md") {
     return "Your Goals";
   }
 
   if (!appPath && relativePath === "plan.md") {
     return "Your Plan";
+  }
+
+  if (!appPath && relativePath === "index.md") {
+    return projectId === "finance" ? "Finance Overview" : "Project Overview";
   }
 
   if (appPath) {
@@ -107,6 +115,11 @@ export function sidebarFileLabel(file: ProjectFile, projectId: string, appPath?:
     return "Your Folder Guide";
   }
 
+  if (/roth\s*ira/i.test(baseName) || /rothira/i.test(baseName)) {
+    const month = statementMonthFromText(baseName);
+    return `Roth IRA Statement${month ? ` - ${month}` : ""}`;
+  }
+
   if (/-user\.md$/i.test(fileName)) {
     return `Your ${titleCase(baseName.replace(/-user$/i, ""))}`;
   }
@@ -120,6 +133,15 @@ export function sidebarFileLabel(file: ProjectFile, projectId: string, appPath?:
   }
 
   return titleCase(baseName);
+}
+
+function statementMonthFromText(value: string): string | null {
+  const match = /\b(20\d{2})[-_ ]?(0[1-9]|1[0-2])\b/.exec(value);
+  if (!match) {
+    return null;
+  }
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, 1);
+  return date.toLocaleString("en-US", { month: "long", year: "numeric" });
 }
 
 export function canonicalFileName(file: ProjectFile): string {

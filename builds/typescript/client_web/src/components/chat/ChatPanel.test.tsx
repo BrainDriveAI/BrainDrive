@@ -208,11 +208,19 @@ describe("ChatPanel typing indicator behavior", () => {
       expect(onUploadDocument.mock.calls[0]?.[0]).toBe(february);
       expect(onUploadDocument.mock.calls[1]?.[0]).toBe(march);
       await waitFor(() => {
-        expect(hookState.append).toHaveBeenCalledWith(
-          expect.stringContaining("Uploaded 2 statements:"),
-          expect.any(Object)
-        );
-      });
+      expect(hookState.append).toHaveBeenCalledWith(
+        expect.stringContaining("Uploaded 2 statements:"),
+        expect.any(Object)
+      );
+    });
+      expect(hookState.append).toHaveBeenCalledWith(
+        expect.stringContaining("I received all 2 statements."),
+        expect.any(Object)
+      );
+      expect(hookState.append).not.toHaveBeenCalledWith(
+        expect.stringContaining("propagate completed statement-gathering state"),
+        expect.any(Object)
+      );
 
       expect(new Set(lifecycleEvents.map((event) => event.batchId)).size).toBe(1);
       expect(lifecycleEvents).toEqual(expect.arrayContaining([

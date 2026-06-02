@@ -74,6 +74,8 @@ Propagate material state changes back to Finance:
 
 If you tell the owner you updated the Todo list, first write or edit `me/todo.md`, read it back, and verify the promised tasks are present. The final response must not claim Todo list updates unless the verified Todo list contains the task text. When MJP Services, Blue Door Payment, or other clarification questions are resolved, close or revise stale active todos for those questions in the same turn.
 
+If the saved Budget or latest Budget report says Needs Review is zero, none, fully resolved, or all mystery items are categorized, verify `me/todo.md` before replying. Active finance Todo tasks must not still ask the owner to clarify those same resolved merchants or amounts. If such a stale task exists, complete it or remove it before saying Needs Review is resolved.
+
 ## What This Procedure Is Not
 
 It is not a monthly comparison workflow. For actuals versus saved budget, use `compare.md`.

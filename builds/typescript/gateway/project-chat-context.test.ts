@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  buildDurableClaimCorrection,
+  buildDurableClaimSafeResponse,
   buildProjectChatContext,
   createBrainDriveMemorySafetyGuard,
   conversationHasSavedBudgetComparison,
@@ -185,19 +185,20 @@ describe("project chat context", () => {
     ]))).toBe(false);
   });
 
-  it("adds a durable-claim correction when Todo claims lack same-turn write evidence", () => {
-    const correction = buildDurableClaimCorrection(
+  it("rewrites a Todo save claim when same-turn write evidence is missing", () => {
+    const safeResponse = buildDurableClaimSafeResponse(
       "I have added these actions directly to your Todo list so you can follow up.",
       []
     );
 
-    expect(correction).toContain("Correction:");
-    expect(correction).toContain("Todo list");
-    expect(correction).toContain("cannot verify");
+    expect(safeResponse.changed).toBe(true);
+    expect(safeResponse.text).not.toContain("I have added these actions directly to your Todo list");
+    expect(safeResponse.text).toContain("I recommend the related Todo list updates");
+    expect(safeResponse.text).toContain("could not verify");
   });
 
-  it("does not correct a Todo claim backed by a changed Todo artifact summary", () => {
-    const correction = buildDurableClaimCorrection(
+  it("does not rewrite a Todo claim backed by a changed Todo artifact summary", () => {
+    const safeResponse = buildDurableClaimSafeResponse(
       "I've updated your active Todo list with set up autopay.",
       [{
         path: "me/todo.md",
@@ -206,7 +207,7 @@ describe("project chat context", () => {
       }]
     );
 
-    expect(correction).toBeNull();
+    expect(safeResponse.changed).toBe(false);
   });
 
   it("distinguishes statement PDFs from transaction CSVs in owner-facing upload labels", () => {

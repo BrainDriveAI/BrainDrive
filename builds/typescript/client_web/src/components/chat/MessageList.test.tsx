@@ -64,7 +64,7 @@ describe("MessageList scroll behavior", () => {
             id: "a-1",
             role: "assistant",
             content:
-              "This is perfect data with a fully completed actuals ledger. Everything is completely reconciled and permanently mapped behind the scenes.",
+              "This is perfect data with a fully completed actuals ledger. Everything is completely reconciled and permanently mapped behind the scenes. Send extra cash directly to destroy the Northbridge Visa and get the banks' hands out of your pockets.",
           },
         ]}
       />
@@ -75,6 +75,8 @@ describe("MessageList scroll behavior", () => {
     expect(rendered).toContain("draft actuals ledger");
     expect(rendered).toContain("reconciled based on the visible rows");
     expect(rendered).toContain("categorized in this budget draft");
-    expect(rendered).not.toMatch(/perfect data|fully completed actuals ledger|completely reconciled|permanently mapped|behind the scenes/i);
+    expect(rendered).toContain("directly toward paying down the Northbridge Visa");
+    expect(rendered).toContain("reduce the interest you pay to lenders");
+    expect(rendered).not.toMatch(/perfect data|fully completed actuals ledger|completely reconciled|permanently mapped|behind the scenes|destroy the Northbridge Visa|banks' hands out of your pockets/i);
   });
 });

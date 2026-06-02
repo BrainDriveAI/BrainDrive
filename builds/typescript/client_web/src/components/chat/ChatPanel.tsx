@@ -594,7 +594,7 @@ export default function ChatPanel({
 
     lines.push(
       "",
-      "Please acknowledge the uploaded statement evidence, inspect the current Budget statements source evidence in this project, update the received/missing checklist, and propagate completed statement-gathering state before continuing."
+      `I received ${successes.length === 1 ? "this statement" : `all ${successes.length} statements`}. I'll use ${successes.length === 1 ? "it" : "them"} for your Budget work and keep the statement checklist current before continuing.`
     );
     return lines.join("\n");
   }

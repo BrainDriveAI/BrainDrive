@@ -12,6 +12,10 @@ const FINANCE_CONFIDENCE_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\bbehind the scenes\b/gi, "in your saved Budget materials"],
   [/\bdebt-crushing fuel\b/gi, "extra debt-payment capacity"],
   [/\bthe stress is officially a math problem now\b/gi, "the next step is to verify the numbers and choose the payment plan"],
+  [/\bover half of your minimum payments disappear into thin air\b/gi, "more than half of your minimum payments went to interest this month"],
+  [/\bsiphon of interest charges\b/gi, "interest charges"],
+  [/\bdirectly to destroy the ([^.]+?)\b/gi, "directly toward paying down the $1"],
+  [/\bget the banks' hands out of your pockets\b/gi, "reduce the interest you pay to lenders"],
 ];
 
 export function polishOwnerVisibleAssistantCopy(text: string): string {

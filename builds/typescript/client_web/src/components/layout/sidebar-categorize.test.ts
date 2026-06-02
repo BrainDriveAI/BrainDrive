@@ -36,6 +36,9 @@ describe("sidebar labels", () => {
     expect(appDisplayLabel("budget")).toBe("Your Budget");
     expect(sidebarFileLabel({ name: "spec.md", path: "documents/finance/spec.md" }, "finance")).toBe("Your Goals");
     expect(sidebarFileLabel({ name: "plan.md", path: "documents/finance/plan.md" }, "finance")).toBe("Your Plan");
+    expect(sidebarFileLabel({ name: "index.md", path: "documents/finance/index.md" }, "finance")).toBe("Finance Overview");
+    expect(sidebarFileLabel({ name: "2026-04-rothira.md", path: "documents/finance/2026-04-rothira.md" }, "finance")).toBe("Roth IRA Statement - April 2026");
+    expect(sidebarFileLabel({ name: "raw.md", path: "documents/finance/raw.md", ownerLabel: "Roth IRA Statement - April 2026" }, "finance")).toBe("Roth IRA Statement - April 2026");
     expect(sidebarFileLabel({ name: "budget.md", path: "documents/finance/budget/budget.md" }, "finance", "budget")).toBe("Your Budget");
   });
 });

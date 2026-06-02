@@ -46,6 +46,8 @@ Report what changed using owner-facing labels, update reports, summarize materia
 
 If the final response says Todo list tasks were added or updated, verify that `me/todo.md` changed and contains those tasks before sending the response. If the todo write cannot be verified, list the recommended next actions without saying they were saved.
 
+If this comparison resolves a Needs Review item such as MJP Services or Blue Door Payment, read `me/todo.md` and close, complete, or remove any active clarification Todo for that same merchant/amount before saying all review items are resolved. If Todo cleanup cannot be verified, say the report is updated but the Todo list may still need cleanup.
+
 ## What This Procedure Is Not
 
 It is not permission to change the saved budget. Put recommended saved-budget changes in Next Actions unless the owner explicitly asks for revision.

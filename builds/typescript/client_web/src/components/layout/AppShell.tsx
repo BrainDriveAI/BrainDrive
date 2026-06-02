@@ -154,6 +154,17 @@ export default function AppShell({
   }, []);
 
   useEffect(() => {
+    if (!memoryUpdateNotice || memoryUpdateNotice.hasDeferred || isMemoryUpdateReportOpen) {
+      return undefined;
+    }
+
+    const timeout = window.setTimeout(() => {
+      dismissMemoryUpdateNotice();
+    }, 5000);
+    return () => window.clearTimeout(timeout);
+  }, [isMemoryUpdateReportOpen, memoryUpdateNotice]);
+
+  useEffect(() => {
     if (!mobileHeaderRef.current) {
       return;
     }
