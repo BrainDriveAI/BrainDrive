@@ -296,6 +296,14 @@ describe("ChatPanel typing indicator behavior", () => {
         expect.stringContaining("I received all 2 statements."),
         expect.any(Object)
       );
+      expect(hookState.append).toHaveBeenCalledWith(
+        expect.stringContaining("3-5 bullets maximum"),
+        expect.any(Object)
+      );
+      expect(hookState.append).toHaveBeenCalledWith(
+        expect.stringContaining("one next-action question at most"),
+        expect.any(Object)
+      );
       expect(hookState.append).not.toHaveBeenCalledWith(
         expect.stringContaining("propagate completed statement-gathering state"),
         expect.any(Object)

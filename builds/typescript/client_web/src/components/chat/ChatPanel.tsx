@@ -695,7 +695,7 @@ export default function ChatPanel({
     if (failures.length === 0 && successes.length > 0) {
       lines.push(
         "",
-        `I received ${successes.length === 1 ? "this statement" : `all ${successes.length} statements`}. I'll use ${successes.length === 1 ? "it" : "them"} for your Budget work and keep the statement checklist current before continuing.`
+        `I received ${successes.length === 1 ? "this statement" : `all ${successes.length} statements`}. Acknowledge the upload in a short receipt only: 3-5 bullets maximum, no full category ledger, no full APR/payment table, and one next-action question at most. Save detailed statement analysis for the saved Budget and latest Budget report, or wait until I explicitly ask for the first-pass Budget.`
       );
     }
     return lines.join("\n");

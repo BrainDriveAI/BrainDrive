@@ -23,6 +23,14 @@ const FINANCE_CONFIDENCE_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\bdirectly to destroy the ([^.]+?)\b/gi, "directly toward paying down the $1"],
   [/\bget the banks' hands out of your pockets\b/gi, "reduce the interest you pay to lenders"],
   [/\bhoShopping\b/g, "Shopping"],
+  [/\bFinance goals\s*\(spec\.md\)/gi, "Finance goals"],
+  [/\bFinance plan\s*\(plan\.md\)/gi, "Finance plan"],
+  [/\bspec\.md\b/gi, "Finance goals"],
+  [/\bplan\.md\b/gi, "Finance plan"],
+  [/\bme\/todo\.md\b/gi, "action list"],
+  [/\btodo\.md\b/gi, "action list"],
+  [/\bTodo list\b/g, "action list"],
+  [/\btodo list\b/g, "action list"],
 ];
 
 export function polishOwnerVisibleAssistantCopy(text: string): string {
@@ -38,7 +46,12 @@ function normalizeMalformedMarkdownSpacing(text: string): string {
     .replace(/Detailed Budget Category Breakdown\s*\|\s*Category\s*\|\s*Budget Limit \/ Spent\s*\|[\s\S]*?(?=\n(?:Part\s+\d+:|Your Next Steps|What do you think|Do you recognize|$))/gi, "Detailed Budget category breakdown is saved in the latest Budget report.\n\n")
     .replace(/\bcashwas\*?\s*(\$)/gi, "cash was $1")
     .replace(/\*\*([^*\n]+?)\s+\*\*/g, "**$1**")
+    .replace(/\*\*([^*\n]{2,80})\*\*(?=\S)/g, "**$1** ")
     .replace(/\*\*([^*\n]+?)\s+\*(?=\s{2,}|\n)/g, "**$1**\n")
+    .replace(/\*\*([^*\n:]{2,80}):\*\*/g, "**$1:** ")
+    .replace(/\*\*([^*\n:]{2,80}):\s+\*\*/g, "**$1:** ")
+    .replace(/\*\*([^*\n:]{2,80}):\s+\*\*([^\n])/g, "**$1:** $2")
+    .replace(/\*\*(\$[\d,.]+[^*\n]{0,80}?)\s+\*([^*\n]{1,80}?)\.\s+\*\*/g, "**$1 $2.** ")
     .replace(/\*\*(\d+)\.\s*\n([^*\n]+?)\s+\*\*(?=\d+\.)/g, "$1. $2\n")
     .replace(/^(\d+)\.(?=\S)/gm, "$1. ")
     .replace(/\*+([^*\n]+?\(\$[\d,.]+\))\*+\*+([^*\n]+?\(\$[\d,.]+\))\*+/g, "- $1\n- $2")

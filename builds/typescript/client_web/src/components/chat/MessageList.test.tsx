@@ -51,9 +51,30 @@ describe("MessageList scroll behavior", () => {
 
     expect(screen.getByText(/saved Budget/)).toBeInTheDocument();
     expect(screen.getByText(/latest Budget report/)).toBeInTheDocument();
-    expect(screen.getByText(/Todo list/)).toBeInTheDocument();
+    expect(screen.getByText(/action list/)).toBeInTheDocument();
     expect(screen.queryByText(/documents\/finance/)).not.toBeInTheDocument();
     expect(screen.queryByText(/me\/todo/)).not.toBeInTheDocument();
+  });
+
+  it("hides internal finance artifact filenames in owner-visible assistant messages", () => {
+    render(
+      <MessageList
+        messages={[
+          {
+            id: "a-1",
+            role: "assistant",
+            content:
+              "Updated your Finance goals (spec.md), created your customized Finance plan (plan.md), and checked off the Todo list task in me/todo.md.",
+          },
+        ]}
+      />
+    );
+
+    const rendered = document.body.textContent ?? "";
+    expect(rendered).toContain("Finance goals");
+    expect(rendered).toContain("Finance plan");
+    expect(rendered).toContain("action list");
+    expect(rendered).not.toMatch(/spec\.md|plan\.md|todo\.md|Todo list|me\/todo/i);
   });
 
   it("softens unsupported finance confidence language in owner-visible assistant messages", () => {
@@ -129,6 +150,31 @@ describe("MessageList scroll behavior", () => {
     expect(rendered).toContain("Interest cost to monitor");
     expect(rendered).toContain("reconciles to the current statement rows");
     expect(rendered).not.toMatch(/cashwas|\*{4,}|weaponize|monster in the dark|Ominous indicator|reconciles perfectly/i);
+  });
+
+  it("normalizes broken finance emphasis around labels and interest amounts", () => {
+    render(
+      <MessageList
+        messages={[
+          {
+            id: "a-1",
+            role: "assistant",
+            content: [
+              "**Your Debt Landscape: **Northbridge Rewards Visa has a balance.",
+              "You were charged **$80.19 in interest *in April. **Summit Trail also charged interest.",
+              "I generated your **latest Budget report **for review.",
+            ].join("\n"),
+          },
+        ]}
+      />
+    );
+
+    const rendered = document.body.textContent ?? "";
+    expect(rendered).toContain("Your Debt Landscape:");
+    expect(rendered).toContain("$80.19 in interest in April.");
+    expect(rendered).toContain("latest Budget report");
+    expect(rendered).not.toContain("**");
+    expect(rendered).not.toContain("*in April");
   });
 
   it("keeps dense Budget tables out of owner-visible chat when markdown collapses", () => {
