@@ -63,7 +63,7 @@ Separate completion state from follow-up state in the final reply:
 - Open owner decisions or assumptions.
 - Active Todo items that still remain.
 
-Keep the chat reply scan-friendly. Use bullets for the owner-facing summary and keep detailed variance, reconciliation, and exclusion tables in the saved report artifact unless the owner explicitly asks to see a table in chat. For comparison replies, send one sentence summary, up to three bullets, and one next action. Do not send raw pipe tables, full over/under tables, full reconciliation tables, malformed markdown, dangling emphasis markers, repeated emphasis markers, concatenated category words, jammed amounts, or adjacent merchant names without line breaks. If source gaps or Needs Review items remain, use cautious wording and avoid overconfident payoff language.
+Keep the chat reply scan-friendly. Use bullets for the owner-facing summary and keep detailed variance, reconciliation, and exclusion tables in the saved report artifact unless the owner explicitly asks to see a table in chat. For comparison replies, send one sentence summary, up to three bullets, and one next action, staying between 100-160 words and no more than 5 visible dollar amounts or percentages unless the owner explicitly asks for a table. Do not send raw pipe tables, full over/under tables, full reconciliation tables, malformed markdown, dangling emphasis markers, repeated emphasis markers, concatenated category words, jammed amounts, or adjacent merchant names without line breaks. If source gaps or Needs Review items remain, use cautious wording and avoid overconfident payoff language.
 
 End the response with a clear product-facing review affordance sentence, for example: "The latest Budget report is ready to review, with unresolved items still marked Needs Review." Do not use raw file paths in that sentence.
 
@@ -72,6 +72,8 @@ If the final response says Todo list tasks were added or updated, verify that `m
 Never include internal verification diagnostics such as `Save status`, `Not saved yet`, or `could not verify` in owner-facing replies. If a Todo or artifact write was not verified, omit the save claim and state the recommended next action instead.
 
 If this comparison resolves a Needs Review item such as MJP Services or Blue Door Payment, read `me/todo.md` and close, complete, or remove any active clarification Todo for that same merchant/amount before saying all review items are resolved. If Todo cleanup cannot be verified, say the report is updated but the Todo list may still need cleanup.
+
+If the owner provides one merchant-category mapping in a cut-off message, save the resolved item immediately and leave only the still-unknown item in Needs Review. "MJP Services is my therapist" is enough to classify MJP Services as Health/Therapy even if the next sentence is incomplete.
 
 ## What This Procedure Is Not
 

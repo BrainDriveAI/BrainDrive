@@ -231,4 +231,35 @@ describe("MessageList scroll behavior", () => {
     expect(rendered).toContain("tasks: review payment timing");
     expect(rendered).not.toMatch(/\*\*|###|tasks:\*/);
   });
+
+  it("normalizes malformed Budget comparison and separation markdown", () => {
+    render(
+      <MessageList
+        messages={[
+          {
+            id: "a-1",
+            role: "assistant",
+            content: [
+              "Rent: $900.00. This is only** 25.6%** of your income. Keeping housing low is a financial advantage.**",
+              "Subscriptions: $177.65 spent —** $77.65 Over . You paid StoryNest Audio** ($18.99 and $14.95).**",
+              "Until you clarify these, they represent leakage:**",
+              "MJP Services for** $184.00**",
+              "Summit Trail Credit Payment: $110.00**",
+            ].join("\n"),
+          },
+        ]}
+      />
+    );
+
+    const rendered = document.body.textContent ?? "";
+    expect(rendered).toContain("only 25.6%");
+    expect(rendered).toContain("financial advantage.");
+    expect(rendered).toContain("Subscriptions: $177.65 spent - $77.65 Over");
+    expect(rendered).toContain("StoryNest Audio ($18.99 and $14.95).");
+    expect(rendered).toContain("leakage:");
+    expect(rendered).toContain("MJP Services for $184.00");
+    expect(rendered).toContain("Summit Trail Credit Payment: $110.00");
+    expect(rendered).not.toContain("**");
+    expect(rendered).not.toContain("—**");
+  });
 });

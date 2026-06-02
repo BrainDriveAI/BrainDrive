@@ -31,7 +31,9 @@ One month of statements may produce a draft actuals baseline only. Do not call i
 
 Do not wait for perfect categorization before saving a first-pass Budget. If transactions such as MJP Services, Blue Door Payment, or other material items are unclear, save the draft Budget anyway and place them in a Needs Review section with the temporary treatment you used. Ask the owner targeted follow-up questions only after the saved Budget draft exists.
 
-For a first-pass statement-backed Budget, `budget.md` must stop being a starter template. Save a provisional draft that includes the target month, observed income, fixed bills, variable category limits, irregular or lumpy set-asides, debt payoff minimums and extra-payment target, excluded transfers/debt payments, assumptions and confidence, Needs Review, reconciliation check, and changelog entry.
+For a first-pass statement-backed Budget, `budget.md` must stop being a starter template. Save a provisional draft that includes the target month, observed income, fixed bills, variable category limits, irregular or lumpy set-asides, debt payoff minimums and a concrete extra-payment target, excluded transfers/debt payments, assumptions and confidence, Needs Review, reconciliation check, and changelog entry.
+
+If credit-card APRs and minimum payments are visible, save a Debt Payoff Priority section or rows in `budget.md`, `reports/latest.md`, and the parent Finance plan. The saved payoff target must name Northbridge Rewards Visa at 22.49% APR as priority when present, Summit Trail Mastercard at 20.74% APR as secondary when present, the $139 and $117 minimums when present, the monthly extra-payment target, and the total priority-card target payment. If using April's natural surplus, pick a conservative explicit amount and mark it draft/owner-confirmed-needed rather than saying only "all extra cash."
 
 If uploaded source files were used or reviewed during setup, also populate `reports/latest.md` with a source coverage ledger and any supporting detail that would make the chat reply too dense. The Source Coverage section must list each uploaded file as used, reviewed/excluded, or missing/rejected. Harborline Roth IRA or other investment statements must be listed as reviewed/excluded asset context with no spendable cash-flow impact.
 
@@ -83,6 +85,8 @@ Propagate material state changes back to Finance:
 - update `plan.md` so the next step advances from statement gathering when appropriate;
 - close or revise active `me/todo.md` statement-gathering tasks;
 - keep remaining missing history specific by month/account/institution.
+
+When the owner resolves one ambiguous merchant, persist that partial classification immediately. For example, "MJP Services is my therapist" is enough to move MJP Services from Needs Review into Health/Therapy in the saved Budget and latest Budget report, and to close or remove the MJP Todo task while leaving Blue Door active if still unresolved. Do not ask for the rest of the cut-off sentence before saving the supplied merchant-category mapping.
 
 If you tell the owner you updated the Todo list, first write or edit `me/todo.md`, read it back, and verify the promised tasks are present. The final response must not claim Todo list updates unless the verified Todo list contains the task text. When MJP Services, Blue Door Payment, or other clarification questions are resolved, close or revise stale active todos for those questions in the same turn.
 

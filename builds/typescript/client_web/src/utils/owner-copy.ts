@@ -50,6 +50,12 @@ function normalizeMalformedMarkdownSpacing(text: string): string {
     .replace(/\bAPR:\*\*\s*([^*\n|]+?)\*\*/gi, "APR: $1")
     .replace(/\bMinimum Payment:\*\*\s*([^*\n|]+?)\*\*/gi, "Minimum payment: $1")
     .replace(/\bMinimum Payment:/g, "Minimum payment:")
+    .replace(/([A-Za-z])\*\*\s+(\d)/g, "$1 $2")
+    .replace(/\b(for|and)\*\*\s*(\$)/gi, "$1 $2")
+    .replace(/\s+—\*\*\s*/g, " - ")
+    .replace(/([.!?:])\*\*(?=\s|$)/g, "$1")
+    .replace(/\*\*\s*(?=\()/g, " ")
+    .replace(/\*\*\s*$/gm, "")
     .replace(/\)\*{2,}(?=\s*(?:\n|$))/g, ")")
     .replace(/\btasks:\*/gi, "tasks:")
     .replace(/\bor\*+\s+/gi, "or ")
@@ -75,6 +81,7 @@ function normalizeMalformedMarkdownSpacing(text: string): string {
     .replace(/\*{4,}/g, "**")
     .replace(/([^\s])\*\*([^\s*])/g, "$1 **$2")
     .replace(/([^\s*])\*\*([^\s])/g, "$1** $2")
+    .replace(/\*\*/g, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
