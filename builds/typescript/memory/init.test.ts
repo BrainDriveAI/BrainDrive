@@ -41,6 +41,8 @@ describe("memory init project scaffolding", () => {
         .resolves.toContain("Partial Classification Rule");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "AGENT.md"), "utf8"))
         .resolves.toContain("Every uploaded file must be represented in the final Budget source coverage.");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "AGENT.md"), "utf8"))
+        .resolves.toContain("project_budget_validate_source_coverage");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "budget.md"), "utf8"))
         .resolves.toContain("## Assumptions And Confidence");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "budget.md"), "utf8"))
@@ -59,8 +61,12 @@ describe("memory init project scaffolding", () => {
         .resolves.toContain("project_budget_validate_payoff_plan");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "create.md"), "utf8"))
         .resolves.toContain("project_budget_reconcile_review_state");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "create.md"), "utf8"))
+        .resolves.toContain("project_budget_validate_source_coverage");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "compare.md"), "utf8"))
         .resolves.toContain("project_budget_reconcile_review_state");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "compare.md"), "utf8"))
+        .resolves.toContain("project_budget_validate_source_coverage");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "create.md"), "utf8"))
         .resolves.toContain("MJP Services is my therapist");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "compare.md"), "utf8"))

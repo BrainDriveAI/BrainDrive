@@ -37,6 +37,10 @@ describe("OpenAICompatibleAdapter prompt audit", () => {
     delete process.env.BRAINDRIVE_PROVIDER_STREAM_IDLE_TIMEOUT_MS;
     delete process.env.BRAINDRIVE_PROVIDER_CONTEXT_WINDOW_TOKENS;
     delete process.env.BRAINDRIVE_PROVIDER_RESPONSE_HEADROOM_TOKENS;
+    delete process.env.BRAINDRIVE_PROVIDER_MAX_OUTPUT_TOKENS;
+    delete process.env.BRAINDRIVE_PROVIDER_MAX_TOKENS;
+    delete process.env.BRAINDRIVE_OPENROUTER_MAX_OUTPUT_TOKENS;
+    delete process.env.BRAINDRIVE_OPENROUTER_MAX_TOKENS;
     vi.restoreAllMocks();
   });
 
@@ -83,8 +87,86 @@ describe("OpenAICompatibleAdapter prompt audit", () => {
     expect(providerRequest?.details.provider_request_body).toEqual(sentBody);
     expect(providerRequest?.details.url_origin).toBe("https://provider.example");
     expect(providerRequest?.details.url_path).toBe("/v1/chat/completions");
+    expect(providerRequest?.details.max_tokens).toBe(8192);
+    expect(sentBody).toMatchObject({ max_tokens: 8192 });
     expect(response.usage).toEqual({ promptTokens: 10, completionTokens: 2, totalTokens: 12 });
     expect(response.cost).toEqual({ status: "unavailable" });
+  });
+
+  it("honors a configured provider output-token cap and records it in preflight telemetry", async () => {
+    const events: Array<{ event: string; details: Record<string, unknown> }> = [];
+    let sentBody: Record<string, unknown> | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        sentBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(
+          JSON.stringify({
+            model: "test-model",
+            choices: [{ finish_reason: "stop", message: { content: "Hi" } }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      })
+    );
+
+    const adapter = new OpenAICompatibleAdapter({
+      base_url: "https://provider.example/v1",
+      model: "test-model",
+      api_key_env: "TEST_API_KEY",
+      provider_id: "openrouter",
+      max_output_tokens: 2048,
+    }, { apiKey: "sk-testsecret123456789" });
+
+    await adapter.complete(request, [], {
+      promptAudit: {
+        recorder: fakeRecorder(events),
+        modelCall: {
+          model_call_id: "model-call-1",
+          model_call_index: 1,
+        },
+      },
+    });
+
+    expect(sentBody).toMatchObject({ max_tokens: 2048 });
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "prompt_audit.provider_request_preflight",
+      details: expect.objectContaining({
+        requested_max_output_tokens: 2048,
+        reserved_response_tokens: 8000,
+        blocked: false,
+      }),
+    }));
+  });
+
+  it("lets provider-specific environment caps override profile defaults", async () => {
+    process.env.BRAINDRIVE_OPENROUTER_MAX_OUTPUT_TOKENS = "1536";
+    let sentBody: Record<string, unknown> | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        sentBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(
+          JSON.stringify({
+            model: "test-model",
+            choices: [{ finish_reason: "stop", message: { content: "Hi" } }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      })
+    );
+
+    const adapter = new OpenAICompatibleAdapter({
+      base_url: "https://provider.example/v1",
+      model: "test-model",
+      api_key_env: "TEST_API_KEY",
+      provider_id: "openrouter",
+      max_output_tokens: 8192,
+    }, { apiKey: "sk-testsecret123456789" });
+
+    await adapter.complete(request, []);
+
+    expect(sentBody).toMatchObject({ max_tokens: 1536 });
   });
 
   it("normalizes an empty terminal provider completion for engine recovery", async () => {
@@ -259,7 +341,9 @@ describe("OpenAICompatibleAdapter prompt audit", () => {
       details: expect.objectContaining({
         blocked: true,
         context_window_tokens: 100,
-        prompt_budget_tokens: 90,
+        prompt_budget_tokens: 1,
+        requested_max_output_tokens: 8192,
+        reserved_response_tokens: 8192,
       }),
     }));
     expect(events).toContainEqual(expect.objectContaining({

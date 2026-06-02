@@ -63,6 +63,8 @@ describe("Finance Budget review-state reconciliation", () => {
       expect(plan).toContain("Resolved review items: MJP Services ($184.00), Blue Door Payment ($67.50).");
       expect(plan).not.toMatch(/Clarify the mystery transactions/i);
       expect(plan).not.toMatch(/Understanding Ambiguous Merchants/i);
+      expect(plan).not.toMatch(/Inputs Needed.*MJP Services/i);
+      expect(plan).not.toMatch(/Inputs Needed.*Blue Door/i);
       expect(plan).not.toMatch(/MJP Services.*(?:clarify|mystery|ambiguous|needs review)/i);
       expect(plan).not.toMatch(/Blue Door Payment.*(?:clarify|mystery|ambiguous|needs review)/i);
     } finally {
@@ -188,6 +190,7 @@ async function writeAllResolvedSeedMemory(memoryRoot: string): Promise<void> {
       "## Right Now - Your First Step",
       "",
       "- **Clarify the mystery transactions:** Identify what \"MJP Services\" ($184.00) and \"Blue Door Payment\" ($67.50) represent to complete the category baseline.",
+      "- **Inputs Needed:** Confirm what MJP Services and Blue Door represent.",
       "",
       "## The Roadmap",
       "",

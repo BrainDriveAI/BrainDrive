@@ -31,6 +31,8 @@ The latest Budget report must include Source Coverage with every uploaded file a
 
 Investment and retirement statements, including Roth IRA statements, belong in reviewed/excluded asset context unless the owner explicitly asks for asset tracking. They must not affect spendable income, personal living expenses, debt payoff cash flow, or ordinary spending variance.
 
+After writing or refreshing `reports/latest.md`, call `project_budget_validate_source_coverage` with `repair: true`, then read the latest Budget report back before replying. If source coverage still has missing uploads, do not claim every uploaded statement was used or accounted for.
+
 Do not claim every transaction was mapped unless the Source Evidence Ledger accounts for every transaction in the relevant source statements. If the ledger is selective, say it is selective and limit claims to the rows reviewed.
 
 Separate ordinary spending from transfers, refunds, debt payments, finance charges, fees, investment movement, and business/startup spending. Show exclusions in the Excluded From Expense Totals section.

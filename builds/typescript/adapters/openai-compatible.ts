@@ -128,6 +128,7 @@ const DEFAULT_PROVIDER_REQUEST_TIMEOUT_MS = 180_000;
 const DEFAULT_PROVIDER_STREAM_IDLE_TIMEOUT_MS = 60_000;
 const DEFAULT_PROVIDER_CONTEXT_WINDOW_TOKENS = 128_000;
 const DEFAULT_PROVIDER_RESPONSE_HEADROOM_TOKENS = 8_000;
+const DEFAULT_PROVIDER_MAX_OUTPUT_TOKENS = 8_192;
 
 type ProviderTimeoutState = {
   controller: AbortController;
@@ -178,7 +179,7 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
       "content-type": "application/json",
       ...(apiKey.length > 0 ? { authorization: `Bearer ${apiKey}` } : {}),
     };
-    const body = buildChatCompletionBody(this.config.model, request, tools, false);
+    const body = buildChatCompletionBody(this.config, request, tools, false);
     await preflightProviderRequest(body, options);
     await options?.promptAudit?.recorder.append(
       "prompt_audit.provider_request",
@@ -186,6 +187,7 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
         provider: this.config.provider_id ?? "openai-compatible",
         model: this.config.model,
         stream: false,
+        max_tokens: body.max_tokens ?? null,
         tool_choice: body.tool_choice ?? null,
         ...providerUrlParts(url),
         http_method: "POST",
@@ -247,7 +249,7 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
       "content-type": "application/json",
       ...(apiKey.length > 0 ? { authorization: `Bearer ${apiKey}` } : {}),
     };
-    const body = buildChatCompletionBody(this.config.model, request, tools, true);
+    const body = buildChatCompletionBody(this.config, request, tools, true);
     await preflightProviderRequest(body, options);
     await options?.promptAudit?.recorder.append(
       "prompt_audit.provider_request",
@@ -255,6 +257,7 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
         provider: this.config.provider_id ?? "openai-compatible",
         model: this.config.model,
         stream: true,
+        max_tokens: body.max_tokens ?? null,
         tool_choice: body.tool_choice ?? null,
         ...providerUrlParts(url),
         http_method: "POST",
@@ -491,7 +494,7 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
 }
 
 function buildChatCompletionBody(
-  model: string,
+  config: AdapterConfig,
   request: GatewayEngineRequest,
   tools: ToolDefinition[],
   stream: boolean
@@ -508,10 +511,13 @@ function buildChatCompletionBody(
     };
   }>;
   tool_choice?: "auto";
+  max_tokens?: number;
 } {
+  const maxOutputTokens = resolveProviderMaxOutputTokens(config);
   return {
-    model,
+    model: config.model,
     stream,
+    max_tokens: maxOutputTokens,
     messages: request.messages.map<OpenAIMessage>((message) => ({
       role: message.role,
       content: message.content,
@@ -549,16 +555,20 @@ async function preflightProviderRequest(
   const estimatedTokens = estimateTokens(serialized);
   const contextWindowTokens = resolveProviderContextWindowTokens();
   const responseHeadroomTokens = resolveProviderResponseHeadroomTokens();
-  const promptBudgetTokens = Math.max(1, contextWindowTokens - responseHeadroomTokens);
+  const requestedMaxOutputTokens = body.max_tokens ?? responseHeadroomTokens;
+  const reservedResponseTokens = Math.max(responseHeadroomTokens, requestedMaxOutputTokens);
+  const promptBudgetTokens = Math.max(1, contextWindowTokens - reservedResponseTokens);
   const largestMessage = largestProviderMessage(body.messages);
 
   await options?.promptAudit?.recorder.append(
     "prompt_audit.provider_request_preflight",
     {
+      requested_max_output_tokens: body.max_tokens ?? null,
       estimated_provider_payload_tokens: estimatedTokens,
       prompt_budget_tokens: promptBudgetTokens,
       context_window_tokens: contextWindowTokens,
       response_headroom_tokens: responseHeadroomTokens,
+      reserved_response_tokens: reservedResponseTokens,
       largest_message: largestMessage,
       tool_count: body.tools.length,
       blocked: estimatedTokens > promptBudgetTokens,
@@ -571,6 +581,7 @@ async function preflightProviderRequest(
       "prompt_audit.provider_request_blocked",
       {
         reason: "context_overflow_preflight",
+        requested_max_output_tokens: body.max_tokens ?? null,
         estimated_provider_payload_tokens: estimatedTokens,
         prompt_budget_tokens: promptBudgetTokens,
         largest_message: largestMessage,
@@ -599,6 +610,19 @@ function resolveProviderResponseHeadroomTokens(): number {
     "BRAINDRIVE_PROVIDER_RESPONSE_HEADROOM_TOKENS",
     "BRAINDRIVE_CONTEXT_RESPONSE_HEADROOM_TOKENS",
   ], DEFAULT_PROVIDER_RESPONSE_HEADROOM_TOKENS);
+}
+
+function resolveProviderMaxOutputTokens(config: AdapterConfig): number {
+  const providerId = (config.provider_id ?? "openai-compatible")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return resolvePositiveIntegerEnv([
+    `BRAINDRIVE_${providerId}_MAX_OUTPUT_TOKENS`,
+    `BRAINDRIVE_${providerId}_MAX_TOKENS`,
+    "BRAINDRIVE_PROVIDER_MAX_OUTPUT_TOKENS",
+    "BRAINDRIVE_PROVIDER_MAX_TOKENS",
+  ], config.max_output_tokens ?? DEFAULT_PROVIDER_MAX_OUTPUT_TOKENS);
 }
 
 function resolvePositiveIntegerEnv(envNames: string[], fallback: number): number {

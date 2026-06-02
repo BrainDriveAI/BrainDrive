@@ -19,6 +19,7 @@ export type AdapterConfig = {
   model: string;
   api_key_env: string;
   provider_id?: string;
+  max_output_tokens?: number;
   provider_profiles?: Record<string, AdapterProfileConfig>;
   default_provider_profile?: string;
 };
@@ -28,6 +29,7 @@ export type AdapterProfileConfig = {
   model: string;
   api_key_env: string;
   provider_id?: string;
+  max_output_tokens?: number;
 };
 
 export type PermissionSet = {

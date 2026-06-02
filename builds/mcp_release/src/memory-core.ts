@@ -104,6 +104,29 @@ type FinanceBudgetReviewStatePayload = {
   files_changed: string[];
 };
 
+type FinanceBudgetSourceCoverageIssue = {
+  path?: string;
+  message: string;
+};
+
+type FinanceBudgetSourceDocument = {
+  path: string;
+  source_filename: string;
+  institution: string;
+  account_type: string;
+  statement_month: string;
+  statement_period_start?: string;
+  statement_period_end?: string;
+  statement_like: boolean;
+};
+
+type FinanceBudgetSourceCoveragePayload = {
+  status: "valid" | "invalid" | "repaired";
+  source_documents: FinanceBudgetSourceDocument[];
+  issues: FinanceBudgetSourceCoverageIssue[];
+  files_changed: string[];
+};
+
 const financeBudgetPayoffArtifacts: FinanceBudgetPayoffArtifact[] = [
   { key: "budget", path: "documents/finance/budget/budget.md", required: true },
   { key: "latest_report", path: "documents/finance/budget/reports/latest.md", required: true },
@@ -598,6 +621,40 @@ export async function reconcileFinanceBudgetReviewState(
   };
 }
 
+export async function validateFinanceBudgetSourceCoverage(
+  memoryRoot: string,
+  options: { repair?: boolean } = {}
+): Promise<FinanceBudgetSourceCoveragePayload> {
+  await ensureMemoryLayout(memoryRoot);
+  const latestPath = "documents/finance/budget/reports/latest.md";
+  const latest = await readOptionalMemoryText(memoryRoot, latestPath);
+  const sourceDocuments = await discoverFinanceBudgetSourceDocuments(memoryRoot);
+  const issues = sourceCoverageIssues(latest, sourceDocuments, latestPath);
+  const filesChanged: string[] = [];
+
+  if (options.repair && latest !== null && sourceDocuments.length > 0 && issues.length > 0) {
+    const repaired = replaceOrInsertSectionBefore(latest, "Source Coverage", sourceCoverageSection(sourceDocuments), [
+      "Source Evidence Ledger",
+      "Owner-Requested Items Audit",
+      "Category Breakdown",
+    ]);
+    if (repaired !== latest) {
+      await writeMemoryFile(memoryRoot, latestPath, repaired);
+      filesChanged.push(latestPath);
+    }
+  }
+
+  const finalLatest = filesChanged.length > 0 ? await readOptionalMemoryText(memoryRoot, latestPath) : latest;
+  const finalIssues = sourceCoverageIssues(finalLatest, sourceDocuments, latestPath);
+
+  return {
+    status: finalIssues.length === 0 ? (filesChanged.length > 0 ? "repaired" : "valid") : "invalid",
+    source_documents: sourceDocuments,
+    issues: finalIssues,
+    files_changed: filesChanged,
+  };
+}
+
 export function toToolFailure(error: unknown): ToolFailure {
   if (error instanceof ToolFailure) {
     return error;
@@ -752,6 +809,156 @@ async function readOptionalMemoryText(memoryRoot: string, requestedPath: string)
     }
     throw toToolFailure(error);
   }
+}
+
+async function discoverFinanceBudgetSourceDocuments(memoryRoot: string): Promise<FinanceBudgetSourceDocument[]> {
+  const candidates = [
+    ...(await markdownFilesInMemoryDirectory(memoryRoot, "documents/finance/budget/statements")),
+    ...(await markdownFilesInMemoryDirectory(memoryRoot, "documents/finance")),
+  ];
+  const seen = new Set<string>();
+  const documents: FinanceBudgetSourceDocument[] = [];
+
+  for (const candidate of candidates) {
+    if (seen.has(candidate)) {
+      continue;
+    }
+    seen.add(candidate);
+    const content = await readOptionalMemoryText(memoryRoot, candidate);
+    if (!content) {
+      continue;
+    }
+    const sourceFilename = frontmatterValue(content, "source_filename");
+    const statementMonth = frontmatterValue(content, "statement_month");
+    const institution = frontmatterValue(content, "institution");
+    const accountType = frontmatterValue(content, "account_type");
+    if (!sourceFilename || !statementMonth || !institution || !accountType) {
+      continue;
+    }
+    documents.push({
+      path: candidate,
+      source_filename: sourceFilename,
+      institution,
+      account_type: accountType,
+      statement_month: statementMonth,
+      ...(frontmatterValue(content, "statement_period_start")
+        ? { statement_period_start: frontmatterValue(content, "statement_period_start") ?? undefined }
+        : {}),
+      ...(frontmatterValue(content, "statement_period_end")
+        ? { statement_period_end: frontmatterValue(content, "statement_period_end") ?? undefined }
+        : {}),
+      statement_like: frontmatterValue(content, "statement_like") !== "false",
+    });
+  }
+
+  return documents.sort((left, right) => left.source_filename.localeCompare(right.source_filename));
+}
+
+async function markdownFilesInMemoryDirectory(memoryRoot: string, requestedPath: string): Promise<string[]> {
+  try {
+    const absolutePath = resolveMemoryPath(memoryRoot, requestedPath);
+    const entries = await readdir(absolutePath, { withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+      .map((entry) => `${requestedPath}/${entry.name}`);
+  } catch (error) {
+    if (getErrnoCode(error) === "ENOENT") {
+      return [];
+    }
+    throw toToolFailure(error);
+  }
+}
+
+function frontmatterValue(content: string, key: string): string | null {
+  const match = new RegExp(`^${escapeRegExp(key)}:\\s*"?([^"\\n]+)"?\\s*$`, "m").exec(content);
+  return match?.[1]?.trim() ?? null;
+}
+
+function sourceCoverageIssues(
+  latest: string | null,
+  sourceDocuments: FinanceBudgetSourceDocument[],
+  latestPath: string
+): FinanceBudgetSourceCoverageIssue[] {
+  const issues: FinanceBudgetSourceCoverageIssue[] = [];
+  if (latest === null) {
+    issues.push({ path: latestPath, message: "Latest Budget report is missing." });
+    return issues;
+  }
+  if (sourceDocuments.length === 0) {
+    issues.push({ path: latestPath, message: "No statement source documents were found for Source Coverage." });
+    return issues;
+  }
+  if (!/^##\s+Source Coverage\b/m.test(latest)) {
+    issues.push({ path: latestPath, message: "Latest Budget report is missing Source Coverage." });
+  }
+  for (const document of sourceDocuments) {
+    if (!latest.includes(document.source_filename)) {
+      issues.push({
+        path: latestPath,
+        message: `Source Coverage is missing uploaded file ${document.source_filename}.`,
+      });
+    }
+  }
+  return issues;
+}
+
+function sourceCoverageSection(sourceDocuments: FinanceBudgetSourceDocument[]): string {
+  const usedRows = sourceDocuments
+    .filter((document) => shouldUseForBudgetCalculations(document))
+    .map((document) =>
+      `| ${document.source_filename} | ${document.institution} ${document.account_type} | ${sourceCoveragePeriod(document)} | ${sourceCoverageUse(document)} |`
+    );
+  const excludedRows = sourceDocuments
+    .filter((document) => !shouldUseForBudgetCalculations(document))
+    .map((document) =>
+      `| ${document.source_filename} | ${document.institution} ${document.account_type} | ${sourceCoveragePeriod(document)} | Reviewed/excluded asset context; not spendable cash flow or ordinary spending |`
+    );
+
+  return [
+    "## Source Coverage",
+    "",
+    "Every uploaded file must appear in exactly one group below. This section explains whether each file was used for Budget math, reviewed and excluded from spending math, or unavailable.",
+    "",
+    "### Used For Budget Calculations",
+    "",
+    "| Uploaded File | Account/Institution | Coverage | Used For |",
+    "|---|---|---|---|",
+    ...(usedRows.length > 0 ? usedRows : ["| None | N/A | N/A | N/A |"]),
+    "",
+    "### Reviewed And Excluded From Spending Calculations",
+    "",
+    "| Uploaded File | Account/Institution | Coverage | Reason Excluded |",
+    "|---|---|---|---|",
+    ...(excludedRows.length > 0 ? excludedRows : ["| None | N/A | N/A | N/A |"]),
+    "",
+    "### Missing Or Rejected Files",
+    "",
+    "| Expected File | Reason | Next Step |",
+    "|---|---|---|",
+    "| None | All discovered uploaded source files are accounted for | N/A |",
+    "",
+  ].join("\n");
+}
+
+function shouldUseForBudgetCalculations(document: FinanceBudgetSourceDocument): boolean {
+  return document.statement_like && !/\b(?:investment|retirement|ira|roth)\b/i.test(document.account_type);
+}
+
+function sourceCoveragePeriod(document: FinanceBudgetSourceDocument): string {
+  if (document.statement_period_start && document.statement_period_end) {
+    return `${document.statement_period_start} to ${document.statement_period_end}`;
+  }
+  return document.statement_month;
+}
+
+function sourceCoverageUse(document: FinanceBudgetSourceDocument): string {
+  if (/\bchecking\b/i.test(document.account_type)) {
+    return "Income, cash outflows, transfers, and checking transaction evidence";
+  }
+  if (/\bcredit\b/i.test(document.account_type)) {
+    return "Credit-card balances, APR, minimum payment, interest, and transaction evidence";
+  }
+  return "Statement-backed Budget evidence";
 }
 
 function financeBudgetPayoffIssuesForArtifact(
@@ -1083,7 +1290,7 @@ function reviewStateIssues(
     const staleLine = plan
       .split(/\r?\n/)
       .some((line) =>
-        new RegExp(escapeRegExp(item.merchant), "i").test(line) &&
+        lineMentionsReviewItem(line, item) &&
         hasStaleReviewLanguage(line) &&
         !/\bresolved review items?\b/i.test(line)
       );
@@ -1145,10 +1352,20 @@ function removeResolvedReviewStaleLines(content: string, resolvedItems: FinanceB
       return true;
     }
     return !resolvedItems.some((item) =>
-      new RegExp(escapeRegExp(item.merchant), "i").test(line) && hasStaleReviewLanguage(line)
+      lineMentionsReviewItem(line, item) && hasStaleReviewLanguage(line)
     );
   });
   return filtered.join("\n");
+}
+
+function lineMentionsReviewItem(line: string, item: FinanceBudgetReviewItem): boolean {
+  return reviewItemSearchTerms(item).some((term) => new RegExp(escapeRegExp(term), "i").test(line));
+}
+
+function reviewItemSearchTerms(item: FinanceBudgetReviewItem): string[] {
+  const merchant = item.merchant.trim();
+  const withoutPaymentSuffix = merchant.replace(/\s+Payment$/i, "").trim();
+  return Array.from(new Set([merchant, withoutPaymentSuffix].filter((term) => term.length > 0)));
 }
 
 function formatReviewItems(items: FinanceBudgetReviewItem[]): string {

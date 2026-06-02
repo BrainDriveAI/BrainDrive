@@ -14,6 +14,7 @@ describe("resolveEffectiveAdapterConfig", () => {
         model: "anthropic/claude-haiku-4.5",
         api_key_env: "OPENROUTER_API_KEY",
         provider_id: "openrouter",
+        max_output_tokens: 8192,
       },
       ollama: {
         base_url: "http://127.0.0.1:11434/v1",
@@ -39,6 +40,7 @@ describe("resolveEffectiveAdapterConfig", () => {
       base_url: "https://openrouter.ai/api/v1",
       provider_id: "openrouter",
       model: "google/gemini-3.5-flash",
+      max_output_tokens: 8192,
     });
   });
 

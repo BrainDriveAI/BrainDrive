@@ -29,6 +29,7 @@ const adapterProfileSchema = z.object({
   model: z.string().trim(),
   api_key_env: z.string().min(1),
   provider_id: z.string().min(1).optional(),
+  max_output_tokens: z.number().int().positive().optional(),
 });
 
 const adapterConfigSchema = z
@@ -37,6 +38,7 @@ const adapterConfigSchema = z
     model: z.string().min(1).optional(),
     api_key_env: z.string().min(1).optional(),
     provider_id: z.string().min(1).optional(),
+    max_output_tokens: z.number().int().positive().optional(),
     provider_profiles: z.record(z.string(), adapterProfileSchema).optional(),
     default_provider_profile: z.string().min(1).optional(),
   })
@@ -74,6 +76,7 @@ const adapterConfigSchema = z
         model: value.model,
         api_key_env: value.api_key_env,
         ...(value.provider_id ? { provider_id: value.provider_id } : {}),
+        ...(value.max_output_tokens ? { max_output_tokens: value.max_output_tokens } : {}),
         ...(value.provider_profiles ? { provider_profiles: value.provider_profiles } : {}),
         ...(value.default_provider_profile ? { default_provider_profile: value.default_provider_profile } : {}),
       };

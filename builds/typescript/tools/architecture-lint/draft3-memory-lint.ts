@@ -19,9 +19,9 @@ const REQUIRED_FINANCE_FILES = [
   "budget/budget-rules.md",
   "budget/create.md",
   "budget/compare.md",
-  "statements/README.md",
-  "reports/README.md",
-  "reports/latest.md",
+  "budget/statements/README.md",
+  "budget/reports/README.md",
+  "budget/reports/latest.md",
 ] as const;
 
 const STALE_FINANCE_PATHS = [
@@ -66,7 +66,7 @@ export async function lintDraft3MemoryStarterPack(starterPackRoot: string): Prom
     }
   }
 
-  const latestReport = await readOptional(path.join(financeRoot, "reports", "latest.md"));
+  const latestReport = await readOptional(path.join(financeRoot, "budget", "reports", "latest.md"));
   if (latestReport !== null && !latestReport.includes("Generated report")) {
     errors.push("reports/latest.md must be labeled as generated output");
   }

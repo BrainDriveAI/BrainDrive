@@ -18,6 +18,7 @@ import {
   searchMemory,
   toToolFailure,
   validateFinanceBudgetPayoffPlan,
+  validateFinanceBudgetSourceCoverage,
   writeMemoryFile,
 } from "./memory-core.js";
 import type { RequestContext } from "./request-context.js";
@@ -317,6 +318,26 @@ function registerProjectTools(server: McpServer, config: AppConfig): void {
     async (args) => {
       try {
         const payload = await reconcileFinanceBudgetReviewState(config.memoryRoot, { repair: args.repair });
+        return success(payload as unknown as Record<string, unknown>);
+      } catch (error) {
+        return failure(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "project_budget_validate_source_coverage",
+    {
+      title: "Project Budget Validate Source Coverage",
+      description:
+        "Validate and optionally repair the latest Finance Budget report Source Coverage section from uploaded statement metadata.",
+      inputSchema: {
+        repair: z.boolean().default(false),
+      },
+    },
+    async (args) => {
+      try {
+        const payload = await validateFinanceBudgetSourceCoverage(config.memoryRoot, { repair: args.repair });
         return success(payload as unknown as Record<string, unknown>);
       } catch (error) {
         return failure(error);

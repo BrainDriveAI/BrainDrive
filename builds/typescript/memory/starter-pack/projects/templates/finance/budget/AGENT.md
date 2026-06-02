@@ -75,6 +75,8 @@ Investment and retirement statements, including Roth IRA evidence, must remain e
 
 Every uploaded file should be traceable to exactly one Source Coverage group. A transaction row, exclusion row, or casual mention is not enough by itself.
 
+After writing or refreshing `reports/latest.md`, call `project_budget_validate_source_coverage` with `repair: true`, then read the latest Budget report back before replying. If source coverage still has missing uploads, do not claim every uploaded statement was used or accounted for.
+
 ## Chat Response Policy
 
 Use chat to orient the owner, not to serialize the report. For Budget draft, comparison, and reconciliation replies:
