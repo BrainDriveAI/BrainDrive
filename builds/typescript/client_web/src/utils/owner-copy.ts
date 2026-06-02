@@ -35,7 +35,11 @@ export function polishOwnerVisibleAssistantCopy(text: string): string {
 
 function normalizeMalformedMarkdownSpacing(text: string): string {
   return text
+    .replace(/Detailed Budget Category Breakdown\s*\|\s*Category\s*\|\s*Budget Limit \/ Spent\s*\|[\s\S]*?(?=\n(?:Part\s+\d+:|Your Next Steps|What do you think|Do you recognize|$))/gi, "Detailed Budget category breakdown is saved in the latest Budget report.\n\n")
     .replace(/\bcashwas\*?\s*(\$)/gi, "cash was $1")
+    .replace(/\*\*([^*\n]+?)\s+\*\*/g, "**$1**")
+    .replace(/\*\*([^*\n]+?)\s+\*(?=\s{2,}|\n)/g, "**$1**\n")
+    .replace(/\*\*(\d+)\.\s*\n([^*\n]+?)\s+\*\*(?=\d+\.)/g, "$1. $2\n")
     .replace(/^(\d+)\.(?=\S)/gm, "$1. ")
     .replace(/\*+([^*\n]+?\(\$[\d,.]+\))\*+\*+([^*\n]+?\(\$[\d,.]+\))\*+/g, "- $1\n- $2")
     .replace(/([a-z])(\*\*\$)/g, "$1 $2")

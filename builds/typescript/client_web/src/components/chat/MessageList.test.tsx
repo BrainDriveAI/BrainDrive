@@ -130,4 +130,29 @@ describe("MessageList scroll behavior", () => {
     expect(rendered).toContain("reconciles to the current statement rows");
     expect(rendered).not.toMatch(/cashwas|\*{4,}|weaponize|monster in the dark|Ominous indicator|reconciles perfectly/i);
   });
+
+  it("keeps dense Budget tables out of owner-visible chat when markdown collapses", () => {
+    render(
+      <MessageList
+        messages={[
+          {
+            id: "a-1",
+            role: "assistant",
+            content: [
+              "**Draft Actuals Baseline **",
+              "Detailed Budget Category Breakdown | Category | Budget Limit / Spent | Description/Source |  | :--- | :---: | :--- |  | Fixed Obligations | $1,059.73 | Rent and bills |  | Variable Living Spend | $1,291.13 | Groceries and transit | ---",
+              "Part 2: Needs-Review List",
+            ].join("\n"),
+          },
+        ]}
+      />
+    );
+
+    const rendered = document.body.textContent ?? "";
+    expect(rendered).toContain("Draft Actuals Baseline");
+    expect(rendered).toContain("Detailed Budget category breakdown is saved in the latest Budget report.");
+    expect(rendered).toContain("Part 2: Needs-Review List");
+    expect(rendered).not.toMatch(/Budget Limit \/ Spent|:---|Fixed Obligations \|/);
+    expect(rendered).not.toContain("**");
+  });
 });

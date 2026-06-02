@@ -21,6 +21,8 @@ describe("memory init project scaffolding", () => {
         .rejects.toThrow();
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "AGENT.md"), "utf8"))
         .resolves.toContain("# Budget - Agent Context");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "AGENT.md"), "utf8"))
+        .resolves.toContain("Debt Payoff Priority");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "budget.md"), "utf8"))
         .resolves.toContain("## Assumptions And Confidence");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "budget.md"), "utf8"))
@@ -31,6 +33,8 @@ describe("memory init project scaffolding", () => {
         .resolves.toContain("# Latest Budget Report");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "create.md"), "utf8"))
         .resolves.toContain("draft actuals baseline");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "create.md"), "utf8"))
+        .resolves.toContain("Northbridge Rewards Visa is the higher-APR card at 22.49%");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "compare.md"), "utf8"))
         .resolves.toContain("Reconciliation Check");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "statements", "README.md"), "utf8"))
