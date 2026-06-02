@@ -54,6 +54,7 @@ describe("file ops memory_delete", () => {
       });
       expect(result.content_summary).toContain("My Todos");
       expect(result.content_summary).toContain("1 checkbox task");
+      expect(result.content_summary).toContain("Set up credit card autopay");
     } finally {
       await rm(memoryRoot, { recursive: true, force: true });
     }
@@ -84,6 +85,7 @@ describe("file ops memory_delete", () => {
         changed: true,
       });
       expect(result.content_summary).toContain("1 checkbox task");
+      expect(result.content_summary).toContain("Set up credit card autopay");
     } finally {
       await rm(memoryRoot, { recursive: true, force: true });
     }

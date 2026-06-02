@@ -29,6 +29,10 @@ Before creating a statement-backed baseline, read the uploaded source evidence i
 
 One month of statements may produce a draft actuals baseline only. Do not call it a stable monthly budget unless the owner confirms the month is representative. Ask for 3-6 months of checking and credit-card history, plus known annual or irregular costs such as property tax, insurance, medical, therapy, travel, home, family, and startup funding.
 
+Do not wait for perfect categorization before saving a first-pass Budget. If transactions such as MJP Services, Blue Door Payment, or other material items are unclear, save the draft Budget anyway and place them in a Needs Review section with the temporary treatment you used. Ask the owner targeted follow-up questions only after the saved Budget draft exists.
+
+For a first-pass statement-backed Budget, `budget.md` must stop being a starter template. Save a provisional draft that includes the target month, observed income, fixed bills, variable category limits, irregular or lumpy set-asides, debt payoff minimums and extra-payment target, excluded transfers/debt payments, assumptions and confidence, Needs Review, reconciliation check, and changelog entry.
+
 Separate ordinary personal living spend from transfers, refunds, debt payments, investment movement, and business/startup spending. Do not treat account movement as category spending.
 
 Each major budget row must carry a confidence label in the Notes column or in an Assumptions And Confidence section:
@@ -55,7 +59,7 @@ If any stated target or subtotal does not equal the visible rows plus named excl
 
 ## Done Criteria
 
-`budget.md` has current saved limits, confidence labels, assumptions, a reconciliation check, and changes recorded in the changelog.
+`budget.md` has current saved limits, confidence labels, assumptions, Needs Review for unresolved items, a reconciliation check, and changes recorded in the changelog. For first-pass Budget requests, `budget.md` must not still say `Status: Starter template - not yet customized` when you tell the owner a saved Budget exists.
 
 ## After Running
 

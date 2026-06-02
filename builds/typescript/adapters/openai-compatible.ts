@@ -124,6 +124,19 @@ type ProviderErrorPayload = {
   };
 };
 
+const DEFAULT_PROVIDER_REQUEST_TIMEOUT_MS = 180_000;
+const DEFAULT_PROVIDER_STREAM_IDLE_TIMEOUT_MS = 60_000;
+
+type ProviderTimeoutState = {
+  controller: AbortController;
+  requestTimeoutMs: number;
+  streamIdleTimeoutMs: number;
+  timedOut: "request_total" | "stream_idle" | null;
+  timer: ReturnType<typeof setTimeout>;
+};
+
+type StreamReadResult = { done: boolean; value?: Uint8Array };
+
 export class OpenAICompatibleAdapter implements ModelAdapter {
   constructor(
     private readonly config: AdapterConfig,
@@ -181,11 +194,20 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
       options.promptAudit.modelCall
     );
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-    });
+    const timeoutState = createProviderTimeoutState();
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal: timeoutState.controller.signal,
+      });
+    } catch (error) {
+      throw normalizeProviderTimeoutError(error, timeoutState);
+    } finally {
+      clearTimeout(timeoutState.timer);
+    }
 
     const payload = await parseProviderPayload(response);
     await options?.promptAudit?.recorder.append(
@@ -240,14 +262,28 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
       options.promptAudit.modelCall
     );
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-    });
+    const timeoutState = createProviderTimeoutState();
+    await appendProviderLifecycle(options, "request_started", timeoutState);
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal: timeoutState.controller.signal,
+      });
+    } catch (error) {
+      await appendProviderLifecycle(options, "timeout", timeoutState);
+      throw normalizeProviderTimeoutError(error, timeoutState);
+    }
 
     const contentType = response.headers.get("content-type") ?? "";
+    await appendProviderLifecycle(options, "response_headers", timeoutState, {
+      status_code: response.status,
+      content_type: contentType,
+    });
     if (!response.ok) {
+      clearTimeout(timeoutState.timer);
       const payload = await parseProviderPayload(response);
       await options?.promptAudit?.recorder.append(
         "prompt_audit.provider_response",
@@ -269,6 +305,7 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
     }
 
     if (!contentType.includes("text/event-stream")) {
+      clearTimeout(timeoutState.timer);
       const payload = await parseProviderPayload(response);
       const fallback = toModelResponse(payload);
       await options?.promptAudit?.recorder.append(
@@ -303,7 +340,13 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
     const rawStreamChunks: string[] = [];
     const toolCallBuilders = new Map<number, { id: string; name: string; args: string }>();
 
-    for await (const data of parseProviderSSE(response)) {
+    let sawFirstStreamChunk = false;
+    try {
+      for await (const data of parseProviderSSE(response, timeoutState)) {
+        if (!sawFirstStreamChunk) {
+          sawFirstStreamChunk = true;
+          await appendProviderLifecycle(options, "first_stream_chunk", timeoutState);
+        }
       if (data === "[DONE]") {
         break;
       }
@@ -383,6 +426,14 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
           toolCallBuilders.set(index, current);
         }
       }
+      }
+    } catch (error) {
+      if (timeoutState.timedOut) {
+        await appendProviderLifecycle(options, "timeout", timeoutState);
+      }
+      throw normalizeProviderTimeoutError(error, timeoutState);
+    } finally {
+      clearTimeout(timeoutState.timer);
     }
 
     yield {
@@ -428,6 +479,10 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
       },
       options?.promptAudit?.modelCall
     );
+    await appendProviderLifecycle(options, "stream_completed", timeoutState, {
+      finish_reason: finishReason,
+      saw_first_stream_chunk: sawFirstStreamChunk,
+    });
   }
 }
 
@@ -480,6 +535,63 @@ function buildChatCompletionBody(
     })),
     ...(tools.length > 0 ? { tool_choice: "auto" as const } : {}),
   };
+}
+
+function createProviderTimeoutState(): ProviderTimeoutState {
+  const requestTimeoutMs = resolveTimeoutMs(
+    "BRAINDRIVE_PROVIDER_REQUEST_TIMEOUT_MS",
+    DEFAULT_PROVIDER_REQUEST_TIMEOUT_MS
+  );
+  const streamIdleTimeoutMs = resolveTimeoutMs(
+    "BRAINDRIVE_PROVIDER_STREAM_IDLE_TIMEOUT_MS",
+    DEFAULT_PROVIDER_STREAM_IDLE_TIMEOUT_MS
+  );
+  const controller = new AbortController();
+  const state: ProviderTimeoutState = {
+    controller,
+    requestTimeoutMs,
+    streamIdleTimeoutMs,
+    timedOut: null,
+    timer: setTimeout(() => {
+      state.timedOut = "request_total";
+      controller.abort(new Error(`Provider request timed out after ${requestTimeoutMs}ms`));
+    }, requestTimeoutMs),
+  };
+  return state;
+}
+
+function resolveTimeoutMs(envName: string, fallback: number): number {
+  const parsed = Number(process.env[envName]);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+async function appendProviderLifecycle(
+  options: ModelAdapterCallOptions | undefined,
+  stage: "request_started" | "response_headers" | "first_stream_chunk" | "stream_completed" | "timeout",
+  timeoutState: ProviderTimeoutState,
+  details: Record<string, unknown> = {}
+): Promise<void> {
+  await options?.promptAudit?.recorder.append(
+    "prompt_audit.provider_lifecycle",
+    {
+      stage,
+      request_timeout_ms: timeoutState.requestTimeoutMs,
+      stream_idle_timeout_ms: timeoutState.streamIdleTimeoutMs,
+      timeout_type: timeoutState.timedOut,
+      ...details,
+    },
+    options.promptAudit.modelCall
+  );
+}
+
+function normalizeProviderTimeoutError(error: unknown, timeoutState: ProviderTimeoutState): Error {
+  if (timeoutState.timedOut === "request_total") {
+    return new Error(`Provider request timed out after ${timeoutState.requestTimeoutMs}ms`);
+  }
+  if (timeoutState.timedOut === "stream_idle") {
+    return new Error(`Provider stream idle timeout after ${timeoutState.streamIdleTimeoutMs}ms`);
+  }
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 async function parseProviderPayload(response: Response): Promise<OpenAICompletionResponse> {
@@ -763,7 +875,7 @@ function toModelResponse(payload: OpenAICompletionResponse): ModelResponse {
   };
 }
 
-async function* parseProviderSSE(response: Response): AsyncIterable<string> {
+async function* parseProviderSSE(response: Response, timeoutState: ProviderTimeoutState): AsyncIterable<string> {
   if (!response.body) {
     return;
   }
@@ -774,7 +886,7 @@ async function* parseProviderSSE(response: Response): AsyncIterable<string> {
 
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const { done, value } = await readStreamChunkWithIdleTimeout(reader, timeoutState);
       buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
 
       while (true) {
@@ -802,6 +914,29 @@ async function* parseProviderSSE(response: Response): AsyncIterable<string> {
     }
   } finally {
     reader.releaseLock();
+  }
+}
+
+async function readStreamChunkWithIdleTimeout(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  timeoutState: ProviderTimeoutState
+): Promise<StreamReadResult> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      reader.read(),
+      new Promise<StreamReadResult>((_, reject) => {
+        timeout = setTimeout(() => {
+          timeoutState.timedOut = "stream_idle";
+          timeoutState.controller.abort(new Error(`Provider stream idle timeout after ${timeoutState.streamIdleTimeoutMs}ms`));
+          reject(new Error(`Provider stream idle timeout after ${timeoutState.streamIdleTimeoutMs}ms`));
+        }, timeoutState.streamIdleTimeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
   }
 }
 

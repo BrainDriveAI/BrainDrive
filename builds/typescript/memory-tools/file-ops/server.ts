@@ -126,10 +126,13 @@ function summarizeWrittenContent(content: string): string {
     .map((line) => line.trim())
     .filter(Boolean);
   const heading = lines.find((line) => line.startsWith("#"));
-  const taskCount = lines.filter((line) => /^- \[[ xX]\]/.test(line)).length;
+  const taskLines = lines.filter((line) => /^- \[[ xX]\]/.test(line));
+  const taskCount = taskLines.length;
+  const taskPreview = taskLines.slice(0, 5).map((line) => line.replace(/\s+/g, " ")).join(" | ");
   const summaryParts = [
     heading ? `heading: ${heading.replace(/^#+\s*/, "")}` : null,
     taskCount > 0 ? `${taskCount} checkbox task${taskCount === 1 ? "" : "s"}` : null,
+    taskPreview ? `task preview: ${taskPreview}` : null,
     `${Buffer.byteLength(content)} bytes`,
   ].filter(Boolean);
   return summaryParts.join("; ");

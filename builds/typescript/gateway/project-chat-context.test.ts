@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  buildDurableClaimCorrection,
   buildProjectChatContext,
   createBrainDriveMemorySafetyGuard,
   conversationHasSavedBudgetComparison,
   createFinanceBudgetProtectionGuard,
   isProtectedFinanceBudgetMutation,
+  ownerLabelForUploadedDocument,
 } from "./server.js";
 import type { ConversationDetail } from "../contracts.js";
 
@@ -181,6 +183,46 @@ describe("project chat context", () => {
     expect(conversationHasSavedBudgetComparison(conversationWithUserMessages([
       "Please build my first budget from these statements.",
     ]))).toBe(false);
+  });
+
+  it("adds a durable-claim correction when Todo claims lack same-turn write evidence", () => {
+    const correction = buildDurableClaimCorrection(
+      "I have added these actions directly to your Todo list so you can follow up.",
+      []
+    );
+
+    expect(correction).toContain("Correction:");
+    expect(correction).toContain("Todo list");
+    expect(correction).toContain("cannot verify");
+  });
+
+  it("does not correct a Todo claim backed by a changed Todo artifact summary", () => {
+    const correction = buildDurableClaimCorrection(
+      "I've updated your active Todo list with set up autopay.",
+      [{
+        path: "me/todo.md",
+        status: "modified",
+        summary: "heading: My Todos; 1 checkbox task; task preview: - [ ] Set up credit card autopay #finance",
+      }]
+    );
+
+    expect(correction).toBeNull();
+  });
+
+  it("distinguishes statement PDFs from transaction CSVs in owner-facing upload labels", () => {
+    const metadata = {
+      statementLike: true,
+      institution: "Cedar Atlantic",
+      accountType: "checking",
+      documentType: "bank_statement",
+    };
+
+    expect(ownerLabelForUploadedDocument(metadata, "cedar", "ai_pdf_to_markdown")).toBe(
+      "Cedar Atlantic checking statement PDF"
+    );
+    expect(ownerLabelForUploadedDocument(metadata, "cedar", "direct_csv_upload")).toBe(
+      "Cedar Atlantic checking transactions CSV"
+    );
   });
 
   it("blocks open-period durable monthly report archives", () => {

@@ -91,6 +91,10 @@ import {
   inferUploadedDocumentMetadata,
   sanitizeSuggestedMarkdownFileName,
 } from "./document-upload.js";
+import {
+  buildClaimToArtifactLedger,
+  type ObservedArtifact,
+} from "./claim-artifact-ledger.js";
 import { createMemoryBackupScheduler } from "./memory-backup-scheduler.js";
 import { GatewayProjectService, isProjectMetadata, ProtectedProjectError, type GatewayProjectFile } from "./projects.js";
 import { GatewaySkillService } from "./skills.js";
@@ -859,6 +863,8 @@ export async function buildServer(rootDir = process.cwd()) {
     let lastPersistedAssistantMessageId: string | null = null;
     let traceStatus: "started" | "completed" | "error" = "started";
     const pendingToolCalls = new Map<string, { name: string; input: Record<string, unknown> }>();
+    const sameTurnObservedArtifacts: ObservedArtifact[] = [];
+    let durableClaimCorrectionSent = false;
 
     try {
       const liveAdapterConfig = resolveEffectiveAdapterConfig(adapterConfig, livePreferences);
@@ -918,12 +924,38 @@ export async function buildServer(rootDir = process.cwd()) {
         }
 
         if (event.type === "done") {
+          if (!durableClaimCorrectionSent && shouldValidateDurableClaims(projectId, appPath)) {
+            const correction = buildDurableClaimCorrection(assistantBuffer, sameTurnObservedArtifacts);
+            if (correction) {
+              durableClaimCorrectionSent = true;
+              assistantBuffer = `${assistantBuffer.trimEnd()}\n\n${correction}`;
+              await promptAuditRecorder?.append("prompt_audit.response_guardrail", {
+                type: "durable_claim_correction",
+                project_id: projectId,
+                app_path: appPath,
+                correction,
+              });
+              reply.raw.write(formatSseEvent(gatewayAdapter.toClientStreamEvent({
+                type: "text-delta",
+                delta: `\n\n${correction}`,
+              }, {
+                conversationId,
+                messageId: lastPersistedAssistantMessageId ?? currentAssistantMessageId,
+              })));
+            }
+          }
           traceStatus = "completed";
         }
 
         if (event.type === "tool-result") {
           const toolCall = pendingToolCalls.get(event.id);
           pendingToolCalls.delete(event.id);
+          const observedArtifact = event.status === "ok"
+            ? observedArtifactFromToolResult(event.output)
+            : null;
+          if (observedArtifact) {
+            sameTurnObservedArtifacts.push(observedArtifact);
+          }
 
           if (assistantBuffer.trim().length > 0) {
             conversations.appendAssistantMessage(conversationId, currentAssistantMessageId, assistantBuffer);
@@ -2458,7 +2490,7 @@ export async function buildServer(rootDir = process.cwd()) {
       reply.code(201).send({
         file: {
           ...file,
-          ownerLabel: ownerLabelForUploadedDocument(metadata, converted.title),
+          ownerLabel: ownerLabelForUploadedDocument(metadata, converted.title, converted.conversion),
           statementMonth: statementMonthOwnerLabel(metadata.statementMonth),
           destinationLabel: uploadDirectory ? "Budget statements" : project.name,
           sourceType: ownerFacingDocumentType(metadata.documentType),
@@ -3285,6 +3317,102 @@ function normalizeOllamaOpenAIBaseUrl(baseUrl: string): string {
   return parsed.toString().replace(/\/$/, "");
 }
 
+function shouldValidateDurableClaims(projectId: string | null, appPath: string | null): boolean {
+  return projectId === "finance" && (!appPath || appPath.includes("/budget"));
+}
+
+export function buildDurableClaimCorrection(
+  assistantText: string,
+  observedArtifacts: ObservedArtifact[]
+): string | null {
+  if (assistantText.trim().length === 0) {
+    return null;
+  }
+
+  const ledger = buildClaimToArtifactLedger({
+    assistantText,
+    observedArtifacts,
+  });
+  const unsupportedClaims = ledger.filter((entry) =>
+    isHighRiskDurableClaim(entry.claim.type) &&
+    (entry.verificationStatus === "missing" || entry.verificationStatus === "contradicted")
+  );
+
+  if (unsupportedClaims.length === 0) {
+    return null;
+  }
+
+  const labels = [...new Set(unsupportedClaims.map((entry) => durableClaimLabel(entry.claim.type)))];
+  return [
+    `Correction: I cannot verify that I saved ${joinNaturalLanguageList(labels)} in this turn.`,
+    "Treat any related items above as recommended next actions until I explicitly save and verify the matching Budget files.",
+  ].join(" ");
+}
+
+function isHighRiskDurableClaim(type: string): boolean {
+  return type === "todo_updated" ||
+    type === "budget_updated" ||
+    type === "report_updated" ||
+    type === "category_mapped";
+}
+
+function durableClaimLabel(type: string): string {
+  if (type === "todo_updated") {
+    return "the Todo list";
+  }
+  if (type === "budget_updated") {
+    return "the saved Budget";
+  }
+  if (type === "report_updated") {
+    return "the latest Budget report";
+  }
+  if (type === "category_mapped") {
+    return "the category mapping";
+  }
+  return "the durable artifact";
+}
+
+function joinNaturalLanguageList(values: string[]): string {
+  if (values.length <= 1) {
+    return values[0] ?? "the durable artifact";
+  }
+  if (values.length === 2) {
+    return `${values[0]} and ${values[1]}`;
+  }
+  return `${values.slice(0, -1).join(", ")}, and ${values.at(-1)}`;
+}
+
+function observedArtifactFromToolResult(output: unknown): ObservedArtifact | null {
+  if (!isObjectRecord(output)) {
+    return null;
+  }
+
+  const operation = typeof output.operation === "string" ? output.operation : null;
+  const relativePath = typeof output.relative_path === "string" ? output.relative_path : null;
+  const pathValue = relativePath ?? (typeof output.path === "string" ? output.path : null);
+  if (!operation || !pathValue) {
+    return null;
+  }
+
+  const changed = output.changed === true;
+  const status: ObservedArtifact["status"] = operation === "delete"
+    ? "removed"
+    : changed ? "modified" : "unchanged";
+  const summary = typeof output.content_summary === "string"
+    ? output.content_summary
+    : `${operation} ${changed ? "changed" : "did not change"} ${pathValue}`;
+
+  return {
+    path: pathValue,
+    status,
+    summary,
+  };
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 export function buildProjectChatContext(
   projectId: string,
   files: GatewayProjectFile[],
@@ -3311,6 +3439,7 @@ export function buildProjectChatContext(
         "For explicit Finance execution requests about budgets, debt, uploads, statements, spending, or reports, complete the Finance task before coaching or cross-domain discussion.",
         "When asking the owner for statements or supporting documents, ask them to attach files in chat or use the visible upload button. Do not ask the owner to manually place files into documents/finance/... paths.",
         "For Budget creation requests, make the saved Budget the primary deliverable. Treat statement reports as supporting evidence unless the owner asks how actuals compare.",
+        "For first-pass Budget creation, save a provisional Budget with Needs Review and confidence labels before asking clarifying questions. Ambiguous merchants must not block the saved Budget draft.",
         "When only one month of statements is available, call the result a draft actuals baseline, not a stable budget. Ask for 3-6 months of history or explicit owner confirmation before presenting durable category limits.",
         "For 'how did I do?', monthly comparison, over/under, or budget progress questions, treat documents/finance/budget/budget.md as the saved budget and compare statement actuals against it.",
         "Use documents/finance/budget/statements/ as source evidence and documents/finance/budget/reports/ as derived output for budget reports.",
@@ -3419,23 +3548,38 @@ function buildAppChatContextGuidance(
   ].filter(Boolean);
 }
 
-function ownerLabelForUploadedDocument(
+export function ownerLabelForUploadedDocument(
   metadata: { statementLike: boolean; institution: string | null; accountType: string; documentType: string },
-  fallbackTitle: string
+  fallbackTitle: string,
+  conversion?: string
 ): string {
   if (!metadata.statementLike) {
     return fallbackTitle;
   }
 
   const accountLabel = ownerFacingAccountType(metadata.accountType);
+  const uploadKind = ownerFacingUploadKind(conversion);
   const institution = metadata.institution?.trim();
   if (institution && accountLabel) {
-    return `${institution} ${accountLabel} statement`;
+    return `${institution} ${accountLabel} ${uploadKind}`;
   }
   if (institution) {
-    return `${institution} statement`;
+    return `${institution} ${uploadKind}`;
   }
-  return `${ownerFacingDocumentType(metadata.documentType)} statement`;
+  return `${ownerFacingDocumentType(metadata.documentType)} ${uploadKind}`;
+}
+
+function ownerFacingUploadKind(conversion?: string): string {
+  if (conversion === "direct_csv_upload") {
+    return "transactions CSV";
+  }
+  if (conversion === "ai_pdf_to_markdown") {
+    return "statement PDF";
+  }
+  if (conversion === "ai_image_to_markdown") {
+    return "statement image";
+  }
+  return "statement file";
 }
 
 function ownerFacingAccountType(value: string): string {

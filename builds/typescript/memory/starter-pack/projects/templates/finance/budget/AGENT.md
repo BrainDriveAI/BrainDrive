@@ -40,6 +40,8 @@ When touching `budget.md`, update sections in place and never replace the whole 
 
 Hard routing rule: when the owner asks to create, build, establish, define, or refine a budget, run the saved-Budget creation workflow first. Do not let statement comparison or report generation become the primary deliverable unless the owner asks how actuals compare or asks for a report.
 
+Draft-with-uncertainty rule: ambiguous transactions, missing months, or unresolved merchant labels must not block a first-pass saved Budget. Save a provisional Budget with a Needs Review section, clear confidence labels, and explicit assumptions, then ask the targeted follow-up questions after the draft exists.
+
 ## Statement Intake Checklist
 
 When the owner is setting up a budget from statements, keep a visible checklist in the conversation:

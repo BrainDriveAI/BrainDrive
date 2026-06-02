@@ -33,6 +33,8 @@ const tools: ToolDefinition[] = [
 
 describe("OpenAICompatibleAdapter prompt audit", () => {
   afterEach(() => {
+    delete process.env.BRAINDRIVE_PROVIDER_REQUEST_TIMEOUT_MS;
+    delete process.env.BRAINDRIVE_PROVIDER_STREAM_IDLE_TIMEOUT_MS;
     vi.restoreAllMocks();
   });
 
@@ -139,7 +141,59 @@ describe("OpenAICompatibleAdapter prompt audit", () => {
       },
     });
   });
+
+  it("aborts a streaming provider response that goes idle", async () => {
+    process.env.BRAINDRIVE_PROVIDER_REQUEST_TIMEOUT_MS = "1000";
+    process.env.BRAINDRIVE_PROVIDER_STREAM_IDLE_TIMEOUT_MS = "10";
+    const events: Array<{ event: string; details: Record<string, unknown> }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          new ReadableStream({
+            start() {
+              // Leave the stream open without chunks to exercise idle timeout handling.
+            },
+          }),
+          { status: 200, headers: { "content-type": "text/event-stream" } }
+        )
+      )
+    );
+
+    const adapter = new OpenAICompatibleAdapter({
+      base_url: "https://provider.example/v1",
+      model: "test-model",
+      api_key_env: "TEST_API_KEY",
+    });
+
+    await expect(collectStream(adapter.completeStream!(request, tools, {
+      promptAudit: {
+        recorder: fakeRecorder(events),
+        modelCall: {
+          model_call_id: "model-call-1",
+          model_call_index: 1,
+        },
+      },
+    }))).rejects.toThrow("Provider stream idle timeout after 10ms");
+
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "prompt_audit.provider_lifecycle",
+      details: expect.objectContaining({
+        stage: "timeout",
+        timeout_type: "stream_idle",
+        stream_idle_timeout_ms: 10,
+      }),
+    }));
+  });
 });
+
+async function collectStream<T>(stream: AsyncIterable<T>): Promise<T[]> {
+  const chunks: T[] = [];
+  for await (const chunk of stream) {
+    chunks.push(chunk);
+  }
+  return chunks;
+}
 
 function fakeRecorder(events: Array<{ event: string; details: Record<string, unknown> }>): PromptAuditRecorder {
   return {

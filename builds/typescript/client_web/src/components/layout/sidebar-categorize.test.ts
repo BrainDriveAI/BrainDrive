@@ -64,11 +64,11 @@ describe("sidebar categorization", () => {
 
     expect(model.primary.map((item) => item.label)).toEqual(["Your Budget"]);
     expect(model.files).toEqual([]);
-    expect(model.folders.map((folder) => folder.label)).toEqual(["Reports", "Statements"]);
-    expect(model.folders.find((folder) => folder.label === "Reports")?.files.map((item) => item.canonicalPath)).toEqual([
+    expect(model.folders.map((folder) => folder.label)).toEqual(["Budget reports (1)", "Budget statements (1)"]);
+    expect(model.folders.find((folder) => folder.label === "Budget reports (1)")?.files.map((item) => item.canonicalPath)).toEqual([
       "budget/reports/latest.md",
     ]);
-    expect(model.folders.find((folder) => folder.label === "Statements")?.files.map((item) => item.canonicalPath)).toEqual([
+    expect(model.folders.find((folder) => folder.label === "Budget statements (1)")?.files.map((item) => item.canonicalPath)).toEqual([
       "budget/statements/2026-05-card.md",
     ]);
     expect(model.advanced.map((item) => item.canonicalPath)).toEqual([

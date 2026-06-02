@@ -145,7 +145,7 @@ export function buildAppSidebarModel(projectId: string, appPath: string, files: 
     folders: [...folders.entries()]
       .map(([folderPath, folderFiles]) => ({
         path: `${normalizedAppPath}/${folderPath}`,
-        label: titleCase(folderPath),
+        label: appFolderLabel(normalizedAppPath, folderPath, folderFiles.length),
         files: sortItems(folderFiles),
       }))
       .sort((left, right) => left.label.localeCompare(right.label)),
@@ -253,6 +253,16 @@ function isAppAdvancedFile(appRelativePath: string, appRootName: string): boolea
 
 function isAppFileFolder(folderName: string): boolean {
   return folderName === "reports" || folderName === "statements" || folderName === "sources" || folderName === "files";
+}
+
+function appFolderLabel(appPath: string, folderName: string, fileCount: number): string {
+  if (appPath === "budget" && folderName === "statements") {
+    return `Budget statements (${fileCount})`;
+  }
+  if (appPath === "budget" && folderName === "reports") {
+    return `Budget reports (${fileCount})`;
+  }
+  return `${titleCase(folderName)} (${fileCount})`;
 }
 
 function withAppAdvancedLabel(item: SidebarFileItem, appRelativePath: string, appRootName: string): SidebarFileItem {

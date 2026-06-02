@@ -70,6 +70,8 @@ type UploadActivity = {
   ownerLabel?: string;
   statementMonth?: string | null;
   destinationLabel?: string;
+  sourceType?: string;
+  accountName?: string | null;
   detailsOpen?: boolean;
   collapsed?: boolean;
   error?: string;
@@ -81,6 +83,8 @@ type UploadSuccess = {
   ownerLabel: string;
   statementMonth?: string | null;
   destinationLabel: string;
+  sourceType?: string;
+  accountName?: string | null;
 };
 
 type UploadFailure = {
@@ -217,8 +221,13 @@ function UploadActivityList({
                     {activity.detailsOpen ? "Hide details" : "Details"}
                   </button>
                   {activity.detailsOpen ? (
-                    <div className="truncate pt-0.5 text-xs text-bd-text-muted">
-                      Source evidence path: {activity.savedPath}
+                    <div className="space-y-0.5 pt-1 text-xs text-bd-text-muted">
+                      <div>Saved status: saved to Budget statements</div>
+                      <div>Owner label: {activity.ownerLabel ?? activity.fileName}</div>
+                      <div>Original file: {activity.fileName} ({formatFileSize(activity.fileSize)})</div>
+                      {activity.sourceType ? <div>Source type: {activity.sourceType}</div> : null}
+                      {activity.accountName ? <div>Account: {activity.accountName}</div> : null}
+                      <div className="truncate">Source evidence path: {activity.savedPath}</div>
                     </div>
                   ) : null}
                 </div>
@@ -546,6 +555,8 @@ export default function ChatPanel({
       ownerLabel: uploadedFile?.ownerLabel ?? ownerLabelForMemoryPath(savedPath, fileName),
       statementMonth: uploadedFile?.statementMonth ?? statementMonthLabelForMemoryPath(savedPath),
       destinationLabel: uploadedFile?.destinationLabel ?? destinationLabelForMemoryPath(savedPath),
+      sourceType: uploadedFile?.sourceType,
+      accountName: uploadedFile?.accountName,
     };
   }
 
@@ -697,6 +708,8 @@ export default function ChatPanel({
           ownerLabel: receipt.ownerLabel,
           statementMonth: receipt.statementMonth,
           destinationLabel: receipt.destinationLabel,
+          sourceType: receipt.sourceType,
+          accountName: receipt.accountName,
           message: `Saved ${receipt.ownerLabel}.`,
         }));
         emitUploadLifecycleEvent({
@@ -787,6 +800,8 @@ export default function ChatPanel({
         ownerLabel: receipt.ownerLabel,
         statementMonth: receipt.statementMonth,
         destinationLabel: receipt.destinationLabel,
+        sourceType: receipt.sourceType,
+        accountName: receipt.accountName,
         collapsed: false,
         detailsOpen: false,
         message: `Saved ${receipt.ownerLabel}.`,

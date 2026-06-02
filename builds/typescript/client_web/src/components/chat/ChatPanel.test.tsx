@@ -237,6 +237,8 @@ describe("ChatPanel typing indicator behavior", () => {
       ownerLabel: "Northbridge credit card statement",
       statementMonth: "April 2026",
       destinationLabel: "Budget statements",
+      sourceType: "Credit card",
+      accountName: "Northbridge",
     }));
     useGatewayChatMock.mockReturnValue(hookState);
 
@@ -259,6 +261,12 @@ describe("ChatPanel typing indicator behavior", () => {
     expect(await screen.findByText("Saved Northbridge credit card statement.")).toBeInTheDocument();
     expect(screen.getByText("April 2026 · Budget statements")).toBeInTheDocument();
     expect(screen.queryByText(/documents\/finance/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Details" }));
+    expect(screen.getByText("Saved status: saved to Budget statements")).toBeInTheDocument();
+    expect(screen.getByText("Original file: northbridge.csv (11 B)")).toBeInTheDocument();
+    expect(screen.getByText("Source type: Credit card")).toBeInTheDocument();
+    expect(screen.getByText("Account: Northbridge")).toBeInTheDocument();
   });
 
   it("collapses completed upload receipts after the assistant acknowledges them", async () => {
