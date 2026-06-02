@@ -33,6 +33,8 @@ Do not wait for perfect categorization before saving a first-pass Budget. If tra
 
 For a first-pass statement-backed Budget, `budget.md` must stop being a starter template. Save a provisional draft that includes the target month, observed income, fixed bills, variable category limits, irregular or lumpy set-asides, debt payoff minimums and extra-payment target, excluded transfers/debt payments, assumptions and confidence, Needs Review, reconciliation check, and changelog entry.
 
+If uploaded source files were used or reviewed during setup, also populate `reports/latest.md` with a source coverage ledger and any supporting detail that would make the chat reply too dense. The Source Coverage section must list each uploaded file as used, reviewed/excluded, or missing/rejected. Harborline Roth IRA or other investment statements must be listed as reviewed/excluded asset context with no spendable cash-flow impact.
+
 Separate ordinary personal living spend from transfers, refunds, debt payments, investment movement, and business/startup spending. Do not treat account movement as category spending.
 
 Each major budget row must carry a confidence label in the Notes column or in an Assumptions And Confidence section:
@@ -71,7 +73,7 @@ Separate completion state from follow-up state in the final reply:
 - Open owner decisions or assumptions.
 - Active Todo items that still remain.
 
-Keep the chat reply scan-friendly. Use bullets for the owner-facing summary and keep detailed category tables in the saved Budget or report artifacts unless the owner explicitly asks to see a table in chat. Do not send malformed markdown, dangling emphasis markers, repeated emphasis markers, concatenated category words, jammed amounts, or adjacent merchant names without line breaks.
+Keep the chat reply scan-friendly. Use bullets for the owner-facing summary and keep detailed category tables in the saved Budget or report artifacts unless the owner explicitly asks to see a table in chat. For the first Budget reply, confirm the draft exists, give no more than five findings, and ask only the highest-priority next question. Do not send full APR tables, full category ledgers, raw pipe tables, malformed markdown, dangling emphasis markers, repeated emphasis markers, concatenated category words, jammed amounts, or adjacent merchant names without line breaks.
 
 End the response with a clear product-facing review affordance sentence, for example: "Your saved Budget is ready to review, and the latest Budget report is available if you want the statement-backed details." Do not use raw file paths in that sentence.
 

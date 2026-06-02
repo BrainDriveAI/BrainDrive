@@ -61,6 +61,30 @@ After accepting uploads, propagate state so parent Finance files do not keep com
 - update the Finance plan next step;
 - close or revise stale Todo list items.
 
+## Source Coverage
+
+Every saved Budget report must account for every uploaded file in a dedicated Source Coverage section. This is separate from transaction math.
+
+Use three groups:
+
+- Used for Budget calculations: checking, credit-card, payroll, or transaction sources that drive income, spending, debt, interest, or category totals.
+- Reviewed and excluded from spending calculations: investment, retirement, asset-only, transfer-only, refund-only, or otherwise non-spending context. Include a short reason.
+- Missing or rejected files: files the owner referenced, attempted to upload, or expected to be included but that were unavailable, unreadable, unsupported, or not found.
+
+Investment and retirement statements, including Roth IRA evidence, must remain excluded from spendable cash, income, and living expense totals, but they still must be listed in Source Coverage as reviewed/excluded asset context when uploaded.
+
+Every uploaded file should be traceable to exactly one Source Coverage group. A transaction row, exclusion row, or casual mention is not enough by itself.
+
+## Chat Response Policy
+
+Use chat to orient the owner, not to serialize the report. For Budget draft, comparison, and reconciliation replies:
+
+- Confirm what durable artifact changed using product labels.
+- Give 3-5 top-level findings at most.
+- Ask at most one next-action question. If several items remain, name the list and ask the owner to pick one or start with the highest-risk item.
+- Do not paste full APR tables, category ledgers, variance tables, reconciliation tables, or raw Markdown pipe tables into chat. Put those details in the saved Budget or latest Budget report.
+- Keep sensitive-finance wording calm and conditional when source gaps or Needs Review items remain. Avoid "massive surplus", "crush this debt", "perfectly reconciled", and similar overconfident language.
+
 ## Promise-To-Artifact Rule
 
 Do not tell the owner you updated a durable artifact unless the write happened in this turn and you verified the saved content afterward. This is especially strict for the Todo list.

@@ -19,9 +19,17 @@ Produce an evidence-backed comparison report showing actual spending, budget var
 
 ## Method
 
-Read `budget.md`, `budget-rules.md`, `budget-rules-user.md` if present, `statements/README.md`, and relevant statements. Build a source evidence ledger before writing the report.
+Read `budget.md`, `budget-rules.md`, `budget-rules-user.md` if present, `statements/README.md`, and relevant statements. Build a source coverage ledger and source evidence ledger before writing the report.
 
 Write `reports/latest.md` by default. Write `reports/monthly-YYYY-MM.md` only after the reported month is closed. Do not answer a comparison request only in chat; the saved latest Budget report is the durable comparison artifact and must be populated before the final comparison reply.
+
+The latest Budget report must include Source Coverage with every uploaded file assigned to one of these groups:
+
+- Used for Budget calculations.
+- Reviewed and excluded from spending calculations, with reason.
+- Missing or rejected files, with reason.
+
+Investment and retirement statements, including Roth IRA statements, belong in reviewed/excluded asset context unless the owner explicitly asks for asset tracking. They must not affect spendable income, personal living expenses, debt payoff cash flow, or ordinary spending variance.
 
 Do not claim every transaction was mapped unless the Source Evidence Ledger accounts for every transaction in the relevant source statements. If the ledger is selective, say it is selective and limit claims to the rows reviewed.
 
@@ -43,7 +51,7 @@ A blank starter `reports/latest.md` is an invalid comparison result. Before repl
 
 ## Done Criteria
 
-The report includes Summary, Source Evidence Ledger, Owner-Requested Items Audit, Category Breakdown, New Or Unbudgeted Items, Excluded From Expense Totals, Needs Review, Reconciliation Check, Next Actions, and a consistency check.
+The report includes Summary, Source Coverage, Source Evidence Ledger, Owner-Requested Items Audit, Category Breakdown, New Or Unbudgeted Items, Excluded From Expense Totals, Needs Review, Reconciliation Check, Next Actions, and a consistency check.
 
 ## After Running
 
@@ -55,7 +63,7 @@ Separate completion state from follow-up state in the final reply:
 - Open owner decisions or assumptions.
 - Active Todo items that still remain.
 
-Keep the chat reply scan-friendly. Use bullets for the owner-facing summary and keep detailed variance tables in the saved report artifact unless the owner explicitly asks to see a table in chat. Do not send malformed markdown, dangling emphasis markers, repeated emphasis markers, concatenated category words, jammed amounts, or adjacent merchant names without line breaks.
+Keep the chat reply scan-friendly. Use bullets for the owner-facing summary and keep detailed variance, reconciliation, and exclusion tables in the saved report artifact unless the owner explicitly asks to see a table in chat. For comparison replies, send one sentence summary, up to three bullets, and one next action. Do not send raw pipe tables, full over/under tables, full reconciliation tables, malformed markdown, dangling emphasis markers, repeated emphasis markers, concatenated category words, jammed amounts, or adjacent merchant names without line breaks. If source gaps or Needs Review items remain, use cautious wording and avoid overconfident payoff language.
 
 End the response with a clear product-facing review affordance sentence, for example: "The latest Budget report is ready to review, with unresolved items still marked Needs Review." Do not use raw file paths in that sentence.
 

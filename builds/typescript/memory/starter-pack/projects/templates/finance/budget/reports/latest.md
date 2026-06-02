@@ -19,6 +19,25 @@ Do not use this report as the saved budget. The saved spending plan lives in `..
 - Major new/unbudgeted item:
 - Items needing owner review:
 
+## Source Coverage
+
+Every uploaded file must appear in exactly one group below. This section explains whether each file was used for Budget math, reviewed and excluded from spending math, or unavailable.
+
+### Used For Budget Calculations
+
+| Uploaded File | Account/Institution | Coverage | Used For |
+|---|---|---|---|
+
+### Reviewed And Excluded From Spending Calculations
+
+| Uploaded File | Account/Institution | Coverage | Reason Excluded |
+|---|---|---|---|
+
+### Missing Or Rejected Files
+
+| Expected File | Reason | Next Step |
+|---|---|---|
+
 ## Source Evidence Ledger
 
 | Date | Exact Statement Description | Amount | Account/Source | Treatment | Report Section |
