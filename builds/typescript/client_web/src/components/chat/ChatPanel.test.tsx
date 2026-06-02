@@ -315,6 +315,53 @@ describe("ChatPanel typing indicator behavior", () => {
     }
   });
 
+  it("keeps partial upload failures local with owner-safe copy", async () => {
+    const user = userEvent.setup();
+    const hookState = makeHookState();
+    const onSendMessage = vi.fn();
+    const onUploadDocument = vi
+      .fn()
+      .mockResolvedValueOnce({
+        name: "april.md",
+        path: "documents/finance/budget/statements/april.md",
+        ownerLabel: "April checking statement",
+        destinationLabel: "Budget statements",
+      })
+      .mockRejectedValueOnce(new Error("ai_pdf_to_markdown returned empty markdown."));
+    useGatewayChatMock.mockReturnValue(hookState);
+
+    const { container } = render(
+      <ChatPanel
+        activeConversationId={null}
+        activeProjectId="finance"
+        isEmpty={false}
+        onUploadDocument={onUploadDocument}
+        onSendMessage={onSendMessage}
+      />
+    );
+
+    const input = container.querySelector('input[type="file"]');
+    expect(input).toBeInstanceOf(HTMLInputElement);
+
+    const april = new File(["Date,Amount"], "april.csv", { type: "text/csv" });
+    const cedarAtlantic = new File(["%PDF-1.6"], "CedarAtlantic_Checking_2026-04-15.pdf", { type: "application/pdf" });
+    await user.upload(input as HTMLInputElement, [april, cedarAtlantic]);
+    await user.click(screen.getAllByRole("button", { name: "Send message" })[0]!);
+
+    await waitFor(() => {
+      expect(onUploadDocument).toHaveBeenCalledTimes(2);
+    });
+    expect(onSendMessage).not.toHaveBeenCalled();
+    expect(hookState.append).not.toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/1 of 2 files uploaded/).length).toBeGreaterThan(0);
+    });
+    expect(screen.getAllByText(/We could not read this PDF/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/ai_pdf_to_markdown/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/I received all 1 statements/)).not.toBeInTheDocument();
+  });
+
   it("renders friendly upload receipts without raw source paths by default", async () => {
     const user = userEvent.setup();
     const hookState = makeHookState();

@@ -40,6 +40,22 @@ function baseInput(overrides: Partial<UploadedDocumentInput>): UploadedDocumentI
   };
 }
 
+function pdfWithEmbeddedJpeg(): Buffer {
+  const jpeg = Buffer.concat([
+    Buffer.from([
+      0xff, 0xd8,
+      0xff, 0xda, 0x00, 0x0c, 0x03, 0x01, 0x00, 0x02, 0x11, 0x03, 0x11, 0x00,
+    ]),
+    Buffer.alloc(1100, 0),
+    Buffer.from([0xff, 0xd9]),
+  ]);
+  return Buffer.concat([
+    Buffer.from("%PDF-1.6\nstream\n"),
+    jpeg,
+    Buffer.from("\nendstream\n%%EOF"),
+  ]);
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -150,6 +166,68 @@ describe("document upload conversion", () => {
         },
       },
     ]);
+  });
+
+  it("falls back to embedded PDF images when OpenRouter file parsing returns empty markdown", async () => {
+    const pdfLike = pdfWithEmbeddedJpeg();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: "",
+                },
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: "# Cedar Atlantic Checking\n\nConverted from image fallback.",
+                },
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }
+        )
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const converted = await convertUploadedDocumentToMarkdown(
+      baseInput({
+        fileName: "CedarAtlantic_Checking_2026-04-15.pdf",
+        mimeType: "application/pdf",
+        data: pdfLike,
+      }),
+      "openai-compatible",
+      adapterConfig,
+      preferences
+    );
+
+    expect(converted.conversion).toBe("ai_pdf_to_markdown");
+    expect(converted.markdown).toContain("Cedar Atlantic Checking");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const calls = fetchMock.mock.calls as unknown as Array<[unknown, RequestInit]>;
+    const fileParserRequest = JSON.parse(String(calls[0]?.[1].body));
+    const imageFallbackRequest = JSON.parse(String(calls[1]?.[1].body));
+    expect(fileParserRequest.messages[1].content[1].type).toBe("file");
+    expect(imageFallbackRequest.messages[1].content[1].type).toBe("image_url");
   });
 
   it("sends PDFs to BrainDrive Models as LiteLLM-compatible file inputs", async () => {

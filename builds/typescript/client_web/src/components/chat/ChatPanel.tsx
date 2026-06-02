@@ -63,6 +63,18 @@ function contextOverflowRecoveryMessage(projectId?: string | null, appPath?: str
   ].join("\n");
 }
 
+function ownerVisibleUploadError(error: unknown): string {
+  const rawMessage = error instanceof Error ? error.message : "";
+  if (/\b(?:ai_pdf_to_markdown|ai_image_to_markdown|AI conversion).{0,80}empty markdown\b/i.test(rawMessage) ||
+      /\breturned empty markdown\b/i.test(rawMessage)) {
+    return "We could not read this PDF. Retry it, upload a CSV/export version, or continue with incomplete evidence.";
+  }
+  if (rawMessage.trim().length > 0) {
+    return rawMessage;
+  }
+  return "Document upload failed. Retry the file or upload a CSV/export version.";
+}
+
 function shouldShowBudgetFileActions(input: {
   messages: Message[];
   activeProjectId?: string | null;
@@ -655,6 +667,8 @@ export default function ChatPanel({
       lines.push(trimmed, "");
     }
 
+    const totalFiles = successes.length + failures.length;
+
     if (successes.length === 1) {
       lines.push("Uploaded 1 statement:");
     } else if (successes.length > 1) {
@@ -668,18 +682,22 @@ export default function ChatPanel({
     if (failures.length > 0) {
       if (successes.length > 0) {
         lines.push("");
-        lines.push(`${successes.length} saved, ${failures.length} need attention.`);
+        lines.push(`${successes.length} of ${totalFiles} files uploaded. ${failures.length} need attention before I can build a complete Budget from this batch.`);
       }
       lines.push(failures.length === 1 ? "1 file did not upload:" : `${failures.length} files did not upload:`);
       for (const failure of failures) {
         lines.push(`- ${failure.fileName}: ${failure.error}`);
       }
+      lines.push("");
+      lines.push("Retry the failed file, upload a CSV/export version, or continue only if you want me to work from incomplete evidence.");
     }
 
-    lines.push(
-      "",
-      `I received ${successes.length === 1 ? "this statement" : `all ${successes.length} statements`}. I'll use ${successes.length === 1 ? "it" : "them"} for your Budget work and keep the statement checklist current before continuing.`
-    );
+    if (failures.length === 0 && successes.length > 0) {
+      lines.push(
+        "",
+        `I received ${successes.length === 1 ? "this statement" : `all ${successes.length} statements`}. I'll use ${successes.length === 1 ? "it" : "them"} for your Budget work and keep the statement checklist current before continuing.`
+      );
+    }
     return lines.join("\n");
   }
 
@@ -810,7 +828,8 @@ export default function ChatPanel({
           conversionStatus: requiresMarkdownConversion(activity.file) ? "completed" : "not_needed",
         });
       } catch (uploadError) {
-        const errorMessage = uploadError instanceof Error ? uploadError.message : "Document upload failed.";
+        const rawErrorMessage = uploadError instanceof Error ? uploadError.message : "Document upload failed.";
+        const errorMessage = ownerVisibleUploadError(uploadError);
         failures.push({
           fileName: activity.fileName,
           error: errorMessage,
@@ -824,7 +843,7 @@ export default function ChatPanel({
           selectedFileCount: files.length,
           projectId: activeProjectId,
           status: "error",
-          error: errorMessage,
+          error: rawErrorMessage,
           conversionStatus: requiresMarkdownConversion(activity.file) ? "failed" : "not_needed",
         });
         updateUploadActivity(activity.id, (current) => ({
@@ -836,7 +855,7 @@ export default function ChatPanel({
       }
     }
 
-    if (successes.length > 0) {
+    if (successes.length > 0 && failures.length === 0) {
       onSendMessage?.();
       for (const success of successes) {
         const activity = activities.find((candidate) => candidate.fileName === success.fileName);
@@ -859,7 +878,7 @@ export default function ChatPanel({
       }
       append(buildUploadSummaryMessage(message, successes, failures), { metadata: messageMetadata });
     } else if (failures.length > 0) {
-      setFileError(failures.length === 1 ? failures[0]!.error : "Document uploads failed.");
+      setFileError(buildUploadSummaryMessage(message, successes, failures));
     }
   }
 
@@ -895,7 +914,7 @@ export default function ChatPanel({
         metadata: messageMetadata
       });
     } catch (uploadError) {
-      const errorMessage = uploadError instanceof Error ? uploadError.message : "Document upload failed.";
+      const errorMessage = ownerVisibleUploadError(uploadError);
       updateUploadActivity(activity.id, (current) => ({
         ...current,
         status: "failed",

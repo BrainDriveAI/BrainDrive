@@ -790,9 +790,33 @@ async function convertPdfToMarkdown(
       body: JSON.stringify(requestBody),
     });
 
-    return readMarkdownResponse(response, resolvedConfig, "ai_pdf_to_markdown");
+    try {
+      return await readMarkdownResponse(response, resolvedConfig, "ai_pdf_to_markdown");
+    } catch (error) {
+      if (!isEmptyMarkdownConversionError(error)) {
+        throw error;
+      }
+      auditLog("document_upload.pdf_file_parser_empty", {
+        model: resolvedConfig.model,
+        base_url: redactUrl(resolvedConfig.base_url),
+      });
+    }
   }
 
+  return convertPdfImagesToMarkdown(
+    input,
+    adapterName,
+    adapterConfig,
+    preferences
+  );
+}
+
+async function convertPdfImagesToMarkdown(
+  input: UploadedDocumentInput,
+  adapterName: string,
+  adapterConfig: AdapterConfig,
+  preferences: Preferences
+): Promise<string> {
   const images = extractPdfJpegImages(input.data)
     .filter((image) => isValidJpeg(image.data))
     .sort((left, right) => right.data.length - left.data.length)
@@ -810,6 +834,10 @@ async function convertPdfToMarkdown(
     preferences,
     "ai_pdf_to_markdown"
   );
+}
+
+function isEmptyMarkdownConversionError(error: unknown): boolean {
+  return error instanceof Error && /\breturned empty markdown\b/i.test(error.message);
 }
 
 async function convertImagesWithVision(
