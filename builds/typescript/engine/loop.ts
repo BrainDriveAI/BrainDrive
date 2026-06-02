@@ -15,6 +15,12 @@ import { classifyProviderError } from "./errors.js";
 import { ToolExecutor } from "./tool-executor.js";
 
 const DEFAULT_MAX_TOOL_RESULT_MODEL_CHARS = 16_000;
+const EMPTY_COMPLETION_REPAIR_INSTRUCTION = [
+  "The previous model call completed without producing assistant text or tool calls.",
+  "Produce a concise owner-visible response to the user's latest request using the available context.",
+  "Do not call tools unless necessary.",
+].join(" ");
+const EMPTY_COMPLETION_ERROR_MESSAGE = "The model provider failed to respond with any assistant text. Retry the request.";
 
 type LoopOptions = {
   memoryRoot: string;
@@ -48,6 +54,7 @@ export async function* runAgentLoop(
   const recentNonDestructiveMutationPaths: string[] = [];
   const repeatToolCallThreshold = options.repeatToolCallThreshold ?? 2;
   let iteration = 0;
+  let emptyCompletionRepairAttempted = false;
 
   while (true) {
     if (options.safetyIterationLimit !== undefined && iteration >= options.safetyIterationLimit) {
@@ -98,7 +105,9 @@ export async function* runAgentLoop(
             : undefined
         )) {
           if (chunk.type === "text-delta") {
-            streamedAssistantText = true;
+            if (chunk.delta.trim().length > 0) {
+              streamedAssistantText = true;
+            }
             yield {
               type: "text-delta",
               delta: chunk.delta,
@@ -146,6 +155,41 @@ export async function* runAgentLoop(
         message: error instanceof Error ? error.message : "Unknown provider error",
       });
       yield classifyError(error);
+      return;
+    }
+
+    if (isEmptyFinalModelTurn(completion, streamedAssistantText)) {
+      await options.promptAudit?.recorder.append(
+        "prompt_audit.empty_completion",
+        {
+          finish_reason: completion.finishReason,
+          usage: completion.usage ?? null,
+          retry_attempted: emptyCompletionRepairAttempted,
+        },
+        modelCall
+      );
+      auditLog("provider.empty_completion", {
+        correlation_id: request.metadata.correlation_id,
+        conversation_id: request.metadata.conversation_id,
+        finish_reason: completion.finishReason,
+        retry_attempted: emptyCompletionRepairAttempted,
+        usage: completion.usage ?? null,
+      });
+
+      if (!emptyCompletionRepairAttempted) {
+        emptyCompletionRepairAttempted = true;
+        messages.push({
+          role: "user",
+          content: EMPTY_COMPLETION_REPAIR_INSTRUCTION,
+        });
+        continue;
+      }
+
+      yield {
+        type: "error",
+        code: "provider_error",
+        message: EMPTY_COMPLETION_ERROR_MESSAGE,
+      };
       return;
     }
 
@@ -566,6 +610,15 @@ async function* toolResultEvents(result: ToolExecutionResult, toolCallId: string
 
 function classifyError(error: unknown): StreamEvent {
   return classifyProviderError(error);
+}
+
+function isEmptyFinalModelTurn(
+  completion: { assistantText: string; toolCalls: unknown[] },
+  streamedAssistantText: boolean
+): boolean {
+  return !streamedAssistantText &&
+    completion.assistantText.trim().length === 0 &&
+    completion.toolCalls.length === 0;
 }
 
 function stableToolInput(input: Record<string, unknown>): string {

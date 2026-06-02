@@ -87,6 +87,42 @@ describe("OpenAICompatibleAdapter prompt audit", () => {
     expect(response.cost).toEqual({ status: "unavailable" });
   });
 
+  it("normalizes an empty terminal provider completion for engine recovery", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            model: "test-model",
+            choices: [{ finish_reason: "stop", message: { content: "" } }],
+            usage: {
+              prompt_tokens: 30_568,
+              completion_tokens: 0,
+              total_tokens: 30_568,
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+    );
+
+    const adapter = new OpenAICompatibleAdapter({
+      base_url: "https://provider.example/v1",
+      model: "test-model",
+      api_key_env: "TEST_API_KEY",
+      provider_id: "test-provider",
+    }, { apiKey: "sk-testsecret123456789" });
+
+    const response = await adapter.complete(request, tools);
+
+    expect(response).toMatchObject({
+      assistantText: "",
+      toolCalls: [],
+      finishReason: "stop",
+      usage: { promptTokens: 30_568, completionTokens: 0, totalTokens: 30_568 },
+    });
+  });
+
   it("captures the exact streaming provider body passed to fetch", async () => {
     const events: Array<{ event: string; details: Record<string, unknown> }> = [];
     let sentBody: unknown = null;

@@ -33,6 +33,7 @@ export type PromptAuditEventName =
   | "prompt_audit.provider_response"
   | "prompt_audit.provider_lifecycle"
   | "prompt_audit.model_response"
+  | "prompt_audit.empty_completion"
   | "prompt_audit.tool_call"
   | "prompt_audit.tool_result"
   | "prompt_audit.tool_result_compacted"

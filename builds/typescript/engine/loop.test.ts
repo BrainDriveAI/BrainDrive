@@ -179,6 +179,124 @@ describe("runAgentLoop", () => {
       .toEqual([1, 2]);
   });
 
+  it("retries one empty terminal model completion with a generic repair instruction", async () => {
+    const auditEvents: Array<{ event: string; details: Record<string, unknown>; modelCallIndex?: number }> = [];
+    let calls = 0;
+    let retryRequestMessages: GatewayMessage[] = [];
+    const adapter: ModelAdapter = {
+      async complete(nextRequest) {
+        calls += 1;
+        if (calls === 1) {
+          return {
+            assistantText: "",
+            finishReason: "stop",
+            toolCalls: [],
+            usage: { promptTokens: 30_568, completionTokens: 0, totalTokens: 30_568 },
+          };
+        }
+
+        retryRequestMessages = [...nextRequest.messages];
+        return {
+          assistantText: "I can compare that from the saved Budget and latest statement evidence.",
+          finishReason: "stop",
+          toolCalls: [],
+        };
+      },
+    };
+
+    const events = [];
+    for await (const event of runAgentLoop(
+      adapter,
+      new ToolExecutor([]),
+      new ApprovalStore(),
+      request,
+      ownerAuth,
+      {
+        memoryRoot: "/tmp/brain",
+        safetyIterationLimit: 3,
+        promptAudit: {
+          recorder: fakeRecorder(auditEvents),
+          adapterName: "openai-compatible",
+          providerProfile: "openrouter",
+          model: "test-model",
+        },
+      }
+    )) {
+      events.push(event);
+    }
+
+    expect(calls).toBe(2);
+    expect(retryRequestMessages.at(-1)).toMatchObject({
+      role: "user",
+      content: expect.stringContaining("completed without producing assistant text or tool calls"),
+    });
+    expect(events).toEqual([
+      {
+        type: "text-delta",
+        delta: "I can compare that from the saved Budget and latest statement evidence.",
+      },
+      {
+        type: "done",
+        conversation_id: "conversation-1",
+        message_id: expect.any(String),
+        finish_reason: "stop",
+      },
+    ]);
+    expect(auditEvents).toContainEqual(expect.objectContaining({
+      event: "prompt_audit.empty_completion",
+      details: expect.objectContaining({
+        finish_reason: "stop",
+        retry_attempted: false,
+        usage: { promptTokens: 30_568, completionTokens: 0, totalTokens: 30_568 },
+      }),
+    }));
+  });
+
+  it("emits a provider error instead of done when the empty completion retry also has no output", async () => {
+    const auditEvents: Array<{ event: string; details: Record<string, unknown>; modelCallIndex?: number }> = [];
+    const adapter: ModelAdapter = {
+      async complete() {
+        return {
+          assistantText: "",
+          finishReason: "stop",
+          toolCalls: [],
+          usage: { promptTokens: 100, completionTokens: 0, totalTokens: 100 },
+        };
+      },
+    };
+
+    const events = [];
+    for await (const event of runAgentLoop(
+      adapter,
+      new ToolExecutor([]),
+      new ApprovalStore(),
+      request,
+      ownerAuth,
+      {
+        memoryRoot: "/tmp/brain",
+        safetyIterationLimit: 3,
+        promptAudit: {
+          recorder: fakeRecorder(auditEvents),
+          adapterName: "openai-compatible",
+          providerProfile: "openrouter",
+          model: "test-model",
+        },
+      }
+    )) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      {
+        type: "error",
+        code: "provider_error",
+        message: "The model provider failed to respond with any assistant text. Retry the request.",
+      },
+    ]);
+    expect(auditEvents.filter((entry) => entry.event === "prompt_audit.empty_completion").map((entry) => entry.details.retry_attempted))
+      .toEqual([false, true]);
+  });
+
   it("compacts large tool results before the next model request", async () => {
     process.env.BRAINDRIVE_MAX_TOOL_RESULT_MODEL_CHARS = "500";
     const auditEvents: Array<{ event: string; details: Record<string, unknown>; modelCallIndex?: number }> = [];
