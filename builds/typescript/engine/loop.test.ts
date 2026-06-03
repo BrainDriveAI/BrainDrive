@@ -179,12 +179,14 @@ describe("runAgentLoop", () => {
       .toEqual([1, 2]);
   });
 
-  it("retries one empty terminal model completion with a generic repair instruction", async () => {
+  it("retries one empty terminal model completion with constrained recovery mode", async () => {
     const auditEvents: Array<{ event: string; details: Record<string, unknown>; modelCallIndex?: number }> = [];
     let calls = 0;
     let retryRequestMessages: GatewayMessage[] = [];
+    let retryRequestMetadata: GatewayEngineRequest["metadata"] | null = null;
+    let retryToolsCount: number | null = null;
     const adapter: ModelAdapter = {
-      async complete(nextRequest) {
+      async complete(nextRequest, nextTools) {
         calls += 1;
         if (calls === 1) {
           return {
@@ -196,6 +198,8 @@ describe("runAgentLoop", () => {
         }
 
         retryRequestMessages = [...nextRequest.messages];
+        retryRequestMetadata = nextRequest.metadata;
+        retryToolsCount = nextTools.length;
         return {
           assistantText: "I can compare that from the saved Budget and latest statement evidence.",
           finishReason: "stop",
@@ -226,9 +230,15 @@ describe("runAgentLoop", () => {
     }
 
     expect(calls).toBe(2);
+    expect(retryToolsCount).toBe(0);
+    expect(retryRequestMetadata).not.toBeNull();
+    const retryMetadata = retryRequestMetadata as unknown as GatewayEngineRequest["metadata"];
+    expect(retryMetadata.client_context).toMatchObject({
+      empty_completion_repair: true,
+    });
     expect(retryRequestMessages.at(-1)).toMatchObject({
       role: "user",
-      content: expect.stringContaining("completed without producing assistant text or tool calls"),
+      content: expect.stringContaining("Recovery mode"),
     });
     expect(events).toEqual([
       {
@@ -249,6 +259,14 @@ describe("runAgentLoop", () => {
         retry_attempted: false,
         usage: { promptTokens: 30_568, completionTokens: 0, totalTokens: 30_568 },
       }),
+    }));
+    expect(auditEvents).toContainEqual(expect.objectContaining({
+      event: "prompt_audit.model_request",
+      details: expect.objectContaining({
+        recovery_mode: "empty_completion_repair",
+        tools: [],
+      }),
+      modelCallIndex: 2,
     }));
   });
 
@@ -290,7 +308,10 @@ describe("runAgentLoop", () => {
       {
         type: "error",
         code: "provider_error",
-        message: "The assistant could not finish that reply. Your conversation and files are still here. Try again in a moment.",
+        message: [
+          "The assistant could not finish that reply, but your conversation and uploaded files are still here.",
+          "Try again to continue from the saved files.",
+        ].join("\n"),
       },
     ]);
     expect(auditEvents.filter((entry) => entry.event === "prompt_audit.empty_completion").map((entry) => entry.details.retry_attempted))

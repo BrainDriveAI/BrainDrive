@@ -43,6 +43,7 @@ describe("OpenAICompatibleAdapter prompt audit", () => {
     delete process.env.BRAINDRIVE_OPENROUTER_MAX_TOKENS;
     delete process.env.BRAINDRIVE_OPENROUTER_GOOGLE_GEMINI_3_5_FLASH_MAX_OUTPUT_TOKENS;
     delete process.env.BRAINDRIVE_OPENROUTER_GOOGLE_GEMINI_3_5_FLASH_MAX_TOKENS;
+    delete process.env.BRAINDRIVE_EMPTY_COMPLETION_REPAIR_MAX_OUTPUT_TOKENS;
     vi.restoreAllMocks();
   });
 
@@ -235,6 +236,64 @@ describe("OpenAICompatibleAdapter prompt audit", () => {
       finishReason: "stop",
       usage: { promptTokens: 30_568, completionTokens: 0, totalTokens: 30_568 },
     });
+  });
+
+  it("caps empty-completion recovery requests and records the recovery flag", async () => {
+    const events: Array<{ event: string; details: Record<string, unknown> }> = [];
+    let sentBody: Record<string, unknown> | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        sentBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(
+          JSON.stringify({
+            model: "test-model",
+            choices: [{ finish_reason: "stop", message: { content: "Recovered visibly." } }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      })
+    );
+
+    const adapter = new OpenAICompatibleAdapter({
+      base_url: "https://provider.example/v1",
+      model: "test-model",
+      api_key_env: "TEST_API_KEY",
+      provider_id: "openrouter",
+      max_output_tokens: 8192,
+    }, { apiKey: "sk-testsecret123456789" });
+
+    await adapter.complete({
+      ...request,
+      metadata: {
+        ...request.metadata,
+        client_context: {
+          empty_completion_repair: true,
+        },
+      },
+    }, [], {
+      promptAudit: {
+        recorder: fakeRecorder(events),
+        modelCall: {
+          model_call_id: "model-call-1",
+          model_call_index: 1,
+        },
+      },
+    });
+
+    expect(sentBody).toMatchObject({ max_tokens: 2048, tools: [] });
+    expect(sentBody).not.toHaveProperty("tool_choice");
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "prompt_audit.provider_request",
+      details: expect.objectContaining({
+        empty_completion_repair: true,
+        max_tokens: 2048,
+        provider_request_body: expect.objectContaining({
+          max_tokens: 2048,
+          tools: [],
+        }),
+      }),
+    }));
   });
 
   it("captures the exact streaming provider body passed to fetch", async () => {

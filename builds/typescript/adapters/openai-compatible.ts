@@ -131,6 +131,8 @@ const DEFAULT_PROVIDER_STREAM_IDLE_TIMEOUT_MS = 60_000;
 const DEFAULT_PROVIDER_CONTEXT_WINDOW_TOKENS = 128_000;
 const DEFAULT_PROVIDER_RESPONSE_HEADROOM_TOKENS = 8_000;
 const DEFAULT_PROVIDER_MAX_OUTPUT_TOKENS = 8_192;
+const DEFAULT_EMPTY_COMPLETION_REPAIR_MAX_OUTPUT_TOKENS = 2_048;
+const EMPTY_COMPLETION_REPAIR_CONTEXT_KEY = "empty_completion_repair";
 
 type ProviderTimeoutState = {
   controller: AbortController;
@@ -191,6 +193,7 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
         stream: false,
         max_tokens: body.max_tokens ?? null,
         tool_choice: body.tool_choice ?? null,
+        empty_completion_repair: isEmptyCompletionRepairRequest(request),
         ...providerUrlParts(url),
         http_method: "POST",
         headers,
@@ -256,6 +259,7 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
             stream: false,
             max_tokens: body.max_tokens ?? null,
             tool_choice: body.tool_choice ?? null,
+            empty_completion_repair: isEmptyCompletionRepairRequest(request),
             ...providerUrlParts(url),
             http_method: "POST",
             headers,
@@ -329,6 +333,7 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
         stream: true,
         max_tokens: body.max_tokens ?? null,
         tool_choice: body.tool_choice ?? null,
+        empty_completion_repair: isEmptyCompletionRepairRequest(request),
         ...providerUrlParts(url),
         http_method: "POST",
         headers,
@@ -400,6 +405,7 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
             stream: true,
             max_tokens: body.max_tokens ?? null,
             tool_choice: body.tool_choice ?? null,
+            empty_completion_repair: isEmptyCompletionRepairRequest(request),
             ...providerUrlParts(url),
             http_method: "POST",
             headers,
@@ -661,7 +667,7 @@ function buildChatCompletionBody(
   tool_choice?: "auto";
   max_tokens?: number;
 } {
-  const maxOutputTokens = resolveProviderMaxOutputTokens(config);
+  const maxOutputTokens = resolveProviderMaxOutputTokens(config, request);
   return {
     model: config.model,
     stream,
@@ -818,7 +824,7 @@ function resolveProviderResponseHeadroomTokens(): number {
   ], DEFAULT_PROVIDER_RESPONSE_HEADROOM_TOKENS);
 }
 
-function resolveProviderMaxOutputTokens(config: AdapterConfig): number {
+function resolveProviderMaxOutputTokens(config: AdapterConfig, request?: GatewayEngineRequest): number {
   const providerId = (config.provider_id ?? "openai-compatible")
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, "_")
@@ -827,7 +833,7 @@ function resolveProviderMaxOutputTokens(config: AdapterConfig): number {
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
-  return resolvePositiveIntegerEnv([
+  const configuredMaxOutputTokens = resolvePositiveIntegerEnv([
     `BRAINDRIVE_${providerId}_${modelId}_MAX_OUTPUT_TOKENS`,
     `BRAINDRIVE_${providerId}_${modelId}_MAX_TOKENS`,
     `BRAINDRIVE_${providerId}_MAX_OUTPUT_TOKENS`,
@@ -835,6 +841,22 @@ function resolveProviderMaxOutputTokens(config: AdapterConfig): number {
     "BRAINDRIVE_PROVIDER_MAX_OUTPUT_TOKENS",
     "BRAINDRIVE_PROVIDER_MAX_TOKENS",
   ], config.max_output_tokens ?? DEFAULT_PROVIDER_MAX_OUTPUT_TOKENS);
+
+  if (!isEmptyCompletionRepairRequest(request)) {
+    return configuredMaxOutputTokens;
+  }
+
+  const repairMaxOutputTokens = resolvePositiveIntegerEnv([
+    `BRAINDRIVE_${providerId}_${modelId}_EMPTY_COMPLETION_REPAIR_MAX_OUTPUT_TOKENS`,
+    `BRAINDRIVE_${providerId}_EMPTY_COMPLETION_REPAIR_MAX_OUTPUT_TOKENS`,
+    "BRAINDRIVE_EMPTY_COMPLETION_REPAIR_MAX_OUTPUT_TOKENS",
+  ], DEFAULT_EMPTY_COMPLETION_REPAIR_MAX_OUTPUT_TOKENS);
+
+  return Math.min(configuredMaxOutputTokens, repairMaxOutputTokens);
+}
+
+function isEmptyCompletionRepairRequest(request?: GatewayEngineRequest): boolean {
+  return request?.metadata.client_context?.[EMPTY_COMPLETION_REPAIR_CONTEXT_KEY] === true;
 }
 
 function resolvePositiveIntegerEnv(envNames: string[], fallback: number): number {

@@ -787,6 +787,12 @@ function fallbackProjectTemplateContent(projectName: string, fileName: string): 
       "",
       "1. Keep guidance concrete and specific.",
       "2. Update project files as context improves.",
+      ...(projectName === "Finance" ? [
+        "",
+        "## Numeric Accuracy",
+        "",
+        "If the owner sends a finance answer that ends mid-number, mid-currency amount, or mid-sentence, do not complete the number for them. Ask a targeted clarification instead.",
+      ] : []),
       "",
     ].join("\n");
   }
@@ -943,6 +949,7 @@ function fallbackProjectTemplateContent(projectName: string, fileName: string): 
       "After accepting uploads, propagate state to the Budget statement checklist, Finance goals, Finance plan, and action list so completed statement gathering is not left as active missing work.",
       "",
       "Every uploaded file must be represented in the final Budget source coverage. Classify each upload as: used in income/spend/debt calculations, reviewed but excluded from Budget math, or failed/rejected. Investment or retirement statements such as a Roth IRA are reviewed asset context only: list them as reviewed/excluded, explain that they are excluded from monthly cash-flow, living-spend, and debt-payoff calculations, and do not turn that into investment advice.",
+      "Every uploaded file should be traceable to exactly one Source Coverage group. A transaction row, exclusion row, or casual mention is not enough by itself.",
       "After writing or refreshing `reports/latest.md`, call `project_budget_validate_source_coverage` with `repair: true`, then read the latest Budget report back before replying. If source coverage still has missing uploads, do not claim every uploaded statement was used or accounted for.",
       "",
       "## Promise-To-Artifact Rule",
@@ -966,6 +973,8 @@ function fallbackProjectTemplateContent(projectName: string, fileName: string): 
       "One month of statements can support a draft actuals baseline only. Do not present one-month-derived category limits as stable unless the owner explicitly confirms the month is representative. Ask for 3-6 months of checking/card history and known annual or irregular costs for a reliable budget.",
       "",
       "Every saved Budget update must distinguish known fixed obligations, observed recurring items, one-month observed categories, owner estimates, irregular/lumpy costs, transfers/account movement, business/startup spending, and needs-more-history items.",
+      "",
+      "If the owner sends a finance answer that ends mid-number, mid-currency amount, or mid-sentence, do not infer or normalize the missing number. Ask a targeted clarification before using it.",
       "",
       "## Reconciliation",
       "",

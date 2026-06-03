@@ -16,11 +16,17 @@ import { ToolExecutor } from "./tool-executor.js";
 
 const DEFAULT_MAX_TOOL_RESULT_MODEL_CHARS = 16_000;
 const EMPTY_COMPLETION_REPAIR_INSTRUCTION = [
-  "The previous model call completed without producing assistant text or tool calls.",
-  "Produce a concise owner-visible response to the user's latest request using the available context.",
-  "Do not call tools unless necessary.",
+  "Recovery mode: the previous model call ended without visible assistant text or tool calls.",
+  "Answer the owner's latest request now with concise, owner-visible text.",
+  "Start with a useful first-pass result from the context already available.",
+  "Do not plan silently. Do not use tools in this recovery attempt.",
+  "If a complete artifact would require more work, give the best partial answer and state the next step.",
 ].join(" ");
-const EMPTY_COMPLETION_ERROR_MESSAGE = "The assistant could not finish that reply. Your conversation and files are still here. Try again in a moment.";
+const EMPTY_COMPLETION_ERROR_MESSAGE = [
+  "The assistant could not finish that reply, but your conversation and uploaded files are still here.",
+  "Try again to continue from the saved files.",
+].join("\n");
+const EMPTY_COMPLETION_REPAIR_CONTEXT_KEY = "empty_completion_repair";
 
 type LoopOptions = {
   memoryRoot: string;
@@ -75,14 +81,32 @@ export async function* runAgentLoop(
       model_call_index: iteration,
     };
     try {
-      const tools = toolExecutor.listTools(auth);
+      const isEmptyCompletionRepairTurn = emptyCompletionRepairAttempted;
+      const tools = isEmptyCompletionRepairTurn ? [] : toolExecutor.listTools(auth);
+      const modelRequest: GatewayEngineRequest = isEmptyCompletionRepairTurn
+        ? {
+            ...request,
+            messages,
+            metadata: {
+              ...request.metadata,
+              client_context: {
+                ...(request.metadata.client_context ?? {}),
+                [EMPTY_COMPLETION_REPAIR_CONTEXT_KEY]: true,
+              },
+            },
+          }
+        : {
+            ...request,
+            messages,
+          };
       await options.promptAudit?.recorder.append(
         "prompt_audit.model_request",
         {
           adapter_name: options.promptAudit.adapterName,
           provider_profile: options.promptAudit.providerProfile ?? null,
           selected_model: options.promptAudit.model ?? null,
-          metadata: request.metadata,
+          metadata: modelRequest.metadata,
+          recovery_mode: isEmptyCompletionRepairTurn ? EMPTY_COMPLETION_REPAIR_CONTEXT_KEY : null,
           messages,
           tools: tools.map((tool) => serializeToolDefinitionForAudit(tool)),
         },
@@ -90,10 +114,7 @@ export async function* runAgentLoop(
       );
       if (adapter.completeStream) {
         for await (const chunk of adapter.completeStream(
-          {
-            messages,
-            metadata: request.metadata,
-          },
+          modelRequest,
           tools,
           options.promptAudit
             ? {
@@ -127,10 +148,7 @@ export async function* runAgentLoop(
         }
       } else {
         completion = await adapter.complete(
-          {
-            messages,
-            metadata: request.metadata,
-          },
+          modelRequest,
           tools,
           options.promptAudit
             ? {
