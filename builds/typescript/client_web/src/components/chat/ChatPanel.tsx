@@ -63,6 +63,14 @@ function contextOverflowRecoveryMessage(projectId?: string | null, appPath?: str
   ].join("\n");
 }
 
+function providerErrorRecoveryMessage(): string {
+  return [
+    "The assistant could not finish that reply.",
+    "Your conversation and files are still here.",
+    "Try again in a moment. If this keeps happening, contact your BrainDrive admin with the time of this failure.",
+  ].join("\n");
+}
+
 function ownerVisibleUploadError(error: unknown): string {
   const rawMessage = error instanceof Error ? error.message : "";
   if (/\b(?:ai_pdf_to_markdown|ai_image_to_markdown|AI conversion).{0,80}empty markdown\b/i.test(rawMessage) ||
@@ -480,15 +488,12 @@ export default function ChatPanel({
   const visibleChatError =
     chatError && chatError !== dismissedError ? chatError : null;
   const isContextOverflowError = errorCode === "context_overflow";
+  const isProviderError = errorCode === "provider_error";
   const displayedChatError = isContextOverflowError
     ? contextOverflowRecoveryMessage(activeProjectId, activeAppPath)
+    : isProviderError && visibleChatError
+      ? providerErrorRecoveryMessage()
     : visibleChatError;
-  const isProviderError = visibleChatError != null && (
-    visibleChatError.includes("credentials") ||
-    visibleChatError.includes("could not be reached") ||
-    visibleChatError.includes("provider") ||
-    visibleChatError.includes("model")
-  ) && !isContextOverflowError;
   const lastUserMessage = [...messages].reverse().find((message) => message.role === "user") ?? null;
   const shouldShowEmptyState = isEmpty && messages.length === 0 && !isLoading;
   const shouldShowConversation = contentOverride === undefined;
@@ -1079,7 +1084,6 @@ export default function ChatPanel({
               {displayedChatError && (
                 <ErrorMessage
                   message={displayedChatError}
-                  onOpenSettings={isProviderError ? onOpenSettings : undefined}
                   onRetry={isContextOverflowError ? undefined : () => resetErrorPresentation()}
                   primaryActionLabel={isContextOverflowError ? "Start New Conversation" : undefined}
                   onPrimaryAction={isContextOverflowError ? handleStartNewConversation : undefined}

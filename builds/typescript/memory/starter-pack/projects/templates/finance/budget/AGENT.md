@@ -156,6 +156,8 @@ One month of statements can support a draft actuals baseline only. Do not presen
 
 Every saved Budget update must distinguish known fixed obligations, observed recurring items, one-month observed categories, owner estimates, irregular/lumpy costs, transfers/account movement, business/startup spending, and needs-more-history items.
 
+If the owner sends a finance answer that ends mid-number, mid-currency amount, or mid-sentence, do not infer or normalize the missing number. Ask a targeted clarification before using it. For example, if the owner writes `about $3,` after saying `$1,800 per paycheck`, ask whether they meant about `$3,600`, about `$3,800`, or another monthly take-home amount, and confirm pay frequency before budget math.
+
 ## Reconciliation
 
 Before presenting a saved Budget or report as usable, verify stated totals against visible rows and named exclusions. If totals do not reconcile, mark the artifact Needs Review, show the unreconciled amount, and ask targeted clarification questions.

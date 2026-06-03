@@ -29,6 +29,7 @@ export type PromptAuditEventName =
   | "prompt_audit.model_request"
   | "prompt_audit.provider_request_preflight"
   | "prompt_audit.provider_request_blocked"
+  | "prompt_audit.provider_request_retry"
   | "prompt_audit.provider_request"
   | "prompt_audit.provider_response"
   | "prompt_audit.provider_lifecycle"

@@ -290,7 +290,7 @@ describe("runAgentLoop", () => {
       {
         type: "error",
         code: "provider_error",
-        message: "The model provider failed to respond with any assistant text. Retry the request.",
+        message: "The assistant could not finish that reply. Your conversation and files are still here. Try again in a moment.",
       },
     ]);
     expect(auditEvents.filter((entry) => entry.event === "prompt_audit.empty_completion").map((entry) => entry.details.retry_attempted))

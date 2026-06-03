@@ -20,7 +20,7 @@ const EMPTY_COMPLETION_REPAIR_INSTRUCTION = [
   "Produce a concise owner-visible response to the user's latest request using the available context.",
   "Do not call tools unless necessary.",
 ].join(" ");
-const EMPTY_COMPLETION_ERROR_MESSAGE = "The model provider failed to respond with any assistant text. Retry the request.";
+const EMPTY_COMPLETION_ERROR_MESSAGE = "The assistant could not finish that reply. Your conversation and files are still here. Try again in a moment.";
 
 type LoopOptions = {
   memoryRoot: string;

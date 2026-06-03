@@ -123,6 +123,30 @@ describe("ChatPanel typing indicator behavior", () => {
     expect(screen.queryByRole("button", { name: "Try Again" })).not.toBeInTheDocument();
   });
 
+  it("keeps provider failures owner-safe and retry-only in chat", () => {
+    useGatewayChatMock.mockReturnValue(
+      makeHookState({
+        error: new Error("The model provider failed. Check Provider/API key settings and credits/quota."),
+        errorCode: "provider_error",
+      })
+    );
+
+    render(
+      <ChatPanel
+        activeConversationId={null}
+        activeProjectId="finance"
+        activeAppPath="/apps/budget"
+        isEmpty={false}
+      />
+    );
+
+    const visibleText = document.body.textContent ?? "";
+    expect(screen.getByText("The assistant could not finish that reply.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Try Again" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open Settings" })).not.toBeInTheDocument();
+    expect(visibleText).not.toMatch(/provider|api key|credits|quota/i);
+  });
+
   it("shows Budget file open actions after a saved Budget reply", async () => {
     const user = userEvent.setup();
     const onOpenProjectFile = vi.fn();

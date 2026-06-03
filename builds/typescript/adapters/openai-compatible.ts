@@ -124,6 +124,8 @@ type ProviderErrorPayload = {
   };
 };
 
+type ChatCompletionBody = ReturnType<typeof buildChatCompletionBody>;
+
 const DEFAULT_PROVIDER_REQUEST_TIMEOUT_MS = 180_000;
 const DEFAULT_PROVIDER_STREAM_IDLE_TIMEOUT_MS = 60_000;
 const DEFAULT_PROVIDER_CONTEXT_WINDOW_TOKENS = 128_000;
@@ -179,7 +181,7 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
       "content-type": "application/json",
       ...(apiKey.length > 0 ? { authorization: `Bearer ${apiKey}` } : {}),
     };
-    const body = buildChatCompletionBody(this.config, request, tools, false);
+    let body = buildChatCompletionBody(this.config, request, tools, false);
     await preflightProviderRequest(body, options);
     await options?.promptAudit?.recorder.append(
       "prompt_audit.provider_request",
@@ -214,7 +216,7 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
       clearTimeout(timeoutState.timer);
     }
 
-    const payload = await parseProviderPayload(response);
+    let payload = await parseProviderPayload(response);
     await options?.promptAudit?.recorder.append(
       "prompt_audit.provider_response",
       {
@@ -231,6 +233,74 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
       },
       options.promptAudit.modelCall
     );
+    if (!response.ok) {
+      const retryBody = affordableMaxTokensRetryBody(response.status, body, payload);
+      if (retryBody) {
+        await options?.promptAudit?.recorder.append(
+          "prompt_audit.provider_request_retry",
+          {
+            reason: "provider_402_affordable_max_tokens",
+            previous_max_tokens: body.max_tokens ?? null,
+            retry_max_tokens: retryBody.max_tokens ?? null,
+            status_code: response.status,
+          },
+          options.promptAudit.modelCall
+        );
+        body = retryBody;
+        await preflightProviderRequest(body, options);
+        await options?.promptAudit?.recorder.append(
+          "prompt_audit.provider_request",
+          {
+            provider: this.config.provider_id ?? "openai-compatible",
+            model: this.config.model,
+            stream: false,
+            max_tokens: body.max_tokens ?? null,
+            tool_choice: body.tool_choice ?? null,
+            ...providerUrlParts(url),
+            http_method: "POST",
+            headers,
+            retry_reason: "provider_402_affordable_max_tokens",
+            ...(options.promptAudit.recorder.preferences.include_provider_payload
+              ? { provider_request_body: body }
+              : { provider_request_body: "[OMITTED_BY_PREFERENCE]" }),
+          },
+          options.promptAudit.modelCall
+        );
+
+        const retryTimeoutState = createProviderTimeoutState();
+        try {
+          response = await fetch(url, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(body),
+            signal: retryTimeoutState.controller.signal,
+          });
+        } catch (error) {
+          throw normalizeProviderTimeoutError(error, retryTimeoutState);
+        } finally {
+          clearTimeout(retryTimeoutState.timer);
+        }
+
+        payload = await parseProviderPayload(response);
+        await options?.promptAudit?.recorder.append(
+          "prompt_audit.provider_response",
+          {
+            provider: this.config.provider_id ?? "openai-compatible",
+            model: payload.model ?? this.config.model,
+            status_code: response.status,
+            content_type: response.headers.get("content-type") ?? "",
+            finish_reason: payload.choices?.[0]?.finish_reason ?? null,
+            usage: normalizeUsage(payload.usage),
+            cost: normalizeCost(payload.usage),
+            retry_reason: "provider_402_affordable_max_tokens",
+            ...(options.promptAudit.recorder.preferences.include_provider_response
+              ? { provider_response_body: payload }
+              : { provider_response_body: "[OMITTED_BY_PREFERENCE]" }),
+          },
+          options.promptAudit.modelCall
+        );
+      }
+    }
     if (!response.ok) {
       throw new Error(formatProviderFailure(response.status, payload));
     }
@@ -249,7 +319,7 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
       "content-type": "application/json",
       ...(apiKey.length > 0 ? { authorization: `Bearer ${apiKey}` } : {}),
     };
-    const body = buildChatCompletionBody(this.config, request, tools, true);
+    let body = buildChatCompletionBody(this.config, request, tools, true);
     await preflightProviderRequest(body, options);
     await options?.promptAudit?.recorder.append(
       "prompt_audit.provider_request",
@@ -269,7 +339,7 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
       options.promptAudit.modelCall
     );
 
-    const timeoutState = createProviderTimeoutState();
+    let timeoutState = createProviderTimeoutState();
     await appendProviderLifecycle(options, "request_started", timeoutState);
     let response: Response;
     try {
@@ -284,14 +354,14 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
       throw normalizeProviderTimeoutError(error, timeoutState);
     }
 
-    const contentType = response.headers.get("content-type") ?? "";
+    let contentType = response.headers.get("content-type") ?? "";
     await appendProviderLifecycle(options, "response_headers", timeoutState, {
       status_code: response.status,
       content_type: contentType,
     });
     if (!response.ok) {
       clearTimeout(timeoutState.timer);
-      const payload = await parseProviderPayload(response);
+      let payload = await parseProviderPayload(response);
       await options?.promptAudit?.recorder.append(
         "prompt_audit.provider_response",
         {
@@ -308,7 +378,85 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
         },
         options.promptAudit.modelCall
       );
-      throw new Error(formatProviderFailure(response.status, payload));
+      const retryBody = affordableMaxTokensRetryBody(response.status, body, payload);
+      if (retryBody) {
+        await options?.promptAudit?.recorder.append(
+          "prompt_audit.provider_request_retry",
+          {
+            reason: "provider_402_affordable_max_tokens",
+            previous_max_tokens: body.max_tokens ?? null,
+            retry_max_tokens: retryBody.max_tokens ?? null,
+            status_code: response.status,
+          },
+          options.promptAudit.modelCall
+        );
+        body = retryBody;
+        await preflightProviderRequest(body, options);
+        await options?.promptAudit?.recorder.append(
+          "prompt_audit.provider_request",
+          {
+            provider: this.config.provider_id ?? "openai-compatible",
+            model: this.config.model,
+            stream: true,
+            max_tokens: body.max_tokens ?? null,
+            tool_choice: body.tool_choice ?? null,
+            ...providerUrlParts(url),
+            http_method: "POST",
+            headers,
+            retry_reason: "provider_402_affordable_max_tokens",
+            ...(options.promptAudit.recorder.preferences.include_provider_payload
+              ? { provider_request_body: body }
+              : { provider_request_body: "[OMITTED_BY_PREFERENCE]" }),
+          },
+          options.promptAudit.modelCall
+        );
+
+        timeoutState = createProviderTimeoutState();
+        await appendProviderLifecycle(options, "request_started", timeoutState, {
+          retry_reason: "provider_402_affordable_max_tokens",
+        });
+        try {
+          response = await fetch(url, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(body),
+            signal: timeoutState.controller.signal,
+          });
+        } catch (error) {
+          await appendProviderLifecycle(options, "timeout", timeoutState);
+          throw normalizeProviderTimeoutError(error, timeoutState);
+        }
+        contentType = response.headers.get("content-type") ?? "";
+        await appendProviderLifecycle(options, "response_headers", timeoutState, {
+          status_code: response.status,
+          content_type: contentType,
+          retry_reason: "provider_402_affordable_max_tokens",
+        });
+        if (!response.ok) {
+          clearTimeout(timeoutState.timer);
+          payload = await parseProviderPayload(response);
+          await options?.promptAudit?.recorder.append(
+            "prompt_audit.provider_response",
+            {
+              provider: this.config.provider_id ?? "openai-compatible",
+              model: payload.model ?? this.config.model,
+              status_code: response.status,
+              content_type: contentType,
+              finish_reason: payload.choices?.[0]?.finish_reason ?? null,
+              usage: normalizeUsage(payload.usage),
+              cost: normalizeCost(payload.usage),
+              retry_reason: "provider_402_affordable_max_tokens",
+              ...(options.promptAudit.recorder.preferences.include_provider_response
+                ? { provider_response_body: payload }
+                : { provider_response_body: "[OMITTED_BY_PREFERENCE]" }),
+            },
+            options.promptAudit.modelCall
+          );
+          throw new Error(formatProviderFailure(response.status, payload));
+        }
+      } else {
+        throw new Error(formatProviderFailure(response.status, payload));
+      }
     }
 
     if (!contentType.includes("text/event-stream")) {
@@ -548,7 +696,7 @@ function buildChatCompletionBody(
 }
 
 async function preflightProviderRequest(
-  body: ReturnType<typeof buildChatCompletionBody>,
+  body: ChatCompletionBody,
   options?: ModelAdapterCallOptions
 ): Promise<void> {
   const serialized = JSON.stringify(body);
@@ -594,6 +742,64 @@ async function preflightProviderRequest(
   }
 }
 
+function affordableMaxTokensRetryBody(
+  status: number,
+  body: ChatCompletionBody,
+  payload: ProviderErrorPayload
+): ChatCompletionBody | null {
+  if (status !== 402 || typeof body.max_tokens !== "number" || body.max_tokens <= 1) {
+    return null;
+  }
+
+  const providerText = [
+    payload.error?.message,
+    payload.error?.metadata?.raw,
+    payload.error?.code === undefined ? undefined : String(payload.error.code),
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join(" ");
+  if (!isMaxTokenAffordabilityFailure(providerText)) {
+    return null;
+  }
+
+  const affordableTokens = extractAffordableTokenCount(providerText);
+  if (!affordableTokens || affordableTokens >= body.max_tokens) {
+    return null;
+  }
+
+  const roundedAffordableTokens = Math.floor(affordableTokens / 256) * 256;
+  const retryMaxTokens = roundedAffordableTokens > 0 ? roundedAffordableTokens : affordableTokens;
+  if (retryMaxTokens >= body.max_tokens) {
+    return null;
+  }
+
+  return {
+    ...body,
+    max_tokens: retryMaxTokens,
+  };
+}
+
+function isMaxTokenAffordabilityFailure(value: string): boolean {
+  const normalized = value.toLowerCase();
+  return (
+    normalized.includes("can only afford") &&
+    (normalized.includes("requested") ||
+      normalized.includes("max_tokens") ||
+      normalized.includes("max tokens") ||
+      normalized.includes("tokens"))
+  );
+}
+
+function extractAffordableTokenCount(value: string): number | null {
+  const match = value.match(/can only afford\s+([0-9][0-9,]*)/i);
+  if (!match) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(match[1].replace(/,/g, ""), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 function estimateTokens(value: string): number {
   return value.length === 0 ? 0 : Math.ceil(value.length / 4);
 }
@@ -617,7 +823,13 @@ function resolveProviderMaxOutputTokens(config: AdapterConfig): number {
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
+  const modelId = config.model
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
   return resolvePositiveIntegerEnv([
+    `BRAINDRIVE_${providerId}_${modelId}_MAX_OUTPUT_TOKENS`,
+    `BRAINDRIVE_${providerId}_${modelId}_MAX_TOKENS`,
     `BRAINDRIVE_${providerId}_MAX_OUTPUT_TOKENS`,
     `BRAINDRIVE_${providerId}_MAX_TOKENS`,
     "BRAINDRIVE_PROVIDER_MAX_OUTPUT_TOKENS",

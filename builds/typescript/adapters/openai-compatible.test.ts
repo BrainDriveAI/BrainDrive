@@ -41,6 +41,8 @@ describe("OpenAICompatibleAdapter prompt audit", () => {
     delete process.env.BRAINDRIVE_PROVIDER_MAX_TOKENS;
     delete process.env.BRAINDRIVE_OPENROUTER_MAX_OUTPUT_TOKENS;
     delete process.env.BRAINDRIVE_OPENROUTER_MAX_TOKENS;
+    delete process.env.BRAINDRIVE_OPENROUTER_GOOGLE_GEMINI_3_5_FLASH_MAX_OUTPUT_TOKENS;
+    delete process.env.BRAINDRIVE_OPENROUTER_GOOGLE_GEMINI_3_5_FLASH_MAX_TOKENS;
     vi.restoreAllMocks();
   });
 
@@ -169,6 +171,36 @@ describe("OpenAICompatibleAdapter prompt audit", () => {
     expect(sentBody).toMatchObject({ max_tokens: 1536 });
   });
 
+  it("lets provider-and-model environment caps override profile defaults", async () => {
+    process.env.BRAINDRIVE_OPENROUTER_GOOGLE_GEMINI_3_5_FLASH_MAX_OUTPUT_TOKENS = "1024";
+    let sentBody: Record<string, unknown> | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        sentBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(
+          JSON.stringify({
+            model: "google/gemini-3.5-flash",
+            choices: [{ finish_reason: "stop", message: { content: "Hi" } }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      })
+    );
+
+    const adapter = new OpenAICompatibleAdapter({
+      base_url: "https://provider.example/v1",
+      model: "google/gemini-3.5-flash",
+      api_key_env: "TEST_API_KEY",
+      provider_id: "openrouter",
+      max_output_tokens: 8192,
+    }, { apiKey: "sk-testsecret123456789" });
+
+    await adapter.complete(request, []);
+
+    expect(sentBody).toMatchObject({ max_tokens: 1024 });
+  });
+
   it("normalizes an empty terminal provider completion for engine recovery", async () => {
     vi.stubGlobal(
       "fetch",
@@ -257,6 +289,78 @@ describe("OpenAICompatibleAdapter prompt audit", () => {
       type: "final",
       response: {
         assistantText: "Hi",
+        finishReason: "stop",
+      },
+    });
+  });
+
+  it("retries streaming requests with a lower max token cap when the provider reports token affordability", async () => {
+    const events: Array<{ event: string; details: Record<string, unknown> }> = [];
+    const sentBodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        sentBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        if (sentBodies.length === 1) {
+          return new Response(
+            JSON.stringify({
+              error: {
+                message: "This request requires more credits than available. requested up to 8192 tokens, but can only afford 4258.",
+                code: 402,
+              },
+            }),
+            { status: 402, headers: { "content-type": "application/json" } }
+          );
+        }
+
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              const encoder = new TextEncoder();
+              controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"Recovered"}}]}\n\n'));
+              controller.enqueue(encoder.encode('data: {"choices":[{"finish_reason":"stop","delta":{}}]}\n\n'));
+              controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+              controller.close();
+            },
+          }),
+          { status: 200, headers: { "content-type": "text/event-stream" } }
+        );
+      })
+    );
+
+    const adapter = new OpenAICompatibleAdapter({
+      base_url: "https://provider.example/v1",
+      model: "google/gemini-3.5-flash",
+      api_key_env: "TEST_API_KEY",
+      provider_id: "openrouter",
+      max_output_tokens: 8192,
+    }, { apiKey: "sk-testsecret123456789" });
+
+    const chunks = await collectStream(adapter.completeStream!(request, tools, {
+      promptAudit: {
+        recorder: fakeRecorder(events),
+        modelCall: {
+          model_call_id: "model-call-1",
+          model_call_index: 1,
+        },
+      },
+    }));
+
+    expect(sentBodies).toHaveLength(2);
+    expect(sentBodies[0]).toMatchObject({ max_tokens: 8192 });
+    expect(sentBodies[1]).toMatchObject({ max_tokens: 4096 });
+    expect(events).toContainEqual(expect.objectContaining({
+      event: "prompt_audit.provider_request_retry",
+      details: expect.objectContaining({
+        reason: "provider_402_affordable_max_tokens",
+        previous_max_tokens: 8192,
+        retry_max_tokens: 4096,
+      }),
+    }));
+    expect(chunks.at(-1)).toMatchObject({
+      type: "final",
+      response: {
+        assistantText: "Recovered",
         finishReason: "stop",
       },
     });

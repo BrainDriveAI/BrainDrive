@@ -69,7 +69,7 @@ export default function MessageList({
   return (
     <div
       ref={scrollRef}
-      className="relative overflow-y-auto overscroll-contain px-4 pb-[calc(var(--mobile-composer-height,0px)+1.5rem)] pt-6 sm:px-6 md:pb-6"
+      className="relative overflow-y-auto overscroll-contain px-4 pb-[calc(var(--mobile-composer-height,0px)+1.5rem)] pt-6 sm:px-6 md:pb-32"
       style={{
         height: '100%',
         WebkitOverflowScrolling: "touch",
@@ -130,7 +130,7 @@ export default function MessageList({
           type="button"
           aria-label="Jump to bottom"
           onClick={scrollToBottom}
-          className="absolute bottom-[calc(var(--mobile-composer-height,0px)+1rem)] left-1/2 z-10 flex h-8 w-8 -translate-x-1/2 items-center justify-center rounded-full border border-bd-border bg-bd-bg-secondary shadow-lg transition-all duration-200 hover:bg-bd-bg-tertiary md:bottom-4"
+          className="absolute bottom-[calc(var(--mobile-composer-height,0px)+1rem)] left-1/2 z-10 flex h-8 w-8 -translate-x-1/2 items-center justify-center rounded-full border border-bd-border bg-bd-bg-secondary shadow-lg transition-all duration-200 hover:bg-bd-bg-tertiary md:bottom-24"
         >
           <ArrowDown size={16} strokeWidth={1.5} className="text-bd-text-secondary" />
         </button>

@@ -13,67 +13,35 @@ describe("classifyProviderError", () => {
     });
   });
 
-  it("surfaces setup guidance when provider key is missing", () => {
+  it("uses owner-safe recovery copy when provider setup fails", () => {
     const event = classifyProviderError(new Error("Required secret reference provider/openrouter/api_key is missing"));
 
     expect(event).toEqual({
       type: "error",
       code: "provider_error",
       message: [
-        "Provider setup is incomplete: no API key is configured.",
-        "What to check:",
-        "1. Open Settings > Model Providers.",
-        "2. Select the provider you want to use and save an API key.",
-        "3. Confirm that provider is selected as Active.",
+        "The assistant could not finish that reply.",
+        "Your conversation and files are still here.",
+        "Try again in a moment. If this keeps happening, contact your BrainDrive admin with the time of this failure.",
       ].join("\n"),
     });
   });
 
-  it("sanitizes rejected credential failures with actionable checks", () => {
-    const event = classifyProviderError(new Error("API key invalid"));
+  it("does not expose provider operations for credit or connectivity failures", () => {
+    const creditEvent = classifyProviderError(
+      new Error("requested up to 8192 tokens, but can only afford 4258")
+    );
+    const connectivityEvent = classifyProviderError(new Error("fetch failed: ECONNREFUSED"));
+    expect(creditEvent.type).toBe("error");
+    expect(connectivityEvent.type).toBe("error");
+    if (creditEvent.type !== "error" || connectivityEvent.type !== "error") {
+      throw new Error("Expected provider failures to classify as error events.");
+    }
+    const visibleText = `${creditEvent.message}\n${connectivityEvent.message}`;
 
-    expect(event).toEqual({
-      type: "error",
-      code: "provider_error",
-      message: [
-        "Provider rejected the API key for this request.",
-        "What to check:",
-        "1. Re-copy the full API key and save it again in Settings > Model Providers.",
-        "2. Make sure the key belongs to the selected provider account.",
-        "3. Verify the key is still active and not revoked.",
-      ].join("\n"),
-    });
-  });
-
-  it("surfaces no-credit guidance", () => {
-    const event = classifyProviderError(new Error("insufficient_quota: credit balance too low"));
-
-    expect(event).toEqual({
-      type: "error",
-      code: "provider_error",
-      message: [
-        "Provider account has no available credits or quota.",
-        "What to check:",
-        "1. Add credits or billing to the provider account tied to this API key.",
-        "2. Confirm usage/quota limits are not exhausted.",
-        "3. Retry after the account balance updates.",
-      ].join("\n"),
-    });
-  });
-
-  it("surfaces connectivity guidance", () => {
-    const event = classifyProviderError(new Error("fetch failed: ECONNREFUSED"));
-
-    expect(event).toEqual({
-      type: "error",
-      code: "provider_error",
-      message: [
-        "BrainDrive could not reach the provider.",
-        "What to check:",
-        "1. Internet connection, VPN/proxy, and firewall rules.",
-        "2. Provider Base URL in Settings > Model Providers.",
-        "3. Provider service status page for outages.",
-      ].join("\n"),
-    });
+    expect(creditEvent.code).toBe("provider_error");
+    expect(connectivityEvent.code).toBe("provider_error");
+    expect(visibleText).not.toMatch(/provider|api key|credits|quota|connectivity/i);
+    expect(visibleText).toContain("The assistant could not finish that reply.");
   });
 });

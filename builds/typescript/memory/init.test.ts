@@ -39,8 +39,12 @@ describe("memory init project scaffolding", () => {
         .resolves.toContain("Owner review pending");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "AGENT.md"), "utf8"))
         .resolves.toContain("Partial Classification Rule");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "AGENT.md"), "utf8"))
+        .resolves.toContain("do not complete the number for them");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "AGENT.md"), "utf8"))
-        .resolves.toContain("Every uploaded file must be represented in the final Budget source coverage.");
+        .resolves.toContain("do not infer or normalize the missing number");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "AGENT.md"), "utf8"))
+        .resolves.toContain("Every uploaded file should be traceable to exactly one Source Coverage group.");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "AGENT.md"), "utf8"))
         .resolves.toContain("project_budget_validate_source_coverage");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "budget.md"), "utf8"))
