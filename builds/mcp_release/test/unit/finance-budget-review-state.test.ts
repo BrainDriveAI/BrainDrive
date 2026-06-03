@@ -71,6 +71,32 @@ describe("Finance Budget review-state reconciliation", () => {
       await rm(memoryRoot, { recursive: true, force: true });
     }
   });
+
+  it("repairs exact Needs Review labels in the saved Budget", async () => {
+    const memoryRoot = await mkdtemp(path.join(os.tmpdir(), "finance-budget-review-budget-label-"));
+
+    try {
+      await writeAbbreviatedBudgetReviewSeedMemory(memoryRoot);
+
+      const invalid = await reconcileFinanceBudgetReviewState(memoryRoot);
+      expect(invalid.status).toBe("invalid");
+      expect(invalid.issues.map((issue) => issue.message).join("\n")).toContain(
+        "Active Needs Review item Blue Door Payment ($67.50) is missing from the saved Budget."
+      );
+
+      const repaired = await reconcileFinanceBudgetReviewState(memoryRoot, { repair: true });
+      expect(repaired.status).toBe("repaired");
+      expect(repaired.issues).toEqual([]);
+      expect(repaired.files_changed).toEqual(["documents/finance/budget/budget.md"]);
+
+      const budget = await readFile(path.join(memoryRoot, "documents", "finance", "budget", "budget.md"), "utf8");
+      expect(budget).toContain("MJP Services ($184.00)");
+      expect(budget).toContain("Blue Door Payment ($67.50)");
+      expect(budget).not.toContain("Blue Door ($67.50)");
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
 });
 
 async function writeSeedMemory(memoryRoot: string): Promise<void> {
@@ -216,6 +242,67 @@ async function writeAllResolvedSeedMemory(memoryRoot: string): Promise<void> {
       "",
       "- [x] Research MJP Services merchant details ($184.00) #finance",
       "- [x] Research Blue Door Payment merchant details ($67.50) #finance",
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+}
+
+async function writeAbbreviatedBudgetReviewSeedMemory(memoryRoot: string): Promise<void> {
+  await mkdir(path.join(memoryRoot, "documents", "finance", "budget", "reports"), { recursive: true });
+  await mkdir(path.join(memoryRoot, "me"), { recursive: true });
+
+  await writeFile(
+    path.join(memoryRoot, "documents", "finance", "budget", "budget.md"),
+    [
+      "# Budget",
+      "",
+      "## Reconciliation Check",
+      "",
+      "| Line | Amount | Notes |",
+      "|---|---:|---|",
+      "| Unreconciled - Needs Review | 251.50 | MJP Services ($184.00) + Blue Door ($67.50) are unmapped |",
+      "| Owner review pending | 251.50 | Sum of unclassified Needs Review items |",
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+  await writeFile(
+    path.join(memoryRoot, "documents", "finance", "budget", "reports", "latest.md"),
+    [
+      "# Latest Budget Report",
+      "",
+      "## Needs Review",
+      "",
+      "| Date | Description | Amount | Account | Reason | Temporary Treatment |",
+      "|---|---|---:|---|---|---|",
+      "| 2026-03-29 | MJP Services | 184.00 | Checking | Unmapped | Excluded from Base Spend |",
+      "| 2026-04-09 | Blue Door Payment | 67.50 | Checking | Unmapped | Excluded from Base Spend |",
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+  await writeFile(
+    path.join(memoryRoot, "documents", "finance", "plan.md"),
+    [
+      "# Finance Plan",
+      "",
+      "## Right Now - Your First Step",
+      "",
+      "Clarify Blue Door Payment ($67.50) and MJP Services ($184.00) to finish the remaining Needs Review items.",
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+  await writeFile(
+    path.join(memoryRoot, "me", "todo.md"),
+    [
+      "# My Todos",
+      "",
+      "## Active",
+      "",
+      "- [ ] Clarify what MJP Services ($184.00) was for #finance",
+      "- [ ] Clarify what Blue Door Payment ($67.50) was for #finance",
       "",
     ].join("\n"),
     "utf8"
