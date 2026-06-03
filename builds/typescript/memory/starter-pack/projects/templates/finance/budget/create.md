@@ -10,7 +10,7 @@ Update sections in place in `budget.md`; never replace the whole file. Always ke
 
 Create a usable saved monthly budget or update an existing saved budget when the owner explicitly asks for that change.
 
-The saved Budget is the primary working artifact. Statement analysis is supporting evidence, not the center of the workflow, unless the owner explicitly asks for an actuals comparison.
+The saved Budget is the primary working artifact. Statement analysis is supporting evidence, not the center of the workflow, unless the owner explicitly asks for an actuals comparison. Owner-visible completion claims must come after verified writes, not before them.
 
 ## When to Run
 
@@ -19,7 +19,7 @@ The saved Budget is the primary working artifact. Statement analysis is supporti
 
 ## Method
 
-Start by telling the owner you are creating or updating the saved Budget. Explain the sections you will build: fixed obligations, variable categories, irregular costs, transfers/account movement, business or startup funding, assumptions, confidence, and next review items.
+Start by creating or updating the saved Budget through Memory tools. Do not tell the owner it is created, updated, saved, mapped, categorized, cleared, or ready until the write and readback have succeeded. The artifact sections to build are fixed obligations, variable categories, irregular costs, transfers/account movement, business or startup funding, recurring candidates, assumptions, confidence, and next review items.
 
 Use owner estimates and available statements. Label assumptions, ask about material unknowns, and keep owner-approved rules in `budget-rules-user.md`.
 
@@ -40,6 +40,8 @@ After saving card payoff guidance, call `project_budget_validate_payoff_plan` wi
 If uploaded source files were used or reviewed during setup, also populate `reports/latest.md` with a source coverage ledger and any supporting detail that would make the chat reply too dense. The Source Coverage section must list each uploaded file as used, reviewed/excluded, or missing/rejected. Harborline Roth IRA or other investment statements must be listed as reviewed/excluded asset context with no spendable cash-flow impact.
 
 After writing or refreshing `reports/latest.md`, call `project_budget_validate_source_coverage` with `repair: true`, then read the latest Budget report back before replying. If source coverage still has missing uploads, do not claim every uploaded statement was used or accounted for.
+
+Add a Recurring Candidates section to `budget.md` or `reports/latest.md` before replying. Scan statement text for recurring or subscription-like merchants and include merchant, source file, date, amount, confidence, and treatment. For the Katie fixture, include SignalHouse Mobile, Parkside Internet, StoryNest Audio, ActiveLoop Fitness, CloudBox Storage, and MealMap Pro when present, or explicitly explain in the artifact why a candidate was excluded. Ask the owner to confirm ambiguous recurring treatment before creating durable personal rules in `budget-rules-user.md`.
 
 Separate ordinary personal living spend from transfers, refunds, debt payments, investment movement, and business/startup spending. Do not treat account movement as category spending.
 
@@ -83,11 +85,11 @@ Separate completion state from follow-up state in the final reply:
 - Open owner decisions or assumptions.
 - Active Todo items that still remain.
 
-Artifact-first rule: complete and verify `budget.md`, `reports/latest.md`, Finance plan, and action-list writes before applying the compact owner-facing reply format.
+Artifact-first rule: complete and verify `budget.md`, `reports/latest.md`, Finance plan, and action-list writes before applying the compact owner-facing reply format. If a provider recovery attempt or tool failure leaves those writes incomplete, keep chat to a recoverable status and one next action; do not summarize an unsaved Budget as if it exists.
 
 Keep the chat reply scan-friendly. Use bullets for the owner-facing summary and keep detailed category tables in the saved Budget or report artifacts unless the owner explicitly asks to see a table in chat. For the first Budget or comparison reply after statement intake, confirm the artifact exists in 80-140 words, use at most 3 short bullets, include at most 3 visible dollar amounts or percentages, and ask only the highest-priority next question. If payoff evidence exists, say the payoff plan is anchored on the highest-APR card and leave the full APR/minimum/extra-payment math in the saved Budget and latest Budget report unless the owner explicitly asks for those numbers in chat. Do not use headings. Do not send full APR tables, full payment ledgers, full category ledgers, raw pipe tables, malformed markdown, dangling emphasis markers, repeated emphasis markers, concatenated category words, jammed amounts such as `pay$117.00`, or adjacent merchant names without line breaks.
 
-End the response with a clear product-facing review affordance sentence, for example: "Your saved Budget is ready to review, and the latest Budget report is available if you want the statement-backed details." Do not use raw file paths in that sentence.
+End the response with a clear product-facing review affordance sentence only after readback confirms `budget.md` is no longer a starter template and `reports/latest.md` has populated Source Coverage. For example: "Your saved Budget is ready to review, and the latest Budget report is available if you want the statement-backed details." Do not use raw file paths in that sentence. If readback fails, say the draft still needs to be saved and ask to continue.
 
 Propagate material state changes back to Finance:
 

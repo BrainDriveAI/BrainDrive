@@ -23,6 +23,17 @@ describe("Finance Budget source coverage validation", () => {
       expect(invalid.issues.map((issue) => issue.message).join("\n")).toContain(
         "Source Coverage is missing uploaded file CedarAtlantic_Checking_2026-04-15.pdf."
       );
+      expect(invalid.issues.map((issue) => issue.message).join("\n")).toContain(
+        "Latest Budget report is missing Recurring Candidates."
+      );
+      expect(invalid.recurring_candidates.map((candidate) => candidate.merchant)).toEqual([
+        "ActiveLoop Fitness",
+        "CloudBox Storage",
+        "MealMap Pro",
+        "Parkside Internet",
+        "SignalHouse Mobile",
+        "StoryNest Audio",
+      ]);
 
       const repaired = await validateFinanceBudgetSourceCoverage(memoryRoot, { repair: true });
       expect(repaired.status).toBe("repaired");
@@ -37,6 +48,14 @@ describe("Finance Budget source coverage validation", () => {
       expect(latest).toContain("SummitTrail_EverydayMastercard_2026-04.pdf");
       expect(latest).toContain("HarborlineInvestments_RothIRA_2026-04.pdf");
       expect(latest).toContain("Reviewed/excluded asset context");
+      expect(latest).toContain("## Recurring Candidates");
+      expect(latest).toContain("SignalHouse Mobile");
+      expect(latest).toContain("Parkside Internet");
+      expect(latest).toContain("StoryNest Audio");
+      expect(latest).toContain("ActiveLoop Fitness");
+      expect(latest).toContain("CloudBox Storage");
+      expect(latest).toContain("MealMap Pro");
+      expect(latest).toContain("owner confirmation required");
       expect(latest).toContain("## Source Evidence Ledger");
     } finally {
       await rm(memoryRoot, { recursive: true, force: true });
@@ -86,6 +105,15 @@ async function writeSourceCoverageSeedMemory(memoryRoot: string): Promise<void> 
       statement_like: true,
       statement_period_start: "2026-03-17",
       statement_period_end: "2026-04-15",
+      body: [
+        "| Date | Merchant | Amount | Notes |",
+        "|---|---|---:|---|",
+        "| 2026-04-04 | SignalHouse Mobile | -78.23 | Monthly mobile bill |",
+        "| 2026-04-09 | StoryNest Audio | -14.99 | Subscription |",
+        "| 2026-04-13 | Parkside Internet | -89.00 | Internet |",
+        "| 2026-04-18 | ActiveLoop Fitness | -44.00 | Gym membership |",
+        "| 2026-04-22 | CloudBox Storage | -12.99 | Cloud storage |",
+      ].join("\n"),
     }),
     "utf8"
   );
@@ -99,6 +127,11 @@ async function writeSourceCoverageSeedMemory(memoryRoot: string): Promise<void> 
       statement_like: true,
       statement_period_start: "2026-04-01",
       statement_period_end: "2026-04-30",
+      body: [
+        "| Date | Merchant | Amount | Notes |",
+        "|---|---|---:|---|",
+        "| 2026-04-15 | MealMap Pro | -19.99 | Monthly subscription |",
+      ].join("\n"),
     }),
     "utf8"
   );
@@ -125,6 +158,7 @@ function sourceDocument(input: {
   statement_like: boolean;
   statement_period_start: string;
   statement_period_end: string;
+  body?: string;
 }): string {
   return [
     "---",
@@ -141,6 +175,8 @@ function sourceDocument(input: {
     "---",
     "",
     `# ${input.title}`,
+    "",
+    input.body ?? "",
     "",
   ].join("\n");
 }

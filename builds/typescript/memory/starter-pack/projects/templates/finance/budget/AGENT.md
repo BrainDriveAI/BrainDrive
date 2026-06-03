@@ -44,6 +44,8 @@ Comparison routing rule: when any follow-up asks how actual spending compares ag
 
 Draft-with-uncertainty rule: ambiguous transactions, missing months, or unresolved merchant labels must not block a first-pass saved Budget. Save a provisional Budget with a Needs Review section, clear confidence labels, and explicit assumptions, then ask the targeted follow-up questions after the draft exists.
 
+Write-before-claim rule: Budget creation, comparison, payoff guidance, source coverage, recurring candidate detection, and Needs Review classification are not complete until the required artifacts have been written and read back in the same turn. If a recovery attempt, provider interruption, or tool failure prevents the write/readback, do not summarize artifact-grade results in chat and do not say the Budget, report, categories, or review list are saved, updated, mapped, cleared, or ready. Say the draft is not saved yet and ask the smallest next action.
+
 ## Statement Intake Checklist
 
 When the owner is setting up a budget from statements, keep a visible checklist in the conversation:
@@ -92,7 +94,9 @@ Use chat to orient the owner, not to serialize the report. For Budget draft, com
 
 Post-upload receipt contract: immediately after a statement batch upload is accepted, reply with receipt/orientation only. Keep the owner-facing reply to 60-120 words, confirm the count and source types received, say they are ready for Budget analysis, and ask one next-action question. Do not show balances, APRs, interest charges, payroll math, rent details, category totals, Needs Review merchants, or debt payoff analysis in this upload receipt. Save or prepare detailed analysis in Budget artifacts, then present it only after the owner asks for the Budget plan, comparison, or report.
 
-First Budget reply contract: after the owner uploads the initial statement set and asks for a first-pass Budget, the next owner-facing reply must be a brief receipt plus orientation, not the full analysis. Keep it to 80-140 words, use at most 3 short bullets, include at most 3 visible dollar amounts or percentages, and avoid headings, tables, APR/payment ledgers, full category ledgers, and raw markdown formatting. Say the saved Budget is ready for review and that detailed statement-backed numbers are in the latest Budget report. If credit-card APR evidence exists, say the payoff plan is anchored on the highest-APR card and leave the full APR/minimum/extra-payment math in the saved Budget and latest Budget report unless the owner explicitly asks for those numbers in chat. Ask one highest-priority next question only.
+First Budget reply contract: after the owner uploads the initial statement set and asks for a first-pass Budget, the next owner-facing reply must be brief and must follow verified artifact writes, not replace them. Keep it to 80-140 words, use at most 3 short bullets, include at most 3 visible dollar amounts or percentages, and avoid headings, tables, APR/payment ledgers, full category ledgers, and raw markdown formatting. If verified writes succeeded, say the saved Budget is ready for review and that detailed statement-backed numbers are in the latest Budget report. If credit-card APR evidence exists, say the payoff plan is anchored on the highest-APR card and leave the full APR/minimum/extra-payment math in the saved Budget and latest Budget report unless the owner explicitly asks for those numbers in chat. Ask one highest-priority next question only.
+
+Only say the saved Budget is ready for review after `budget.md` no longer contains `Status: Starter template - not yet customized`, `reports/latest.md` has non-empty Source Coverage, and both artifacts were read back after writing. If either artifact is still a starter or could not be verified, say the draft still needs to be saved and ask to continue.
 
 ## Debt Payoff Priority
 
@@ -156,6 +160,8 @@ After this reconciliation, run `project_budget_reconcile_review_state` with `rep
 One month of statements can support a draft actuals baseline only. Do not present one-month-derived category limits as stable unless the owner explicitly confirms the month is representative. Ask for 3-6 months of checking/card history and known annual or irregular costs for a reliable budget.
 
 Every saved Budget update must distinguish known fixed obligations, observed recurring items, one-month observed categories, owner estimates, irregular/lumpy costs, transfers/account movement, business/startup spending, and needs-more-history items.
+
+Recurring candidate pass: before finalizing `budget.md` or `reports/latest.md`, scan the statement evidence for recurring or subscription-like merchants and write a Recurring Candidates section with merchant, source file, date, amount, confidence, and treatment. Include SignalHouse Mobile, Parkside Internet, StoryNest Audio, ActiveLoop Fitness, CloudBox Storage, and MealMap Pro when present in Katie fixture evidence, or explicitly explain in the artifact why any are excluded. Ask the owner to confirm ambiguous recurring treatment before writing durable personal rules in `budget-rules-user.md`.
 
 If the owner sends a finance answer that ends mid-number, mid-currency amount, or mid-sentence, do not infer or normalize the missing number. Ask a targeted clarification before using it. For example, if the owner writes `about $3,` after saying `$1,800 per paycheck`, ask whether they meant about `$3,600`, about `$3,800`, or another monthly take-home amount, and confirm pay frequency before budget math.
 

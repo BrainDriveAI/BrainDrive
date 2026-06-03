@@ -179,7 +179,7 @@ describe("runAgentLoop", () => {
       .toEqual([1, 2]);
   });
 
-  it("retries one empty terminal model completion with constrained recovery mode", async () => {
+  it("retries one empty terminal model completion with constrained write-capable recovery mode", async () => {
     const auditEvents: Array<{ event: string; details: Record<string, unknown>; modelCallIndex?: number }> = [];
     let calls = 0;
     let retryRequestMessages: GatewayMessage[] = [];
@@ -209,9 +209,20 @@ describe("runAgentLoop", () => {
     };
 
     const events = [];
+    const executor = new ToolExecutor([
+      {
+        name: "memory_write",
+        description: "Write memory",
+        requiresApproval: false,
+        readOnly: false,
+        inputSchema: { type: "object" },
+        execute: async () => ({ operation: "write", path: "documents/finance/budget/budget.md", changed: true }),
+      },
+    ]);
+
     for await (const event of runAgentLoop(
       adapter,
-      new ToolExecutor([]),
+      executor,
       new ApprovalStore(),
       request,
       ownerAuth,
@@ -230,7 +241,7 @@ describe("runAgentLoop", () => {
     }
 
     expect(calls).toBe(2);
-    expect(retryToolsCount).toBe(0);
+    expect(retryToolsCount).toBe(1);
     expect(retryRequestMetadata).not.toBeNull();
     const retryMetadata = retryRequestMetadata as unknown as GatewayEngineRequest["metadata"];
     expect(retryMetadata.client_context).toMatchObject({
@@ -240,6 +251,7 @@ describe("runAgentLoop", () => {
       role: "user",
       content: expect.stringContaining("Recovery mode"),
     });
+    expect(retryRequestMessages.at(-1)?.content).toContain("perform those writes and read back the changed files");
     expect(events).toEqual([
       {
         type: "text-delta",
@@ -256,7 +268,8 @@ describe("runAgentLoop", () => {
       event: "prompt_audit.empty_completion",
       details: expect.objectContaining({
         finish_reason: "stop",
-        retry_attempted: false,
+        retry_attempted: true,
+        retry_mode: "empty_completion_repair",
         usage: { promptTokens: 30_568, completionTokens: 0, totalTokens: 30_568 },
       }),
     }));
@@ -264,7 +277,7 @@ describe("runAgentLoop", () => {
       event: "prompt_audit.model_request",
       details: expect.objectContaining({
         recovery_mode: "empty_completion_repair",
-        tools: [],
+        tools: [expect.objectContaining({ name: "memory_write" })],
       }),
       modelCallIndex: 2,
     }));
@@ -315,7 +328,9 @@ describe("runAgentLoop", () => {
       },
     ]);
     expect(auditEvents.filter((entry) => entry.event === "prompt_audit.empty_completion").map((entry) => entry.details.retry_attempted))
-      .toEqual([false, true]);
+      .toEqual([true, true]);
+    expect(auditEvents.filter((entry) => entry.event === "prompt_audit.empty_completion").map((entry) => entry.details.retry_mode))
+      .toEqual(["empty_completion_repair", "retry_failed"]);
   });
 
   it("compacts large tool results before the next model request", async () => {

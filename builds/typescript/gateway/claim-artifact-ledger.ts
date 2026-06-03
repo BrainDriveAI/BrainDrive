@@ -40,12 +40,22 @@ const CLAIM_PATTERNS: Array<{
   },
   {
     type: "budget_updated",
-    pattern: /\b(?:updated|created|saved|revised).{0,80}\b(?:saved budget|budget)\b/gi,
+    pattern: /\b(?:updated|created|saved|revised|built|drafted|prepared|set up|created).{0,80}\b(?:saved budget|budget|first-pass budget|first pass budget|budget draft)\b/gi,
+    requiredArtifacts: ["documents/finance/budget/budget.md"],
+  },
+  {
+    type: "budget_updated",
+    pattern: /\b(?:saved budget|budget|first-pass budget|first pass budget|budget draft).{0,80}\b(?:ready|created|saved|updated|built|prepared|set up)\b/gi,
     requiredArtifacts: ["documents/finance/budget/budget.md"],
   },
   {
     type: "report_updated",
     pattern: /\b(?:updated|created|saved|refreshed).{0,80}\b(?:latest budget report|budget report|report)\b/gi,
+    requiredArtifacts: ["documents/finance/budget/reports/latest.md"],
+  },
+  {
+    type: "report_updated",
+    pattern: /\b(?:latest budget report|budget report|report).{0,80}\b(?:ready|created|saved|updated|refreshed|available)\b/gi,
     requiredArtifacts: ["documents/finance/budget/reports/latest.md"],
   },
   {
@@ -55,7 +65,27 @@ const CLAIM_PATTERNS: Array<{
   },
   {
     type: "category_mapped",
-    pattern: /\b(?:mapped|categorized|classified).{0,80}\b(?:MJP|Blue Door|merchant|transaction|item)\b/gi,
+    pattern: /\b(?:mapped|categorized|classified|cleared|resolved).{0,80}\b(?:MJP|Blue Door|merchant|transaction|item|mystery list|needs-review|needs review)\b/gi,
+    requiredArtifacts: [
+      "documents/finance/budget/budget.md",
+      "documents/finance/budget/reports/latest.md",
+      "documents/finance/budget/budget-rules-user.md",
+    ],
+    expectedKeywords: categoryKeywords,
+  },
+  {
+    type: "category_mapped",
+    pattern: /\b(?:MJP|Blue Door|merchant|transaction|item|mystery list|needs-review|needs review).{0,80}\b(?:mapped|categorized|classified|cleared|resolved)\b/gi,
+    requiredArtifacts: [
+      "documents/finance/budget/budget.md",
+      "documents/finance/budget/reports/latest.md",
+      "documents/finance/budget/budget-rules-user.md",
+    ],
+    expectedKeywords: categoryKeywords,
+  },
+  {
+    type: "category_mapped",
+    pattern: /\b(?:going to|will|I'll|I will).{0,40}\bsave.{0,80}\b(?:these updates|category updates|classifications|needs-review|needs review)\b/gi,
     requiredArtifacts: [
       "documents/finance/budget/budget.md",
       "documents/finance/budget/reports/latest.md",

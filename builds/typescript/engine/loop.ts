@@ -17,10 +17,10 @@ import { ToolExecutor } from "./tool-executor.js";
 const DEFAULT_MAX_TOOL_RESULT_MODEL_CHARS = 16_000;
 const EMPTY_COMPLETION_REPAIR_INSTRUCTION = [
   "Recovery mode: the previous model call ended without visible assistant text or tool calls.",
-  "Answer the owner's latest request now with concise, owner-visible text.",
-  "Start with a useful first-pass result from the context already available.",
-  "Do not plan silently. Do not use tools in this recovery attempt.",
-  "If a complete artifact would require more work, give the best partial answer and state the next step.",
+  "Complete the owner's latest request now using the smallest necessary tool calls.",
+  "If the request requires saving, updating, or verifying durable files, perform those writes and read back the changed files before any owner-visible claim.",
+  "If you cannot complete the required tool/write/readback step, return a concise recoverable failure and do not claim the work is saved, updated, mapped, categorized, or complete.",
+  "Skip optional narrative and avoid tables in this recovery attempt.",
 ].join(" ");
 const EMPTY_COMPLETION_ERROR_MESSAGE = [
   "The assistant could not finish that reply, but your conversation and uploaded files are still here.",
@@ -82,7 +82,7 @@ export async function* runAgentLoop(
     };
     try {
       const isEmptyCompletionRepairTurn = emptyCompletionRepairAttempted;
-      const tools = isEmptyCompletionRepairTurn ? [] : toolExecutor.listTools(auth);
+      const tools = toolExecutor.listTools(auth);
       const modelRequest: GatewayEngineRequest = isEmptyCompletionRepairTurn
         ? {
             ...request,
@@ -182,7 +182,8 @@ export async function* runAgentLoop(
         {
           finish_reason: completion.finishReason,
           usage: completion.usage ?? null,
-          retry_attempted: emptyCompletionRepairAttempted,
+          retry_attempted: true,
+          retry_mode: emptyCompletionRepairAttempted ? "retry_failed" : EMPTY_COMPLETION_REPAIR_CONTEXT_KEY,
         },
         modelCall
       );
@@ -190,7 +191,8 @@ export async function* runAgentLoop(
         correlation_id: request.metadata.correlation_id,
         conversation_id: request.metadata.conversation_id,
         finish_reason: completion.finishReason,
-        retry_attempted: emptyCompletionRepairAttempted,
+        retry_attempted: true,
+        retry_mode: emptyCompletionRepairAttempted ? "retry_failed" : EMPTY_COMPLETION_REPAIR_CONTEXT_KEY,
         usage: completion.usage ?? null,
       });
 

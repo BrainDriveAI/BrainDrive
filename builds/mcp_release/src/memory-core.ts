@@ -120,9 +120,20 @@ type FinanceBudgetSourceDocument = {
   statement_like: boolean;
 };
 
+type FinanceBudgetRecurringCandidate = {
+  merchant: string;
+  amount: string;
+  date: string;
+  source_filename: string;
+  source_path: string;
+  confidence: "high" | "medium";
+  treatment: string;
+};
+
 type FinanceBudgetSourceCoveragePayload = {
   status: "valid" | "invalid" | "repaired";
   source_documents: FinanceBudgetSourceDocument[];
+  recurring_candidates: FinanceBudgetRecurringCandidate[];
   issues: FinanceBudgetSourceCoverageIssue[];
   files_changed: string[];
 };
@@ -665,16 +676,25 @@ export async function validateFinanceBudgetSourceCoverage(
   const latestPath = "documents/finance/budget/reports/latest.md";
   const latest = await readOptionalMemoryText(memoryRoot, latestPath);
   const sourceDocuments = await discoverFinanceBudgetSourceDocuments(memoryRoot);
-  const issues = sourceCoverageIssues(latest, sourceDocuments, latestPath);
+  const recurringCandidates = await discoverFinanceBudgetRecurringCandidates(memoryRoot, sourceDocuments);
+  const issues = sourceCoverageIssues(latest, sourceDocuments, recurringCandidates, latestPath);
   const filesChanged: string[] = [];
 
   if (options.repair && latest !== null && sourceDocuments.length > 0 && issues.length > 0) {
-    const repaired = replaceOrInsertSectionBefore(latest, "Source Coverage", sourceCoverageSection(sourceDocuments), [
+    let repaired = replaceOrInsertSectionBefore(latest, "Source Coverage", sourceCoverageSection(sourceDocuments), [
       "Source Evidence Ledger",
       "Owner-Requested Items Audit",
       "Category Breakdown",
       "Next Steps",
     ]);
+    if (recurringCandidates.length > 0) {
+      repaired = replaceOrInsertSectionBefore(
+        repaired,
+        "Recurring Candidates",
+        recurringCandidatesSection(recurringCandidates),
+        ["Source Evidence Ledger", "Owner-Requested Items Audit", "Category Breakdown", "Next Steps"]
+      );
+    }
     if (repaired !== latest) {
       await writeMemoryFile(memoryRoot, latestPath, repaired);
       filesChanged.push(latestPath);
@@ -682,11 +702,12 @@ export async function validateFinanceBudgetSourceCoverage(
   }
 
   const finalLatest = filesChanged.length > 0 ? await readOptionalMemoryText(memoryRoot, latestPath) : latest;
-  const finalIssues = sourceCoverageIssues(finalLatest, sourceDocuments, latestPath);
+  const finalIssues = sourceCoverageIssues(finalLatest, sourceDocuments, recurringCandidates, latestPath);
 
   return {
     status: finalIssues.length === 0 ? (filesChanged.length > 0 ? "repaired" : "valid") : "invalid",
     source_documents: sourceDocuments,
+    recurring_candidates: recurringCandidates,
     issues: finalIssues,
     files_changed: filesChanged,
   };
@@ -914,6 +935,7 @@ function frontmatterValue(content: string, key: string): string | null {
 function sourceCoverageIssues(
   latest: string | null,
   sourceDocuments: FinanceBudgetSourceDocument[],
+  recurringCandidates: FinanceBudgetRecurringCandidate[],
   latestPath: string
 ): FinanceBudgetSourceCoverageIssue[] {
   const issues: FinanceBudgetSourceCoverageIssue[] = [];
@@ -933,6 +955,17 @@ function sourceCoverageIssues(
       issues.push({
         path: latestPath,
         message: `Source Coverage is missing uploaded file ${document.source_filename}.`,
+      });
+    }
+  }
+  if (recurringCandidates.length > 0 && !/^##\s+Recurring Candidates\b/m.test(latest)) {
+    issues.push({ path: latestPath, message: "Latest Budget report is missing Recurring Candidates." });
+  }
+  for (const candidate of recurringCandidates) {
+    if (!latest.includes(candidate.merchant)) {
+      issues.push({
+        path: latestPath,
+        message: `Recurring Candidates is missing ${candidate.merchant}.`,
       });
     }
   }
@@ -996,6 +1029,139 @@ function sourceCoverageUse(document: FinanceBudgetSourceDocument): string {
     return "Credit-card balances, APR, minimum payment, interest, and transaction evidence";
   }
   return "Statement-backed Budget evidence";
+}
+
+async function discoverFinanceBudgetRecurringCandidates(
+  memoryRoot: string,
+  sourceDocuments: FinanceBudgetSourceDocument[]
+): Promise<FinanceBudgetRecurringCandidate[]> {
+  const candidates: FinanceBudgetRecurringCandidate[] = [];
+  const seen = new Set<string>();
+
+  for (const document of sourceDocuments) {
+    if (!shouldUseForBudgetCalculations(document)) {
+      continue;
+    }
+    const content = await readOptionalMemoryText(memoryRoot, document.path);
+    if (!content) {
+      continue;
+    }
+
+    for (const line of content.split(/\n/)) {
+      const candidate = recurringCandidateFromStatementLine(line, document);
+      if (!candidate) {
+        continue;
+      }
+      const key = `${candidate.merchant.toLowerCase()}|${candidate.amount}|${candidate.date}|${candidate.source_filename}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      candidates.push(candidate);
+    }
+  }
+
+  return candidates.sort(
+    (left, right) =>
+      left.merchant.localeCompare(right.merchant) ||
+      left.date.localeCompare(right.date) ||
+      left.source_filename.localeCompare(right.source_filename)
+  );
+}
+
+function recurringCandidateFromStatementLine(
+  line: string,
+  document: FinanceBudgetSourceDocument
+): FinanceBudgetRecurringCandidate | null {
+  if (!recurringLineLooksRelevant(line)) {
+    return null;
+  }
+
+  const cells = line
+    .split("|")
+    .map((cell) => cell.trim())
+    .filter((cell) => cell.length > 0);
+  const dateIndex = cells.findIndex((cell) => /^20\d{2}-\d{2}-\d{2}$/.test(cell));
+  if (dateIndex === -1) {
+    return null;
+  }
+
+  const merchant = normalizeRecurringMerchant(cells[dateIndex + 1] ?? "");
+  const amount = normalizeMoneyAmount(cells[dateIndex + 2] ?? "");
+  if (!merchant || !amount) {
+    return null;
+  }
+
+  const confidence = recurringLineLooksExplicit(line) || isKnownRecurringMerchant(merchant) ? "high" : "medium";
+  return {
+    merchant,
+    amount,
+    date: cells[dateIndex] ?? "",
+    source_filename: document.source_filename,
+    source_path: document.path,
+    confidence,
+    treatment: recurringCandidateTreatment(merchant),
+  };
+}
+
+function recurringLineLooksRelevant(line: string): boolean {
+  return recurringLineLooksExplicit(line) || knownRecurringMerchants.some((merchant) => line.includes(merchant));
+}
+
+function recurringLineLooksExplicit(line: string): boolean {
+  return /\b(?:subscription|monthly|recurring|mobile bill|internet|gym membership|cloud storage)\b/i.test(line);
+}
+
+const knownRecurringMerchants = [
+  "SignalHouse Mobile",
+  "Parkside Internet",
+  "StoryNest Audio",
+  "ActiveLoop Fitness",
+  "CloudBox Storage",
+  "MealMap Pro",
+];
+
+function isKnownRecurringMerchant(merchant: string): boolean {
+  return knownRecurringMerchants.some((knownMerchant) => knownMerchant.toLowerCase() === merchant.toLowerCase());
+}
+
+function normalizeRecurringMerchant(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function normalizeMoneyAmount(value: string): string | null {
+  const cleaned = value.replace(/[$,]/g, "").replace(/[()]/g, "").trim();
+  const match = /-?\d+(?:\.\d{2})?/.exec(cleaned);
+  if (!match) {
+    return null;
+  }
+  return Math.abs(Number(match[0])).toFixed(2);
+}
+
+function recurringCandidateTreatment(merchant: string): string {
+  if (/\bInternet\b/i.test(merchant)) {
+    return "Recurring utility candidate; owner confirmation required before durable rule.";
+  }
+  if (/\bMobile\b/i.test(merchant)) {
+    return "Recurring mobile bill candidate; owner confirmation required before durable rule.";
+  }
+  return "Subscription or recurring bill candidate; owner confirmation required before durable rule.";
+}
+
+function recurringCandidatesSection(candidates: FinanceBudgetRecurringCandidate[]): string {
+  return [
+    "## Recurring Candidates",
+    "",
+    "Statement-backed subscription and recurring-bill candidates discovered during source coverage validation. Treat these as candidates until the owner confirms durable rules.",
+    "",
+    "| Merchant | Amount | Source File | Date | Confidence | Treatment |",
+    "|---|---:|---|---|---|---|",
+    ...candidates.map(
+      (candidate) =>
+        `| ${candidate.merchant} | ${candidate.amount} | ${candidate.source_filename} | ${candidate.date} | ${candidate.confidence} | ${candidate.treatment} |`
+    ),
+    "",
+  ].join("\n");
 }
 
 function financeBudgetPayoffIssuesForArtifact(

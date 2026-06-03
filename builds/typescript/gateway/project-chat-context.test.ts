@@ -46,7 +46,9 @@ describe("project chat context", () => {
     expect(context).toContain("attach files in chat or use the visible upload button");
     expect(context).toContain("Do not ask the owner to manually place files into documents/finance");
     expect(context).toContain("Internal Memory paths are for tool use only");
+    expect(context).toContain("If provider recovery mode or a tool failure prevents Budget artifact writes/readback");
     expect(context).toContain("For Budget creation requests, make the saved Budget the primary deliverable");
+    expect(context).toContain("do not say the saved Budget is ready unless documents/finance/budget/budget.md no longer contains the starter-template status");
     expect(context).toContain("draft actuals baseline, not a stable budget");
     expect(context).toContain("propagate state to Finance spec, Finance plan, and Todo list");
     expect(context).toContain("treat documents/finance/budget/budget.md as the saved budget");
@@ -74,6 +76,8 @@ describe("project chat context", () => {
     expect(context).toContain("New Or Unbudgeted Items section");
     expect(context).toContain("exact transaction description");
     expect(context).toContain("Budget report summaries must agree with their category tables");
+    expect(context).toContain("Budget artifacts must include recurring or subscription-like candidates");
+    expect(context).toContain("StoryNest Audio");
     expect(context).toContain("mark the artifact Needs Review");
     expect(context).toContain("literal 'Excluded From Expense Totals' section");
     expect(context).toContain("credit-card or debt payments");
@@ -211,6 +215,25 @@ describe("project chat context", () => {
     expect(safeResponse.text).not.toContain("Save status:");
     expect(safeResponse.text).not.toContain("Not saved yet");
     expect(safeResponse.unsupportedClaims).toEqual(["todo_updated", "budget_updated", "report_updated"]);
+  });
+
+  it("removes unsupported Budget completion and category-mapping claims before owner-visible output", () => {
+    const safeResponse = buildDurableClaimSafeResponse(
+      [
+        "Based on your uploaded statements, I have built a first-pass budget and debt payoff plan.",
+        "Now that we have categorized these, we have successfully cleared the mystery list!",
+        "I am going to save these updates to your financial files now.",
+        "Please confirm whether the auto and vet costs recur monthly.",
+      ].join(" "),
+      []
+    );
+
+    expect(safeResponse.changed).toBe(true);
+    expect(safeResponse.text).not.toContain("built a first-pass budget");
+    expect(safeResponse.text).not.toContain("cleared the mystery list");
+    expect(safeResponse.text).not.toContain("save these updates");
+    expect(safeResponse.text).toContain("Please confirm whether the auto and vet costs recur monthly.");
+    expect(safeResponse.unsupportedClaims).toEqual(["budget_updated", "category_mapped"]);
   });
 
   it("does not rewrite a Todo claim backed by a changed Todo artifact summary", () => {

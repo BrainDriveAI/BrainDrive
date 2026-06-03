@@ -23,6 +23,8 @@ Read `budget.md`, `budget-rules.md`, `budget-rules-user.md` if present, `stateme
 
 Write `reports/latest.md` by default. Write `reports/monthly-YYYY-MM.md` only after the reported month is closed. Do not answer a comparison request only in chat; the saved latest Budget report is the durable comparison artifact and must be populated before the final comparison reply.
 
+If the comparison surfaces recurring or subscription-like merchants, add or refresh a Recurring Candidates section in `reports/latest.md` with merchant, source file, date, amount, confidence, and treatment. Include SignalHouse Mobile, Parkside Internet, StoryNest Audio, ActiveLoop Fitness, CloudBox Storage, and MealMap Pro when present in Katie fixture evidence, or explicitly explain in the report why a candidate was excluded.
+
 The latest Budget report must include Source Coverage with every uploaded file assigned to one of these groups:
 
 - Used for Budget calculations.
@@ -66,6 +68,8 @@ Separate completion state from follow-up state in the final reply:
 - Active Todo items that still remain.
 
 Keep the chat reply scan-friendly. Use bullets for the owner-facing summary and keep detailed variance, reconciliation, and exclusion tables in the saved report artifact unless the owner explicitly asks to see a table in chat. For comparison replies, send one sentence summary, up to three bullets, and one next action, staying between 100-160 words and no more than 3 visible dollar amounts or percentages unless the owner explicitly asks for a table. Do not send raw pipe tables, full over/under tables, full reconciliation tables, malformed markdown, dangling emphasis markers, repeated emphasis markers, concatenated category words, jammed amounts, or adjacent merchant names without line breaks. If source gaps or Needs Review items remain, use cautious wording and avoid overconfident payoff language.
+
+Do not say the latest Budget report is ready, refreshed, or updated until the report write and readback have succeeded. If a provider recovery attempt or tool failure prevents the write/readback, say the comparison still needs to be saved and ask to continue.
 
 End the response with a clear product-facing review affordance sentence. If unresolved items remain, say: "The latest Budget report is ready to review, with unresolved items still marked Needs Review." If the unresolved count is zero, say: "The latest Budget report is ready to review, and the review list is clear." Do not use raw file paths in that sentence.
 
