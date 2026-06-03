@@ -56,10 +56,25 @@ describe("Finance Budget review-state reconciliation", () => {
       const repaired = await reconcileFinanceBudgetReviewState(memoryRoot, { repair: true });
       expect(repaired.status).toBe("repaired");
       expect(repaired.issues).toEqual([]);
-      expect(repaired.files_changed).toEqual(["documents/finance/plan.md"]);
+      expect(repaired.files_changed).toEqual([
+        "documents/finance/budget/budget.md",
+        "documents/finance/budget/reports/latest.md",
+        "documents/finance/plan.md",
+      ]);
+
+      const budget = await readFile(path.join(memoryRoot, "documents", "finance", "budget", "budget.md"), "utf8");
+      expect(budget).toContain("Resolved owner-reviewed items");
+      expect(budget).not.toMatch(/Unreconciled - Needs Review\s*\|\s*0\.00/i);
+      expect(budget).not.toMatch(/Owner review pending\s*\|\s*0\.00/i);
+
+      const latest = await readFile(path.join(memoryRoot, "documents", "finance", "budget", "reports", "latest.md"), "utf8");
+      expect(latest).toContain("## Resolved Owner-Reviewed Items");
+      expect(latest).not.toContain("## Needs Review");
+      expect(latest).not.toMatch(/\bowner review\b/i);
 
       const plan = await readFile(path.join(memoryRoot, "documents", "finance", "plan.md"), "utf8");
       expect(plan).toContain("no active merchant clarification remains");
+      expect(plan).toContain("## Budget Clarifications");
       expect(plan).toContain("Resolved review items: MJP Services ($184.00), Blue Door Payment ($67.50).");
       expect(plan).not.toMatch(/Clarify the mystery transactions/i);
       expect(plan).not.toMatch(/Understanding Ambiguous Merchants/i);
@@ -67,6 +82,58 @@ describe("Finance Budget review-state reconciliation", () => {
       expect(plan).not.toMatch(/Inputs Needed.*Blue Door/i);
       expect(plan).not.toMatch(/MJP Services.*(?:clarify|mystery|ambiguous|needs review)/i);
       expect(plan).not.toMatch(/Blue Door Payment.*(?:clarify|mystery|ambiguous|needs review)/i);
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("repairs resolved review vocabulary across Budget, latest report, and Finance plan", async () => {
+    const memoryRoot = await mkdtemp(path.join(os.tmpdir(), "finance-budget-review-vocabulary-"));
+
+    try {
+      await writeResolvedVocabularySeedMemory(memoryRoot);
+
+      const invalid = await reconcileFinanceBudgetReviewState(memoryRoot);
+      expect(invalid.status).toBe("invalid");
+      expect(invalid.active_review_items).toEqual([]);
+      expect(invalid.issues.map((issue) => issue.path)).toEqual([
+        "documents/finance/budget/budget.md",
+        "documents/finance/budget/reports/latest.md",
+        "documents/finance/plan.md",
+        "documents/finance/plan.md",
+      ]);
+
+      const repaired = await reconcileFinanceBudgetReviewState(memoryRoot, { repair: true });
+      expect(repaired.status).toBe("repaired");
+      expect(repaired.issues).toEqual([]);
+      expect(repaired.files_changed).toEqual([
+        "documents/finance/budget/budget.md",
+        "documents/finance/budget/reports/latest.md",
+        "documents/finance/plan.md",
+      ]);
+
+      const budget = await readFile(path.join(memoryRoot, "documents", "finance", "budget", "budget.md"), "utf8");
+      expect(budget).toContain("Resolved owner-reviewed items");
+      expect(budget).toContain("MJP Services ($184.00)");
+      expect(budget).toContain("Blue Door Payment ($67.50)");
+      expect(budget).not.toMatch(/Unreconciled - Needs Review\s*\|\s*0\.00/i);
+      expect(budget).not.toMatch(/Owner review pending\s*\|\s*0\.00/i);
+
+      const latest = await readFile(path.join(memoryRoot, "documents", "finance", "budget", "reports", "latest.md"), "utf8");
+      expect(latest).toContain("## Resolved Owner-Reviewed Items");
+      expect(latest).toContain("MJP Services");
+      expect(latest).toContain("Blue Door Payment");
+      expect(latest).toContain("owner confirmation recommended");
+      expect(latest).not.toContain("## Needs Review");
+      expect(latest).not.toMatch(/\bowner review\b/i);
+      expect(latest).not.toMatch(/matches to the penny/i);
+
+      const plan = await readFile(path.join(memoryRoot, "documents", "finance", "plan.md"), "utf8");
+      expect(plan).toContain("## Budget Clarifications");
+      expect(plan).toContain("MJP Services ($184.00) is resolved");
+      expect(plan).toContain("Blue Door Payment ($67.50) is resolved");
+      expect(plan).not.toMatch(/Clarify.*MJP Services/i);
+      expect(plan).not.toMatch(/Clarify.*Blue Door Payment/i);
     } finally {
       await rm(memoryRoot, { recursive: true, force: true });
     }
@@ -263,6 +330,105 @@ async function writeAllResolvedSeedMemory(memoryRoot: string): Promise<void> {
       "",
       "- [x] Research MJP Services merchant details ($184.00) #finance",
       "- [x] Research Blue Door Payment merchant details ($67.50) #finance",
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+}
+
+async function writeResolvedVocabularySeedMemory(memoryRoot: string): Promise<void> {
+  await mkdir(path.join(memoryRoot, "documents", "finance", "budget", "reports"), { recursive: true });
+  await mkdir(path.join(memoryRoot, "me"), { recursive: true });
+
+  await writeFile(
+    path.join(memoryRoot, "documents", "finance", "budget", "budget.md"),
+    [
+      "# Budget",
+      "",
+      "## Reconciliation Check",
+      "",
+      "| Line | Amount | Notes |",
+      "|---|---:|---|",
+      "| Unreconciled - Needs Review | $0.00 | Target matches visible rows |",
+      "| Owner review pending | $0.00 | Resolved Blue Door and MJP |",
+      "",
+      "## Owner Notes",
+      "",
+      "- Blue Door Payment is confirmed as roommate/rent portion.",
+      "- MJP Services is confirmed as the therapist charge.",
+      "",
+      "## Owner-Requested Items Audit",
+      "",
+      "| Requested Item | Search Result | Amount | Report Treatment |",
+      "|---|---|---:|---|",
+      "| MJP Services | Found | $184.00 | Health/Therapy expense |",
+      "| Blue Door Payment | Found | $67.50 | Rent portion |",
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+  await writeFile(
+    path.join(memoryRoot, "documents", "finance", "budget", "reports", "latest.md"),
+    [
+      "# Latest Budget Report",
+      "",
+      "## Summary",
+      "",
+      "- Items needing owner review: None. All uploaded ambiguous items (MJP Services, Blue Door Payment) have been mapped successfully.",
+      "",
+      "## Owner-Requested Items Audit",
+      "",
+      "| Requested Item | Search Result | Amount | Report Treatment |",
+      "|---|---|---:|---|",
+      "| MJP Services | Found | $184.00 | Health/Therapy expense |",
+      "| Blue Door Payment | Found | $67.50 | Rent portion |",
+      "",
+      "## Debt Payoff Recommendation",
+      "",
+      "| Payment Target | Amount | Notes |",
+      "|---|---:|---|",
+      "| Extra-payment target to Northbridge Rewards Visa | $250.00 | Draft target, owner review needed |",
+      "",
+      "## Needs Review",
+      "",
+      "| Item | Amount | Source | Owner Action Needed |",
+      "|---|---:|---|---|",
+      "| Latest report category refresh | N/A | Source Coverage and saved Budget | Confirm report category rows against the saved Budget before final acceptance. |",
+      "",
+      "## Reconciliation Check",
+      "",
+      "Everything matches to the penny against the visible rows.",
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+  await writeFile(
+    path.join(memoryRoot, "documents", "finance", "plan.md"),
+    [
+      "# Finance Plan",
+      "",
+      "## Right Now - Your First Step",
+      "",
+      "- Confirm whether the Northbridge extra payment is comfortable against the cash buffer.",
+      "",
+      "## What Needs More Work",
+      "",
+      "- Confirm recurring nature of April auto/vet costs.",
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+  await writeFile(
+    path.join(memoryRoot, "me", "todo.md"),
+    [
+      "# My Todos",
+      "",
+      "## Active",
+      "",
+      "- [ ] Confirm whether the $250.00 extra Northbridge payment feels safe against the checking buffer #finance",
+      "",
+      "## Completed",
+      "",
       "",
     ].join("\n"),
     "utf8"

@@ -17,7 +17,7 @@ Do not use this report as the saved budget. The saved spending plan lives in `..
 - Largest over-budget category:
 - Largest under-budget category:
 - Major new/unbudgeted item:
-- Items needing owner review:
+- Items needing transaction review:
 
 ## Source Coverage
 

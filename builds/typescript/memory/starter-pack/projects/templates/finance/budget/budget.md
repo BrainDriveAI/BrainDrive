@@ -85,8 +85,8 @@
 | Irregular monthly set-aside subtotal |  |  |
 | Included personal living spend total |  | Must equal visible included rows or be marked Needs Review |
 | Excluded transfers/account movement |  | Not part of personal living spend |
-| Unreconciled - Needs Review |  | Use 0 only when totals reconcile |
-| Owner review pending |  | Use 0 only when no active Needs Review merchants remain |
+| Reconciliation difference |  | Use 0 only when totals reconcile |
+| Active merchant review amount |  | Use only for unresolved Needs Review merchant classifications |
 
 ## Owner Notes
 

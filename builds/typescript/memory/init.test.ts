@@ -76,9 +76,9 @@ describe("memory init project scaffolding", () => {
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "compare.md"), "utf8"))
         .resolves.toContain("Reconciliation Check");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "compare.md"), "utf8"))
-        .resolves.toContain("The latest Budget report is ready to review, and the Needs Review list is clear.");
+        .resolves.toContain("The latest Budget report is ready to review, and the review list is clear.");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "compare.md"), "utf8"))
-        .resolves.toContain("no more than 5 visible dollar amounts");
+        .resolves.toContain("no more than 3 visible dollar amounts");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "statements", "README.md"), "utf8"))
         .resolves.toContain("# Budget Statements");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "statements", "README.md"), "utf8"))
