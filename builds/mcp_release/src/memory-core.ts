@@ -593,16 +593,29 @@ export async function reconcileFinanceBudgetReviewState(
   const todo = await readOptionalMemoryText(memoryRoot, "me/todo.md");
   const plan = await readOptionalMemoryText(memoryRoot, "documents/finance/plan.md");
 
-  const activeReviewItems = uniqueReviewItems([
+  const activeReviewItems = canonicalReviewItems([
     ...extractActiveReviewItems(budget ?? ""),
     ...extractActiveReviewItems(latest ?? ""),
     ...extractActiveTodoReviewItems(todo ?? ""),
   ]);
   const resolvedReviewItems = uniqueReviewItems(extractResolvedTodoReviewItems(todo ?? ""));
-  const issues = reviewStateIssues(plan, activeReviewItems, resolvedReviewItems);
+  const issues = reviewStateIssues(plan, budget, activeReviewItems, resolvedReviewItems);
   const filesChanged: string[] = [];
 
-  if (options.repair && plan !== null && issues.length > 0) {
+  if (
+    options.repair &&
+    budget !== null &&
+    !isStarterBudgetTemplate(budget) &&
+    issues.some((issue) => issue.path === "documents/finance/budget/budget.md")
+  ) {
+    const repairedBudget = repairBudgetReviewLabels(budget, activeReviewItems);
+    if (repairedBudget !== budget) {
+      await writeMemoryFile(memoryRoot, "documents/finance/budget/budget.md", repairedBudget);
+      filesChanged.push("documents/finance/budget/budget.md");
+    }
+  }
+
+  if (options.repair && plan !== null && issues.some((issue) => issue.path === "documents/finance/plan.md")) {
     const repairedPlan = repairFinancePlanReviewState(plan, activeReviewItems, resolvedReviewItems);
     if (repairedPlan !== plan) {
       await writeMemoryFile(memoryRoot, "documents/finance/plan.md", repairedPlan);
@@ -610,8 +623,11 @@ export async function reconcileFinanceBudgetReviewState(
     }
   }
 
+  const finalBudget = filesChanged.includes("documents/finance/budget/budget.md")
+    ? await readOptionalMemoryText(memoryRoot, "documents/finance/budget/budget.md")
+    : budget;
   const finalPlan = filesChanged.length > 0 ? await readOptionalMemoryText(memoryRoot, "documents/finance/plan.md") : plan;
-  const finalIssues = reviewStateIssues(finalPlan, activeReviewItems, resolvedReviewItems);
+  const finalIssues = reviewStateIssues(finalPlan, finalBudget, activeReviewItems, resolvedReviewItems);
 
   return {
     status: finalIssues.length === 0 ? (filesChanged.length > 0 ? "repaired" : "valid") : "invalid",
@@ -1384,6 +1400,43 @@ function uniqueReviewItems(items: FinanceBudgetReviewItem[]): FinanceBudgetRevie
   return results;
 }
 
+function canonicalReviewItems(items: FinanceBudgetReviewItem[]): FinanceBudgetReviewItem[] {
+  const results: FinanceBudgetReviewItem[] = [];
+  for (const item of uniqueReviewItems(items)) {
+    const overlappingIndex = results.findIndex(
+      (candidate) => candidate.amount === item.amount && reviewMerchantsOverlap(candidate.merchant, item.merchant)
+    );
+    if (overlappingIndex === -1) {
+      results.push(item);
+      continue;
+    }
+
+    const current = results[overlappingIndex];
+    if (current && reviewMerchantSpecificity(item.merchant) > reviewMerchantSpecificity(current.merchant)) {
+      results[overlappingIndex] = item;
+    }
+  }
+  return results;
+}
+
+function reviewMerchantsOverlap(left: string, right: string): boolean {
+  const normalizedLeft = normalizeReviewMerchantForComparison(left);
+  const normalizedRight = normalizeReviewMerchantForComparison(right);
+  return normalizedLeft.includes(normalizedRight) || normalizedRight.includes(normalizedLeft);
+}
+
+function normalizeReviewMerchantForComparison(merchant: string): string {
+  return merchant.toLowerCase().replace(/\bpayment\b/g, "").replace(/\s+/g, " ").trim();
+}
+
+function reviewMerchantSpecificity(merchant: string): number {
+  let score = merchant.length;
+  if (/\b(?:Payment|Services|Group|LLC|Clinic|Market|Shop|Store|Square)\b/i.test(merchant)) {
+    score += 100;
+  }
+  return score;
+}
+
 function extractActiveReviewItems(content: string): FinanceBudgetReviewItem[] {
   const reviewText = reviewRelatedText(content);
   const items: FinanceBudgetReviewItem[] = [];
@@ -1480,10 +1533,29 @@ function hasStaleReviewLanguage(line: string): boolean {
 
 function reviewStateIssues(
   plan: string | null,
+  budget: string | null,
   activeItems: FinanceBudgetReviewItem[],
   resolvedItems: FinanceBudgetReviewItem[]
 ): FinanceBudgetReviewStateIssue[] {
   const issues: FinanceBudgetReviewStateIssue[] = [];
+  if (budget === null) {
+    issues.push({ path: "documents/finance/budget/budget.md", message: "Saved Budget is missing." });
+  } else if (isStarterBudgetTemplate(budget)) {
+    issues.push({
+      path: "documents/finance/budget/budget.md",
+      message: "Saved Budget is still a starter template; write the Budget draft before reconciling review labels.",
+    });
+  } else {
+    for (const item of activeItems) {
+      if (!budgetContainsExactReviewItem(budget, item)) {
+        issues.push({
+          path: "documents/finance/budget/budget.md",
+          message: `Active Needs Review item ${item.merchant} (${money(item.amount)}) is missing from the saved Budget.`,
+        });
+      }
+    }
+  }
+
   if (plan === null) {
     issues.push({ path: "documents/finance/plan.md", message: "Finance plan is missing." });
     return issues;
@@ -1524,6 +1596,30 @@ function reviewStateIssues(
   }
 
   return issues;
+}
+
+function isStarterBudgetTemplate(content: string): boolean {
+  return /\*{0,2}Status:\*{0,2}\s*Starter template - not yet customized/i.test(content);
+}
+
+function budgetContainsExactReviewItem(budget: string, item: FinanceBudgetReviewItem): boolean {
+  return new RegExp(escapeRegExp(item.merchant), "i").test(budget) &&
+    new RegExp(escapeRegExp(item.amount), "i").test(budget);
+}
+
+function repairBudgetReviewLabels(content: string, activeItems: FinanceBudgetReviewItem[]): string {
+  let repaired = content;
+  for (const item of activeItems) {
+    const shortened = item.merchant.replace(/\s+Payment$/i, "").trim();
+    if (!shortened || shortened === item.merchant || budgetContainsExactReviewItem(repaired, item)) {
+      continue;
+    }
+    repaired = repaired.replace(
+      new RegExp(`${escapeRegExp(shortened)}\\s*\\(\\$?${escapeRegExp(item.amount)}\\)`, "gi"),
+      `${item.merchant} (${money(item.amount)})`
+    );
+  }
+  return repaired.replace(/\n*$/, "\n");
 }
 
 function repairFinancePlanReviewState(
