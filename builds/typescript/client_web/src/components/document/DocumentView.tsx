@@ -20,6 +20,19 @@ function getErrorMessage(error: unknown): string {
   return "Something went wrong. Please try again.";
 }
 
+function stripYamlFrontmatter(content: string): string {
+  if (!content.startsWith("---\n") && !content.startsWith("---\r\n")) {
+    return content;
+  }
+
+  const match = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/.exec(content);
+  if (!match) {
+    return content;
+  }
+
+  return content.slice(match[0].length).replace(/^\s+/, "");
+}
+
 export default function DocumentView({
   projectId,
   projectName,
@@ -177,7 +190,7 @@ export default function DocumentView({
           ) : (
             <article className="py-2">
               <div className="prose-bd max-w-full text-[15px] leading-7 text-bd-text-primary">
-                <MarkdownContent content={content} />
+                <MarkdownContent content={stripYamlFrontmatter(content)} />
               </div>
             </article>
           )}
@@ -187,4 +200,5 @@ export default function DocumentView({
   );
 }
 
+export { stripYamlFrontmatter };
 export type { DocumentViewProps };

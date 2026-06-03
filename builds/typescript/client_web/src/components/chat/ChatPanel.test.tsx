@@ -141,7 +141,7 @@ describe("ChatPanel typing indicator behavior", () => {
     );
 
     const visibleText = document.body.textContent ?? "";
-    expect(screen.getByText("The assistant could not finish that reply.")).toBeInTheDocument();
+    expect(screen.getByText(/The assistant could not finish that reply/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Try Again" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open Settings" })).not.toBeInTheDocument();
     expect(visibleText).not.toMatch(/provider|api key|credits|quota/i);
@@ -245,7 +245,7 @@ describe("ChatPanel typing indicator behavior", () => {
     await user.click(screen.getAllByRole("button", { name: "Send message" })[0]!);
 
     await waitFor(() => {
-      expect(onUploadDocument).toHaveBeenCalledWith(file);
+      expect(onUploadDocument).toHaveBeenCalledWith(file, { openAfterUpload: false });
     });
     await waitFor(() => {
       expect(hookState.append).toHaveBeenCalledWith(
@@ -351,7 +351,7 @@ describe("ChatPanel typing indicator behavior", () => {
     }
   });
 
-  it("keeps partial upload failures local with owner-safe copy", async () => {
+  it("appends a chat receipt for partial upload failures with owner-safe copy", async () => {
     const user = userEvent.setup();
     const hookState = makeHookState();
     const onSendMessage = vi.fn();
@@ -363,6 +363,79 @@ describe("ChatPanel typing indicator behavior", () => {
         ownerLabel: "April checking statement",
         destinationLabel: "Budget statements",
       })
+      .mockRejectedValueOnce(new Error("This PDF requires OpenRouter PDF parsing or a PDF with extractable page images."));
+    useGatewayChatMock.mockReturnValue(hookState);
+    const lifecycleEvents: unknown[] = [];
+    const onLifecycleEvent = (event: Event) => {
+      lifecycleEvents.push((event as CustomEvent).detail);
+    };
+    window.addEventListener("braindrive:upload-lifecycle", onLifecycleEvent);
+
+    try {
+      const { container } = render(
+        <ChatPanel
+          activeConversationId={null}
+          activeProjectId="finance"
+          isEmpty={false}
+          onUploadDocument={onUploadDocument}
+          onSendMessage={onSendMessage}
+        />
+      );
+
+      const input = container.querySelector('input[type="file"]');
+      expect(input).toBeInstanceOf(HTMLInputElement);
+
+      const april = new File(["Date,Amount"], "april.csv", { type: "text/csv" });
+      const cedarAtlantic = new File(["%PDF-1.6"], "CedarAtlantic_Checking_2026-04-15.pdf", { type: "application/pdf" });
+      await user.upload(input as HTMLInputElement, [april, cedarAtlantic]);
+      await user.click(screen.getAllByRole("button", { name: "Send message" })[0]!);
+
+      await waitFor(() => {
+        expect(onUploadDocument).toHaveBeenCalledTimes(2);
+      });
+      expect(onUploadDocument).toHaveBeenCalledWith(april, { openAfterUpload: false });
+      expect(onUploadDocument).toHaveBeenCalledWith(cedarAtlantic, { openAfterUpload: false });
+      expect(onSendMessage).toHaveBeenCalled();
+      expect(hookState.append).toHaveBeenCalledWith(
+        expect.stringContaining("1 of 2 files uploaded"),
+        expect.any(Object)
+      );
+      expect(hookState.append).toHaveBeenCalledWith(
+        expect.stringContaining("We could not read this PDF"),
+        expect.any(Object)
+      );
+      expect(hookState.append).toHaveBeenCalledWith(
+        expect.stringContaining("Retry the failed file, upload a CSV/export version"),
+        expect.any(Object)
+      );
+      expect(hookState.append).not.toHaveBeenCalledWith(
+        expect.stringContaining("OpenRouter"),
+        expect.any(Object)
+      );
+      expect(hookState.append).not.toHaveBeenCalledWith(
+        expect.stringContaining("extractable page images"),
+        expect.any(Object)
+      );
+      expect(hookState.append).not.toHaveBeenCalledWith(
+        expect.stringContaining("I received all 1 statements"),
+        expect.any(Object)
+      );
+      expect(lifecycleEvents).toEqual(expect.arrayContaining([
+        expect.objectContaining({ fileName: "april.csv", selectedFileCount: 2, stage: "attached_to_message" }),
+        expect.objectContaining({ fileName: "CedarAtlantic_Checking_2026-04-15.pdf", selectedFileCount: 2, stage: "failed" }),
+      ]));
+      expect(screen.queryByText(/1 of 2 files uploaded/)).not.toBeInTheDocument();
+    } finally {
+      window.removeEventListener("braindrive:upload-lifecycle", onLifecycleEvent);
+    }
+  });
+
+  it("keeps zero-success upload failures local with owner-safe copy", async () => {
+    const user = userEvent.setup();
+    const hookState = makeHookState();
+    const onSendMessage = vi.fn();
+    const onUploadDocument = vi
+      .fn()
       .mockRejectedValueOnce(new Error("ai_pdf_to_markdown returned empty markdown."));
     useGatewayChatMock.mockReturnValue(hookState);
 
@@ -379,23 +452,20 @@ describe("ChatPanel typing indicator behavior", () => {
     const input = container.querySelector('input[type="file"]');
     expect(input).toBeInstanceOf(HTMLInputElement);
 
-    const april = new File(["Date,Amount"], "april.csv", { type: "text/csv" });
-    const cedarAtlantic = new File(["%PDF-1.6"], "CedarAtlantic_Checking_2026-04-15.pdf", { type: "application/pdf" });
-    await user.upload(input as HTMLInputElement, [april, cedarAtlantic]);
+    await user.upload(input as HTMLInputElement, new File(["%PDF-1.6"], "CedarAtlantic_Checking_2026-04-15.pdf", { type: "application/pdf" }));
     await user.click(screen.getAllByRole("button", { name: "Send message" })[0]!);
 
     await waitFor(() => {
-      expect(onUploadDocument).toHaveBeenCalledTimes(2);
+      expect(onUploadDocument).toHaveBeenCalledTimes(1);
     });
     expect(onSendMessage).not.toHaveBeenCalled();
     expect(hookState.append).not.toHaveBeenCalled();
 
     await waitFor(() => {
-      expect(screen.getAllByText(/1 of 2 files uploaded/).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/1 file did not upload/).length).toBeGreaterThan(0);
     });
     expect(screen.getAllByText(/We could not read this PDF/).length).toBeGreaterThan(0);
     expect(screen.queryByText(/ai_pdf_to_markdown/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/I received all 1 statements/)).not.toBeInTheDocument();
   });
 
   it("renders friendly upload receipts without raw source paths by default", async () => {

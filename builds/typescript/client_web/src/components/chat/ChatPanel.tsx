@@ -74,7 +74,10 @@ function providerErrorRecoveryMessage(): string {
 function ownerVisibleUploadError(error: unknown): string {
   const rawMessage = error instanceof Error ? error.message : "";
   if (/\b(?:ai_pdf_to_markdown|ai_image_to_markdown|AI conversion).{0,80}empty markdown\b/i.test(rawMessage) ||
-      /\breturned empty markdown\b/i.test(rawMessage)) {
+      /\breturned empty markdown\b/i.test(rawMessage) ||
+      /\bPDF requires\b/i.test(rawMessage) ||
+      /\bOpenRouter PDF parsing\b/i.test(rawMessage) ||
+      /\bextractable page images\b/i.test(rawMessage)) {
     return "We could not read this PDF. Retry it, upload a CSV/export version, or continue with incomplete evidence.";
   }
   if (rawMessage.trim().length > 0) {
@@ -111,7 +114,7 @@ type ChatPanelProps = {
   messageMetadata?: Record<string, unknown>;
   contentOverride?: ReactNode;
   onSendMessage?: () => void;
-  onUploadDocument?: (file: File) => Promise<ProjectFile | void>;
+  onUploadDocument?: (file: File, options?: { openAfterUpload?: boolean }) => Promise<ProjectFile | void>;
   onOpenProjectFile?: (filePath: string) => void;
   onOpenSettings?: () => void;
 };
@@ -358,8 +361,7 @@ export default function ChatPanel({
   contentOverride,
   onSendMessage,
   onUploadDocument,
-  onOpenProjectFile,
-  onOpenSettings
+  onOpenProjectFile
 }: ChatPanelProps) {
   const [attachments, setAttachments] = useState<AttachedFile[]>([]);
   const [uploadActivities, setUploadActivities] = useState<UploadActivity[]>([]);
@@ -788,7 +790,7 @@ export default function ChatPanel({
           status: "pending",
           conversionStatus: requiresMarkdownConversion(activity.file) ? "started" : "not_needed",
         });
-        const uploadedFile = await onUploadDocument(activity.file);
+        const uploadedFile = await onUploadDocument(activity.file, { openAfterUpload: false });
         const receipt = uploadReceiptForFile(uploadedFile, activity.fileName);
         successes.push(receipt);
         if (requiresMarkdownConversion(activity.file)) {
@@ -871,7 +873,7 @@ export default function ChatPanel({
       }
     }
 
-    if (successes.length > 0 && failures.length === 0) {
+    if (successes.length > 0) {
       onSendMessage?.();
       for (const success of successes) {
         const activity = activities.find((candidate) => candidate.fileName === success.fileName);
@@ -893,6 +895,7 @@ export default function ChatPanel({
         });
       }
       append(buildUploadSummaryMessage(message, successes, failures), { metadata: messageMetadata });
+      setFileError(null);
     } else if (failures.length > 0) {
       setFileError(buildUploadSummaryMessage(message, successes, failures));
     }
@@ -910,7 +913,7 @@ export default function ChatPanel({
     }));
 
     try {
-      const uploadedFile = await onUploadDocument?.(activity.file);
+      const uploadedFile = await onUploadDocument?.(activity.file, { openAfterUpload: false });
       const receipt = uploadReceiptForFile(uploadedFile, activity.fileName);
       updateUploadActivity(activity.id, (current) => ({
         ...current,

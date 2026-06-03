@@ -1,7 +1,9 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import userEvent from "@testing-library/user-event";
 
 import AppShell from "./AppShell";
+import { uploadProjectDocument } from "@/api/gateway-adapter";
 import type { Project, ProjectFile } from "@/types/ui";
 
 const refreshProjectsMock = vi.fn();
@@ -80,10 +82,23 @@ vi.mock("./Sidebar", () => ({
 }));
 
 vi.mock("@/components/chat/ChatPanel", () => ({
-  default: (props: { onConversationComplete?: (conversationId: string) => void }) => (
-    <button type="button" onClick={() => props.onConversationComplete?.("conv-finance")}>
-      Complete conversation
-    </button>
+  default: (props: {
+    contentOverride?: ReactNode;
+    onConversationComplete?: (conversationId: string) => void;
+    onUploadDocument?: (file: File, options?: { openAfterUpload?: boolean }) => Promise<unknown>;
+  }) => (
+    <div>
+      {props.contentOverride}
+      <button type="button" onClick={() => props.onConversationComplete?.("conv-finance")}>
+        Complete conversation
+      </button>
+      <button
+        type="button"
+        onClick={() => props.onUploadDocument?.(new File(["Date,Amount"], "statement.csv", { type: "text/csv" }), { openAfterUpload: false })}
+      >
+        Upload from chat
+      </button>
+    </div>
   ),
 }));
 
@@ -93,6 +108,11 @@ describe("AppShell project file refresh", () => {
     refreshSelectedProjectFilesMock.mockReset();
     refreshSelectedProjectFilesMock.mockResolvedValue([]);
     selectProjectMock.mockReset();
+    vi.mocked(uploadProjectDocument).mockReset();
+    vi.mocked(uploadProjectDocument).mockResolvedValue({
+      name: "statement.md",
+      path: "documents/finance/statement.md",
+    });
 
     vi.stubGlobal(
       "ResizeObserver",
@@ -120,5 +140,20 @@ describe("AppShell project file refresh", () => {
     });
     expect(screen.getByTestId("selected-project")).toHaveTextContent("finance");
     expect(selectProjectMock).not.toHaveBeenCalled();
+  });
+
+  it("does not open document read mode after chat-origin upload opts out of opening", async () => {
+    const user = userEvent.setup();
+
+    render(<AppShell />);
+
+    await user.click(screen.getByRole("button", { name: "Upload from chat" }));
+
+    await waitFor(() => {
+      expect(uploadProjectDocument).toHaveBeenCalledWith("finance", expect.any(File));
+      expect(refreshSelectedProjectFilesMock).toHaveBeenCalled();
+    });
+    expect(screen.queryByRole("button", { name: "Back to chat" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "statement.md" })).not.toBeInTheDocument();
   });
 });

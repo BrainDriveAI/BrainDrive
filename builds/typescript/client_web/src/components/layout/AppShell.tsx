@@ -256,7 +256,10 @@ export default function AppShell({
     setActiveFile(null);
   }
 
-  async function handleUploadDocument(file: File): Promise<ProjectFile | void> {
+  async function handleUploadDocument(
+    file: File,
+    options: { openAfterUpload?: boolean } = {}
+  ): Promise<ProjectFile | void> {
     if (!selectedProject || selectedProject.id === "braindrive-plus-one") {
       setUploadError("Open a folder to upload documents.");
       return;
@@ -270,7 +273,9 @@ export default function AppShell({
     try {
       const uploadedFile = await uploadProjectDocument(selectedProject.id, file);
       await refreshSelectedProjectFiles();
-      setActiveFile(uploadedFile);
+      if (options.openAfterUpload !== false) {
+        setActiveFile(uploadedFile);
+      }
       setUploadStatus(null);
       setIsMobileSidebarOpen(false);
       return uploadedFile;
