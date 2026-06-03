@@ -543,9 +543,10 @@ export async function validateFinanceBudgetPayoffPlan(
 
   const filesChanged: string[] = [];
   if (options.repair && canonicalPlan) {
+    const sourceDocuments = await discoverFinanceBudgetSourceDocuments(memoryRoot);
     for (const artifact of financeBudgetPayoffArtifacts) {
       const current = currentFiles.get(artifact.key) ?? "";
-      const repaired = repairFinanceBudgetPayoffArtifact(artifact.key, current, canonicalPlan);
+      const repaired = repairFinanceBudgetPayoffArtifact(artifact.key, current, canonicalPlan, sourceDocuments);
       if (repaired !== current) {
         await writeMemoryFile(memoryRoot, artifact.path, repaired);
         filesChanged.push(artifact.path);
@@ -637,6 +638,7 @@ export async function validateFinanceBudgetSourceCoverage(
       "Source Evidence Ledger",
       "Owner-Requested Items Audit",
       "Category Breakdown",
+      "Next Steps",
     ]);
     if (repaired !== latest) {
       await writeMemoryFile(memoryRoot, latestPath, repaired);
@@ -1014,20 +1016,232 @@ function financeBudgetPayoffIssuesForArtifact(
 function repairFinanceBudgetPayoffArtifact(
   key: FinanceBudgetPayoffFileKey,
   content: string,
-  plan: FinanceBudgetPayoffPlan
+  plan: FinanceBudgetPayoffPlan,
+  sourceDocuments: FinanceBudgetSourceDocument[] = []
 ): string {
   if (key === "budget") {
     return replaceOrAppendSection(content, "Debt Payoff Priority", budgetPayoffSection(plan));
   }
 
   if (key === "latest_report") {
-    return replaceOrInsertSectionBefore(content, "Debt Payoff Recommendation", latestReportPayoffSection(plan), [
+    const repaired = replaceOrInsertSectionBefore(content, "Debt Payoff Recommendation", latestReportPayoffSection(plan), [
       "Next Steps",
       "Source Coverage",
     ]);
+    return repairLatestBudgetReportScaffold(repaired, plan, sourceDocuments);
   }
 
   return replaceOrAppendSubsection(content, "Phase 2: Debt payoff acceleration", financePlanPayoffSection(plan));
+}
+
+function repairLatestBudgetReportScaffold(
+  content: string,
+  plan: FinanceBudgetPayoffPlan,
+  sourceDocuments: FinanceBudgetSourceDocument[]
+): string {
+  let repaired = repairLatestReportMetadata(content, sourceDocuments);
+
+  if (sourceDocuments.length > 0) {
+    repaired = replaceOrInsertSectionBefore(repaired, "Source Coverage", sourceCoverageSection(sourceDocuments), [
+      "Source Evidence Ledger",
+      "Owner-Requested Items Audit",
+      "Category Breakdown",
+      "Next Steps",
+    ]);
+    repaired = replaceOrInsertSectionBefore(
+      repaired,
+      "Source Evidence Ledger",
+      latestReportSourceEvidenceLedgerSection(sourceDocuments),
+      ["Owner-Requested Items Audit", "Category Breakdown", "Excluded From Expense Totals", "Needs Review", "Next Steps"]
+    );
+    repaired = replaceOrInsertSectionBefore(
+      repaired,
+      "Excluded From Expense Totals",
+      latestReportExcludedFromExpenseTotalsSection(sourceDocuments),
+      ["Needs Review", "Reconciliation Check", "Next Actions", "Next Steps"]
+    );
+  }
+
+  if (sectionNeedsFallbackRows(repaired, "Category Breakdown")) {
+    repaired = replaceOrInsertSectionBefore(repaired, "Category Breakdown", latestReportCategoryBreakdownFallbackSection(), [
+      "Excluded From Expense Totals",
+      "Needs Review",
+      "Reconciliation Check",
+    ]);
+  }
+
+  if (sectionNeedsFallbackRows(repaired, "Needs Review")) {
+    repaired = replaceOrInsertSectionBefore(repaired, "Needs Review", latestReportNeedsReviewFallbackSection(), [
+      "Reconciliation Check",
+      "Next Actions",
+      "Next Steps",
+    ]);
+  }
+
+  if (sectionNeedsFallbackRows(repaired, "Reconciliation Check")) {
+    repaired = replaceOrInsertSectionBefore(
+      repaired,
+      "Reconciliation Check",
+      latestReportReconciliationFallbackSection(sourceDocuments),
+      ["Next Actions", "Next Steps"]
+    );
+  }
+
+  if (!/^##\s+Next Actions\b/m.test(repaired)) {
+    repaired = replaceOrInsertSectionBefore(repaired, "Next Actions", latestReportNextActionsSection(plan), ["Next Steps"]);
+  }
+
+  return repaired;
+}
+
+function repairLatestReportMetadata(content: string, sourceDocuments: FinanceBudgetSourceDocument[]): string {
+  if (sourceDocuments.length === 0) {
+    return content;
+  }
+
+  const month = commonStatementMonth(sourceDocuments);
+  const sourceCount = String(sourceDocuments.length);
+  const generated = new Date().toISOString();
+
+  return content
+    .replace(/^Month:\s*$/m, `Month: ${month}`)
+    .replace(/^Generated:\s*$/m, `Generated: ${generated}`)
+    .replace(/^Source statements:\s*$/m, `Source statements: ${sourceCount}`);
+}
+
+function commonStatementMonth(sourceDocuments: FinanceBudgetSourceDocument[]): string {
+  const counts = new Map<string, number>();
+  for (const document of sourceDocuments) {
+    counts.set(document.statement_month, (counts.get(document.statement_month) ?? 0) + 1);
+  }
+
+  const sorted = [...counts.entries()].sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]));
+  return sorted[0]?.[0] ?? "Unknown";
+}
+
+function latestReportSourceEvidenceLedgerSection(sourceDocuments: FinanceBudgetSourceDocument[]): string {
+  const rows = sourceDocuments.map((document) => {
+    const sourceUse = shouldUseForBudgetCalculations(document)
+      ? "Reviewed for Budget math"
+      : "Reviewed/excluded asset context";
+    return `| ${sourceCoveragePeriod(document)} | ${document.source_filename} | N/A | ${document.institution} ${document.account_type} | ${sourceUse} | Source Coverage |`;
+  });
+
+  return [
+    "## Source Evidence Ledger",
+    "",
+    "| Source Period | Source File | Amount | Evidence | Used In | Notes |",
+    "|---|---|---:|---|---|---|",
+    ...rows,
+    "",
+  ].join("\n");
+}
+
+function latestReportExcludedFromExpenseTotalsSection(sourceDocuments: FinanceBudgetSourceDocument[]): string {
+  const rows = sourceDocuments
+    .filter((document) => !shouldUseForBudgetCalculations(document))
+    .map(
+      (document) =>
+        `| Asset context | ${document.source_filename} | N/A | ${document.institution} ${document.account_type} | Reviewed/excluded asset context; not spendable cash flow or ordinary spending |`
+    );
+
+  return [
+    "## Excluded From Expense Totals",
+    "",
+    "| Category | Source | Amount | Evidence | Reason Excluded |",
+    "|---|---|---:|---|---|",
+    ...(rows.length > 0 ? rows : ["| None | N/A | 0.00 | Source Coverage | No discovered asset-context files required exclusion |"]),
+    "",
+  ].join("\n");
+}
+
+function latestReportCategoryBreakdownFallbackSection(): string {
+  return [
+    "## Category Breakdown",
+    "",
+    "| Category | Total | Evidence | Status | Notes |",
+    "|---|---:|---|---|---|",
+    "| Saved Budget categories | N/A | documents/finance/budget/budget.md | Needs Review | Latest report category rows were not regenerated by the repair tool; use the saved Budget and source ledger until the report is refreshed. |",
+    "",
+  ].join("\n");
+}
+
+function latestReportNeedsReviewFallbackSection(): string {
+  return [
+    "## Needs Review",
+    "",
+    "| Item | Amount | Source | Reason |",
+    "|---|---:|---|---|",
+    "| Latest report category refresh | N/A | Source Coverage and saved Budget | Confirm report category rows against the saved Budget before final acceptance. |",
+    "",
+  ].join("\n");
+}
+
+function latestReportReconciliationFallbackSection(sourceDocuments: FinanceBudgetSourceDocument[]): string {
+  const sourceCount = sourceDocuments.length > 0 ? String(sourceDocuments.length) : "N/A";
+
+  return [
+    "## Reconciliation Check",
+    "",
+    "| Check | Expected | Actual | Difference | Status |",
+    "|---|---:|---:|---:|---|",
+    `| Discovered source files represented in Source Coverage | ${sourceCount} | ${sourceCount} | 0 | OK |`,
+    "| Transaction-level category rows refreshed | N/A | N/A | N/A | Needs Review |",
+    "",
+  ].join("\n");
+}
+
+function latestReportNextActionsSection(plan: FinanceBudgetPayoffPlan): string {
+  return [
+    "## Next Actions",
+    "",
+    `- Confirm the category breakdown against the saved Budget, then keep ${plan.priority_card} as the extra-payment target while ${plan.secondary_card} stays at minimum payment.`,
+    "- Re-run source coverage validation if additional statement files are uploaded.",
+    "",
+  ].join("\n");
+}
+
+function sectionNeedsFallbackRows(content: string, heading: string): boolean {
+  const section = sectionBody(content, heading);
+  if (section === null) {
+    return true;
+  }
+
+  const meaningfulRows = section
+    .split(/\n/)
+    .map((line) => line.trim())
+    .filter((line) => {
+      if (!line.startsWith("|")) {
+        return false;
+      }
+      if (/^\|\s*-+/.test(line)) {
+        return false;
+      }
+      if (/^\|\s*(?:Category|Item|Check|Source Period)\b/i.test(line)) {
+        return false;
+      }
+      return line.replace(/[|\s]/g, "").length > 0;
+    });
+
+  return meaningfulRows.length === 0;
+}
+
+function sectionBody(content: string, heading: string): string | null {
+  const lines = content.split(/\n/);
+  const start = lines.findIndex((line) => line.trim() === `## ${heading}`);
+  if (start === -1) {
+    return null;
+  }
+
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (/^##\s+/.test(lines[index]?.trim() ?? "")) {
+      end = index;
+      break;
+    }
+  }
+
+  return lines.slice(start + 1, end).join("\n");
 }
 
 function budgetPayoffSection(plan: FinanceBudgetPayoffPlan): string {
