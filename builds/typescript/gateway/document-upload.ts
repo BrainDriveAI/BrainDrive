@@ -64,6 +64,23 @@ type ChatCompletionContent = string | Array<{ type?: string; text?: string }> | 
 
 const MAX_VISION_IMAGES = 6;
 const METADATA_EXCERPT_LIMIT = 12000;
+const CONVERSION_MAX_ATTEMPTS = 3;
+const CONVERSION_RETRY_BASE_DELAY_MS = 2000;
+const CONVERSION_RETRY_STATUSES = new Set([
+  408,
+  409,
+  425,
+  429,
+  500,
+  502,
+  503,
+  504,
+  520,
+  521,
+  522,
+  523,
+  524,
+]);
 
 export async function convertUploadedDocumentToMarkdown(
   input: UploadedDocumentInput,
@@ -781,17 +798,13 @@ async function convertPdfToMarkdown(
       ];
     }
 
-    const response = await fetch(`${resolvedConfig.base_url}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(apiKey.length > 0 ? { authorization: `Bearer ${apiKey}` } : {}),
-      },
-      body: JSON.stringify(requestBody),
-    });
-
     try {
-      return await readMarkdownResponse(response, resolvedConfig, "ai_pdf_to_markdown");
+      return await fetchMarkdownConversionWithRetry({
+        apiKey,
+        requestBody,
+        resolvedConfig,
+        conversion: "ai_pdf_to_markdown",
+      });
     } catch (error) {
       if (!isEmptyMarkdownConversionError(error)) {
         throw error;
@@ -853,13 +866,11 @@ async function convertImagesWithVision(
   const apiKey = credential?.apiKey ?? process.env[resolvedConfig.api_key_env] ?? "";
   const prompt = buildConversionPrompt(input);
 
-  const response = await fetch(`${resolvedConfig.base_url}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...(apiKey.length > 0 ? { authorization: `Bearer ${apiKey}` } : {}),
-    },
-    body: JSON.stringify({
+  return fetchMarkdownConversionWithRetry({
+    apiKey,
+    resolvedConfig,
+    conversion,
+    requestBody: {
       model: resolvedConfig.model,
       stream: false,
       messages: [
@@ -883,10 +894,8 @@ async function convertImagesWithVision(
           ],
         },
       ],
-    }),
+    },
   });
-
-  return readMarkdownResponse(response, resolvedConfig, conversion);
 }
 
 function buildConversionPrompt(input: UploadedDocumentInput): string {
@@ -932,6 +941,73 @@ async function readMarkdownResponse(
   }
 
   return markdown;
+}
+
+async function fetchMarkdownConversionWithRetry(options: {
+  apiKey: string;
+  requestBody: Record<string, unknown>;
+  resolvedConfig: AdapterConfig;
+  conversion: "ai_image_to_markdown" | "ai_pdf_to_markdown";
+}): Promise<string> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= CONVERSION_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(`${options.resolvedConfig.base_url}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(options.apiKey.length > 0 ? { authorization: `Bearer ${options.apiKey}` } : {}),
+        },
+        body: JSON.stringify(options.requestBody),
+      });
+      return await readMarkdownResponse(response, options.resolvedConfig, options.conversion);
+    } catch (error) {
+      lastError = error;
+      if (attempt >= CONVERSION_MAX_ATTEMPTS || !isRetryableConversionError(error)) {
+        throw error;
+      }
+
+      auditLog("document_upload.conversion_retry", {
+        attempt,
+        next_attempt: attempt + 1,
+        max_attempts: CONVERSION_MAX_ATTEMPTS,
+        conversion: options.conversion,
+        model: options.resolvedConfig.model,
+        base_url: redactUrl(options.resolvedConfig.base_url),
+        ...(error instanceof DocumentConversionProviderError ? { status: error.status } : {}),
+        message: error instanceof Error ? error.message : String(error),
+      });
+
+      await delay(conversionRetryDelayMs(attempt));
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Document conversion failed after retry.");
+}
+
+function isRetryableConversionError(error: unknown): boolean {
+  if (error instanceof DocumentConversionProviderError) {
+    return CONVERSION_RETRY_STATUSES.has(error.status);
+  }
+
+  if (error instanceof Error) {
+    return error.name !== "AbortError" && !isEmptyMarkdownConversionError(error);
+  }
+
+  return false;
+}
+
+function conversionRetryDelayMs(attempt: number): number {
+  const baseDelay = CONVERSION_RETRY_BASE_DELAY_MS * Math.pow(3, Math.max(0, attempt - 1));
+  const jitter = Math.floor(Math.random() * 250);
+  return baseDelay + jitter;
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
 }
 
 function isOpenRouterBaseUrl(value: string): boolean {

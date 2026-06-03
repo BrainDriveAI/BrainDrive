@@ -57,6 +57,7 @@ function pdfWithEmbeddedJpeg(): Buffer {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -166,6 +167,99 @@ describe("document upload conversion", () => {
         },
       },
     ]);
+  });
+
+  it("retries transient provider conversion failures before returning markdown", async () => {
+    vi.useFakeTimers();
+    const pdfLike = Buffer.from("%PDF-1.6\n1 0 obj\n<<>>\nendobj\n%%EOF");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: {
+              message: "Upstream provider overloaded",
+              code: 502,
+            },
+          }),
+          {
+            status: 502,
+            headers: { "content-type": "application/json" },
+          }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: "# Retried Statement\n\nConverted after retry.",
+                },
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }
+        )
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const conversion = convertUploadedDocumentToMarkdown(
+      baseInput({
+        fileName: "retry_statement.pdf",
+        mimeType: "application/pdf",
+        data: pdfLike,
+      }),
+      "openai-compatible",
+      adapterConfig,
+      preferences
+    );
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await vi.runAllTimersAsync();
+
+    const converted = await conversion;
+
+    expect(converted.conversion).toBe("ai_pdf_to_markdown");
+    expect(converted.markdown).toContain("# Retried Statement");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry non-transient provider conversion failures", async () => {
+    const pdfLike = Buffer.from("%PDF-1.6\n1 0 obj\n<<>>\nendobj\n%%EOF");
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          error: {
+            message: "Invalid API key",
+            code: 401,
+          },
+        }),
+        {
+          status: 401,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      convertUploadedDocumentToMarkdown(
+        baseInput({
+          fileName: "bad_credentials.pdf",
+          mimeType: "application/pdf",
+          data: pdfLike,
+        }),
+        "openai-compatible",
+        adapterConfig,
+        preferences
+      )
+    ).rejects.toThrow("Invalid API key");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("falls back to embedded PDF images when OpenRouter file parsing returns empty markdown", async () => {
