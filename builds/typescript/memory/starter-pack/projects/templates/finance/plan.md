@@ -20,7 +20,7 @@ To be filled after alignment.
 
 ## The Destination
 
-*Where this is heading, the success criteria, and what life looks like when the plan works.*
+*Where this is heading, the success criteria, and what life looks like when the plan works. Use calibrated language when evidence is missing; avoid promises such as permanent security, zero dread, guaranteed results, or every-month certainty.*
 
 To be filled as goals get more specific.
 

@@ -22,7 +22,7 @@ Build a goal-relevant financial picture and capture the owner's goals, time hori
 
 Before broad setup questions, read or attempt to read `me/profile.md`, `AGENT-user.md` if present, `spec.md`, `plan.md`, and relevant child-app summaries or Budget reports when they directly affect the owner's Finance goal.
 
-Use known context first. Briefly summarize what appears known, then ask what is missing, stale, or unconfirmed. Do not re-ask known facts as if starting from scratch.
+Use known context first. Briefly summarize what appears known, then ask what is missing, stale, or unconfirmed. Do not re-ask known facts as if starting from scratch. Do not read Budgeting app detail files, transaction evidence, or unrelated project specs during parent Finance alignment unless the owner request creates a specific need.
 
 ### 2. Goal Alignment
 
@@ -67,6 +67,8 @@ Write new information at the narrowest correct level:
 - Budget targets, statement evidence, transaction details, rules, and reports to the Budgeting child app.
 
 Do not copy detailed Budget reports or transaction ledgers into `spec.md`.
+
+Keep sensitive Finance-only detail in `spec.md` unless the owner confirms it should be useful across projects. For `me/profile.md`, prefer minimal stable summaries over detailed debt, account, or anxiety notes.
 
 ## Done Criteria
 

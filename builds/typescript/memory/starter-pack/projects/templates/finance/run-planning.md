@@ -20,11 +20,13 @@ Turn the Finance spec into an ordered, typed, traceable sequence with one immedi
 
 ### 1. Context Intake
 
-Before planning, read or attempt to read `me/profile.md`, `AGENT-user.md` if present, `spec.md`, `plan.md`, and relevant child-app summaries or Budget reports when they directly affect the plan. Use known context first and do not ask broad setup questions for facts already present.
+Before planning, read or attempt to read `me/profile.md`, `AGENT-user.md` if present, `spec.md`, `plan.md`, and relevant child-app summaries or Budget reports when they directly affect the plan. Use known context first and do not ask broad setup questions for facts already present. Do not read Budgeting app detail files, transaction evidence, or unrelated project specs unless the plan step needs that evidence.
 
 ### 2. Planning
 
 Lead with the owner's most urgent confirmed financial outcome. Show the math when it changes priority. Keep later phases high-level until earlier phases are complete.
+
+Use precise cash-flow terms. Do not call income, take-home pay, or remaining cash "overhead." Say "monthly take-home income," "fixed expenses," "remaining after rent before other fixed bills," and "missing spending evidence" as applicable.
 
 Each plan step must include:
 
@@ -52,6 +54,8 @@ Write new information at the narrowest correct level:
 - Finance goals, current state, constraints, assumptions, success criteria, risks, and missing information to `spec.md`;
 - ordered steps, status, priorities, rationale, blockers, and child-app handoffs to `plan.md`;
 - Budget execution detail to the Budgeting child app.
+
+Keep sensitive Finance-only details in `spec.md` unless the owner confirms profile placement. Use calibrated destination language that acknowledges missing evidence; do not promise permanent security, zero dread, guaranteed outcomes, or month-by-month certainty from estimates.
 
 ## Done Criteria
 

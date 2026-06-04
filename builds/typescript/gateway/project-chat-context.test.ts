@@ -239,6 +239,30 @@ describe("project chat context", () => {
     expect(safeResponse.unsupportedClaims).toEqual(["budget_updated", "category_mapped"]);
   });
 
+  it("preserves Markdown list spacing when removing unsupported durable claims", () => {
+    const safeResponse = buildDurableClaimSafeResponse(
+      [
+        "I have saved your immediate steps to your **Todo list**.",
+        "",
+        "### Why We Are Skipping Budgeting For Now",
+        "Rather than dissecting every dollar, our focus is structural:",
+        "1.  **Protecting your rent.**",
+        "2.  **Structuring a quick cash buffer.**",
+        "3.  **Knocking out the credit cards.**",
+        "",
+        "*   **Finance goals:** Captures the goal.",
+        "*   **Finance plan:** Outlines the plan.",
+      ].join("\n"),
+      []
+    );
+
+    expect(safeResponse.changed).toBe(true);
+    expect(safeResponse.text).not.toContain("I have saved your immediate steps");
+    expect(safeResponse.text).toContain("1.  **Protecting your rent.**");
+    expect(safeResponse.text).toContain("2.  **Structuring a quick cash buffer.**");
+    expect(safeResponse.text).toContain("*   **Finance goals:** Captures the goal.");
+  });
+
   it("does not rewrite a Todo claim backed by a changed Todo artifact summary", () => {
     const safeResponse = buildDurableClaimSafeResponse(
       "I've updated your active Todo list with set up autopay.",

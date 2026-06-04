@@ -6,6 +6,11 @@ import AppShell from "./AppShell";
 import { uploadProjectDocument } from "@/api/gateway-adapter";
 import type { Project, ProjectFile } from "@/types/ui";
 
+const gatewayMocks = vi.hoisted(() => ({
+  getMemoryUpdateStatus: vi.fn(),
+  getMemoryUpdateReport: vi.fn(),
+}));
+
 const refreshProjectsMock = vi.fn();
 const refreshSelectedProjectFilesMock = vi.fn<() => Promise<ProjectFile[]>>();
 const selectProjectMock = vi.fn();
@@ -33,12 +38,8 @@ const initialProjectFiles: ProjectFile[] = [
 ];
 
 vi.mock("@/api/gateway-adapter", () => ({
-  getMemoryUpdateReport: vi.fn(),
-  getMemoryUpdateStatus: vi.fn(async () => ({
-    migration_id: "none",
-    report_path: null,
-    deferred_paths: [],
-  })),
+  getMemoryUpdateReport: gatewayMocks.getMemoryUpdateReport,
+  getMemoryUpdateStatus: gatewayMocks.getMemoryUpdateStatus,
   getOnboardingStatus: vi.fn(async () => ({
     onboarding_required: false,
     active_provider_profile: null,
@@ -113,6 +114,14 @@ describe("AppShell project file refresh", () => {
       name: "statement.md",
       path: "documents/finance/statement.md",
     });
+    gatewayMocks.getMemoryUpdateStatus.mockReset();
+    gatewayMocks.getMemoryUpdateStatus.mockResolvedValue({
+      migration_id: "none",
+      report_path: null,
+      deferred_paths: [],
+    });
+    gatewayMocks.getMemoryUpdateReport.mockReset();
+    gatewayMocks.getMemoryUpdateReport.mockResolvedValue("Memory update report");
 
     vi.stubGlobal(
       "ResizeObserver",
@@ -155,5 +164,34 @@ describe("AppShell project file refresh", () => {
     });
     expect(screen.queryByRole("button", { name: "Back to chat" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "statement.md" })).not.toBeInTheDocument();
+  });
+
+  it("does not show non-critical memory update banners over a selected project", async () => {
+    gatewayMocks.getMemoryUpdateStatus.mockResolvedValueOnce({
+      migration_id: "starter-pack-26.5.25",
+      report_path: "system/updates/reports/starter-pack-26.5.25.md",
+      deferred_paths: [],
+    });
+
+    render(<AppShell />);
+
+    await waitFor(() => {
+      expect(gatewayMocks.getMemoryUpdateReport).toHaveBeenCalledWith("starter-pack-26.5.25");
+    });
+    expect(screen.queryByText("BrainDrive is up to date.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Memory instructions were updated so the latest features work correctly.")).not.toBeInTheDocument();
+  });
+
+  it("still surfaces memory update notices that need owner review", async () => {
+    gatewayMocks.getMemoryUpdateStatus.mockResolvedValueOnce({
+      migration_id: "starter-pack-26.5.25",
+      report_path: "system/updates/reports/starter-pack-26.5.25.md",
+      deferred_paths: ["documents/finance/AGENT.md"],
+    });
+
+    render(<AppShell />);
+
+    expect(await screen.findByText("BrainDrive is up to date.")).toBeInTheDocument();
+    expect(screen.getByText("Safe memory updates were applied. One item was left unchanged because it has custom content.")).toBeInTheDocument();
   });
 });

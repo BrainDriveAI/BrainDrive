@@ -134,11 +134,15 @@ export default function AppShell({
           return;
         }
         const storageKey = `braindrive.memoryUpdateReportSeen.${status.migration_id}`;
-        if (window.localStorage.getItem(storageKey) === "1") {
+        if (window.localStorage.getItem(storageKey) === "1" && status.deferred_paths.length === 0) {
           return;
         }
         const report = await getMemoryUpdateReport(status.migration_id);
         if (cancelled) {
+          return;
+        }
+        if (status.deferred_paths.length === 0) {
+          window.localStorage.setItem(storageKey, "1");
           return;
         }
         setMemoryUpdateNotice({

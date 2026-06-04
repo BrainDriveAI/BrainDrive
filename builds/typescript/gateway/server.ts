@@ -3370,16 +3370,27 @@ function removeUnsupportedClaimSentences(text: string, sourceTexts: string[]): s
   }
 
   return text
-    .split(/(?<=[.!?])\s+|\n{2,}/)
-    .filter((sentence) => !sourceSet.some((sourceText) => sentence.includes(sourceText)))
+    .split(/\n{2,}/)
+    .map((block) => removeUnsupportedClaimSentencesFromBlock(block, sourceSet))
+    .filter((block) => block.trim().length > 0)
     .join("\n\n")
     .replace(/\bI have\s+(?:saved|updated|created|revised|refreshed).{0,160}\*\*/gi, "")
-    .replace(/\s+\*\*/g, "**")
-    .replace(/\*\*\s+/g, "**")
     .replace(/\bI have\s+(?=I\b)/gi, "")
     .replace(/\bI have immediately\s+(?=I recommend\b)/gi, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function removeUnsupportedClaimSentencesFromBlock(block: string, sourceTexts: string[]): string {
+  if (!sourceTexts.some((sourceText) => block.includes(sourceText))) {
+    return block;
+  }
+
+  const sentences = block.split(/(?<=[.!?])\s+/);
+  const kept = sentences.filter((sentence) =>
+    !sourceTexts.some((sourceText) => sentence.includes(sourceText))
+  );
+  return kept.join(" ").trim();
 }
 
 function observedArtifactFromToolResult(output: unknown): ObservedArtifact | null {

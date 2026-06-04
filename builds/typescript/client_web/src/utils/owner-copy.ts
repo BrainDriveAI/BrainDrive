@@ -22,6 +22,12 @@ const FINANCE_CONFIDENCE_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\bsiphon of interest charges\b/gi, "interest charges"],
   [/\bdirectly to destroy the ([^.]+?)\b/gi, "directly toward paying down the $1"],
   [/\bget the banks' hands out of your pockets\b/gi, "reduce the interest you pay to lenders"],
+  [/\bestimated monthly overhead is\s*(\$[\d,.]+)/gi, "estimated monthly take-home income is $1"],
+  [/\bmonthly overhead of\s*(\$[\d,.]+)/gi, "monthly take-home income of $1"],
+  [/\bAfter your\s*(\$[\d,.]+)\s+rent portion,\s+you have\s*(\$[\d,.]+)\s+left over\b/gi, "After your $1 rent portion, about $2 remains before other fixed bills and missing spending evidence"],
+  [/\bzero hesitation or dread\b/gi, "less hesitation and stress"],
+  [/\bpermanently secure\b/gi, "easier to protect"],
+  [/\bevery single month\b/gi, "month by month as the numbers are verified"],
   [/\bhoShopping\b/g, "Shopping"],
   [/\bFinance goals\s*\(spec\.md\)/gi, "Finance goals"],
   [/\bFinance plan\s*\(plan\.md\)/gi, "Finance plan"],
@@ -52,10 +58,11 @@ function normalizeMalformedMarkdownSpacing(text: string): string {
     .replace(/\bMinimum Payment:/g, "Minimum payment:")
     .replace(/([A-Za-z])\*\*\s+(\d)/g, "$1 $2")
     .replace(/\b(for|and)\*\*\s*(\$)/gi, "$1 $2")
+    .replace(/\bonly\*\*\s*([^*\n]+?)\*\*/gi, "only $1")
     .replace(/\s+—\*\*\s*/g, " - ")
     .replace(/([.!?:])\*\*(?=\s|$)/g, "$1")
     .replace(/\*\*\s*(?=\()/g, " ")
-    .replace(/\*\*\s*$/gm, "")
+    .replace(/(?<![A-Za-z0-9).,;:!?])\*\*\s*$/gm, "")
     .replace(/\)\*{2,}(?=\s*(?:\n|$))/g, ")")
     .replace(/\btasks:\*/gi, "tasks:")
     .replace(/\bor\*+\s+/gi, "or ")
@@ -67,7 +74,12 @@ function normalizeMalformedMarkdownSpacing(text: string): string {
     .replace(/\*\*([^*\n:]{2,80}):\s+\*\*([^\n])/g, "**$1:** $2")
     .replace(/\*\*(\$[\d,.]+[^*\n]{0,80}?)\s+\*([^*\n]{1,80}?)\.\s+\*\*/g, "**$1 $2.** ")
     .replace(/\*\*(\d+)\.\s*\n([^*\n]+?)\s+\*\*(?=\d+\.)/g, "$1. $2\n")
+    .replace(/^(\s*)([-*])\s*\*{1,2}([^*\n:]{2,80}:)\*{1,2}\s*/gm, "$1$2 **$3** ")
     .replace(/^(\d+)\.(?=\S)/gm, "$1. ")
+    .replace(/^(\s*)(\d+)\.\s*\*{1,2}([^*\n]+?)\*{1,2}\s*$/gm, "$1$2. $3")
+    .replace(/^(\s*)([-*])\s*\*{1,2}([^*\n]+?)\*{1,2}\s*$/gm, "$1$2 $3")
+    .replace(/([^\n])\n(?=\s*\d+\.\s)/g, "$1\n\n")
+    .replace(/([^\n])\n(?=\s*[-*]\s)/g, "$1\n\n")
     .replace(/\*+([^*\n]+?\(\$[\d,.]+\))\*+\*+([^*\n]+?\(\$[\d,.]+\))\*+/g, "- $1\n- $2")
     .replace(/([a-z])(\*\*\$)/g, "$1 $2")
     .replace(/(\d)([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*:\*+)/g, "$1\n$2")
@@ -81,6 +93,7 @@ function normalizeMalformedMarkdownSpacing(text: string): string {
     .replace(/\*{4,}/g, "**")
     .replace(/([^\s])\*\*([^\s*])/g, "$1 **$2")
     .replace(/([^\s*])\*\*([^\s])/g, "$1** $2")
+    .replace(/([A-Za-z0-9).,;:!?])\*\*(?=\s|$)/g, "$1")
     .replace(/\*\*/g, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();

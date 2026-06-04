@@ -182,6 +182,61 @@ describe("MessageList scroll behavior", () => {
     expect(rendered).not.toMatch(/cashwas|\*{4,}|weaponize|monster in the dark|Ominous indicator|reconciles perfectly/i);
   });
 
+  it("keeps Finance planning lists readable and fixes income terminology", () => {
+    render(
+      <MessageList
+        messages={[
+          {
+            id: "a-1",
+            role: "assistant",
+            content: [
+              "### Why We Are Skipping Budgeting For Now",
+              "Instead, we are choosing a **cash-flow and debt-priority plan**. Your estimated monthly overhead is $3,800. After your $900 rent portion, you have $2,900 left over. Rather than dissecting every dollar, our focus is structural:",
+              "1.  **Protecting your rent.**",
+              "2.  **Structuring a quick cash buffer** (so you don't need credit cards again).",
+              "3.  **Knocking out the credit cards** using focused math.",
+              "",
+              "*   **Finance goals:** Captures the goals.",
+              "*   **Finance plan:** Outlines the plan.",
+              "",
+              "**Note on anxiety:** When you go to log into these accounts, **do not look at your transactions.**",
+            ].join("\n"),
+          },
+        ]}
+      />
+    );
+
+    const rendered = document.body.textContent ?? "";
+    expect(rendered).toContain("estimated monthly take-home income is $3,800");
+    expect(rendered).toContain("about $2,900 remains before other fixed bills and missing spending evidence");
+    expect(rendered).toContain("Protecting your rent.");
+    expect(rendered).toContain("Structuring a quick cash buffer");
+    expect(rendered).toContain("Finance goals:");
+    expect(rendered).toContain("Finance plan:");
+    expect(rendered).not.toMatch(/monthly overhead|Protecting your rent\. 2\.|buffer\.\* Finance plan|accounts,do not/);
+  });
+
+  it("softens absolute destination language in owner-visible Finance replies", () => {
+    render(
+      <MessageList
+        messages={[
+          {
+            id: "a-1",
+            role: "assistant",
+            content:
+              "The destination is zero hesitation or dread because rent is permanently secure and balances shrink every single month.",
+          },
+        ]}
+      />
+    );
+
+    const rendered = document.body.textContent ?? "";
+    expect(rendered).toContain("less hesitation and stress");
+    expect(rendered).toContain("easier to protect");
+    expect(rendered).toContain("month by month as the numbers are verified");
+    expect(rendered).not.toMatch(/zero hesitation|permanently secure|every single month/i);
+  });
+
   it("normalizes broken finance emphasis around labels and interest amounts", () => {
     render(
       <MessageList
