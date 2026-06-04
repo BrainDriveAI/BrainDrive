@@ -3428,7 +3428,10 @@ export function buildProjectChatContext(
     : [];
   const financeBudgetGuidance = projectId === "finance"
     ? [
-        "Read documents/finance/AGENT.md, then documents/finance/AGENT-user.md if present. For project alignment, read documents/finance/spec.md and documents/finance/plan.md.",
+        "Read documents/finance/AGENT.md, then documents/finance/AGENT-user.md if present. For project alignment, read me/profile.md if present, documents/finance/spec.md, and documents/finance/plan.md before broad setup questions.",
+        "Finance V1 is the parent Align + Plan surface: define goals, capture goal-relevant current state, identify constraints/tradeoffs/risks/missing information, maintain the Finance spec and plan, and route to child apps only when needed.",
+        "Finance can complete Align + Plan without statement uploads or a saved Budget. Use Budgeting only when the goal or plan needs spending visibility, spending targets, or statement-period reconciliation.",
+        "Write new information at the narrowest correct level: stable cross-project facts to me/profile.md after confirmation when inferred; Finance goals/current state/constraints/success criteria to the Finance spec; next steps/status/handoffs to the Finance plan; Budget execution detail to the Budgeting app.",
         "For budget work, read documents/finance/budget/AGENT.md, then documents/finance/budget/AGENT-user.md if present.",
         "For budgeting questions, read documents/finance/budget/budget.md, documents/finance/budget/budget-rules.md, and documents/finance/budget/budget-rules-user.md when present.",
         "For a Budget procedure, read the managed procedure first, then the matching -user.md overlay if present, such as compare.md before compare-user.md.",
@@ -3438,7 +3441,7 @@ export function buildProjectChatContext(
         "If provider recovery mode or a tool failure prevents Budget artifact writes/readback, do not continue with a chat-only Budget completion claim. Say the Budget or report still needs to be saved and ask to continue.",
         "If MJP Services, Blue Door Payment, or another clarification item is resolved, close or revise the stale active Todo list item in the same turn before saying the issue is handled.",
         "Before saying Needs Review is none, zero, fully resolved, or all mystery items are categorized, verify active finance Todo tasks do not still ask for clarification on those same merchants or amounts.",
-        "For explicit Finance execution requests about budgets, debt, uploads, statements, spending, or reports, complete the Finance task before coaching or cross-domain discussion.",
+        "For explicit Finance requests, decide first whether the work is parent Finance Align + Plan or child-app execution; do not force every Finance goal into Budgeting.",
         "When asking the owner for statements or supporting documents, ask them to attach files in chat or use the visible upload button. Do not ask the owner to manually place files into documents/finance/... paths.",
         "For Budget creation requests, make the saved Budget the primary deliverable. Treat statement reports as supporting evidence unless the owner asks how actuals compare.",
         "For first-pass Budget creation, save a provisional Budget with Needs Review and confidence labels before asking clarifying questions. Ambiguous merchants must not block the saved Budget draft.",
@@ -3447,7 +3450,7 @@ export function buildProjectChatContext(
         "For 'how did I do?', monthly comparison, over/under, or budget progress questions, treat documents/finance/budget/budget.md as the saved budget and compare statement actuals against it.",
         "Use documents/finance/budget/statements/ as source evidence and documents/finance/budget/reports/ as derived output for budget reports.",
         "Maintain a visible received/missing statement checklist during budget setup, grounded in uploaded source evidence and statement metadata. Do not proceed to a statement-backed baseline until required evidence is present or the owner approves a partial baseline.",
-        "After accepting uploaded Budget statements, update the Budget checklist and propagate state to Finance spec, Finance plan, and Todo list so completed statement gathering is not left as active missing work.",
+        "After accepting uploaded Budget statements, update the Budget checklist and summarize upward to Finance spec, Finance plan, and Todo list only when parent goals, current state, blockers, or next steps changed.",
         "Do not write to documents/finance/budget/budget.md during a saved-budget comparison unless the owner explicitly asks to revise the saved budget.",
         "During saved-budget comparison mode, do not call memory_write, memory_edit, or memory_delete on documents/finance/budget/budget.md; write comparison output only to documents/finance/budget/reports/latest.md or a closed-period reports file.",
         "Preserve documents/finance/budget/budget.md byte-for-byte during saved-budget comparisons. Do not make formatting-only, table-alignment, whitespace, note, category, or no-op rewrites.",

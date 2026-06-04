@@ -8,31 +8,31 @@
 
 ## What You Want
 
-*The owner's financial goals as specific user stories, using the owner's words where possible.*
+*The owner's confirmed financial goals as plan-usable statements, using the owner's words where possible. Include desired outcome, time horizon, concerns, and success criteria.*
 
 To be filled through conversation.
 
 ## Where You Are
 
-*The full financial landscape: income, expenses, debt, savings, investments, employer benefits, obligations, and life context that affects money.*
+*The goal-relevant current financial picture. Label evidence quality where it matters: known fact, owner estimate, source-evidenced, one-period observed, missing, or stale.*
 
 To be filled through conversation.
 
 ## What's In The Way
 
-*Practical, emotional, relationship, information, or timing obstacles that shape the plan.*
+*Constraints, tradeoffs, risks, owner decisions, information gaps, timing issues, and practical, emotional, or relationship obstacles that shape the plan.*
 
 To be filled through conversation.
 
 ## The Plan
 
-*One concrete next step and the direction this project is heading. The full plan lives in `plan.md`.*
+*The parent-level direction this project is heading, plus the most important current next step. The full typed plan lives in `plan.md`.*
 
 To be filled through conversation.
 
 ## What's Still Missing
 
-*Information gaps that could change the plan, separated from threads that are only worth exploring later.*
+*Missing, stale, or unconfirmed information that could change the plan, separated from later exploration.*
 
 To be filled through conversation.
 
