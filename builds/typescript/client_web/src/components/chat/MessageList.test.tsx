@@ -170,6 +170,29 @@ describe("MessageList scroll behavior", () => {
     expect(rendered).not.toMatch(/with these exact terms|saved Budget materials|wiping out details|run the numbers layout|pausing those new contributions temporarily/i);
   });
 
+  it("calibrates Finance saved-state, Budgeting deferral, and Roth contribution copy", () => {
+    render(
+      <MessageList
+        messages={[
+          {
+            id: "a-1",
+            role: "assistant",
+            content:
+              "I have completed, verified, and saved your Finance goals and Your Plan directly into your project files. The Budgeting app is explicitly deferred and bypassed, and we can achieve this entirely through high-level cash flow design (Parent planning). If you pause contributions temporarily: You free up immediate monthly cash flow. This lets you build your $1,000 emergency shield much faster and burn down those high-interest credit cards sooner. Once the debt is gone and the shield is in place, you can resume contributions aggressively. I've saved this exact framing and these guardrails directly under the Owner Decisions and Planning Guardrails sections of Your Plan.",
+          },
+        ]}
+      />
+    );
+
+    const rendered = document.body.textContent ?? "";
+    expect(rendered).toContain("I saved your Finance goals and Your Plan.");
+    expect(rendered).toContain("Budgeting is not needed for the next step");
+    expect(rendered).toContain("by starting with one-card facts and rent protection before deciding whether Budgeting is needed");
+    expect(rendered).toContain("treat them as a cash-flow decision after exact bills, card APRs, minimum payments, tax considerations, and any employer-match context are known");
+    expect(rendered).toContain("Your Plan now includes these Roth IRA guardrails");
+    expect(rendered).not.toMatch(/completed, verified, and saved|explicitly deferred and bypassed|entirely through high-level cash flow design|burn down|resume contributions aggressively|saved this exact framing/i);
+  });
+
   it("cleans known concatenated budget category typos", () => {
     render(
       <MessageList
