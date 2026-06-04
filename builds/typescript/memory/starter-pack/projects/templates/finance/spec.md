@@ -24,7 +24,7 @@ Not captured yet.
 
 ## The Plan
 
-Not captured yet.
+No active plan yet.
 
 ## What's Still Missing
 

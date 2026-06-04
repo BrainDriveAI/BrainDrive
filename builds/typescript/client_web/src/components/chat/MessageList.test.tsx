@@ -461,6 +461,7 @@ describe("MessageList scroll behavior", () => {
             content: [
               "If you are currently contributing, we should pause those contributions immediately once we confirm the numbers.",
               "There is no investment fund on earth that will reliably grow at 20% to 30% a year.",
+              "Contributions (withdrawable tax/penalty-free) stay invested. Earnings stay invested.",
               "The Big Five Rough Guess:",
               " *   Utilities/Power",
               " *   Phone/Internet",
@@ -473,9 +474,11 @@ describe("MessageList scroll behavior", () => {
     const rendered = document.body.textContent ?? "";
     expect(rendered).toContain("one option to review after we confirm the numbers");
     expect(rendered).toContain("High-interest card APRs can outweigh expected investment returns");
+    expect(rendered).toContain("This plan does not use the Roth IRA as a funding source");
+    expect(rendered).toContain("separate owner decision with tax and retirement tradeoffs");
     expect(rendered).toContain("Utilities/Power");
     expect(rendered).toContain("Phone/Internet");
     expect(screen.queryByText("Copy code")).not.toBeInTheDocument();
-    expect(rendered).not.toMatch(/pause those contributions immediately|no investment fund on earth/i);
+    expect(rendered).not.toMatch(/pause those contributions immediately|no investment fund on earth|stay invested|tax\/penalty-free/i);
   });
 });

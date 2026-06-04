@@ -37,6 +37,8 @@ const FINANCE_CONFIDENCE_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\bIf you pause contributions temporarily:\s*You free up immediate monthly cash flow\./gi, "If you review contribution changes later, treat them as a cash-flow decision after exact bills, card APRs, minimum payments, tax considerations, and any employer-match context are known."],
   [/\bThis lets you build your \$1,000 emergency shield much faster and burn down those high-interest credit cards sooner\./gi, "Do not use Roth assets for short-term debt; keep the payoff details in Your Plan for review before acting."],
   [/\bOnce the debt is gone and the shield is in place, you can resume contributions aggressively\./gi, "Any future contribution change should be revisited after the debt and starter shield are stable."],
+  [/\bContributions\s*\([^)]*withdraw[^)]*\)\s*stay invested\.\s*Earnings stay invested\./gi, "This plan does not use the Roth IRA as a funding source. Any contribution or withdrawal change is a separate owner decision with tax and retirement tradeoffs."],
+  [/\bContributions stay invested\.\s*Earnings stay invested\./gi, "This plan does not use the Roth IRA as a funding source. Any contribution or withdrawal change is a separate owner decision with tax and retirement tradeoffs."],
   [/\bthrow that cash at the credit cards\b/gi, "review redirecting that cash toward credit-card payoff after the numbers are confirmed"],
   [/\bthrow cash at (?:the )?credit cards\b/gi, "review redirecting cash toward credit-card payoff after the numbers are confirmed"],
   [/\bRoth IRA Contribution Pacify\/Pause\b/g, "Roth IRA contribution pause/reduce decision"],

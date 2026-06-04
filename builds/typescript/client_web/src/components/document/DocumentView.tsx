@@ -38,11 +38,37 @@ function stripFinanceTemplateScaffolding(content: string, projectId: string, fil
     return content;
   }
 
-  return content
+  const cleaned = content
     .split(/\r?\n/)
     .filter((line) => !isFinanceTemplateScaffoldLine(line))
     .join("\n")
     .replace(/\n{3,}/g, "\n\n");
+
+  return normalizeFinanceReadModeContent(cleaned, filePath);
+}
+
+function normalizeFinanceReadModeContent(content: string, filePath: string): string {
+  let normalized = content;
+  if (filePath === "documents/finance/spec.md" && /\bStatus:\*\*\s*[^\n]*plan active\b/i.test(normalized)) {
+    normalized = normalized.replace(
+      /(## The Plan\s*\r?\n\s*)Not captured yet\./i,
+      "$1Plan active. See Your Plan for the current roadmap and first action."
+    );
+  }
+
+  if (filePath === "documents/finance/plan.md") {
+    normalized = normalized
+      .replace(
+        /Contributions\s*\([^)]*withdraw[^)]*\)\s*stay invested\.\s*Earnings stay invested\./gi,
+        "This plan does not use the Roth IRA as a funding source. Any contribution or withdrawal change is a separate owner decision with tax and retirement tradeoffs."
+      )
+      .replace(
+        /Contributions stay invested\.\s*Earnings stay invested\./gi,
+        "This plan does not use the Roth IRA as a funding source. Any contribution or withdrawal change is a separate owner decision with tax and retirement tradeoffs."
+      );
+  }
+
+  return normalized;
 }
 
 function isFinanceTemplateScaffoldLine(line: string): boolean {

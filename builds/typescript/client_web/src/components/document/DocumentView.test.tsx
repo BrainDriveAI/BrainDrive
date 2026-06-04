@@ -120,4 +120,31 @@ describe("stripFinanceTemplateScaffolding", () => {
     expect(stripFinanceTemplateScaffolding(content, "finance", "documents/finance/spec.md")).toBe("## What You Want\n- Pay down debt.");
     expect(stripFinanceTemplateScaffolding(content, "career", "documents/career/spec.md")).toContain("The owner's confirmed");
   });
+
+  it("replaces stale active-plan placeholders in Finance Goals read mode", () => {
+    const content = [
+      "# Finance Spec",
+      "**Status:** Interview complete - spec and plan active",
+      "## The Plan",
+      "Not captured yet.",
+    ].join("\n\n");
+
+    const rendered = stripFinanceTemplateScaffolding(content, "finance", "documents/finance/spec.md");
+
+    expect(rendered).toContain("Plan active. See Your Plan for the current roadmap and first action.");
+    expect(rendered).not.toContain("Not captured yet.");
+  });
+
+  it("softens directive Roth IRA wording in Finance Plan read mode", () => {
+    const content = [
+      "## Owner Decisions",
+      "5. **Roth IRA boundary:** The Roth IRA is not a funding source. Contributions (which you can withdraw tax/penalty-free) stay invested. Earnings stay invested.",
+    ].join("\n\n");
+
+    const rendered = stripFinanceTemplateScaffolding(content, "finance", "documents/finance/plan.md");
+
+    expect(rendered).toContain("This plan does not use the Roth IRA as a funding source");
+    expect(rendered).toContain("separate owner decision with tax and retirement tradeoffs");
+    expect(rendered).not.toMatch(/stay invested|tax\/penalty-free/i);
+  });
 });

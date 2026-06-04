@@ -61,10 +61,14 @@ describe("project chat context", () => {
     expect(context).toContain("Finance Todo items are for immediate owner actions");
     expect(context).toContain("Do not tell the owner to pause contributions temporarily or immediately");
     expect(context).toContain("do not frame pausing as the obvious fast-debt lever");
+    expect(context).toContain("do not say contributions or earnings should stay invested");
+    expect(context).toContain("this plan does not use the Roth IRA as a funding source");
     expect(context).toContain("do not say to throw cash at credit cards");
     expect(context).toContain("Do not say 'exact framing'");
+    expect(context).toContain("update the Finance spec The Plan section so it does not still say Not captured yet");
     expect(context).toContain("say the structure is saved in Your Plan");
-    expect(context).toContain("use no more than 120 words or 800 characters after artifact writes");
+    expect(context).toContain("use no more than 80 words or 500 characters after artifact writes");
+    expect(context).toContain("After creating the Finance spec and plan, say only that they were saved");
     expect(context).toContain("never use markdown tables in chat");
     expect(context).toContain("Budgeting deferral is conditional");
     expect(context).toContain("Do not say Budgeting is bypassed, paused indefinitely");
