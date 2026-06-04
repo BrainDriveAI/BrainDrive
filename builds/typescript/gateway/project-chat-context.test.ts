@@ -49,7 +49,10 @@ describe("project chat context", () => {
     expect(context).toContain("decide first whether the work is parent Finance Align + Plan or child-app execution");
     expect(context).toContain("attach files in chat or use the visible upload button");
     expect(context).toContain("Do not ask the owner to manually place files into documents/finance");
-    expect(context).toContain("card statement PDFs only as APR/minimum-payment evidence");
+    expect(context).toContain("card statement PDFs or screenshots only as optional balance/APR/due-date/minimum-payment evidence");
+    expect(context).toContain("not Budget setup, transaction review, spending analysis, or reconciliation");
+    expect(context).toContain("never say saved Budget, Budget materials, or Budget updated");
+    expect(context).toContain("Finance Todo items are for immediate owner actions");
     expect(context).toContain("Do not tell the owner to pause contributions immediately");
     expect(context).toContain("do not say to throw cash at credit cards");
     expect(context).toContain("say the structure is saved in Your Plan");

@@ -48,6 +48,8 @@ Route a step to Budgeting only when the goal or plan needs spending visibility, 
 
 Credit-card statement PDFs can remain parent Finance data gathering when the only purpose is APR, balance, due-date, or minimum-payment evidence for a debt-payoff plan. Label that purpose explicitly and do not imply transaction Budgeting unless the owner chooses spending visibility, spending targets, or statement-period reconciliation.
 
+For parent Finance debt evidence, phrase uploads as optional support for balance, APR, due date, and minimum payment only. Do not call those files Budget materials, Budget setup, transaction review, spending analysis, or statement-period reconciliation unless the owner has chosen a Budgeting handoff.
+
 When source statements or other evidence have just been uploaded and accepted, advance the plan from gathering evidence to the next validation or refinement step. Do not leave statement upload as pending if the needed files are now present; list only the specific months/accounts/institutions still missing.
 
 Do not copy full Budget reports, source ledgers, or transaction details into `plan.md`; preserve only the parent-level outcome, blocker, handoff, or next action.
@@ -69,7 +71,7 @@ Keep sensitive Finance-only details in `spec.md` unless the owner confirms profi
 
 ## After Running
 
-Report what changed, update `plan.md`, add todos for each immediate owner action in the current plan phase, and return to Finance scope. Read the Todo list back before saying immediate actions were saved. In chat after artifact writes, stay under 120-160 words, summarize only artifact changes and the next step, and avoid exposing raw paths unless asked. After payoff guidance, say the detailed structure is saved in Your Plan and invite the owner to review Your Plan before acting.
+Report what changed, update `plan.md`, add todos only for immediate owner actions in the current active plan phase, and return to Finance scope. Deferred or later-phase plan steps stay in Your Plan and should not become Todo list items until they become the next active owner action. Read the Todo list back before saying immediate actions were saved. In chat after artifact writes, stay under 120-160 words, summarize only artifact changes and the next step, and avoid exposing raw paths unless asked. Never say "saved Budget" or "Budget materials" during parent Finance planning unless the Budgeting child app was active and a Budget artifact was written and read back. After payoff guidance, say the detailed structure is saved in Your Plan and invite the owner to review Your Plan before acting.
 
 ## What This Procedure Is Not
 

@@ -56,6 +56,22 @@ describe("MessageList scroll behavior", () => {
     expect(screen.queryByText(/me\/todo/)).not.toBeInTheDocument();
   });
 
+  it("marks chat messages with stable owner-visible roles for UX evidence", () => {
+    render(
+      <MessageList
+        messages={[
+          { id: "u-1", role: "user", content: "I need help with rent." },
+          { id: "a-1", role: "assistant", content: "I can help you build a plan." },
+        ]}
+      />
+    );
+
+    const userArticle = document.querySelector('article[data-message-role="user"]');
+    const assistantArticle = document.querySelector('article[data-message-role="assistant"]');
+    expect(userArticle?.textContent).toContain("I need help with rent.");
+    expect(assistantArticle?.textContent).toContain("I can help you build a plan.");
+  });
+
   it("compacts acknowledged multi-file upload receipts in the chat history", () => {
     render(
       <MessageList
@@ -131,6 +147,27 @@ describe("MessageList scroll behavior", () => {
     expect(rendered).toContain("Roth IRA contribution pause/reduce decision");
     expect(rendered).toContain("review redirecting that cash toward credit-card payoff after the numbers are confirmed");
     expect(rendered).not.toMatch(/perfect data|fully completed actuals ledger|completely reconciled|permanently mapped|behind the scenes|destroy the Northbridge Visa|banks' hands out of your pockets|throw that cash|Pacify\/Pause/i);
+  });
+
+  it("removes Finance fragment starts and awkward retirement/debt phrasing", () => {
+    render(
+      <MessageList
+        messages={[
+          {
+            id: "a-1",
+            role: "assistant",
+            content:
+              "with these exact terms.\nI also built your Finance goals and Plan (Finance plan) in your saved Budget materials. We will look at a tradeoff: pausing those new contributions temporarily to redirect that money toward wiping out details of the estimated $8,000 credit card debt, then run the numbers layout.",
+          },
+        ]}
+      />
+    );
+
+    const rendered = document.body.textContent ?? "";
+    expect(rendered).toContain("I saved your Finance goals and Your Plan.");
+    expect(rendered).toContain("reviewing whether any new contributions should temporarily be redirected toward paying down the estimated $8,000 credit card debt");
+    expect(rendered).toContain("build the payoff math");
+    expect(rendered).not.toMatch(/with these exact terms|saved Budget materials|wiping out details|run the numbers layout|pausing those new contributions temporarily/i);
   });
 
   it("cleans known concatenated budget category typos", () => {

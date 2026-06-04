@@ -8,7 +8,7 @@ import MarkdownContent from "@/components/markdown/MarkdownContent";
 type DocumentViewProps = {
   projectId: string;
   projectName: string;
-  file: { name: string; path: string };
+  file: { name: string; path: string; ownerLabel?: string };
   onBack: () => void;
 };
 
@@ -31,6 +31,24 @@ function stripYamlFrontmatter(content: string): string {
   }
 
   return content.slice(match[0].length).replace(/^\s+/, "");
+}
+
+function documentHeading(projectId: string, file: DocumentViewProps["file"]): string {
+  const ownerLabel = file.ownerLabel?.trim();
+  if (ownerLabel) {
+    return ownerLabel;
+  }
+
+  if (projectId === "finance") {
+    if (file.path === "documents/finance/spec.md") {
+      return "Your Goals";
+    }
+    if (file.path === "documents/finance/plan.md") {
+      return "Your Plan";
+    }
+  }
+
+  return file.name;
 }
 
 export default function DocumentView({
@@ -89,6 +107,7 @@ export default function DocumentView({
     setError(null);
     setIsEditing(false);
   }
+  const heading = documentHeading(projectId, file);
 
   return (
     <section className="flex h-full min-h-0 flex-1 flex-col bg-bd-bg-chat text-bd-text-primary">
@@ -98,7 +117,7 @@ export default function DocumentView({
             <div className="text-[11px] uppercase tracking-[0.24em] text-bd-text-muted">
               {projectName}
             </div>
-            <h1 className="truncate font-heading text-lg text-bd-text-heading">{file.name}</h1>
+            <h1 className="truncate font-heading text-lg text-bd-text-heading">{heading}</h1>
           </div>
 
           <div className="flex shrink-0 items-center gap-2">

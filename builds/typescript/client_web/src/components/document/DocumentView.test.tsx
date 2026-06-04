@@ -21,6 +21,32 @@ vi.mock("@/api/gateway-adapter", () => ({
 }));
 
 describe("DocumentView", () => {
+  it("uses owner-facing headings for Finance goals and plan", async () => {
+    const { rerender } = render(
+      <DocumentView
+        projectId="finance"
+        projectName="Finance"
+        file={{ name: "spec.md", path: "documents/finance/spec.md" }}
+        onBack={vi.fn()}
+      />
+    );
+
+    expect(await screen.findByRole("heading", { name: "Your Goals" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "spec.md" })).not.toBeInTheDocument();
+
+    rerender(
+      <DocumentView
+        projectId="finance"
+        projectName="Finance"
+        file={{ name: "plan.md", path: "documents/finance/plan.md" }}
+        onBack={vi.fn()}
+      />
+    );
+
+    expect(await screen.findByRole("heading", { name: "Your Plan" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "plan.md" })).not.toBeInTheDocument();
+  });
+
   it("hides raw frontmatter in read mode", async () => {
     render(
       <DocumentView

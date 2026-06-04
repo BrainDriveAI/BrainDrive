@@ -11,8 +11,8 @@ const FINANCE_CONFIDENCE_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\bfully completed actuals ledger\b/gi, "draft actuals ledger"],
   [/\bpermanently mapped\b/gi, "categorized in this budget draft"],
   [/\blocked in\b/gi, "saved as a draft"],
-  [/\bupdated everything behind the scenes\b/gi, "updated the relevant saved Budget materials"],
-  [/\bbehind the scenes\b/gi, "in your saved Budget materials"],
+  [/\bupdated everything behind the scenes\b/gi, "updated the relevant saved materials"],
+  [/\bbehind the scenes\b/gi, "in the saved materials"],
   [/\bdebt-crushing fuel\b/gi, "extra debt-payment capacity"],
   [/\bweaponize that surplus\b/gi, "use that surplus"],
   [/\bmonster in the dark\b/gi, "unclear debt picture"],
@@ -31,9 +31,14 @@ const FINANCE_CONFIDENCE_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\bwe should pause those contributions immediately once we confirm the numbers\b/gi, "one option to review after we confirm the numbers is temporarily redirecting new contributions"],
   [/\bpause those contributions immediately\b/gi, "review temporarily redirecting new contributions"],
   [/\bStopping your contributions temporarily plugs the hole\b/gi, "Temporarily redirecting new contributions is a decision to review once APRs and minimums are confirmed"],
+  [/\bpausing those new contributions temporarily to redirect that money toward\b/gi, "reviewing whether any new contributions should temporarily be redirected toward"],
+  [/\bpausing new contributions temporarily to redirect that money toward\b/gi, "reviewing whether any new contributions should temporarily be redirected toward"],
   [/\bthrow that cash at the credit cards\b/gi, "review redirecting that cash toward credit-card payoff after the numbers are confirmed"],
   [/\bthrow cash at (?:the )?credit cards\b/gi, "review redirecting cash toward credit-card payoff after the numbers are confirmed"],
   [/\bRoth IRA Contribution Pacify\/Pause\b/g, "Roth IRA contribution pause/reduce decision"],
+  [/\bI also built your Finance goals and Plan \(Finance plan\) in your saved Budget materials\./gi, "I saved your Finance goals and Your Plan."],
+  [/\bwiping out details of the estimated\b/gi, "paying down the estimated"],
+  [/\brun the numbers layout\b/gi, "build the payoff math"],
   [/\bThere is no investment fund on earth that will reliably grow at 20% to 30% a year\b/gi, "High-interest card APRs can outweigh expected investment returns, so this is a tradeoff to review carefully"],
   [/\bhoShopping\b/g, "Shopping"],
   [/\bFinance goals\s*\(spec\.md\)/gi, "Finance goals"],
@@ -56,6 +61,7 @@ export function polishOwnerVisibleAssistantCopy(text: string): string {
 
 function normalizeMalformedMarkdownSpacing(text: string): string {
   return text
+    .replace(/(?:^|\n)\s*with (?:these exact terms|your income, rent agreements, and those specific sources of financial stress)\.\s*/gi, "\n")
     .replace(/Detailed Budget Category Breakdown\s*\|\s*Category\s*\|\s*Budget Limit \/ Spent\s*\|[\s\S]*?(?=\n(?:Part\s+\d+:|Your Next Steps|What do you think|Do you recognize|$))/gi, "Detailed Budget category breakdown is saved in the latest Budget report.\n\n")
     .replace(/\bcashwas\*?\s*(\$)/gi, "cash was $1")
     .replace(/^#{1,6}\s*([^*\n]+?)\*+\s*$/gm, "$1")

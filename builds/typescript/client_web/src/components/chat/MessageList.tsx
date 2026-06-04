@@ -83,7 +83,7 @@ export default function MessageList({
         {messages.map((message, index) => {
           if (message.role === "assistant") {
             return (
-              <article key={message.id} className="py-4">
+              <article key={message.id} data-message-role="assistant" className="py-4">
                 <div className="prose-bd max-w-full text-[15px] leading-7 text-bd-text-primary">
                   <MarkdownContent content={polishOwnerVisibleAssistantCopy(message.content)} />
                 </div>
@@ -97,7 +97,7 @@ export default function MessageList({
             : null;
 
           return (
-            <article key={message.id} className="py-4">
+            <article key={message.id} data-message-role="user" className="py-4">
               <div className="flex justify-end">
                 <div className="ml-auto w-fit max-w-[80%] rounded-[24px] bg-bd-bg-tertiary px-5 py-4 text-right">
                   <div className="whitespace-pre-wrap text-[15px] leading-7 text-bd-text-primary">
