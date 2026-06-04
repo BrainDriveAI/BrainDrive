@@ -8,45 +8,31 @@
 
 ## What You Want
 
-*The owner's confirmed financial goals as plan-usable statements, using the owner's words where possible. Include desired outcome, time horizon, concerns, and success criteria.*
-
-To be filled through conversation.
+Not captured yet.
 
 ## Success Criteria
 
-*What will feel meaningfully better or count as success for the owner. Include concrete owner-facing criteria and any emotional, timing, safety, or reviewability criteria that shape the plan.*
-
-To be filled through conversation.
+Not captured yet.
 
 ## Where You Are
 
-*The goal-relevant current financial picture. Label evidence quality where it matters: known fact, owner estimate, source-evidenced, one-period observed, missing, or stale.*
-
-To be filled through conversation.
+Not captured yet.
 
 ## What's In The Way
 
-*Constraints, tradeoffs, risks, owner decisions, information gaps, timing issues, and practical, emotional, or relationship obstacles that shape the plan.*
-
-To be filled through conversation.
+Not captured yet.
 
 ## The Plan
 
-*The parent-level direction this project is heading, plus the most important current next step. The full typed plan lives in `plan.md`.*
-
-To be filled through conversation.
+Not captured yet.
 
 ## What's Still Missing
 
-*Missing, stale, or unconfirmed information that could change the plan, separated from later exploration.*
-
-To be filled through conversation.
+Not captured yet.
 
 ## Assumptions / Evidence Quality
 
-*Known facts, owner estimates, source-evidenced facts, missing evidence, and assumptions that should be reviewed before treating the plan as stable.*
-
-To be filled through conversation.
+Not captured yet.
 
 ## Changelog
 

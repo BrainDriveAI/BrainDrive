@@ -33,6 +33,27 @@ function stripYamlFrontmatter(content: string): string {
   return content.slice(match[0].length).replace(/^\s+/, "");
 }
 
+function stripFinanceTemplateScaffolding(content: string, projectId: string, filePath: string): string {
+  if (projectId !== "finance" || !/^documents\/finance\/(?:spec|plan)\.md$/.test(filePath)) {
+    return content;
+  }
+
+  return content
+    .split(/\r?\n/)
+    .filter((line) => !isFinanceTemplateScaffoldLine(line))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n");
+}
+
+function isFinanceTemplateScaffoldLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("*") || !trimmed.endsWith("*")) {
+    return false;
+  }
+
+  return /\b(?:The owner's confirmed|Include desired outcome|What will feel meaningfully better|Label evidence quality|Constraints, tradeoffs, risks|The parent-level direction|Missing, stale, or unconfirmed|Known facts, owner estimates|One thing the owner can do this week|Include step type|Confirmed owner decisions|Boundaries and do-not-use rules|Information the owner or child app|Concrete owner actions|Explicit routing decisions|phased journey|Where this is heading|Gaps, assumptions, risks)\b/i.test(trimmed);
+}
+
 function documentHeading(projectId: string, file: DocumentViewProps["file"]): string {
   const ownerLabel = file.ownerLabel?.trim();
   if (ownerLabel) {
@@ -209,7 +230,7 @@ export default function DocumentView({
           ) : (
             <article className="py-2">
               <div className="prose-bd max-w-full text-[15px] leading-7 text-bd-text-primary">
-                <MarkdownContent content={stripYamlFrontmatter(content)} />
+                <MarkdownContent content={stripFinanceTemplateScaffolding(stripYamlFrontmatter(content), projectId, file.path)} />
               </div>
             </article>
           )}
@@ -219,5 +240,5 @@ export default function DocumentView({
   );
 }
 
-export { stripYamlFrontmatter };
+export { stripFinanceTemplateScaffolding, stripYamlFrontmatter };
 export type { DocumentViewProps };

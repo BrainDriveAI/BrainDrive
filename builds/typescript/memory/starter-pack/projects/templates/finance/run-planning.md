@@ -4,7 +4,7 @@
 
 ## Preservation Rule
 
-Update sections in place in `plan.md`; never replace the whole file. Always keep every section header, every italic section description, every `**Status:**` line, every `**Last updated:**` line, and `## Changelog`. Use today's date from system context for Last updated and changelog entries.
+Update sections in place in `plan.md`; never replace the whole file. Always keep every section header, every `**Status:**` line, every `**Last updated:**` line, and `## Changelog`. Use today's date from system context for Last updated and changelog entries. Remove author-only helper text and starter placeholders from filled sections; owner read mode should show owner-specific plan content, not template instructions.
 
 ## What This Procedure Accomplishes
 
@@ -15,6 +15,7 @@ Turn the Finance spec into an ordered, typed, traceable sequence with one immedi
 - The Finance spec has enough information to plan.
 - New financial facts materially change the current plan.
 - The owner asks what to do next.
+- The owner adds material planning context after a plan already exists, including regulated-boundary context such as a Roth IRA, 401(k), investment account, tax, legal, insurance, or debt-settlement boundary.
 
 ## Method
 
@@ -42,6 +43,13 @@ Durable Finance plans must include these explicit sections when relevant informa
 
 Frame retirement contribution changes as owner decisions or review points, not immediate commands. Use neutral language such as "contribution level is a later cash-flow decision to review after exact bills, card APRs, minimum payments, tax considerations, and any employer-match context are known" instead of "pause contributions temporarily" or "pause contributions immediately." Do not present contribution pausing as the obvious fast-debt lever. Do not say to throw cash at credit cards or burn down debt. If a plan label is needed, use `Roth IRA contribution pause/reduce decision`; do not write malformed labels such as `Roth IRA Contribution Pacify/Pause`. Do not recommend specific funds, securities, trades, or allocations.
 
+If the owner names a specific regulated-boundary asset or account after the plan is created, update `plan.md` in the same turn before sending the final answer. Preserve the exact owner-stated term. For a Roth IRA, add or update:
+
+- `Planning Guardrails`: `Roth IRA: planning context only; not spendable cash; not part of cushion or debt payoff math; no fund, trade, security, or allocation recommendations.`
+- `Owner Decisions`: `Confirm current Roth IRA/retirement contribution status; decide whether new contributions continue or change without treating the Roth IRA balance as available cash.`
+
+After writing, read `plan.md` back and verify the exact term, such as `Roth IRA`, is present before telling the owner the boundary is in Your Plan.
+
 ### 3. Budgeting Handoff Gate
 
 Route a step to Budgeting only when the goal or plan needs spending visibility, spending targets, or statement-period reconciliation. Finance can complete Align + Plan without statement uploads or a saved Budget. Keep non-budget goals in Finance planning instead of forcing a Budget workflow.
@@ -61,6 +69,7 @@ Write new information at the narrowest correct level:
 - stable cross-project owner facts to `me/profile.md` after confirmation when inferred or sensitive;
 - Finance goals, current state, constraints, assumptions, success criteria, risks, and missing information to `spec.md`;
 - ordered steps, status, priorities, rationale, blockers, and child-app handoffs to `plan.md`;
+- the single immediate owner action from `Right Now - Your First Step` to `me/todo.md` as one concise `#finance` task after the plan is saved and read back;
 - Budget execution detail to the Budgeting child app.
 
 Keep sensitive Finance-only details in `spec.md` unless the owner confirms profile placement. Use calibrated destination language that acknowledges missing evidence; do not promise permanent security, zero dread, guaranteed outcomes, or month-by-month certainty from estimates. If you claim an Owner Profile update, read it back before replying.
@@ -71,7 +80,7 @@ Keep sensitive Finance-only details in `spec.md` unless the owner confirms profi
 
 ## After Running
 
-Report what changed, update `plan.md`, add todos only for immediate owner actions in the current active plan phase, and return to Finance scope. Deferred or later-phase plan steps stay in Your Plan and should not become Todo list items until they become the next active owner action. Read the Todo list back before saying immediate actions were saved. In chat after artifact writes, stay under 120 words or 800 characters, summarize only artifact changes and the next step, and avoid exposing raw paths unless asked. Never say "completed, verified, and saved"; say "I saved this to Your Goals/Your Plan." Never say "saved Budget" or "Budget materials" during parent Finance planning unless the Budgeting child app was active and a Budget artifact was written and read back. Budgeting deferral is conditional: Budgeting is not needed for the next step, and the plan should revisit it if spending visibility, spending targets, or statement-period reconciliation become necessary. Do not say Budgeting is bypassed, paused indefinitely, or that the goals can be achieved entirely through high-level cash-flow design while evidence is still missing. After payoff guidance, say the detailed structure is saved in Your Plan and invite the owner to review Your Plan before acting.
+Report what changed, update `plan.md`, add exactly one Todo for the immediate owner action in the current active plan phase, and return to Finance scope. Deferred or later-phase plan steps stay in Your Plan and should not become Todo list items until they become the next active owner action. Read the Todo list back before saying immediate actions were saved. In chat after artifact writes, stay under 120 words or 800 characters, summarize only artifact changes and the next step, and avoid exposing raw paths unless asked. Never use markdown tables in chat; put table-like details in Your Plan. Never say "completed, verified, and saved"; say "I saved this to Your Goals/Your Plan." Never say "saved Budget" or "Budget materials" during parent Finance planning unless the Budgeting child app was active and a Budget artifact was written and read back. Budgeting deferral is conditional: Budgeting is not needed for the next step, and the plan should revisit it if spending visibility, spending targets, or statement-period reconciliation become necessary. Do not say Budgeting is bypassed, paused indefinitely, or that the goals can be achieved entirely through high-level cash-flow design while evidence is still missing. After payoff guidance, say the detailed structure is saved in Your Plan and invite the owner to review Your Plan before acting.
 
 ## What This Procedure Is Not
 

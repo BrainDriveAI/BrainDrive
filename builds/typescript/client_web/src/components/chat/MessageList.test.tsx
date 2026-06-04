@@ -349,6 +349,47 @@ describe("MessageList scroll behavior", () => {
     expect(rendered).not.toContain("**");
   });
 
+  it("keeps malformed parent Finance planning tables out of owner-visible chat", () => {
+    render(
+      <MessageList
+        messages={[
+          {
+            id: "a-1",
+            role: "assistant",
+            content:
+              "The critical path gaps (these change the plan if wrong): | Gap | Why it matters | | ----- | ---------------- | | Credit card details (count, balances, APRs, minimums, due dates) | Determines payoff order | Key risks called out: APR uncertainty.",
+          },
+        ]}
+      />
+    );
+
+    const rendered = document.body.textContent ?? "";
+    expect(rendered).toContain("The critical path gaps are saved in Your Goals.");
+    expect(rendered).toContain("Key risks called out");
+    expect(rendered).not.toMatch(/\|\s*Gap\s*\||-----|Determines payoff order \|/);
+  });
+
+  it("turns malformed Roth IRA chat tables into compact boundary copy", () => {
+    render(
+      <MessageList
+        messages={[
+          {
+            id: "a-1",
+            role: "assistant",
+            content:
+              "How the Roth IRA factors (and doesn't) into this plan: | Does factor in | Does NOT factor in | | ---------------- | --------------------- | | Context for Owner Decision #1 | Cushion source | Long-term context — once debt is gone, Revisit retirement contributions (resuIncrease). | Bottom line: The Roth is a future-you asset.",
+          },
+        ]}
+      />
+    );
+
+    const rendered = document.body.textContent ?? "";
+    expect(rendered).toContain("How the Roth IRA fits");
+    expect(rendered).toContain("not cushion money");
+    expect(rendered).toContain("Bottom line");
+    expect(rendered).not.toMatch(/\|\s*Does factor in\s*\||resuIncrease|----------------/);
+  });
+
   it("normalizes upload receipts and APR labels that leaked raw markdown markers", () => {
     render(
       <MessageList

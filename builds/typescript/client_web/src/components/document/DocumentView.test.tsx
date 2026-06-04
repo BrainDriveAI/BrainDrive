@@ -1,9 +1,9 @@
 import { render, screen, waitFor } from "@testing-library/react";
 
-import DocumentView, { stripYamlFrontmatter } from "./DocumentView";
+import DocumentView, { stripFinanceTemplateScaffolding, stripYamlFrontmatter } from "./DocumentView";
 
-vi.mock("@/api/gateway-adapter", () => ({
-  readFileContent: vi.fn(async () =>
+const { readFileContentMock } = vi.hoisted(() => ({
+  readFileContentMock: vi.fn(async () =>
     [
       "---",
       'title: "HarborlineInvestments RothIRA 2026 04"',
@@ -17,10 +17,18 @@ vi.mock("@/api/gateway-adapter", () => ({
       "",
     ].join("\n")
   ),
+}));
+
+vi.mock("@/api/gateway-adapter", () => ({
+  readFileContent: () => readFileContentMock(),
   writeFileContent: vi.fn(),
 }));
 
 describe("DocumentView", () => {
+  beforeEach(() => {
+    readFileContentMock.mockClear();
+  });
+
   it("uses owner-facing headings for Finance goals and plan", async () => {
     const { rerender } = render(
       <DocumentView
@@ -65,6 +73,30 @@ describe("DocumentView", () => {
       expect(screen.queryByText(/ai_pdf_to_markdown/)).not.toBeInTheDocument();
     });
   });
+
+  it("hides Finance template scaffolding from read mode", async () => {
+    readFileContentMock.mockResolvedValueOnce([
+      "# Finance Plan",
+      "",
+      "## Right Now - Your First Step",
+      "",
+      "*One thing the owner can do this week to make progress. Include step type, status, trace, rationale, and owner-facing next action.*",
+      "",
+      "- Gather credit card statement terms.",
+    ].join("\n"));
+
+    render(
+      <DocumentView
+        projectId="finance"
+        projectName="Finance"
+        file={{ name: "plan.md", path: "documents/finance/plan.md" }}
+        onBack={vi.fn()}
+      />
+    );
+
+    expect(await screen.findByText("Gather credit card statement terms.")).toBeInTheDocument();
+    expect(screen.queryByText(/Include step type/)).not.toBeInTheDocument();
+  });
 });
 
 describe("stripYamlFrontmatter", () => {
@@ -74,5 +106,18 @@ describe("stripYamlFrontmatter", () => {
 
   it("leaves ordinary markdown unchanged", () => {
     expect(stripYamlFrontmatter("# Body\n\n---\n")).toBe("# Body\n\n---\n");
+  });
+});
+
+describe("stripFinanceTemplateScaffolding", () => {
+  it("removes known helper lines only for Finance spec and plan read views", () => {
+    const content = [
+      "## What You Want",
+      "*The owner's confirmed financial goals as plan-usable statements, using the owner's words where possible. Include desired outcome, time horizon, concerns, and success criteria.*",
+      "- Pay down debt.",
+    ].join("\n");
+
+    expect(stripFinanceTemplateScaffolding(content, "finance", "documents/finance/spec.md")).toBe("## What You Want\n- Pay down debt.");
+    expect(stripFinanceTemplateScaffolding(content, "career", "documents/career/spec.md")).toContain("The owner's confirmed");
   });
 });

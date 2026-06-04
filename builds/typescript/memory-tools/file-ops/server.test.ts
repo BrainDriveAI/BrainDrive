@@ -263,3 +263,51 @@ describe("file ops memory_search", () => {
     }
   });
 });
+
+describe("file ops memory path validation", () => {
+  it("rejects prose passed as a memory_read path before filesystem lookup", async () => {
+    const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-file-ops-path-prose-"));
+    const readTool = fileOpsTools().find((tool) => tool.name === "memory_read");
+
+    await expect(
+      readTool?.execute(toolContext(memoryRoot), {
+        path: "The user is asking about how their Roth IRA should factor into the plan. That should be saved in documents/finance/plan.md.",
+      })
+    ).rejects.toMatchObject({
+      code: "path_invalid",
+      message: expect.stringContaining("looks like prose"),
+    });
+  });
+
+  it("rejects hidden reasoning or markdown table text passed as a memory path", async () => {
+    const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-file-ops-path-table-"));
+    const readTool = fileOpsTools().find((tool) => tool.name === "memory_read");
+
+    await expect(
+      readTool?.execute(toolContext(memoryRoot), {
+        path: "</think> | Does factor in | Does NOT factor in | | --- | --- |",
+      })
+    ).rejects.toMatchObject({
+      code: "path_invalid",
+      message: expect.stringContaining("looks like prose"),
+    });
+  });
+
+  it("still accepts ordinary nested memory paths with spaces", async () => {
+    const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-file-ops-path-valid-"));
+    const readTool = fileOpsTools().find((tool) => tool.name === "memory_read");
+
+    try {
+      await mkdir(path.join(memoryRoot, "documents", "finance", "budget", "reports"), { recursive: true });
+      await writeFile(path.join(memoryRoot, "documents", "finance", "budget", "reports", "latest report.md"), "# Report\n", "utf8");
+
+      const result = await readTool?.execute(toolContext(memoryRoot), {
+        path: "documents/finance/budget/reports/latest report.md",
+      }) as { content: string };
+
+      expect(result.content).toBe("# Report\n");
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
+});

@@ -4,7 +4,7 @@
 
 ## Preservation Rule
 
-Update sections in place in `spec.md`; never replace the whole file. Always keep every section header, every italic section description, every `**Status:**` line, every `**Last updated:**` line, and `## Changelog`. Use today's date from system context for Last updated and changelog entries.
+Update sections in place in `spec.md`; never replace the whole file. Always keep every section header, every `**Status:**` line, every `**Last updated:**` line, and `## Changelog`. Use today's date from system context for Last updated and changelog entries. Remove author-only helper text and starter placeholders from filled sections; owner read mode should show owner-specific goals and current state, not template instructions.
 
 ## What This Procedure Accomplishes
 
@@ -71,6 +71,8 @@ Once the owner has provided material current-state facts, update `spec.md` with 
 
 Read back `spec.md` before saying the Finance goals were saved. If a write or readback fails, do not claim durable state was updated; ask to continue so the draft can be saved.
 
+When updating filled sections, delete author-only helper lines such as "The owner's confirmed...", "Include desired outcome...", or "To be filled through conversation." Keep the section header and owner-facing content.
+
 ### 6. Write Placement
 
 Write new information at the narrowest correct level:
@@ -90,7 +92,7 @@ Keep sensitive Finance-only detail in `spec.md` unless the owner confirms it sho
 
 ## After Running
 
-Update `spec.md`, summarize material changes in owner-facing language, add todos only for concrete next actions, and return to Finance scope before proposing planning or child-app execution. For stressful Finance topics, keep the chat reply compact and put detail in the saved spec. Ask at most one or two focused next questions in the chat reply.
+Update `spec.md`, summarize material changes in owner-facing language, and return to Finance scope before proposing planning or child-app execution. Do not add Todo items during interview-only turns; Todo propagation happens after the Finance plan defines the current immediate owner action. For stressful Finance topics, keep the chat reply compact and put detail in the saved spec. Ask at most one or two focused next questions in the chat reply, and do not use markdown tables in chat.
 
 ## What This Procedure Is Not
 

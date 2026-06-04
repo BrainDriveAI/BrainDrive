@@ -57,6 +57,7 @@ const FINANCE_CONFIDENCE_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\brun the numbers layout\b/gi, "build the payoff math"],
   [/\bThere is no investment fund on earth that will reliably grow at 20% to 30% a year\b/gi, "High-interest card APRs can outweigh expected investment returns, so this is a tradeoff to review carefully"],
   [/\bhoShopping\b/g, "Shopping"],
+  [/\bresuIncrease\b/g, "resume/increase"],
   [/\bFinance goals\s*\(spec\.md\)/gi, "Finance goals"],
   [/\bFinance plan\s*\(plan\.md\)/gi, "Finance plan"],
   [/\bspec\.md\b/gi, "Finance goals"],
@@ -78,6 +79,8 @@ export function polishOwnerVisibleAssistantCopy(text: string): string {
 function normalizeMalformedMarkdownSpacing(text: string): string {
   return text
     .replace(/(?:^|\n)\s*with (?:these exact terms|your income, rent agreements, and those specific sources of financial stress)\.\s*/gi, "\n")
+    .replace(/The critical path gaps \(these change the plan if wrong\):\s*\|\s*Gap\s*\|\s*Why it matters\s*\|[\s\S]*?(?=\s*Key risks called out:|$)/gi, "The critical path gaps are saved in Your Goals. The first three to confirm are credit-card terms, cash on hand, and Evan rent stability.\n\n")
+    .replace(/How the Roth IRA factors \(and doesn't\) into this plan:\s*\|\s*Does factor in\s*\|\s*Does NOT factor in\s*\|[\s\S]*?(?=\s*Bottom line:|$)/gi, "How the Roth IRA fits: it is planning context for contribution decisions. It is not cushion money, debt-payoff cash, or a reason for fund, trade, security, or allocation recommendations.\n\n")
     .replace(/Detailed Budget Category Breakdown\s*\|\s*Category\s*\|\s*Budget Limit \/ Spent\s*\|[\s\S]*?(?=\n(?:Part\s+\d+:|Your Next Steps|What do you think|Do you recognize|$))/gi, "Detailed Budget category breakdown is saved in the latest Budget report.\n\n")
     .replace(/\bcashwas\*?\s*(\$)/gi, "cash was $1")
     .replace(/^#{1,6}\s*([^*\n]+?)\*+\s*$/gm, "$1")

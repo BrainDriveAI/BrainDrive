@@ -12,6 +12,7 @@ const SEARCH_EXCLUDED_ROOTS = new Set(["diagnostics"]);
 const MAX_SEARCH_MATCHES = 50;
 const MAX_SEARCH_MATCH_CONTENT_CHARS = 500;
 const MAX_SEARCH_TOTAL_CONTENT_CHARS = 20_000;
+const MAX_MODEL_PATH_CHARS = 260;
 
 async function readTool(context: ToolContext, input: Record<string, unknown>): Promise<unknown> {
   const targetPath = String(input.path ?? "");
@@ -246,9 +247,33 @@ async function searchTool(context: ToolContext, input: Record<string, unknown>):
 
 function resolveToolPath(context: ToolContext, requestedPath: string): string {
   try {
+    validateModelSuppliedMemoryPath(requestedPath);
     return resolveMemoryPath(context.memoryRoot, requestedPath);
   } catch (error) {
     throw mapPathResolutionFailure(error);
+  }
+}
+
+function validateModelSuppliedMemoryPath(requestedPath: string): void {
+  const trimmedPath = requestedPath.trim();
+  const whitespaceCount = trimmedPath.match(/\s+/g)?.length ?? 0;
+  if (trimmedPath.length === 0) {
+    throw new ToolExecutionFailure("path_invalid", "Memory path must not be empty. Use a valid path such as documents/finance/plan.md.");
+  }
+
+  if (
+    trimmedPath.length > MAX_MODEL_PATH_CHARS ||
+    whitespaceCount >= 6 ||
+    /[\r\n]/.test(trimmedPath) ||
+    /<\/?think\b/i.test(trimmedPath) ||
+    /```/.test(trimmedPath) ||
+    /\|[^/\n]{8,}\|/.test(trimmedPath) ||
+    (/[.!?]\s+[A-Z]/.test(trimmedPath) && !/[\\/]/.test(trimmedPath))
+  ) {
+    throw new ToolExecutionFailure(
+      "path_invalid",
+      "Memory path looks like prose or drafted content, not a file path. Retry with a valid memory path such as documents/finance/spec.md, documents/finance/plan.md, or me/todo.md."
+    );
   }
 }
 
@@ -357,7 +382,11 @@ export function fileOpsTools(): ToolDefinition[] {
       inputSchema: {
         type: "object",
         properties: {
-          path: { type: "string" }
+          path: {
+            type: "string",
+            description: "Memory file path only, such as documents/finance/plan.md or me/todo.md. Do not put prose, reasoning, markdown, or drafted answers here.",
+            maxLength: MAX_MODEL_PATH_CHARS,
+          }
         },
         required: ["path"]
       },
@@ -371,7 +400,11 @@ export function fileOpsTools(): ToolDefinition[] {
       inputSchema: {
         type: "object",
         properties: {
-          path: { type: "string" },
+          path: {
+            type: "string",
+            description: "Memory file path only, such as documents/finance/plan.md or me/todo.md. Do not put prose, reasoning, markdown, or drafted answers here.",
+            maxLength: MAX_MODEL_PATH_CHARS,
+          },
           content: { type: "string" }
         },
         required: ["path", "content"]
@@ -386,7 +419,11 @@ export function fileOpsTools(): ToolDefinition[] {
       inputSchema: {
         type: "object",
         properties: {
-          path: { type: "string" },
+          path: {
+            type: "string",
+            description: "Memory file path only, such as documents/finance/plan.md or me/todo.md. Do not put prose, reasoning, markdown, or drafted answers here.",
+            maxLength: MAX_MODEL_PATH_CHARS,
+          },
           find: { type: "string" },
           replace: { type: "string" }
         },
@@ -402,7 +439,11 @@ export function fileOpsTools(): ToolDefinition[] {
       inputSchema: {
         type: "object",
         properties: {
-          path: { type: "string" }
+          path: {
+            type: "string",
+            description: "Memory file or folder path only. Do not put prose, reasoning, markdown, or drafted answers here.",
+            maxLength: MAX_MODEL_PATH_CHARS,
+          }
         },
         required: ["path"]
       },
@@ -416,7 +457,11 @@ export function fileOpsTools(): ToolDefinition[] {
       inputSchema: {
         type: "object",
         properties: {
-          path: { type: "string" }
+          path: {
+            type: "string",
+            description: "Memory folder path only, such as documents/finance. Do not put prose, reasoning, markdown, or drafted answers here.",
+            maxLength: MAX_MODEL_PATH_CHARS,
+          }
         }
       },
       execute: listTool,
@@ -429,7 +474,11 @@ export function fileOpsTools(): ToolDefinition[] {
       inputSchema: {
         type: "object",
         properties: {
-          path: { type: "string" },
+          path: {
+            type: "string",
+            description: "Optional memory folder path to search under. Do not put prose, reasoning, markdown, or drafted answers here.",
+            maxLength: MAX_MODEL_PATH_CHARS,
+          },
           query: { type: "string" },
           include_conversations: { type: "boolean" }
         },

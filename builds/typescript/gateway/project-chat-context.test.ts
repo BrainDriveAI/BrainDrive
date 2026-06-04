@@ -46,6 +46,9 @@ describe("project chat context", () => {
     expect(context).toContain("stop context intake after me/profile.md plus Finance AGENT-user/spec/plan/run procedure files");
     expect(context).toContain("treat Finance as a clean slate instead of searching or reading Career, Relationships, Fitness, BrainDrive Plus One");
     expect(context).toContain("save a minimal Finance spec draft and read it back before deeper planning");
+    expect(context).toContain("regulated-boundary term like Roth IRA");
+    expect(context).toContain("add exactly one concise active #finance task to me/todo.md");
+    expect(context).toContain("Filled Finance spec/plan sections should not retain author-only template helper text");
     expect(context).toContain("Durable Finance specs must include explicit Success Criteria");
     expect(context).toContain("Durable Finance plans must include explicit Owner Decisions");
     expect(context).toContain("do not rely on documents/finance/index.md, documents/finance/rules.md, or documents/finance/budgeting/");
@@ -62,6 +65,7 @@ describe("project chat context", () => {
     expect(context).toContain("Do not say 'exact framing'");
     expect(context).toContain("say the structure is saved in Your Plan");
     expect(context).toContain("use no more than 120 words or 800 characters after artifact writes");
+    expect(context).toContain("never use markdown tables in chat");
     expect(context).toContain("Budgeting deferral is conditional");
     expect(context).toContain("Do not say Budgeting is bypassed, paused indefinitely");
     expect(context).toContain("Internal Memory paths are for tool use only");
