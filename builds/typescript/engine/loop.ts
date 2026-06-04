@@ -22,11 +22,18 @@ const EMPTY_COMPLETION_REPAIR_INSTRUCTION = [
   "If you cannot complete the required tool/write/readback step, return a concise recoverable failure and do not claim the work is saved, updated, mapped, categorized, or complete.",
   "Skip optional narrative and avoid tables in this recovery attempt.",
 ].join(" ");
+const EMPTY_COMPLETION_TEXT_ONLY_INSTRUCTION = [
+  "Second recovery mode: the prior recovery call also ended without visible assistant text or tool calls.",
+  "Return one concise owner-visible response in plain text only.",
+  "Do not call tools and do not claim any durable files were saved, updated, verified, or completed.",
+  "Say the previous response could not finish, preserve the latest user request, and ask the owner to try again or send Continue so you can resume from the current conversation.",
+].join(" ");
 const EMPTY_COMPLETION_ERROR_MESSAGE = [
-  "The assistant could not finish that reply, but your conversation and uploaded files are still here.",
-  "Try again to continue from the saved files.",
+  "The model returned an empty response after recovery attempts.",
+  "Your conversation is still here. Try again or send Continue to resume from the latest message.",
 ].join("\n");
 const EMPTY_COMPLETION_REPAIR_CONTEXT_KEY = "empty_completion_repair";
+const EMPTY_COMPLETION_TEXT_ONLY_CONTEXT_KEY = "empty_completion_text_only";
 
 type LoopOptions = {
   memoryRoot: string;
@@ -60,7 +67,7 @@ export async function* runAgentLoop(
   const recentNonDestructiveMutationPaths: string[] = [];
   const repeatToolCallThreshold = options.repeatToolCallThreshold ?? 2;
   let iteration = 0;
-  let emptyCompletionRepairAttempted = false;
+  let emptyCompletionRecoveryMode: null | typeof EMPTY_COMPLETION_REPAIR_CONTEXT_KEY | typeof EMPTY_COMPLETION_TEXT_ONLY_CONTEXT_KEY = null;
 
   while (true) {
     if (options.safetyIterationLimit !== undefined && iteration >= options.safetyIterationLimit) {
@@ -81,9 +88,14 @@ export async function* runAgentLoop(
       model_call_index: iteration,
     };
     try {
-      const isEmptyCompletionRepairTurn = emptyCompletionRepairAttempted;
-      const tools = toolExecutor.listTools(auth);
-      const modelRequest: GatewayEngineRequest = isEmptyCompletionRepairTurn
+      const isEmptyCompletionRecoveryTurn = emptyCompletionRecoveryMode !== null;
+      const tools = emptyCompletionRecoveryMode === EMPTY_COMPLETION_TEXT_ONLY_CONTEXT_KEY
+        ? []
+        : toolExecutor.listTools(auth);
+      const recoveryClientContext = emptyCompletionRecoveryMode
+        ? { [emptyCompletionRecoveryMode]: true }
+        : {};
+      const modelRequest: GatewayEngineRequest = isEmptyCompletionRecoveryTurn
         ? {
             ...request,
             messages,
@@ -91,7 +103,7 @@ export async function* runAgentLoop(
               ...request.metadata,
               client_context: {
                 ...(request.metadata.client_context ?? {}),
-                [EMPTY_COMPLETION_REPAIR_CONTEXT_KEY]: true,
+                ...recoveryClientContext,
               },
             },
           }
@@ -106,7 +118,7 @@ export async function* runAgentLoop(
           provider_profile: options.promptAudit.providerProfile ?? null,
           selected_model: options.promptAudit.model ?? null,
           metadata: modelRequest.metadata,
-          recovery_mode: isEmptyCompletionRepairTurn ? EMPTY_COMPLETION_REPAIR_CONTEXT_KEY : null,
+          recovery_mode: emptyCompletionRecoveryMode,
           messages,
           tools: tools.map((tool) => serializeToolDefinitionForAudit(tool)),
         },
@@ -177,13 +189,18 @@ export async function* runAgentLoop(
     }
 
     if (isEmptyFinalModelTurn(completion, streamedAssistantText)) {
+      const nextRetryMode = emptyCompletionRecoveryMode === null
+        ? EMPTY_COMPLETION_REPAIR_CONTEXT_KEY
+        : emptyCompletionRecoveryMode === EMPTY_COMPLETION_REPAIR_CONTEXT_KEY
+          ? EMPTY_COMPLETION_TEXT_ONLY_CONTEXT_KEY
+          : "retry_failed";
       await options.promptAudit?.recorder.append(
         "prompt_audit.empty_completion",
         {
           finish_reason: completion.finishReason,
           usage: completion.usage ?? null,
           retry_attempted: true,
-          retry_mode: emptyCompletionRepairAttempted ? "retry_failed" : EMPTY_COMPLETION_REPAIR_CONTEXT_KEY,
+          retry_mode: nextRetryMode,
         },
         modelCall
       );
@@ -192,15 +209,24 @@ export async function* runAgentLoop(
         conversation_id: request.metadata.conversation_id,
         finish_reason: completion.finishReason,
         retry_attempted: true,
-        retry_mode: emptyCompletionRepairAttempted ? "retry_failed" : EMPTY_COMPLETION_REPAIR_CONTEXT_KEY,
+        retry_mode: nextRetryMode,
         usage: completion.usage ?? null,
       });
 
-      if (!emptyCompletionRepairAttempted) {
-        emptyCompletionRepairAttempted = true;
+      if (emptyCompletionRecoveryMode === null) {
+        emptyCompletionRecoveryMode = EMPTY_COMPLETION_REPAIR_CONTEXT_KEY;
         messages.push({
           role: "user",
           content: EMPTY_COMPLETION_REPAIR_INSTRUCTION,
+        });
+        continue;
+      }
+
+      if (emptyCompletionRecoveryMode === EMPTY_COMPLETION_REPAIR_CONTEXT_KEY) {
+        emptyCompletionRecoveryMode = EMPTY_COMPLETION_TEXT_ONLY_CONTEXT_KEY;
+        messages.push({
+          role: "user",
+          content: EMPTY_COMPLETION_TEXT_ONLY_INSTRUCTION,
         });
         continue;
       }

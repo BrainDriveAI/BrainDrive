@@ -586,6 +586,21 @@ export default function ChatPanel({
     }
   }
 
+  function handleRetryCurrentTurn() {
+    const replayContent = lastUserMessage?.content?.trim();
+    resetErrorPresentation();
+    if (replayContent && replayContent.length > 0) {
+      append(replayContent, {
+        metadata: {
+          ...messageMetadata,
+          retry_of_message_id: lastUserMessage?.id,
+          retry_reason: errorCode ?? "chat_error",
+        },
+        echoUserMessage: false,
+      });
+    }
+  }
+
   function handleDragOver(e: DragEvent) {
     e.preventDefault();
     setIsDragOver(true);
@@ -1078,7 +1093,7 @@ export default function ChatPanel({
       {connectionStatus !== "connected" && (
         <ConnectionBanner
           status={connectionStatus}
-          onRetry={() => setConnectionStatus("connected")}
+          onRetry={lastUserMessage && !isContextOverflowError ? handleRetryCurrentTurn : () => setConnectionStatus("connected")}
         />
       )}
 
@@ -1149,7 +1164,7 @@ export default function ChatPanel({
               {displayedChatError && (
                 <ErrorMessage
                   message={displayedChatError}
-                  onRetry={isContextOverflowError ? undefined : () => resetErrorPresentation()}
+                  onRetry={isContextOverflowError ? undefined : handleRetryCurrentTurn}
                   primaryActionLabel={isContextOverflowError ? "Start New Conversation" : undefined}
                   onPrimaryAction={isContextOverflowError ? handleStartNewConversation : undefined}
                   secondaryActionLabel={

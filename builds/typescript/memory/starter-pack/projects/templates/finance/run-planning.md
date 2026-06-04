@@ -20,7 +20,7 @@ Turn the Finance spec into an ordered, typed, traceable sequence with one immedi
 
 ### 1. Context Intake
 
-Before planning, read or attempt to read `me/profile.md`, `AGENT-user.md` if present, `spec.md`, `plan.md`, and relevant child-app summaries or Budget reports when they directly affect the plan. Use known context first and do not ask broad setup questions for facts already present. Do not read Budgeting app detail files, transaction evidence, or unrelated project specs unless the plan step needs that evidence.
+Before planning, read or attempt to read `me/profile.md`, `AGENT-user.md` if present, `spec.md`, and `plan.md`. Read child-app summaries or Budget reports only when they directly affect the plan. Use known context first and do not ask broad setup questions for facts already present. Do not use broad `memory_search` or read unrelated project instructions/specs during parent Finance planning. Do not read Budgeting app detail files, transaction evidence, or unrelated project specs unless the plan step needs that evidence.
 
 ### 2. Planning
 

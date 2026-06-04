@@ -43,6 +43,9 @@ describe("project chat context", () => {
     expect(context).toContain("Use Budgeting only when the goal or plan needs spending visibility, spending targets, or statement-period reconciliation");
     expect(context).toContain("Write new information at the narrowest correct level");
     expect(context).toContain("For parent Finance alignment, do not read Budgeting app detail files");
+    expect(context).toContain("stop context intake after me/profile.md plus Finance AGENT-user/spec/plan/run procedure files");
+    expect(context).toContain("treat Finance as a clean slate instead of searching or reading Career, Relationships, Fitness, BrainDrive Plus One");
+    expect(context).toContain("save a minimal Finance spec draft and read it back before deeper planning");
     expect(context).toContain("Durable Finance specs must include explicit Success Criteria");
     expect(context).toContain("Durable Finance plans must include explicit Owner Decisions");
     expect(context).toContain("do not rely on documents/finance/index.md, documents/finance/rules.md, or documents/finance/budgeting/");

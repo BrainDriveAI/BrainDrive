@@ -188,6 +188,43 @@ describe("useGatewayChat", () => {
     ]);
   });
 
+  it("can replay a user turn without echoing a duplicate user message", async () => {
+    sendMessageMock.mockImplementation(() =>
+      streamEvents([
+        { type: "text-delta", delta: "Recovered reply" },
+        {
+          type: "done",
+          finish_reason: "stop",
+          conversation_id: "conv-retry",
+        },
+      ])
+    );
+
+    const { result } = renderHook(() => useGatewayChat());
+
+    act(() => {
+      result.current.append("Retry this turn", {
+        metadata: { retry_reason: "provider_error" },
+        echoUserMessage: false,
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(sendMessageMock).toHaveBeenCalledWith(
+      null,
+      "Retry this turn",
+      expect.objectContaining({
+        metadata: { retry_reason: "provider_error" },
+      })
+    );
+    expect(result.current.messages).toEqual([
+      { id: "message-2", role: "assistant", content: "Recovered reply" },
+    ]);
+  });
+
   it("stores context overflow error code for overflow-specific UI actions", async () => {
     sendMessageMock.mockImplementation(() =>
       streamEvents([

@@ -147,6 +147,39 @@ describe("ChatPanel typing indicator behavior", () => {
     expect(visibleText).not.toMatch(/provider|api key|credits|quota/i);
   });
 
+  it("replays the latest user turn when retrying a provider failure", async () => {
+    const user = userEvent.setup();
+    const hookState = makeHookState({
+      messages: [{ id: "u-1", role: "user", content: "Here are my current finance details." }],
+      error: new Error("The model provider returned an empty response."),
+      errorCode: "provider_error",
+    });
+    useGatewayChatMock.mockReturnValue(hookState);
+
+    render(
+      <ChatPanel
+        activeConversationId={null}
+        activeProjectId="finance"
+        messageMetadata={{ project_id: "finance" }}
+        isEmpty={false}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Try Again" }));
+
+    expect(hookState.append).toHaveBeenCalledWith(
+      "Here are my current finance details.",
+      {
+        metadata: {
+          project_id: "finance",
+          retry_of_message_id: "u-1",
+          retry_reason: "provider_error",
+        },
+        echoUserMessage: false,
+      }
+    );
+  });
+
   it("shows Budget file open actions after a saved Budget reply", async () => {
     const user = userEvent.setup();
     const onOpenProjectFile = vi.fn();

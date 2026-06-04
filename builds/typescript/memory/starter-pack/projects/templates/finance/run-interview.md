@@ -20,9 +20,11 @@ Build a goal-relevant financial picture and capture the owner's goals, time hori
 
 ### 1. Context Intake
 
-Before broad setup questions, read or attempt to read `me/profile.md`, `AGENT-user.md` if present, `spec.md`, `plan.md`, and relevant child-app summaries or Budget reports when they directly affect the owner's Finance goal.
+Before broad setup questions, read or attempt to read `me/profile.md`, `AGENT-user.md` if present, `spec.md`, and `plan.md`. Read child-app summaries or Budget reports only when they directly affect the owner's already-stated Finance goal.
 
 Use known context first. Briefly summarize what appears known, then ask what is missing, stale, or unconfirmed. Do not re-ask known facts as if starting from scratch. Do not read Budgeting app detail files, transaction evidence, or unrelated project specs during parent Finance alignment unless the owner request creates a specific need. If card statement PDFs are requested only to reveal APRs or minimum payments, say that they are narrow debt-term evidence for parent Finance, not a Budget setup.
+
+For first-turn parent Finance alignment, do not use `memory_search` for broad discovery and do not read Career, Relationships, Fitness, BrainDrive Plus One, or other project instructions/specs for routing awareness. If the narrow Finance files are empty, absent, or starter templates, say there is not much saved Finance context yet and continue from the owner's stated goal.
 
 ### 2. Goal Alignment
 
@@ -57,7 +59,19 @@ One uploaded statement period is limited evidence, not a stable baseline unless 
 
 Compare goals against current state. Classify material follow-up items as constraints, tradeoffs, risks, owner decisions, evidence gaps, stale facts, or later exploration. Frame regulated areas such as tax, legal, investment, insurance, and debt settlement as context organization and tradeoff illumination, not professional advice or product recommendations.
 
-### 5. Write Placement
+### 5. Minimal Durable Capture
+
+Once the owner has provided material current-state facts, update `spec.md` with a minimal durable draft before deeper planning or another broad interview. Preserve existing sections and fill only what is supported by the conversation. Include:
+
+- the goal and time horizon if known;
+- stated success criteria or what would feel better;
+- current-state facts and estimates with evidence labels;
+- constraints, risks, and owner concerns;
+- missing information needed for the plan.
+
+Read back `spec.md` before saying the Finance goals were saved. If a write or readback fails, do not claim durable state was updated; ask to continue so the draft can be saved.
+
+### 6. Write Placement
 
 Write new information at the narrowest correct level:
 

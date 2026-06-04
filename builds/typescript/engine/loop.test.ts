@@ -283,7 +283,81 @@ describe("runAgentLoop", () => {
     }));
   });
 
-  it("emits a provider error instead of done when the empty completion retry also has no output", async () => {
+  it("falls back to a text-only recovery pass when the write-capable empty completion retry also has no output", async () => {
+    const auditEvents: Array<{ event: string; details: Record<string, unknown>; modelCallIndex?: number }> = [];
+    let calls = 0;
+    let textOnlyToolsCount = -1;
+    const adapter: ModelAdapter = {
+      async complete(_nextRequest, tools) {
+        calls += 1;
+        if (calls === 3) {
+          textOnlyToolsCount = tools.length;
+          return {
+            assistantText: "I could not finish the previous response. Try again or send Continue and I will resume from your latest message.",
+            finishReason: "stop",
+            toolCalls: [],
+          };
+        }
+
+        return {
+          assistantText: "",
+          finishReason: "stop",
+          toolCalls: [],
+          usage: { promptTokens: 100, completionTokens: 0, totalTokens: 100 },
+        };
+      },
+    };
+
+    const events = [];
+    for await (const event of runAgentLoop(
+      adapter,
+      new ToolExecutor([]),
+      new ApprovalStore(),
+      request,
+      ownerAuth,
+      {
+        memoryRoot: "/tmp/brain",
+        safetyIterationLimit: 3,
+        promptAudit: {
+          recorder: fakeRecorder(auditEvents),
+          adapterName: "openai-compatible",
+          providerProfile: "openrouter",
+          model: "test-model",
+        },
+      }
+    )) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      {
+        type: "text-delta",
+        delta: "I could not finish the previous response. Try again or send Continue and I will resume from your latest message.",
+      },
+      {
+        type: "done",
+        conversation_id: "conversation-1",
+        message_id: expect.any(String),
+        finish_reason: "stop",
+      },
+    ]);
+    expect(calls).toBe(3);
+    expect(textOnlyToolsCount).toBe(0);
+    expect(auditEvents.filter((entry) => entry.event === "prompt_audit.empty_completion").map((entry) => entry.details.retry_attempted))
+      .toEqual([true, true]);
+    expect(auditEvents.filter((entry) => entry.event === "prompt_audit.empty_completion").map((entry) => entry.details.retry_mode))
+      .toEqual(["empty_completion_repair", "empty_completion_text_only"]);
+    expect(auditEvents).toContainEqual(expect.objectContaining({
+      event: "prompt_audit.model_request",
+      details: expect.objectContaining({
+        recovery_mode: "empty_completion_text_only",
+        tools: [],
+      }),
+      modelCallIndex: 3,
+    }));
+  });
+
+  it("emits a precise provider error when all empty completion recovery attempts have no output", async () => {
     const auditEvents: Array<{ event: string; details: Record<string, unknown>; modelCallIndex?: number }> = [];
     const adapter: ModelAdapter = {
       async complete() {
@@ -322,15 +396,13 @@ describe("runAgentLoop", () => {
         type: "error",
         code: "provider_error",
         message: [
-          "The assistant could not finish that reply, but your conversation and uploaded files are still here.",
-          "Try again to continue from the saved files.",
+          "The model returned an empty response after recovery attempts.",
+          "Your conversation is still here. Try again or send Continue to resume from the latest message.",
         ].join("\n"),
       },
     ]);
-    expect(auditEvents.filter((entry) => entry.event === "prompt_audit.empty_completion").map((entry) => entry.details.retry_attempted))
-      .toEqual([true, true]);
     expect(auditEvents.filter((entry) => entry.event === "prompt_audit.empty_completion").map((entry) => entry.details.retry_mode))
-      .toEqual(["empty_completion_repair", "retry_failed"]);
+      .toEqual(["empty_completion_repair", "empty_completion_text_only", "retry_failed"]);
   });
 
   it("compacts large tool results before the next model request", async () => {

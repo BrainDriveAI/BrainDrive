@@ -27,6 +27,10 @@ Before broad setup questions, read or attempt to read known context:
 
 Briefly use what is already known, then ask what is missing, stale, or unconfirmed. Do not ask for known facts as if the owner is starting from scratch. For parent Finance alignment, do not read Budgeting app detail files, Budget reports, transaction evidence, or unrelated project specs unless the owner request or Finance plan creates a specific need. Avoid broad `memory_search` on first-turn Finance alignment; list/read the narrow known-context files first.
 
+For a fresh parent Finance alignment, stop context intake after the narrow known-context files above. Do not use `memory_search` for generic terms such as profile, debt, budget, goals, or stress, and do not read other project instructions or specs for routing awareness. If `me/profile.md`, `spec.md`, or `plan.md` are absent, empty, or starter templates, treat Finance as a clean slate instead of scanning unrelated project memory.
+
+After the owner provides goal-relevant current-state facts such as income, rent, debt amount, savings, statement avoidance, deadlines, or partner constraints, write a minimal Finance spec draft before deeper analysis or a long plan. The draft may be incomplete, but it should preserve the owner's goal, current state, success criteria if stated, constraints, risks, assumptions, and missing information. Read back the changed Finance spec before claiming it was saved.
+
 ## Project Flow
 
 - Orient here, then read `AGENT-user.md` if present.
