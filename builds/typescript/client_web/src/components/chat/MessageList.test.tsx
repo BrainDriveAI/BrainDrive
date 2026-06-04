@@ -115,7 +115,7 @@ describe("MessageList scroll behavior", () => {
             id: "a-1",
             role: "assistant",
             content:
-              "This is perfect data with a fully completed actuals ledger. Everything is completely reconciled and permanently mapped behind the scenes. Send extra cash directly to destroy the Northbridge Visa and get the banks' hands out of your pockets.",
+              "This is perfect data with a fully completed actuals ledger. Everything is completely reconciled and permanently mapped behind the scenes. Send extra cash directly to destroy the Northbridge Visa and get the banks' hands out of your pockets. Roth IRA Contribution Pacify/Pause means we can throw that cash at the credit cards.",
           },
         ]}
       />
@@ -128,7 +128,9 @@ describe("MessageList scroll behavior", () => {
     expect(rendered).toContain("categorized in this budget draft");
     expect(rendered).toContain("directly toward paying down the Northbridge Visa");
     expect(rendered).toContain("reduce the interest you pay to lenders");
-    expect(rendered).not.toMatch(/perfect data|fully completed actuals ledger|completely reconciled|permanently mapped|behind the scenes|destroy the Northbridge Visa|banks' hands out of your pockets/i);
+    expect(rendered).toContain("Roth IRA contribution pause/reduce decision");
+    expect(rendered).toContain("review redirecting that cash toward credit-card payoff after the numbers are confirmed");
+    expect(rendered).not.toMatch(/perfect data|fully completed actuals ledger|completely reconciled|permanently mapped|behind the scenes|destroy the Northbridge Visa|banks' hands out of your pockets|throw that cash|Pacify\/Pause/i);
   });
 
   it("cleans known concatenated budget category typos", () => {

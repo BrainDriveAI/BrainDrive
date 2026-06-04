@@ -40,7 +40,7 @@ Owner edits to priority, timing, risk tolerance, or assumptions should preserve 
 
 Durable Finance plans must include these explicit sections when relevant information exists: `Owner Decisions`, `Planning Guardrails`, `Data-Gathering Steps`, `Execution Steps`, and `Child-App Handoffs`. Regulated-boundary context that constrains the plan, such as a Roth IRA remaining retirement-only, belongs in `Owner Decisions` or `Planning Guardrails`.
 
-Frame retirement contribution changes as owner decisions or review points, not immediate commands. Use calibrated language such as "one option to review after APRs and minimums are confirmed" instead of "pause contributions immediately." Do not recommend specific funds, securities, trades, or allocations.
+Frame retirement contribution changes as owner decisions or review points, not immediate commands. Use calibrated language such as "one option to review after APRs and minimums are confirmed" instead of "pause contributions immediately." Do not say to throw cash at credit cards. If a plan label is needed, use `Roth IRA contribution pause/reduce decision`; do not write malformed labels such as `Roth IRA Contribution Pacify/Pause`. Do not recommend specific funds, securities, trades, or allocations.
 
 ### 3. Budgeting Handoff Gate
 
@@ -69,7 +69,7 @@ Keep sensitive Finance-only details in `spec.md` unless the owner confirms profi
 
 ## After Running
 
-Report what changed, update `plan.md`, add todos for each immediate owner action in the current plan phase, and return to Finance scope. Read the Todo list back before saying immediate actions were saved. In chat, summarize artifact changes and the next step without exposing raw paths unless asked. After payoff guidance, say the detailed structure is saved in Your Plan and invite the owner to review Your Plan before acting.
+Report what changed, update `plan.md`, add todos for each immediate owner action in the current plan phase, and return to Finance scope. Read the Todo list back before saying immediate actions were saved. In chat after artifact writes, stay under 120-160 words, summarize only artifact changes and the next step, and avoid exposing raw paths unless asked. After payoff guidance, say the detailed structure is saved in Your Plan and invite the owner to review Your Plan before acting.
 
 ## What This Procedure Is Not
 

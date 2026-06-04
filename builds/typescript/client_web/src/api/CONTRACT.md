@@ -247,13 +247,29 @@ Response example for `/api/projects/finance/files`:
 
 ### `GET /api/projects/:id/file-content?path=<relative-path>`
 
-Reads a file from the library root after validating that the requested path is relative and stays inside `LIBRARY_PATH`.
+Reads approved project-accessible files after validating that the requested path is relative and stays inside the Memory root.
 
-Response example for `/api/projects/finance/file-content?path=finance/spec.md`:
+Allowed paths:
+
+- project files under `documents/:id/...`
+- project shorthand paths under `:id/...`
+- approved owner-global files: `me/profile.md` and `me/todo.md`
+
+Arbitrary owner-global files, cross-project files, diagnostics files, and traversal paths are rejected.
+
+Response example for `/api/projects/finance/file-content?path=documents/finance/spec.md`:
 
 ```json
 {
   "content": "# Finance\n\n## Goals\n- Build 6-month emergency fund\n..."
+}
+```
+
+Response example for `/api/projects/finance/file-content?path=me/profile.md`:
+
+```json
+{
+  "content": "# Owner Profile\n\n..."
 }
 ```
 
@@ -275,7 +291,7 @@ Response example for `/api/projects/finance/file-content?path=finance/spec.md`:
 
 ### `PUT /api/projects/:id/file-content?path=<relative-path>`
 
-Writes a file into the library root after validating that the requested path is relative and stays inside `LIBRARY_PATH`. Parent directories are created automatically when missing.
+Writes an approved project-accessible file after validating that the requested path is relative and stays inside the Memory root. Parent directories are created automatically when missing. The path rules are the same as the `GET` route.
 
 Request body:
 

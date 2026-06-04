@@ -7,6 +7,55 @@ import { describe, expect, it } from "vitest";
 import { GatewayProjectService } from "./projects.js";
 
 describe("GatewayProjectService uploads", () => {
+  it("reads and writes approved owner-global memory files through the project file endpoint", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "gateway-project-owner-global-"));
+    const memoryRoot = path.join(tempRoot, "memory");
+
+    try {
+      await mkdir(path.join(memoryRoot, "documents", "finance"), { recursive: true });
+      await mkdir(path.join(memoryRoot, "me"), { recursive: true });
+      await writeFile(
+        path.join(memoryRoot, "documents", "projects.json"),
+        JSON.stringify([{ id: "finance", name: "Finance", icon: "dollar-sign" }]),
+        "utf8"
+      );
+      await writeFile(path.join(memoryRoot, "documents", "finance", "spec.md"), "# Finance Spec\n", "utf8");
+      await writeFile(path.join(memoryRoot, "me", "profile.md"), "# Owner Profile\n", "utf8");
+      const projects = new GatewayProjectService(memoryRoot, { rootDir: tempRoot });
+
+      await expect(projects.readProjectFile("finance", "documents/finance/spec.md")).resolves.toBe("# Finance Spec\n");
+      await expect(projects.readProjectFile("finance", "me/profile.md")).resolves.toBe("# Owner Profile\n");
+
+      await projects.writeProjectFile("finance", "me/todo.md", "# My Todos\n");
+
+      await expect(readFile(path.join(memoryRoot, "me", "todo.md"), "utf8")).resolves.toBe("# My Todos\n");
+      await expect(projects.readProjectFile("finance", "me/todo.md")).resolves.toBe("# My Todos\n");
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects unapproved owner-global and traversal paths", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "gateway-project-owner-global-reject-"));
+    const memoryRoot = path.join(tempRoot, "memory");
+
+    try {
+      await mkdir(path.join(memoryRoot, "documents", "finance"), { recursive: true });
+      await writeFile(
+        path.join(memoryRoot, "documents", "projects.json"),
+        JSON.stringify([{ id: "finance", name: "Finance", icon: "dollar-sign" }]),
+        "utf8"
+      );
+      const projects = new GatewayProjectService(memoryRoot, { rootDir: tempRoot });
+
+      await expect(projects.readProjectFile("finance", "me/private.md")).rejects.toThrow("Invalid path");
+      await expect(projects.readProjectFile("finance", "../me/profile.md")).rejects.toThrow("Invalid path");
+      await expect(projects.writeProjectFile("finance", "diagnostics/audit.jsonl", "")).rejects.toThrow("Invalid path");
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("updates index.md when creating an uploaded markdown file", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "gateway-project-upload-index-"));
     const memoryRoot = path.join(tempRoot, "memory");

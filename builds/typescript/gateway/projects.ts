@@ -44,6 +44,10 @@ type UploadedMarkdownOptions =
 
 const PROJECTS_MANIFEST_RELATIVE_PATH = "documents/projects.json";
 const DEFAULT_PROJECT_ICON = "folder";
+const OWNER_GLOBAL_FILE_PATHS = new Set([
+  "me/profile.md",
+  "me/todo.md",
+]);
 
 export class ProtectedProjectError extends Error {
   readonly code = "project_protected";
@@ -162,7 +166,7 @@ export class GatewayProjectService {
       return null;
     }
 
-    const resolvedPath = this.resolveProjectScopedPath(projectId, requestedPath);
+    const resolvedPath = this.resolveProjectAccessiblePath(projectId, requestedPath);
     if (!resolvedPath) {
       throw new Error("Invalid path");
     }
@@ -176,7 +180,7 @@ export class GatewayProjectService {
       return false;
     }
 
-    const resolvedPath = this.resolveProjectScopedPath(projectId, requestedPath);
+    const resolvedPath = this.resolveProjectAccessiblePath(projectId, requestedPath);
     if (!resolvedPath) {
       throw new Error("Invalid path");
     }
@@ -216,7 +220,7 @@ export class GatewayProjectService {
     );
     const projectRelativePath = uploadDirectory ? `${uploadDirectory}/${fileName}` : fileName;
     const requestedPath = `documents/${projectId}/${projectRelativePath}`;
-    const resolvedPath = this.resolveProjectScopedPath(projectId, requestedPath);
+    const resolvedPath = this.resolveProjectAccessiblePath(projectId, requestedPath);
     if (!resolvedPath) {
       throw new Error("Invalid path");
     }
@@ -319,13 +323,17 @@ export class GatewayProjectService {
     }
   }
 
-  private resolveProjectScopedPath(projectId: string, requestedPath: string): string | null {
+  private resolveProjectAccessiblePath(projectId: string, requestedPath: string): string | null {
     const trimmed = requestedPath.trim();
     if (trimmed.length === 0) {
       return null;
     }
 
     const normalized = trimmed.replace(/\\/g, "/");
+    if (OWNER_GLOBAL_FILE_PATHS.has(normalized)) {
+      return resolveMemoryPath(this.memoryRoot, normalized);
+    }
+
     let relativePath: string;
     if (normalized.startsWith(`documents/${projectId}/`)) {
       relativePath = normalized;

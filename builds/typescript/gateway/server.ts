@@ -3322,7 +3322,7 @@ function normalizeOllamaOpenAIBaseUrl(baseUrl: string): string {
 }
 
 function shouldValidateDurableClaims(projectId: string | null, appPath: string | null): boolean {
-  return projectId === "finance" && (!appPath || appPath.includes("/budget"));
+  return projectId === "finance" && (!appPath || isFinanceBudgetAppPath(appPath));
 }
 
 export function buildDurableClaimSafeResponse(
@@ -3430,14 +3430,15 @@ export function buildProjectChatContext(
   options: { appPath?: string | null } = {}
 ): string {
   const sortedFiles = [...files].sort((left, right) => left.name.localeCompare(right.name));
-  const visibleFiles = sortedFiles.slice(0, 80);
-  const omittedCount = Math.max(0, sortedFiles.length - visibleFiles.length);
   const hasIndex = sortedFiles.some((file) => file.name === "index.md" || file.path === `documents/${projectId}/index.md`);
   const appPath = normalizeProjectRelativePath(options.appPath ?? null);
+  const contextFiles = filterProjectFilesForPromptContext(projectId, sortedFiles, appPath);
+  const visibleFiles = contextFiles.slice(0, 80);
+  const omittedCount = Math.max(0, contextFiles.length - visibleFiles.length);
   const appContextGuidance = appPath
     ? buildAppChatContextGuidance(projectId, appPath, sortedFiles)
     : [];
-  const financeBudgetGuidance = projectId === "finance"
+  const financeParentGuidance = projectId === "finance"
     ? [
         "Read documents/finance/AGENT.md, then documents/finance/AGENT-user.md if present. For project alignment, read me/profile.md if present, documents/finance/spec.md, and documents/finance/plan.md before broad setup questions.",
         "Finance V1 is the parent Align + Plan surface: define goals, capture goal-relevant current state, identify constraints/tradeoffs/risks/missing information, maintain the Finance spec and plan, and route to child apps only when needed.",
@@ -3445,21 +3446,25 @@ export function buildProjectChatContext(
         "Write new information at the narrowest correct level: stable cross-project facts to me/profile.md after confirmation when inferred; Finance goals/current state/constraints/success criteria to the Finance spec; next steps/status/handoffs to the Finance plan; Budget execution detail to the Budgeting app.",
         "For parent Finance alignment, do not read Budgeting app detail files, Budget reports, transaction evidence, or unrelated project specs unless the owner request creates a specific need. Avoid broad memory_search on first-turn Finance alignment.",
         "Durable Finance specs must include explicit Success Criteria and Assumptions / Evidence Quality sections. Durable Finance plans must include explicit Owner Decisions, Planning Guardrails, Data-Gathering Steps, Execution Steps, and Child-App Handoffs sections.",
-        "For budget work, read documents/finance/budget/AGENT.md, then documents/finance/budget/AGENT-user.md if present.",
-        "For budgeting questions, read documents/finance/budget/budget.md, documents/finance/budget/budget-rules.md, and documents/finance/budget/budget-rules-user.md when present.",
-        "For a Budget procedure, read the managed procedure first, then the matching -user.md overlay if present, such as compare.md before compare-user.md.",
         "Internal Memory paths are for tool use only. In normal owner-facing replies, say Finance goals, Finance plan, saved Budget, latest Budget report, Budget statements, or Todo list instead of raw documents/... or me/... paths.",
         "Do not mention AGENT.md, procedure files, rules files, or markdown filenames in owner copy unless the owner explicitly asks for exact technical paths.",
         "Do not claim that you updated durable artifacts unless the write happened in this turn and the saved content was verified. For Todo list claims, write or edit me/todo.md, read it back, and confirm the promised task text is present before telling the owner it was saved.",
         "If you claim an Owner Profile update, read me/profile.md back first and name the exact saved summary in owner-facing language.",
-        "If provider recovery mode or a tool failure prevents Budget artifact writes/readback, do not continue with a chat-only Budget completion claim. Say the Budget or report still needs to be saved and ask to continue.",
-        "If MJP Services, Blue Door Payment, or another clarification item is resolved, close or revise the stale active Todo list item in the same turn before saying the issue is handled.",
-        "Before saying Needs Review is none, zero, fully resolved, or all mystery items are categorized, verify active finance Todo tasks do not still ask for clarification on those same merchants or amounts.",
         "For explicit Finance requests, decide first whether the work is parent Finance Align + Plan or child-app execution; do not force every Finance goal into Budgeting.",
         "When asking the owner for statements or supporting documents, ask them to attach files in chat or use the visible upload button. Do not ask the owner to manually place files into documents/finance/... paths.",
         "For parent Finance debt payoff, ask for card statement PDFs only as APR/minimum-payment evidence and say this is not Budget setup unless the owner chooses spending visibility, spending targets, or statement-period reconciliation.",
-        "For retirement or investment boundaries, organize the tradeoff as an owner decision. Do not tell the owner to pause contributions immediately, and do not recommend specific funds, trades, securities, or allocations. If a Roth IRA boundary affects the plan, write it to the Finance plan.",
-        "For sensitive Finance turns, keep chat compact and put detailed constraints, tradeoffs, and evidence labels in the Finance spec or Finance plan. After payoff guidance, say the detailed structure is saved in Your Plan and invite the owner to review Your Plan before acting.",
+        "For retirement or investment boundaries, organize the tradeoff as an owner decision. Do not tell the owner to pause contributions immediately, do not say to throw cash at credit cards, and do not recommend specific funds, trades, securities, or allocations. If a Roth IRA boundary affects the plan, write it as an owner decision in the Finance plan.",
+        "For sensitive Finance turns, keep chat compact: use no more than 120-160 words after artifact writes, put detailed constraints/tradeoffs/evidence labels in the Finance spec or Finance plan, say the structure is saved in Your Plan, and invite the owner to review before acting.",
+      ]
+    : [];
+  const financeBudgetGuidance = projectId === "finance" && isFinanceBudgetAppPath(appPath)
+    ? [
+        "For budget work, read documents/finance/budget/AGENT.md, then documents/finance/budget/AGENT-user.md if present.",
+        "For budgeting questions, read documents/finance/budget/budget.md, documents/finance/budget/budget-rules.md, and documents/finance/budget/budget-rules-user.md when present.",
+        "For a Budget procedure, read the managed procedure first, then the matching -user.md overlay if present, such as compare.md before compare-user.md.",
+        "If provider recovery mode or a tool failure prevents Budget artifact writes/readback, do not continue with a chat-only Budget completion claim. Say the Budget or report still needs to be saved and ask to continue.",
+        "If MJP Services, Blue Door Payment, or another clarification item is resolved, close or revise the stale active Todo list item in the same turn before saying the issue is handled.",
+        "Before saying Needs Review is none, zero, fully resolved, or all mystery items are categorized, verify active finance Todo tasks do not still ask for clarification on those same merchants or amounts.",
         "For Budget creation requests, make the saved Budget the primary deliverable. Treat statement reports as supporting evidence unless the owner asks how actuals compare.",
         "For first-pass Budget creation, save a provisional Budget with Needs Review and confidence labels before asking clarifying questions. Ambiguous merchants must not block the saved Budget draft.",
         "For first-pass Budget creation, do not say the saved Budget is ready unless documents/finance/budget/budget.md no longer contains the starter-template status and documents/finance/budget/reports/latest.md has populated Source Coverage.",
@@ -3516,6 +3521,7 @@ export function buildProjectChatContext(
       : hasIndex
       ? `Read documents/${projectId}/index.md before deciding which supporting documents to open. It is this folder's document map.`
       : `If documents/${projectId}/index.md appears later in the file list, read it before deciding which supporting documents to open.`,
+    ...financeParentGuidance,
     ...financeBudgetGuidance,
     ...appContextGuidance,
     "Stay focused on this domain; do not read or reference other projects unless the conversation specifically calls for cross-domain connections.",
@@ -3530,6 +3536,29 @@ export function buildProjectChatContext(
     `For delete requests in this project, prefer exact paths under documents/${projectId}/ and call memory_delete when a matching file exists.`,
     "If the current list is ambiguous or incomplete, call memory_list before claiming the file cannot be found.",
   ].join("\n");
+}
+
+function filterProjectFilesForPromptContext(
+  projectId: string | null,
+  files: GatewayProjectFile[],
+  appPath: string | null
+): GatewayProjectFile[] {
+  if (projectId !== "finance" || appPath) {
+    return files;
+  }
+
+  return files.filter((file) => !file.path.startsWith("documents/finance/budget/"));
+}
+
+function isFinanceBudgetAppPath(appPath: string | null): boolean {
+  if (!appPath) {
+    return false;
+  }
+
+  return appPath === "budget" ||
+    appPath.startsWith("budget/") ||
+    appPath.endsWith("/budget") ||
+    appPath.includes("/budget/");
 }
 
 function buildAppChatContextGuidance(
@@ -3738,6 +3767,11 @@ async function buildPromptAuditAssembly(input: {
     )
   );
   const conversationMessages = input.conversation?.messages ?? [];
+  const promptContextFiles = filterProjectFilesForPromptContext(
+    input.projectId,
+    input.projectFiles,
+    normalizeProjectRelativePath(input.appPath)
+  );
 
   return {
     bootstrap_prompt: {
@@ -3757,7 +3791,7 @@ async function buildPromptAuditAssembly(input: {
     project_context: {
       project_id: input.projectId,
       app_path: input.appPath,
-      files: input.projectFiles.map((file) => ({
+      files: promptContextFiles.map((file) => ({
         name: file.name,
         path: file.path,
       })),
