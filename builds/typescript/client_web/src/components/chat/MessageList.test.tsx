@@ -347,4 +347,32 @@ describe("MessageList scroll behavior", () => {
     expect(rendered).not.toContain("**");
     expect(rendered).not.toContain("—**");
   });
+
+  it("softens Roth contribution directives and keeps simple intake lists out of code formatting", () => {
+    render(
+      <MessageList
+        messages={[
+          {
+            id: "a-1",
+            role: "assistant",
+            content: [
+              "If you are currently contributing, we should pause those contributions immediately once we confirm the numbers.",
+              "There is no investment fund on earth that will reliably grow at 20% to 30% a year.",
+              "The Big Five Rough Guess:",
+              " *   Utilities/Power",
+              " *   Phone/Internet",
+            ].join("\n"),
+          },
+        ]}
+      />
+    );
+
+    const rendered = document.body.textContent ?? "";
+    expect(rendered).toContain("one option to review after we confirm the numbers");
+    expect(rendered).toContain("High-interest card APRs can outweigh expected investment returns");
+    expect(rendered).toContain("Utilities/Power");
+    expect(rendered).toContain("Phone/Internet");
+    expect(screen.queryByText("Copy code")).not.toBeInTheDocument();
+    expect(rendered).not.toMatch(/pause those contributions immediately|no investment fund on earth/i);
+  });
 });

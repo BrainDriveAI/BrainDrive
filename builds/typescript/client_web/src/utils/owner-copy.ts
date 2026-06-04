@@ -28,6 +28,10 @@ const FINANCE_CONFIDENCE_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\bzero hesitation or dread\b/gi, "less hesitation and stress"],
   [/\bpermanently secure\b/gi, "easier to protect"],
   [/\bevery single month\b/gi, "month by month as the numbers are verified"],
+  [/\bwe should pause those contributions immediately once we confirm the numbers\b/gi, "one option to review after we confirm the numbers is temporarily redirecting new contributions"],
+  [/\bpause those contributions immediately\b/gi, "review temporarily redirecting new contributions"],
+  [/\bStopping your contributions temporarily plugs the hole\b/gi, "Temporarily redirecting new contributions is a decision to review once APRs and minimums are confirmed"],
+  [/\bThere is no investment fund on earth that will reliably grow at 20% to 30% a year\b/gi, "High-interest card APRs can outweigh expected investment returns, so this is a tradeoff to review carefully"],
   [/\bhoShopping\b/g, "Shopping"],
   [/\bFinance goals\s*\(spec\.md\)/gi, "Finance goals"],
   [/\bFinance plan\s*\(plan\.md\)/gi, "Finance plan"],
@@ -69,6 +73,7 @@ function normalizeMalformedMarkdownSpacing(text: string): string {
     .replace(/\*\*([^*\n]+?)\s+\*\*/g, "**$1**")
     .replace(/\*\*([^*\n]{2,80})\*\*(?=\S)/g, "**$1** ")
     .replace(/\*\*([^*\n]+?)\s+\*(?=\s{2,}|\n)/g, "**$1**\n")
+    .replace(/^\s+\*\s{2,}/gm, "- ")
     .replace(/\*\*([^*\n:]{2,80}):\*\*/g, "**$1:** ")
     .replace(/\*\*([^*\n:]{2,80}):\s+\*\*/g, "**$1:** ")
     .replace(/\*\*([^*\n:]{2,80}):\s+\*\*([^\n])/g, "**$1:** $2")

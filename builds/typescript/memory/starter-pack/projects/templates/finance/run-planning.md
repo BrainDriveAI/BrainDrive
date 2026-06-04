@@ -38,9 +38,15 @@ Each plan step must include:
 
 Owner edits to priority, timing, risk tolerance, or assumptions should preserve the reason for the change.
 
+Durable Finance plans must include these explicit sections when relevant information exists: `Owner Decisions`, `Planning Guardrails`, `Data-Gathering Steps`, `Execution Steps`, and `Child-App Handoffs`. Regulated-boundary context that constrains the plan, such as a Roth IRA remaining retirement-only, belongs in `Owner Decisions` or `Planning Guardrails`.
+
+Frame retirement contribution changes as owner decisions or review points, not immediate commands. Use calibrated language such as "one option to review after APRs and minimums are confirmed" instead of "pause contributions immediately." Do not recommend specific funds, securities, trades, or allocations.
+
 ### 3. Budgeting Handoff Gate
 
 Route a step to Budgeting only when the goal or plan needs spending visibility, spending targets, or statement-period reconciliation. Finance can complete Align + Plan without statement uploads or a saved Budget. Keep non-budget goals in Finance planning instead of forcing a Budget workflow.
+
+Credit-card statement PDFs can remain parent Finance data gathering when the only purpose is APR, balance, due-date, or minimum-payment evidence for a debt-payoff plan. Label that purpose explicitly and do not imply transaction Budgeting unless the owner chooses spending visibility, spending targets, or statement-period reconciliation.
 
 When source statements or other evidence have just been uploaded and accepted, advance the plan from gathering evidence to the next validation or refinement step. Do not leave statement upload as pending if the needed files are now present; list only the specific months/accounts/institutions still missing.
 
@@ -55,15 +61,15 @@ Write new information at the narrowest correct level:
 - ordered steps, status, priorities, rationale, blockers, and child-app handoffs to `plan.md`;
 - Budget execution detail to the Budgeting child app.
 
-Keep sensitive Finance-only details in `spec.md` unless the owner confirms profile placement. Use calibrated destination language that acknowledges missing evidence; do not promise permanent security, zero dread, guaranteed outcomes, or month-by-month certainty from estimates.
+Keep sensitive Finance-only details in `spec.md` unless the owner confirms profile placement. Use calibrated destination language that acknowledges missing evidence; do not promise permanent security, zero dread, guaranteed outcomes, or month-by-month certainty from estimates. If you claim an Owner Profile update, read it back before replying.
 
 ## Done Criteria
 
-`plan.md` names the first step, roadmap, destination, and remaining blockers. Steps are typed, statused, traceable to the spec, and do not copy full reports into the plan.
+`plan.md` names the first step, roadmap, destination, remaining blockers, owner decisions, planning guardrails, data-gathering steps, execution steps, and child-app handoffs. Steps are typed, statused, traceable to the spec, and do not copy full reports into the plan. If retirement or investment boundaries were discussed, the plan includes the boundary and decision point without specific investment advice.
 
 ## After Running
 
-Report what changed, update `plan.md`, add todos only for concrete next actions, and return to Finance scope. In chat, summarize artifact changes and the next step without exposing raw paths unless asked.
+Report what changed, update `plan.md`, add todos for each immediate owner action in the current plan phase, and return to Finance scope. Read the Todo list back before saying immediate actions were saved. In chat, summarize artifact changes and the next step without exposing raw paths unless asked. After payoff guidance, say the detailed structure is saved in Your Plan and invite the owner to review Your Plan before acting.
 
 ## What This Procedure Is Not
 

@@ -42,12 +42,18 @@ describe("project chat context", () => {
     expect(context).toContain("Finance V1 is the parent Align + Plan surface");
     expect(context).toContain("Use Budgeting only when the goal or plan needs spending visibility, spending targets, or statement-period reconciliation");
     expect(context).toContain("Write new information at the narrowest correct level");
+    expect(context).toContain("For parent Finance alignment, do not read Budgeting app detail files");
+    expect(context).toContain("Durable Finance specs must include explicit Success Criteria");
+    expect(context).toContain("Durable Finance plans must include explicit Owner Decisions");
     expect(context).toContain("read documents/finance/budget/AGENT.md, then documents/finance/budget/AGENT-user.md if present");
     expect(context).toContain("read documents/finance/budget/budget.md, documents/finance/budget/budget-rules.md, and documents/finance/budget/budget-rules-user.md");
     expect(context).toContain("do not rely on documents/finance/index.md, documents/finance/rules.md, or documents/finance/budgeting/");
     expect(context).toContain("decide first whether the work is parent Finance Align + Plan or child-app execution");
     expect(context).toContain("attach files in chat or use the visible upload button");
     expect(context).toContain("Do not ask the owner to manually place files into documents/finance");
+    expect(context).toContain("card statement PDFs only as APR/minimum-payment evidence");
+    expect(context).toContain("Do not tell the owner to pause contributions immediately");
+    expect(context).toContain("the detailed structure is saved in Your Plan");
     expect(context).toContain("Internal Memory paths are for tool use only");
     expect(context).toContain("If provider recovery mode or a tool failure prevents Budget artifact writes/readback");
     expect(context).toContain("For Budget creation requests, make the saved Budget the primary deliverable");

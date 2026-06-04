@@ -22,7 +22,7 @@ Build a goal-relevant financial picture and capture the owner's goals, time hori
 
 Before broad setup questions, read or attempt to read `me/profile.md`, `AGENT-user.md` if present, `spec.md`, `plan.md`, and relevant child-app summaries or Budget reports when they directly affect the owner's Finance goal.
 
-Use known context first. Briefly summarize what appears known, then ask what is missing, stale, or unconfirmed. Do not re-ask known facts as if starting from scratch. Do not read Budgeting app detail files, transaction evidence, or unrelated project specs during parent Finance alignment unless the owner request creates a specific need.
+Use known context first. Briefly summarize what appears known, then ask what is missing, stale, or unconfirmed. Do not re-ask known facts as if starting from scratch. Do not read Budgeting app detail files, transaction evidence, or unrelated project specs during parent Finance alignment unless the owner request creates a specific need. If card statement PDFs are requested only to reveal APRs or minimum payments, say that they are narrow debt-term evidence for parent Finance, not a Budget setup.
 
 ### 2. Goal Alignment
 
@@ -68,15 +68,15 @@ Write new information at the narrowest correct level:
 
 Do not copy detailed Budget reports or transaction ledgers into `spec.md`.
 
-Keep sensitive Finance-only detail in `spec.md` unless the owner confirms it should be useful across projects. For `me/profile.md`, prefer minimal stable summaries over detailed debt, account, or anxiety notes.
+Keep sensitive Finance-only detail in `spec.md` unless the owner confirms it should be useful across projects. For `me/profile.md`, prefer minimal stable summaries over detailed debt, account, or anxiety notes. If you claim an Owner Profile update, read the profile back and name the exact saved summary in the reply.
 
 ## Done Criteria
 
-`spec.md` has confirmed owner-specific goals, goal-relevant current state, success criteria, constraints, tradeoffs, risks, and labeled unknowns. High-stakes claims are not presented beyond the available evidence.
+`spec.md` has confirmed owner-specific goals, an explicit `Success Criteria` section, goal-relevant current state, constraints, tradeoffs, risks, labeled unknowns, and an explicit `Assumptions / Evidence Quality` section. High-stakes claims are not presented beyond the available evidence.
 
 ## After Running
 
-Update `spec.md`, summarize material changes in owner-facing language, add todos only for concrete next actions, and return to Finance scope before proposing planning or child-app execution. Ask at most one or two focused next questions in the chat reply.
+Update `spec.md`, summarize material changes in owner-facing language, add todos only for concrete next actions, and return to Finance scope before proposing planning or child-app execution. For stressful Finance topics, keep the chat reply compact and put detail in the saved spec. Ask at most one or two focused next questions in the chat reply.
 
 ## What This Procedure Is Not
 

@@ -217,6 +217,63 @@ describe("ChatPanel typing indicator behavior", () => {
     expect(screen.getByRole("button", { name: "Open Latest Report" })).toBeInTheDocument();
   });
 
+  it("shows parent Finance plan review actions after payoff planning guidance", async () => {
+    const user = userEvent.setup();
+    const onOpenProjectFile = vi.fn();
+    useGatewayChatMock.mockReturnValue(
+      makeHookState({
+        messages: [
+          {
+            id: "a-1",
+            role: "assistant",
+            content: "I saved the Finance plan with the APR payoff sequence and Roth IRA owner decision.",
+          },
+        ],
+      })
+    );
+
+    render(
+      <ChatPanel
+        activeConversationId={null}
+        activeProjectId="finance"
+        isEmpty={false}
+        onOpenProjectFile={onOpenProjectFile}
+      />
+    );
+
+    expect(screen.getByText("Finance plan is ready to review")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Open Your Plan" }));
+
+    expect(onOpenProjectFile).toHaveBeenCalledWith("documents/finance/plan.md");
+  });
+
+  it("does not show parent Finance plan review actions inside Budgeting", () => {
+    const onOpenProjectFile = vi.fn();
+    useGatewayChatMock.mockReturnValue(
+      makeHookState({
+        messages: [
+          {
+            id: "a-1",
+            role: "assistant",
+            content: "I saved the Finance plan with the APR payoff sequence and Roth IRA owner decision.",
+          },
+        ],
+      })
+    );
+
+    render(
+      <ChatPanel
+        activeConversationId={null}
+        activeProjectId="finance"
+        activeAppPath="/apps/budget"
+        isEmpty={false}
+        onOpenProjectFile={onOpenProjectFile}
+      />
+    );
+
+    expect(screen.queryByText("Finance plan is ready to review")).not.toBeInTheDocument();
+  });
+
   it("uploads PDF attachments through the selected project and sends a durable upload event", async () => {
     const user = userEvent.setup();
     const hookState = makeHookState();

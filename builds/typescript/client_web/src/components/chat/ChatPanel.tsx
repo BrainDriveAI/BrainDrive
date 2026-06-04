@@ -104,6 +104,24 @@ function shouldShowBudgetFileActions(input: {
   return /\b(?:saved Budget|latest Budget report|Budget report|budget comparison|reports? updated|first-pass Budget|draft actuals baseline|Needs Review)\b/i.test(assistantText);
 }
 
+function shouldShowFinancePlanActions(input: {
+  messages: Message[];
+  activeProjectId?: string | null;
+  activeAppPath?: string | null;
+  canOpenProjectFile: boolean;
+}): boolean {
+  if (!input.canOpenProjectFile || input.activeProjectId !== "finance" || input.activeAppPath?.includes("/budget")) {
+    return false;
+  }
+
+  const assistantText = input.messages
+    .filter((message) => message.role === "assistant")
+    .map((message) => message.content)
+    .join("\n");
+
+  return /\b(?:Finance plan|Your Plan|payoff|pay down|APR|minimum payment|Roth IRA|retirement boundary|owner decision)\b/i.test(assistantText);
+}
+
 type ChatPanelProps = {
   activeConversationId: string | null;
   activeProjectId?: string | null;
@@ -350,6 +368,41 @@ function BudgetFileActions({ onOpenProjectFile }: { onOpenProjectFile?: (filePat
   );
 }
 
+function FinancePlanActions({ onOpenProjectFile }: { onOpenProjectFile?: (filePath: string) => void }) {
+  return (
+    <div className="mx-auto w-full max-w-[780px] py-2">
+      <div className="rounded-lg border border-bd-border bg-bd-bg-secondary px-4 py-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-bd-text-heading">Finance plan is ready to review</div>
+            <div className="mt-1 text-xs leading-5 text-bd-text-secondary">
+              Open Your Plan before acting on payoff or retirement-boundary steps.
+            </div>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => onOpenProjectFile?.("documents/finance/spec.md")}
+              className="inline-flex items-center gap-2 rounded-md border border-bd-border px-3 py-2 text-xs font-medium text-bd-text-primary transition-colors hover:bg-bd-bg-hover"
+            >
+              <FileText size={14} strokeWidth={1.7} />
+              Open Your Goals
+            </button>
+            <button
+              type="button"
+              onClick={() => onOpenProjectFile?.("documents/finance/plan.md")}
+              className="inline-flex items-center gap-2 rounded-md bg-bd-amber px-3 py-2 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover"
+            >
+              <FileText size={14} strokeWidth={1.7} />
+              Open Your Plan
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ChatPanel({
   activeConversationId,
   activeProjectId,
@@ -500,6 +553,12 @@ export default function ChatPanel({
   const shouldShowEmptyState = isEmpty && messages.length === 0 && !isLoading;
   const shouldShowConversation = contentOverride === undefined;
   const showBudgetFileActions = shouldShowBudgetFileActions({
+    messages,
+    activeProjectId,
+    activeAppPath,
+    canOpenProjectFile: Boolean(onOpenProjectFile),
+  });
+  const showFinancePlanActions = shouldShowFinancePlanActions({
     messages,
     activeProjectId,
     activeAppPath,
@@ -1064,6 +1123,9 @@ export default function ChatPanel({
               />
               {showBudgetFileActions && (
                 <BudgetFileActions onOpenProjectFile={onOpenProjectFile} />
+              )}
+              {showFinancePlanActions && (
+                <FinancePlanActions onOpenProjectFile={onOpenProjectFile} />
               )}
               {contextWindowWarning && !visibleChatError && (
                 <div className="mx-auto w-full max-w-[780px] py-2">

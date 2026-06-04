@@ -12,6 +12,12 @@
 
 To be filled through conversation.
 
+## Success Criteria
+
+*What will feel meaningfully better or count as success for the owner. Include concrete owner-facing criteria and any emotional, timing, safety, or reviewability criteria that shape the plan.*
+
+To be filled through conversation.
+
 ## Where You Are
 
 *The goal-relevant current financial picture. Label evidence quality where it matters: known fact, owner estimate, source-evidenced, one-period observed, missing, or stale.*
@@ -33,6 +39,12 @@ To be filled through conversation.
 ## What's Still Missing
 
 *Missing, stale, or unconfirmed information that could change the plan, separated from later exploration.*
+
+To be filled through conversation.
+
+## Assumptions / Evidence Quality
+
+*Known facts, owner estimates, source-evidenced facts, missing evidence, and assumptions that should be reviewed before treating the plan as stable.*
 
 To be filled through conversation.
 
