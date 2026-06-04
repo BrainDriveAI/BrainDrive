@@ -59,6 +59,19 @@ One uploaded statement period is limited evidence, not a stable baseline unless 
 
 Compare goals against current state. Classify material follow-up items as constraints, tradeoffs, risks, owner decisions, evidence gaps, stale facts, or later exploration. Frame regulated areas such as tax, legal, investment, insurance, and debt settlement as context organization and tradeoff illumination, not professional advice or product recommendations.
 
+When the owner asks to identify constraints, tradeoffs, risks, or unknowns, write the detailed landscape to `spec.md` and keep the chat readback in bullets only. Do not use a table, pipe character, or category grid in the chat reply. Use this shape:
+
+```md
+I saved this to Your Goals.
+
+Key constraints:
+- APRs and minimum payments are still missing.
+- Statement avoidance is part of the plan, not a side issue.
+- Cash flow is unclear until essentials and minimums are known.
+
+Next: gather credit-card statement/app evidence for APRs and minimum payments.
+```
+
 ### 5. Minimal Durable Capture
 
 Once the owner has provided material current-state facts, update `spec.md` with a minimal durable draft before deeper planning or another broad interview. Preserve existing sections and fill only what is supported by the conversation. Use short paragraphs and bullets, not markdown tables. Include:

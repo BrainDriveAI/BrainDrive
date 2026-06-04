@@ -40,7 +40,7 @@ describe("project chat context", () => {
     expect(context).toContain("documents/finance/dummy-statement.md");
     expect(context).toContain("read me/profile.md if present, documents/finance/spec.md, and documents/finance/plan.md before broad setup questions");
     expect(context).toContain("Finance V1 is the parent Align + Plan surface");
-    expect(context).toContain("Use Budgeting only when the goal or plan needs spending visibility, spending targets, or statement-period reconciliation");
+    expect(context).toContain("Use Budgeting only when the goal or plan needs category-level spending visibility or spending targets");
     expect(context).toContain("Write new information at the narrowest correct level");
     expect(context).toContain("For parent Finance alignment, do not read Budgeting app detail files");
     expect(context).toContain("stop context intake after me/profile.md plus Finance AGENT-user/spec/plan/run procedure files");
@@ -57,8 +57,8 @@ describe("project chat context", () => {
     expect(context).toContain("decide first whether the work is parent Finance Align + Plan or child-app execution");
     expect(context).toContain("attach files in chat or use the visible upload button");
     expect(context).toContain("Do not ask the owner to manually place files into documents/finance");
-    expect(context).toContain("card statement PDFs or screenshots only as optional balance/APR/due-date/minimum-payment evidence");
-    expect(context).toContain("not Budget setup, transaction review, spending analysis, or reconciliation");
+    expect(context).toContain("credit-card statement/app evidence only as optional balance, APR, due-date, and minimum-payment evidence");
+    expect(context).toContain("Do not mention Budgeting, transaction review, spending analysis, reconciliation, or statement-period reconciliation");
     expect(context).toContain("never say saved Budget, Budget materials, or Budget updated");
     expect(context).toContain("Finance Todo items are for immediate owner actions");
     expect(context).toContain("Do not tell the owner to pause contributions temporarily or immediately");
@@ -71,9 +71,11 @@ describe("project chat context", () => {
     expect(context).toContain("update the Finance spec The Plan section so it does not still say Not captured yet");
     expect(context).toContain("say the structure is saved in Your Plan");
     expect(context).toContain("use no more than 80 words or 500 characters after artifact writes");
+    expect(context).toContain("When a Finance owner asks to identify constraints, tradeoffs, risks, or unknowns");
+    expect(context).toContain("answer in bullets only");
     expect(context).toContain("After creating the Finance spec and plan, say only that they were saved");
-    expect(context).toContain("never use markdown tables in chat or Finance documents");
-    expect(context).toContain("never use markdown tables in chat");
+    expect(context).toContain("never use markdown tables or the pipe character in chat, Finance spec, or Finance plan");
+    expect(context).toContain("Never use a table, category grid, pipe character, or raw markdown table syntax in that chat reply");
     expect(context).toContain("Budgeting deferral is conditional");
     expect(context).toContain("Do not say Budgeting is bypassed, paused indefinitely");
     expect(context).toContain("Internal Memory paths are for tool use only");

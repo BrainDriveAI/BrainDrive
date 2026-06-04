@@ -523,4 +523,33 @@ describe("MessageList scroll behavior", () => {
     expect(screen.queryByText("Copy code")).not.toBeInTheDocument();
     expect(rendered).not.toMatch(/pause those contributions immediately|no investment fund on earth|stay invested|tax\/penalty-free/i);
   });
+
+  it("turns Finance landscape table summaries into bullet-style owner copy", () => {
+    render(
+      <MessageList
+        messages={[
+          {
+            id: "a-1",
+            role: "assistant",
+            content: [
+              "Done — I saved this to Your Goals with every estimate and gap labeled explicitly.",
+              "Constraints, tradeoffs, risks, unknowns — summarized: | Category | What it means for you | | ---------- | ---------------------- | | Info gaps | No exact APRs, minimums, or per-card balances — statements unopened. | | Behavioral loop | Stress creates avoidance. | | Cash-flow fog | $900 rent + unknown minimums = unclear cash flow. |",
+              "Critical missing evidence (next actions): Credit-card statements/app screenshots: balance, APR, minimum, due date per card",
+            ].join(" "),
+          },
+        ]}
+      />
+    );
+
+    const rendered = document.body.textContent ?? "";
+    expect(rendered).toContain("I saved this to Your Goals");
+    expect(rendered).toContain("Key constraints:");
+    expect(rendered).toContain("APRs and minimum payments are still missing");
+    expect(rendered).toContain("Statement avoidance is part of the plan");
+    expect(rendered).toContain("Cash flow is unclear");
+    expect(rendered).toContain("Critical missing evidence");
+    expect(rendered).not.toContain("| Category |");
+    expect(rendered).not.toContain("| ---------- |");
+    expect(rendered).not.toMatch(/\|\s*What it means for you\s*\|/i);
+  });
 });
