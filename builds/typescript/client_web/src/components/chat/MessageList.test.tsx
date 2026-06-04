@@ -369,6 +369,27 @@ describe("MessageList scroll behavior", () => {
     expect(rendered).not.toMatch(/\|\s*Gap\s*\||-----|Determines payoff order \|/);
   });
 
+  it("keeps latest flattened missing-evidence tables out of owner-visible chat", () => {
+    render(
+      <MessageList
+        messages={[
+          {
+            id: "a-1",
+            role: "assistant",
+            content:
+              "Unknowns (Missing Evidence) | Item | Status | | ------ | -------- | | Credit card APR(s) & minimum payment(s) | [MISSING] | | Cash on hand | [MISSING] | Your four goals, confirmed?",
+          },
+        ]}
+      />
+    );
+
+    const rendered = document.body.textContent ?? "";
+    expect(rendered).toContain("Unknowns are saved in Your Goals.");
+    expect(rendered).toContain("credit-card APRs and minimum payments");
+    expect(rendered).toContain("Your four goals");
+    expect(rendered).not.toMatch(/\|\s*Item\s*\||------|\[MISSING\] \|/);
+  });
+
   it("turns malformed Roth IRA chat tables into compact boundary copy", () => {
     render(
       <MessageList
@@ -388,6 +409,27 @@ describe("MessageList scroll behavior", () => {
     expect(rendered).toContain("not cushion money");
     expect(rendered).toContain("Bottom line");
     expect(rendered).not.toMatch(/\|\s*Does factor in\s*\||resuIncrease|----------------/);
+  });
+
+  it("turns latest Roth IRA Aspect tables into compact boundary copy", () => {
+    render(
+      <MessageList
+        messages={[
+          {
+            id: "a-1",
+            role: "assistant",
+            content:
+              "How it factors (or doesn't) in this plan: | Aspect | Treatment in This Plan | | -------- | ------------------------ | | Funding source for debt payoff or buffer | Not used. | | Withdrawal of earnings | Not part of this plan. | Why this boundary exists: Your goals are solvable from cash flow.",
+          },
+        ]}
+      />
+    );
+
+    const rendered = document.body.textContent ?? "";
+    expect(rendered).toContain("How the Roth IRA fits");
+    expect(rendered).toContain("not a funding source for this Finance plan");
+    expect(rendered).toContain("Why this boundary exists");
+    expect(rendered).not.toMatch(/\|\s*Aspect\s*\||--------|Withdrawal of earnings \|/);
   });
 
   it("normalizes upload receipts and APR labels that leaked raw markdown markers", () => {

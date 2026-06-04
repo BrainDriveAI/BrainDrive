@@ -61,7 +61,7 @@ Compare goals against current state. Classify material follow-up items as constr
 
 ### 5. Minimal Durable Capture
 
-Once the owner has provided material current-state facts, update `spec.md` with a minimal durable draft before deeper planning or another broad interview. Preserve existing sections and fill only what is supported by the conversation. Include:
+Once the owner has provided material current-state facts, update `spec.md` with a minimal durable draft before deeper planning or another broad interview. Preserve existing sections and fill only what is supported by the conversation. Use short paragraphs and bullets, not markdown tables. Include:
 
 - the goal and time horizon if known;
 - stated success criteria or what would feel better;
@@ -88,11 +88,11 @@ Keep sensitive Finance-only detail in `spec.md` unless the owner confirms it sho
 
 ## Done Criteria
 
-`spec.md` has confirmed owner-specific goals, an explicit `Success Criteria` section, goal-relevant current state, constraints, tradeoffs, risks, labeled unknowns, and an explicit `Assumptions / Evidence Quality` section. High-stakes claims are not presented beyond the available evidence.
+`spec.md` has confirmed owner-specific goals, an explicit `Success Criteria` section, goal-relevant current state, constraints, tradeoffs, risks, labeled unknowns, and an explicit `Assumptions / Evidence Quality` section. High-stakes claims are not presented beyond the available evidence. The saved spec uses bullets or short paragraphs rather than markdown tables.
 
 ## After Running
 
-Update `spec.md`, summarize material changes in owner-facing language, and return to Finance scope before proposing planning or child-app execution. Do not add Todo items during interview-only turns; Todo propagation happens after the Finance plan defines the current immediate owner action. For stressful Finance topics, keep the chat reply compact and put detail in the saved spec. Ask at most one or two focused next questions in the chat reply, and do not use markdown tables in chat.
+Update `spec.md`, summarize material changes in owner-facing language, and return to Finance scope before proposing planning or child-app execution. Do not add Todo items during interview-only turns; Todo propagation happens after the Finance plan defines the current immediate owner action. For stressful Finance topics, keep the chat reply to 80 words or fewer and 500 characters or fewer when practical, with at most 3 bullets. Put detail in the saved spec, ask at most one or two focused next questions in the chat reply, and do not use markdown tables in chat or in Finance documents.
 
 ## What This Procedure Is Not
 

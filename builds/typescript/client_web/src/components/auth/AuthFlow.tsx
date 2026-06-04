@@ -112,6 +112,7 @@ export default function AuthFlow({ mode, onAuthenticated }: AuthFlowProps) {
     try {
       await signup(credentials);
       setAccountInitialized(true);
+      navigate("/", { replace: true });
       onAuthenticated();
     } catch (submissionError) {
       const message = submissionError instanceof Error ? submissionError.message : "Sign-up failed.";

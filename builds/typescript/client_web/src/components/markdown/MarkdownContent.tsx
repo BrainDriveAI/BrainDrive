@@ -120,10 +120,10 @@ export default function MarkdownContent({ content }: { content: string }) {
           return <thead className="bg-bd-bg-secondary text-bd-text-heading">{children}</thead>;
         },
         th({ children }) {
-          return <th className="px-3 py-2 text-left font-medium">{children}<span className="sr-only"> | </span></th>;
+          return <th className="px-3 py-2 text-left font-medium">{children}</th>;
         },
         td({ children }) {
-          return <td className="border-t border-bd-border px-3 py-2">{children}<span className="sr-only"> | </span></td>;
+          return <td className="border-t border-bd-border px-3 py-2">{children}</td>;
         },
         a({ href, children }) {
           return (

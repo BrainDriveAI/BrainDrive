@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import MarkdownContent from "./MarkdownContent";
 
 describe("MarkdownContent", () => {
-  it("preserves readable separators for table text extraction", () => {
+  it("renders tables without exposing synthetic pipe markers in owner-visible text", () => {
     render(
       <MarkdownContent
         content={[
@@ -16,7 +16,10 @@ describe("MarkdownContent", () => {
 
     expect(screen.getByRole("table")).toBeInTheDocument();
     const extracted = document.body.textContent ?? "";
-    expect(extracted).toContain("Date | Unclear Merchant");
-    expect(extracted).not.toContain("DateUnclear");
+    expect(extracted).toContain("Date");
+    expect(extracted).toContain("Unclear Merchant");
+    expect(extracted).toContain("MJP Services");
+    expect(extracted).not.toContain("Date |");
+    expect(extracted).not.toContain("Unclear Merchant |");
   });
 });

@@ -1,5 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { useLocation } from "react-router-dom";
+import userEvent from "@testing-library/user-event";
 
 import AuthFlow from "./AuthFlow";
 
@@ -14,6 +16,11 @@ vi.mock("@/api/auth-adapter", () => ({
   login: (payload: { identifier: string; password: string }) => loginMock(payload),
   signup: (payload: { identifier: string; password: string }) => signupMock(payload),
 }));
+
+function LocationProbe() {
+  const location = useLocation();
+  return <div data-testid="location-path">{location.pathname}</div>;
+}
 
 describe("AuthFlow", () => {
   beforeEach(() => {
@@ -92,5 +99,31 @@ describe("AuthFlow", () => {
 
     expect(await screen.findByText("Setup Your Login")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create account" })).toBeInTheDocument();
+  });
+
+  it("replaces /signup after successful first local signup", async () => {
+    const user = userEvent.setup();
+    const onAuthenticated = vi.fn();
+    fetchBootstrapStatusMock.mockResolvedValue({
+      account_initialized: false,
+      mode: "local",
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/signup"]}>
+        <AuthFlow mode="local" onAuthenticated={onAuthenticated} />
+        <LocationProbe />
+      </MemoryRouter>
+    );
+
+    await user.type(await screen.findByLabelText("Username"), "katie");
+    await user.type(screen.getByLabelText("Password"), "password123");
+    await user.type(screen.getByLabelText("Confirm password"), "password123");
+    await user.click(screen.getByRole("button", { name: "Create account" }));
+
+    await waitFor(() => {
+      expect(onAuthenticated).toHaveBeenCalled();
+      expect(screen.getByTestId("location-path")).toHaveTextContent("/");
+    });
   });
 });
