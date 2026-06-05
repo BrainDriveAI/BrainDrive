@@ -193,6 +193,27 @@ describe("MessageList scroll behavior", () => {
     expect(rendered).not.toMatch(/completed, verified, and saved|explicitly deferred and bypassed|entirely through high-level cash flow design|burn down|resume contributions aggressively|saved this exact framing/i);
   });
 
+  it("collapses dense Finance post-plan replies to one next action", () => {
+    render(
+      <MessageList
+        messages={[
+          {
+            id: "a-1",
+            role: "assistant",
+            content:
+              "I saved your Finance goals and updated your Finance plan to Active. Regarding your request, I made a key strategic decision: Budgeting is deferred. Since your immediate focus is identifying your solid cash-flow baseline and organizing an $8,000 emergency debt paydown, tedious category tracking will only add unnecessary noise right now. Budgeting is not needed for the next step and will be revisited only if spending visibility or category targets become necessary later on. I structure our plan directly around this focus: Key Decision: Budgeting is deferred to keep stress low. We’ll design your plan using high-level cash flow instead of strict spreadsheet logs. Planning Guardrail: The Roth IRA is not a funding source for this Finance plan. The First Action: Log into your credit card accounts and gather the balances, APRs, and minimum payments. Our roadmap and first steps are saved under Your Plan. When you are ready to tackle the numbers, you can easily attach statement files or app screenshots directly in this chat using the upload button. From there, we will outline your exact path forward together.",
+          },
+        ]}
+      />
+    );
+
+    const rendered = document.body.textContent ?? "";
+    expect(rendered).toContain("Done. Your Goals and Plan are saved.");
+    expect(rendered).toContain("Budgeting is not needed for this phase.");
+    expect(rendered).toContain("capture each card's balance, APR, minimum payment, and due date");
+    expect(rendered).not.toMatch(/Regarding your request|tedious category tracking|Planning Guardrail|roadmap and first steps|outline your exact path/i);
+  });
+
   it("cleans known concatenated budget category typos", () => {
     render(
       <MessageList
@@ -405,10 +426,10 @@ describe("MessageList scroll behavior", () => {
     );
 
     const rendered = document.body.textContent ?? "";
-    expect(rendered).toContain("How the Roth IRA fits");
-    expect(rendered).toContain("not cushion money");
+    expect(rendered).toContain("For this plan, treat the Roth IRA as outside the short-term cash-flow work");
+    expect(rendered).toContain("It is not a funding source for rent, the emergency cushion, or credit-card payoff");
     expect(rendered).toContain("Bottom line");
-    expect(rendered).not.toMatch(/\|\s*Does factor in\s*\||resuIncrease|----------------/);
+    expect(rendered).not.toMatch(/\|\s*Does factor in\s*\||resuIncrease|----------------|cushion source/i);
   });
 
   it("turns latest Roth IRA Aspect tables into compact boundary copy", () => {
@@ -426,10 +447,10 @@ describe("MessageList scroll behavior", () => {
     );
 
     const rendered = document.body.textContent ?? "";
-    expect(rendered).toContain("How the Roth IRA fits");
-    expect(rendered).toContain("not a funding source for this Finance plan");
+    expect(rendered).toContain("For this plan, treat the Roth IRA as outside the short-term cash-flow work");
+    expect(rendered).toContain("It is not a funding source for rent, the emergency cushion, or credit-card payoff");
     expect(rendered).toContain("Why this boundary exists");
-    expect(rendered).not.toMatch(/\|\s*Aspect\s*\||--------|Withdrawal of earnings \|/);
+    expect(rendered).not.toMatch(/\|\s*Aspect\s*\||--------|Withdrawal of earnings \||withdrawal/i);
   });
 
   it("normalizes upload receipts and APR labels that leaked raw markdown markers", () => {
@@ -516,12 +537,32 @@ describe("MessageList scroll behavior", () => {
     const rendered = document.body.textContent ?? "";
     expect(rendered).toContain("one option to review after we confirm the numbers");
     expect(rendered).toContain("High-interest card APRs can outweigh expected investment returns");
-    expect(rendered).toContain("This plan does not use the Roth IRA as a funding source");
-    expect(rendered).toContain("separate owner decision with tax and retirement tradeoffs");
+    expect(rendered).toContain("For this plan, treat the Roth IRA as outside the short-term cash-flow work");
+    expect(rendered).toContain("It is not a funding source for rent, the emergency cushion, or credit-card payoff");
     expect(rendered).toContain("Utilities/Power");
     expect(rendered).toContain("Phone/Internet");
     expect(screen.queryByText("Copy code")).not.toBeInTheDocument();
-    expect(rendered).not.toMatch(/pause those contributions immediately|no investment fund on earth|stay invested|tax\/penalty-free/i);
+    expect(rendered).not.toMatch(/pause those contributions immediately|no investment fund on earth|stay invested|tax\/penalty-free|withdraw/i);
+  });
+
+  it("removes latest Roth preservation and withdrawal phrasing from chat", () => {
+    render(
+      <MessageList
+        messages={[
+          {
+            id: "a-1",
+            role: "assistant",
+            content:
+              "The Roth IRA is not a funding source for this Finance plan. We will preserve those retirement assets as they are, without touching or withdrawing them. High-interest debt is best faced by optimizing monthly cash flow margin rather than depleting investment accounts.",
+          },
+        ]}
+      />
+    );
+
+    const rendered = document.body.textContent ?? "";
+    expect(rendered).toContain("For this plan, treat the Roth IRA as outside the short-term cash-flow work");
+    expect(rendered).toContain("It is not a funding source for rent, the emergency cushion, or credit-card payoff");
+    expect(rendered).not.toMatch(/preserve those retirement assets|touching|withdrawing|depleting investment accounts/i);
   });
 
   it("turns Finance landscape table summaries into bullet-style owner copy", () => {
