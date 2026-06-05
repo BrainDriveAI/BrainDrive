@@ -52,7 +52,8 @@ describe("project chat context", () => {
     expect(context).toContain("Filled Finance spec/plan sections should not retain author-only template helper text");
     expect(context).toContain("explicit Priority Order");
     expect(context).toContain("Durable Finance specs must include explicit Success Criteria");
-    expect(context).toContain("Durable Finance plans must include explicit Priority Order");
+    expect(context).toContain("Durable Finance plans must always include explicit Priority Order");
+    expect(context).toContain("Execution Steps is required even if execution is gated by missing debt-term evidence");
     expect(context).toContain("do not rely on documents/finance/index.md, documents/finance/rules.md, or documents/finance/budgeting/");
     expect(context).toContain("decide first whether the work is parent Finance Align + Plan or child-app execution");
     expect(context).toContain("attach files in chat or use the visible upload button");
