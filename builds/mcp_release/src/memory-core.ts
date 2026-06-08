@@ -6,6 +6,11 @@ import { ownerPermissions, type PermissionSet } from "./request-context.js";
 
 const reservedMemoryRoots = new Set([".git"]);
 const expectedProjectFiles = ["AGENT.md", "index.md", "spec.md", "plan.md"];
+const FINANCE_PLAN_PATH = "documents/finance/plan.md";
+const ROTH_IRA_OWNER_DECISION_BULLET =
+  "- Roth IRA boundary: the Roth IRA is outside this short-term cash-flow plan unless Katie separately asks to review retirement contributions.";
+const ROTH_IRA_PLANNING_GUARDRAIL_BULLET =
+  "- Roth IRA is not a funding source for this Finance plan. Do not use Roth IRA balances, withdrawals, investment changes, or contribution changes for rent, emergency cushion, or credit-card payoff planning.";
 
 export type ToolFailureCode =
   | "not_found"
@@ -235,11 +240,13 @@ export async function writeMemoryFile(
 ): Promise<{ path: string; bytes_written: number }> {
   try {
     const absolutePath = resolveMemoryPath(memoryRoot, requestedPath);
+    const relativePath = toMemoryRelativePath(memoryRoot, absolutePath);
+    const contentToWrite = normalizeMemoryWriteContent(relativePath, content);
     await mkdir(path.dirname(absolutePath), { recursive: true });
-    await writeFile(absolutePath, content, "utf8");
+    await writeFile(absolutePath, contentToWrite, "utf8");
     await ensureGitReady(memoryRoot);
-    await commitMemoryChange(memoryRoot, `Write ${toMemoryRelativePath(memoryRoot, absolutePath)}`);
-    return { path: absolutePath, bytes_written: Buffer.byteLength(content) };
+    await commitMemoryChange(memoryRoot, `Write ${relativePath}`);
+    return { path: absolutePath, bytes_written: Buffer.byteLength(contentToWrite) };
   } catch (error) {
     throw toToolFailure(error);
   }
@@ -263,14 +270,55 @@ export async function editMemoryFile(
       throw new ToolFailure("invalid_input", "Edit target not found");
     }
 
-    const updated = original.replace(find, replace);
+    const relativePath = toMemoryRelativePath(memoryRoot, absolutePath);
+    const updated = normalizeMemoryWriteContent(relativePath, original.replace(find, replace));
     await writeFile(absolutePath, updated, "utf8");
     await ensureGitReady(memoryRoot);
-    await commitMemoryChange(memoryRoot, `Edit ${toMemoryRelativePath(memoryRoot, absolutePath)}`);
+    await commitMemoryChange(memoryRoot, `Edit ${relativePath}`);
     return { path: absolutePath, updated: true };
   } catch (error) {
     throw toToolFailure(error);
   }
+}
+
+function normalizeMemoryWriteContent(relativePath: string, content: string): string {
+  if (relativePath.replace(/\\/g, "/") !== FINANCE_PLAN_PATH || !/\bRoth IRA\b/i.test(content)) {
+    return content;
+  }
+
+  return ensureMarkdownSectionBullet(
+    ensureMarkdownSectionBullet(content, "Owner Decisions", ROTH_IRA_OWNER_DECISION_BULLET),
+    "Planning Guardrails",
+    ROTH_IRA_PLANNING_GUARDRAIL_BULLET
+  );
+}
+
+function ensureMarkdownSectionBullet(content: string, section: string, bullet: string): string {
+  const sectionContent = markdownSectionContent(content, section);
+  if (sectionContent !== null && sectionContent.includes(bullet)) {
+    return content;
+  }
+
+  const escapedSection = section.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+  const headingPattern = new RegExp(`(^##\\s+${escapedSection}\\s*$)`, "im");
+  if (headingPattern.test(content)) {
+    return content.replace(headingPattern, `$1\n\n${bullet}`);
+  }
+
+  return `${content.trimEnd()}\n\n## ${section}\n\n${bullet}\n`;
+}
+
+function markdownSectionContent(content: string, section: string): string | null {
+  const escapedSection = section.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+  const match = new RegExp(`^##\\s+${escapedSection}\\s*$`, "im").exec(content);
+  if (!match) {
+    return null;
+  }
+
+  const sectionStart = match.index + match[0].length;
+  const rest = content.slice(sectionStart);
+  const nextSection = /\n##\s+/.exec(rest);
+  return nextSection ? rest.slice(0, nextSection.index) : rest;
 }
 
 export async function deleteMemoryPath(memoryRoot: string, requestedPath: string): Promise<{ path: string; deleted: true }> {

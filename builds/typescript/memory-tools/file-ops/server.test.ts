@@ -30,6 +30,19 @@ function toolContext(memoryRoot: string): ToolContext {
   };
 }
 
+function markdownSectionContent(content: string, section: string): string {
+  const escaped = section.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+  const match = new RegExp(`^##\\s+${escaped}\\s*$`, "im").exec(content);
+  if (!match) {
+    return "";
+  }
+
+  const sectionStart = match.index + match[0].length;
+  const rest = content.slice(sectionStart);
+  const nextSection = /\n##\s+/.exec(rest);
+  return nextSection ? rest.slice(0, nextSection.index) : rest;
+}
+
 describe("file ops memory_delete", () => {
   it("returns structured write metadata for claim verification", async () => {
     const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-file-ops-write-metadata-"));
@@ -86,6 +99,82 @@ describe("file ops memory_delete", () => {
       });
       expect(result.content_summary).toContain("1 checkbox task");
       expect(result.content_summary).toContain("Set up credit card autopay");
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("adds canonical Roth IRA boundary bullets when writing the Finance plan", async () => {
+    const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-file-ops-finance-plan-write-"));
+    const writeTool = fileOpsTools().find((tool) => tool.name === "memory_write");
+
+    try {
+      await ensureGitReady(memoryRoot);
+      await writeTool?.execute(toolContext(memoryRoot), {
+        path: "documents/finance/plan.md",
+        content: [
+          "# Finance Plan",
+          "",
+          "## Owner Decisions",
+          "",
+          "- Budgeting is not needed for the next step.",
+          "",
+          "## Planning Guardrails",
+          "",
+          "- Do not make specific Roth IRA trades.",
+          "",
+        ].join("\n"),
+      });
+
+      const plan = await readFile(path.join(memoryRoot, "documents", "finance", "plan.md"), "utf8");
+      expect(markdownSectionContent(plan, "Owner Decisions")).toContain(
+        "Roth IRA boundary: the Roth IRA is outside this short-term cash-flow plan unless Katie separately asks to review retirement contributions."
+      );
+      expect(markdownSectionContent(plan, "Planning Guardrails")).toContain(
+        "Roth IRA is not a funding source for this Finance plan. Do not use Roth IRA balances, withdrawals, investment changes, or contribution changes for rent, emergency cushion, or credit-card payoff planning."
+      );
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("adds canonical Roth IRA boundary bullets when editing the Finance plan", async () => {
+    const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-file-ops-finance-plan-edit-"));
+    const editTool = fileOpsTools().find((tool) => tool.name === "memory_edit");
+
+    try {
+      await mkdir(path.join(memoryRoot, "documents", "finance"), { recursive: true });
+      await writeFile(
+        path.join(memoryRoot, "documents", "finance", "plan.md"),
+        [
+          "# Finance Plan",
+          "",
+          "## Owner Decisions",
+          "",
+          "- Budgeting is not needed for the next step.",
+          "",
+          "## Planning Guardrails",
+          "",
+          "- Debt payoff waits for APR and minimum-payment evidence.",
+          "",
+        ].join("\n"),
+        "utf8"
+      );
+      await ensureGitReady(memoryRoot);
+
+      await editTool?.execute(toolContext(memoryRoot), {
+        path: "documents/finance/plan.md",
+        find: "Budgeting is not needed for the next step.",
+        replace: "Budgeting is not needed for the next step; Roth IRA is outside this plan.",
+      });
+
+      const plan = await readFile(path.join(memoryRoot, "documents", "finance", "plan.md"), "utf8");
+      expect(markdownSectionContent(plan, "Owner Decisions")).toContain(
+        "Roth IRA boundary: the Roth IRA is outside this short-term cash-flow plan unless Katie separately asks to review retirement contributions."
+      );
+      expect(markdownSectionContent(plan, "Planning Guardrails")).toContain(
+        "Roth IRA is not a funding source for this Finance plan. Do not use Roth IRA balances, withdrawals, investment changes, or contribution changes for rent, emergency cushion, or credit-card payoff planning."
+      );
     } finally {
       await rm(memoryRoot, { recursive: true, force: true });
     }

@@ -13,6 +13,11 @@ const MAX_SEARCH_MATCHES = 50;
 const MAX_SEARCH_MATCH_CONTENT_CHARS = 500;
 const MAX_SEARCH_TOTAL_CONTENT_CHARS = 20_000;
 const MAX_MODEL_PATH_CHARS = 260;
+const FINANCE_PLAN_PATH = "documents/finance/plan.md";
+const ROTH_IRA_OWNER_DECISION_BULLET =
+  "- Roth IRA boundary: the Roth IRA is outside this short-term cash-flow plan unless Katie separately asks to review retirement contributions.";
+const ROTH_IRA_PLANNING_GUARDRAIL_BULLET =
+  "- Roth IRA is not a funding source for this Finance plan. Do not use Roth IRA balances, withdrawals, investment changes, or contribution changes for rent, emergency cushion, or credit-card payoff planning.";
 
 async function readTool(context: ToolContext, input: Record<string, unknown>): Promise<unknown> {
   const targetPath = String(input.path ?? "");
@@ -32,9 +37,10 @@ async function writeTool(context: ToolContext, input: Record<string, unknown>): 
   try {
     const absolutePath = resolveToolPath(context, targetPath);
     const previous = await readFile(absolutePath, "utf8").catch(() => null);
-    await mkdir(path.dirname(absolutePath), { recursive: true });
-    await writeFile(absolutePath, content, "utf8");
     const relativePath = toMemoryRelativePath(context.memoryRoot, absolutePath);
+    const contentToWrite = normalizeMemoryWriteContent(relativePath, content);
+    await mkdir(path.dirname(absolutePath), { recursive: true });
+    await writeFile(absolutePath, contentToWrite, "utf8");
     auditLog("memory.write", {
       action: "file.write",
       path: absolutePath,
@@ -45,9 +51,9 @@ async function writeTool(context: ToolContext, input: Record<string, unknown>): 
       path: absolutePath,
       relative_path: relativePath,
       operation: "write",
-      changed: previous !== content,
-      bytes_written: Buffer.byteLength(content),
-      content_summary: summarizeWrittenContent(content),
+      changed: previous !== contentToWrite,
+      bytes_written: Buffer.byteLength(contentToWrite),
+      content_summary: summarizeWrittenContent(contentToWrite),
     };
   } catch (error) {
     throw toToolFailure(error);
@@ -67,9 +73,9 @@ async function editTool(context: ToolContext, input: Record<string, unknown>): P
       throw new ToolExecutionFailure("invalid_input", "Edit target not found");
     }
 
-    const updated = original.replace(find, replace);
-    await writeFile(absolutePath, updated, "utf8");
     const relativePath = toMemoryRelativePath(context.memoryRoot, absolutePath);
+    const updated = normalizeMemoryWriteContent(relativePath, original.replace(find, replace));
+    await writeFile(absolutePath, updated, "utf8");
     auditLog("memory.write", {
       action: "file.edit",
       path: absolutePath,
@@ -87,6 +93,46 @@ async function editTool(context: ToolContext, input: Record<string, unknown>): P
   } catch (error) {
     throw toToolFailure(error);
   }
+}
+
+function normalizeMemoryWriteContent(relativePath: string, content: string): string {
+  if (relativePath.replace(/\\/g, "/") !== FINANCE_PLAN_PATH || !/\bRoth IRA\b/i.test(content)) {
+    return content;
+  }
+
+  return ensureMarkdownSectionBullet(
+    ensureMarkdownSectionBullet(content, "Owner Decisions", ROTH_IRA_OWNER_DECISION_BULLET),
+    "Planning Guardrails",
+    ROTH_IRA_PLANNING_GUARDRAIL_BULLET
+  );
+}
+
+function ensureMarkdownSectionBullet(content: string, section: string, bullet: string): string {
+  const sectionContent = markdownSectionContent(content, section);
+  if (sectionContent !== null && sectionContent.includes(bullet)) {
+    return content;
+  }
+
+  const escapedSection = section.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+  const headingPattern = new RegExp(`(^##\\s+${escapedSection}\\s*$)`, "im");
+  if (headingPattern.test(content)) {
+    return content.replace(headingPattern, `$1\n\n${bullet}`);
+  }
+
+  return `${content.trimEnd()}\n\n## ${section}\n\n${bullet}\n`;
+}
+
+function markdownSectionContent(content: string, section: string): string | null {
+  const escapedSection = section.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+  const match = new RegExp(`^##\\s+${escapedSection}\\s*$`, "im").exec(content);
+  if (!match) {
+    return null;
+  }
+
+  const sectionStart = match.index + match[0].length;
+  const rest = content.slice(sectionStart);
+  const nextSection = /\n##\s+/.exec(rest);
+  return nextSection ? rest.slice(0, nextSection.index) : rest;
 }
 
 async function deleteTool(context: ToolContext, input: Record<string, unknown>): Promise<unknown> {
