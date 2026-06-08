@@ -428,6 +428,7 @@ describe("MessageList scroll behavior", () => {
     const rendered = document.body.textContent ?? "";
     expect(rendered).toContain("For this plan, treat the Roth IRA as outside the short-term cash-flow work");
     expect(rendered).toContain("It is not a funding source for rent, the emergency cushion, or credit-card payoff");
+    expect(rendered).toContain("No Roth IRA contribution, withdrawal, balance, or investment action is part of this plan");
     expect(rendered).toContain("Bottom line");
     expect(rendered).not.toMatch(/\|\s*Does factor in\s*\||resuIncrease|----------------|cushion source/i);
   });
@@ -449,8 +450,9 @@ describe("MessageList scroll behavior", () => {
     const rendered = document.body.textContent ?? "";
     expect(rendered).toContain("For this plan, treat the Roth IRA as outside the short-term cash-flow work");
     expect(rendered).toContain("It is not a funding source for rent, the emergency cushion, or credit-card payoff");
+    expect(rendered).toContain("No Roth IRA contribution, withdrawal, balance, or investment action is part of this plan");
     expect(rendered).toContain("Why this boundary exists");
-    expect(rendered).not.toMatch(/\|\s*Aspect\s*\||--------|Withdrawal of earnings \||withdrawal/i);
+    expect(rendered).not.toMatch(/\|\s*Aspect\s*\||--------|Withdrawal of earnings \||withdrawal of earnings/i);
   });
 
   it("normalizes upload receipts and APR labels that leaked raw markdown markers", () => {
@@ -539,10 +541,11 @@ describe("MessageList scroll behavior", () => {
     expect(rendered).toContain("High-interest card APRs can outweigh expected investment returns");
     expect(rendered).toContain("For this plan, treat the Roth IRA as outside the short-term cash-flow work");
     expect(rendered).toContain("It is not a funding source for rent, the emergency cushion, or credit-card payoff");
+    expect(rendered).toContain("No Roth IRA contribution, withdrawal, balance, or investment action is part of this plan");
     expect(rendered).toContain("Utilities/Power");
     expect(rendered).toContain("Phone/Internet");
     expect(screen.queryByText("Copy code")).not.toBeInTheDocument();
-    expect(rendered).not.toMatch(/pause those contributions immediately|no investment fund on earth|stay invested|tax\/penalty-free|withdraw/i);
+    expect(rendered).not.toMatch(/pause those contributions immediately|no investment fund on earth|stay invested|tax\/penalty-free|withdrawable|withdrawal mechanics/i);
   });
 
   it("removes latest Roth preservation and withdrawal phrasing from chat", () => {
@@ -562,6 +565,7 @@ describe("MessageList scroll behavior", () => {
     const rendered = document.body.textContent ?? "";
     expect(rendered).toContain("For this plan, treat the Roth IRA as outside the short-term cash-flow work");
     expect(rendered).toContain("It is not a funding source for rent, the emergency cushion, or credit-card payoff");
+    expect(rendered).toContain("No Roth IRA contribution, withdrawal, balance, or investment action is part of this plan");
     expect(rendered).not.toMatch(/preserve those retirement assets|touching|withdrawing|depleting investment accounts/i);
   });
 

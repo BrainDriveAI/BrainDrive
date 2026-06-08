@@ -67,7 +67,10 @@ describe("project chat context", () => {
     expect(context).toContain("do not say contributions or earnings should stay invested");
     expect(context).toContain("Roth IRA is not a funding source for this Finance plan");
     expect(context).toContain("Roth IRA boundary: the Roth IRA is outside this short-term cash-flow plan");
+    expect(context).toContain("Katie separately asks to review retirement contributions");
     expect(context).toContain("Do not use Roth IRA balances, withdrawals, investment changes, or contribution changes");
+    expect(context).toContain("normal markdown list text without bolding the whole line");
+    expect(context).toContain("No Roth IRA contribution, withdrawal, balance, or investment action is part of this plan");
     expect(context).toContain("do not say to throw cash at credit cards");
     expect(context).toContain("Do not say 'exact framing'");
     expect(context).toContain("I do not see a saved cross-project profile yet");

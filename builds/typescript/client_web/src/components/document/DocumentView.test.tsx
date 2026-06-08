@@ -144,7 +144,7 @@ describe("stripFinanceTemplateScaffolding", () => {
     const rendered = stripFinanceTemplateScaffolding(content, "finance", "documents/finance/plan.md");
 
     expect(rendered).toContain("This plan does not use the Roth IRA as a funding source");
-    expect(rendered).toContain("separate owner decision with tax and retirement tradeoffs");
+    expect(rendered).toContain("No Roth IRA contribution, withdrawal, balance, or investment action is part of this plan");
     expect(rendered).not.toMatch(/stay invested|tax\/penalty-free/i);
   });
 });

@@ -60,11 +60,11 @@ function normalizeFinanceReadModeContent(content: string, filePath: string): str
     normalized = normalized
       .replace(
         /Contributions\s*\([^)]*withdraw[^)]*\)\s*stay invested\.\s*Earnings stay invested\./gi,
-        "This plan does not use the Roth IRA as a funding source. Any contribution or withdrawal change is a separate owner decision with tax and retirement tradeoffs."
+        "This plan does not use the Roth IRA as a funding source. No Roth IRA contribution, withdrawal, balance, or investment action is part of this plan."
       )
       .replace(
         /Contributions stay invested\.\s*Earnings stay invested\./gi,
-        "This plan does not use the Roth IRA as a funding source. Any contribution or withdrawal change is a separate owner decision with tax and retirement tradeoffs."
+        "This plan does not use the Roth IRA as a funding source. No Roth IRA contribution, withdrawal, balance, or investment action is part of this plan."
       );
   }
 
