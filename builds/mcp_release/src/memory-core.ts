@@ -1716,7 +1716,7 @@ function extractResolvedArtifactReviewItems(content: string): FinanceBudgetRevie
   const lines = content.split(/\r?\n/);
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index] ?? "";
-    if (!/\b(?:confirmed|classified|categorized|mapped|resolved|owner-reviewed|successfully)\b/i.test(line)) {
+    if (!/\b(?:confirmed|reclassified|classified|categorized|mapped|resolved|owner-reviewed|successfully)\b/i.test(line)) {
       continue;
     }
 
@@ -1800,7 +1800,7 @@ function amountForMerchant(content: string, merchant: string): string | null {
     if (prefixedMoney?.[1]) {
       return Number(prefixedMoney[1]).toFixed(2);
     }
-    const tableMoney = /(?:^|\|)\s*(\d+(?:\.\d{2})?)\s*(?=\|)/.exec(line);
+    const tableMoney = /(?:^|\|)\s*\$?(\d+(?:\.\d{2})?)\s*(?=\|)/.exec(line);
     if (tableMoney?.[1]) {
       return Number(tableMoney[1]).toFixed(2);
     }
@@ -1835,6 +1835,7 @@ function normalizeReviewMerchant(value: string): string {
   const normalized = value
     .replace(/^[-*\s]+/, "")
     .replace(/^(?:Clarify|Review|Identify|Research)\s+(?:if|what|whether|the)?\s*/i, "")
+    .replace(/^(?:Reclassified|Classified|Categorized|Mapped|Resolved)\s+/i, "")
     .replace(/^the\s+/i, "")
     .replace(/\s+/g, " ")
     .replace(/\b(?:for unclassified|Total for unclassified|Unknown payee|debit on)\b.*$/i, "")
@@ -1882,11 +1883,31 @@ function reviewStateIssues(
     }
   }
 
-  if (latest !== null && activeItems.length === 0 && hasResolvedAsActiveLatestReportLanguage(latest)) {
-    issues.push({
-      path: "documents/finance/budget/reports/latest.md",
-      message: "Latest Budget report uses active Needs Review or owner-review wording after merchant review is resolved.",
-    });
+  if (latest !== null) {
+    for (const item of activeItems) {
+      if (!budgetContainsExactReviewItem(latest, item)) {
+        issues.push({
+          path: "documents/finance/budget/reports/latest.md",
+          message: `Active Needs Review item ${item.merchant} (${money(item.amount)}) is missing from the latest Budget report.`,
+        });
+      }
+    }
+
+    for (const item of resolvedItems) {
+      if (!budgetContainsExactReviewItem(latest, item)) {
+        issues.push({
+          path: "documents/finance/budget/reports/latest.md",
+          message: `Resolved Budget clarification ${item.merchant} (${money(item.amount)}) is missing from the latest Budget report.`,
+        });
+      }
+    }
+
+    if (activeItems.length === 0 && hasResolvedAsActiveLatestReportLanguage(latest)) {
+      issues.push({
+        path: "documents/finance/budget/reports/latest.md",
+        message: "Latest Budget report uses active Needs Review or owner-review wording after merchant review is resolved.",
+      });
+    }
   }
 
   if (plan === null) {
@@ -2015,7 +2036,22 @@ function repairLatestReportReviewState(
   resolvedItems: FinanceBudgetReviewItem[]
 ): string {
   let repaired = content;
-  if (activeItems.length === 0) {
+  if (activeItems.length > 0) {
+    repaired = replaceOrInsertSectionBefore(
+      repaired,
+      "Needs Review",
+      activeNeedsReviewSection(activeItems),
+      ["Resolved Owner-Reviewed Items", "Reconciliation Check", "Next Actions", "Next Steps"]
+    );
+    if (resolvedItems.length > 0) {
+      repaired = replaceOrInsertSectionBefore(
+        repaired,
+        "Resolved Owner-Reviewed Items",
+        resolvedOwnerReviewedItemsSection(resolvedItems),
+        ["Reconciliation Check", "Next Actions", "Next Steps"]
+      );
+    }
+  } else {
     repaired = repaired
       .replace(/\bItems needing owner review\b/gi, "Items needing owner confirmation")
       .replace(/\bowner review needed\b/gi, "owner confirmation recommended")
@@ -2041,6 +2077,17 @@ function repairLatestReportReviewState(
   }
 
   return repaired.replace(/\n*$/, "\n");
+}
+
+function activeNeedsReviewSection(items: FinanceBudgetReviewItem[]): string {
+  return [
+    "## Needs Review",
+    "",
+    "| Item | Amount | Status |",
+    "|---|---:|---|",
+    ...items.map((item) => `| ${item.merchant} | ${money(item.amount)} | Owner clarification still required. |`),
+    "",
+  ].join("\n");
 }
 
 function repairFinancePlanReviewState(

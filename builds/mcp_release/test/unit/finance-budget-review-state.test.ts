@@ -25,8 +25,15 @@ describe("Finance Budget review-state reconciliation", () => {
       const repaired = await reconcileFinanceBudgetReviewState(memoryRoot, { repair: true });
       expect(repaired.status).toBe("repaired");
       expect(repaired.issues).toEqual([]);
-      expect(repaired.files_changed).toEqual(["documents/finance/plan.md"]);
+      expect(repaired.files_changed).toEqual([
+        "documents/finance/budget/reports/latest.md",
+        "documents/finance/plan.md",
+      ]);
 
+      const latest = await readFile(path.join(memoryRoot, "documents", "finance", "budget", "reports", "latest.md"), "utf8");
+      expect(latest).toContain("## Resolved Owner-Reviewed Items");
+      expect(latest).toContain("MJP Services");
+      expect(latest).toContain("Blue Door Payment");
       const plan = await readFile(path.join(memoryRoot, "documents", "finance", "plan.md"), "utf8");
       expect(plan).toContain("Clarify Blue Door Payment ($67.50) to finish the remaining Needs Review item.");
       expect(plan).toContain("Resolved review items: MJP Services ($184.00).");
@@ -127,6 +134,46 @@ describe("Finance Budget review-state reconciliation", () => {
       expect(latest).not.toContain("## Needs Review");
       expect(latest).not.toMatch(/\bowner review\b/i);
       expect(latest).not.toMatch(/matches to the penny/i);
+
+      const plan = await readFile(path.join(memoryRoot, "documents", "finance", "plan.md"), "utf8");
+      expect(plan).toContain("## Budget Clarifications");
+      expect(plan).toContain("MJP Services ($184.00) is resolved");
+      expect(plan).toContain("Blue Door Payment ($67.50) is resolved");
+      expect(plan).not.toMatch(/Clarify.*MJP Services/i);
+      expect(plan).not.toMatch(/Clarify.*Blue Door Payment/i);
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves resolved source review labels in the latest report and Finance plan", async () => {
+    const memoryRoot = await mkdtemp(path.join(os.tmpdir(), "finance-budget-review-source-labels-"));
+
+    try {
+      await writeResolvedSourceLabelSeedMemory(memoryRoot);
+
+      const invalid = await reconcileFinanceBudgetReviewState(memoryRoot);
+      expect(invalid.status).toBe("invalid");
+      expect(invalid.active_review_items).toEqual([]);
+      expect(invalid.issues.map((issue) => issue.message).join("\n")).toContain(
+        "Resolved Budget clarification MJP Services ($184.00) is missing from the latest Budget report."
+      );
+      expect(invalid.issues.map((issue) => issue.message).join("\n")).toContain(
+        "Resolved Budget clarification Blue Door Payment ($67.50) is missing from the Finance plan."
+      );
+
+      const repaired = await reconcileFinanceBudgetReviewState(memoryRoot, { repair: true });
+      expect(repaired.status).toBe("repaired");
+      expect(repaired.issues).toEqual([]);
+      expect(repaired.files_changed).toEqual([
+        "documents/finance/budget/reports/latest.md",
+        "documents/finance/plan.md",
+      ]);
+
+      const latest = await readFile(path.join(memoryRoot, "documents", "finance", "budget", "reports", "latest.md"), "utf8");
+      expect(latest).toContain("## Resolved Owner-Reviewed Items");
+      expect(latest).toContain("MJP Services");
+      expect(latest).toContain("Blue Door Payment");
 
       const plan = await readFile(path.join(memoryRoot, "documents", "finance", "plan.md"), "utf8");
       expect(plan).toContain("## Budget Clarifications");
@@ -414,6 +461,82 @@ async function writeResolvedVocabularySeedMemory(memoryRoot: string): Promise<vo
       "## What Needs More Work",
       "",
       "- Confirm recurring nature of April auto/vet costs.",
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+  await writeFile(
+    path.join(memoryRoot, "me", "todo.md"),
+    [
+      "# My Todos",
+      "",
+      "## Active",
+      "",
+      "- [ ] Confirm whether the $250.00 extra Northbridge payment feels safe against the checking buffer #finance",
+      "",
+      "## Completed",
+      "",
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+}
+
+async function writeResolvedSourceLabelSeedMemory(memoryRoot: string): Promise<void> {
+  await mkdir(path.join(memoryRoot, "documents", "finance", "budget", "reports"), { recursive: true });
+  await mkdir(path.join(memoryRoot, "me"), { recursive: true });
+
+  await writeFile(
+    path.join(memoryRoot, "documents", "finance", "budget", "budget.md"),
+    [
+      "# Budget",
+      "",
+      "## Fixed Bills",
+      "",
+      "| Item | Amount | Notes |",
+      "|---|---:|---|",
+      "| MJP Services | 184.00 | Monthly car insurance |",
+      "| Blue Door Therapy | 67.50 | Therapist co-pay |",
+      "",
+      "## Changelog",
+      "",
+      "- Reclassified MJP Services as monthly car insurance.",
+      "- Reclassified Blue Door Payment as therapy co-pay. Zero unresolved review items remain.",
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+  await writeFile(
+    path.join(memoryRoot, "documents", "finance", "budget", "reports", "latest.md"),
+    [
+      "# Latest Budget Report",
+      "",
+      "## Summary",
+      "",
+      "- Items needing transaction review: 0.",
+      "",
+      "## Fixed Bills",
+      "",
+      "| Item | Amount | Notes |",
+      "|---|---:|---|",
+      "| Car insurance | $184.00 | Mapped from statement review |",
+      "| Therapy co-pay | $67.50 | Mapped from statement review |",
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+  await writeFile(
+    path.join(memoryRoot, "documents", "finance", "plan.md"),
+    [
+      "# Finance Plan",
+      "",
+      "## Right Now - Your First Step",
+      "",
+      "Review the saved Budget and latest Budget report; no active merchant clarification remains.",
+      "",
+      "## What Needs More Work",
+      "",
+      "- Confirm regular monthly limits for variable spending.",
       "",
     ].join("\n"),
     "utf8"
