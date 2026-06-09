@@ -575,6 +575,7 @@ export default function ChatPanel({
 
   function handleStartNewConversation() {
     resetErrorPresentation();
+    setHistoryMessages([]);
     startNewConversation();
   }
 
@@ -1136,6 +1137,18 @@ export default function ChatPanel({
                 onRetry={retryUpload}
                 onToggleDetails={toggleUploadActivityDetails}
               />
+              {messages.length > 0 && !isLoading && !isContextOverflowError && (
+                <div className="mx-auto flex w-full max-w-[780px] justify-end py-2">
+                  <button
+                    type="button"
+                    onClick={handleStartNewConversation}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-bd-border px-3 py-1.5 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-hover hover:text-bd-text-primary"
+                  >
+                    <RotateCcw size={13} strokeWidth={1.7} />
+                    Start New Conversation
+                  </button>
+                </div>
+              )}
               {showBudgetFileActions && (
                 <BudgetFileActions onOpenProjectFile={onOpenProjectFile} />
               )}

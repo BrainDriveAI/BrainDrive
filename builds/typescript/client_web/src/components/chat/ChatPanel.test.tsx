@@ -97,6 +97,23 @@ describe("ChatPanel typing indicator behavior", () => {
     expect(screen.getByRole("button", { name: "Start New Conversation" })).toBeInTheDocument();
   });
 
+  it("lets owners start a new conversation from existing chat history", async () => {
+    const user = userEvent.setup();
+    const hookState = makeHookState({
+      messages: [
+        { id: "u-1", role: "user", content: "I need help with my budget." },
+        { id: "a-1", role: "assistant", content: "I can help with that." },
+      ],
+    });
+    useGatewayChatMock.mockReturnValue(hookState);
+
+    render(<ChatPanel activeConversationId="conv-finance" activeProjectId="finance" isEmpty={false} />);
+
+    await user.click(screen.getByRole("button", { name: "Start New Conversation" }));
+
+    expect(hookState.startNewConversation).toHaveBeenCalledTimes(1);
+  });
+
   it("shows overflow-specific recovery actions", () => {
     useGatewayChatMock.mockReturnValue(
       makeHookState({
