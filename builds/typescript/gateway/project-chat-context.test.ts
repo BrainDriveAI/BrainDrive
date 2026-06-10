@@ -128,6 +128,25 @@ describe("project chat context", () => {
     expect(snapshot?.plan).toContain("five hours a week");
   });
 
+  it("adds Career starter anchors for vague owner direction", () => {
+    const snapshot = buildStarterProjectArtifactSnapshot("career", conversationWithUserMessages([
+      "I feel stuck at work and want something better, but I do not really know what that means yet.",
+      "I mostly know I do not want to feel this drained.",
+      "I want more growth, but I am not sure if that means a new job or a different role.",
+      "Money matters, but I do not know what number I need.",
+      "I need help sorting out what to look at first.",
+    ]));
+
+    expect(snapshot?.spec).toContain("feels stuck");
+    expect(snapshot?.spec).toContain("new job or different role");
+    expect(snapshot?.spec).toContain("money unknown");
+    expect(snapshot?.spec).toContain("Open unknowns");
+    expect(snapshot?.plan).toContain("Clarifying questions");
+    expect(snapshot?.plan).toContain("First sorting step");
+    expect(snapshot?.plan).toContain("Information to gather");
+    expect(snapshot?.plan).toContain("Small next action");
+  });
+
   it("merges starter artifact snapshots before the changelog and replaces old snapshots", () => {
     const template = [
       "# Career Spec",

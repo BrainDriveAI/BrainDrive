@@ -3455,25 +3455,69 @@ export function buildStarterProjectArtifactSnapshot(
     .map((content, index) => `- Owner turn ${index + 1}: ${content}`)
     .join("\n");
   const projectName = projectId.replace(/[-_]+/g, " ");
+  const derivedAnchors = buildStarterDerivedAnchors(projectId, ownerMessages);
+  const specSections = [
+    "### Owner Conversation Snapshot",
+    "",
+    `BrainDrive captured these owner-specific ${projectName} signals from the active project conversation so starter artifacts do not remain generic templates:`,
+    "",
+    facts,
+  ];
+  if (derivedAnchors.spec.length > 0) {
+    specSections.push("", "### Derived Starter Anchors", "", derivedAnchors.spec.map((anchor) => `- ${anchor}`).join("\n"));
+  }
+  const planSections = [
+    "### Starter Plan Snapshot",
+    "",
+    "- First action this week: turn the owner-provided facts above into one concrete next step and ask for the missing decision or evidence.",
+    "- Proof points: preserve concrete signals from the owner's messages so the plan can be refined without losing context.",
+    "- Open questions: keep uncertainty explicit until the owner confirms priorities, constraints, and success criteria.",
+  ];
+  if (derivedAnchors.plan.length > 0) {
+    planSections.push("", "### Derived Plan Anchors", "", derivedAnchors.plan.map((anchor) => `- ${anchor}`).join("\n"));
+  }
+  planSections.push("", facts);
 
   return {
-    spec: [
-      "### Owner Conversation Snapshot",
-      "",
-      `BrainDrive captured these owner-specific ${projectName} signals from the active project conversation so starter artifacts do not remain generic templates:`,
-      "",
-      facts,
-    ].join("\n"),
-    plan: [
-      "### Starter Plan Snapshot",
-      "",
-      "- First action this week: turn the owner-provided facts above into one concrete next step and ask for the missing decision or evidence.",
-      "- Proof points: preserve concrete signals from the owner's messages so the plan can be refined without losing context.",
-      "- Open questions: keep uncertainty explicit until the owner confirms priorities, constraints, and success criteria.",
-      "",
-      facts,
-    ].join("\n"),
+    spec: specSections.join("\n"),
+    plan: planSections.join("\n"),
   };
+}
+
+function buildStarterDerivedAnchors(projectId: string, ownerMessages: string[]): { spec: string[]; plan: string[] } {
+  const text = ownerMessages.join(" ").toLowerCase();
+  const spec: string[] = [];
+  const plan: string[] = [];
+
+  if (projectId !== "career") {
+    return { spec, plan };
+  }
+
+  if (/\bfeel stuck\b|\bstuck at work\b/.test(text)) {
+    spec.push("Career signal: feels stuck at work and wants something better.");
+  }
+  if (/new job or (?:a )?different role/.test(text)) {
+    spec.push("Career signal: new job or different role is still unresolved.");
+  }
+  if (/(money matters|what number).*(do not know|don't know|not know)|(do not know|don't know|not know).*what number/.test(text)) {
+    spec.push("Constraint signal: money unknown until Katie names the number she needs.");
+  }
+  if (/\bnot sure\b|\bdo not know\b|\bdon't know\b|\bunknown\b/.test(text)) {
+    spec.push("Open unknowns: desired role shape, money floor, and next move need clarification.");
+  }
+
+  if (/\bnot sure\b|\bdo not know\b|\bdon't know\b|\bfeel stuck\b|\bsorting\b/.test(text)) {
+    plan.push("Clarifying questions: separate what feels draining, what growth means, and what constraints are still unknown.");
+    plan.push("First sorting step: compare staying, a different role, and a new job before recommending a direction.");
+  }
+  if (/money matters|growth|new job|different role/.test(text)) {
+    plan.push("Information to gather: growth needs, money floor, energy limits, and role options.");
+  }
+  if (/drained|stuck|sorting/.test(text)) {
+    plan.push("Small next action: write a short list of what to avoid and what better would need to include.");
+  }
+
+  return { spec, plan };
 }
 
 export function mergeStarterProjectArtifactSnapshot(content: string, snapshot: string): string {
