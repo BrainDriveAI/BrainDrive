@@ -121,13 +121,23 @@ describe("ChatPanel typing indicator behavior", () => {
         { id: "a-1", role: "assistant", content: "Let's start with your current role." },
       ],
     });
+    const onStartNewConversation = vi.fn(async () => undefined);
     useGatewayChatMock.mockReturnValue(hookState);
 
-    render(<ChatPanel activeConversationId="conversation-1" isEmpty={false} />);
+    render(
+      <ChatPanel
+        activeConversationId="conversation-1"
+        isEmpty={false}
+        onStartNewConversation={onStartNewConversation}
+      />
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Start New Conversation" }));
 
     expect(hookState.startNewConversation).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(onStartNewConversation).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("uploads PDF attachments through the selected project and sends a durable upload event", async () => {

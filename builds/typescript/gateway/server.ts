@@ -2280,6 +2280,17 @@ export async function buildServer(rootDir = process.cwd()) {
     }
   });
 
+  app.delete("/projects/:id/conversation", async (request, reply) => {
+    const params = request.params as { id: string };
+    const detached = await projects.detachConversation(params.id);
+    if (!detached) {
+      reply.code(404).send({ error: "Project not found" });
+      return;
+    }
+
+    reply.send({ ok: true });
+  });
+
   app.delete("/projects/:id", async (request, reply) => {
     const params = request.params as { id: string };
     try {

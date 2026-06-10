@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  clearProjectConversation as apiClearProjectConversation,
   createProject as apiCreateProject,
   deleteProject as apiDeleteProject,
   renameProject as apiRenameProject,
@@ -34,6 +35,7 @@ export function useProjects(): {
   addProject: (name: string) => Promise<void>;
   removeProject: (id: string) => Promise<void>;
   renameProject: (id: string, name: string) => Promise<void>;
+  clearProjectConversation: (id: string) => Promise<void>;
 } {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -202,6 +204,16 @@ export function useProjects(): {
     refreshProjects();
   }
 
+  async function clearProjectConversation(id: string) {
+    await apiClearProjectConversation(id);
+    setProjects((current) =>
+      current.map((project) =>
+        project.id === id ? { ...project, conversationId: null } : project
+      )
+    );
+    refreshProjects();
+  }
+
   return {
     projects,
     selectedProjectId,
@@ -218,6 +230,7 @@ export function useProjects(): {
     refreshSelectedProjectFiles,
     addProject,
     removeProject,
-    renameProject: renameProjectFn
+    renameProject: renameProjectFn,
+    clearProjectConversation
   };
 }

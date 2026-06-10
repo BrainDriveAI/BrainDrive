@@ -64,7 +64,8 @@ export default function AppShell({
     refreshSelectedProjectFiles,
     addProject,
     removeProject,
-    renameProject
+    renameProject,
+    clearProjectConversation
   } = useProjects();
 
   const messageMetadata =
@@ -284,6 +285,14 @@ export default function AppShell({
     })();
   }
 
+  async function handleStartNewConversation() {
+    if (!selectedProjectId || selectedProjectId === "braindrive-plus-one") {
+      return;
+    }
+
+    await clearProjectConversation(selectedProjectId);
+  }
+
   function dismissMemoryUpdateNotice() {
     if (memoryUpdateNotice) {
       window.localStorage.setItem(`braindrive.memoryUpdateReportSeen.${memoryUpdateNotice.migrationId}`, "1");
@@ -469,6 +478,7 @@ export default function AppShell({
               draftKey={chatDraftKey}
               isEmpty={activeConversationId === null}
               onConversationComplete={handleConversationComplete}
+              onStartNewConversation={handleStartNewConversation}
               messageMetadata={messageMetadata}
               contentOverride={documentContent}
               onSendMessage={handleReturnToChat}

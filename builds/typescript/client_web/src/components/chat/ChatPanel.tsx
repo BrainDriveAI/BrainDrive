@@ -45,6 +45,7 @@ type ChatPanelProps = {
   draftKey?: string | null;
   isEmpty?: boolean;
   onConversationComplete?: (conversationId: string) => void;
+  onStartNewConversation?: () => void | Promise<void>;
   messageMetadata?: Record<string, unknown>;
   contentOverride?: ReactNode;
   onSendMessage?: () => void;
@@ -160,6 +161,7 @@ export default function ChatPanel({
   draftKey = null,
   isEmpty = false,
   onConversationComplete,
+  onStartNewConversation,
   messageMetadata,
   contentOverride,
   onSendMessage,
@@ -313,14 +315,21 @@ export default function ChatPanel({
     setConnectionStatus("connected");
   }
 
-  function handleStartNewConversation() {
+  async function handleStartNewConversation() {
     resetErrorPresentation();
+    setHistoryMessages([]);
     startNewConversation();
+    try {
+      await onStartNewConversation?.();
+    } catch (error) {
+      setHistoryError(error instanceof Error ? error.message : String(error));
+      setConnectionStatus("disconnected");
+    }
   }
 
-  function handleContinueInNewConversation() {
+  async function handleContinueInNewConversation() {
     const replayContent = lastUserMessage?.content?.trim();
-    handleStartNewConversation();
+    await handleStartNewConversation();
     if (replayContent && replayContent.length > 0) {
       append(replayContent, { metadata: messageMetadata });
     }
