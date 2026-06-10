@@ -185,6 +185,26 @@ describe("project chat context", () => {
     expect(snapshot?.plan).toContain("Gradual progress");
   });
 
+  it("adds Relationships starter anchors for money conversations", () => {
+    const snapshot = buildStarterProjectArtifactSnapshot("relationships", conversationWithUserMessages([
+      "I want help improving communication with my boyfriend Evan. We avoid money conversations, and I want a better way to talk without making it feel like a fight.",
+      "I feel embarrassed and defensive, so I usually delay the conversation.",
+      "Evan is not hostile, but I worry he will think I am irresponsible.",
+      "Success would be one honest conversation that does not spiral.",
+      "I want to be direct without dumping everything at once.",
+    ]));
+
+    expect(snapshot?.spec).toContain("Evan");
+    expect(snapshot?.spec).toContain("money conversations");
+    expect(snapshot?.spec).toContain("embarrassed");
+    expect(snapshot?.spec).toContain("defensive");
+    expect(snapshot?.spec).toContain("honest conversation");
+    expect(snapshot?.plan).toContain("First conversation step");
+    expect(snapshot?.plan).toContain("Boundary");
+    expect(snapshot?.plan).toContain("What to say");
+    expect(snapshot?.plan).toContain("not assuming Evan's reaction");
+  });
+
   it("adds Career starter anchors for burnout and workplace-risk direction", () => {
     const snapshot = buildStarterProjectArtifactSnapshot("career", conversationWithUserMessages([
       "I think I may need to leave my job, but I am burned out and worried about saying too much because there is some workplace tension I do not want spread around.",

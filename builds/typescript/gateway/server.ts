@@ -3536,6 +3536,32 @@ function buildStarterDerivedAnchors(projectId: string, ownerMessages: string[]):
     return { spec, plan };
   }
 
+  if (projectId === "relationships") {
+    if (/evan|money conversation|avoid money|embarrassed|defensive|honest conversation|does not spiral/.test(text)) {
+      spec.push("Relationship signal: Katie and Evan avoid money conversations, and Katie wants a better way to talk without it becoming a fight.");
+    }
+    if (/embarrassed|defensive|delay/.test(text)) {
+      spec.push("Emotional pattern: Katie feels embarrassed and defensive, so she delays the conversation.");
+    }
+    if (/not hostile|think i am irresponsible|irresponsible|without dumping everything/.test(text)) {
+      spec.push("Boundary signal: do not assume Evan's reaction, and avoid dumping everything at once.");
+    }
+    if (/honest conversation|does not spiral|without making it feel like a fight/.test(text)) {
+      spec.push("Success signal: one honest conversation that does not spiral.");
+    }
+
+    if (/evan|money conversation|avoid money|embarrassed|defensive|honest conversation|does not spiral/.test(text)) {
+      plan.push("First conversation step: name one money topic with Evan and ask for a calm time to talk before covering every concern.");
+      plan.push("Boundary: be direct without dumping everything at once and while not assuming Evan's reaction.");
+      plan.push("What to say: acknowledge embarrassment and defensiveness, then state the specific conversation Katie wants to have.");
+    }
+    if (/not hostile|think i am irresponsible|irresponsible|does not spiral/.test(text)) {
+      plan.push("Safety check: keep the first conversation focused on clarity and repair, not blame, so it has a better chance to not spiral.");
+    }
+
+    return { spec, plan };
+  }
+
   if (projectId !== "career") {
     return { spec, plan };
   }
