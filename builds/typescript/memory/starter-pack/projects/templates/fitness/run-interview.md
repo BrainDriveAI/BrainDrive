@@ -8,7 +8,7 @@ Update sections in place in `spec.md`; never replace the whole file. Always keep
 
 ## What This Procedure Accomplishes
 
-Build a clear health and fitness picture and capture the owner's goals, current reality, constraints, and missing information.
+Build a clear health and fitness picture and capture the owner's goals, current reality, constraints, preferences, assumptions, success criteria, and missing information.
 
 ## When to Run
 
@@ -18,18 +18,24 @@ Build a clear health and fitness picture and capture the owner's goals, current 
 
 ## Method
 
+Read `me/profile.md`, the Fitness `spec.md`, the Fitness `plan.md`, and relevant child-app summaries before asking broad setup questions. Summarize the known context briefly and ask what is missing, stale, or unconfirmed.
+
 Start with the owner's presenting goal, then map the full health and fitness landscape: current activity, nutrition patterns, sleep, stress, injuries, physical constraints, medications or health constraints they volunteer, schedule, equipment, experience level, and past attempts.
+
+Adapt follow-ups to the owner's starting position. Watch for starting from scratch, weight or fat-loss focus, strength or performance focus, health-adjacent concern, busy schedule or low adherence, returning after lapse, experienced optimizer, and cross-page constraints. If more than one applies, name the overlap and ask which one should drive the first plan.
 
 Probe for what the owner actually does, not what they intend to do. Surface all-or-nothing thinking, sleep or stress blockers, event-driven motivation, shame, injury fear, and nutrition patterns that could make a plan fail. Ask for health documents only when they could materially improve the Fitness plan, and make them optional.
 
+Classify new facts before writing: stable cross-project facts belong in `me/profile.md` with confirmation; Fitness goals/current state/constraints/preferences/success criteria belong in `spec.md`; ordered next steps, decisions, timing, status, and child-app handoffs belong in `plan.md`; detailed logs, evidence, reports, rules, calculations, and app state belong in the relevant child app when one exists.
+
 ## Done Criteria
 
-`spec.md` has useful owner-specific content, important unknowns are labeled, and high-stakes health claims are not presented beyond the available evidence.
+`spec.md` has useful owner-specific content, success criteria, important assumptions and unknowns, and high-stakes health claims are not presented beyond the available evidence.
 
 ## After Running
 
-Update `spec.md`, summarize material changes, add todos only for concrete next actions, and return to Fitness scope before proposing planning.
+Update `spec.md`, summarize material changes, propose `me/profile.md` updates only for confirmed stable cross-project facts, add todos only for concrete next actions, and return to Fitness scope before proposing planning.
 
 ## What This Procedure Is Not
 
-It is not medical advice, diagnosis, treatment, medication guidance, symptom triage, or a substitute for a clinician, dietitian, physical therapist, or qualified coach.
+It is not medical advice, diagnosis, treatment, medication guidance, symptom triage, daily logging as a required page behavior, or a substitute for a clinician, dietitian, physical therapist, or qualified coach.

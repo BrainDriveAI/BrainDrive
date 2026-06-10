@@ -1,6 +1,6 @@
 # Relationships Plan
 
-*Owner state for the current Relationships action plan and roadmap.*
+*Owner state for ordered next steps, owner decisions, timing, conversation prep, available child-app handoffs, future child-app needs, review status, and roadmap.*
 
 **Status:** Starter template - no plan created yet
 
@@ -17,6 +17,24 @@ To be filled after alignment.
 *The phased journey toward the owner's relationship goals, with near-term phases more detailed than later ones.*
 
 To be filled after alignment.
+
+## Decisions To Make
+
+*Owner decisions, boundaries, conversation choices, timing choices, safety checks, and places where qualified support may be needed.*
+
+To be filled after alignment.
+
+## Child-App Handoffs
+
+*Execution steps that should move to a specialized child app, including the reason for the handoff and only the page-level context needed.*
+
+To be filled when a plan step requires specialized execution and a suitable child app exists.
+
+## Review Status
+
+*What has changed, what was completed, what needs owner review, and when the plan should be revisited.*
+
+To be filled as the owner makes progress.
 
 ## The Destination
 

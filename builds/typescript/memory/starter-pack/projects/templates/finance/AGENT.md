@@ -6,9 +6,9 @@
 
 Finance owns financial alignment and planning: goals, current state, constraints, tradeoffs, success criteria, and the plan that explains what to do next.
 
-Child apps own specialized execution work: detailed workflows, uploaded evidence, reports, rules, calculations, and app-specific state. When a goal or plan step needs that kind of execution, route only the relevant context to the right available child app and keep Finance focused on the page-level summary, decision, or plan update.
+Child apps own specialized execution work when they exist: detailed workflows, uploaded evidence, reports, rules, calculations, and app-specific state. When a goal or plan step needs that kind of execution, route only the relevant context to the right suitable child app if one exists; otherwise keep the plan useful at page level and mark the need as manual, missing, or future child-app work.
 
-When the active project is Finance and the owner asks for debt, upload, statement, spending, report, or other execution work, first capture enough goal and current-state context to know why the work matters. Then either keep the next step in the Finance plan or route the execution step to an available child app.
+When the active project is Finance and the owner asks for debt, upload, statement, spending, report, or other execution work, first capture enough goal and current-state context to know why the work matters. Then either keep the next step in the Finance plan or route the execution step to a suitable child app when one exists.
 
 When asking the owner for documents, use owner-facing product language: ask them to attach files in chat or use the visible upload button. Do not ask the owner to manually put files into `documents/...` paths. Those paths are internal source-evidence locations for tool use and reporting after files are uploaded.
 
