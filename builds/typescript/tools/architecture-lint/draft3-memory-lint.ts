@@ -14,6 +14,16 @@ const ARCHITECTURE_ALIGNED_PROJECTS = [
   "fitness",
   "new-project",
   "relationships",
+  "your-agent",
+] as const;
+
+const DEFAULT_PAGE_PROJECT_IDS = [
+  "finance",
+  "fitness",
+  "career",
+  "relationships",
+  "new-project",
+  "your-agent",
 ] as const;
 
 const REQUIRED_PROJECT_FILES = [
@@ -55,6 +65,66 @@ const OPTIONAL_PROJECT_OVERLAY_FILES = [
   "run-planning-user.md",
 ] as const;
 
+const BUILDER_ONLY_STARTER_SKILLS = [
+  "landscape.md",
+  "milestone-check.md",
+  "smoke-test.md",
+  "test-plan.md",
+] as const;
+
+const FINANCE_REQUIRED_MARKERS: Array<{ file: string; marker: string; description: string }> = [
+  {
+    file: "AGENT.md",
+    marker: "Finance owns financial alignment and planning",
+    description: "Finance parent surface ownership",
+  },
+  {
+    file: "AGENT.md",
+    marker: "Child apps own specialized execution work",
+    description: "Finance child-app execution boundary",
+  },
+  {
+    file: "spec.md",
+    marker: "## What Good Looks Like",
+    description: "Finance success criteria section",
+  },
+  {
+    file: "spec.md",
+    marker: "## Assumptions And Unknowns",
+    description: "Finance assumptions and unknowns section",
+  },
+  {
+    file: "run-interview.md",
+    marker: "debt pressure, high savings",
+    description: "Finance starting-position adaptation",
+  },
+  {
+    file: "run-interview.md",
+    marker: "Classify new facts before writing",
+    description: "Finance artifact placement rule",
+  },
+  {
+    file: "plan.md",
+    marker: "## Child-App Handoffs",
+    description: "Finance child-app handoff section",
+  },
+  {
+    file: "plan.md",
+    marker: "## Review Status",
+    description: "Finance review status section",
+  },
+  {
+    file: "run-planning.md",
+    marker: "Every plan step must trace",
+    description: "Finance plan traceability",
+  },
+  {
+    file: "run-planning.md",
+    marker: "Route to a child app only",
+    description: "Finance child-app routing gate",
+  },
+];
+
 export async function lintDraft3MemoryStarterPack(starterPackRoot: string): Promise<Draft3MemoryLintResult> {
   const errors: string[] = [];
 
@@ -74,6 +144,23 @@ export async function lintDraft3MemoryStarterPack(starterPackRoot: string): Prom
   const projectSeeds = await readOptional(path.join(starterPackRoot, "projects", "projects.seed.json"));
   if (projectSeeds !== null && /"id"\s*:\s*"braindrive-plus-one"/.test(projectSeeds)) {
     errors.push("BrainDrive+1 must not be seeded as a normal project");
+  }
+  if (projectSeeds !== null) {
+    const seededProjectIds = parseProjectSeedIds(projectSeeds);
+    if (seededProjectIds === null) {
+      errors.push("projects.seed.json must be a JSON array of project seed objects");
+    }
+    for (const projectId of DEFAULT_PAGE_PROJECT_IDS) {
+      if (seededProjectIds !== null && !seededProjectIds.has(projectId)) {
+        errors.push(`Missing default page project seed: ${projectId}`);
+      }
+    }
+  }
+
+  for (const file of BUILDER_ONLY_STARTER_SKILLS) {
+    if (existsSync(path.join(starterPackRoot, "skills", file))) {
+      errors.push(`Builder-only skill must not be seeded in owner starter pack: skills/${file}`);
+    }
   }
 
   for (const projectId of ARCHITECTURE_ALIGNED_PROJECTS) {
@@ -117,6 +204,13 @@ export async function lintDraft3MemoryStarterPack(starterPackRoot: string): Prom
   for (const file of STALE_FINANCE_PATHS) {
     if (existsSync(path.join(financeRoot, file))) {
       errors.push(`Stale pre-Draft-3 Finance path still exists: ${file}`);
+    }
+  }
+
+  for (const requirement of FINANCE_REQUIRED_MARKERS) {
+    const content = await readOptional(path.join(financeRoot, requirement.file));
+    if (content !== null && !content.includes(requirement.marker)) {
+      errors.push(`Finance template missing ${requirement.description}: ${requirement.file}`);
     }
   }
 
@@ -167,6 +261,28 @@ async function visitFiles(root: string, visitor: (filePath: string) => Promise<v
 async function readOptional(filePath: string): Promise<string | null> {
   try {
     return await readFile(filePath, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+function parseProjectSeedIds(raw: string): Set<string> | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return null;
+    }
+    const ids = new Set<string>();
+    for (const entry of parsed) {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        continue;
+      }
+      const id = (entry as Record<string, unknown>).id;
+      if (typeof id === "string" && id.trim().length > 0) {
+        ids.add(id.trim());
+      }
+    }
+    return ids;
   } catch {
     return null;
   }

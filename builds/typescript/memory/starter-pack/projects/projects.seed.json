@@ -1,5 +1,15 @@
 [
   {
+    "id": "finance",
+    "name": "Finance",
+    "icon": "dollar-sign"
+  },
+  {
+    "id": "fitness",
+    "name": "Fitness",
+    "icon": "dumbbell"
+  },
+  {
     "id": "career",
     "name": "Career",
     "icon": "briefcase"
@@ -10,18 +20,13 @@
     "icon": "users"
   },
   {
-    "id": "fitness",
-    "name": "Fitness",
-    "icon": "dumbbell"
-  },
-  {
-    "id": "finance",
-    "name": "Finance",
-    "icon": "dollar-sign"
-  },
-  {
     "id": "new-project",
     "name": "Your New Project",
     "icon": "folder-plus"
+  },
+  {
+    "id": "your-agent",
+    "name": "Your Agent",
+    "icon": "sparkles"
   }
 ]

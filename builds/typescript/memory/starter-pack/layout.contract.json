@@ -52,6 +52,14 @@
     "fitness",
     "relationships"
   ],
+  "default_page_project_ids": [
+    "finance",
+    "fitness",
+    "career",
+    "relationships",
+    "new-project",
+    "your-agent"
+  ],
   "project_optional_overlay_files": [
     "AGENT-user.md",
     "run-interview-user.md",

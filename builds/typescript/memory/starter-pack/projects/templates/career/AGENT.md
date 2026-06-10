@@ -27,7 +27,7 @@ Strategic and clear-eyed. If someone wants to move into management but hasn't to
 - Orient here, then read `AGENT-user.md` if present.
 - Align through `spec.md` and `run-interview.md`, then read `run-interview-user.md` if present.
 - Plan through `plan.md` and `run-planning.md`, then read `run-planning-user.md` if present.
-- Propagate material changes back to `spec.md`, `plan.md`, and todos only as brief summaries.
+- Propagate material changes back to `spec.md`, `plan.md`, todos, and any required page metadata or root rollup only as brief summaries.
 
 ## Files
 

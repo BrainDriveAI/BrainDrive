@@ -1,6 +1,6 @@
 # Finance Spec
 
-*Owner state for financial goals, current reality, constraints, and missing information.*
+*Owner state for financial goals, current reality, constraints, assumptions, success criteria, and missing information.*
 
 **Status:** Starter template - no interview conducted yet
 
@@ -20,7 +20,19 @@ To be filled through conversation.
 
 ## What's In The Way
 
-*Practical, emotional, relationship, information, or timing obstacles that shape the plan.*
+*Practical, emotional, relationship, household, timing, risk, information, or regulated-advice boundaries that shape the plan.*
+
+To be filled through conversation.
+
+## What Good Looks Like
+
+*The owner's success criteria, decision criteria, confidence threshold, and what would make the Finance plan feel trustworthy.*
+
+To be filled through conversation.
+
+## Assumptions And Unknowns
+
+*Estimates, unverified claims, missing evidence, and assumptions that should not be treated as settled facts.*
 
 To be filled through conversation.
 

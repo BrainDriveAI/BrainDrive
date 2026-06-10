@@ -19,6 +19,15 @@ describe("memory init project scaffolding", () => {
 
       await expect(readFile(path.join(memoryRoot, "me", "profile.md"), "utf8"))
         .resolves.toContain("# Owner Profile");
+      const projectsManifest = JSON.parse(await readFile(path.join(memoryRoot, "documents", "projects.json"), "utf8")) as Array<{ id: string }>;
+      expect(projectsManifest.map((project) => project.id)).toEqual([
+        "finance",
+        "fitness",
+        "career",
+        "relationships",
+        "new-project",
+        "your-agent",
+      ]);
       await expect(readFile(path.join(memoryRoot, "documents", "braindrive-plus-one", "AGENT.md"), "utf8"))
         .rejects.toThrow();
       await expect(readFile(path.join(memoryRoot, "documents", "braindrive-plus-one", "spec.md"), "utf8"))
@@ -64,6 +73,47 @@ describe("memory init project scaffolding", () => {
       await expect(readFile(path.join(memoryRoot, "documents", "fitness", "health-docs", "index.md"), "utf8"))
         .rejects.toThrow();
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "statements", "README.md"), "utf8"))
+        .rejects.toThrow();
+      await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "AGENT.md"), "utf8"))
+        .resolves.toContain("# Your Agent - Agent Context");
+      await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "spec.md"), "utf8"))
+        .resolves.toContain("# Your Agent Spec");
+      await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "run-interview.md"), "utf8"))
+        .resolves.toContain("# Your Agent Interview");
+      await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "plan.md"), "utf8"))
+        .resolves.toContain("# Your Agent Plan");
+      await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "run-planning.md"), "utf8"))
+        .resolves.toContain("# Your Agent Planning");
+      await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "index.md"), "utf8"))
+        .rejects.toThrow();
+      await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "AGENT-user.md"), "utf8"))
+        .rejects.toThrow();
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("seeds only owner-facing starter skills by default", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "memory-init-skills-test-"));
+    const rootDir = path.resolve(".");
+    const memoryRoot = path.join(tempRoot, "memory");
+
+    try {
+      await initializeMemoryLayout(rootDir, memoryRoot);
+
+      await expect(readFile(path.join(memoryRoot, "skills", "interview", "SKILL.md"), "utf8"))
+        .resolves.toContain("active BrainDrive page");
+      await expect(readFile(path.join(memoryRoot, "skills", "feature-spec", "SKILL.md"), "utf8"))
+        .resolves.toContain("active page's `spec.md`");
+      await expect(readFile(path.join(memoryRoot, "skills", "plan", "SKILL.md"), "utf8"))
+        .resolves.toContain("active page's `plan.md`");
+      await expect(readFile(path.join(memoryRoot, "skills", "landscape", "SKILL.md"), "utf8"))
+        .rejects.toThrow();
+      await expect(readFile(path.join(memoryRoot, "skills", "test-plan", "SKILL.md"), "utf8"))
+        .rejects.toThrow();
+      await expect(readFile(path.join(memoryRoot, "skills", "milestone-check", "SKILL.md"), "utf8"))
+        .rejects.toThrow();
+      await expect(readFile(path.join(memoryRoot, "skills", "smoke-test", "SKILL.md"), "utf8"))
         .rejects.toThrow();
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
