@@ -1,6 +1,6 @@
 # Fitness Spec
 
-*Owner state for fitness goals, current health and activity reality, constraints, and missing information.*
+*Owner state for fitness goals, current health and activity reality, constraints, preferences, assumptions, success criteria, and missing information.*
 
 **Status:** Starter template - no interview conducted yet
 
@@ -21,6 +21,18 @@ To be filled through conversation.
 ## What's In The Way
 
 *Practical, physical, emotional, time, energy, knowledge, injury, recovery, or all-or-nothing obstacles that shape the plan.*
+
+To be filled through conversation.
+
+## What Good Looks Like
+
+*The owner's success criteria, confidence threshold, sustainability signals, and what would make the Fitness plan feel realistic.*
+
+To be filled through conversation.
+
+## Assumptions And Unknowns
+
+*Estimates, unverified claims, missing baseline information, health-adjacent unknowns, and assumptions that should not be treated as settled facts.*
 
 To be filled through conversation.
 

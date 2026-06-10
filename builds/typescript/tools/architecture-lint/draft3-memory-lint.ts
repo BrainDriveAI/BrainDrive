@@ -125,6 +125,117 @@ const FINANCE_REQUIRED_MARKERS: Array<{ file: string; marker: string; descriptio
   },
 ];
 
+const SURFACE_REQUIRED_MARKERS: Record<string, Array<{ file: string; marker: string; description: string }>> = {
+  career: [
+    {
+      file: "AGENT.md",
+      marker: "Career owns career alignment and planning",
+      description: "Career parent surface ownership",
+    },
+    {
+      file: "run-interview.md",
+      marker: "early career or first direction",
+      description: "Career starting-position adaptation",
+    },
+    {
+      file: "run-interview.md",
+      marker: "Classify new facts before writing",
+      description: "Career artifact placement rule",
+    },
+    {
+      file: "plan.md",
+      marker: "## Child-App Handoffs",
+      description: "Career child-app handoff section",
+    },
+    {
+      file: "run-planning.md",
+      marker: "Route to a child app only",
+      description: "Career child-app routing gate",
+    },
+  ],
+  fitness: [
+    {
+      file: "AGENT.md",
+      marker: "Fitness owns fitness alignment and planning",
+      description: "Fitness parent surface ownership",
+    },
+    {
+      file: "run-interview.md",
+      marker: "starting from scratch",
+      description: "Fitness starting-position adaptation",
+    },
+    {
+      file: "run-interview.md",
+      marker: "Classify new facts before writing",
+      description: "Fitness artifact placement rule",
+    },
+    {
+      file: "plan.md",
+      marker: "## Child-App Handoffs",
+      description: "Fitness child-app handoff section",
+    },
+    {
+      file: "run-planning.md",
+      marker: "Route to a child app only",
+      description: "Fitness child-app routing gate",
+    },
+  ],
+  "new-project": [
+    {
+      file: "AGENT.md",
+      marker: "New Project owns guided custom-page creation",
+      description: "New Project surface ownership",
+    },
+    {
+      file: "spec.md",
+      marker: "## Why This Belongs Here",
+      description: "New Project routing rationale section",
+    },
+    {
+      file: "run-interview.md",
+      marker: "decide the right home before scaffolding",
+      description: "New Project routing judgment",
+    },
+    {
+      file: "plan.md",
+      marker: "## Routing Decision",
+      description: "New Project routing decision section",
+    },
+    {
+      file: "run-planning.md",
+      marker: "Placeholder-only files are not sufficient",
+      description: "New Project useful scaffold guard",
+    },
+  ],
+  relationships: [
+    {
+      file: "AGENT.md",
+      marker: "Relationships owns relationship-status triage and planning",
+      description: "Relationships parent surface ownership",
+    },
+    {
+      file: "run-interview.md",
+      marker: "finding a romantic partner",
+      description: "Relationships starting-position adaptation",
+    },
+    {
+      file: "run-interview.md",
+      marker: "Treat information about other people as owner-provided context",
+      description: "Relationships privacy-of-others boundary",
+    },
+    {
+      file: "plan.md",
+      marker: "## Child-App Handoffs",
+      description: "Relationships child-app handoff section",
+    },
+    {
+      file: "run-planning.md",
+      marker: "Route to a child app only",
+      description: "Relationships child-app routing gate",
+    },
+  ],
+};
+
 export async function lintDraft3MemoryStarterPack(starterPackRoot: string): Promise<Draft3MemoryLintResult> {
   const errors: string[] = [];
 
@@ -211,6 +322,16 @@ export async function lintDraft3MemoryStarterPack(starterPackRoot: string): Prom
     const content = await readOptional(path.join(financeRoot, requirement.file));
     if (content !== null && !content.includes(requirement.marker)) {
       errors.push(`Finance template missing ${requirement.description}: ${requirement.file}`);
+    }
+  }
+
+  for (const [projectId, requirements] of Object.entries(SURFACE_REQUIRED_MARKERS)) {
+    const projectRoot = path.join(starterPackRoot, "projects", "templates", projectId);
+    for (const requirement of requirements) {
+      const content = await readOptional(path.join(projectRoot, requirement.file));
+      if (content !== null && !content.includes(requirement.marker)) {
+        errors.push(`${projectId} template missing ${requirement.description}: ${requirement.file}`);
+      }
     }
   }
 

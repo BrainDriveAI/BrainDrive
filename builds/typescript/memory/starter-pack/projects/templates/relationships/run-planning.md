@@ -8,7 +8,7 @@ Update sections in place in `plan.md`; never replace the whole file. Always keep
 
 ## What This Procedure Accomplishes
 
-Turn the Relationships spec into a concrete sequence with one immediate step, a practical roadmap, and clear blockers.
+Turn the Relationships spec into a concrete sequence with one immediate step, a practical roadmap, owner decisions, conversation prep, child-app handoffs when needed, review status, and clear blockers.
 
 ## When to Run
 
@@ -18,18 +18,26 @@ Turn the Relationships spec into a concrete sequence with one immediate step, a 
 
 ## Method
 
+Read the Relationships `spec.md`, existing `plan.md`, `me/profile.md`, and relevant page summaries or child-app summaries before planning. Confirm the spec has enough goal, owner-provided context, boundary, assumption, and success-criteria context to plan. If not, run or suggest the Relationships interview first.
+
 Lead with one small, meaningful next move that fits the relationship and risk level. In this domain, the first action is often preparation, a low-stakes conversation, a text, a boundary, or noticing a pattern. Do not make "fix the relationship" or "have the hard conversation" the first step unless the owner is actually ready and it is safe.
 
 Build skill development into the roadmap when needed: naming needs, setting boundaries, tolerating discomfort, repairing after conflict, or asking directly for what the owner wants.
 
+Every plan step must trace to a stated goal, owner-provided context, boundary, success criterion, safety constraint, or missing-information need. If data is incomplete, create a provisional plan with explicit missing-information steps instead of pretending the plan is final.
+
+Mark each step as one of: owner action, owner decision, reflection/prep, conversation prep, Relationships review, or child-app handoff. Route to a child app only when the step requires specialized execution beyond the page-level Relationships plan and a suitable child app exists. If no child app is appropriate, keep the work at page level or mark the missing execution capability.
+
+When child-app output changes the Relationships plan, record only the page-level implication, decision, or next step. Do not copy detailed journal entries, people-memory detail, reminders, reports, rules, or app state into Relationships.
+
 ## Done Criteria
 
-`plan.md` names the first step, roadmap, destination, and remaining blockers without pretending complex relationships can be solved by one script.
+`plan.md` names the first step, roadmap, owner decisions, child-app handoffs when needed, review status, destination, and remaining blockers without pretending complex relationships can be solved by one script.
 
 ## After Running
 
-Report what changed, update `plan.md`, add todos only for concrete next actions, and return to Relationships scope.
+Report what changed, update `plan.md`, add todos only for concrete next actions, update page metadata or rollup summaries only as brief summaries, and return to Relationships scope.
 
 ## What This Procedure Is Not
 
-It is not therapy, diagnosis, manipulation coaching, crisis response, or a substitute for qualified support when safety is at issue.
+It is not therapy, diagnosis, manipulation coaching, crisis response, passive ingestion, automatic outreach, surveillance, or a substitute for qualified support when safety is at issue.

@@ -1,6 +1,6 @@
 # Relationships Spec
 
-*Owner state for relationship goals, current relationship reality, constraints, and missing information.*
+*Owner state for relationship goals, owner-provided context, boundaries, assumptions, success criteria, and missing information.*
 
 **Status:** Starter template - no interview conducted yet
 
@@ -21,6 +21,18 @@ To be filled through conversation.
 ## What's In The Way
 
 *Practical, emotional, communication, boundary, expectation, trust, timing, safety, or pattern-level obstacles that shape the plan.*
+
+To be filled through conversation.
+
+## What Good Looks Like
+
+*The owner's success criteria, desired relationship path, boundaries, confidence threshold, and what would make the Relationships plan feel safe and useful.*
+
+To be filled through conversation.
+
+## Assumptions And Unknowns
+
+*Owner-provided interpretations, unverified claims about other people, missing context, safety unknowns, and assumptions that should not be treated as settled facts.*
 
 To be filled through conversation.
 

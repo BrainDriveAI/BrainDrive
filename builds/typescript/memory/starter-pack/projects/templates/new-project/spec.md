@@ -1,6 +1,6 @@
 # Project Spec
 
-*Owner state for project goals, current reality, constraints, and missing information.*
+*Owner state for routing judgment, page-creation goals, current reality, constraints, assumptions, success criteria, and missing information.*
 
 **Status:** Starter template - no interview conducted yet
 
@@ -21,6 +21,24 @@ To be filled through conversation.
 ## What's In The Way
 
 *Practical, emotional, scope, timing, resource, knowledge, or decision obstacles that shape the plan.*
+
+To be filled through conversation.
+
+## Why This Belongs Here
+
+*The reason this should become a new page rather than an existing-page update, task, child-app candidate, loose idea, or future app/template/share request.*
+
+To be filled through conversation.
+
+## What Good Looks Like
+
+*The owner's success criteria, page usefulness threshold, first scaffold expectations, and what would make the created page worth returning to.*
+
+To be filled through conversation.
+
+## Assumptions And Unknowns
+
+*Unverified claims, unclear routing, duplicate-page risk, future capability requests, and assumptions that should not be treated as settled facts.*
 
 To be filled through conversation.
 

@@ -10,9 +10,11 @@ This is the catch-all for topics that don't fit the predefined domains. If the o
 
 ## What This Project Does
 
-New Project owns owner-created projects that do not clearly fit Finance, Fitness, Career, or Relationships. It provides the same Orient, Align, Plan, Execute, Propagate structure while adapting the domain expertise to the topic the owner brings.
+New Project owns guided custom-page creation: deciding whether an owner request deserves a durable new page, belongs in an existing page, is only a task, is a future child-app candidate, or should be captured as an idea before scaffolding.
 
-When the active project is New Project, clarify whether the owner needs alignment, planning, or a concrete next move. Do not force a generic productivity plan before the project type, current reality, and success shape are clear.
+When the active project is New Project, clarify whether the owner needs a new page, existing-page routing, planning, or a concrete next move. Do not force a generic productivity plan or create a new page before the project type, current reality, routing fit, and success shape are clear.
+
+V.1 creates owner-inspectable page files. It does not generate production code, install dependencies, publish or install shared pages, modify the BrainDrive runtime, or act as a marketplace.
 
 ## Handling Sensitive Topics
 
@@ -35,16 +37,16 @@ Adaptable — match the topic's energy. Kitchen renovation: practical and organi
 - Orient here, then read `AGENT-user.md` if present.
 - Align through `spec.md` and `run-interview.md`, then read `run-interview-user.md` if present.
 - Plan through `plan.md` and `run-planning.md`, then read `run-planning-user.md` if present.
-- Propagate material changes back to `spec.md`, `plan.md`, todos, and any required page metadata or root rollup only as brief summaries.
+- Propagate material changes back to `spec.md`, `plan.md`, todos, `me/profile.md` when confirmed stable facts matter beyond New Project, created page files, and any required page metadata or root rollup only as brief summaries.
 
 ## Files
 
 - `AGENT.md` - managed New Project orientation.
 - `AGENT-user.md` - optional owner overlay for this project.
-- `spec.md` - owner state for goals, current reality, constraints, and missing information.
+- `spec.md` - owner state for New Project routing preferences, page-creation goals, current reality, constraints, assumptions, success criteria, and missing information.
 - `run-interview.md` - managed procedure for filling `spec.md`.
 - `run-interview-user.md` - optional owner overlay for interview behavior.
-- `plan.md` - owner state for the current action plan and roadmap.
+- `plan.md` - owner state for routing decisions, created-page next steps, future app/template/share candidates, review status, and roadmap.
 - `run-planning.md` - managed procedure for filling `plan.md`.
 - `run-planning-user.md` - optional owner overlay for planning behavior.
 
@@ -52,4 +54,4 @@ Adaptable — match the topic's energy. Kitchen renovation: practical and organi
 
 New Project can note finance, fitness, career, relationship, health, legal, or personal context when it materially affects the project. Detailed work belongs in the matching domain or with a qualified professional after the requested project artifact is complete.
 
-Do not diagnose, provide regulated professional advice, or treat unsafe situations as ordinary planning problems. Mark uncertainty and recommend qualified support when the project requires it.
+Do not diagnose, provide regulated professional advice, treat unsafe situations as ordinary planning problems, imply app generation/marketplace/sharing/runtime modification exists in V.1, or overwrite existing page specs/plans without explicit owner approval. Mark uncertainty and recommend qualified support when the project requires it.

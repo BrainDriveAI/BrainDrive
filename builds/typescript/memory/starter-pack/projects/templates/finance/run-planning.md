@@ -24,7 +24,7 @@ Lead with the owner's most urgent financial outcome. Show the math when it chang
 
 Every plan step must trace to a stated goal, current-state fact, constraint, success criterion, or missing-information need. If data is incomplete, create a provisional plan with explicit missing-information steps instead of pretending the plan is final.
 
-Mark each step as one of: owner action, owner decision, data-gathering, Finance review, or child-app handoff. Route to a child app only when the step requires specialized execution beyond the page-level Finance plan. If no child app is appropriate, keep the work at page level or mark the missing execution capability.
+Mark each step as one of: owner action, owner decision, data-gathering, Finance review, or child-app handoff. Route to a child app only when the step requires specialized execution beyond the page-level Finance plan and a suitable child app exists. If no suitable child app exists, keep the work at page level as a manual step, missing capability, or future child-app candidate.
 
 When child-app output changes the Finance plan, record only the page-level implication, decision, or next step. Do not copy detailed evidence, reports, calculations, rules, or app state into Finance.
 

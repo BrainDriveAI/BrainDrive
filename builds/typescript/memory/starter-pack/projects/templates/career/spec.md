@@ -1,6 +1,6 @@
 # Career Spec
 
-*Owner state for career goals, current professional reality, constraints, and missing information.*
+*Owner state for career goals, current professional reality, constraints, assumptions, success criteria, and missing information.*
 
 **Status:** Starter template - no interview conducted yet
 
@@ -21,6 +21,18 @@ To be filled through conversation.
 ## What's In The Way
 
 *Practical, emotional, skill, timing, compensation, confidence, burnout, or household obstacles that shape the plan.*
+
+To be filled through conversation.
+
+## What Good Looks Like
+
+*The owner's success criteria, decision criteria, confidence threshold, and what would make the Career plan feel useful.*
+
+To be filled through conversation.
+
+## Assumptions And Unknowns
+
+*Unverified claims, missing evidence, inferred narratives, market assumptions, and capacity limits that should not be treated as settled facts.*
 
 To be filled through conversation.
 

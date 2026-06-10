@@ -26,7 +26,7 @@ To be filled after alignment.
 
 ## Child-App Handoffs
 
-*Execution steps that should move to a specialized child app, including the reason for the handoff and only the page-level context needed.*
+*Execution steps that should move to a specialized child app when a suitable one exists, including the reason for the handoff and only the page-level context needed.*
 
 To be filled when a plan step requires specialized execution.
 
