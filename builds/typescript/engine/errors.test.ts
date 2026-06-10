@@ -76,4 +76,20 @@ describe("classifyProviderError", () => {
       ].join("\n"),
     });
   });
+
+  it("surfaces timeout guidance for long provider requests", () => {
+    const event = classifyProviderError(new Error("Upstream idle timeout exceeded | code=504"));
+
+    expect(event).toEqual({
+      type: "error",
+      code: "provider_error",
+      message: [
+        "Provider did not respond in time.",
+        "What to check:",
+        "1. Retry the request.",
+        "2. Try a smaller prompt or a faster model for long starter interviews.",
+        "3. Verify provider status if timeouts continue.",
+      ].join("\n"),
+    });
+  });
 });

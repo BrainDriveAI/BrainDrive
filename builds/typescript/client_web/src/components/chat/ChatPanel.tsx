@@ -292,11 +292,12 @@ export default function ChatPanel({
   const visibleChatError =
     chatError && chatError !== dismissedError ? chatError : null;
   const isContextOverflowError = errorCode === "context_overflow";
+  const normalizedVisibleChatError = visibleChatError?.toLowerCase() ?? "";
   const isProviderError = visibleChatError != null && (
-    visibleChatError.includes("credentials") ||
-    visibleChatError.includes("could not be reached") ||
-    visibleChatError.includes("provider") ||
-    visibleChatError.includes("model")
+    normalizedVisibleChatError.includes("credentials") ||
+    normalizedVisibleChatError.includes("could not be reached") ||
+    normalizedVisibleChatError.includes("provider") ||
+    normalizedVisibleChatError.includes("model")
   ) && !isContextOverflowError;
   const lastUserMessage = [...messages].reverse().find((message) => message.role === "user") ?? null;
   const shouldShowEmptyState = isEmpty && messages.length === 0 && !isLoading;

@@ -3510,6 +3510,11 @@ function buildStarterDerivedAnchors(projectId: string, ownerMessages: string[]):
     if (/two or three|2 or 3|small things/.test(text)) {
       spec.push("Starter capacity: two or three small actions a week feels plausible.");
     }
+    if (/knee injury|nervous about making it worse|safe way|safe next steps|walking|professional|pushing through pain/.test(text)) {
+      spec.push("Fitness signal: knee injury history means Katie needs safe next steps before increasing activity.");
+      spec.push("Boundary signal: walking is usually okay, running too fast feels risky, and success means confidence without pushing through pain.");
+      spec.push("Support signal: professional input is welcome when the plan names what to ask.");
+    }
 
     if (/get healthier|move more|not doing much|overwhelmed|small things/.test(text)) {
       plan.push("Starter goal: get healthier and move more without turning the plan into an intense routine.");
@@ -3520,6 +3525,12 @@ function buildStarterDerivedAnchors(projectId: string, ownerMessages: string[]):
     }
     if (/do not know|don't know|not doing much|overwhelmed|obsessing|not sure/.test(text)) {
       plan.push("Honest unknowns: preferred activities, realistic schedule, and what progress should mean still need confirmation.");
+    }
+    if (/knee injury|nervous about making it worse|safe way|safe next steps|walking|professional|pushing through pain/.test(text)) {
+      plan.push("Low-impact first action: choose a walking-based step that stays below Katie's knee-risk threshold.");
+      plan.push("Professional input: ask a PT or sports medicine professional what warning signs, progression limits, and safe activity boundaries apply.");
+      plan.push("Pain boundary: do not push through pain or jump into aggressive running.");
+      plan.push("Gradual progress: build confidence through small increases only after the low-impact step feels safe.");
     }
 
     return { spec, plan };

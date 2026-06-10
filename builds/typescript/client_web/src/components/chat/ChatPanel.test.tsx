@@ -114,6 +114,22 @@ describe("ChatPanel typing indicator behavior", () => {
     expect(screen.queryByRole("button", { name: "Try Again" })).not.toBeInTheDocument();
   });
 
+  it("treats provider timeout messages as provider errors regardless of casing", () => {
+    const onOpenSettings = vi.fn();
+    useGatewayChatMock.mockReturnValue(
+      makeHookState({
+        error: new Error("Provider did not respond in time.\nWhat to check:\n1. Retry the request."),
+        errorCode: "provider_error",
+      })
+    );
+
+    render(<ChatPanel activeConversationId={null} isEmpty={false} onOpenSettings={onOpenSettings} />);
+
+    expect(screen.getByText(/Provider did not respond in time/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Try Again" })).toBeInTheDocument();
+  });
+
   it("offers a fresh conversation action for normal existing history", async () => {
     const hookState = makeHookState({
       messages: [

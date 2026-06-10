@@ -93,7 +93,7 @@ function sanitizeProviderMessage(message: string): string {
       "Provider did not respond in time.",
       "What to check:",
       "1. Retry the request.",
-      "2. Try a smaller prompt.",
+      "2. Try a smaller prompt or a faster model for long starter interviews.",
       "3. Verify provider status if timeouts continue.",
     ].join("\n");
   }

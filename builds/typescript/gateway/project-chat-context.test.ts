@@ -165,6 +165,26 @@ describe("project chat context", () => {
     expect(snapshot?.plan).toContain("Honest unknowns");
   });
 
+  it("adds Fitness starter anchors for injury-safety goals", () => {
+    const snapshot = buildStarterProjectArtifactSnapshot("fitness", conversationWithUserMessages([
+      "I want to get active again, but I had a knee injury a while back and I am nervous about making it worse.",
+      "I am not asking for a diagnosis. I just need a safe way to think about next steps.",
+      "Walking is usually okay, but running too fast makes me nervous.",
+      "I can check with a professional if the plan tells me what to ask.",
+      "Success is building confidence without pushing through pain.",
+    ]));
+
+    expect(snapshot?.spec).toContain("knee injury");
+    expect(snapshot?.spec).toContain("safe next steps");
+    expect(snapshot?.spec).toContain("walking");
+    expect(snapshot?.spec).toContain("professional input");
+    expect(snapshot?.spec).toContain("without pushing through pain");
+    expect(snapshot?.plan).toContain("Low-impact first action");
+    expect(snapshot?.plan).toContain("Professional input");
+    expect(snapshot?.plan).toContain("Pain boundary");
+    expect(snapshot?.plan).toContain("Gradual progress");
+  });
+
   it("adds Career starter anchors for burnout and workplace-risk direction", () => {
     const snapshot = buildStarterProjectArtifactSnapshot("career", conversationWithUserMessages([
       "I think I may need to leave my job, but I am burned out and worried about saying too much because there is some workplace tension I do not want spread around.",
