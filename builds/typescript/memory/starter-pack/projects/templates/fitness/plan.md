@@ -1,41 +1,35 @@
 # Fitness Plan
 
-*This is your action plan - the concrete steps that move you toward your health and fitness goals. It starts with your first move and maps out the full journey.*
+*Owner state for the current Fitness action plan and roadmap.*
+
+**Status:** Starter template - no plan created yet
+
+**Last updated:** -
 
 ## Right Now - Your First Step
 
-One realistic thing you can do tomorrow to start building momentum. Not a new gym membership - something you'll actually do.
+*One realistic thing the owner can do this week to build momentum.*
 
-If health context is relevant, make the first step fit the constraint. Do not make the first step a clinical task unless it truly blocks the plan right now.
-
-*To be filled after our conversation.*
+To be filled after alignment.
 
 ## The Roadmap
 
-The phased journey toward your fitness goals. Lead each phase with what life looks like when it's done - the pull - before listing the steps. Only build phases that serve the user stories in the spec. If the spec flagged something as "Worth exploring later," it doesn't get a phase here. The first phases are detailed. Later phases are high-level and get filled in as you progress. The plan evolves with you.
+*The phased journey toward the owner's fitness goals, with near-term phases more detailed than later ones.*
 
-Use relevant health context to shape pacing, constraints, and confirmation points. Translate records into practical Fitness decisions: exercise intensity, progression speed, recovery emphasis, nutrition approach, and what should be confirmed before changing training.
-
-Use cautious language when interpreting health records: "this points toward", "this makes me lean", "worth confirming", or "based on this note". Do not diagnose, prescribe, triage symptoms, recommend medication changes, or pretend clinical certainty.
-
-*Example of what this looks like when filled in:*
-- *Weeks 1-4: Build the foundation - establish a routine you can stick to, learn the basics of nutrition, track progress weekly*
-- *Months 2-3: Find your rhythm - progressive overload, refine nutrition, handle the first plateau (it's coming)*
-- *Months 4-6: Sustain and adjust - to be detailed as we get closer, adapts based on real progress*
-- *Beyond: Long-term maintenance - what sustainable fitness looks like for your life, not a 90-day program*
-
-*To be filled after our conversation.*
+To be filled after alignment.
 
 ## The Destination
 
-Where this is all heading - and what it looks like to maintain it. Not just a number on a scale but how you feel, what you can do, and what's sustainable for your life. Use the owner's own words and success criteria from their user stories - quote them back, don't rewrite in your voice.
+*Where this is heading and what sustainable fitness looks like in the owner's life.*
 
-*To be filled as goals get more specific.*
+To be filled as goals get more specific.
 
 ## What Needs More Work
 
-What the plan can't cover yet because we need more information. Only include gaps the spec flagged as "Before the plan is complete." Items marked "Worth exploring later" stay in the spec, not here.
+*Gaps that must be resolved before the plan can be considered stable.*
 
-Do not turn every lab abnormality or old note into a blocker. Include doctor/PT confirmation only when it could change what the owner should do next.
+To be filled through conversation.
 
-*To be filled through conversation.*
+## Changelog
+
+- Starter template created.

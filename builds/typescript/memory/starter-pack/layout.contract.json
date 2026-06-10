@@ -10,15 +10,18 @@
   ],
   "required_files": [
     "AGENT.md",
+    "me/profile.md",
+    "me/todo.md",
     "preferences/default.json",
     "documents/projects.json",
     "skills/registry.json"
   ],
   "default_project_template_files": [
     "AGENT.md",
-    "index.md",
     "spec.md",
-    "plan.md"
+    "run-interview.md",
+    "plan.md",
+    "run-planning.md"
   ],
   "overlay_naming": {
     "managed_base_suffix": ".md",
@@ -26,7 +29,7 @@
     "invalid_examples": [
       "user-AGENT.md",
       "compare-custom.md",
-      "budget-rules-local.md"
+      "rules-local.md"
     ]
   },
   "finance_project_template_files": [
@@ -34,45 +37,38 @@
     "spec.md",
     "run-interview.md",
     "plan.md",
-    "run-planning.md",
-    "budget/AGENT.md",
-    "budget/budget.md",
-    "budget/budget-rules.md",
-    "budget/create.md",
-    "budget/compare.md",
-    "budget/statements/README.md",
-    "budget/reports/README.md",
-    "budget/reports/latest.md"
+    "run-planning.md"
+  ],
+  "life_area_project_template_files": [
+    "AGENT.md",
+    "spec.md",
+    "run-interview.md",
+    "plan.md",
+    "run-planning.md"
+  ],
+  "life_area_project_ids": [
+    "career",
+    "finance",
+    "fitness",
+    "relationships"
+  ],
+  "project_optional_overlay_files": [
+    "AGENT-user.md",
+    "run-interview-user.md",
+    "run-planning-user.md"
   ],
   "finance_optional_overlay_files": [
     "AGENT-user.md",
     "run-interview-user.md",
-    "run-planning-user.md",
-    "budget/AGENT-user.md",
-    "budget/budget-rules-user.md",
-    "budget/create-user.md",
-    "budget/compare-user.md",
-    "budget/statements/README-user.md",
-    "budget/reports/README-user.md"
+    "run-planning-user.md"
   ],
-  "finance_project_generated_directories": [
-    "budget",
-    "budget/reports",
-    "budget/statements"
-  ],
+  "finance_project_generated_directories": [],
   "fitness_project_template_files": [
     "AGENT.md",
-    "index.md",
     "spec.md",
+    "run-interview.md",
     "plan.md",
-    "health-docs/index.md",
-    "health-docs/intake-and-disclaimer.md",
-    "health-docs/relevance-and-routing.md",
-    "health-docs/interpretation-voice.md",
-    "health-docs/conflict-and-staleness.md",
-    "health-docs/update-existing-plan.md"
+    "run-planning.md"
   ],
-  "fitness_project_generated_directories": [
-    "health-docs"
-  ]
+  "fitness_project_generated_directories": []
 }

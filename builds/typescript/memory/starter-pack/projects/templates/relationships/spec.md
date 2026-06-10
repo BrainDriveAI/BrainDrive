@@ -1,46 +1,41 @@
 # Relationships Spec
 
-*This is where your relationship picture comes together. Right now it's a starting point — we'll build it out together through conversation.*
+*Owner state for relationship goals, current relationship reality, constraints, and missing information.*
+
+**Status:** Starter template - no interview conducted yet
+
+**Last updated:** -
 
 ## What You Want
 
-Your goals as specific user stories. Each one captures what you want to change, what's driving it, and what success looks like for you personally. These are the core of your spec — everything else supports them. Use the owner's exact words — quote, don't paraphrase.
+*The owner's relationship goals as specific user stories, using the owner's words where possible.*
 
-*Example:*
-
-> *### I want to feel like a team with my partner again*
-> *As someone whose relationship has gone flat — we don't fight, but we don't really talk either — I want to reconnect before the distance becomes permanent. I still love him, but I'm scared that if I don't do something, we'll drift into being roommates. Success looks like more nights where I go to bed feeling like "yeah, there he is" — the person I moved in with.*
-
-*To be filled through conversation.*
+To be filled through conversation.
 
 ## Where You Are
 
-Your full relationship landscape — the context that shapes each goal above. Partner, family, kids, friends, colleagues — who matters to you and how those relationships are going. Not just the one situation that brought you here — the whole map. What's working, what isn't, and what patterns show up across relationships.
+*The full relationship landscape: partner, family, kids, friends, colleagues, key patterns, what is working, what is strained, and what triggered this conversation.*
 
-*To be filled through conversation.*
+To be filled through conversation.
 
 ## What's In The Way
 
-The specific obstacles standing between you and the goals above. Sometimes it's obvious (conflict, distance). Sometimes it's underneath (unspoken expectations, avoidance, patterns that keep repeating). Often the surface issue isn't the real one.
+*Practical, emotional, communication, boundary, expectation, trust, timing, safety, or pattern-level obstacles that shape the plan.*
 
-*To be filled through conversation.*
+To be filled through conversation.
 
 ## The Plan
 
-One meaningful next step — not "fix the relationship," but something small and concrete. See plan.md for the full action plan.
+*One meaningful next step and the direction this project is heading. The full plan lives in `plan.md`.*
 
-*To be filled through conversation.*
+To be filled through conversation.
 
 ## What's Still Missing
 
-### Before the plan is complete
+*Information gaps that could change the plan, separated from threads that are only worth exploring later.*
 
-Gaps that could change the direction. If we fill these in and the answer is different from what we assumed, the plan shifts. These are the next conversations worth having.
+To be filled through conversation.
 
-*To be filled through conversation.*
+## Changelog
 
-### Worth exploring later
-
-Interesting threads that won't change the current plan. Future conversations when the time is right.
-
-*To be filled through conversation.*
+- Starter template created.
