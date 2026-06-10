@@ -3500,6 +3500,31 @@ function buildStarterDerivedAnchors(projectId: string, ownerMessages: string[]):
   const spec: string[] = [];
   const plan: string[] = [];
 
+  if (projectId === "fitness") {
+    if (/get healthier|move more|not doing much|overwhelmed|small things/.test(text)) {
+      spec.push("Fitness signal: wants to get healthier and move more from a low-current-activity baseline.");
+    }
+    if (/overwhelmed|too intense|obsessing/.test(text)) {
+      spec.push("Constraint signal: intense plans and overtracking feel overwhelming.");
+    }
+    if (/two or three|2 or 3|small things/.test(text)) {
+      spec.push("Starter capacity: two or three small actions a week feels plausible.");
+    }
+
+    if (/get healthier|move more|not doing much|overwhelmed|small things/.test(text)) {
+      plan.push("Starter goal: get healthier and move more without turning the plan into an intense routine.");
+      plan.push("Small first action: choose one simple movement step this week before adding more structure.");
+    }
+    if (/two or three|2 or 3|small things/.test(text)) {
+      plan.push("Starter cadence: aim for two or three times a week only after the first action feels doable.");
+    }
+    if (/do not know|don't know|not doing much|overwhelmed|obsessing|not sure/.test(text)) {
+      plan.push("Honest unknowns: preferred activities, realistic schedule, and what progress should mean still need confirmation.");
+    }
+
+    return { spec, plan };
+  }
+
   if (projectId !== "career") {
     return { spec, plan };
   }

@@ -147,6 +147,24 @@ describe("project chat context", () => {
     expect(snapshot?.plan).toContain("Small next action");
   });
 
+  it("adds Fitness starter anchors for vague movement goals", () => {
+    const snapshot = buildStarterProjectArtifactSnapshot("fitness", conversationWithUserMessages([
+      "I just want to get healthier and move more. I do not know where to start.",
+      "I am not doing much right now.",
+      "I get overwhelmed by plans that are too intense.",
+      "I could probably start with two or three small things a week.",
+      "I want to feel like I am making progress without obsessing over it.",
+    ]));
+
+    expect(snapshot?.spec).toContain("get healthier and move more");
+    expect(snapshot?.spec).toContain("low-current-activity baseline");
+    expect(snapshot?.spec).toContain("intense plans");
+    expect(snapshot?.plan).toContain("Starter goal");
+    expect(snapshot?.plan).toContain("Small first action");
+    expect(snapshot?.plan).toContain("two or three times a week");
+    expect(snapshot?.plan).toContain("Honest unknowns");
+  });
+
   it("adds Career starter anchors for burnout and workplace-risk direction", () => {
     const snapshot = buildStarterProjectArtifactSnapshot("career", conversationWithUserMessages([
       "I think I may need to leave my job, but I am burned out and worried about saying too much because there is some workplace tension I do not want spread around.",
