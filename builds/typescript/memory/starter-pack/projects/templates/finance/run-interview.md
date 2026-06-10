@@ -28,7 +28,7 @@ Show useful math when it affects priority. Ask for specifics where they matter, 
 
 ## After Running
 
-Update `spec.md`, summarize material changes, add todos only for concrete next actions, and return to Finance scope before proposing planning or budget execution.
+Update `spec.md`, summarize material changes, add todos only for concrete next actions, and return to Finance scope before proposing planning.
 
 ## What This Procedure Is Not
 

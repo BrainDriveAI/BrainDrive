@@ -8,24 +8,28 @@ export type Draft3MemoryLintResult = {
   errors: string[];
 };
 
-const REQUIRED_FINANCE_FILES = [
+const ARCHITECTURE_ALIGNED_PROJECTS = [
+  "career",
+  "finance",
+  "fitness",
+  "new-project",
+  "relationships",
+] as const;
+
+const REQUIRED_PROJECT_FILES = [
   "AGENT.md",
   "spec.md",
   "run-interview.md",
   "plan.md",
   "run-planning.md",
-  "budget/AGENT.md",
-  "budget/budget.md",
-  "budget/budget-rules.md",
-  "budget/create.md",
-  "budget/compare.md",
-  "statements/README.md",
-  "reports/README.md",
-  "reports/latest.md",
+] as const;
+
+const STALE_PROJECT_PATHS = [
+  "index.md",
 ] as const;
 
 const STALE_FINANCE_PATHS = [
-  "index.md",
+  "budget",
   "budget.md",
   "rules.md",
   "budgeting/index.md",
@@ -36,33 +40,90 @@ const STALE_FINANCE_PATHS = [
   "budgeting/saved-budget-rules.md",
 ] as const;
 
+const STALE_FITNESS_PATHS = [
+  "health-docs",
+] as const;
+
 const PROCEDURE_FILES = [
   "run-interview.md",
   "run-planning.md",
-  "budget/create.md",
-  "budget/compare.md",
+] as const;
+
+const OPTIONAL_PROJECT_OVERLAY_FILES = [
+  "AGENT-user.md",
+  "run-interview-user.md",
+  "run-planning-user.md",
 ] as const;
 
 export async function lintDraft3MemoryStarterPack(starterPackRoot: string): Promise<Draft3MemoryLintResult> {
   const errors: string[] = [];
-  const financeRoot = path.join(starterPackRoot, "projects", "templates", "finance");
 
-  for (const file of REQUIRED_FINANCE_FILES) {
-    if (!existsSync(path.join(financeRoot, file))) {
-      errors.push(`Missing required Draft 3 Finance file: ${file}`);
+  if (!existsSync(path.join(starterPackRoot, "base", "me", "profile.md"))) {
+    errors.push("Missing required cross-project profile template: base/me/profile.md");
+  }
+
+  const baseAgent = await readOptional(path.join(starterPackRoot, "base", "AGENT.md"));
+  if (baseAgent !== null && /powered by|what model you are/i.test(baseAgent)) {
+    errors.push("base/AGENT.md must stay model-agnostic");
+  }
+
+  if (existsSync(path.join(starterPackRoot, "projects", "templates", "braindrive-plus-one"))) {
+    errors.push("BrainDrive+1 must not be scaffolded as a normal project template");
+  }
+
+  const projectSeeds = await readOptional(path.join(starterPackRoot, "projects", "projects.seed.json"));
+  if (projectSeeds !== null && /"id"\s*:\s*"braindrive-plus-one"/.test(projectSeeds)) {
+    errors.push("BrainDrive+1 must not be seeded as a normal project");
+  }
+
+  for (const projectId of ARCHITECTURE_ALIGNED_PROJECTS) {
+    const projectRoot = path.join(starterPackRoot, "projects", "templates", projectId);
+    for (const file of REQUIRED_PROJECT_FILES) {
+      if (!existsSync(path.join(projectRoot, file))) {
+        errors.push(`Missing required Draft 3 ${projectId} file: ${file}`);
+      }
+    }
+
+    for (const file of STALE_PROJECT_PATHS) {
+      if (existsSync(path.join(projectRoot, file))) {
+        errors.push(`Stale pre-Draft-3 ${projectId} path still exists: ${file}`);
+      }
+    }
+
+    for (const file of PROCEDURE_FILES) {
+      const content = await readOptional(path.join(projectRoot, file));
+      if (content !== null && !/^## Preservation Rule\s*$/m.test(content)) {
+        errors.push(`Procedure is missing Preservation Rule: ${projectId}/${file}`);
+      }
+    }
+
+    for (const file of OPTIONAL_PROJECT_OVERLAY_FILES) {
+      if (existsSync(path.join(projectRoot, file))) {
+        errors.push(`Owner overlay must not be seeded by starter pack: ${projectId}/${file}`);
+      }
+    }
+
+    const agentContent = await readOptional(path.join(projectRoot, "AGENT.md"));
+    if (agentContent !== null) {
+      for (const file of OPTIONAL_PROJECT_OVERLAY_FILES) {
+        if (!agentContent.includes(file)) {
+          errors.push(`Project AGENT.md does not document optional overlay: ${projectId}/${file}`);
+        }
+      }
     }
   }
 
+  const financeRoot = path.join(starterPackRoot, "projects", "templates", "finance");
   for (const file of STALE_FINANCE_PATHS) {
     if (existsSync(path.join(financeRoot, file))) {
       errors.push(`Stale pre-Draft-3 Finance path still exists: ${file}`);
     }
   }
 
-  for (const file of PROCEDURE_FILES) {
-    const content = await readOptional(path.join(financeRoot, file));
-    if (content !== null && !/^## Preservation Rule\s*$/m.test(content)) {
-      errors.push(`Procedure is missing Preservation Rule: ${file}`);
+  const fitnessRoot = path.join(starterPackRoot, "projects", "templates", "fitness");
+  for (const file of STALE_FITNESS_PATHS) {
+    if (existsSync(path.join(fitnessRoot, file))) {
+      errors.push(`Stale pre-Draft-3 Fitness path still exists: ${file}`);
     }
   }
 

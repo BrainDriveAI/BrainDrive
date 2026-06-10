@@ -3,7 +3,6 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 
 import { bootstrapSkillsFromStarterPack, MemorySkillStore } from "./skills.js";
 import { resolveMemoryPath, toMemoryRelativePath } from "./paths.js";
-import { defaultFolderIndexContent } from "./folder-index.js";
 
 export type MemoryInitProfile = "local-dev" | "openrouter-secret-ref" | "braindrive-managed-secret-ref";
 
@@ -42,38 +41,21 @@ const STARTER_PACK_RELATIVE_PATH = "memory/starter-pack";
 const ROOT_DIRECTORIES = ["conversations", "documents", "preferences", "exports", "skills", "diagnostics"];
 const ROOT_AGENT_RELATIVE_PATH = "AGENT.md";
 const PREFERENCES_RELATIVE_PATH = "preferences/default.json";
+const PROFILE_RELATIVE_PATH = "me/profile.md";
 const TODO_RELATIVE_PATH = "me/todo.md";
 const CONVERSATIONS_INDEX_RELATIVE_PATH = "conversations/index.json";
 const PROJECTS_MANIFEST_RELATIVE_PATH = "documents/projects.json";
 const PROJECTS_SEEDED_MARKER_RELATIVE_PATH = "preferences/projects-seeded-v1.json";
 
-const PROJECT_TEMPLATE_FILES = ["AGENT.md", "index.md", "spec.md", "plan.md"] as const;
-const FINANCE_PROJECT_CORE_TEMPLATE_FILES = ["AGENT.md", "spec.md", "run-interview.md", "plan.md", "run-planning.md"] as const;
-const FINANCE_PROJECT_TEMPLATE_FILES = [
-  "budget/AGENT.md",
-  "budget/budget.md",
-  "budget/budget-rules.md",
-  "budget/create.md",
-  "budget/compare.md",
-  "budget/statements/README.md",
-  "budget/reports/README.md",
-  "budget/reports/latest.md",
-] as const;
-const FITNESS_PROJECT_TEMPLATE_FILES = [
-  "health-docs/index.md",
-  "health-docs/intake-and-disclaimer.md",
-  "health-docs/relevance-and-routing.md",
-  "health-docs/interpretation-voice.md",
-  "health-docs/conflict-and-staleness.md",
-  "health-docs/update-existing-plan.md",
-] as const;
+const PROJECT_TEMPLATE_FILES = ["AGENT.md", "spec.md", "run-interview.md", "plan.md", "run-planning.md"] as const;
+const LIFE_AREA_PROJECT_TEMPLATE_FILES = PROJECT_TEMPLATE_FILES;
+const LIFE_AREA_PROJECT_IDS = new Set(["career", "finance", "fitness", "relationships"]);
 const PROJECTS_SEED_RELATIVE_PATH = "projects/projects.seed.json";
 const PROJECT_TEMPLATES_ROOT_RELATIVE_PATH = "projects/templates";
 
 const PROTECTED_PROJECT_IDS = new Set(["braindrive-plus-one"]);
 
 const FALLBACK_PROJECT_SEEDS: Array<{ id: string; name: string; icon: string }> = [
-  { id: "braindrive-plus-one", name: "BrainDrive+1", icon: "sparkles" },
   { id: "career", name: "Career", icon: "briefcase" },
   { id: "relationships", name: "Relationships", icon: "users" },
   { id: "fitness", name: "Fitness", icon: "dumbbell" },
@@ -202,6 +184,16 @@ export async function initializeMemoryLayout(
 
   await ensureFileFromTemplate(
     absoluteMemoryRoot,
+    PROFILE_RELATIVE_PATH,
+    starterPackDir ? path.join(starterPackDir, "base", "me", "profile.md") : null,
+    fallbackProfileSeed(),
+    force,
+    dryRun,
+    summary
+  );
+
+  await ensureFileFromTemplate(
+    absoluteMemoryRoot,
     TODO_RELATIVE_PATH,
     starterPackDir ? path.join(starterPackDir, "base", "me", "todo.md") : null,
     fallbackTodoSeed(),
@@ -279,8 +271,10 @@ export async function scaffoldProjectFiles(
 
   await ensureDirectory(resolveMemoryPath(absoluteMemoryRoot, `documents/${projectId}`), absoluteMemoryRoot, summary, dryRun);
 
-  const isFinanceTemplate = projectId === "finance" || templateId === "finance";
-  const coreTemplateFiles = isFinanceTemplate ? FINANCE_PROJECT_CORE_TEMPLATE_FILES : PROJECT_TEMPLATE_FILES;
+  const coreTemplateFiles =
+    LIFE_AREA_PROJECT_IDS.has(projectId) || LIFE_AREA_PROJECT_IDS.has(templateId)
+      ? LIFE_AREA_PROJECT_TEMPLATE_FILES
+      : PROJECT_TEMPLATE_FILES;
   for (const templateFile of coreTemplateFiles) {
     await ensureProjectTemplateFile(
       absoluteMemoryRoot,
@@ -293,41 +287,6 @@ export async function scaffoldProjectFiles(
       dryRun,
       summary
     );
-  }
-
-  if (isFinanceTemplate) {
-    await ensureDirectory(resolveMemoryPath(absoluteMemoryRoot, `documents/${projectId}/budget`), absoluteMemoryRoot, summary, dryRun);
-    await ensureDirectory(resolveMemoryPath(absoluteMemoryRoot, `documents/${projectId}/budget/statements`), absoluteMemoryRoot, summary, dryRun);
-    await ensureDirectory(resolveMemoryPath(absoluteMemoryRoot, `documents/${projectId}/budget/reports`), absoluteMemoryRoot, summary, dryRun);
-    for (const templateFile of FINANCE_PROJECT_TEMPLATE_FILES) {
-      await ensureProjectTemplateFile(
-        absoluteMemoryRoot,
-        starterPackDir,
-        "finance",
-        projectId,
-        projectName,
-        templateFile,
-        force,
-        dryRun,
-        summary
-      );
-    }
-  }
-
-  if (projectId === "fitness" || templateId === "fitness") {
-    for (const templateFile of FITNESS_PROJECT_TEMPLATE_FILES) {
-      await ensureProjectTemplateFile(
-        absoluteMemoryRoot,
-        starterPackDir,
-        "fitness",
-        projectId,
-        projectName,
-        templateFile,
-        force,
-        dryRun,
-        summary
-      );
-    }
   }
 
   return {
@@ -737,8 +696,8 @@ function fallbackRootAgentPrompt(): string {
     "For explicit user commands to read/list/write/edit/delete files, execute the matching tool directly rather than asking for an extra confirmation message.",
     "For mutating actions, perform only the explicitly requested changes and avoid extra cleanup or deletion steps unless the user requested them.",
     "When writes are needed, request approval through the contract-visible approval flow before any mutating tool executes.",
-    "When asked to create a project folder, produce AGENT.md, index.md, spec.md, and plan.md inside that folder unless the user asks for a smaller subset.",
-    "Read index.md in the current project folder when it exists. It summarizes uploaded and supporting documents so you can decide what to read.",
+    "When asked to create a project folder, produce AGENT.md, spec.md, run-interview.md, plan.md, and run-planning.md inside that folder unless the user asks for a smaller subset.",
+    "Read index.md in the current project folder only when it exists. It is an optional document map, not a default project file.",
     "For project discovery requests, prefer project_list and report projects from documents scope only.",
     "If the user asks to remember something for this chat, keep it in conversational context for this session without requiring file storage.",
     "Only ask for a safe explicit destination when the user asks to persist information into memory files.",
@@ -770,6 +729,41 @@ function fallbackTodoSeed(): string {
   ].join("\n");
 }
 
+function fallbackProfileSeed(): string {
+  return [
+    "# Owner Profile",
+    "",
+    "*Cross-project owner context: stable facts, values, preferences, and life context that matter in more than one project.*",
+    "",
+    "**Status:** Starter template - no owner facts captured yet",
+    "",
+    "**Last updated:** -",
+    "",
+    "## Identity & Situation",
+    "",
+    "*Basic identity, family, location, work, health, life stage, and stable life context.*",
+    "",
+    "To be filled through conversation.",
+    "",
+    "## What Matters To Them",
+    "",
+    "*Deep values, priorities, goals, and cross-cutting constraints that affect multiple projects.*",
+    "",
+    "To be filled through conversation.",
+    "",
+    "## How To Work With Me",
+    "",
+    "*Communication preferences, decision style, support needs, and interaction patterns that should apply across projects.*",
+    "",
+    "To be filled through conversation.",
+    "",
+    "## Changelog",
+    "",
+    "- Starter template created.",
+    "",
+  ].join("\n");
+}
+
 function fallbackProjectTemplateContent(projectName: string, fileName: string): string {
   if (fileName === "AGENT.md") {
     return [
@@ -795,481 +789,123 @@ function fallbackProjectTemplateContent(projectName: string, fileName: string): 
     return [
       `# ${projectName} Spec`,
       "",
-      "## Desired Outcome",
+      `*Owner state for ${projectName} goals, current reality, constraints, and missing information.*`,
       "",
-      "- Define what success looks like.",
+      "**Status:** Starter template - no interview conducted yet",
       "",
-      "## Current State",
+      "**Last updated:** -",
       "",
-      "- Record what is true now.",
+      "## What You Want",
       "",
-      "## Gaps",
+      "*The owner's goals as specific user stories, using the owner's words where possible.*",
       "",
-      "- Capture what is missing or unclear.",
+      "To be filled through conversation.",
+      "",
+      "## Where You Are",
+      "",
+      "*The current reality and context that shape the goals above.*",
+      "",
+      "To be filled through conversation.",
+      "",
+      "## What's In The Way",
+      "",
+      "*Obstacles, constraints, risks, and tradeoffs that shape the plan.*",
+      "",
+      "To be filled through conversation.",
+      "",
+      "## The Plan",
+      "",
+      "*One concrete next step and the direction this project is heading. The full plan lives in `plan.md`.*",
+      "",
+      "To be filled through conversation.",
+      "",
+      "## What's Still Missing",
+      "",
+      "*Information gaps that could change the plan, separated from threads that are only worth exploring later.*",
+      "",
+      "To be filled through conversation.",
+      "",
+      "## Changelog",
+      "",
+      "- Starter template created.",
       "",
     ].join("\n");
   }
 
-  if (fileName === "index.md") {
-    return defaultFolderIndexContent();
-  }
-
   if (fileName === "run-interview.md") {
     return [
-      "# Finance Interview",
+      `# ${projectName} Interview`,
       "",
       "*Procedure for filling `spec.md` through conversation.*",
       "",
       "## Preservation Rule",
       "",
-      "Update sections in place in `spec.md`; never replace the whole file. Keep every section header, italic descriptor, Status line, Last updated line, and `## Changelog`.",
+      "Update sections in place in `spec.md`; never replace the whole file. Always keep every section header, every italic section description, every `**Status:**` line, every `**Last updated:**` line, and `## Changelog`. Use today's date from system context for Last updated and changelog entries.",
       "",
       "## What This Procedure Accomplishes",
       "",
-      "Build a clear financial picture and capture the owner's goals, constraints, current state, and missing information.",
+      "Build a clear project picture and capture the owner's goals, current reality, constraints, and missing information.",
       "",
       "## When to Run",
       "",
-      "- The Finance spec is empty or materially stale.",
-      "- The owner wants to clarify financial goals before planning.",
+      "- The spec is empty or materially stale.",
+      "- The owner wants to clarify goals before planning.",
+      "- New context could materially change the project direction.",
       "",
       "## Method",
       "",
-      "Map income, expenses, debt, savings, investments, benefits, obligations, and relationship or life-transition context that affects money. Use specific numbers where they matter and mark assumptions plainly.",
+      "Start with the owner's presenting concern, then map the broader current reality, constraints, priorities, and missing information. Ask for specifics where they matter and mark assumptions plainly.",
       "",
       "## Done Criteria",
       "",
-      "`spec.md` has useful owner-specific content, current unknowns are labeled, and no unsupported financial claims are presented as facts.",
+      "`spec.md` has useful owner-specific content, important unknowns are labeled, and the direction is not based on unsupported assumptions.",
       "",
       "## After Running",
       "",
-      "Update `spec.md`, summarize material changes, and return to Finance scope before proposing planning or budget execution.",
+      "Update `spec.md`, summarize material changes, add todos only for concrete next actions, and return to project scope before proposing planning.",
       "",
       "## What This Procedure Is Not",
       "",
-      "It is not investment, tax, legal, or debt-settlement professional advice.",
+      "It is not a substitute for qualified professional support when the project requires it.",
       "",
     ].join("\n");
   }
 
   if (fileName === "run-planning.md") {
     return [
-      "# Finance Planning",
+      `# ${projectName} Planning`,
       "",
-      "*Procedure for filling `plan.md` from the Finance spec.*",
+      "*Procedure for filling `plan.md` from the project spec.*",
       "",
       "## Preservation Rule",
       "",
-      "Update sections in place in `plan.md`; never replace the whole file. Keep every section header, italic descriptor, Status line, Last updated line, and `## Changelog`.",
+      "Update sections in place in `plan.md`; never replace the whole file. Always keep every section header, every italic section description, every `**Status:**` line, every `**Last updated:**` line, and `## Changelog`. Use today's date from system context for Last updated and changelog entries.",
       "",
       "## What This Procedure Accomplishes",
       "",
-      "Turn the Finance spec into a concrete sequence with one immediate step and a practical roadmap.",
+      "Turn the spec into a concrete sequence with one immediate step, a practical roadmap, and clear blockers.",
       "",
       "## When to Run",
       "",
       "- The spec has enough information to plan.",
-      "- New financial facts materially change the existing plan.",
+      "- New facts materially change the existing plan.",
+      "- The owner asks what to do next.",
       "",
       "## Method",
       "",
-      "Lead with the owner's most urgent financial outcome, show the math when it affects priority, and keep later phases high-level until earlier phases are complete.",
+      "Lead with the owner's most important outcome. Keep the first step concrete and keep later phases high-level until earlier phases change the facts.",
       "",
       "## Done Criteria",
       "",
-      "`plan.md` names the first step, roadmap, destination, and remaining blockers without copying full reports into the plan.",
+      "`plan.md` names the first step, roadmap, destination, and remaining blockers without turning uncertainty into fake certainty.",
       "",
       "## After Running",
       "",
-      "Update `plan.md`, add concrete todos only when there is an actual next action, and return to the parent Finance scope.",
+      "Report what changed, update `plan.md`, add todos only for concrete next actions, and return to project scope.",
       "",
       "## What This Procedure Is Not",
       "",
-      "It is not a replacement for professional financial, legal, or tax advice.",
-      "",
-    ].join("\n");
-  }
-
-  if (fileName === "budget/AGENT.md") {
-    return [
-      "# Budget - Agent Context",
-      "",
-      "*App folder for managing the owner's saved monthly spending plan and comparing actual spending against it.*",
-      "",
-      "## What This App Does",
-      "",
-      "Maintain the saved budget in `budget.md` and compare source statements against that saved plan.",
-      "",
-      "When you need statement evidence from the owner, ask them to attach the statements in chat or use the visible upload button. Never tell the owner to place files in `documents/finance/budget/statements/`; use that path only internally when reading saved source evidence or reporting where an uploaded file was saved.",
-      "",
-      "## App-Level Flow",
-      "",
-      "Orient here, align with the Finance spec, plan the scope of this run, execute one procedure, then propagate a brief summary back to Finance.",
-      "",
-      "## Preservation Rule",
-      "",
-      "When touching `budget.md`, update sections in place and never replace the whole file. Keep every section header, italic section description, `**Status:**`, `**Last updated:**`, and `## Changelog`.",
-      "",
-      "## Procedures",
-      "",
-      "| Workflow | Use when | Read |",
-      "|---|---|---|",
-      "| Create or revise saved budget | Owner wants to define or change budget limits | `create.md`, then `create-user.md` if present |",
-      "| Monthly comparison | Owner asks how actuals compare to the saved budget | `compare.md`, then `compare-user.md` if present |",
-      "| Source upload routing | Owner uploads statements | `statements/README.md` |",
-      "",
-      "## Statement Intake Checklist",
-      "",
-      "When the owner is setting up a budget from statements, keep a visible checklist in the conversation:",
-      "",
-      "- Received statements, grounded in uploaded source evidence files.",
-      "- Still-needed statements by month, account, or institution.",
-      "- Uncertain uploads that need a targeted clarification.",
-      "",
-      "Do not proceed to a statement-backed budget baseline until the required statement set is present or the owner explicitly approves a partial baseline.",
-      "",
-    ].join("\n");
-  }
-
-  if (fileName === "budget/budget.md") {
-    return [
-      "# Budget",
-      "",
-      "*Saved monthly spending plan used by the Budget app.*",
-      "",
-      "**Status:** Starter template - not yet customized",
-      "",
-      "**Last updated:** -",
-      "",
-      "## Monthly Context",
-      "",
-      "*The month, income assumptions, and savings or debt-payoff goals this saved budget is built around.*",
-      "",
-      "| Field | Value | Notes |",
-      "|---|---:|---|",
-      "| Target month |  | YYYY-MM |",
-      "| Expected income |  | Optional |",
-      "| Savings goal |  | Optional |",
-      "| Debt payoff goal |  | Optional |",
-      "",
-      "## Category Limits",
-      "",
-      "*The saved monthly spending limits to compare actuals against.*",
-      "",
-      "| Category | Monthly Limit | Notes |",
-      "|---|---:|---|",
-      "| Groceries |  |  |",
-      "| Eating Out |  |  |",
-      "| Transportation |  |  |",
-      "| Subscriptions |  |  |",
-      "| Shopping |  |  |",
-      "| Fun |  |  |",
-      "",
-      "## Fixed Bills",
-      "",
-      "*Predictable commitments the owner wants represented in the monthly plan.*",
-      "",
-      "| Bill | Amount | Due Day | Notes |",
-      "|---|---:|---:|---|",
-      "",
-      "## Owner Notes",
-      "",
-      "*Owner-approved context that affects how the saved budget should be interpreted.*",
-      "",
-      "-",
-      "",
-      "## Changelog",
-      "",
-      "-",
-      "",
-    ].join("\n");
-  }
-
-  if (fileName === "budget/budget-rules.md") {
-    return [
-      "# Budget Rules",
-      "",
-      "*Managed default rule framework for Budget categorization and comparison.*",
-      "",
-      "Read this file first, then read `budget-rules-user.md` if it exists. Put owner-approved recurring merchant/category mappings and personal rules in `budget-rules-user.md`, not here.",
-      "",
-      "## Allowed Transaction Types",
-      "",
-      "`expense`, `income`, `transfer`, `refund`, `fee`, `debt_payment`, `finance_charge`.",
-      "",
-      "## Default Handling",
-      "",
-      "- Credit-card and debt payments are `debt_payment`, not ordinary spending.",
-      "- Interest and finance charges are `finance_charge`, tracked separately from principal payments.",
-      "- Transfers, income, refunds, investment movement, and debt payments do not count against ordinary expense categories by default.",
-      "- Fees may be tracked as expenses only when that matches the owner's budget goals.",
-      "",
-      "## Owner Rule Overlay",
-      "",
-      "When the owner approves a recurring rule, create or update `budget-rules-user.md`. Ask before adding new durable rules.",
-      "",
-      "## Safety Notes",
-      "",
-      "Use source evidence for statement-backed claims. Mark uncertainty as Needs Review instead of guessing.",
-      "",
-    ].join("\n");
-  }
-
-  if (fileName === "budget/reports/latest.md") {
-    return [
-      "# Latest Budget Report",
-      "",
-      "**Generated report:** May be refreshed by BrainDrive.",
-      "**Month:**  ",
-      "**Generated:**  ",
-      "**Source statements:** ",
-      "",
-      "## Report Use",
-      "",
-      "This is derived output from the Budget app. It may be overwritten by the next comparison run.",
-      "",
-      "Do not use this report as the saved budget. The saved spending plan lives in `../budget.md`.",
-      "",
-      "## Summary",
-      "",
-      "- Overall status:",
-      "- Largest over-budget category:",
-      "- Largest under-budget category:",
-      "- Major new/unbudgeted item:",
-      "- Items needing owner review:",
-      "",
-      "## Source Evidence Ledger",
-      "",
-      "| Date | Exact Statement Description | Amount | Account/Source | Treatment | Report Section |",
-      "|---|---|---:|---|---|---|",
-      "",
-      "## Owner-Requested Items Audit",
-      "",
-      "| Requested Item | Search Result | Sources Checked | Exact Source Match | Amount | Date | Report Treatment |",
-      "|---|---|---|---|---:|---|---|",
-      "",
-      "## Category Breakdown",
-      "",
-      "| Category | Limit | Spent | Remaining | Status | Notes |",
-      "|---|---:|---:|---:|---|---|",
-      "",
-      "## New Or Unbudgeted Items",
-      "",
-      "| Date | Description | Amount | Account/Source | Suggested Category | Notes |",
-      "|---|---|---:|---|---|---|",
-      "",
-      "## Excluded From Expense Totals",
-      "",
-      "| Type | Payee/Account | Amount | Source | Why Excluded |",
-      "|---|---|---:|---|---|",
-      "",
-      "## Needs Review",
-      "",
-      "| Date | Description | Amount | Reason |",
-      "|---|---|---:|---|",
-      "",
-      "## Next Actions",
-      "",
-      "-",
-      "",
-    ].join("\n");
-  }
-
-  if (fileName === "budget/create.md") {
-    return [
-      "# Create Or Revise Saved Budget",
-      "",
-      "*Procedure for creating or intentionally revising `budget.md`.*",
-      "",
-      "## Preservation Rule",
-      "",
-      "Update sections in place in `budget.md`; never replace the whole file. Keep every section header, italic descriptor, Status line, Last updated line, and `## Changelog`.",
-      "",
-      "## What This Procedure Accomplishes",
-      "",
-      "Creates a usable saved monthly budget or updates an existing saved budget when the owner explicitly asks for that change.",
-      "",
-      "## When to Run",
-      "",
-      "- The owner asks to create a budget.",
-      "- The owner explicitly asks to revise saved limits, fixed bills, goals, or budget notes.",
-      "",
-      "## Method",
-      "",
-      "Use owner estimates and available statements. Label assumptions, ask about material unknowns, and keep owner-approved rules in `budget-rules-user.md`.",
-      "",
-      "If statements are needed, ask the owner to attach them in chat or use the visible upload button. Do not ask the owner to place files into `documents/...` paths. State the requested statement set as a checklist, then update Received and Still Needed after each upload or batch.",
-      "",
-      "Before creating a statement-backed baseline, read the uploaded source evidence in `statements/`, confirm the covered months/accounts, and label any missing or partial evidence clearly.",
-      "",
-      "## Done Criteria",
-      "",
-      "`budget.md` has current saved limits and any changes are recorded in the changelog.",
-      "",
-      "## After Running",
-      "",
-      "Report what changed, update `budget.md`, optionally refresh `reports/latest.md` only if the owner asked for comparison output, and return to Finance scope.",
-      "",
-      "## What This Procedure Is Not",
-      "",
-      "It is not a monthly comparison workflow. For actuals versus saved budget, use `compare.md`.",
-      "",
-    ].join("\n");
-  }
-
-  if (fileName === "budget/compare.md") {
-    return [
-      "# Compare Actuals Against Saved Budget",
-      "",
-      "*Procedure for comparing statements against `budget.md` without rewriting the saved budget.*",
-      "",
-      "## Preservation Rule",
-      "",
-      "Read `budget.md` for saved limits, but do not edit it during comparison unless the owner explicitly asks to revise the saved budget.",
-      "",
-      "## What This Procedure Accomplishes",
-      "",
-      "Produces an evidence-backed comparison report showing actual spending, budget variance, excluded money movement, and items needing review.",
-      "",
-      "## When to Run",
-      "",
-      "- The owner asks how they did this month.",
-      "- The owner asks for over/under, spending, statement, or saved-budget comparison work.",
-      "",
-      "## Method",
-      "",
-      "Read `budget.md`, `budget-rules.md`, `budget-rules-user.md` if present, `statements/README.md`, and relevant statements. Build a source evidence ledger before writing the report.",
-      "",
-      "Write `reports/latest.md` by default. Write `reports/monthly-YYYY-MM.md` only after the reported month is closed.",
-      "",
-      "## Done Criteria",
-      "",
-      "The report includes Summary, Source Evidence Ledger, Owner-Requested Items Audit, Category Breakdown, New Or Unbudgeted Items, Excluded From Expense Totals, Needs Review, Next Actions, and a consistency check.",
-      "",
-      "## After Running",
-      "",
-      "Report what changed, update reports, summarize material parent-level changes briefly in spec or plan only when needed, add todos only for concrete next actions, and return to Finance scope.",
-      "",
-      "## What This Procedure Is Not",
-      "",
-      "It is not permission to change the saved budget. Put recommended saved-budget changes in Next Actions unless the owner explicitly asks for revision.",
-      "",
-    ].join("\n");
-  }
-
-  if (fileName === "budget/statements/README.md") {
-    return [
-      "# Budget Statements",
-      "",
-      "*Source evidence folder for uploaded bank and credit-card statement markdown.*",
-      "",
-      "Files here are source evidence. Do not rewrite statement content except through explicit source-management or conversion-correction workflows.",
-      "",
-      "Use descriptive filenames that include date range and account/source when possible.",
-      "",
-      "Owner-facing intake language must point to the product UI, not this folder path. Ask the owner to attach statements in chat or use the visible upload button. After upload, it is okay to say the statement was saved as source evidence.",
-      "",
-      "For budget setup, maintain a received/missing checklist based on statement metadata and source evidence:",
-      "",
-      "- Received: uploaded statements with month/account/institution when known.",
-      "- Still needed: missing months/accounts/institutions.",
-      "- Needs clarification: uploaded statements whose period or account cannot be identified.",
-      "",
-    ].join("\n");
-  }
-
-  if (fileName === "budget/reports/README.md") {
-    return [
-      "# Budget Reports",
-      "",
-      "*Generated output folder for Finance and Budget reports.*",
-      "",
-      "`latest.md` is a working cache and may be overwritten by the next report run. Dated monthly archives are durable and should be written only after the reported month is closed.",
-      "",
-    ].join("\n");
-  }
-
-  if (fileName === "health-docs/index.md") {
-    return [
-      "# Health Docs Instruction Index",
-      "",
-      "Use this file only after Fitness orientation has routed you to health-record handling.",
-      "",
-      "Health records are context for Fitness. Relevant details flow into `spec.md` and `plan.md`; do not create `fitness/health-context.md`.",
-      "",
-      "| Situation | Read |",
-      "|---|---|",
-      "| First health-doc upload | `intake-and-disclaimer.md`, `relevance-and-routing.md` |",
-      "| In-interview health-doc prompt | `intake-and-disclaimer.md`, `interpretation-voice.md` |",
-      "| Uploaded doc may not be health/fitness relevant | `relevance-and-routing.md` |",
-      "| Health context conflicts with a stated goal | `conflict-and-staleness.md`, `interpretation-voice.md` |",
-      "| Old or incomplete records | `conflict-and-staleness.md` |",
-      "| Owner uploads new docs after a spec/plan exists | `update-existing-plan.md`, `interpretation-voice.md` |",
-      "",
-    ].join("\n");
-  }
-
-  if (fileName === "health-docs/intake-and-disclaimer.md") {
-    return [
-      "# Health Document Intake And Disclaimer",
-      "",
-      "Ask for health documents only when they could materially improve the Fitness plan: weight loss, energy, longevity, injury/recovery, medication, biomarkers, or unexplained limitations.",
-      "",
-      "Documents are optional. If the owner declines or does not have them, continue the Fitness interview normally.",
-      "",
-      "Give the boundary once: you can use records as Fitness context, but you are not diagnosing, prescribing, or replacing a clinician. Do not append disclaimer footers to every response.",
-      "",
-    ].join("\n");
-  }
-
-  if (fileName === "health-docs/relevance-and-routing.md") {
-    return [
-      "# Health Document Relevance And Routing",
-      "",
-      "Use uploaded documents as Fitness context only when they are relevant to the owner's Fitness goals, health constraints, or plan execution.",
-      "",
-      "Relevant examples include labs, doctor's notes, prescription lists, PT notes, imaging summaries, and fitness-tracker exports.",
-      "",
-      "Do not silently ingest irrelevant docs as Fitness context. If a document belongs in another project, say what it appears to be and offer routing.",
-      "",
-    ].join("\n");
-  }
-
-  if (fileName === "health-docs/interpretation-voice.md") {
-    return [
-      "# Health Interpretation Voice",
-      "",
-      "Be a knowledgeable friend who speculates carefully.",
-      "",
-      "Allowed: practical Fitness-level interpretation, likely constraints, cautious observations, and clinician confirmation for significant changes.",
-      "",
-      "Not allowed: diagnosing, prescribing, medication changes, symptom triage, differential diagnosis, treatment plans, or clinical certainty.",
-      "",
-    ].join("\n");
-  }
-
-  if (fileName === "health-docs/conflict-and-staleness.md") {
-    return [
-      "# Health Conflict And Staleness Rules",
-      "",
-      "When health context conflicts with a stated goal, surface the tension, explain the practical implication, and ask the owner to choose or refine.",
-      "",
-      "Treat stale records as weak context. Do not pretend old labs or old notes are current.",
-      "",
-      "Turn conflicts into practical plan constraints without making every concern a blocker.",
-      "",
-    ].join("\n");
-  }
-
-  if (fileName === "health-docs/update-existing-plan.md") {
-    return [
-      "# Updating An Existing Fitness Plan With New Health Docs",
-      "",
-      "Use this when the owner uploads new health documents after a Fitness `spec.md` or `plan.md` already exists.",
-      "",
-      "Summarize what changed for Fitness planning and ask whether the owner wants to update `spec.md` and `plan.md`. Do not update silently.",
-      "",
-      "If no spec or plan exists, offer to use the upload as context for the Fitness interview. Do not create `health-context.md`.",
+      "It is not a substitute for qualified professional support when the project requires it.",
       "",
     ].join("\n");
   }
@@ -1277,13 +913,39 @@ function fallbackProjectTemplateContent(projectName: string, fileName: string): 
   return [
     `# ${projectName} Plan`,
     "",
-    "## Today",
+    `*Owner state for the current ${projectName} action plan and roadmap.*`,
     "",
-    "1. Complete one high-leverage action.",
+    "**Status:** Starter template - no plan created yet",
     "",
-    "## This Week",
+    "**Last updated:** -",
     "",
-    "1. Build momentum with practical follow-on steps.",
+    "## Right Now - Your First Step",
+    "",
+    "*One thing the owner can do this week to make progress.*",
+    "",
+    "To be filled after alignment.",
+    "",
+    "## The Roadmap",
+    "",
+    "*The phased journey toward the owner's goals, with near-term phases more detailed than later ones.*",
+    "",
+    "To be filled after alignment.",
+    "",
+    "## The Destination",
+    "",
+    "*Where this is heading and what life looks like when the plan works.*",
+    "",
+    "To be filled as goals get more specific.",
+    "",
+    "## What Needs More Work",
+    "",
+    "*Gaps that must be resolved before the plan can be considered stable.*",
+    "",
+    "To be filled through conversation.",
+    "",
+    "## Changelog",
+    "",
+    "- Starter template created.",
     "",
   ].join("\n");
 }

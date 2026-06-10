@@ -32,6 +32,7 @@ async function writeStarterPack(rootDir: string): Promise<void> {
   await mkdir(path.join(starterRoot, "base", "me"), { recursive: true });
   await mkdir(path.join(starterRoot, "skills"), { recursive: true });
   await writeFile(path.join(starterRoot, "base", "AGENT.md"), "# BrainDrive Agent\n\nUse the latest guidance.\n", "utf8");
+  await writeFile(path.join(starterRoot, "base", "me", "profile.md"), "# Owner Profile\n\n## Identity & Situation\n", "utf8");
   await writeFile(path.join(starterRoot, "base", "me", "todo.md"), "# My Todos\n\n## Active\n", "utf8");
   await writeFile(path.join(starterRoot, "skills", "focus.md"), "# Focus\n\nHelp the owner focus.\n", "utf8");
 }
@@ -39,35 +40,12 @@ async function writeStarterPack(rootDir: string): Promise<void> {
 async function writeProjectTemplate(rootDir: string, projectId: string): Promise<void> {
   const templateRoot = path.join(rootDir, "memory", "starter-pack", "projects", "templates", projectId);
   await mkdir(templateRoot, { recursive: true });
-  await writeFile(path.join(templateRoot, "AGENT.md"), `# ${projectId} Agent\n\nRead index.md.\n`, "utf8");
-  if (projectId === "finance") {
-    await mkdir(path.join(templateRoot, "budget"), { recursive: true });
-    await mkdir(path.join(templateRoot, "budget", "statements"), { recursive: true });
-    await mkdir(path.join(templateRoot, "budget", "reports"), { recursive: true });
-    await writeFile(path.join(templateRoot, "spec.md"), "# Finance Spec\n\n**Status:** Starter\n\n**Last updated:** -\n\n## Changelog\n", "utf8");
-    await writeFile(path.join(templateRoot, "run-interview.md"), "# Finance Interview\n", "utf8");
-    await writeFile(path.join(templateRoot, "plan.md"), "# Finance Plan\n\n**Status:** Starter\n\n**Last updated:** -\n\n## Changelog\n", "utf8");
-    await writeFile(path.join(templateRoot, "run-planning.md"), "# Finance Planning\n", "utf8");
-    await writeFile(path.join(templateRoot, "budget", "AGENT.md"), "# Budget - Agent Context\n", "utf8");
-    await writeFile(path.join(templateRoot, "budget", "budget.md"), "# Budget\n\n**Status:** Starter\n\n**Last updated:** -\n\n## Changelog\n", "utf8");
-    await writeFile(path.join(templateRoot, "budget", "budget-rules.md"), "# Budget Rules\n", "utf8");
-    await writeFile(path.join(templateRoot, "budget", "create.md"), "# Create Or Revise Saved Budget\n", "utf8");
-    await writeFile(path.join(templateRoot, "budget", "compare.md"), "# Compare Actuals Against Saved Budget\n", "utf8");
-    await writeFile(path.join(templateRoot, "budget", "statements", "README.md"), "# Budget Statements\n", "utf8");
-    await writeFile(path.join(templateRoot, "budget", "reports", "README.md"), "# Budget Reports\n", "utf8");
-    await writeFile(path.join(templateRoot, "budget", "reports", "latest.md"), "# Latest Budget Report\n", "utf8");
-  } else {
-    await writeFile(path.join(templateRoot, "index.md"), "# Folder Index\n\n## Supporting Documents\n\n| File | Type | Summary | Read When | Imported |\n|---|---|---|---|---|\n| _No supporting documents yet._ | | | | |\n", "utf8");
-  }
-  if (projectId === "fitness") {
-    await mkdir(path.join(templateRoot, "health-docs"), { recursive: true });
-    await writeFile(path.join(templateRoot, "health-docs", "index.md"), "# Health Docs Instruction Index\n", "utf8");
-    await writeFile(path.join(templateRoot, "health-docs", "intake-and-disclaimer.md"), "# Health Document Intake And Disclaimer\n", "utf8");
-    await writeFile(path.join(templateRoot, "health-docs", "relevance-and-routing.md"), "# Health Document Relevance And Routing\n", "utf8");
-    await writeFile(path.join(templateRoot, "health-docs", "interpretation-voice.md"), "# Health Interpretation Voice\n", "utf8");
-    await writeFile(path.join(templateRoot, "health-docs", "conflict-and-staleness.md"), "# Health Conflict And Staleness Rules\n", "utf8");
-    await writeFile(path.join(templateRoot, "health-docs", "update-existing-plan.md"), "# Updating An Existing Fitness Plan With New Health Docs\n", "utf8");
-  }
+  const title = projectId[0].toUpperCase() + projectId.slice(1);
+  await writeFile(path.join(templateRoot, "AGENT.md"), `# ${title} Agent\n\nRead spec.md and plan.md.\n`, "utf8");
+  await writeFile(path.join(templateRoot, "spec.md"), `# ${title} Spec\n\n**Status:** Starter\n\n**Last updated:** -\n\n## Changelog\n`, "utf8");
+  await writeFile(path.join(templateRoot, "run-interview.md"), `# ${title} Interview\n`, "utf8");
+  await writeFile(path.join(templateRoot, "plan.md"), `# ${title} Plan\n\n**Status:** Starter\n\n**Last updated:** -\n\n## Changelog\n`, "utf8");
+  await writeFile(path.join(templateRoot, "run-planning.md"), `# ${title} Planning\n`, "utf8");
 }
 
 describe("memory update prompting", () => {
@@ -85,10 +63,12 @@ describe("memory update prompting", () => {
 
       expect(result).not.toBeNull();
       expect(result?.status).toBe("partially_applied");
+      expect(result?.applied_paths).toContain("me/profile.md");
       expect(result?.applied_paths).toContain("me/todo.md");
       expect(result?.applied_paths).toContain("skills/focus/SKILL.md");
       expect(result?.deferred_paths).toContain("AGENT.md");
 
+      await expect(readFile(path.join(memoryRoot, "me", "profile.md"), "utf8")).resolves.toContain("# Owner Profile");
       await expect(readFile(path.join(memoryRoot, "me", "todo.md"), "utf8")).resolves.toContain("# My Todos");
       await expect(readFile(path.join(memoryRoot, "skills", "focus", "SKILL.md"), "utf8")).resolves.toContain("# Focus");
       await expect(readFile(path.join(memoryRoot, "AGENT.md"), "utf8")).resolves.toContain("Owner Custom Agent");
@@ -134,8 +114,8 @@ describe("memory update prompting", () => {
     }
   });
 
-  it("includes seeded project templates in the starter-pack manifest and creates missing indexes", async () => {
-    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "memory-update-project-index-test-"));
+  it("includes seeded life-area project templates in the starter-pack manifest", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "memory-update-project-template-test-"));
     const rootDir = path.join(tempRoot, "repo");
     const memoryRoot = path.join(tempRoot, "memory");
 
@@ -147,6 +127,7 @@ describe("memory update prompting", () => {
       await mkdir(path.join(memoryRoot, "documents", "fitness"), { recursive: true });
       await mkdir(path.join(memoryRoot, "me"), { recursive: true });
       await writeFile(path.join(memoryRoot, "AGENT.md"), "# BrainDrive Agent\n\nUse the latest guidance.\n", "utf8");
+      await writeFile(path.join(memoryRoot, "me", "profile.md"), "# Owner Profile\n\n## Identity & Situation\n", "utf8");
       await writeFile(path.join(memoryRoot, "me", "todo.md"), "# My Todos\n\n## Active\n", "utf8");
       await writeFile(path.join(memoryRoot, "documents", "finance", "AGENT.md"), "# Custom Finance Agent\n", "utf8");
       await writeFile(path.join(memoryRoot, "documents", "fitness", "AGENT.md"), "# Custom Fitness Agent\n", "utf8");
@@ -156,68 +137,66 @@ describe("memory update prompting", () => {
       expect(manifest.files.map((file) => file.path)).toContain("documents/finance/AGENT.md");
       expect(manifest.files.map((file) => file.path)).toContain("documents/finance/run-interview.md");
       expect(manifest.files.map((file) => file.path)).toContain("documents/finance/run-planning.md");
-      expect(manifest.files.map((file) => file.path)).toContain("documents/finance/budget/AGENT.md");
-      expect(manifest.files.map((file) => file.path)).toContain("documents/finance/budget/budget.md");
-      expect(manifest.files.map((file) => file.path)).toContain("documents/finance/budget/budget-rules.md");
-      expect(manifest.files.map((file) => file.path)).toContain("documents/finance/budget/create.md");
-      expect(manifest.files.map((file) => file.path)).toContain("documents/finance/budget/compare.md");
-      expect(manifest.files.map((file) => file.path)).toContain("documents/finance/budget/statements/README.md");
-      expect(manifest.files.map((file) => file.path)).toContain("documents/finance/budget/reports/README.md");
-      expect(manifest.files.map((file) => file.path)).toContain("documents/finance/budget/reports/latest.md");
-      expect(manifest.files.find((file) => file.path === "documents/finance/budget/budget-rules.md")).toMatchObject({
-        ownership: "managed_base",
-        role: "rule_framework",
-        overlay_path: "documents/finance/budget/budget-rules-user.md",
-      });
-      expect(manifest.files.find((file) => file.path === "documents/finance/budget/budget.md")).toMatchObject({
-        ownership: "owner_state",
-        role: "state_artifact",
-        merge_policy: "preserve_owner_state",
-      });
-      expect(manifest.files.map((file) => file.path)).toContain("documents/fitness/index.md");
+      expect(manifest.files.map((file) => file.path)).not.toContain("documents/finance/budget/AGENT.md");
+      expect(manifest.files.map((file) => file.path)).not.toContain("documents/finance/budget/budget.md");
+      expect(manifest.files.map((file) => file.path)).not.toContain("documents/finance/budget/budget-rules.md");
+      expect(manifest.files.map((file) => file.path)).not.toContain("documents/finance/budget/create.md");
+      expect(manifest.files.map((file) => file.path)).not.toContain("documents/finance/budget/compare.md");
+      expect(manifest.files.map((file) => file.path)).not.toContain("documents/finance/budget/statements/README.md");
+      expect(manifest.files.map((file) => file.path)).not.toContain("documents/finance/budget/reports/README.md");
+      expect(manifest.files.map((file) => file.path)).not.toContain("documents/finance/budget/reports/latest.md");
+      expect(manifest.files.map((file) => file.path)).not.toContain("documents/fitness/index.md");
       expect(manifest.files.map((file) => file.path)).toContain("documents/fitness/AGENT.md");
-      expect(manifest.files.map((file) => file.path)).toContain("documents/fitness/health-docs/index.md");
-      expect(manifest.files.map((file) => file.path)).toContain("documents/fitness/health-docs/intake-and-disclaimer.md");
-      expect(manifest.files.map((file) => file.path)).toContain("documents/fitness/health-docs/relevance-and-routing.md");
-      expect(manifest.files.map((file) => file.path)).toContain("documents/fitness/health-docs/interpretation-voice.md");
-      expect(manifest.files.map((file) => file.path)).toContain("documents/fitness/health-docs/conflict-and-staleness.md");
-      expect(manifest.files.map((file) => file.path)).toContain("documents/fitness/health-docs/update-existing-plan.md");
+      expect(manifest.files.map((file) => file.path)).toContain("documents/fitness/run-interview.md");
+      expect(manifest.files.map((file) => file.path)).toContain("documents/fitness/run-planning.md");
+      expect(manifest.files.map((file) => file.path)).not.toContain("documents/fitness/health-docs/index.md");
+      expect(manifest.files.map((file) => file.path)).not.toContain("documents/fitness/health-docs/intake-and-disclaimer.md");
+      expect(manifest.files.map((file) => file.path)).not.toContain("documents/fitness/health-docs/relevance-and-routing.md");
+      expect(manifest.files.map((file) => file.path)).not.toContain("documents/fitness/health-docs/interpretation-voice.md");
+      expect(manifest.files.map((file) => file.path)).not.toContain("documents/fitness/health-docs/conflict-and-staleness.md");
+      expect(manifest.files.map((file) => file.path)).not.toContain("documents/fitness/health-docs/update-existing-plan.md");
 
       const result = await runAutomaticMemoryUpdate(rootDir, memoryRoot, "26.5.7");
 
       expect(result?.applied_paths).toContain("documents/finance/run-interview.md");
       expect(result?.applied_paths).toContain("documents/finance/run-planning.md");
-      expect(result?.applied_paths).toContain("documents/finance/budget/AGENT.md");
-      expect(result?.applied_paths).toContain("documents/finance/budget/budget.md");
-      expect(result?.applied_paths).toContain("documents/finance/budget/budget-rules.md");
-      expect(result?.applied_paths).toContain("documents/finance/budget/create.md");
-      expect(result?.applied_paths).toContain("documents/finance/budget/compare.md");
-      expect(result?.applied_paths).toContain("documents/finance/budget/statements/README.md");
-      expect(result?.applied_paths).toContain("documents/finance/budget/reports/README.md");
-      expect(result?.applied_paths).toContain("documents/finance/budget/reports/latest.md");
+      expect(result?.applied_paths).not.toContain("documents/finance/budget/AGENT.md");
+      expect(result?.applied_paths).not.toContain("documents/finance/budget/budget.md");
+      expect(result?.applied_paths).not.toContain("documents/finance/budget/budget-rules.md");
+      expect(result?.applied_paths).not.toContain("documents/finance/budget/create.md");
+      expect(result?.applied_paths).not.toContain("documents/finance/budget/compare.md");
+      expect(result?.applied_paths).not.toContain("documents/finance/budget/statements/README.md");
+      expect(result?.applied_paths).not.toContain("documents/finance/budget/reports/README.md");
+      expect(result?.applied_paths).not.toContain("documents/finance/budget/reports/latest.md");
       expect(result?.deferred_paths).toContain("documents/finance/AGENT.md");
-      expect(result?.applied_paths).toContain("documents/fitness/index.md");
-      expect(result?.applied_paths).toContain("documents/fitness/health-docs/index.md");
-      expect(result?.applied_paths).toContain("documents/fitness/health-docs/intake-and-disclaimer.md");
-      expect(result?.applied_paths).toContain("documents/fitness/health-docs/relevance-and-routing.md");
-      expect(result?.applied_paths).toContain("documents/fitness/health-docs/interpretation-voice.md");
-      expect(result?.applied_paths).toContain("documents/fitness/health-docs/conflict-and-staleness.md");
-      expect(result?.applied_paths).toContain("documents/fitness/health-docs/update-existing-plan.md");
+      expect(result?.applied_paths).toContain("documents/fitness/run-interview.md");
+      expect(result?.applied_paths).toContain("documents/fitness/run-planning.md");
+      expect(result?.applied_paths).not.toContain("documents/fitness/index.md");
+      expect(result?.applied_paths).not.toContain("documents/fitness/health-docs/index.md");
+      expect(result?.applied_paths).not.toContain("documents/fitness/health-docs/intake-and-disclaimer.md");
+      expect(result?.applied_paths).not.toContain("documents/fitness/health-docs/relevance-and-routing.md");
+      expect(result?.applied_paths).not.toContain("documents/fitness/health-docs/interpretation-voice.md");
+      expect(result?.applied_paths).not.toContain("documents/fitness/health-docs/conflict-and-staleness.md");
+      expect(result?.applied_paths).not.toContain("documents/fitness/health-docs/update-existing-plan.md");
       expect(result?.deferred_paths).toContain("documents/fitness/AGENT.md");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "index.md"), "utf8"))
         .rejects.toThrow();
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "budget.md"), "utf8"))
-        .resolves.toContain("# Budget");
+        .rejects.toThrow();
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "budget-rules.md"), "utf8"))
-        .resolves.toContain("# Budget Rules");
+        .rejects.toThrow();
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "reports", "latest.md"), "utf8"))
-        .resolves.toContain("# Latest Budget Report");
+        .rejects.toThrow();
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "compare.md"), "utf8"))
-        .resolves.toContain("# Compare Actuals Against Saved Budget");
+        .rejects.toThrow();
+      await expect(readFile(path.join(memoryRoot, "documents", "fitness", "index.md"), "utf8"))
+        .rejects.toThrow();
       await expect(readFile(path.join(memoryRoot, "documents", "fitness", "health-docs", "index.md"), "utf8"))
-        .resolves.toContain("# Health Docs Instruction Index");
-      await expect(readFile(path.join(memoryRoot, "documents", "fitness", "health-docs", "interpretation-voice.md"), "utf8"))
-        .resolves.toContain("# Health Interpretation Voice");
+        .rejects.toThrow();
+      await expect(readFile(path.join(memoryRoot, "documents", "fitness", "run-interview.md"), "utf8"))
+        .resolves.toContain("# Fitness Interview");
+      await expect(readFile(path.join(memoryRoot, "documents", "fitness", "run-planning.md"), "utf8"))
+        .resolves.toContain("# Fitness Planning");
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
@@ -315,6 +294,7 @@ describe("memory update prompting", () => {
       await mkdir(path.join(memoryRoot, "me"), { recursive: true });
       await mkdir(path.join(memoryRoot, "skills", "focus"), { recursive: true });
       await writeFile(path.join(memoryRoot, "AGENT.md"), "# BrainDrive Agent\n\nUse the latest guidance.\n", "utf8");
+      await writeFile(path.join(memoryRoot, "me", "profile.md"), "# Owner Profile\n\n## Identity & Situation\n", "utf8");
       await writeFile(path.join(memoryRoot, "me", "todo.md"), "# My Todos\n\n## Active\n", "utf8");
       await writeFile(path.join(memoryRoot, "skills", "focus", "SKILL.md"), "# Focus\n\nHelp the owner focus.\n", "utf8");
 

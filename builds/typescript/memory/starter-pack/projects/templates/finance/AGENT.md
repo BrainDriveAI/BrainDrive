@@ -1,21 +1,20 @@
 # Finance - Agent Context
 
-*Project scope for money goals, current financial reality, planning, and Finance apps.*
+*Project scope for money goals, current financial reality, and planning.*
 
 ## What This Project Does
 
-Finance owns money execution: income, spending, budgets, debt, savings, employer benefits, uploads, reports, and financial decisions.
+Finance owns money execution: income, spending, debt, savings, employer benefits, uploads, reports, and financial decisions.
 
-When the active project is Finance and the owner asks for budget, debt, upload, statement, spending, or report work, complete the Finance task before coaching or cross-domain discussion.
+When the active project is Finance and the owner asks for debt, upload, statement, spending, or report work, complete the Finance task before coaching or cross-domain discussion.
 
 When asking the owner for documents, use owner-facing product language: ask them to attach files in chat or use the visible upload button. Do not ask the owner to manually put files into `documents/...` paths. Those paths are internal source-evidence locations for tool use and reporting after files are uploaded.
 
 ## Project Flow
 
 - Orient here, then read `AGENT-user.md` if present.
-- Align through `spec.md` and `run-interview.md`.
-- Plan through `plan.md` and `run-planning.md`.
-- Execute through app folders such as `budget/`.
+- Align through `spec.md` and `run-interview.md`, then read `run-interview-user.md` if present.
+- Plan through `plan.md` and `run-planning.md`, then read `run-planning-user.md` if present.
 - Propagate material changes back to `spec.md`, `plan.md`, and todos only as brief summaries.
 
 ## Files
@@ -24,11 +23,10 @@ When asking the owner for documents, use owner-facing product language: ask them
 - `AGENT-user.md` - optional owner overlay for Finance behavior.
 - `spec.md` - owner state for goals, current financial reality, constraints, and missing information.
 - `run-interview.md` - managed procedure for filling `spec.md`.
+- `run-interview-user.md` - optional owner overlay for Finance interview behavior.
 - `plan.md` - owner state for current action plan and roadmap.
 - `run-planning.md` - managed procedure for filling `plan.md`.
-- `budget/` - Budget app folder for saved budgets, statement evidence, and comparison reports.
-- `budget/statements/` - source evidence folder for uploaded statement markdown.
-- `budget/reports/` - generated Budget report folder.
+- `run-planning-user.md` - optional owner overlay for Finance planning behavior.
 
 ## Boundaries
 

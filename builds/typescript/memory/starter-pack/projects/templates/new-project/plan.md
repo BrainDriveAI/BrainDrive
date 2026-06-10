@@ -1,27 +1,35 @@
 # Project Plan
 
-*This is your action plan — the concrete steps that move your project forward. It starts with your first move and maps out the full journey.*
+*Owner state for the current project action plan and roadmap.*
 
-## Right Now — Your First Step
+**Status:** Starter template - no plan created yet
 
-One thing you can do this week to get moving. Not the whole project — just the next step.
+**Last updated:** -
 
-*To be filled after our conversation.*
+## Right Now - Your First Step
+
+*One thing the owner can do this week to get moving.*
+
+To be filled after alignment.
 
 ## The Roadmap
 
-The phased journey from where you are to done. Lead each phase with what life looks like when it's done — the pull — before listing the steps. Only build phases that serve the user stories in the spec. If the spec flagged something as "Worth exploring later," it doesn't get a phase here. The first phases are detailed. Later phases are high-level and get filled in as the project progresses and scope clarifies.
+*The phased journey from current reality to done, with near-term phases more detailed than later ones.*
 
-*To be filled after our conversation.*
+To be filled after alignment.
 
 ## The Destination
 
-What "done" looks like — and how you'll know you're there. The clearer this is, the easier everything else becomes. Use the owner's own words and success criteria from their user stories — quote them back, don't rewrite in your voice.
+*What done looks like and how the owner will know the project worked.*
 
-*To be filled as goals get more specific.*
+To be filled as goals get more specific.
 
 ## What Needs More Work
 
-What the plan can't cover yet because we need more information. Only include gaps the spec flagged as "Before the plan is complete." Items marked "Worth exploring later" stay in the spec, not here.
+*Gaps that must be resolved before the plan can be considered stable.*
 
-*To be filled through conversation.*
+To be filled through conversation.
+
+## Changelog
+
+- Starter template created.

@@ -161,26 +161,9 @@ const PLAN_RELATIVE_DIR = "system/updates/plans";
 const REPORT_RELATIVE_DIR = "system/updates/reports";
 const BACKUP_RELATIVE_DIR = "system/updates/backups";
 const UNKNOWN_MEMORY_PACK_VERSION = "unknown";
-const DEFAULT_PROJECT_TEMPLATE_FILES = ["AGENT.md", "index.md", "spec.md", "plan.md"] as const;
-const FINANCE_PROJECT_CORE_TEMPLATE_FILES = ["AGENT.md", "spec.md", "run-interview.md", "plan.md", "run-planning.md"] as const;
-const FINANCE_DRAFT3_FILES = [
-  "budget/AGENT.md",
-  "budget/budget.md",
-  "budget/budget-rules.md",
-  "budget/create.md",
-  "budget/compare.md",
-  "budget/statements/README.md",
-  "budget/reports/README.md",
-  "budget/reports/latest.md",
-] as const;
-const FITNESS_HEALTH_DOC_FILES = [
-  "health-docs/index.md",
-  "health-docs/intake-and-disclaimer.md",
-  "health-docs/relevance-and-routing.md",
-  "health-docs/interpretation-voice.md",
-  "health-docs/conflict-and-staleness.md",
-  "health-docs/update-existing-plan.md",
-] as const;
+const DEFAULT_PROJECT_TEMPLATE_FILES = ["AGENT.md", "spec.md", "run-interview.md", "plan.md", "run-planning.md"] as const;
+const LIFE_AREA_PROJECT_TEMPLATE_FILES = DEFAULT_PROJECT_TEMPLATE_FILES;
+const LIFE_AREA_PROJECT_IDS = new Set(["career", "finance", "fitness", "relationships"]);
 
 export async function getMemoryUpdateStatus(
   rootDir: string,
@@ -459,6 +442,12 @@ export async function generateStarterPackManifest(
       kind: "user_memory_template",
       mergePolicy: "preserve_owner_state",
     });
+    await addManifestFile(files, starterPackDir, {
+      path: "me/profile.md",
+      sourcePath: "base/me/profile.md",
+      kind: "user_memory_template",
+      mergePolicy: "preserve_owner_state",
+    });
 
     const projectTemplatesDir = path.join(starterPackDir, "projects", "templates");
     if (existsSync(projectTemplatesDir)) {
@@ -466,7 +455,9 @@ export async function generateStarterPackManifest(
       for (const entry of entries
         .filter((item) => item.isDirectory() && item.name !== "braindrive-plus-one")
         .sort((left, right) => left.name.localeCompare(right.name))) {
-        const projectCoreFiles = entry.name === "finance" ? FINANCE_PROJECT_CORE_TEMPLATE_FILES : DEFAULT_PROJECT_TEMPLATE_FILES;
+        const projectCoreFiles = LIFE_AREA_PROJECT_IDS.has(entry.name)
+          ? LIFE_AREA_PROJECT_TEMPLATE_FILES
+          : DEFAULT_PROJECT_TEMPLATE_FILES;
         for (const projectFile of projectCoreFiles) {
           await addManifestFile(files, starterPackDir, {
             path: `documents/${entry.name}/${projectFile}`,
@@ -474,26 +465,6 @@ export async function generateStarterPackManifest(
             kind: "project_template",
             mergePolicy: mergePolicyForTemplatePath(`documents/${entry.name}/${projectFile}`),
           });
-        }
-        if (entry.name === "finance") {
-          for (const financeFile of FINANCE_DRAFT3_FILES) {
-            await addManifestFile(files, starterPackDir, {
-              path: `documents/finance/${financeFile}`,
-              sourcePath: `projects/templates/finance/${financeFile}`,
-              kind: "project_template",
-              mergePolicy: mergePolicyForTemplatePath(`documents/finance/${financeFile}`),
-            });
-          }
-        }
-        if (entry.name === "fitness") {
-          for (const fitnessFile of FITNESS_HEALTH_DOC_FILES) {
-            await addManifestFile(files, starterPackDir, {
-              path: `documents/fitness/${fitnessFile}`,
-              sourcePath: `projects/templates/fitness/${fitnessFile}`,
-              kind: "project_template",
-              mergePolicy: "create_if_missing_else_defer",
-            });
-          }
         }
       }
     }
