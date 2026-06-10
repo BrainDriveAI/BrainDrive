@@ -3496,6 +3496,21 @@ function buildStarterDerivedAnchors(projectId: string, ownerMessages: string[]):
   if (/\bfeel stuck\b|\bstuck at work\b/.test(text)) {
     spec.push("Career signal: feels stuck at work and wants something better.");
   }
+  if (/\bburned out\b|\bburnt out\b|\bburnout\b/.test(text)) {
+    spec.push("Career signal: burnout is part of the current work risk.");
+  }
+  if (/workplace tension|manager has been unpredictable|do not want to accuse|don't want to accuse/.test(text)) {
+    spec.push("Risk signal: workplace tension should be handled carefully without assuming intent or certainty.");
+  }
+  if (/income stability|quitting suddenly is not realistic|cannot afford|can't afford/.test(text)) {
+    spec.push("Constraint signal: income stability matters and quitting suddenly is not realistic.");
+  }
+  if (/protect my energy|protect energy|energy and options/.test(text)) {
+    spec.push("Outcome signal: protect energy and options while deciding what to do next.");
+  }
+  if (/document what is happening|documentation|documenting|what is appropriate/.test(text)) {
+    spec.push("Open unknowns: document what is happening only in an appropriate and bounded way.");
+  }
   if (/new job or (?:a )?different role/.test(text)) {
     spec.push("Career signal: new job or different role is still unresolved.");
   }
@@ -3509,6 +3524,12 @@ function buildStarterDerivedAnchors(projectId: string, ownerMessages: string[]):
   if (/\bnot sure\b|\bdo not know\b|\bdon't know\b|\bfeel stuck\b|\bsorting\b/.test(text)) {
     plan.push("Clarifying questions: separate what feels draining, what growth means, and what constraints are still unknown.");
     plan.push("First sorting step: compare staying, a different role, and a new job before recommending a direction.");
+  }
+  if (/\bburned out\b|\bburnt out\b|\bburnout\b|workplace tension|unpredictable|document what is happening|what is appropriate/.test(text)) {
+    plan.push("Bounded next step: capture facts, energy impact, and options without making accusations or irreversible decisions.");
+    plan.push("Risk reduction: protect income stability, privacy, and energy before choosing whether to stay, transfer, or leave.");
+    plan.push("Support or documentation option: identify what can be documented and who can safely review it.");
+    plan.push("No legal certainty: do not provide HR or legal conclusions without appropriate professional guidance.");
   }
   if (/money matters|growth|new job|different role/.test(text)) {
     plan.push("Information to gather: growth needs, money floor, energy limits, and role options.");

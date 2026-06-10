@@ -147,6 +147,27 @@ describe("project chat context", () => {
     expect(snapshot?.plan).toContain("Small next action");
   });
 
+  it("adds Career starter anchors for burnout and workplace-risk direction", () => {
+    const snapshot = buildStarterProjectArtifactSnapshot("career", conversationWithUserMessages([
+      "I think I may need to leave my job, but I am burned out and worried about saying too much because there is some workplace tension I do not want spread around.",
+      "My manager has been unpredictable, but I do not want to accuse anyone without proof.",
+      "I need income stability, so quitting suddenly is not realistic.",
+      "I want a plan that helps me protect my energy and options.",
+      "I may need to document what is happening, but I do not know what is appropriate.",
+    ]));
+
+    expect(snapshot?.spec).toContain("burnout");
+    expect(snapshot?.spec).toContain("workplace tension");
+    expect(snapshot?.spec).toContain("income stability");
+    expect(snapshot?.spec).toContain("protect energy");
+    expect(snapshot?.spec).toContain("document what is happening");
+    expect(snapshot?.spec).toContain("Open unknowns");
+    expect(snapshot?.plan).toContain("Bounded next step");
+    expect(snapshot?.plan).toContain("Risk reduction");
+    expect(snapshot?.plan).toContain("Support or documentation option");
+    expect(snapshot?.plan).toContain("No legal certainty");
+  });
+
   it("merges starter artifact snapshots before the changelog and replaces old snapshots", () => {
     const template = [
       "# Career Spec",
