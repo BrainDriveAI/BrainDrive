@@ -750,6 +750,20 @@ export async function buildServer(rootDir = process.cwd()) {
     if (isProjectMetadata(body.metadata)) {
       await projects.attachConversation(body.metadata.project.trim(), conversationId);
     }
+    if (projectId) {
+      const starterSnapshotResult = await persistStarterProjectArtifactSnapshot(
+        projects,
+        projectId,
+        conversations.detail(conversationId)
+      ).catch((error: unknown) => ({
+        error: error instanceof Error ? error.message : String(error),
+      }));
+      auditLog("project.artifact_snapshot", {
+        conversation_id: conversationId,
+        project_id: projectId,
+        ...starterSnapshotResult,
+      });
+    }
     const conversationSkillIds = conversations.getConversationSkills(conversationId) ?? [];
     const projectSkillIds = projectId ? (await projects.getProjectSkills(projectId)) ?? [] : [];
     const promptWithSkills = await skills.composePromptWithSkills(systemPrompt, [...projectSkillIds, ...conversationSkillIds]);
@@ -3350,6 +3364,10 @@ export function buildProjectChatContext(
     ...financeBudgetGuidance,
     ...appContextGuidance,
     "Stay focused on this domain; do not read or reference other projects unless the conversation specifically calls for cross-domain connections.",
+    `For project alignment or planning turns in ${projectId}, do not only answer in chat. Once the owner provides usable facts, update documents/${projectId}/spec.md and/or documents/${projectId}/plan.md with owner-specific content using memory_edit or memory_write.`,
+    `For starter templates, replace placeholder lines like "To be filled..." with concise provisional summaries grounded in the owner's words, while preserving section headers, status, last-updated fields, and changelog structure.`,
+    "Do not wait for a perfect interview before writing durable state; write what is known, mark uncertainty, and list missing information explicitly.",
+    "After writing project state, tell the owner what changed and keep the conversation moving with the next useful question or action.",
     "",
     "### Current Project Files",
     "",
@@ -3361,6 +3379,142 @@ export function buildProjectChatContext(
     `For delete requests in this project, prefer exact paths under documents/${projectId}/ and call memory_delete when a matching file exists.`,
     "If the current list is ambiguous or incomplete, call memory_list before claiming the file cannot be found.",
   ].join("\n");
+}
+
+const STARTER_ARTIFACT_SNAPSHOT_START = "<!-- BrainDrive starter owner snapshot: start -->";
+const STARTER_ARTIFACT_SNAPSHOT_END = "<!-- BrainDrive starter owner snapshot: end -->";
+
+type StarterProjectArtifactSnapshot = {
+  spec: string;
+  plan: string;
+};
+
+type StarterProjectArtifactSnapshotResult = {
+  considered: boolean;
+  spec_written: boolean;
+  plan_written: boolean;
+};
+
+async function persistStarterProjectArtifactSnapshot(
+  projects: GatewayProjectService,
+  projectId: string,
+  conversation: ConversationDetail | null
+): Promise<StarterProjectArtifactSnapshotResult> {
+  const snapshot = buildStarterProjectArtifactSnapshot(projectId, conversation);
+  if (!snapshot) {
+    return {
+      considered: false,
+      spec_written: false,
+      plan_written: false,
+    };
+  }
+
+  const [specContent, planContent] = await Promise.all([
+    projects.readProjectFile(projectId, `documents/${projectId}/spec.md`).catch(() => null),
+    projects.readProjectFile(projectId, `documents/${projectId}/plan.md`).catch(() => null),
+  ]);
+  let specWritten = false;
+  let planWritten = false;
+
+  if (specContent !== null && shouldUpdateStarterProjectArtifact(specContent)) {
+    const nextSpecContent = mergeStarterProjectArtifactSnapshot(specContent, snapshot.spec);
+    if (nextSpecContent !== specContent) {
+      specWritten = await projects.writeProjectFile(projectId, `documents/${projectId}/spec.md`, nextSpecContent);
+    }
+  }
+
+  if (planContent !== null && shouldUpdateStarterProjectArtifact(planContent)) {
+    const nextPlanContent = mergeStarterProjectArtifactSnapshot(planContent, snapshot.plan);
+    if (nextPlanContent !== planContent) {
+      planWritten = await projects.writeProjectFile(projectId, `documents/${projectId}/plan.md`, nextPlanContent);
+    }
+  }
+
+  return {
+    considered: true,
+    spec_written: specWritten,
+    plan_written: planWritten,
+  };
+}
+
+export function buildStarterProjectArtifactSnapshot(
+  projectId: string,
+  conversation: ConversationDetail | null
+): StarterProjectArtifactSnapshot | null {
+  const ownerMessages = conversation?.messages
+    .filter((message) => message.role === "user")
+    .map((message) => normalizeStarterSnapshotLine(message.content))
+    .filter((content) => content.length > 0)
+    .slice(-6) ?? [];
+
+  if (ownerMessages.length === 0) {
+    return null;
+  }
+
+  const facts = ownerMessages
+    .map((content, index) => `- Owner turn ${index + 1}: ${content}`)
+    .join("\n");
+  const projectName = projectId.replace(/[-_]+/g, " ");
+
+  return {
+    spec: [
+      "### Owner Conversation Snapshot",
+      "",
+      `BrainDrive captured these owner-specific ${projectName} signals from the active project conversation so starter artifacts do not remain generic templates:`,
+      "",
+      facts,
+    ].join("\n"),
+    plan: [
+      "### Starter Plan Snapshot",
+      "",
+      "- First action this week: turn the owner-provided facts above into one concrete next step and ask for the missing decision or evidence.",
+      "- Proof points: preserve concrete signals from the owner's messages so the plan can be refined without losing context.",
+      "- Open questions: keep uncertainty explicit until the owner confirms priorities, constraints, and success criteria.",
+      "",
+      facts,
+    ].join("\n"),
+  };
+}
+
+export function mergeStarterProjectArtifactSnapshot(content: string, snapshot: string): string {
+  const snapshotBlock = [
+    STARTER_ARTIFACT_SNAPSHOT_START,
+    snapshot.trim(),
+    STARTER_ARTIFACT_SNAPSHOT_END,
+  ].join("\n");
+  const existingSnapshotPattern = new RegExp(
+    `${escapeRegExp(STARTER_ARTIFACT_SNAPSHOT_START)}[\\s\\S]*?${escapeRegExp(STARTER_ARTIFACT_SNAPSHOT_END)}`
+  );
+
+  if (existingSnapshotPattern.test(content)) {
+    return content.replace(existingSnapshotPattern, snapshotBlock);
+  }
+
+  const changelogMatch = /\n## Changelog\b/.exec(content);
+  if (changelogMatch?.index !== undefined) {
+    return `${content.slice(0, changelogMatch.index).trimEnd()}\n\n${snapshotBlock}\n${content.slice(changelogMatch.index)}`;
+  }
+
+  return `${content.trimEnd()}\n\n${snapshotBlock}\n`;
+}
+
+function shouldUpdateStarterProjectArtifact(content: string): boolean {
+  return (
+    content.includes(STARTER_ARTIFACT_SNAPSHOT_START) ||
+    /\bto be filled\b/i.test(content) ||
+    /\bone thing you can do this week\b/i.test(content)
+  );
+}
+
+function normalizeStarterSnapshotLine(content: string): string {
+  return content
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 600);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function buildAppChatContextGuidance(

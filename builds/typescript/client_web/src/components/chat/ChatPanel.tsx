@@ -299,6 +299,11 @@ export default function ChatPanel({
   const lastUserMessage = [...messages].reverse().find((message) => message.role === "user") ?? null;
   const shouldShowEmptyState = isEmpty && messages.length === 0 && !isLoading;
   const shouldShowConversation = contentOverride === undefined;
+  const shouldShowManualConversationReset =
+    messages.length > 0 &&
+    !isLoading &&
+    !contextWindowWarning &&
+    !visibleChatError;
 
   function resetErrorPresentation() {
     setHistoryError(null);
@@ -621,6 +626,17 @@ export default function ChatPanel({
               typingStatus={typingStatus}
             >
               <UploadActivityList activities={uploadActivities} onRetry={retryUpload} />
+              {shouldShowManualConversationReset && (
+                <div className="mx-auto flex w-full max-w-[780px] justify-end px-4 py-2">
+                  <button
+                    type="button"
+                    onClick={handleStartNewConversation}
+                    className="rounded-lg border border-bd-border-primary px-3 py-1.5 text-xs font-medium text-bd-text-secondary transition-colors hover:border-bd-amber/50 hover:text-bd-text-primary"
+                  >
+                    Start New Conversation
+                  </button>
+                </div>
+              )}
               {contextWindowWarning && !visibleChatError && (
                 <div className="mx-auto w-full max-w-[780px] py-2">
                   <div className="rounded-xl border border-bd-amber/40 bg-bd-amber/10 px-4 py-3 text-sm text-bd-text-primary">

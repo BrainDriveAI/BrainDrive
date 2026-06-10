@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import type { Message } from "@/types/ui";
@@ -112,6 +112,22 @@ describe("ChatPanel typing indicator behavior", () => {
     expect(screen.getByRole("button", { name: "Continue in New Conversation" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open Settings" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Try Again" })).not.toBeInTheDocument();
+  });
+
+  it("offers a fresh conversation action for normal existing history", async () => {
+    const hookState = makeHookState({
+      messages: [
+        { id: "u-1", role: "user", content: "I want to work on career planning." },
+        { id: "a-1", role: "assistant", content: "Let's start with your current role." },
+      ],
+    });
+    useGatewayChatMock.mockReturnValue(hookState);
+
+    render(<ChatPanel activeConversationId="conversation-1" isEmpty={false} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Start New Conversation" }));
+
+    expect(hookState.startNewConversation).toHaveBeenCalledTimes(1);
   });
 
   it("uploads PDF attachments through the selected project and sends a durable upload event", async () => {

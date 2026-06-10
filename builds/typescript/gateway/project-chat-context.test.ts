@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  buildStarterProjectArtifactSnapshot,
   buildProjectChatContext,
   createBrainDriveMemorySafetyGuard,
   conversationHasSavedBudgetComparison,
   createFinanceBudgetProtectionGuard,
   isProtectedFinanceBudgetMutation,
+  mergeStarterProjectArtifactSnapshot,
 } from "./server.js";
 import type { ConversationDetail } from "../contracts.js";
 
@@ -74,6 +76,79 @@ describe("project chat context", () => {
     expect(context).toContain("current file list at the start of this user turn");
     expect(context).toContain("Do not rely on earlier conversation claims");
     expect(context).toContain("call memory_delete when a matching file exists");
+    expect(context).toContain("do not only answer in chat");
+    expect(context).toContain("update documents/finance/spec.md and/or documents/finance/plan.md");
+    expect(context).toContain("replace placeholder lines like \"To be filled...\"");
+    expect(context).toContain("Do not wait for a perfect interview before writing durable state");
+  });
+
+  it("requires durable spec and plan writes for non-Finance starter project alignment", () => {
+    const context = buildProjectChatContext("career", [
+      {
+        name: "AGENT.md",
+        path: "documents/career/AGENT.md",
+      },
+      {
+        name: "spec.md",
+        path: "documents/career/spec.md",
+      },
+      {
+        name: "plan.md",
+        path: "documents/career/plan.md",
+      },
+      {
+        name: "run-interview.md",
+        path: "documents/career/run-interview.md",
+      },
+      {
+        name: "run-planning.md",
+        path: "documents/career/run-planning.md",
+      },
+    ]);
+
+    expect(context).toContain("You are currently in the **career** project.");
+    expect(context).toContain("do not only answer in chat");
+    expect(context).toContain("Once the owner provides usable facts, update documents/career/spec.md and/or documents/career/plan.md");
+    expect(context).toContain("replace placeholder lines like \"To be filled...\"");
+    expect(context).toContain("mark uncertainty");
+    expect(context).toContain("tell the owner what changed");
+  });
+
+  it("builds starter artifact snapshots from owner conversation messages", () => {
+    const snapshot = buildStarterProjectArtifactSnapshot("career", conversationWithUserMessages([
+      "I am a marketing coordinator making $62K and want to move toward product marketing.",
+      "I can spend five hours a week and need no pay cut.",
+    ]));
+
+    expect(snapshot?.spec).toContain("marketing coordinator");
+    expect(snapshot?.spec).toContain("$62K");
+    expect(snapshot?.spec).toContain("product marketing");
+    expect(snapshot?.plan).toContain("First action this week");
+    expect(snapshot?.plan).toContain("Proof points");
+    expect(snapshot?.plan).toContain("five hours a week");
+  });
+
+  it("merges starter artifact snapshots before the changelog and replaces old snapshots", () => {
+    const template = [
+      "# Career Spec",
+      "",
+      "## What You Want",
+      "",
+      "To be filled through conversation.",
+      "",
+      "## Changelog",
+      "",
+      "- Created.",
+      "",
+    ].join("\n");
+
+    const firstMerge = mergeStarterProjectArtifactSnapshot(template, "### Owner Conversation Snapshot\n\n- Owner turn 1: marketing coordinator");
+    const secondMerge = mergeStarterProjectArtifactSnapshot(firstMerge, "### Owner Conversation Snapshot\n\n- Owner turn 1: product marketing");
+
+    expect(firstMerge.indexOf("BrainDrive starter owner snapshot")).toBeLessThan(firstMerge.indexOf("## Changelog"));
+    expect(secondMerge).toContain("product marketing");
+    expect(secondMerge).not.toContain("marketing coordinator");
+    expect(secondMerge.match(/BrainDrive starter owner snapshot: start/g)).toHaveLength(1);
   });
 
   it("adds app-scope context when client metadata selects an app folder", () => {
