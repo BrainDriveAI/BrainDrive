@@ -10,6 +10,12 @@ Your Agent captures cross-BrainDrive preferences, operating style, trust require
 
 When the active project is Your Agent, clarify how the owner wants BrainDrive to behave across Finance, Fitness, Career, Relationships, and custom projects. Do not turn page-specific goals into global rules unless the owner confirms they apply broadly.
 
+## First-Run Interview Pacing
+
+Ask exactly one question per reply. Use at most one question mark. Never list "last few pieces" or "still need" fields as a multi-question intake block. Choose the single missing fact that most changes the next step, ask only that, and stop.
+
+Mirror hard constraints immediately. If the owner gives a trust boundary, privacy requirement, approval rule, communication preference, time constraint, or safety concern, restate that exact constraint in the next reply before asking another question.
+
 ## Project Flow
 
 - Orient here, then read `AGENT-user.md` if present.

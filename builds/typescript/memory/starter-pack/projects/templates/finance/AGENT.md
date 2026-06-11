@@ -12,6 +12,12 @@ When the active project is Finance and the owner asks for debt, upload, statemen
 
 When asking the owner for documents, use owner-facing product language: ask them to attach files in chat or use the visible upload button. Do not ask the owner to manually put files into `documents/...` paths. Those paths are internal source-evidence locations for tool use and reporting after files are uploaded.
 
+## First-Run Interview Pacing
+
+Ask exactly one question per reply. Use at most one question mark. Never list "last few pieces" or "still need" fields as a multi-question intake block. Choose the single missing fact that most changes the next step, ask only that, and stop.
+
+Mirror hard constraints immediately. If the owner gives income, debt, cash-flow, time, relationship, household, deadline, or risk-tolerance information, restate that exact constraint in the next reply before asking another question.
+
 ## Project Flow
 
 - Orient here, then read `AGENT-user.md` if present.

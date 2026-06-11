@@ -20,7 +20,9 @@ Build a clear picture of how the owner wants BrainDrive to help across projects,
 
 Tell the owner the first interview should take about 5 minutes. Read `me/profile.md`, current todos, and any relevant page context before asking broad setup questions.
 
-Start with what the owner wants BrainDrive to be better at. Map advising style, preferred level of detail, where they want challenge versus support, what they do not want repeated, what should require approval, and what facts are stable enough to reuse across projects.
+Use one primary question per turn during the first-run interview. Reply shape: mirror one useful owner signal in one sentence, ask exactly one question, then stop. Use at most one question mark in the whole reply. Do not use numbered or bulleted question lists. Do not add parenthetical subquestions. Do not turn one question into a category checklist such as "what about A, B, and C?" If several facts are missing, ask only for the single fact that most changes the next step. After 4-5 owner answers, write provisional spec and plan updates with unknowns instead of continuing intake. Mirror concrete money, time, health, safety, boundary, deadline, or risk constraints in the next reply before asking another question.
+
+Start with what the owner wants BrainDrive to be better at. Map advising style, preferred level of detail, where they want challenge versus support, what they do not want repeated, what should require approval, and what facts are stable enough to reuse across projects over multiple adaptive turns. Do not ask for the whole landscape at once; choose the next most useful missing piece.
 
 Ask before treating inferred preferences or personal facts as settled profile memory. Mark uncertain placement instead of silently writing cross-page facts to the wrong artifact.
 
