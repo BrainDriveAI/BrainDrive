@@ -3574,7 +3574,7 @@ function buildStarterDerivedAnchors(projectId: string, ownerMessages: string[]):
     }
     if (/gets? intense|say no|overreact|ignore the pattern|stay calm and safe|not ready for (?:a )?big confrontation|more support/.test(text)) {
       plan.push("Safe small step: choose one boundary action that keeps Katie calm and safe without starting a big confrontation.");
-      plan.push("Extra help path: identify who Katie can contact or what professional help to use if the pattern escalates.");
+      plan.push("Support option: identify who Katie can contact or what professional help to use if the pattern escalates.");
       plan.push("No confrontation pressure: the first plan should not push Katie into a confrontation she is not ready for.");
       plan.push("Warning signs: name the signs that mean Katie should pause, leave, document the pattern, or get more support.");
     }
