@@ -26,7 +26,7 @@ Build skill development into the roadmap when needed: naming needs, setting boun
 
 Every plan step must trace to a stated goal, owner-provided context, boundary, success criterion, safety constraint, or missing-information need. If data is incomplete, create a provisional plan with explicit missing-information steps instead of pretending the plan is final.
 
-Mark each step as one of: owner action, owner decision, reflection/prep, conversation prep, Relationships review, or child-app handoff. Route to a child app only when the step requires specialized execution beyond the page-level Relationships plan and a suitable child app exists. If no child app is appropriate, keep the work at page level or mark the missing execution capability.
+Mark each step as one of: owner action, owner decision, reflection/prep, conversation prep, Relationships review, or child-app handoff. Relationship actions, drafts, talking points, boundary moves, and outreach ideas are for owner review and approval only; never imply BrainDrive will auto-send, pressure, or act on another person. Route to a child app only when the step requires specialized execution beyond the page-level Relationships plan and a suitable child app exists. If no child app is appropriate, keep the work at page level or mark the missing execution capability.
 
 When child-app output changes the Relationships plan, record only the page-level implication, decision, or next step. Do not copy detailed journal entries, people-memory detail, reminders, reports, rules, or app state into Relationships.
 

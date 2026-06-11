@@ -32,7 +32,7 @@ To be filled when a plan step requires specialized execution and a suitable chil
 
 ## Review Status
 
-*What has changed, what was completed, what needs owner review, and when the plan should be revisited.*
+*What has changed, what was completed, what needs owner review, what remains approval-only, and when the plan should be revisited. Relationship actions, drafts, talking points, and outreach ideas are never auto-sent or acted on without the owner's approval.*
 
 To be filled as the owner makes progress.
 
