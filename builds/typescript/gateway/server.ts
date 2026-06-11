@@ -3553,6 +3553,10 @@ function buildStarterDerivedAnchors(projectId: string, ownerMessages: string[]):
     if (/honest conversation|does not spiral|without making it feel like a fight/.test(text)) {
       spec.push("Success signal: one honest conversation that does not spiral.");
     }
+    if (/gets? intense|say no|overreact|ignore the pattern|stay calm and safe|not ready for (?:a )?big confrontation|more support/.test(text)) {
+      spec.push("Boundary signal: the other person gets intense when Katie needs to say no, and Katie wants to stay calm and safe.");
+      spec.push("Safety signal: Katie is not ready for a big confrontation and wants signs for when she should get more support.");
+    }
 
     if (/evan|money conversation|avoid money|embarrassed|defensive|honest conversation|does not spiral/.test(text)) {
       plan.push("First conversation step: name one money topic with Evan and ask for a calm time to talk before covering every concern.");
@@ -3567,6 +3571,12 @@ function buildStarterDerivedAnchors(projectId: string, ownerMessages: string[]):
     }
     if (/not hostile|think i am irresponsible|irresponsible|does not spiral/.test(text)) {
       plan.push("Safety check: keep the first conversation focused on clarity and repair, not blame, so it has a better chance to not spiral.");
+    }
+    if (/gets? intense|say no|overreact|ignore the pattern|stay calm and safe|not ready for (?:a )?big confrontation|more support/.test(text)) {
+      plan.push("Safe small step: choose one boundary action that keeps Katie calm and safe without starting a big confrontation.");
+      plan.push("Support option: identify who Katie can contact or what professional support to use if the pattern escalates.");
+      plan.push("No confrontation pressure: the first plan should not push Katie into a confrontation she is not ready for.");
+      plan.push("Warning signs: name the signs that mean Katie should pause, leave, document the pattern, or get more support.");
     }
 
     return { spec, plan };

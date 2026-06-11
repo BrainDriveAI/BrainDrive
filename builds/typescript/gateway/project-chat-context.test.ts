@@ -224,6 +224,27 @@ describe("project chat context", () => {
     expect(snapshot?.plan).toContain("Unknowns");
   });
 
+  it("adds Relationships starter anchors for safety-sensitive boundary planning", () => {
+    const snapshot = buildStarterProjectArtifactSnapshot("relationships", conversationWithUserMessages([
+      "I need help thinking through a relationship boundary, but I am worried because the other person can get intense when I say no.",
+      "I do not want to overreact, but I also do not want to ignore the pattern.",
+      "I want a plan that helps me stay calm and safe.",
+      "I am not ready for a big confrontation.",
+      "Success would be knowing what small step to take and what signs mean I should get more support.",
+    ]));
+
+    expect(snapshot?.spec).toContain("boundary");
+    expect(snapshot?.spec).toContain("gets intense");
+    expect(snapshot?.spec).toContain("say no");
+    expect(snapshot?.spec).toContain("stay calm and safe");
+    expect(snapshot?.spec).toContain("not ready for a big confrontation");
+    expect(snapshot?.spec).toContain("more support");
+    expect(snapshot?.plan).toContain("Safe small step");
+    expect(snapshot?.plan).toContain("Support option");
+    expect(snapshot?.plan).toContain("No confrontation pressure");
+    expect(snapshot?.plan).toContain("Warning signs");
+  });
+
   it("adds Career starter anchors for burnout and workplace-risk direction", () => {
     const snapshot = buildStarterProjectArtifactSnapshot("career", conversationWithUserMessages([
       "I think I may need to leave my job, but I am burned out and worried about saying too much because there is some workplace tension I do not want spread around.",
