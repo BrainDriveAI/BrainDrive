@@ -165,6 +165,26 @@ describe("project chat context", () => {
     expect(snapshot?.plan).toContain("Honest unknowns");
   });
 
+  it("adds Finance starter anchors for Katie's vague debt setup", () => {
+    const snapshot = buildStarterProjectArtifactSnapshot("finance", conversationWithUserMessages([
+      "I need to get better with money. I do not know where to start.",
+      "I have some debt but I do not know the exact number.",
+      "I avoid checking because it stresses me out.",
+      "I want something simple that gets me unstuck.",
+      "I can probably gather balances this week if I know what to look for.",
+    ]));
+
+    expect(snapshot?.spec).toContain("get better with money");
+    expect(snapshot?.spec).toContain("some debt");
+    expect(snapshot?.spec).toContain("avoid checking");
+    expect(snapshot?.spec).toContain("simple");
+    expect(snapshot?.spec).toContain("gather balances");
+    expect(snapshot?.plan).toContain("First checking step");
+    expect(snapshot?.plan).toContain("Balances to gather");
+    expect(snapshot?.plan).toContain("Small next action");
+    expect(snapshot?.plan).toContain("Unknowns");
+  });
+
   it("adds Fitness starter anchors for injury-safety goals", () => {
     const snapshot = buildStarterProjectArtifactSnapshot("fitness", conversationWithUserMessages([
       "I want to get active again, but I had a knee injury a while back and I am nervous about making it worse.",

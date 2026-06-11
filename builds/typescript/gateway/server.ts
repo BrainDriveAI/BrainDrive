@@ -3500,6 +3500,33 @@ function buildStarterDerivedAnchors(projectId: string, ownerMessages: string[]):
   const spec: string[] = [];
   const plan: string[] = [];
 
+  if (projectId === "finance") {
+    if (/get better with money|do not know where to start|don't know where to start/.test(text)) {
+      spec.push("Finance signal: Katie wants to get better with money and does not know where to start.");
+    }
+    if (/\bsome debt\b|exact number|do not know the exact number|don't know the exact number/.test(text)) {
+      spec.push("Debt signal: Katie has some debt, but the exact amount is still unknown.");
+    }
+    if (/avoid checking|checking because it stresses|stresses me out/.test(text)) {
+      spec.push("Avoidance signal: Katie tends to avoid checking balances because it stresses her out.");
+    }
+    if (/\bsimple\b|unstuck/.test(text)) {
+      spec.push("Starter preference: the first Finance plan should stay simple and help Katie get unstuck.");
+    }
+    if (/gather balances|what to look for/.test(text)) {
+      spec.push("Evidence signal: Katie can gather balances this week if she knows what to look for.");
+    }
+
+    if (/get better with money|do not know where to start|don't know where to start|avoid checking|some debt|gather balances/.test(text)) {
+      plan.push("First checking step: make one low-pressure pass through accounts without trying to solve every money question at once.");
+      plan.push("Balances to gather: current checking, savings, credit-card, loan, and other debt balances, with exact debt totals marked unknown until confirmed.");
+      plan.push("Small next action: collect the available balances this week and note which accounts still need a login, statement, or estimate.");
+      plan.push("Unknowns: exact debt amount, monthly margin, account list, and the highest-priority money decision still need confirmation.");
+    }
+
+    return { spec, plan };
+  }
+
   if (projectId === "fitness") {
     if (/get healthier|move more|not doing much|overwhelmed|small things/.test(text)) {
       spec.push("Fitness signal: wants to get healthier and move more from a low-current-activity baseline.");
