@@ -49,29 +49,53 @@ type ChatPanelProps = {
   messageMetadata?: Record<string, unknown>;
   contentOverride?: ReactNode;
   onSendMessage?: () => void;
-  onUploadDocument?: (file: File) => Promise<ProjectFile | void>;
+  onUploadDocument?: (file: File, options?: { openAfterUpload?: boolean }) => Promise<ProjectFile | void>;
   onOpenSettings?: () => void;
 };
 
 type UploadActivity = {
   id: string;
+  batchId: string;
   file: File;
   fileName: string;
+  fileType: string;
+  fileSize: number;
+  selectedFileCount: number;
   status: "uploading" | "converting" | "saved" | "failed";
   message: string;
   savedPath?: string;
+  ownerLabel?: string;
+  statementMonth?: string | null;
+  destinationLabel?: string;
+  sourceType?: string;
+  accountName?: string | null;
+  detailsOpen?: boolean;
   error?: string;
 };
 
 type UploadSuccess = {
   fileName: string;
   savedPath: string;
+  ownerLabel?: string;
+  statementMonth?: string | null;
+  destinationLabel?: string;
 };
 
 type UploadFailure = {
   fileName: string;
   error: string;
 };
+
+type UploadLifecycleStage =
+  | "selected"
+  | "accepted_by_client_validation"
+  | "conversion_started"
+  | "upload_request_started"
+  | "conversion_completed"
+  | "saved_to_memory"
+  | "visible_receipt_rendered"
+  | "attached_to_message"
+  | "failed";
 
 function mapConversationMessages(conversation: ConversationDetail): Message[] {
   return conversation.messages
@@ -99,12 +123,60 @@ function readTextAttachment(file: File): Promise<string> {
   });
 }
 
+function ownerSafeUploadError(error: unknown, fileName?: string): string {
+  const rawMessage = error instanceof Error ? error.message : String(error ?? "");
+  const normalized = `${rawMessage} ${fileName ?? ""}`.toLowerCase();
+  if (
+    normalized.includes(".pdf") ||
+    normalized.includes("pdf") ||
+    normalized.includes("ai_pdf_to_markdown") ||
+    normalized.includes("file-parser") ||
+    normalized.includes("parser")
+  ) {
+    return "We could not read this PDF. Retry it, upload a CSV/export version, or continue with incomplete evidence.";
+  }
+
+  if (
+    normalized.includes("provider") ||
+    normalized.includes("model") ||
+    normalized.includes("conversion") ||
+    normalized.includes("markdown")
+  ) {
+    return "Document upload failed. Retry the file or upload a CSV/export version.";
+  }
+
+  return rawMessage || "Document upload failed. Retry the file or upload a CSV/export version.";
+}
+
+function dispatchUploadLifecycle(detail: {
+  batchId: string;
+  stage: UploadLifecycleStage;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  selectedFileCount: number;
+  projectId: string | null;
+  status: UploadActivity["status"] | "selected" | "accepted" | "saved" | "attached";
+  savedPath?: string;
+  ownerLabel?: string;
+  conversionStatus?: string;
+  error?: string;
+}) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.dispatchEvent(new CustomEvent("braindrive:upload-lifecycle", { detail }));
+}
+
 function UploadActivityList({
   activities,
-  onRetry
+  onRetry,
+  onToggleDetails,
 }: {
   activities: UploadActivity[];
   onRetry: (activity: UploadActivity) => void;
+  onToggleDetails: (activity: UploadActivity) => void;
 }) {
   if (activities.length === 0) {
     return null;
@@ -128,7 +200,12 @@ function UploadActivityList({
             )}
             <div className="min-w-0 flex-1">
               <div className="truncate">{activity.message}</div>
-              {activity.savedPath ? (
+              {activity.destinationLabel || activity.statementMonth ? (
+                <div className="truncate pt-0.5 text-xs text-bd-text-muted">
+                  {[activity.statementMonth, activity.destinationLabel].filter(Boolean).join(" - ")}
+                </div>
+              ) : null}
+              {activity.savedPath && activity.detailsOpen ? (
                 <div className="truncate pt-0.5 text-xs text-bd-text-muted">
                   Source evidence: {activity.savedPath}
                 </div>
@@ -137,6 +214,15 @@ function UploadActivityList({
                 <div className="pt-0.5 text-xs leading-5 text-bd-danger">{activity.error}</div>
               ) : null}
             </div>
+            {activity.status === "saved" && activity.savedPath ? (
+              <button
+                type="button"
+                onClick={() => onToggleDetails(activity)}
+                className="inline-flex shrink-0 items-center rounded-md border border-bd-border px-2 py-1 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover hover:text-bd-text-primary"
+              >
+                {activity.detailsOpen ? "Hide" : "Details"}
+              </button>
+            ) : null}
             {activity.status === "failed" ? (
               <button
                 type="button"
@@ -295,11 +381,17 @@ export default function ChatPanel({
   const normalizedVisibleChatError = visibleChatError?.toLowerCase() ?? "";
   const isProviderError = visibleChatError != null && (
     normalizedVisibleChatError.includes("credentials") ||
+    normalizedVisibleChatError.includes("quota") ||
+    normalizedVisibleChatError.includes("credits") ||
+    normalizedVisibleChatError.includes("api key") ||
     normalizedVisibleChatError.includes("could not be reached") ||
     normalizedVisibleChatError.includes("provider") ||
     normalizedVisibleChatError.includes("model")
   ) && !isContextOverflowError;
   const lastUserMessage = [...messages].reverse().find((message) => message.role === "user") ?? null;
+  const visibleRecoveryMessage = isProviderError
+    ? "The model connection was interrupted. Try again, or open settings if this keeps happening."
+    : visibleChatError;
   const shouldShowEmptyState = isEmpty && messages.length === 0 && !isLoading;
   const shouldShowConversation = contentOverride === undefined;
   const shouldShowManualConversationReset =
@@ -314,6 +406,24 @@ export default function ChatPanel({
       setDismissedError(visibleChatError);
     }
     setConnectionStatus("connected");
+  }
+
+  function handleRetryCurrentTurn() {
+    const retryMessage = lastUserMessage;
+    const replayContent = retryMessage?.content?.trim();
+    resetErrorPresentation();
+    if (!retryMessage || !replayContent) {
+      return;
+    }
+
+    append(replayContent, {
+      metadata: {
+        ...messageMetadata,
+        retry_of_message_id: retryMessage.id,
+        retry_reason: errorCode ?? "chat_error",
+      },
+      echoUserMessage: false,
+    });
   }
 
   async function handleStartNewConversation() {
@@ -399,6 +509,13 @@ export default function ChatPanel({
     );
   }
 
+  function toggleUploadActivityDetails(activity: UploadActivity) {
+    updateUploadActivity(activity.id, (current) => ({
+      ...current,
+      detailsOpen: !current.detailsOpen,
+    }));
+  }
+
   function buildUploadSummaryMessage(
     message: string,
     successes: UploadSuccess[],
@@ -416,7 +533,9 @@ export default function ChatPanel({
       lines.push(`Uploaded ${successes.length} files:`);
     }
     for (const success of successes) {
-      lines.push(`- ${success.fileName} -> ${success.savedPath}`);
+      const label = success.ownerLabel ?? success.fileName;
+      const detail = [success.statementMonth, success.destinationLabel].filter(Boolean).join(" - ");
+      lines.push(detail ? `- ${label} (${detail})` : `- ${label}`);
     }
 
     if (failures.length > 0) {
@@ -438,36 +557,110 @@ export default function ChatPanel({
       return;
     }
 
+    const batchId = nextUploadActivityId();
+    const selectedFileCount = files.length;
     const activities = files.map((file) => ({
       id: nextUploadActivityId(),
+      batchId,
       file,
       fileName: file.name,
+      fileType: file.type || "application/octet-stream",
+      fileSize: file.size,
+      selectedFileCount,
       status: requiresMarkdownConversion(file) ? "converting" as const : "uploading" as const,
       message: requiresMarkdownConversion(file)
         ? `Converting ${file.name} to markdown...`
         : `Uploading ${file.name}...`,
     }));
     setUploadActivities((current) => [...current, ...activities]);
+    for (const activity of activities) {
+      dispatchUploadLifecycle({
+        batchId,
+        stage: "selected",
+        fileName: activity.fileName,
+        fileType: activity.fileType,
+        fileSize: activity.fileSize,
+        selectedFileCount,
+        projectId: activeProjectId ?? null,
+        status: "selected",
+      });
+      dispatchUploadLifecycle({
+        batchId,
+        stage: "accepted_by_client_validation",
+        fileName: activity.fileName,
+        fileType: activity.fileType,
+        fileSize: activity.fileSize,
+        selectedFileCount,
+        projectId: activeProjectId ?? null,
+        status: activity.status,
+      });
+    }
 
     const successes: UploadSuccess[] = [];
     const failures: UploadFailure[] = [];
 
     for (const activity of activities) {
       try {
-        const uploadedFile = await onUploadDocument(activity.file);
+        dispatchUploadLifecycle({
+          batchId: activity.batchId,
+          stage: activity.status === "converting" ? "conversion_started" : "upload_request_started",
+          fileName: activity.fileName,
+          fileType: activity.fileType,
+          fileSize: activity.fileSize,
+          selectedFileCount: activity.selectedFileCount,
+          projectId: activeProjectId ?? null,
+          status: activity.status,
+        });
+        const uploadedFile = await onUploadDocument(activity.file, { openAfterUpload: false });
         const uploadedPath = uploadedFile?.path ?? activity.fileName;
+        const ownerLabel = uploadedFile?.ownerLabel ?? activity.fileName;
         successes.push({
           fileName: activity.fileName,
           savedPath: uploadedPath,
+          ownerLabel,
+          statementMonth: uploadedFile?.statementMonth,
+          destinationLabel: uploadedFile?.destinationLabel,
         });
         updateUploadActivity(activity.id, (current) => ({
           ...current,
           status: "saved",
           savedPath: uploadedPath,
-          message: `Saved ${current.fileName}.`,
+          ownerLabel,
+          statementMonth: uploadedFile?.statementMonth,
+          destinationLabel: uploadedFile?.destinationLabel,
+          sourceType: uploadedFile?.sourceType,
+          accountName: uploadedFile?.accountName,
+          message: `Saved ${ownerLabel}.`,
         }));
+        if (activity.status === "converting") {
+          dispatchUploadLifecycle({
+            batchId: activity.batchId,
+            stage: "conversion_completed",
+            fileName: activity.fileName,
+            fileType: activity.fileType,
+            fileSize: activity.fileSize,
+            selectedFileCount: activity.selectedFileCount,
+            projectId: activeProjectId ?? null,
+            status: "saved",
+            savedPath: uploadedPath,
+            ownerLabel,
+            conversionStatus: "completed",
+          });
+        }
+        dispatchUploadLifecycle({
+          batchId: activity.batchId,
+          stage: "saved_to_memory",
+          fileName: activity.fileName,
+          fileType: activity.fileType,
+          fileSize: activity.fileSize,
+          selectedFileCount: activity.selectedFileCount,
+          projectId: activeProjectId ?? null,
+          status: "saved",
+          savedPath: uploadedPath,
+          ownerLabel,
+        });
       } catch (uploadError) {
-        const errorMessage = uploadError instanceof Error ? uploadError.message : "Document upload failed.";
+        const errorMessage = ownerSafeUploadError(uploadError, activity.fileName);
         failures.push({
           fileName: activity.fileName,
           error: errorMessage,
@@ -478,12 +671,53 @@ export default function ChatPanel({
           error: errorMessage,
           message: `Failed to upload ${current.fileName}.`,
         }));
+        dispatchUploadLifecycle({
+          batchId: activity.batchId,
+          stage: "failed",
+          fileName: activity.fileName,
+          fileType: activity.fileType,
+          fileSize: activity.fileSize,
+          selectedFileCount: activity.selectedFileCount,
+          projectId: activeProjectId ?? null,
+          status: "failed",
+          error: errorMessage,
+        });
       }
     }
 
     if (successes.length > 0) {
       onSendMessage?.();
       append(buildUploadSummaryMessage(message, successes, failures), { metadata: messageMetadata });
+      for (const success of successes) {
+        const activity = activities.find((candidate) => candidate.fileName === success.fileName);
+        if (!activity) {
+          continue;
+        }
+        dispatchUploadLifecycle({
+          batchId: activity.batchId,
+          stage: "visible_receipt_rendered",
+          fileName: activity.fileName,
+          fileType: activity.fileType,
+          fileSize: activity.fileSize,
+          selectedFileCount: activity.selectedFileCount,
+          projectId: activeProjectId ?? null,
+          status: "saved",
+          savedPath: success.savedPath,
+          ownerLabel: success.ownerLabel,
+        });
+        dispatchUploadLifecycle({
+          batchId: activity.batchId,
+          stage: "attached_to_message",
+          fileName: activity.fileName,
+          fileType: activity.fileType,
+          fileSize: activity.fileSize,
+          selectedFileCount: activity.selectedFileCount,
+          projectId: activeProjectId ?? null,
+          status: "attached",
+          savedPath: success.savedPath,
+          ownerLabel: success.ownerLabel,
+        });
+      }
     } else if (failures.length > 0) {
       setFileError(failures.length === 1 ? failures[0]!.error : "Document uploads failed.");
     }
@@ -501,20 +735,78 @@ export default function ChatPanel({
     }));
 
     try {
-      const uploadedFile = await onUploadDocument?.(activity.file);
+      dispatchUploadLifecycle({
+        batchId: activity.batchId,
+        stage: activity.status === "converting" ? "conversion_started" : "upload_request_started",
+        fileName: activity.fileName,
+        fileType: activity.fileType,
+        fileSize: activity.fileSize,
+        selectedFileCount: activity.selectedFileCount,
+        projectId: activeProjectId ?? null,
+        status: requiresMarkdownConversion(activity.file) ? "converting" : "uploading",
+      });
+      const uploadedFile = await onUploadDocument?.(activity.file, { openAfterUpload: false });
       const uploadedPath = uploadedFile?.path ?? activity.fileName;
+      const ownerLabel = uploadedFile?.ownerLabel ?? activity.fileName;
       updateUploadActivity(activity.id, (current) => ({
         ...current,
         status: "saved",
         savedPath: uploadedPath,
-        message: `Saved ${current.fileName}.`,
+        ownerLabel,
+        statementMonth: uploadedFile?.statementMonth,
+        destinationLabel: uploadedFile?.destinationLabel,
+        sourceType: uploadedFile?.sourceType,
+        accountName: uploadedFile?.accountName,
+        message: `Saved ${ownerLabel}.`,
       }));
+      dispatchUploadLifecycle({
+        batchId: activity.batchId,
+        stage: "saved_to_memory",
+        fileName: activity.fileName,
+        fileType: activity.fileType,
+        fileSize: activity.fileSize,
+        selectedFileCount: activity.selectedFileCount,
+        projectId: activeProjectId ?? null,
+        status: "saved",
+        savedPath: uploadedPath,
+        ownerLabel,
+      });
       onSendMessage?.();
-      append(buildUploadSummaryMessage("", [{ fileName: activity.fileName, savedPath: uploadedPath }], []), {
+      append(buildUploadSummaryMessage("", [{
+        fileName: activity.fileName,
+        savedPath: uploadedPath,
+        ownerLabel,
+        statementMonth: uploadedFile?.statementMonth,
+        destinationLabel: uploadedFile?.destinationLabel,
+      }], []), {
         metadata: messageMetadata
       });
+      dispatchUploadLifecycle({
+        batchId: activity.batchId,
+        stage: "visible_receipt_rendered",
+        fileName: activity.fileName,
+        fileType: activity.fileType,
+        fileSize: activity.fileSize,
+        selectedFileCount: activity.selectedFileCount,
+        projectId: activeProjectId ?? null,
+        status: "saved",
+        savedPath: uploadedPath,
+        ownerLabel,
+      });
+      dispatchUploadLifecycle({
+        batchId: activity.batchId,
+        stage: "attached_to_message",
+        fileName: activity.fileName,
+        fileType: activity.fileType,
+        fileSize: activity.fileSize,
+        selectedFileCount: activity.selectedFileCount,
+        projectId: activeProjectId ?? null,
+        status: "attached",
+        savedPath: uploadedPath,
+        ownerLabel,
+      });
     } catch (uploadError) {
-      const errorMessage = uploadError instanceof Error ? uploadError.message : "Document upload failed.";
+      const errorMessage = ownerSafeUploadError(uploadError, activity.fileName);
       updateUploadActivity(activity.id, (current) => ({
         ...current,
         status: "failed",
@@ -522,6 +814,17 @@ export default function ChatPanel({
         message: `Failed to upload ${current.fileName}.`,
       }));
       setFileError(errorMessage);
+      dispatchUploadLifecycle({
+        batchId: activity.batchId,
+        stage: "failed",
+        fileName: activity.fileName,
+        fileType: activity.fileType,
+        fileSize: activity.fileSize,
+        selectedFileCount: activity.selectedFileCount,
+        projectId: activeProjectId ?? null,
+        status: "failed",
+        error: errorMessage,
+      });
     }
   }
 
@@ -635,7 +938,11 @@ export default function ChatPanel({
               isTyping={showTypingFeedback}
               typingStatus={typingStatus}
             >
-              <UploadActivityList activities={uploadActivities} onRetry={retryUpload} />
+              <UploadActivityList
+                activities={uploadActivities}
+                onRetry={retryUpload}
+                onToggleDetails={toggleUploadActivityDetails}
+              />
               {shouldShowManualConversationReset && (
                 <div className="mx-auto flex w-full max-w-[780px] justify-end px-4 py-2">
                   <button
@@ -668,9 +975,15 @@ export default function ChatPanel({
               )}
               {visibleChatError && (
                 <ErrorMessage
-                  message={visibleChatError}
+                  message={visibleRecoveryMessage ?? visibleChatError}
                   onOpenSettings={isProviderError ? onOpenSettings : undefined}
-                  onRetry={isContextOverflowError ? undefined : () => resetErrorPresentation()}
+                  onRetry={
+                    isContextOverflowError
+                      ? undefined
+                      : isProviderError && lastUserMessage
+                        ? handleRetryCurrentTurn
+                        : () => resetErrorPresentation()
+                  }
                   primaryActionLabel={isContextOverflowError ? "Start New Conversation" : undefined}
                   onPrimaryAction={isContextOverflowError ? handleStartNewConversation : undefined}
                   secondaryActionLabel={

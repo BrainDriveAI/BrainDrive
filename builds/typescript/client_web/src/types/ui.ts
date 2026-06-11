@@ -14,6 +14,11 @@ export interface Project {
 export interface ProjectFile {
   name: string;
   path: string;
+  ownerLabel?: string;
+  statementMonth?: string | null;
+  destinationLabel?: string;
+  sourceType?: string;
+  accountName?: string | null;
 }
 
 export type UserProfile = {

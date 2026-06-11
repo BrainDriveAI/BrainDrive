@@ -90,6 +90,7 @@ import {
   DocumentConversionProviderError,
   inferUploadedDocumentMetadata,
   sanitizeSuggestedMarkdownFileName,
+  type UploadedDocumentMetadata,
 } from "./document-upload.js";
 import { createMemoryBackupScheduler } from "./memory-backup-scheduler.js";
 import { GatewayProjectService, isProjectMetadata, ProtectedProjectError, type GatewayProjectFile } from "./projects.js";
@@ -2481,7 +2482,14 @@ export async function buildServer(rootDir = process.cwd()) {
       }
 
       reply.code(201).send({
-        file,
+        file: {
+          ...file,
+          ownerLabel: ownerUploadLabel(parsed.data.file_name, metadata),
+          statementMonth: metadata.statementMonth ? readableYearMonth(metadata.statementMonth) : null,
+          destinationLabel: uploadDirectory ? "Budget statements" : project.name,
+          sourceType: ownerSourceType(metadata),
+          accountName: metadata.institution,
+        },
         conversion: converted.conversion,
       });
     } catch (error) {
@@ -2578,6 +2586,68 @@ function uploadSizeLimitFor(fileName: string, mimeType: string): number {
   }
 
   return 5 * 1024 * 1024;
+}
+
+function ownerUploadLabel(fileName: string, metadata: UploadedDocumentMetadata): string {
+  const source = metadata.institution?.trim();
+  const documentType = ownerDocumentType(metadata);
+  if (source) {
+    return `${source} ${documentType}`;
+  }
+
+  return `${fileName.replace(/\.[^.]+$/, "")} ${documentType}`.replace(/\s+/g, " ").trim();
+}
+
+function ownerDocumentType(metadata: UploadedDocumentMetadata): string {
+  switch (metadata.documentType) {
+    case "bank_statement":
+      return "bank statement";
+    case "credit_card_statement":
+      return "credit card statement";
+    case "investment_statement":
+      return "investment statement";
+    case "budget_export":
+      return "budget export";
+    case "receipt":
+      return "receipt";
+    case "tax_document":
+      return "tax document";
+    case "paystub":
+      return "paystub";
+    case "other":
+      return "document";
+  }
+}
+
+function ownerSourceType(metadata: UploadedDocumentMetadata): string {
+  switch (metadata.accountType) {
+    case "checking":
+      return "Checking";
+    case "savings":
+      return "Savings";
+    case "credit_card":
+      return "Credit card";
+    case "bank_account":
+      return "Bank account";
+    case "investment":
+      return "Investment";
+    case "unknown":
+      return ownerDocumentType(metadata).replace(/\b\w/g, (letter) => letter.toUpperCase());
+  }
+}
+
+function readableYearMonth(value: string): string {
+  const match = /^(20\d{2})-(0[1-9]|1[0-2])$/.exec(value);
+  if (!match) {
+    return value;
+  }
+
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, 1));
+  return new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(date);
 }
 
 function readRefreshTokenFromRequest(cookieHeader: unknown): string | undefined {

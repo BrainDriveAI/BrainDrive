@@ -304,9 +304,13 @@ export default function Sidebar({
                     }
                     void (async () => {
                       for (const file of files) {
-                        await onUploadDocument(file);
+                        try {
+                          await onUploadDocument(file);
+                        } catch {
+                          // Keep processing the rest of a multi-file selection.
+                        }
                       }
-                    })().catch(() => {});
+                    })();
                   }}
                 />
                 <button

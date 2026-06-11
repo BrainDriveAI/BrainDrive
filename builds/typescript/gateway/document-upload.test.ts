@@ -40,6 +40,32 @@ function baseInput(overrides: Partial<UploadedDocumentInput>): UploadedDocumentI
   };
 }
 
+function embeddedJpegPdf(): Buffer {
+  const jpeg = Buffer.concat([
+    Buffer.from([
+      0xff, 0xd8,
+      0xff, 0xc0,
+      0x00, 0x11,
+      0x08,
+      0x00, 0x01,
+      0x00, 0x01,
+      0x03,
+      0x01, 0x11, 0x00,
+      0x02, 0x11, 0x00,
+      0x03, 0x11, 0x00,
+      0xff, 0xda,
+    ]),
+    Buffer.alloc(1100, 0x00),
+    Buffer.from([0xff, 0xd9]),
+  ]);
+
+  return Buffer.concat([
+    Buffer.from("%PDF-1.6\n"),
+    jpeg,
+    Buffer.from("\n%%EOF"),
+  ]);
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -193,6 +219,129 @@ describe("document upload conversion", () => {
     expect(request.messages[1].content[1].type).toBe("file");
     expect(request.messages[1].content[1].file.file_data).toMatch(/^data:application\/pdf;base64,/);
     expect(request.plugins).toBeUndefined();
+  });
+
+  it("retries transient provider conversion failures", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({ error: { message: "Bad gateway" } }),
+        {
+          status: 502,
+          headers: { "content-type": "application/json" },
+        }
+      ))
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: "# Converted Image",
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const converted = await convertUploadedDocumentToMarkdown(
+      baseInput({
+        fileName: "statement.png",
+        mimeType: "image/png",
+        data: Buffer.from("image-bytes"),
+      }),
+      "openai-compatible",
+      adapterConfig,
+      preferences
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(converted.markdown).toBe("# Converted Image");
+  });
+
+  it("does not retry non-transient provider conversion failures", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({ error: { message: "Unauthorized" } }),
+        {
+          status: 401,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(convertUploadedDocumentToMarkdown(
+      baseInput({
+        fileName: "statement.png",
+        mimeType: "image/png",
+        data: Buffer.from("image-bytes"),
+      }),
+      "openai-compatible",
+      adapterConfig,
+      preferences
+    )).rejects.toThrow("Unauthorized");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to embedded PDF images when file parsing returns empty markdown", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: "",
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      ))
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: "# Fallback OCR",
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const converted = await convertUploadedDocumentToMarkdown(
+      baseInput({
+        fileName: "statement.pdf",
+        mimeType: "application/pdf",
+        data: embeddedJpegPdf(),
+      }),
+      "openai-compatible",
+      adapterConfig,
+      preferences
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(converted.markdown).toBe("# Fallback OCR");
+    const calls = fetchMock.mock.calls as unknown as Array<[unknown, RequestInit]>;
+    const fallbackRequest = JSON.parse(String(calls[1]?.[1].body));
+    expect(fallbackRequest.messages[1].content[1]).toMatchObject({
+      type: "image_url",
+    });
   });
 
   it("infers finance statement metadata deterministically for CSV uploads", async () => {
