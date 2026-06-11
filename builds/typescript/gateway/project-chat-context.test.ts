@@ -8,6 +8,7 @@ import {
   createFinanceBudgetProtectionGuard,
   isProtectedFinanceBudgetMutation,
   mergeStarterProjectArtifactSnapshot,
+  starterSnapshotProjectIds,
 } from "./server.js";
 import type { ConversationDetail } from "../contracts.js";
 
@@ -126,6 +127,23 @@ describe("project chat context", () => {
     expect(snapshot?.plan).toContain("First action this week");
     expect(snapshot?.plan).toContain("Proof points");
     expect(snapshot?.plan).toContain("five hours a week");
+  });
+
+  it("routes Your Agent starter snapshots to the detected owning page", () => {
+    const conversation = conversationWithUserMessages([
+      "I want to use Your Agent instead of deciding which page to open first.",
+      "The area is Career: I am deciding whether to push toward product marketing or improve my current role first.",
+      "If you create or update artifacts, tell me the owner-facing page and artifact to review.",
+    ]);
+
+    expect(starterSnapshotProjectIds("braindrive-plus-one", conversation)).toEqual([
+      "braindrive-plus-one",
+      "career",
+    ]);
+    const snapshot = buildStarterProjectArtifactSnapshot("career", conversation);
+    expect(snapshot?.spec).toContain("product marketing");
+    expect(snapshot?.plan).toContain("Career page");
+    expect(snapshot?.plan).toContain("Proof points");
   });
 
   it("adds Career starter anchors for vague owner direction", () => {

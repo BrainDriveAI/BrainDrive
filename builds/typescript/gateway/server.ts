@@ -752,10 +752,11 @@ export async function buildServer(rootDir = process.cwd()) {
       await projects.attachConversation(body.metadata.project.trim(), conversationId);
     }
     if (projectId) {
-      const starterSnapshotResult = await persistStarterProjectArtifactSnapshot(
+      const conversation = conversations.detail(conversationId);
+      const starterSnapshotResult = await persistStarterProjectArtifactSnapshots(
         projects,
         projectId,
-        conversations.detail(conversationId)
+        conversation
       ).catch((error: unknown) => ({
         error: error instanceof Error ? error.message : String(error),
       }));
@@ -3476,6 +3477,30 @@ type StarterProjectArtifactSnapshotResult = {
   plan_written: boolean;
 };
 
+type StarterProjectArtifactSnapshotResults = {
+  considered: boolean;
+  targets: Array<StarterProjectArtifactSnapshotResult & { project_id: string }>;
+};
+
+async function persistStarterProjectArtifactSnapshots(
+  projects: GatewayProjectService,
+  projectId: string,
+  conversation: ConversationDetail | null
+): Promise<StarterProjectArtifactSnapshotResults> {
+  const projectIds = starterSnapshotProjectIds(projectId, conversation);
+  const targets: Array<StarterProjectArtifactSnapshotResult & { project_id: string }> = [];
+
+  for (const targetProjectId of projectIds) {
+    const result = await persistStarterProjectArtifactSnapshot(projects, targetProjectId, conversation);
+    targets.push({ project_id: targetProjectId, ...result });
+  }
+
+  return {
+    considered: targets.some((target) => target.considered),
+    targets,
+  };
+}
+
 async function persistStarterProjectArtifactSnapshot(
   projects: GatewayProjectService,
   projectId: string,
@@ -3516,6 +3541,28 @@ async function persistStarterProjectArtifactSnapshot(
     spec_written: specWritten,
     plan_written: planWritten,
   };
+}
+
+export function starterSnapshotProjectIds(
+  projectId: string,
+  conversation: ConversationDetail | null
+): string[] {
+  const normalizedProjectId = projectId.trim().toLowerCase();
+  if (normalizedProjectId !== "braindrive-plus-one" && normalizedProjectId !== "your-agent") {
+    return [projectId];
+  }
+
+  const ownerText = conversation?.messages
+    .filter((message) => message.role === "user")
+    .map((message) => message.content)
+    .join(" ")
+    .toLowerCase() ?? "";
+  const targets = new Set<string>([projectId]);
+  if (/\bcareer\b|product marketing|current role|job\b|work\b/.test(ownerText)) targets.add("career");
+  if (/\bfinance\b|\bmoney\b|\bbudget\b|\bdebt\b|\bsavings?\b/.test(ownerText)) targets.add("finance");
+  if (/\bfitness\b|\bhealth\b|\bworkout\b|\bexercise\b|\bmovement\b/.test(ownerText)) targets.add("fitness");
+  if (/\brelationships?\b|\bfamily\b|\bfriends?\b|\bdating\b|\bpartner\b|\bboyfriend\b/.test(ownerText)) targets.add("relationships");
+  return [...targets];
 }
 
 export function buildStarterProjectArtifactSnapshot(
@@ -3723,6 +3770,9 @@ function buildStarterDerivedAnchors(projectId: string, ownerMessages: string[]):
   }
   if (/money matters|growth|new job|different role/.test(text)) {
     plan.push("Information to gather: growth needs, money floor, energy limits, and role options.");
+  }
+  if (/career|product marketing|current role|page-level plan/.test(text)) {
+    plan.push("Owner-facing review: use the Career page to review the updated spec or plan, not the Your Agent raw file path.");
   }
   if (/drained|stuck|sorting/.test(text)) {
     plan.push("Small next action: write a short list of what to avoid and what better would need to include.");
