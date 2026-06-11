@@ -3537,6 +3537,10 @@ function buildStarterDerivedAnchors(projectId: string, ownerMessages: string[]):
   }
 
   if (projectId === "relationships") {
+    if (/feel better|disconnected|family, friends, or dating|family|friends|dating|too much|what to work on first/.test(text)) {
+      spec.push("Relationship signal: Katie wants her relationships to feel better and feels disconnected from people.");
+      spec.push("Open unknowns: the first relationship area to choose may be family, friends, or dating.");
+    }
     if (/evan|money conversation|avoid money|embarrassed|defensive|honest conversation|does not spiral/.test(text)) {
       spec.push("Relationship signal: Katie and Evan avoid money conversations, and Katie wants a better way to talk without it becoming a fight.");
     }
@@ -3554,6 +3558,12 @@ function buildStarterDerivedAnchors(projectId: string, ownerMessages: string[]):
       plan.push("First conversation step: name one money topic with Evan and ask for a calm time to talk before covering every concern.");
       plan.push("Boundary: be direct without dumping everything at once and while not assuming Evan's reaction.");
       plan.push("What to say: acknowledge embarrassment and defensiveness, then state the specific conversation Katie wants to have.");
+    }
+    if (/feel better|disconnected|family, friends, or dating|family|friends|dating|too much|what to work on first/.test(text)) {
+      plan.push("Clarifying step: choose whether the first focus is family, friends, or dating before naming an action.");
+      plan.push("Relationship area to choose: identify the one relationship area that feels most urgent or most workable this week.");
+      plan.push("Low-pressure first action: write one sentence Katie could say without trying to fix the whole relationship.");
+      plan.push("Unknowns: the target person, relationship area, and safest first conversation still need confirmation.");
     }
     if (/not hostile|think i am irresponsible|irresponsible|does not spiral/.test(text)) {
       plan.push("Safety check: keep the first conversation focused on clarity and repair, not blame, so it has a better chance to not spiral.");

@@ -205,6 +205,25 @@ describe("project chat context", () => {
     expect(snapshot?.plan).toContain("not assuming Evan's reaction");
   });
 
+  it("adds Relationships starter anchors for vague relationship direction", () => {
+    const snapshot = buildStarterProjectArtifactSnapshot("relationships", conversationWithUserMessages([
+      "I want my relationships to feel better. I do not really know how to explain it.",
+      "I think I feel disconnected from people.",
+      "I am not sure if it is family, friends, or dating stuff first.",
+      "I avoid bringing things up because I do not want to be too much.",
+      "I need help figuring out what to work on first.",
+    ]));
+
+    expect(snapshot?.spec).toContain("feel better");
+    expect(snapshot?.spec).toContain("disconnected");
+    expect(snapshot?.spec).toContain("family, friends, or dating");
+    expect(snapshot?.spec).toContain("what to work on first");
+    expect(snapshot?.plan).toContain("Clarifying step");
+    expect(snapshot?.plan).toContain("Relationship area to choose");
+    expect(snapshot?.plan).toContain("Low-pressure first action");
+    expect(snapshot?.plan).toContain("Unknowns");
+  });
+
   it("adds Career starter anchors for burnout and workplace-risk direction", () => {
     const snapshot = buildStarterProjectArtifactSnapshot("career", conversationWithUserMessages([
       "I think I may need to leave my job, but I am burned out and worried about saying too much because there is some workplace tension I do not want spread around.",
