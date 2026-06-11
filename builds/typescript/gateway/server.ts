@@ -3554,7 +3554,7 @@ function buildStarterDerivedAnchors(projectId: string, ownerMessages: string[]):
       spec.push("Success signal: one honest conversation that does not spiral.");
     }
     if (/gets? intense|say no|overreact|ignore the pattern|stay calm and safe|not ready for (?:a )?big confrontation|more support/.test(text)) {
-      spec.push("Boundary signal: the other person gets intense when Katie needs to say no, and Katie wants to stay calm and safe.");
+      spec.push("Boundary signal: Katie needs to say no and wants to stay calm and safe.");
       spec.push("Safety signal: Katie is not ready for a big confrontation and wants signs for when she should get more support.");
     }
 
