@@ -781,11 +781,15 @@ export async function buildServer(rootDir = process.cwd()) {
     // Inject project context so the AI knows which project it's operating in.
     // Without this, the AI sees the base prompt but doesn't know which project
     // files to read — it would read all projects and behave like BD+1.
+    const conversation = conversations.detail(conversationId);
     const projectFiles = projectId ? (await projects.listProjectFiles(projectId))?.files ?? [] : [];
     const projectContext = projectId
       ? buildProjectChatContext(projectId, projectFiles, { appPath })
       : "";
-    const finalPrompt = promptWithSkills.prompt + projectContext;
+    const conversationGuard = projectId
+      ? buildProjectConversationGuard(projectId, conversation)
+      : "";
+    const finalPrompt = promptWithSkills.prompt + projectContext + conversationGuard;
 
     const correlationId = crypto.randomUUID();
     const contextWindow = await prepareContextWindow({
@@ -3461,6 +3465,234 @@ export function buildProjectChatContext(
     `For delete requests in this project, prefer exact paths under documents/${projectId}/ and call memory_delete when a matching file exists.`,
     "If the current list is ambiguous or incomplete, call memory_list before claiming the file cannot be found.",
   ].join("\n");
+}
+
+export function buildProjectConversationGuard(projectId: string, conversation: ConversationDetail | null): string {
+  const messages = conversation?.messages ?? [];
+  const latestUser = [...messages].reverse().find((message) => message.role === "user");
+  const askedLabels = collectAskedMissingContextLabels(messages);
+  const askedQuestions = collectAskedQuestionTexts(messages);
+  const hasSuccessCriterion = latestUser ? includesProjectSuccessCriterion(latestUser.content) : false;
+  const projectSpecificGuidance = latestUser ? buildProjectSpecificTurnGuard(projectId, messages, latestUser.content) : [];
+
+  if (askedLabels.length === 0 && askedQuestions.length === 0 && projectSpecificGuidance.length === 0 && !hasSuccessCriterion) {
+    return "";
+  }
+
+  const lines = [
+    "",
+    "",
+    "## Current Turn Interview Guard",
+    "",
+    `Apply this guard only to the current ${projectId} project turn.`,
+  ];
+
+  if (askedLabels.length > 0) {
+    lines.push(
+      `You already asked these missing-context labels in this conversation: ${askedLabels.join("; ")}.`,
+      "Do not ask the same missing-context label again. If the owner answered with adjacent useful information instead of the exact detail, record the earlier detail as unknown and ask a different single question or write/update project artifacts."
+    );
+  }
+
+  if (askedQuestions.length > 0) {
+    lines.push(
+      `You already asked these exact questions in this conversation: ${askedQuestions.join("; ")}.`,
+      "Do not ask the same question again, even if you rephrase its setup sentence. If the owner did not answer it directly, mark it unknown and choose a different next action."
+    );
+  }
+
+  lines.push(...projectSpecificGuidance);
+
+  if (hasSuccessCriterion) {
+    lines.push(
+      "The owner's latest message gives a success criterion. Do not ask another intake question this turn.",
+      `Update documents/${projectId}/spec.md and/or documents/${projectId}/plan.md with known facts and explicit unknowns, then answer with a no-question summary of what changed.`
+    );
+  }
+
+  lines.push(
+    "If you ask any question this turn, ask exactly one question and use at most one question mark.",
+    ""
+  );
+
+  return lines.join("\n");
+}
+
+function buildProjectSpecificTurnGuard(projectId: string, messages: ConversationMessage[], latestUserContent: string): string[] {
+  const guidance: string[] = [];
+  const latestUser = latestUserContent.toLowerCase();
+  const assistantText = messages
+    .filter((message) => message.role === "assistant")
+    .map((message) => message.content)
+    .join("\n")
+    .toLowerCase();
+
+  if (/\bmore energy\b/.test(latestUser) || /\bstrength\b/.test(latestUser) || /\b5k\b/.test(latestUser)) {
+    guidance.push(
+      "Fitness-specific guard: mirror concrete outcome phrases from the owner before narrowing. If the owner said more energy, strength, or 5K, repeat at least one of those exact phrases this turn."
+    );
+  }
+
+  if (
+    /\btoo intense\b/.test(latestUser)
+    && /\b(workouts?\s+usually\s+(?:look\s+like|involve)|bodyweight|weights|cardio|how\s+long)\b/.test(assistantText)
+  ) {
+    guidance.push(
+      "Fitness-specific guard: the owner answered with an adherence constraint, plans get too intense. Mirror plans get too intense, mark workout composition and duration unknown if needed, and do not ask the workout-details question again."
+    );
+  }
+
+  if (projectId === "career") {
+    if (/\b(pay cut|no pay cut|\$[0-9]|hours?\s+(?:a|per)\s+week|burnout|product marketing|marketing coordinator)\b/.test(latestUser)) {
+      guidance.push(
+        "Career-specific guard: mirror concrete career constraints before narrowing. Preserve exact money, no-pay-cut, time-capacity, current-role, and target-direction phrases from the owner."
+      );
+    }
+
+    if (
+      /\b(pay cut|no pay cut|\$[0-9]|hours?\s+(?:a|per)\s+week)\b/.test(latestUser)
+      && /\b(target title|industry|timeline|proof|current role|company size|constraints?)\b/.test(assistantText)
+    ) {
+      guidance.push(
+        "Career-specific guard: the owner answered with a concrete constraint. Record unanswered career setup details as unknown if needed, and do not repeat the same broad setup question."
+      );
+    }
+  }
+
+  if (projectId === "finance") {
+    if (/\b(income|take-home|paycheck|budget|debt|roth|ira|monthly|\$[0-9]|cash flow|cash-flow)\b/.test(latestUser)) {
+      guidance.push(
+        "Finance-specific guard: mirror concrete money and account-boundary phrases before narrowing. Preserve exact income, take-home, monthly, debt, budget, Roth, IRA, and cash-flow wording from the owner."
+      );
+    }
+
+    if (
+      /\b(roth|ira|budget|monthly|cash flow|cash-flow|\$[0-9])\b/.test(latestUser)
+      && /\b(income|take-home|debt|budget|spend|expenses?|savings?|account)\b/.test(assistantText)
+    ) {
+      guidance.push(
+        "Finance-specific guard: the owner gave adjacent useful finance information. Record the unanswered setup detail as unknown if needed, and do not repeat the same finance intake question."
+      );
+    }
+  }
+
+  if (projectId === "relationships") {
+    if (/\b(disconnected|feel better|family|friends|dating|boundary|trust|safety|capacity|outreach)\b/.test(latestUser)) {
+      guidance.push(
+        "Relationships-specific guard: mirror the owner's relationship area, feeling, boundary, or safety phrase before narrowing. Do not flatten emotional or boundary language into generic relationship categories."
+      );
+    }
+
+    if (
+      /\b(disconnected|feel better|boundary|trust|safety|capacity)\b/.test(latestUser)
+      && /\b(family|friends|dating|relationship area|which relationship|what relationship)\b/.test(assistantText)
+    ) {
+      guidance.push(
+        "Relationships-specific guard: the owner answered with useful relationship context. Record the relationship area as unknown if still unconfirmed, and do not repeat the same broad relationship-area question."
+      );
+    }
+  }
+
+  if (projectId === "new-project") {
+    if (/\b(backyard garden|vegetable garden|tomatoes?|herbs?|peppers?|\$[0-9]|budget|page|project)\b/.test(latestUser)) {
+      guidance.push(
+        "New Project-specific guard: mirror concrete project scope and constraints before narrowing. Preserve project names, crops, budget, output, and success phrases from the owner."
+      );
+    }
+
+    if (
+      /\b(success|budget|\$[0-9]|tomatoes?|herbs?|peppers?|vegetable garden)\b/.test(latestUser)
+      && /\b(growing space|space|sun|soil|location|garden type|project type)\b/.test(assistantText)
+    ) {
+      guidance.push(
+        "New Project-specific guard: the owner gave adjacent useful project information. Record the unanswered setup detail as unknown if needed, and do not repeat the same project setup question."
+      );
+    }
+  }
+
+  if (projectId === "your-agent") {
+    if (/\b(approval|approve|privacy|private|trust|routing|route|communication|boundary|permission|safe|handoff)\b/.test(latestUser)) {
+      guidance.push(
+        "Your Agent-specific guard: mirror trust, privacy, approval, routing, communication, and boundary phrases before narrowing. Preserve the owner's exact control language."
+      );
+    }
+
+    if (
+      /\b(approval|approve|privacy|trust|routing|boundary|permission)\b/.test(latestUser)
+      && /\b(capabilities?|tasks?|tools?|pages?|workflow|agent)\b/.test(assistantText)
+    ) {
+      guidance.push(
+        "Your Agent-specific guard: the owner gave an operating boundary. Record unanswered capability details as unknown if needed, and do not repeat the same setup question."
+      );
+    }
+  }
+
+  return guidance;
+}
+
+function collectAskedMissingContextLabels(messages: ConversationMessage[]): string[] {
+  const labels: string[] = [];
+  const seen = new Set<string>();
+
+  for (const message of messages) {
+    if (message.role !== "assistant") {
+      continue;
+    }
+
+    const match = message.content.match(/\b(?:The missing context I need is|The unknown I need to resolve is)\s*:?\s*([^:.?]+)[:.?]/i);
+    if (!match) {
+      continue;
+    }
+
+    const label = match[1].trim().replace(/\s+/g, " ");
+    const key = label.toLowerCase();
+    if (!label || seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    labels.push(label);
+  }
+
+  return labels.slice(-5);
+}
+
+function collectAskedQuestionTexts(messages: ConversationMessage[]): string[] {
+  const questions: string[] = [];
+  const seen = new Set<string>();
+
+  for (const message of messages) {
+    if (message.role !== "assistant") {
+      continue;
+    }
+
+    const matches = message.content.match(/[^?]+\?/g) ?? [];
+    for (const match of matches) {
+      const question = match.trim().replace(/\s+/g, " ");
+      const key = normalizeQuestionForRepeatGuard(question);
+      if (!key || seen.has(key)) {
+        continue;
+      }
+
+      seen.add(key);
+      questions.push(question);
+    }
+  }
+
+  return questions.slice(-5);
+}
+
+function normalizeQuestionForRepeatGuard(question: string): string {
+  return question
+    .toLowerCase()
+    .replace(/["'`]/g, "")
+    .replace(/[^a-z0-9?]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function includesProjectSuccessCriterion(content: string): boolean {
+  return /\b(success is|success means|i'?d call this successful|feeling consistent|not wiped out|making progress without obsessing|progress without obsession|building confidence without pushing through pain|without pushing through pain|without burnout)\b/i.test(content);
 }
 
 const STARTER_ARTIFACT_SNAPSHOT_START = "<!-- BrainDrive starter owner snapshot: start -->";

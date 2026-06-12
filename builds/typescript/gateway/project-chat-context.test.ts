@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   buildStarterProjectArtifactSnapshot,
+  buildProjectConversationGuard,
   buildProjectChatContext,
   createBrainDriveMemorySafetyGuard,
   conversationHasSavedBudgetComparison,
@@ -113,6 +114,281 @@ describe("project chat context", () => {
     expect(context).toContain("replace placeholder lines like \"To be filled...\"");
     expect(context).toContain("mark uncertainty");
     expect(context).toContain("tell the owner what changed");
+  });
+
+  it("adds a current-turn guard for repeated missing context during project interviews", () => {
+    const guard = buildProjectConversationGuard("fitness", {
+      id: "conversation-1",
+      title: null,
+      created_at: "2026-06-12T00:00:00.000Z",
+      updated_at: "2026-06-12T00:00:00.000Z",
+      messages: [
+        {
+          id: "user-1",
+          role: "user",
+          content: "I want to get active again.",
+          timestamp: "2026-06-12T00:00:00.000Z",
+        },
+        {
+          id: "assistant-1",
+          role: "assistant",
+          content: "The missing context I need is your current activity baseline: what does a typical week look like?",
+          timestamp: "2026-06-12T00:00:01.000Z",
+        },
+        {
+          id: "user-2",
+          role: "user",
+          content: "Walking is usually okay.",
+          timestamp: "2026-06-12T00:00:02.000Z",
+        },
+      ],
+    });
+
+    expect(guard).toContain("## Current Turn Interview Guard");
+    expect(guard).toContain("your current activity baseline");
+    expect(guard).toContain("Do not ask the same missing-context label again");
+    expect(guard).toContain("record the earlier detail as unknown");
+  });
+
+  it("adds a current-turn guard for repeated exact interview questions", () => {
+    const guard = buildProjectConversationGuard("fitness", {
+      id: "conversation-1",
+      title: null,
+      created_at: "2026-06-12T00:00:00.000Z",
+      updated_at: "2026-06-12T00:00:00.000Z",
+      messages: [
+        {
+          id: "user-1",
+          role: "user",
+          content: "I can do about three short workouts a week.",
+          timestamp: "2026-06-12T00:00:00.000Z",
+        },
+        {
+          id: "assistant-1",
+          role: "assistant",
+          content: "Running history: have you run before, and if so, what's the longest you've run continuously in recent months?",
+          timestamp: "2026-06-12T00:00:01.000Z",
+        },
+        {
+          id: "user-2",
+          role: "user",
+          content: "I sit most of the day and lose motivation when plans get too intense.",
+          timestamp: "2026-06-12T00:00:02.000Z",
+        },
+      ],
+    });
+
+    expect(guard).toContain("You already asked these exact questions");
+    expect(guard).toContain("what's the longest you've run continuously");
+    expect(guard).toContain("Do not ask the same question again");
+    expect(guard).toContain("mark it unknown");
+  });
+
+  it("adds a current-turn guard when the owner gives a success criterion", () => {
+    const guard = buildProjectConversationGuard("fitness", {
+      id: "conversation-1",
+      title: null,
+      created_at: "2026-06-12T00:00:00.000Z",
+      updated_at: "2026-06-12T00:00:00.000Z",
+      messages: [
+        {
+          id: "user-1",
+          role: "user",
+          content: "Success is feeling consistent and not wiped out.",
+          timestamp: "2026-06-12T00:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(guard).toContain("The owner's latest message gives a success criterion");
+    expect(guard).toContain("Do not ask another intake question this turn");
+    expect(guard).toContain("documents/fitness/spec.md");
+  });
+
+  it("adds a Fitness guard for concrete outcome phrases in the first reply", () => {
+    const guard = buildProjectConversationGuard("fitness", {
+      id: "conversation-1",
+      title: null,
+      created_at: "2026-06-12T00:00:00.000Z",
+      updated_at: "2026-06-12T00:00:00.000Z",
+      messages: [
+        {
+          id: "user-1",
+          role: "user",
+          content: "I want more energy, some strength, and to jog a 5K this fall.",
+          timestamp: "2026-06-12T00:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(guard).toContain("Fitness-specific guard");
+    expect(guard).toContain("more energy");
+    expect(guard).toContain("strength");
+    expect(guard).toContain("5K");
+  });
+
+  it("adds a Fitness guard when adjacent constraint answers a workout-details question", () => {
+    const guard = buildProjectConversationGuard("fitness", {
+      id: "conversation-1",
+      title: null,
+      created_at: "2026-06-12T00:00:00.000Z",
+      updated_at: "2026-06-12T00:00:00.000Z",
+      messages: [
+        {
+          id: "user-1",
+          role: "user",
+          content: "I can do about three short workouts a week.",
+          timestamp: "2026-06-12T00:00:00.000Z",
+        },
+        {
+          id: "assistant-1",
+          role: "assistant",
+          content: "Three short workouts. What do those workouts usually look like?",
+          timestamp: "2026-06-12T00:00:01.000Z",
+        },
+        {
+          id: "user-2",
+          role: "user",
+          content: "I sit most of the day and usually lose motivation when plans get too intense.",
+          timestamp: "2026-06-12T00:00:02.000Z",
+        },
+      ],
+    });
+
+    expect(guard).toContain("plans get too intense");
+    expect(guard).toContain("mark workout composition and duration unknown");
+    expect(guard).toContain("do not ask the workout-details question again");
+  });
+
+  it("adds a Career guard for adjacent constraint answers", () => {
+    const guard = buildProjectConversationGuard("career", {
+      id: "conversation-1",
+      title: null,
+      created_at: "2026-06-12T00:00:00.000Z",
+      updated_at: "2026-06-12T00:00:00.000Z",
+      messages: [
+        {
+          id: "assistant-1",
+          role: "assistant",
+          content: "What target title, industry, timeline, and proof worry should we plan around?",
+          timestamp: "2026-06-12T00:00:01.000Z",
+        },
+        {
+          id: "user-1",
+          role: "user",
+          content: "I make $62K, cannot take a pay cut, and have five hours a week.",
+          timestamp: "2026-06-12T00:00:02.000Z",
+        },
+      ],
+    });
+
+    expect(guard).toContain("Career-specific guard");
+    expect(guard).toContain("no-pay-cut");
+    expect(guard).toContain("do not repeat the same broad setup question");
+  });
+
+  it("adds a Finance guard for adjacent account and budget answers", () => {
+    const guard = buildProjectConversationGuard("finance", {
+      id: "conversation-1",
+      title: null,
+      created_at: "2026-06-12T00:00:00.000Z",
+      updated_at: "2026-06-12T00:00:00.000Z",
+      messages: [
+        {
+          id: "assistant-1",
+          role: "assistant",
+          content: "The missing context I need is your income: what is your take-home pay?",
+          timestamp: "2026-06-12T00:00:01.000Z",
+        },
+        {
+          id: "user-1",
+          role: "user",
+          content: "I need this Roth IRA plan to fit my monthly budget.",
+          timestamp: "2026-06-12T00:00:02.000Z",
+        },
+      ],
+    });
+
+    expect(guard).toContain("Finance-specific guard");
+    expect(guard).toContain("Roth");
+    expect(guard).toContain("do not repeat the same finance intake question");
+  });
+
+  it("adds a Relationships guard for broad relationship-area repeats", () => {
+    const guard = buildProjectConversationGuard("relationships", {
+      id: "conversation-1",
+      title: null,
+      created_at: "2026-06-12T00:00:00.000Z",
+      updated_at: "2026-06-12T00:00:00.000Z",
+      messages: [
+        {
+          id: "assistant-1",
+          role: "assistant",
+          content: "Which relationship area matters most: family, friends, or dating?",
+          timestamp: "2026-06-12T00:00:01.000Z",
+        },
+        {
+          id: "user-1",
+          role: "user",
+          content: "I mostly feel disconnected and want to feel better without overreaching.",
+          timestamp: "2026-06-12T00:00:02.000Z",
+        },
+      ],
+    });
+
+    expect(guard).toContain("Relationships-specific guard");
+    expect(guard).toContain("mirror the owner's relationship area");
+    expect(guard).toContain("do not repeat the same broad relationship-area question");
+  });
+
+  it("adds New Project and Your Agent guards for concrete scope and control boundaries", () => {
+    const newProjectGuard = buildProjectConversationGuard("new-project", {
+      id: "conversation-1",
+      title: null,
+      created_at: "2026-06-12T00:00:00.000Z",
+      updated_at: "2026-06-12T00:00:00.000Z",
+      messages: [
+        {
+          id: "assistant-1",
+          role: "assistant",
+          content: "The missing context I need is growing space: where will this garden go?",
+          timestamp: "2026-06-12T00:00:01.000Z",
+        },
+        {
+          id: "user-1",
+          role: "user",
+          content: "The Backyard Garden should grow tomatoes, herbs, and peppers with a $300 budget.",
+          timestamp: "2026-06-12T00:00:02.000Z",
+        },
+      ],
+    });
+    const yourAgentGuard = buildProjectConversationGuard("your-agent", {
+      id: "conversation-2",
+      title: null,
+      created_at: "2026-06-12T00:00:00.000Z",
+      updated_at: "2026-06-12T00:00:00.000Z",
+      messages: [
+        {
+          id: "assistant-1",
+          role: "assistant",
+          content: "What capabilities, tools, pages, and workflow should your agent support?",
+          timestamp: "2026-06-12T00:00:01.000Z",
+        },
+        {
+          id: "user-1",
+          role: "user",
+          content: "I want approval before any cross-page routing and privacy boundaries for sensitive topics.",
+          timestamp: "2026-06-12T00:00:02.000Z",
+        },
+      ],
+    });
+
+    expect(newProjectGuard).toContain("New Project-specific guard");
+    expect(newProjectGuard).toContain("Preserve project names");
+    expect(newProjectGuard).toContain("do not repeat the same project setup question");
+    expect(yourAgentGuard).toContain("Your Agent-specific guard");
+    expect(yourAgentGuard).toContain("approval");
+    expect(yourAgentGuard).toContain("do not repeat the same setup question");
   });
 
   it("builds starter artifact snapshots from owner conversation messages", () => {

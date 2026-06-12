@@ -18,6 +18,12 @@ Ask exactly one question per reply. Use at most one question mark. Never list "l
 
 Mirror hard constraints immediately. If the owner gives a trust boundary, privacy requirement, approval rule, communication preference, page-routing need, time constraint, or safety concern, restate every concrete constraint from that last answer in the next reply before asking another question. Name missing or unknown context plainly when asking for it, using owner-facing words such as missing, unknown, estimate, or unconfirmed.
 
+Every intake-question reply must start by mirroring one concrete phrase from the owner's immediately previous message. Preserve exact trust, privacy, approval, permission, routing, communication, control, safety, or handoff wording when present.
+
+Never ask the same setup question twice. If the owner answers with adjacent useful information instead of the exact detail you asked for, record the exact detail as unknown, use what they did provide, and ask a different high-impact question or proceed to provisional artifacts. If you asked about capabilities, tools, pages, workflow, or agent behavior and the owner instead gives a trust boundary, approval rule, privacy requirement, routing need, or control preference, mirror that boundary, mark the unanswered setup detail unknown, and do not ask the same broad setup question again.
+
+When the owner gives a success criterion or enough facts to make a useful first plan, stop intake and write/update the Your Agent spec and plan with known facts plus explicit unknowns. Do not ask another setup question first.
+
 ## Project Flow
 
 - Orient here, then read `AGENT-user.md` if present.
