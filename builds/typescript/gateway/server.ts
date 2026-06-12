@@ -974,6 +974,22 @@ export async function buildServer(rootDir = process.cwd()) {
         conversations.appendAssistantMessage(conversationId, currentAssistantMessageId, assistantBuffer);
         lastPersistedAssistantMessageId = currentAssistantMessageId;
       }
+
+      if (projectId) {
+        const conversation = conversations.detail(conversationId);
+        const starterSnapshotResult = await persistStarterProjectArtifactSnapshots(
+          projects,
+          projectId,
+          conversation
+        ).catch((error: unknown) => ({
+          error: error instanceof Error ? error.message : String(error),
+        }));
+        auditLog("project.artifact_snapshot_after_reply", {
+          conversation_id: conversationId,
+          project_id: projectId,
+          ...starterSnapshotResult,
+        });
+      }
     } catch (error) {
       traceStatus = "error";
       await promptAuditRecorder?.append("prompt_audit.error", {
@@ -3506,7 +3522,9 @@ export function buildProjectConversationGuard(projectId: string, conversation: C
   if (hasSuccessCriterion) {
     lines.push(
       "The owner's latest message gives a success criterion. Do not ask another intake question this turn.",
-      `Update documents/${projectId}/spec.md and/or documents/${projectId}/plan.md with known facts and explicit unknowns, then answer with a no-question summary of what changed.`
+      `Update documents/${projectId}/spec.md and/or documents/${projectId}/plan.md with known facts and explicit unknowns, then answer with a no-question summary of what changed.`,
+      "Preserve the owner's exact success wording in the plan artifact.",
+      "The final reply for this turn must contain zero question marks. If you list information to gather next, phrase each item as a statement, not a question."
     );
   }
 
@@ -3566,12 +3584,25 @@ function buildProjectSpecificTurnGuard(projectId: string, messages: Conversation
       );
     }
 
+    const moneyAmounts = collectMoneyAmounts(latestUserContent);
+    if (moneyAmounts.length >= 2) {
+      guidance.push(
+        `Finance-specific guard: the owner gave multiple money amounts (${moneyAmounts.join(", ")}). Mirror every amount back before asking another question.`
+      );
+    }
+
     if (
       /\b(roth|ira|budget|monthly|cash flow|cash-flow|\$[0-9])\b/.test(latestUser)
       && /\b(income|take-home|debt|budget|spend|expenses?|savings?|account)\b/.test(assistantText)
     ) {
       guidance.push(
         "Finance-specific guard: the owner gave adjacent useful finance information. Record the unanswered setup detail as unknown if needed, and do not repeat the same finance intake question."
+      );
+    }
+
+    if (/\b(embarrassed|overwhelmed|avoided looking|avoid(?:ed)? looking|don't know|do not know|rough|estimate)\b/.test(latestUser)) {
+      guidance.push(
+        "Finance-specific guard: do not respond with a large budget worksheet, table, checklist, or multi-category bucket request. Mark the detailed monthly expense breakdown unknown if needed and write a small first step for gathering statements or rough estimates."
       );
     }
   }
@@ -3628,6 +3659,25 @@ function buildProjectSpecificTurnGuard(projectId: string, messages: Conversation
   }
 
   return guidance;
+}
+
+function collectMoneyAmounts(content: string): string[] {
+  const amounts: string[] = [];
+  const seen = new Set<string>();
+  const matches = content.match(/\$[0-9][0-9,]*(?:\.\d+)?\s*(?:k|K|\/month|\/mo|a month|per month|monthly)?/g) ?? [];
+
+  for (const match of matches) {
+    const amount = match.trim();
+    const key = amount.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    amounts.push(amount);
+  }
+
+  return amounts;
 }
 
 function collectAskedMissingContextLabels(messages: ConversationMessage[]): string[] {
@@ -3692,7 +3742,7 @@ function normalizeQuestionForRepeatGuard(question: string): string {
 }
 
 function includesProjectSuccessCriterion(content: string): boolean {
-  return /\b(success is|success means|i'?d call this successful|feeling consistent|not wiped out|making progress without obsessing|progress without obsession|building confidence without pushing through pain|without pushing through pain|without burnout)\b/i.test(content);
+  return /\b(success is|success means|success would be|success looks like|i'?d call this successful|feeling consistent|not wiped out|making progress without obsessing|progress without obsession|building confidence without pushing through pain|without pushing through pain|without burnout)\b/i.test(content);
 }
 
 const STARTER_ARTIFACT_SNAPSHOT_START = "<!-- BrainDrive starter owner snapshot: start -->";
@@ -3754,14 +3804,14 @@ async function persistStarterProjectArtifactSnapshot(
   let specWritten = false;
   let planWritten = false;
 
-  if (specContent !== null && shouldUpdateStarterProjectArtifact(specContent)) {
+  if (specContent !== null && shouldUpdateStarterProjectArtifact(specContent, snapshot.spec)) {
     const nextSpecContent = mergeStarterProjectArtifactSnapshot(specContent, snapshot.spec);
     if (nextSpecContent !== specContent) {
       specWritten = await projects.writeProjectFile(projectId, `documents/${projectId}/spec.md`, nextSpecContent);
     }
   }
 
-  if (planContent !== null && shouldUpdateStarterProjectArtifact(planContent)) {
+  if (planContent !== null && shouldUpdateStarterProjectArtifact(planContent, snapshot.plan)) {
     const nextPlanContent = mergeStarterProjectArtifactSnapshot(planContent, snapshot.plan);
     if (nextPlanContent !== planContent) {
       planWritten = await projects.writeProjectFile(projectId, `documents/${projectId}/plan.md`, nextPlanContent);
@@ -3865,12 +3915,19 @@ function buildStarterDerivedAnchors(projectId: string, ownerMessages: string[]):
     if (/gather balances|what to look for/.test(text)) {
       spec.push("Evidence signal: Katie can gather balances this week if she knows what to look for.");
     }
+    if (/first money step this week|information to gather next/.test(text)) {
+      spec.push("Success signal: Katie wants to know her first money step this week and what information to gather next.");
+    }
 
     if (/get better with money|do not know where to start|don't know where to start|avoid checking|some debt|gather balances/.test(text)) {
       plan.push("First checking step: make one low-pressure pass through accounts without trying to solve every money question at once.");
       plan.push("Balances to gather: current checking, savings, credit-card, loan, and other debt balances, with exact debt totals marked unknown until confirmed.");
       plan.push("Small next action: collect the available balances this week and note which accounts still need a login, statement, or estimate.");
       plan.push("Unknowns: exact debt amount, monthly margin, account list, and the highest-priority money decision still need confirmation.");
+    }
+    if (/first money step this week|information to gather next/.test(text)) {
+      plan.push("first money step this week: choose one low-pressure account or statement check that can be completed without a full budget review.");
+      plan.push("information to gather next: exact credit-card balance, APR, minimum payment, rough essential expenses, and whether other debts exist.");
     }
 
     return { spec, plan };
@@ -4035,12 +4092,26 @@ export function mergeStarterProjectArtifactSnapshot(content: string, snapshot: s
   return `${content.trimEnd()}\n\n${snapshotBlock}\n`;
 }
 
-function shouldUpdateStarterProjectArtifact(content: string): boolean {
+function shouldUpdateStarterProjectArtifact(content: string, snapshot: string): boolean {
   return (
     content.includes(STARTER_ARTIFACT_SNAPSHOT_START) ||
     /\bto be filled\b/i.test(content) ||
-    /\bone thing you can do this week\b/i.test(content)
+    /\bone thing you can do this week\b/i.test(content) ||
+    starterSnapshotRepairsMissingRequiredSignals(content, snapshot)
   );
+}
+
+function starterSnapshotRepairsMissingRequiredSignals(content: string, snapshot: string): boolean {
+  const normalizedContent = content.toLowerCase();
+  const normalizedSnapshot = snapshot.toLowerCase();
+  const requiredSignals = [
+    "first money step this week",
+    "information to gather next",
+  ];
+
+  return requiredSignals.some((signal) => (
+    normalizedSnapshot.includes(signal) && !normalizedContent.includes(signal)
+  ));
 }
 
 function normalizeStarterSnapshotLine(content: string): string {

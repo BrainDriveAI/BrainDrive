@@ -314,6 +314,73 @@ describe("project chat context", () => {
     expect(guard).toContain("do not repeat the same finance intake question");
   });
 
+  it("adds a Finance guard to mirror every money amount", () => {
+    const guard = buildProjectConversationGuard("finance", {
+      id: "conversation-1",
+      title: null,
+      created_at: "2026-06-12T00:00:00.000Z",
+      updated_at: "2026-06-12T00:00:00.000Z",
+      messages: [
+        {
+          id: "user-1",
+          role: "user",
+          content: "I make about $62K and bring home around $3,800 a month.",
+          timestamp: "2026-06-12T00:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(guard).toContain("Finance-specific guard");
+    expect(guard).toContain("$62K");
+    expect(guard).toContain("$3,800 a month");
+    expect(guard).toContain("Mirror every amount back");
+  });
+
+  it("adds a Finance guard against large worksheets after embarrassment or avoidance", () => {
+    const guard = buildProjectConversationGuard("finance", {
+      id: "conversation-1",
+      title: null,
+      created_at: "2026-06-12T00:00:00.000Z",
+      updated_at: "2026-06-12T00:00:00.000Z",
+      messages: [
+        {
+          id: "user-1",
+          role: "user",
+          content: "I am embarrassed and I have avoided looking closely for a while.",
+          timestamp: "2026-06-12T00:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(guard).toContain("Finance-specific guard");
+    expect(guard).toContain("large budget worksheet");
+    expect(guard).toContain("Mark the detailed monthly expense breakdown unknown");
+    expect(guard).toContain("small first step");
+  });
+
+  it("treats success would be as a Finance artifact-writing stop point", () => {
+    const guard = buildProjectConversationGuard("finance", {
+      id: "conversation-1",
+      title: null,
+      created_at: "2026-06-12T00:00:00.000Z",
+      updated_at: "2026-06-12T00:00:00.000Z",
+      messages: [
+        {
+          id: "user-1",
+          role: "user",
+          content: "Success would be knowing my first money step this week and what information to gather next.",
+          timestamp: "2026-06-12T00:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(guard).toContain("The owner's latest message gives a success criterion");
+    expect(guard).toContain("Do not ask another intake question this turn");
+    expect(guard).toContain("documents/finance/spec.md");
+    expect(guard).toContain("Preserve the owner's exact success wording");
+    expect(guard).toContain("must contain zero question marks");
+  });
+
   it("adds a Relationships guard for broad relationship-area repeats", () => {
     const guard = buildProjectConversationGuard("relationships", {
       id: "conversation-1",
@@ -477,6 +544,21 @@ describe("project chat context", () => {
     expect(snapshot?.plan).toContain("Balances to gather");
     expect(snapshot?.plan).toContain("Small next action");
     expect(snapshot?.plan).toContain("Unknowns");
+  });
+
+  it("adds Finance starter anchors for Katie's exact success wording", () => {
+    const snapshot = buildStarterProjectArtifactSnapshot("finance", conversationWithUserMessages([
+      "I want help getting my finances under control. I have credit card debt from emergencies, no real emergency fund, and I want a plan before I upload any statements.",
+      "I make about $62K and bring home around $3,800 a month.",
+      "I think the credit card debt is around $8K.",
+      "I am embarrassed and I have avoided looking closely for a while.",
+      "Success would be knowing my first money step this week and what information to gather next.",
+    ]));
+
+    expect(snapshot?.spec).toContain("first money step this week");
+    expect(snapshot?.spec).toContain("information to gather next");
+    expect(snapshot?.plan).toContain("first money step this week");
+    expect(snapshot?.plan).toContain("information to gather next");
   });
 
   it("adds Fitness starter anchors for injury-safety goals", () => {
