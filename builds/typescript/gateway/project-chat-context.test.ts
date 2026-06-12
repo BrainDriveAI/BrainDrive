@@ -641,6 +641,22 @@ describe("project chat context", () => {
     expect(snapshot?.plan).toContain("Warning signs");
   });
 
+  it("adds New Project starter anchors for created page placement", () => {
+    const snapshot = buildStarterProjectArtifactSnapshot("new-project", conversationWithUserMessages([
+      "I want to create a new BrainDrive page for planning a backyard garden project.",
+      "The goal is a small beginner vegetable garden for this spring, mostly tomatoes, herbs, and peppers.",
+      "Constraints are a sunny but small yard, about $300, weekend time only, and I do not know my soil quality yet.",
+      "Please name it Backyard Garden and make the first plan something I can do this week without pretending there is marketplace, sharing, or app generation. Do not update my profile unless I explicitly approve it.",
+    ]));
+
+    expect(snapshot?.spec).toContain("Backyard Garden page");
+    expect(snapshot?.spec).toContain("created page spec");
+    expect(snapshot?.plan).toContain("Narrowest correct level");
+    expect(snapshot?.plan).toContain("Created page spec");
+    expect(snapshot?.plan).toContain("Created page plan");
+    expect(snapshot?.plan).toContain("me/profile.md");
+  });
+
   it("adds Career starter anchors for burnout and workplace-risk direction", () => {
     const snapshot = buildStarterProjectArtifactSnapshot("career", conversationWithUserMessages([
       "I think I may need to leave my job, but I am burned out and worried about saying too much because there is some workplace tension I do not want spread around.",

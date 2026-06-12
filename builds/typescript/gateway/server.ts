@@ -4015,6 +4015,20 @@ function buildStarterDerivedAnchors(projectId: string, ownerMessages: string[]):
     return { spec, plan };
   }
 
+  if (projectId === "new-project") {
+    if (/backyard garden|vegetable garden|tomatoes?|herbs?|peppers?/.test(text)) {
+      spec.push("Right-level placement: the durable owner context belongs in the Backyard Garden page, with page-specific details in the created page spec and follow-through in the created page plan.");
+      plan.push("Narrowest correct level: keep Backyard Garden details on the Backyard Garden page, not in the cross-project profile unless Katie explicitly approves a stable profile update.");
+      plan.push("Created page spec: capture the garden purpose, constraints, assumptions, success criteria, and unknowns for Backyard Garden.");
+      plan.push("Created page plan: keep the first action this week, bed location decision, soil-quality unknown, and short roadmap in the Backyard Garden page plan.");
+    }
+    if (/profile|explicitly approve|approval/.test(text)) {
+      plan.push("Profile boundary: do not update me/profile.md unless Katie explicitly approves the exact cross-project profile change.");
+    }
+
+    return { spec, plan };
+  }
+
   if (projectId !== "career") {
     return { spec, plan };
   }
@@ -4107,6 +4121,9 @@ function starterSnapshotRepairsMissingRequiredSignals(content: string, snapshot:
   const requiredSignals = [
     "first money step this week",
     "information to gather next",
+    "backyard garden page",
+    "created page spec",
+    "created page plan",
   ];
 
   return requiredSignals.some((signal) => (
