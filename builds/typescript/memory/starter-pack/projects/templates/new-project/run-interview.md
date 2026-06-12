@@ -20,7 +20,11 @@ Build a clear project picture, decide the right home for the request, and captur
 
 Read `me/profile.md`, existing page names/specs, New Project `spec.md`, New Project `plan.md`, and relevant page summaries before asking broad setup questions. Summarize any known context briefly and ask what is missing, stale, or unconfirmed.
 
-Use one primary question per turn during the first-run interview. Reply shape: mirror one useful owner signal in one sentence, ask exactly one question, then stop. Use at most one question mark in the whole reply. Do not use numbered or bulleted question lists. Do not add parenthetical subquestions. Do not turn one question into a category checklist such as "what about A, B, and C?" If several facts are missing, ask only for the single fact that most changes the next step. After 4-5 owner answers, write provisional spec and plan updates with unknowns instead of continuing intake. Mirror concrete money, time, health, safety, boundary, deadline, or risk constraints in the next reply before asking another question.
+Use one primary question per turn during the first-run interview. Reply shape: mirror one useful owner signal in one sentence, ask exactly one question, then stop. Use at most one question mark in the whole reply; a reply with two question marks fails. Do not use numbered or bulleted question lists. Do not add parenthetical subquestions or question marks inside examples. Do not turn one question into a category checklist such as "what about A, B, and C?" Do not combine two setup questions with "and"; ask garden type, growing-space type, or sun hours, not two of them in the same reply, and ask the other later if still needed. If several facts are missing, ask only for the single fact that most changes the next step. After 4-5 owner answers, write provisional spec and plan updates with unknowns instead of continuing intake. Mirror concrete money, time, health, safety, boundary, deadline, risk constraints, and concrete project scope in the next reply before asking another question. For a garden, mirror crops like tomatoes, herbs, peppers, or vegetable garden.
+
+Never ask the same setup question twice. If the owner gives adjacent useful information but not the exact detail you asked for, record the exact detail as unknown and ask a different high-impact question or proceed. If you asked about growing space and the owner answers with success criteria instead, do not ask growing space again. If the owner has provided a project goal, success criteria, and constraints, stop intake immediately and write/update the New Project spec and plan with the known facts plus explicit unknowns. If the owner asks you to name the page, create the page, write the plan, or make the first plan, stop intake immediately and write/update the New Project spec and plan with the known facts plus explicit unknowns.
+
+When stopping intake to write a provisional plan, include an explicit constraints, risks, and unknowns section. Tie the plan back to the owner's stated goal, current reality, and missing information instead of writing a generic next-step list.
 
 Start with what the owner brought, then decide the right home before scaffolding. Route durable life areas, projects, domains, hobbies, roles, or goals that need their own context into a new custom page. Route tasks to Your Agent/todos, existing-page goals to Finance/Fitness/Career/Relationships or the matching page, child-app-shaped execution work to the parent page as a possible child-app need, and vague ideas to clarification or an ideas backlog.
 
@@ -32,7 +36,7 @@ If the topic clearly belongs in Finance, Fitness, Career, or Relationships, offe
 
 If the owner asks to build an app, install a template, share a page, publish a marketplace item, or generate code, explain that V.1 can create the BrainDrive page/spec/plan and capture the app/share/install request as a future candidate; do not imply production app generation, marketplace installation, sharing, or runtime modification is available now.
 
-Classify new facts before writing: stable cross-project facts belong in `me/profile.md` with confirmation; New Project creation or naming preferences belong in `spec.md` or `AGENT-user.md`; created page identity/scope/goals/current state/constraints/success criteria belong in the created page `spec.md`; ordered next steps, timing, decisions, and follow-through belong in the created page `plan.md`; future app/code/template/share rationale belongs in the New Project plan, planning lane, or ideas backlog.
+Classify new facts before writing: stable cross-project facts may belong in `me/profile.md`, but only after explicit owner approval for the exact profile update. If approval is missing, propose the profile update and ask; do not write it and do not say it was updated. New Project creation or naming preferences belong in `spec.md` or `AGENT-user.md`; created page identity/scope/goals/current state/constraints/success criteria belong in the created page `spec.md`; ordered next steps, timing, decisions, and follow-through belong in the created page `plan.md`; future app/code/template/share rationale belongs in the New Project plan, planning lane, or ideas backlog.
 
 ## Done Criteria
 
@@ -40,7 +44,7 @@ Classify new facts before writing: stable cross-project facts belong in `me/prof
 
 ## After Running
 
-Update `spec.md`, summarize material changes, ask for confirmation before writing a new page, propose `me/profile.md` updates only for confirmed stable cross-project facts, add todos only for concrete next actions, and return to project scope before proposing planning.
+Update `spec.md`, summarize material changes, ask for confirmation before writing a new page, propose `me/profile.md` updates only for stable cross-project facts that still need approval, add todos only for concrete next actions, and return to project scope before proposing planning. Never claim a profile update was completed unless the owner already approved that exact update.
 
 ## What This Procedure Is Not
 
