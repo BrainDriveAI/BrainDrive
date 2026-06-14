@@ -28,6 +28,10 @@ Mark each step as one of: owner action, owner decision, data-gathering, Finance 
 
 When child-app output changes the Finance plan, record only the page-level implication, decision, or next step. Do not copy detailed evidence, reports, calculations, rules, or app state into Finance.
 
+Every first-run plan update must include a concise BrainDrive experience and review path. Cover the owner-facing sidebar/page location for `AGENT.md`, `spec.md`, and `plan.md`; the current first action in BrainDrive; how the owner can edit or ask for revisions; how a return visit should continue from existing artifacts; plain-language recovery for setup/model/write/rendering trouble; support logs/support bundles with secrets redacted; visible progress states while BrainDrive is thinking, writing, saving, or updating; and that quality is judged against interview, spec, plan, propagation, and page-specific replay across the default pages.
+
+Every Finance plan must preserve regulated-boundary language when financial decisions could touch tax, legal, insurance, investment, or debt-settlement judgment. Say this is not financial advice, do not recommend specific trades or products, and route professional questions to a qualified professional.
+
 ## Done Criteria
 
 `plan.md` names the first step, roadmap, owner decisions, child-app handoffs when needed, review status, destination, and remaining blockers without copying full reports into the plan.

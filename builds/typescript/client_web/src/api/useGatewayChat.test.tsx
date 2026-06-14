@@ -132,6 +132,49 @@ describe("useGatewayChat", () => {
     ]);
   });
 
+  it("can replay a message without echoing a duplicate user message", async () => {
+    sendMessageMock.mockImplementation(() =>
+      streamEvents([
+        { type: "text-delta", delta: "Retried" },
+        {
+          type: "done",
+          finish_reason: "stop",
+          conversation_id: "conv-1"
+        }
+      ])
+    );
+
+    const { result } = renderHook(() => useGatewayChat());
+
+    act(() => {
+      result.current.append("Retry this", {
+        metadata: {
+          retry_of_message_id: "message-1",
+          retry_reason: "provider_error",
+        },
+        echoUserMessage: false,
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(sendMessageMock).toHaveBeenCalledWith(
+      null,
+      "Retry this",
+      expect.objectContaining({
+        metadata: {
+          retry_of_message_id: "message-1",
+          retry_reason: "provider_error",
+        },
+      })
+    );
+    expect(result.current.messages).toEqual([
+      { id: "message-2", role: "assistant", content: "Retried" }
+    ]);
+  });
+
   it("handles a stream that only emits done", async () => {
     sendMessageMock.mockImplementation(() =>
       streamEvents([

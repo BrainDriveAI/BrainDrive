@@ -7,6 +7,29 @@ import { describe, expect, it } from "vitest";
 import { GatewayProjectService } from "./projects.js";
 
 describe("GatewayProjectService uploads", () => {
+  it("detaches a project from its stored conversation", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "gateway-project-detach-conversation-"));
+    const memoryRoot = path.join(tempRoot, "memory");
+
+    try {
+      await mkdir(path.join(memoryRoot, "documents"), { recursive: true });
+      await writeFile(
+        path.join(memoryRoot, "documents", "projects.json"),
+        JSON.stringify([{ id: "fitness", name: "Fitness", icon: "activity", conversation_id: "conv-fitness" }]),
+        "utf8"
+      );
+      const projects = new GatewayProjectService(memoryRoot, { rootDir: tempRoot });
+
+      await expect(projects.detachConversation("missing")).resolves.toBe(false);
+      await expect(projects.detachConversation("fitness")).resolves.toBe(true);
+
+      const manifest = JSON.parse(await readFile(path.join(memoryRoot, "documents", "projects.json"), "utf8")) as Array<{ conversation_id: string | null }>;
+      expect(manifest[0]?.conversation_id).toBeNull();
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("updates index.md when creating an uploaded markdown file", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "gateway-project-upload-index-"));
     const memoryRoot = path.join(tempRoot, "memory");

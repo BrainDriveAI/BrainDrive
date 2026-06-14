@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import type { Project } from "@/types/ui";
@@ -44,7 +44,7 @@ describe("Sidebar", () => {
 
     render(<Sidebar {...baseProps} onClose={onClose} />);
 
-    await user.click(screen.getByRole("button", { name: "Finances" }));
+    await user.click(screen.getByRole("button", { name: "Finance" }));
 
     expect(onClose).toHaveBeenCalledTimes(1);
   });
@@ -71,7 +71,7 @@ describe("Sidebar", () => {
 
     expect(screen.getByRole("button", { name: "Your Agent" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Career" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Finances" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Finance" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create project" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "New project" })).not.toBeInTheDocument();
   });
@@ -86,7 +86,7 @@ describe("Sidebar", () => {
       />
     );
 
-    expect(screen.getByRole("button", { name: "Your Finances" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Your Finance" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Budget" })).toBeInTheDocument();
     expect(screen.queryByPlaceholderText("Search chats...")).not.toBeInTheDocument();
   });
@@ -181,7 +181,7 @@ describe("Sidebar", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Back to project list" }));
-    await user.click(screen.getByRole("button", { name: "Your Finances" }));
+    await user.click(screen.getByRole("button", { name: "Your Finance" }));
 
     expect(onDeselectProject).toHaveBeenCalledTimes(1);
     expect(onReturnToChat).toHaveBeenCalledTimes(1);
@@ -201,7 +201,7 @@ describe("Sidebar", () => {
       />
     );
 
-    expect(screen.getByRole("button", { name: "Upload document to Your Finances" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Upload document to Your Finance" })).toBeInTheDocument();
 
     const input = container.querySelector('input[type="file"]');
     expect(input).toBeInstanceOf(HTMLInputElement);
@@ -211,5 +211,36 @@ describe("Sidebar", () => {
     await user.upload(input as HTMLInputElement, file);
 
     expect(onUploadDocument).toHaveBeenCalledWith(file);
+  });
+
+  it("continues sidebar multi-file uploads after an individual failure", async () => {
+    const user = userEvent.setup();
+    const onUploadDocument = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("Upload failed"))
+      .mockResolvedValueOnce(undefined);
+
+    const { container } = render(
+      <Sidebar
+        {...baseProps}
+        selectedProjectId="finance"
+        selectedProject={mockProjects[0]!}
+        projectFiles={[{ name: "budget.md", path: "finance/budget.md" }]}
+        onUploadDocument={onUploadDocument}
+      />
+    );
+
+    const input = container.querySelector('input[type="file"]');
+    const first = new File(["Date,Amount"], "first.csv", { type: "text/csv" });
+    const second = new File(["%PDF-1.6"], "second.pdf", { type: "application/pdf" });
+    const third = new File(["Date,Amount"], "third.csv", { type: "text/csv" });
+
+    await user.upload(input as HTMLInputElement, [first, second, third]);
+
+    await waitFor(() => {
+      expect(onUploadDocument).toHaveBeenCalledTimes(3);
+    });
+    expect(onUploadDocument.mock.calls.map((call) => call[0])).toEqual([first, second, third]);
   });
 });

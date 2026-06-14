@@ -1,7 +1,7 @@
 import type { ProjectFile } from "@/types/ui";
 
 const PROJECT_LABELS: Record<string, string> = {
-  finance: "Your Finances",
+  finance: "Your Finance",
   fitness: "Your Fitness",
   career: "Your Career",
   relationships: "Your Relationships",
@@ -9,7 +9,7 @@ const PROJECT_LABELS: Record<string, string> = {
 };
 
 const PROJECT_SHORT_LABELS: Record<string, string> = {
-  finance: "Finances",
+  finance: "Finance",
   fitness: "Fitness",
   career: "Career",
   relationships: "Relationships",

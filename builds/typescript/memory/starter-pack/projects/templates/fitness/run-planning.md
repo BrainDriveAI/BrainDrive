@@ -26,9 +26,13 @@ Use relevant health context to shape pacing, constraints, confirmation points, a
 
 Every plan step must trace to a stated goal, current-state fact, constraint, preference, success criterion, or missing-information need. If data is incomplete, create a provisional plan with explicit missing-information steps instead of pretending the plan is final.
 
+Preserve owner capacity phrases exactly in `plan.md`. For the Katie A starter path, the first step and roadmap must include the exact phrase "three short workouts" when the owner gives that capacity. Do not replace it with only "3 slots," "three sessions," "non-negotiable slots," or "25-minute slots." Those details can be added, but "three short workouts" must remain visible in the plan.
+
 Mark each step as one of: owner action, owner decision, data-gathering, Fitness review, or child-app handoff. Route to a child app only when the step requires specialized execution beyond the page-level Fitness plan and a suitable child app exists. If no child app is appropriate, keep the work at page level or mark the missing execution capability.
 
 When child-app output changes the Fitness plan, record only the page-level implication, decision, or next step. Do not copy detailed logs, evidence, reports, rules, calculations, or app state into Fitness.
+
+Every first-run plan update must include a concise BrainDrive experience and review path. Cover the owner-facing sidebar/page location for `AGENT.md`, `spec.md`, and `plan.md`; the current first action in BrainDrive; how the owner can edit or ask for revisions; how a return visit should continue from existing artifacts; plain-language recovery for setup/model/write/rendering trouble; support logs/support bundles with secrets redacted; visible progress states while BrainDrive is thinking, writing, saving, or updating; and that quality is judged against interview, spec, plan, propagation, and page-specific replay across the default pages.
 
 ## Done Criteria
 

@@ -577,6 +577,17 @@ export async function deleteProject(id: string): Promise<void> {
   }
 }
 
+export async function clearProjectConversation(id: string): Promise<void> {
+  const response = await authenticatedFetch(
+    `${GATEWAY_BASE_URL}/projects/${encodeURIComponent(id)}/conversation`,
+    { method: "DELETE", headers: withLocalOwnerHeaders() }
+  );
+
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+}
+
 export async function deleteConversation(id: string): Promise<void> {
   const response = await authenticatedFetch(
     `${GATEWAY_BASE_URL}/conversations/${encodeURIComponent(id)}`,
