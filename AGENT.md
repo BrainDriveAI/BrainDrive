@@ -166,6 +166,7 @@ If the task is about:
 - Auth/account flows: `builds/typescript/auth/` and auth routes in `gateway/server.ts`
 - Memory/files/export/backup: `builds/typescript/memory/`, `memory-tools/`, and `git.ts`
 - Frontend behavior: `builds/typescript/client_web/src/`
+- UI design / colors / tokens: `builds/typescript/client_web/src/design/tokens.ts` and `src/index.css` are the design source of truth; see the **Design System** section of `client_web/README.md`. Dark mode only; amber (`#F5A623`) primary with dark (`#03050A`) text; never light text on a light fill.
 - Installer/deployment: `installer/docker/`
 - Tool registration or MCP behavior: `builds/typescript/tools.ts`, `builds/typescript/mcp/`, `builds/mcp_release/`
 
@@ -177,7 +178,7 @@ If the task is about:
 - `CONTRIBUTING.md` — contributor workflow and baseline test commands
 - `ROADMAP.md` — public roadmap
 - `installer/docker/README.md` — deployment and lifecycle modes
-- `builds/typescript/client_web/README.md` — web client details
+- `builds/typescript/client_web/README.md` — web client details, including the **Design System** (tokens, dark-mode-only and contrast rules)
 - `builds/mcp_release/README.md` — first-party MCP server package
 
 If this file drifts from the real code, update it.
