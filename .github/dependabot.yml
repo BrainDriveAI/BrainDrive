@@ -2,6 +2,7 @@ version: 2
 updates:
   - package-ecosystem: npm
     directory: "/builds/mcp_release"
+    target-branch: dev
     schedule:
       interval: weekly
       day: monday
@@ -26,6 +27,7 @@ updates:
 
   - package-ecosystem: npm
     directory: "/builds/typescript"
+    target-branch: dev
     schedule:
       interval: weekly
       day: monday
@@ -50,6 +52,7 @@ updates:
 
   - package-ecosystem: npm
     directory: "/builds/typescript/client_web"
+    target-branch: dev
     schedule:
       interval: weekly
       day: monday
