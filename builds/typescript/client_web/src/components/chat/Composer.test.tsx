@@ -10,7 +10,7 @@ describe("Composer", () => {
 
     render(<Composer onSend={onSend} />);
 
-    const textarea = screen.getByPlaceholderText("Message your BrainDrive...");
+    const textarea = screen.getByPlaceholderText("Ask your Adviser...");
     const sendButton = screen.getByRole("button", { name: "Send message" });
 
     expect(sendButton).toBeDisabled();
@@ -34,7 +34,7 @@ describe("Composer", () => {
     const user = userEvent.setup();
     const { rerender } = render(<Composer isStreaming={true} />);
 
-    const textarea = screen.getByPlaceholderText("Message your BrainDrive...");
+    const textarea = screen.getByPlaceholderText("Ask your Adviser...");
     const stopButton = screen.getByRole("button", { name: "Stop generating" });
 
     await user.click(stopButton);

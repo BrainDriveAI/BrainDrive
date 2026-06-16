@@ -16,7 +16,7 @@ export async function loginAsLocalUser(page: Page) {
   // Wait for the main app shell to appear.
   // Use a visible textarea selector because the app renders both a desktop and
   // mobile composer — only one is visible depending on viewport width.
-  await page.locator('textarea[placeholder="Message your BrainDrive..."]:visible').waitFor({
+  await page.locator('textarea[placeholder="Ask your Adviser..."]:visible').waitFor({
     state: "visible",
     timeout: 10_000,
   });
@@ -30,7 +30,7 @@ export async function loginAsLocalUser(page: Page) {
  * to document.body (mobile, hidden on desktop via `md:hidden`).
  */
 export function visibleComposer(page: Page): Locator {
-  return page.locator('textarea[placeholder="Message your BrainDrive..."]:visible');
+  return page.locator('textarea[placeholder="Ask your Adviser..."]:visible');
 }
 
 /**
