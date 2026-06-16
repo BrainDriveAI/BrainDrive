@@ -19,7 +19,7 @@ const adapterConfig: AdapterConfig = {
 
 const brainDriveModelsAdapterConfig: AdapterConfig = {
   base_url: "https://my.braindrive.ai/credits/v1",
-  model: "claude-haiku-4-5-20251001",
+  model: "braindrive-models-default",
   api_key_env: "AI_GATEWAY_API_KEY",
   provider_id: "braindrive-models",
 };
