@@ -82,12 +82,19 @@ describe("Sidebar", () => {
         {...baseProps}
         selectedProjectId="finance"
         selectedProject={mockProjects[0]!}
-        projectFiles={[{ name: "budget.md", path: "finance/budget.md" }]}
+        projectFiles={[
+          { name: "budget.md", path: "finance/budget.md" },
+          { name: "AGENT.md", path: "finance/AGENT.md" },
+          { name: "run-interview.md", path: "finance/run-interview.md" },
+          { name: "run-planning.md", path: "finance/run-planning.md" }
+        ]}
       />
     );
 
     expect(screen.getByRole("button", { name: "Your Finance" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Budget" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show advanced" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Show advanced 3" })).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText("Search chats...")).not.toBeInTheDocument();
   });
 

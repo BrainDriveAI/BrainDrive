@@ -787,7 +787,6 @@ function AdvancedSectionToggle({
       className="mb-2 flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-xs text-bd-text-muted transition-colors duration-200 hover:bg-bd-bg-hover hover:text-bd-text-primary"
     >
       <span>{isOpen ? "Hide advanced" : "Show advanced"}</span>
-      <span>{count}</span>
     </button>
   );
 }
