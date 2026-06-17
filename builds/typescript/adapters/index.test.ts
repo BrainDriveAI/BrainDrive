@@ -11,7 +11,7 @@ describe("resolveEffectiveAdapterConfig", () => {
     provider_profiles: {
       openrouter: {
         base_url: "https://openrouter.ai/api/v1",
-        model: "anthropic/claude-haiku-4.5",
+        model: "nvidia/nemotron-3-ultra-550b-a55b",
         api_key_env: "OPENROUTER_API_KEY",
         provider_id: "openrouter",
       },
@@ -27,7 +27,7 @@ describe("resolveEffectiveAdapterConfig", () => {
 
   it("uses the active provider default model for the final adapter config", () => {
     const preferences: Preferences = {
-      default_model: "anthropic/claude-haiku-4.5",
+      default_model: "nvidia/nemotron-3-ultra-550b-a55b",
       approval_mode: "auto-approve",
       active_provider_profile: "openrouter",
       provider_default_models: {
@@ -52,6 +52,6 @@ describe("resolveEffectiveAdapterConfig", () => {
       },
     };
 
-    expect(resolveEffectiveAdapterConfig(adapterConfig, preferences).model).toBe("anthropic/claude-haiku-4.5");
+    expect(resolveEffectiveAdapterConfig(adapterConfig, preferences).model).toBe("nvidia/nemotron-3-ultra-550b-a55b");
   });
 });
