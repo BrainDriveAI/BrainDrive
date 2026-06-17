@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import type { Project } from "@/types/ui";
@@ -187,60 +187,18 @@ describe("Sidebar", () => {
     expect(onReturnToChat).toHaveBeenCalledTimes(1);
   });
 
-  it("uploads a document from a selected project", async () => {
-    const user = userEvent.setup();
-    const onUploadDocument = vi.fn(async () => {});
-
+  it("does not show the document upload control in the project sidebar", () => {
     const { container } = render(
       <Sidebar
         {...baseProps}
         selectedProjectId="finance"
         selectedProject={mockProjects[0]!}
         projectFiles={[{ name: "budget.md", path: "finance/budget.md" }]}
-        onUploadDocument={onUploadDocument}
+        onUploadDocument={async () => {}}
       />
     );
 
-    expect(screen.getByRole("button", { name: "Upload document to Your Finance" })).toBeInTheDocument();
-
-    const input = container.querySelector('input[type="file"]');
-    expect(input).toBeInstanceOf(HTMLInputElement);
-    expect((input as HTMLInputElement).accept).toContain(".csv");
-
-    const file = new File(["Date,Amount\n2026-05-12,4.50"], "transactions.csv", { type: "text/csv" });
-    await user.upload(input as HTMLInputElement, file);
-
-    expect(onUploadDocument).toHaveBeenCalledWith(file);
-  });
-
-  it("continues sidebar multi-file uploads after an individual failure", async () => {
-    const user = userEvent.setup();
-    const onUploadDocument = vi
-      .fn()
-      .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(new Error("Upload failed"))
-      .mockResolvedValueOnce(undefined);
-
-    const { container } = render(
-      <Sidebar
-        {...baseProps}
-        selectedProjectId="finance"
-        selectedProject={mockProjects[0]!}
-        projectFiles={[{ name: "budget.md", path: "finance/budget.md" }]}
-        onUploadDocument={onUploadDocument}
-      />
-    );
-
-    const input = container.querySelector('input[type="file"]');
-    const first = new File(["Date,Amount"], "first.csv", { type: "text/csv" });
-    const second = new File(["%PDF-1.6"], "second.pdf", { type: "application/pdf" });
-    const third = new File(["Date,Amount"], "third.csv", { type: "text/csv" });
-
-    await user.upload(input as HTMLInputElement, [first, second, third]);
-
-    await waitFor(() => {
-      expect(onUploadDocument).toHaveBeenCalledTimes(3);
-    });
-    expect(onUploadDocument.mock.calls.map((call) => call[0])).toEqual([first, second, third]);
+    expect(screen.queryByRole("button", { name: "Upload document to Your Finance" })).not.toBeInTheDocument();
+    expect(container.querySelector('input[type="file"]')).not.toBeInTheDocument();
   });
 });
