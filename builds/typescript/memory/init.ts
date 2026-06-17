@@ -61,7 +61,6 @@ const FALLBACK_PROJECT_SEEDS: Array<{ id: string; name: string; icon: string }> 
   { id: "career", name: "Career", icon: "briefcase" },
   { id: "relationships", name: "Relationships", icon: "users" },
   { id: "new-project", name: "Your New Project", icon: "folder-plus" },
-  { id: "your-agent", name: "Your Agent", icon: "sparkles" },
 ];
 
 const FALLBACK_CONVERSATIONS_INDEX = {
@@ -409,6 +408,12 @@ async function ensureProjectsManifestAndDefaults(
     }
   }
 
+  const legacyCleanup = removeLegacyDuplicateRootAgentProject(projects);
+  if (legacyCleanup.changed) {
+    projects = legacyCleanup.projects;
+    manifestChanged = true;
+  }
+
   if (manifestChanged || !manifestExisted) {
     const normalized = sortProjects(projects);
     if (dryRun) {
@@ -638,6 +643,34 @@ function parseProjectManifestEntry(value: unknown): ProjectManifestEntry | null 
 
 function sortProjects(projects: ProjectManifestEntry[]): ProjectManifestEntry[] {
   return [...projects];
+}
+
+function removeLegacyDuplicateRootAgentProject(projects: ProjectManifestEntry[]): {
+  projects: ProjectManifestEntry[];
+  changed: boolean;
+} {
+  const hasRootAgent = projects.some((project) => project.id === "braindrive-plus-one");
+  if (!hasRootAgent) {
+    return { projects, changed: false };
+  }
+
+  let changed = false;
+  const nextProjects = projects.filter((project) => {
+    const isUnusedLegacySeed =
+      project.id === "your-agent" &&
+      project.name === "Your Agent" &&
+      project.icon === "sparkles" &&
+      project.conversation_id === null &&
+      project.default_skill_ids.length === 0;
+    if (!isUnusedLegacySeed) {
+      return true;
+    }
+
+    changed = true;
+    return false;
+  });
+
+  return changed ? { projects: nextProjects, changed } : { projects, changed: false };
 }
 
 function dedupeStrings(values: string[]): string[] {

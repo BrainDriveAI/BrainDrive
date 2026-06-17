@@ -57,8 +57,7 @@
     "fitness",
     "career",
     "relationships",
-    "new-project",
-    "your-agent"
+    "new-project"
   ],
   "project_optional_overlay_files": [
     "AGENT-user.md",
