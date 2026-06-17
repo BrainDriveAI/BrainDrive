@@ -23,7 +23,6 @@ const DEFAULT_PAGE_PROJECT_IDS = [
   "career",
   "relationships",
   "new-project",
-  "your-agent",
 ] as const;
 
 const REQUIRED_PROJECT_FILES = [

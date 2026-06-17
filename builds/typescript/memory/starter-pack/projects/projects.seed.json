@@ -23,10 +23,5 @@
     "id": "new-project",
     "name": "Your New Project",
     "icon": "folder-plus"
-  },
-  {
-    "id": "your-agent",
-    "name": "Your Agent",
-    "icon": "sparkles"
   }
 ]
