@@ -65,7 +65,7 @@ Use `README.md`, `ROADMAP.md`, and `CONTRIBUTING.md` for public product and cont
 ### Branching
 
 - Primary development base branch: `dev`.
-- For the OpenRouter/Nemotron related work, use `feature/openrouter-nemotron-migration`; it is based on `dev`.
+- For the OpenRouter/GLM 5.2 related work, use `model/glm-5.2`; it is based on `dev`.
 - This repo is not the Managed-Hosting staging/main deploy pipeline. Do not assume pushing here deploys Hosted.
 
 ### Commands
@@ -193,7 +193,7 @@ Important behavior boundaries:
 
 - Do not put BrainDrive-owned OpenRouter provider keys in client config.
 - Do not make BrainDrive Models credits required for Ollama or BYOK OpenRouter.
-- Do not treat full BrainDrive client provider/settings regression as part of the Nemotron hosted-provider migration unless explicitly promoted.
+- Do not treat full BrainDrive client provider/settings regression as part of the GLM 5.2 hosted-provider migration unless explicitly promoted.
 - Do not remove Ollama or BYOK OpenRouter provider choices while changing BrainDrive Models behavior.
 - Do not hard-code production/staging hosted URLs without checking existing config patterns.
 
