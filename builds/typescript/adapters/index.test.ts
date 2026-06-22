@@ -11,7 +11,7 @@ describe("resolveEffectiveAdapterConfig", () => {
     provider_profiles: {
       openrouter: {
         base_url: "https://openrouter.ai/api/v1",
-        model: "nvidia/nemotron-3-ultra-550b-a55b",
+        model: "z-ai/glm-5.2",
         api_key_env: "OPENROUTER_API_KEY",
         provider_id: "openrouter",
       },
@@ -27,7 +27,7 @@ describe("resolveEffectiveAdapterConfig", () => {
 
   it("uses the active provider default model for the final adapter config", () => {
     const preferences: Preferences = {
-      default_model: "nvidia/nemotron-3-ultra-550b-a55b",
+      default_model: "z-ai/glm-5.2",
       approval_mode: "auto-approve",
       active_provider_profile: "openrouter",
       provider_default_models: {
@@ -52,6 +52,6 @@ describe("resolveEffectiveAdapterConfig", () => {
       },
     };
 
-    expect(resolveEffectiveAdapterConfig(adapterConfig, preferences).model).toBe("nvidia/nemotron-3-ultra-550b-a55b");
+    expect(resolveEffectiveAdapterConfig(adapterConfig, preferences).model).toBe("z-ai/glm-5.2");
   });
 });

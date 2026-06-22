@@ -85,7 +85,7 @@ const FALLBACK_LOCAL_DEV_PREFERENCES = {
 };
 
 const FALLBACK_OPENROUTER_SECRET_REF_PREFERENCES = {
-  default_model: "nvidia/nemotron-3-ultra-550b-a55b",
+  default_model: "z-ai/glm-5.2",
   approval_mode: "auto-approve",
   active_provider_profile: "openrouter",
   provider_credentials: {
