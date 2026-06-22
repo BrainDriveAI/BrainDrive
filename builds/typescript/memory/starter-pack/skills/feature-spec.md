@@ -24,7 +24,7 @@ The active page's `spec.md`.
 5. Preserve owner edits. Update sections in place and keep headings, status, last-updated metadata, and changelog.
 6. Write owner-facing content: goals, current reality, constraints, assumptions, success criteria, plan direction, and open questions.
 7. Keep implementation/build detail out of owner page specs unless the owner-created project is actually a software build.
-8. Tell the owner what changed and point them to the page spec in BrainDrive.
+8. Tell the owner what changed and point them to Your Goals in the sidebar — by product name, never by filename or path.
 
 ## Quality Bar
 
