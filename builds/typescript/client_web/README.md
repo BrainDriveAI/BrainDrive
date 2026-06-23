@@ -66,13 +66,13 @@ client/
 
 Colors, typography, and spacing are defined as CSS custom properties in `src/index.css` and as a TypeScript reference in `src/design/tokens.ts`. The design system uses:
 
-- **Amber accent** (`#F5A623`) — CTAs, send button, active states. Text on amber is always dark (`#03050A`), never white.
+- **Amber accent** (`#F5A623`) — CTAs, send button, active states. **Text on amber is always dark (`#03050A`), never white.**
 - **Blue foundation** — backgrounds, text, borders
 - **Montserrat** — headings and CTAs
 - **Questrial** — body text
 - **Dark mode only** (light mode deferred to V1.1). Do not introduce white/near-white (`#FFFFFF`, `#FAFAFA`) surfaces, cards, or buttons.
 
-Contrast rule for buttons and labels: all product surfaces are dark, so white or near-white text belongs only on a dark fill. Never put light text on a light fill. If a control looks washed out or invisible, the fill is wrong; fix the background instead of changing text away from the design tokens.
+**Contrast rule (every button and label):** all surfaces are dark, so white / near-white text (`text.heading` = `#FFFFFF`) belongs only on a dark fill. Never put light text on a light fill. If a control looks washed out or invisible (the white-on-white failure), the fill is wrong; fix the background, not the text. Always reference tokens from `tokens.ts` / `index.css`; do not hardcode hex values.
 
 ## Deployment Modes
 
