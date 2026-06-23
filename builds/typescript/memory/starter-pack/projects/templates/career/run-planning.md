@@ -30,6 +30,8 @@ Mark each step as one of: owner action, owner decision, data-gathering, conversa
 
 When child-app output changes the Career plan, record only the page-level implication, decision, or next step. Do not copy detailed notes, drafts, evidence, reports, rules, or app state into Career.
 
+Every first-run plan update must include a concise BrainDrive experience and review path. Cover the owner-facing sidebar/page location for `AGENT.md`, `spec.md`, and `plan.md`; the current first action in BrainDrive; how the owner can edit or ask for revisions; how a return visit should continue from existing artifacts; plain-language recovery for setup/model/write/rendering trouble; support logs/support bundles with secrets redacted; visible progress states while BrainDrive is thinking, writing, saving, or updating; and that quality is judged against interview, spec, plan, propagation, and page-specific replay across the default pages.
+
 ## Done Criteria
 
 `plan.md` names the first step, roadmap, owner decisions, child-app handoffs when needed, review status, destination, and remaining blockers without turning uncertainty into fake certainty.

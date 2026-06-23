@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { getSession } from "@/api/auth-adapter";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Project, ProjectFile, UserProfile } from "@/types/ui";
-import { ACCEPTED_FILE_INPUT } from "@/utils/file-utils";
 
 import ProfileMenu from "./ProfileMenu";
 import {
@@ -71,7 +70,6 @@ export default function Sidebar({
   onAddProject,
   onRemoveProject,
   onRenameProject,
-  onUploadDocument,
   uploadStatus,
   uploadError,
   tier = "local",
@@ -87,7 +85,6 @@ export default function Sidebar({
   const [openFolders, setOpenFolders] = useState<Set<string>>(new Set());
   const [renameValue, setRenameValue] = useState("");
   const newProjectInputRef = useRef<HTMLInputElement | null>(null);
-  const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const projectMenuRef = useRef<HTMLDivElement | null>(null);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -285,41 +282,6 @@ export default function Sidebar({
                   className="min-w-0 truncate text-left text-sm font-medium text-bd-text-primary transition-colors duration-200 hover:text-bd-amber"
                 >
                   {appShortLabel(activeAppPath)}
-                </button>
-              </>
-            ) : null}
-            {onUploadDocument && !activeAppPath ? (
-              <>
-                <input
-                  ref={uploadInputRef}
-                  type="file"
-                  accept={ACCEPTED_FILE_INPUT}
-                  multiple
-                  className="hidden"
-                  onChange={(event) => {
-                    const files = Array.from(event.target.files ?? []);
-                    event.target.value = "";
-                    if (files.length === 0) {
-                      return;
-                    }
-                    void (async () => {
-                      for (const file of files) {
-                        await onUploadDocument(file);
-                      }
-                    })().catch(() => {});
-                  }}
-                />
-                <button
-                  type="button"
-                  aria-label={`Upload document to ${selectedProjectLabel}`}
-                  disabled={Boolean(uploadStatus)}
-                  onClick={() => {
-                    uploadInputRef.current?.click();
-                  }}
-                  className="ml-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-bd-text-secondary transition-colors duration-200 hover:bg-bd-bg-hover hover:text-bd-text-primary disabled:cursor-not-allowed disabled:opacity-50"
-                  title="Upload document"
-                >
-                  <Plus size={16} strokeWidth={1.5} />
                 </button>
               </>
             ) : null}
@@ -825,7 +787,6 @@ function AdvancedSectionToggle({
       className="mb-2 flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-xs text-bd-text-muted transition-colors duration-200 hover:bg-bd-bg-hover hover:text-bd-text-primary"
     >
       <span>{isOpen ? "Hide advanced" : "Show advanced"}</span>
-      <span>{count}</span>
     </button>
   );
 }

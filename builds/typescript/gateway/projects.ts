@@ -256,6 +256,21 @@ export class GatewayProjectService {
     await this.writeProjects(projects);
   }
 
+  async detachConversation(projectId: string): Promise<boolean> {
+    const projects = await this.readProjects();
+    const index = projects.findIndex((project) => project.id === projectId);
+    if (index === -1) {
+      return false;
+    }
+
+    projects[index] = {
+      ...projects[index],
+      conversation_id: null,
+    };
+    await this.writeProjects(projects);
+    return true;
+  }
+
   async getProjectSkills(projectId: string): Promise<string[] | null> {
     const project = await this.getProject(projectId);
     if (!project) {

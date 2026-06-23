@@ -72,7 +72,7 @@ Colors, typography, and spacing are defined as CSS custom properties in `src/ind
 - **Questrial** — body text
 - **Dark mode only** (light mode deferred to V1.1). Do not introduce white/near-white (`#FFFFFF`, `#FAFAFA`) surfaces, cards, or buttons.
 
-**Contrast rule (every button and label):** all surfaces are dark, so white / near-white text (`text.heading` = `#FFFFFF`) belongs only on a dark fill. Never put light text on a light fill. If a control looks washed out or invisible (the white-on-white failure), the fill is wrong — fix the background, not the text. Always reference tokens from `tokens.ts` / `index.css`; do not hardcode hex values.
+**Contrast rule (every button and label):** all surfaces are dark, so white / near-white text (`text.heading` = `#FFFFFF`) belongs only on a dark fill. Never put light text on a light fill. If a control looks washed out or invisible (the white-on-white failure), the fill is wrong; fix the background, not the text. Always reference tokens from `tokens.ts` / `index.css`; do not hardcode hex values.
 
 ## Deployment Modes
 

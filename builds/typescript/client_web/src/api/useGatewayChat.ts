@@ -73,6 +73,11 @@ type UseGatewayChatOptions = {
   draftKey?: string | null;
 };
 
+type AppendOptions = {
+  metadata?: Record<string, unknown>;
+  echoUserMessage?: boolean;
+};
+
 export function useGatewayChat(options: UseGatewayChatOptions = {}): {
   messages: Message[];
   isLoading: boolean;
@@ -83,7 +88,7 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
   pendingApprovals: PendingApproval[];
   activity: ActivityEvent[];
   contextWindowWarning: ContextWindowWarning | null;
-  append: (content: string, options?: { metadata?: Record<string, unknown> }) => void;
+  append: (content: string, options?: AppendOptions) => void;
   resolveApproval: (requestId: string, decision: ApprovalDecision) => Promise<void>;
   stop: () => void;
   startNewConversation: () => void;
@@ -293,12 +298,13 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
     );
   }
 
-  function append(content: string, options?: { metadata?: Record<string, unknown> }) {
+  function append(content: string, options?: AppendOptions) {
     const trimmed = content.trim();
     if (trimmed === "") {
       return;
     }
 
+    const echoUserMessage = options?.echoUserMessage ?? true;
     const slashCommand = parseSlashSkillCommand(trimmed);
     if (slashCommand) {
       const userMessage: Message = {
@@ -311,7 +317,9 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
       setErrorCode(null);
       setIsLoading(true);
       setToolStatus("Running slash command...");
-      setMessages((current) => [...current, userMessage]);
+      if (echoUserMessage) {
+        setMessages((current) => [...current, userMessage]);
+      }
 
       void (async () => {
         try {
@@ -359,7 +367,9 @@ export function useGatewayChat(options: UseGatewayChatOptions = {}): {
     setErrorCode(null);
     setIsLoading(true);
     setContextWindowWarning(null);
-    setMessages((current) => [...current, userMessage]);
+    if (echoUserMessage) {
+      setMessages((current) => [...current, userMessage]);
+    }
 
     // Track this as a background stream so state updates route correctly
     backgroundStreams.set(activeCacheKey, { requestToken });

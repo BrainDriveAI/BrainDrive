@@ -64,6 +64,22 @@ type ChatCompletionContent = string | Array<{ type?: string; text?: string }> | 
 
 const MAX_VISION_IMAGES = 6;
 const METADATA_EXCERPT_LIMIT = 12000;
+const CONVERSION_RETRY_ATTEMPTS = 3;
+const TRANSIENT_PROVIDER_STATUSES = new Set([
+  408,
+  409,
+  425,
+  429,
+  500,
+  502,
+  503,
+  504,
+  520,
+  521,
+  522,
+  523,
+  524,
+]);
 
 export async function convertUploadedDocumentToMarkdown(
   input: UploadedDocumentInput,
@@ -781,18 +797,45 @@ async function convertPdfToMarkdown(
       ];
     }
 
-    const response = await fetch(`${resolvedConfig.base_url}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(apiKey.length > 0 ? { authorization: `Bearer ${apiKey}` } : {}),
-      },
-      body: JSON.stringify(requestBody),
-    });
+    try {
+      return await withConversionRetry("ai_pdf_to_markdown", async () => {
+        const response = await fetch(`${resolvedConfig.base_url}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(apiKey.length > 0 ? { authorization: `Bearer ${apiKey}` } : {}),
+          },
+          body: JSON.stringify(requestBody),
+        });
 
-    return readMarkdownResponse(response, resolvedConfig, "ai_pdf_to_markdown");
+        return readMarkdownResponse(response, resolvedConfig, "ai_pdf_to_markdown");
+      });
+    } catch (error) {
+      if (!isEmptyMarkdownConversionError(error)) {
+        throw error;
+      }
+
+      auditLog("document_upload.pdf_parser_empty_result", {
+        model: resolvedConfig.model,
+        base_url: redactUrl(resolvedConfig.base_url),
+      });
+    }
   }
 
+  return convertPdfImagesToMarkdown(
+    input,
+    adapterName,
+    adapterConfig,
+    preferences
+  );
+}
+
+async function convertPdfImagesToMarkdown(
+  input: UploadedDocumentInput,
+  adapterName: string,
+  adapterConfig: AdapterConfig,
+  preferences: Preferences
+): Promise<string> {
   const images = extractPdfJpegImages(input.data)
     .filter((image) => isValidJpeg(image.data))
     .sort((left, right) => right.data.length - left.data.length)
@@ -825,40 +868,42 @@ async function convertImagesWithVision(
   const apiKey = credential?.apiKey ?? process.env[resolvedConfig.api_key_env] ?? "";
   const prompt = buildConversionPrompt(input);
 
-  const response = await fetch(`${resolvedConfig.base_url}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...(apiKey.length > 0 ? { authorization: `Bearer ${apiKey}` } : {}),
-    },
-    body: JSON.stringify({
-      model: resolvedConfig.model,
-      stream: false,
-      messages: [
-        {
-          role: "system",
-          content: "You convert uploaded user documents to accurate markdown. Return only markdown.",
-        },
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: prompt,
-            },
-            ...images.map((image) => ({
-              type: "image_url",
-              image_url: {
-                url: `data:${image.mimeType};base64,${image.data.toString("base64")}`,
+  return withConversionRetry(conversion, async () => {
+    const response = await fetch(`${resolvedConfig.base_url}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(apiKey.length > 0 ? { authorization: `Bearer ${apiKey}` } : {}),
+      },
+      body: JSON.stringify({
+        model: resolvedConfig.model,
+        stream: false,
+        messages: [
+          {
+            role: "system",
+            content: "You convert uploaded user documents to accurate markdown. Return only markdown.",
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: prompt,
               },
-            })),
-          ],
-        },
-      ],
-    }),
-  });
+              ...images.map((image) => ({
+                type: "image_url",
+                image_url: {
+                  url: `data:${image.mimeType};base64,${image.data.toString("base64")}`,
+                },
+              })),
+            ],
+          },
+        ],
+      }),
+    });
 
-  return readMarkdownResponse(response, resolvedConfig, conversion);
+    return readMarkdownResponse(response, resolvedConfig, conversion);
+  });
 }
 
 function buildConversionPrompt(input: UploadedDocumentInput): string {
@@ -904,6 +949,71 @@ async function readMarkdownResponse(
   }
 
   return markdown;
+}
+
+async function withConversionRetry(
+  conversion: "ai_image_to_markdown" | "ai_pdf_to_markdown",
+  operation: () => Promise<string>
+): Promise<string> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= CONVERSION_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (attempt >= CONVERSION_RETRY_ATTEMPTS || !isRetryableConversionError(error)) {
+        throw error;
+      }
+
+      const delayMs = conversionRetryDelayMs(attempt);
+      auditLog("document_upload.conversion_retry", {
+        conversion,
+        attempt,
+        next_attempt: attempt + 1,
+        delay_ms: delayMs,
+        status: error instanceof DocumentConversionProviderError ? error.status : undefined,
+        error_name: error instanceof Error ? error.name : typeof error,
+      });
+      await sleep(delayMs);
+    }
+  }
+
+  throw lastError;
+}
+
+function isRetryableConversionError(error: unknown): boolean {
+  if (error instanceof DocumentConversionProviderError) {
+    return TRANSIENT_PROVIDER_STATUSES.has(error.status);
+  }
+
+  if (isAbortError(error) || isEmptyMarkdownConversionError(error)) {
+    return false;
+  }
+
+  return error instanceof Error;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+function isEmptyMarkdownConversionError(error: unknown): boolean {
+  return error instanceof Error && /returned empty markdown/i.test(error.message);
+}
+
+function conversionRetryDelayMs(attempt: number): number {
+  if (process.env.NODE_ENV === "test" || process.env.VITEST) {
+    return 0;
+  }
+
+  const baseDelay = 2000 * (3 ** (attempt - 1));
+  const jitter = Math.floor(Math.random() * 250);
+  return baseDelay + jitter;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function isOpenRouterBaseUrl(value: string): boolean {

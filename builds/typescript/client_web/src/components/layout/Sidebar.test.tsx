@@ -44,7 +44,7 @@ describe("Sidebar", () => {
 
     render(<Sidebar {...baseProps} onClose={onClose} />);
 
-    await user.click(screen.getByRole("button", { name: "Finances" }));
+    await user.click(screen.getByRole("button", { name: "Finance" }));
 
     expect(onClose).toHaveBeenCalledTimes(1);
   });
@@ -71,7 +71,7 @@ describe("Sidebar", () => {
 
     expect(screen.getByRole("button", { name: "Your Agent" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Career" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Finances" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Finance" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create project" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "New project" })).not.toBeInTheDocument();
   });
@@ -82,12 +82,19 @@ describe("Sidebar", () => {
         {...baseProps}
         selectedProjectId="finance"
         selectedProject={mockProjects[0]!}
-        projectFiles={[{ name: "budget.md", path: "finance/budget.md" }]}
+        projectFiles={[
+          { name: "budget.md", path: "finance/budget.md" },
+          { name: "AGENT.md", path: "finance/AGENT.md" },
+          { name: "run-interview.md", path: "finance/run-interview.md" },
+          { name: "run-planning.md", path: "finance/run-planning.md" }
+        ]}
       />
     );
 
-    expect(screen.getByRole("button", { name: "Your Finances" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Your Finance" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Budget" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show advanced" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Show advanced 3" })).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText("Search chats...")).not.toBeInTheDocument();
   });
 
@@ -181,35 +188,24 @@ describe("Sidebar", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Back to project list" }));
-    await user.click(screen.getByRole("button", { name: "Your Finances" }));
+    await user.click(screen.getByRole("button", { name: "Your Finance" }));
 
     expect(onDeselectProject).toHaveBeenCalledTimes(1);
     expect(onReturnToChat).toHaveBeenCalledTimes(1);
   });
 
-  it("uploads a document from a selected project", async () => {
-    const user = userEvent.setup();
-    const onUploadDocument = vi.fn(async () => {});
-
+  it("does not show the document upload control in the project sidebar", () => {
     const { container } = render(
       <Sidebar
         {...baseProps}
         selectedProjectId="finance"
         selectedProject={mockProjects[0]!}
         projectFiles={[{ name: "budget.md", path: "finance/budget.md" }]}
-        onUploadDocument={onUploadDocument}
+        onUploadDocument={async () => {}}
       />
     );
 
-    expect(screen.getByRole("button", { name: "Upload document to Your Finances" })).toBeInTheDocument();
-
-    const input = container.querySelector('input[type="file"]');
-    expect(input).toBeInstanceOf(HTMLInputElement);
-    expect((input as HTMLInputElement).accept).toContain(".csv");
-
-    const file = new File(["Date,Amount\n2026-05-12,4.50"], "transactions.csv", { type: "text/csv" });
-    await user.upload(input as HTMLInputElement, file);
-
-    expect(onUploadDocument).toHaveBeenCalledWith(file);
+    expect(screen.queryByRole("button", { name: "Upload document to Your Finance" })).not.toBeInTheDocument();
+    expect(container.querySelector('input[type="file"]')).not.toBeInTheDocument();
   });
 });

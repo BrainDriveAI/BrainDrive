@@ -26,6 +26,8 @@ Every plan step must trace to a stated goal, current-state fact, routing rationa
 
 If creating a page, the plan must identify the page name, slug, why it deserves a durable memory home, first spec content, first plan content, and immediate next step. Placeholder-only files are not sufficient.
 
+Every provisional or created-page plan must include an explicit constraints, risks, and unknowns section. Tie it to what the owner already said, and use `unknown` for missing high-impact facts instead of pretending they are resolved.
+
 If the owner asks for app generation, marketplace installation, page sharing, automation, or runtime modification, record it as a future capability candidate and keep the V.1 output to owner-inspectable page/spec/plan artifacts.
 
 For sensitive or personal projects, do not force a productivity plan where support, safety, or clarity is the real first need.
@@ -36,7 +38,7 @@ For sensitive or personal projects, do not force a productivity plan where suppo
 
 ## After Running
 
-Report what changed, update `plan.md`, add todos only for concrete next actions, update page metadata or rollup summaries only as brief summaries, and return to project scope.
+Report what changed, update `plan.md`, add todos only for concrete next actions, update page metadata or rollup summaries only as brief summaries, and return to project scope. For `me/profile.md`, propose the exact profile update and ask for approval first; do not write it or claim it was updated without explicit owner approval.
 
 ## What This Procedure Is Not
 

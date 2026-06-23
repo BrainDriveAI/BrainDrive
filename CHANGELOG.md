@@ -1,3 +1,37 @@
+## [26.06.23] - 2026-06-23
+
+### Added
+- Starter-pack projects now include stronger baseline interview and planning guidance across Career, Finance, Fitness, Relationships, New Project, and Your Agent templates. (`#148`)
+- Starter-pack templates now include richer baseline artifacts, including project `AGENT.md`, `spec.md`, `plan.md`, and interview/planning runbooks where applicable. (`#148`)
+- Project chat context now has gateway handling and regression coverage so conversations stay attached to the correct project and reset cleanly when needed. (`#148`)
+- File upload flows now include transient provider retry handling, PDF fallback behavior, single-file retry replay, owner-safe upload receipts/errors, and upload lifecycle events. (`#148`)
+
+### Changed
+- BrainDrive now uses canonical root agent instructions in `AGENTS.md`, with `CLAUDE.md` and `GEMINI.md` resolving to the same guidance. (`6e7d03ed`)
+- Agent and client web documentation now point contributors to the design token source of truth and clarify dark-mode contrast rules for amber controls. (`#164`)
+- BrainDrive Models now uses the `braindrive-models-default` alias in provider config, fallback preferences, starter-pack preferences, and related tests. (`6e7d03ed`)
+- OpenRouter defaults now use GLM 5.2 for direct OpenRouter, starter-pack OpenRouter preferences, and memory fallback defaults. (`#162`)
+- Starter-pack advisors now point owners to product surfaces like Your Goals, Your Plan, Your Profile, and Your Todos in the sidebar instead of exposing internal filenames or paths. (`#161`)
+- Starter-pack interview behavior now emphasizes one-question pacing, missing-context prompts, concrete owner phrasing, vague-answer handling, safety/risk anchors, and plan approval boundaries. (`#148`)
+- Your Agent starter routing now directs snapshots and outputs to owning pages with clearer manual fallback behavior. (`#148`)
+- New Project starter guidance now gives clearer placement and created-page handling. (`#148`)
+- Dependabot npm version-update PRs now target the `dev` integration branch before `main`. (`#150`)
+- MCP release development dependencies were updated for newer `tsx` and `vitest` patch releases. (`#158`)
+- TypeScript workspace development dependencies were updated for newer Tauri CLI, `tsx`, and `vitest` patch releases. (`#159`)
+- Client web dependencies were updated across AI SDK, Tauri API, Lucide, Radix UI, React, React Router, Playwright, Tailwind/Vite tooling, Happy DOM, shadcn, and Vite. (`#160`)
+
+### Fixed
+- Starter-pack generated artifacts preserve more owner-specific anchors for vague, risky, or incomplete Career, Fitness, Finance, and Relationships interviews. (`#148`)
+- Provider timeout and upload conversion failures now surface more actionable errors during starter and document workflows. (`#148`)
+- Starter-pack Finance navigation labels now align with the baseline target and sidebar product language. (`#148`)
+- Root agent-instruction duplication was resolved by replacing the old singular `AGENT.md` root file with canonical `AGENTS.md`. (`6e7d03ed`)
+- The duplicate seeded Your Agent sidebar project was removed while preserving the root BrainDrive+1 agent entry. (`1983f746`)
+
+### Removed
+- Removed the redundant project-page sidebar upload button while keeping the composer upload path intact. (`a1d4faf7`)
+- Removed the numeric advanced-file count from the project sidebar toggle while preserving advanced section behavior. (`5a6f1ccc`)
+- Removed the legacy seeded Your Agent starter project from the starter-pack project seed list. (`1983f746`)
+
 ## [26.05.25] - 2026-05-25
 
 ### Added

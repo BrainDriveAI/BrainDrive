@@ -61,7 +61,6 @@ const FALLBACK_PROJECT_SEEDS: Array<{ id: string; name: string; icon: string }> 
   { id: "career", name: "Career", icon: "briefcase" },
   { id: "relationships", name: "Relationships", icon: "users" },
   { id: "new-project", name: "Your New Project", icon: "folder-plus" },
-  { id: "your-agent", name: "Your Agent", icon: "sparkles" },
 ];
 
 const FALLBACK_CONVERSATIONS_INDEX = {
@@ -86,7 +85,7 @@ const FALLBACK_LOCAL_DEV_PREFERENCES = {
 };
 
 const FALLBACK_OPENROUTER_SECRET_REF_PREFERENCES = {
-  default_model: "anthropic/claude-haiku-4.5",
+  default_model: "z-ai/glm-5.2",
   approval_mode: "auto-approve",
   active_provider_profile: "openrouter",
   provider_credentials: {
@@ -111,7 +110,7 @@ const FALLBACK_OPENROUTER_SECRET_REF_PREFERENCES = {
 };
 
 const FALLBACK_BRAINDRIVE_MANAGED_SECRET_REF_PREFERENCES = {
-  default_model: "claude-haiku-4-5-20251001",
+  default_model: "braindrive-models-default",
   approval_mode: "auto-approve",
   active_provider_profile: "braindrive-models",
   provider_credentials: {
@@ -409,6 +408,12 @@ async function ensureProjectsManifestAndDefaults(
     }
   }
 
+  const legacyCleanup = removeLegacyDuplicateRootAgentProject(projects);
+  if (legacyCleanup.changed) {
+    projects = legacyCleanup.projects;
+    manifestChanged = true;
+  }
+
   if (manifestChanged || !manifestExisted) {
     const normalized = sortProjects(projects);
     if (dryRun) {
@@ -638,6 +643,34 @@ function parseProjectManifestEntry(value: unknown): ProjectManifestEntry | null 
 
 function sortProjects(projects: ProjectManifestEntry[]): ProjectManifestEntry[] {
   return [...projects];
+}
+
+function removeLegacyDuplicateRootAgentProject(projects: ProjectManifestEntry[]): {
+  projects: ProjectManifestEntry[];
+  changed: boolean;
+} {
+  const hasRootAgent = projects.some((project) => project.id === "braindrive-plus-one");
+  if (!hasRootAgent) {
+    return { projects, changed: false };
+  }
+
+  let changed = false;
+  const nextProjects = projects.filter((project) => {
+    const isUnusedLegacySeed =
+      project.id === "your-agent" &&
+      project.name === "Your Agent" &&
+      project.icon === "sparkles" &&
+      project.conversation_id === null &&
+      project.default_skill_ids.length === 0;
+    if (!isUnusedLegacySeed) {
+      return true;
+    }
+
+    changed = true;
+    return false;
+  });
+
+  return changed ? { projects: nextProjects, changed } : { projects, changed: false };
 }
 
 function dedupeStrings(values: string[]): string[] {

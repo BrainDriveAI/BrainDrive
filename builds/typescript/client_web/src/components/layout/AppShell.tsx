@@ -64,7 +64,8 @@ export default function AppShell({
     refreshSelectedProjectFiles,
     addProject,
     removeProject,
-    renameProject
+    renameProject,
+    clearProjectConversation
   } = useProjects();
 
   const messageMetadata =
@@ -236,7 +237,10 @@ export default function AppShell({
     setActiveFile(null);
   }
 
-  async function handleUploadDocument(file: File): Promise<ProjectFile | void> {
+  async function handleUploadDocument(
+    file: File,
+    options: { openAfterUpload?: boolean } = {}
+  ): Promise<ProjectFile | void> {
     if (!selectedProject || selectedProject.id === "braindrive-plus-one") {
       setUploadError("Open a folder to upload documents.");
       return;
@@ -250,7 +254,9 @@ export default function AppShell({
     try {
       const uploadedFile = await uploadProjectDocument(selectedProject.id, file);
       await refreshSelectedProjectFiles();
-      setActiveFile(uploadedFile);
+      if (options.openAfterUpload ?? true) {
+        setActiveFile(uploadedFile);
+      }
       setUploadStatus(null);
       setIsMobileSidebarOpen(false);
       return uploadedFile;
@@ -282,6 +288,14 @@ export default function AppShell({
         // Keep the chat result visible if a background file refresh fails.
       }
     })();
+  }
+
+  async function handleStartNewConversation() {
+    if (!selectedProjectId || selectedProjectId === "braindrive-plus-one") {
+      return;
+    }
+
+    await clearProjectConversation(selectedProjectId);
   }
 
   function dismissMemoryUpdateNotice() {
@@ -469,6 +483,7 @@ export default function AppShell({
               draftKey={chatDraftKey}
               isEmpty={activeConversationId === null}
               onConversationComplete={handleConversationComplete}
+              onStartNewConversation={handleStartNewConversation}
               messageMetadata={messageMetadata}
               contentOverride={documentContent}
               onSendMessage={handleReturnToChat}

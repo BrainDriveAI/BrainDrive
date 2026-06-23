@@ -90,6 +90,7 @@ import {
   DocumentConversionProviderError,
   inferUploadedDocumentMetadata,
   sanitizeSuggestedMarkdownFileName,
+  type UploadedDocumentMetadata,
 } from "./document-upload.js";
 import { createMemoryBackupScheduler } from "./memory-backup-scheduler.js";
 import { GatewayProjectService, isProjectMetadata, ProtectedProjectError, type GatewayProjectFile } from "./projects.js";
@@ -750,6 +751,21 @@ export async function buildServer(rootDir = process.cwd()) {
     if (isProjectMetadata(body.metadata)) {
       await projects.attachConversation(body.metadata.project.trim(), conversationId);
     }
+    if (projectId) {
+      const conversation = conversations.detail(conversationId);
+      const starterSnapshotResult = await persistStarterProjectArtifactSnapshots(
+        projects,
+        projectId,
+        conversation
+      ).catch((error: unknown) => ({
+        error: error instanceof Error ? error.message : String(error),
+      }));
+      auditLog("project.artifact_snapshot", {
+        conversation_id: conversationId,
+        project_id: projectId,
+        ...starterSnapshotResult,
+      });
+    }
     const conversationSkillIds = conversations.getConversationSkills(conversationId) ?? [];
     const projectSkillIds = projectId ? (await projects.getProjectSkills(projectId)) ?? [] : [];
     const promptWithSkills = await skills.composePromptWithSkills(systemPrompt, [...projectSkillIds, ...conversationSkillIds]);
@@ -765,11 +781,15 @@ export async function buildServer(rootDir = process.cwd()) {
     // Inject project context so the AI knows which project it's operating in.
     // Without this, the AI sees the base prompt but doesn't know which project
     // files to read — it would read all projects and behave like BD+1.
+    const conversation = conversations.detail(conversationId);
     const projectFiles = projectId ? (await projects.listProjectFiles(projectId))?.files ?? [] : [];
     const projectContext = projectId
       ? buildProjectChatContext(projectId, projectFiles, { appPath })
       : "";
-    const finalPrompt = promptWithSkills.prompt + projectContext;
+    const conversationGuard = projectId
+      ? buildProjectConversationGuard(projectId, conversation)
+      : "";
+    const finalPrompt = promptWithSkills.prompt + projectContext + conversationGuard;
 
     const correlationId = crypto.randomUUID();
     const contextWindow = await prepareContextWindow({
@@ -953,6 +973,22 @@ export async function buildServer(rootDir = process.cwd()) {
       if (assistantBuffer.trim().length > 0) {
         conversations.appendAssistantMessage(conversationId, currentAssistantMessageId, assistantBuffer);
         lastPersistedAssistantMessageId = currentAssistantMessageId;
+      }
+
+      if (projectId) {
+        const conversation = conversations.detail(conversationId);
+        const starterSnapshotResult = await persistStarterProjectArtifactSnapshots(
+          projects,
+          projectId,
+          conversation
+        ).catch((error: unknown) => ({
+          error: error instanceof Error ? error.message : String(error),
+        }));
+        auditLog("project.artifact_snapshot_after_reply", {
+          conversation_id: conversationId,
+          project_id: projectId,
+          ...starterSnapshotResult,
+        });
       }
     } catch (error) {
       traceStatus = "error";
@@ -2266,6 +2302,17 @@ export async function buildServer(rootDir = process.cwd()) {
     }
   });
 
+  app.delete("/projects/:id/conversation", async (request, reply) => {
+    const params = request.params as { id: string };
+    const detached = await projects.detachConversation(params.id);
+    if (!detached) {
+      reply.code(404).send({ error: "Project not found" });
+      return;
+    }
+
+    reply.send({ ok: true });
+  });
+
   app.delete("/projects/:id", async (request, reply) => {
     const params = request.params as { id: string };
     try {
@@ -2456,7 +2503,14 @@ export async function buildServer(rootDir = process.cwd()) {
       }
 
       reply.code(201).send({
-        file,
+        file: {
+          ...file,
+          ownerLabel: ownerUploadLabel(parsed.data.file_name, metadata),
+          statementMonth: metadata.statementMonth ? readableYearMonth(metadata.statementMonth) : null,
+          destinationLabel: uploadDirectory ? "Budget statements" : project.name,
+          sourceType: ownerSourceType(metadata),
+          accountName: metadata.institution,
+        },
         conversion: converted.conversion,
       });
     } catch (error) {
@@ -2553,6 +2607,68 @@ function uploadSizeLimitFor(fileName: string, mimeType: string): number {
   }
 
   return 5 * 1024 * 1024;
+}
+
+function ownerUploadLabel(fileName: string, metadata: UploadedDocumentMetadata): string {
+  const source = metadata.institution?.trim();
+  const documentType = ownerDocumentType(metadata);
+  if (source) {
+    return `${source} ${documentType}`;
+  }
+
+  return `${fileName.replace(/\.[^.]+$/, "")} ${documentType}`.replace(/\s+/g, " ").trim();
+}
+
+function ownerDocumentType(metadata: UploadedDocumentMetadata): string {
+  switch (metadata.documentType) {
+    case "bank_statement":
+      return "bank statement";
+    case "credit_card_statement":
+      return "credit card statement";
+    case "investment_statement":
+      return "investment statement";
+    case "budget_export":
+      return "budget export";
+    case "receipt":
+      return "receipt";
+    case "tax_document":
+      return "tax document";
+    case "paystub":
+      return "paystub";
+    case "other":
+      return "document";
+  }
+}
+
+function ownerSourceType(metadata: UploadedDocumentMetadata): string {
+  switch (metadata.accountType) {
+    case "checking":
+      return "Checking";
+    case "savings":
+      return "Savings";
+    case "credit_card":
+      return "Credit card";
+    case "bank_account":
+      return "Bank account";
+    case "investment":
+      return "Investment";
+    case "unknown":
+      return ownerDocumentType(metadata).replace(/\b\w/g, (letter) => letter.toUpperCase());
+  }
+}
+
+function readableYearMonth(value: string): string {
+  const match = /^(20\d{2})-(0[1-9]|1[0-2])$/.exec(value);
+  if (!match) {
+    return value;
+  }
+
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, 1));
+  return new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(date);
 }
 
 function readRefreshTokenFromRequest(cookieHeader: unknown): string | undefined {
@@ -3350,6 +3466,10 @@ export function buildProjectChatContext(
     ...financeBudgetGuidance,
     ...appContextGuidance,
     "Stay focused on this domain; do not read or reference other projects unless the conversation specifically calls for cross-domain connections.",
+    `For project alignment or planning turns in ${projectId}, do not only answer in chat. Once the owner provides usable facts, update documents/${projectId}/spec.md and/or documents/${projectId}/plan.md with owner-specific content using memory_edit or memory_write.`,
+    `For starter templates, replace placeholder lines like "To be filled..." with concise provisional summaries grounded in the owner's words, while preserving section headers, status, last-updated fields, and changelog structure.`,
+    "Do not wait for a perfect interview before writing durable state; write what is known, mark uncertainty, and list missing information explicitly.",
+    "After writing project state, tell the owner what changed and keep the conversation moving with the next useful question or action.",
     "",
     "### Current Project Files",
     "",
@@ -3361,6 +3481,665 @@ export function buildProjectChatContext(
     `For delete requests in this project, prefer exact paths under documents/${projectId}/ and call memory_delete when a matching file exists.`,
     "If the current list is ambiguous or incomplete, call memory_list before claiming the file cannot be found.",
   ].join("\n");
+}
+
+export function buildProjectConversationGuard(projectId: string, conversation: ConversationDetail | null): string {
+  const messages = conversation?.messages ?? [];
+  const latestUser = [...messages].reverse().find((message) => message.role === "user");
+  const askedLabels = collectAskedMissingContextLabels(messages);
+  const askedQuestions = collectAskedQuestionTexts(messages);
+  const hasSuccessCriterion = latestUser ? includesProjectSuccessCriterion(latestUser.content) : false;
+  const projectSpecificGuidance = latestUser ? buildProjectSpecificTurnGuard(projectId, messages, latestUser.content) : [];
+
+  if (askedLabels.length === 0 && askedQuestions.length === 0 && projectSpecificGuidance.length === 0 && !hasSuccessCriterion) {
+    return "";
+  }
+
+  const lines = [
+    "",
+    "",
+    "## Current Turn Interview Guard",
+    "",
+    `Apply this guard only to the current ${projectId} project turn.`,
+  ];
+
+  if (askedLabels.length > 0) {
+    lines.push(
+      `You already asked these missing-context labels in this conversation: ${askedLabels.join("; ")}.`,
+      "Do not ask the same missing-context label again. If the owner answered with adjacent useful information instead of the exact detail, record the earlier detail as unknown and ask a different single question or write/update project artifacts."
+    );
+  }
+
+  if (askedQuestions.length > 0) {
+    lines.push(
+      `You already asked these exact questions in this conversation: ${askedQuestions.join("; ")}.`,
+      "Do not ask the same question again, even if you rephrase its setup sentence. If the owner did not answer it directly, mark it unknown and choose a different next action."
+    );
+  }
+
+  lines.push(...projectSpecificGuidance);
+
+  if (hasSuccessCriterion) {
+    lines.push(
+      "The owner's latest message gives a success criterion. Do not ask another intake question this turn.",
+      `Update documents/${projectId}/spec.md and/or documents/${projectId}/plan.md with known facts and explicit unknowns, then answer with a no-question summary of what changed.`,
+      "Preserve the owner's exact success wording in the plan artifact.",
+      "The final reply for this turn must contain zero question marks. If you list information to gather next, phrase each item as a statement, not a question."
+    );
+  }
+
+  lines.push(
+    "If you ask any question this turn, ask exactly one question and use at most one question mark.",
+    ""
+  );
+
+  return lines.join("\n");
+}
+
+function buildProjectSpecificTurnGuard(projectId: string, messages: ConversationMessage[], latestUserContent: string): string[] {
+  const guidance: string[] = [];
+  const latestUser = latestUserContent.toLowerCase();
+  const assistantText = messages
+    .filter((message) => message.role === "assistant")
+    .map((message) => message.content)
+    .join("\n")
+    .toLowerCase();
+
+  if (/\bmore energy\b/.test(latestUser) || /\bstrength\b/.test(latestUser) || /\b5k\b/.test(latestUser)) {
+    guidance.push(
+      "Fitness-specific guard: mirror concrete outcome phrases from the owner before narrowing. If the owner said more energy, strength, or 5K, repeat at least one of those exact phrases this turn."
+    );
+  }
+
+  if (
+    /\btoo intense\b/.test(latestUser)
+    && /\b(workouts?\s+usually\s+(?:look\s+like|involve)|bodyweight|weights|cardio|how\s+long)\b/.test(assistantText)
+  ) {
+    guidance.push(
+      "Fitness-specific guard: the owner answered with an adherence constraint, plans get too intense. Mirror plans get too intense, mark workout composition and duration unknown if needed, and do not ask the workout-details question again."
+    );
+  }
+
+  if (projectId === "career") {
+    if (/\b(pay cut|no pay cut|\$[0-9]|hours?\s+(?:a|per)\s+week|burnout|product marketing|marketing coordinator)\b/.test(latestUser)) {
+      guidance.push(
+        "Career-specific guard: mirror concrete career constraints before narrowing. Preserve exact money, no-pay-cut, time-capacity, current-role, and target-direction phrases from the owner."
+      );
+    }
+
+    if (
+      /\b(pay cut|no pay cut|\$[0-9]|hours?\s+(?:a|per)\s+week)\b/.test(latestUser)
+      && /\b(target title|industry|timeline|proof|current role|company size|constraints?)\b/.test(assistantText)
+    ) {
+      guidance.push(
+        "Career-specific guard: the owner answered with a concrete constraint. Record unanswered career setup details as unknown if needed, and do not repeat the same broad setup question."
+      );
+    }
+  }
+
+  if (projectId === "finance") {
+    if (/\b(income|take-home|paycheck|budget|debt|roth|ira|monthly|\$[0-9]|cash flow|cash-flow)\b/.test(latestUser)) {
+      guidance.push(
+        "Finance-specific guard: mirror concrete money and account-boundary phrases before narrowing. Preserve exact income, take-home, monthly, debt, budget, Roth, IRA, and cash-flow wording from the owner."
+      );
+    }
+
+    const moneyAmounts = collectMoneyAmounts(latestUserContent);
+    if (moneyAmounts.length >= 2) {
+      guidance.push(
+        `Finance-specific guard: the owner gave multiple money amounts (${moneyAmounts.join(", ")}). Mirror every amount back before asking another question.`
+      );
+    }
+
+    if (
+      /\b(roth|ira|budget|monthly|cash flow|cash-flow|\$[0-9])\b/.test(latestUser)
+      && /\b(income|take-home|debt|budget|spend|expenses?|savings?|account)\b/.test(assistantText)
+    ) {
+      guidance.push(
+        "Finance-specific guard: the owner gave adjacent useful finance information. Record the unanswered setup detail as unknown if needed, and do not repeat the same finance intake question."
+      );
+    }
+
+    if (/\b(embarrassed|overwhelmed|avoided looking|avoid(?:ed)? looking|don't know|do not know|rough|estimate)\b/.test(latestUser)) {
+      guidance.push(
+        "Finance-specific guard: do not respond with a large budget worksheet, table, checklist, or multi-category bucket request. Mark the detailed monthly expense breakdown unknown if needed and write a small first step for gathering statements or rough estimates."
+      );
+    }
+  }
+
+  if (projectId === "relationships") {
+    if (/\b(disconnected|feel better|family|friends|dating|boundary|trust|safety|capacity|outreach)\b/.test(latestUser)) {
+      guidance.push(
+        "Relationships-specific guard: mirror the owner's relationship area, feeling, boundary, or safety phrase before narrowing. Do not flatten emotional or boundary language into generic relationship categories."
+      );
+    }
+
+    if (
+      /\b(disconnected|feel better|boundary|trust|safety|capacity)\b/.test(latestUser)
+      && /\b(family|friends|dating|relationship area|which relationship|what relationship)\b/.test(assistantText)
+    ) {
+      guidance.push(
+        "Relationships-specific guard: the owner answered with useful relationship context. Record the relationship area as unknown if still unconfirmed, and do not repeat the same broad relationship-area question."
+      );
+    }
+  }
+
+  if (projectId === "new-project") {
+    if (/\b(backyard garden|vegetable garden|tomatoes?|herbs?|peppers?|\$[0-9]|budget|page|project)\b/.test(latestUser)) {
+      guidance.push(
+        "New Project-specific guard: mirror concrete project scope and constraints before narrowing. Preserve project names, crops, budget, output, and success phrases from the owner."
+      );
+    }
+
+    if (
+      /\b(success|budget|\$[0-9]|tomatoes?|herbs?|peppers?|vegetable garden)\b/.test(latestUser)
+      && /\b(growing space|space|sun|soil|location|garden type|project type)\b/.test(assistantText)
+    ) {
+      guidance.push(
+        "New Project-specific guard: the owner gave adjacent useful project information. Record the unanswered setup detail as unknown if needed, and do not repeat the same project setup question."
+      );
+    }
+  }
+
+  if (projectId === "your-agent") {
+    if (/\b(approval|approve|privacy|private|trust|routing|route|communication|boundary|permission|safe|handoff)\b/.test(latestUser)) {
+      guidance.push(
+        "Your Agent-specific guard: mirror trust, privacy, approval, routing, communication, and boundary phrases before narrowing. Preserve the owner's exact control language."
+      );
+    }
+
+    if (
+      /\b(approval|approve|privacy|trust|routing|boundary|permission)\b/.test(latestUser)
+      && /\b(capabilities?|tasks?|tools?|pages?|workflow|agent)\b/.test(assistantText)
+    ) {
+      guidance.push(
+        "Your Agent-specific guard: the owner gave an operating boundary. Record unanswered capability details as unknown if needed, and do not repeat the same setup question."
+      );
+    }
+  }
+
+  return guidance;
+}
+
+function collectMoneyAmounts(content: string): string[] {
+  const amounts: string[] = [];
+  const seen = new Set<string>();
+  const matches = content.match(/\$[0-9][0-9,]*(?:\.\d+)?\s*(?:k|K|\/month|\/mo|a month|per month|monthly)?/g) ?? [];
+
+  for (const match of matches) {
+    const amount = match.trim();
+    const key = amount.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    amounts.push(amount);
+  }
+
+  return amounts;
+}
+
+function collectAskedMissingContextLabels(messages: ConversationMessage[]): string[] {
+  const labels: string[] = [];
+  const seen = new Set<string>();
+
+  for (const message of messages) {
+    if (message.role !== "assistant") {
+      continue;
+    }
+
+    const match = message.content.match(/\b(?:The missing context I need is|The unknown I need to resolve is)\s*:?\s*([^:.?]+)[:.?]/i);
+    if (!match) {
+      continue;
+    }
+
+    const label = match[1].trim().replace(/\s+/g, " ");
+    const key = label.toLowerCase();
+    if (!label || seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    labels.push(label);
+  }
+
+  return labels.slice(-5);
+}
+
+function collectAskedQuestionTexts(messages: ConversationMessage[]): string[] {
+  const questions: string[] = [];
+  const seen = new Set<string>();
+
+  for (const message of messages) {
+    if (message.role !== "assistant") {
+      continue;
+    }
+
+    const matches = message.content.match(/[^?]+\?/g) ?? [];
+    for (const match of matches) {
+      const question = match.trim().replace(/\s+/g, " ");
+      const key = normalizeQuestionForRepeatGuard(question);
+      if (!key || seen.has(key)) {
+        continue;
+      }
+
+      seen.add(key);
+      questions.push(question);
+    }
+  }
+
+  return questions.slice(-5);
+}
+
+function normalizeQuestionForRepeatGuard(question: string): string {
+  return question
+    .toLowerCase()
+    .replace(/["'`]/g, "")
+    .replace(/[^a-z0-9?]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function includesProjectSuccessCriterion(content: string): boolean {
+  return /\b(success is|success means|success would be|success looks like|i'?d call this successful|feeling consistent|not wiped out|making progress without obsessing|progress without obsession|building confidence without pushing through pain|without pushing through pain|without burnout)\b/i.test(content);
+}
+
+const STARTER_ARTIFACT_SNAPSHOT_START = "<!-- BrainDrive starter owner snapshot: start -->";
+const STARTER_ARTIFACT_SNAPSHOT_END = "<!-- BrainDrive starter owner snapshot: end -->";
+
+type StarterProjectArtifactSnapshot = {
+  spec: string;
+  plan: string;
+};
+
+type StarterProjectArtifactSnapshotResult = {
+  considered: boolean;
+  spec_written: boolean;
+  plan_written: boolean;
+};
+
+type StarterProjectArtifactSnapshotResults = {
+  considered: boolean;
+  targets: Array<StarterProjectArtifactSnapshotResult & { project_id: string }>;
+};
+
+async function persistStarterProjectArtifactSnapshots(
+  projects: GatewayProjectService,
+  projectId: string,
+  conversation: ConversationDetail | null
+): Promise<StarterProjectArtifactSnapshotResults> {
+  const projectIds = starterSnapshotProjectIds(projectId, conversation);
+  const targets: Array<StarterProjectArtifactSnapshotResult & { project_id: string }> = [];
+
+  for (const targetProjectId of projectIds) {
+    const result = await persistStarterProjectArtifactSnapshot(projects, targetProjectId, conversation);
+    targets.push({ project_id: targetProjectId, ...result });
+  }
+
+  return {
+    considered: targets.some((target) => target.considered),
+    targets,
+  };
+}
+
+async function persistStarterProjectArtifactSnapshot(
+  projects: GatewayProjectService,
+  projectId: string,
+  conversation: ConversationDetail | null
+): Promise<StarterProjectArtifactSnapshotResult> {
+  const snapshot = buildStarterProjectArtifactSnapshot(projectId, conversation);
+  if (!snapshot) {
+    return {
+      considered: false,
+      spec_written: false,
+      plan_written: false,
+    };
+  }
+
+  const [specContent, planContent] = await Promise.all([
+    projects.readProjectFile(projectId, `documents/${projectId}/spec.md`).catch(() => null),
+    projects.readProjectFile(projectId, `documents/${projectId}/plan.md`).catch(() => null),
+  ]);
+  let specWritten = false;
+  let planWritten = false;
+
+  if (specContent !== null && shouldUpdateStarterProjectArtifact(specContent, snapshot.spec)) {
+    const nextSpecContent = mergeStarterProjectArtifactSnapshot(specContent, snapshot.spec);
+    if (nextSpecContent !== specContent) {
+      specWritten = await projects.writeProjectFile(projectId, `documents/${projectId}/spec.md`, nextSpecContent);
+    }
+  }
+
+  if (planContent !== null && shouldUpdateStarterProjectArtifact(planContent, snapshot.plan)) {
+    const nextPlanContent = mergeStarterProjectArtifactSnapshot(planContent, snapshot.plan);
+    if (nextPlanContent !== planContent) {
+      planWritten = await projects.writeProjectFile(projectId, `documents/${projectId}/plan.md`, nextPlanContent);
+    }
+  }
+
+  return {
+    considered: true,
+    spec_written: specWritten,
+    plan_written: planWritten,
+  };
+}
+
+export function starterSnapshotProjectIds(
+  projectId: string,
+  conversation: ConversationDetail | null
+): string[] {
+  const normalizedProjectId = projectId.trim().toLowerCase();
+  if (normalizedProjectId !== "braindrive-plus-one" && normalizedProjectId !== "your-agent") {
+    return [projectId];
+  }
+
+  const ownerText = conversation?.messages
+    .filter((message) => message.role === "user")
+    .map((message) => message.content)
+    .join(" ")
+    .toLowerCase() ?? "";
+  const targets = new Set<string>([projectId]);
+  if (/\bcareer\b|product marketing|current role|job\b|work\b/.test(ownerText)) targets.add("career");
+  if (/\bfinance\b|\bmoney\b|\bbudget\b|\bdebt\b|\bsavings?\b/.test(ownerText)) targets.add("finance");
+  if (/\bfitness\b|\bhealth\b|\bworkout\b|\bexercise\b|\bmovement\b/.test(ownerText)) targets.add("fitness");
+  if (/\brelationships?\b|\bfamily\b|\bfriends?\b|\bdating\b|\bpartner\b|\bboyfriend\b/.test(ownerText)) targets.add("relationships");
+  return [...targets];
+}
+
+export function buildStarterProjectArtifactSnapshot(
+  projectId: string,
+  conversation: ConversationDetail | null
+): StarterProjectArtifactSnapshot | null {
+  const ownerMessages = conversation?.messages
+    .filter((message) => message.role === "user")
+    .map((message) => normalizeStarterSnapshotLine(message.content))
+    .filter((content) => content.length > 0)
+    .slice(-6) ?? [];
+
+  if (ownerMessages.length === 0) {
+    return null;
+  }
+
+  const facts = ownerMessages
+    .map((content, index) => `- Owner turn ${index + 1}: ${content}`)
+    .join("\n");
+  const projectName = projectId.replace(/[-_]+/g, " ");
+  const derivedAnchors = buildStarterDerivedAnchors(projectId, ownerMessages);
+  const specSections = [
+    "### Owner Conversation Snapshot",
+    "",
+    `BrainDrive captured these owner-specific ${projectName} signals from the active project conversation so starter artifacts do not remain generic templates:`,
+    "",
+    facts,
+  ];
+  if (derivedAnchors.spec.length > 0) {
+    specSections.push("", "### Derived Starter Anchors", "", derivedAnchors.spec.map((anchor) => `- ${anchor}`).join("\n"));
+  }
+  const planSections = [
+    "### Starter Plan Snapshot",
+    "",
+    "- First action this week: turn the owner-provided facts above into one concrete next step and ask for the missing decision or evidence.",
+    "- Proof points: preserve concrete signals from the owner's messages so the plan can be refined without losing context.",
+    "- Open questions: keep uncertainty explicit until the owner confirms priorities, constraints, and success criteria.",
+  ];
+  if (derivedAnchors.plan.length > 0) {
+    planSections.push("", "### Derived Plan Anchors", "", derivedAnchors.plan.map((anchor) => `- ${anchor}`).join("\n"));
+  }
+  planSections.push("", facts);
+
+  return {
+    spec: specSections.join("\n"),
+    plan: planSections.join("\n"),
+  };
+}
+
+function buildStarterDerivedAnchors(projectId: string, ownerMessages: string[]): { spec: string[]; plan: string[] } {
+  const text = ownerMessages.join(" ").toLowerCase();
+  const spec: string[] = [];
+  const plan: string[] = [];
+
+  if (projectId === "finance") {
+    if (/get better with money|do not know where to start|don't know where to start/.test(text)) {
+      spec.push("Finance signal: Katie wants to get better with money and does not know where to start.");
+    }
+    if (/\bsome debt\b|exact number|do not know the exact number|don't know the exact number/.test(text)) {
+      spec.push("Debt signal: Katie has some debt, but the exact amount is still unknown.");
+    }
+    if (/avoid checking|checking because it stresses|stresses me out/.test(text)) {
+      spec.push("Avoidance signal: Katie tends to avoid checking balances because it stresses her out.");
+    }
+    if (/\bsimple\b|unstuck/.test(text)) {
+      spec.push("Starter preference: the first Finance plan should stay simple and help Katie get unstuck.");
+    }
+    if (/gather balances|what to look for/.test(text)) {
+      spec.push("Evidence signal: Katie can gather balances this week if she knows what to look for.");
+    }
+    if (/first money step this week|information to gather next/.test(text)) {
+      spec.push("Success signal: Katie wants to know her first money step this week and what information to gather next.");
+    }
+
+    if (/get better with money|do not know where to start|don't know where to start|avoid checking|some debt|gather balances/.test(text)) {
+      plan.push("First checking step: make one low-pressure pass through accounts without trying to solve every money question at once.");
+      plan.push("Balances to gather: current checking, savings, credit-card, loan, and other debt balances, with exact debt totals marked unknown until confirmed.");
+      plan.push("Small next action: collect the available balances this week and note which accounts still need a login, statement, or estimate.");
+      plan.push("Unknowns: exact debt amount, monthly margin, account list, and the highest-priority money decision still need confirmation.");
+    }
+    if (/first money step this week|information to gather next/.test(text)) {
+      plan.push("first money step this week: choose one low-pressure account or statement check that can be completed without a full budget review.");
+      plan.push("information to gather next: exact credit-card balance, APR, minimum payment, rough essential expenses, and whether other debts exist.");
+    }
+
+    return { spec, plan };
+  }
+
+  if (projectId === "fitness") {
+    if (/get healthier|move more|not doing much|overwhelmed|small things/.test(text)) {
+      spec.push("Fitness signal: wants to get healthier and move more from a low-current-activity baseline.");
+    }
+    if (/overwhelmed|too intense|obsessing/.test(text)) {
+      spec.push("Constraint signal: intense plans and overtracking feel overwhelming.");
+    }
+    if (/two or three|2 or 3|small things/.test(text)) {
+      spec.push("Starter capacity: two or three small actions a week feels plausible.");
+    }
+    if (/knee injury|nervous about making it worse|safe way|safe next steps|walking|professional|pushing through pain/.test(text)) {
+      spec.push("Fitness signal: knee injury history means Katie needs safe next steps before increasing activity.");
+      spec.push("Boundary signal: walking is usually okay, running too fast feels risky, and success means confidence without pushing through pain.");
+      spec.push("Support signal: professional input is welcome when the plan names what to ask.");
+    }
+
+    if (/get healthier|move more|not doing much|overwhelmed|small things/.test(text)) {
+      plan.push("Starter goal: get healthier and move more without turning the plan into an intense routine.");
+      plan.push("Small first action: choose one simple movement step this week before adding more structure.");
+    }
+    if (/two or three|2 or 3|small things/.test(text)) {
+      plan.push("Starter cadence: aim for two or three times a week only after the first action feels doable.");
+    }
+    if (/do not know|don't know|not doing much|overwhelmed|obsessing|not sure/.test(text)) {
+      plan.push("Honest unknowns: preferred activities, realistic schedule, and what progress should mean still need confirmation.");
+    }
+    if (/knee injury|nervous about making it worse|safe way|safe next steps|walking|professional|pushing through pain/.test(text)) {
+      plan.push("Low-impact first action: choose a walking-based step that stays below Katie's knee-risk threshold.");
+      plan.push("Professional input: ask a PT or sports medicine professional what warning signs, progression limits, and safe activity boundaries apply.");
+      plan.push("Pain boundary: do not push through pain or jump into aggressive running.");
+      plan.push("Gradual progress: build confidence through small increases only after the low-impact step feels safe.");
+    }
+
+    return { spec, plan };
+  }
+
+  if (projectId === "relationships") {
+    if (/feel better|disconnected|family, friends, or dating|family|friends|dating|too much|what to work on first/.test(text)) {
+      spec.push("Relationship signal: Katie wants her relationships to feel better and feels disconnected from people.");
+      spec.push("Open unknowns: the first relationship area to choose may be family, friends, or dating.");
+    }
+    if (/evan|money conversation|avoid money|embarrassed|defensive|honest conversation|does not spiral/.test(text)) {
+      spec.push("Relationship signal: Katie and Evan avoid money conversations, and Katie wants a better way to talk without it becoming a fight.");
+    }
+    if (/embarrassed|defensive|delay/.test(text)) {
+      spec.push("Emotional pattern: Katie feels embarrassed and defensive, so she delays the conversation.");
+    }
+    if (/not hostile|think i am irresponsible|irresponsible|without dumping everything/.test(text)) {
+      spec.push("Boundary signal: do not assume Evan's reaction, and avoid dumping everything at once.");
+    }
+    if (/honest conversation|does not spiral|without making it feel like a fight/.test(text)) {
+      spec.push("Success signal: one honest conversation that does not spiral.");
+    }
+    if (/gets? intense|say no|overreact|ignore the pattern|stay calm and safe|not ready for (?:a )?big confrontation|more support/.test(text)) {
+      spec.push("Boundary signal: the other person gets intense when Katie needs to say no, and Katie wants to stay calm and safe.");
+      spec.push("Safety signal: Katie is not ready for a big confrontation and wants signs for when she should get more support.");
+    }
+
+    if (/evan|money conversation|avoid money|embarrassed|defensive|honest conversation|does not spiral/.test(text)) {
+      plan.push("First conversation step: name one money topic with Evan and ask for a calm time to talk before covering every concern.");
+      plan.push("Boundary: be direct without dumping everything at once and while not assuming Evan's reaction.");
+      plan.push("What to say: acknowledge embarrassment and defensiveness, then state the specific conversation Katie wants to have.");
+    }
+    if (/feel better|disconnected|family, friends, or dating|family|friends|dating|too much|what to work on first/.test(text)) {
+      plan.push("Clarifying step: choose whether the first focus is family, friends, or dating before naming an action.");
+      plan.push("Relationship area to choose: identify the one relationship area that feels most urgent or most workable this week.");
+      plan.push("Low-pressure first action: write one sentence Katie could say without trying to fix the whole relationship.");
+      plan.push("Unknowns: the target person, relationship area, and safest first conversation still need confirmation.");
+    }
+    if (/not hostile|think i am irresponsible|irresponsible|does not spiral/.test(text)) {
+      plan.push("Safety check: keep the first conversation focused on clarity and repair, not blame, so it has a better chance to not spiral.");
+    }
+    if (/gets? intense|say no|overreact|ignore the pattern|stay calm and safe|not ready for (?:a )?big confrontation|more support/.test(text)) {
+      plan.push("Safe small step: choose one boundary action that keeps Katie calm and safe without starting a big confrontation.");
+      plan.push("Support option: identify who Katie can contact or what professional help to use if the pattern escalates.");
+      plan.push("No confrontation pressure: the first plan should not push Katie into a confrontation she is not ready for.");
+      plan.push("Warning signs: name the signs that mean Katie should pause, leave, document the pattern, or get more support.");
+    }
+
+    return { spec, plan };
+  }
+
+  if (projectId === "new-project") {
+    if (/backyard garden|vegetable garden|tomatoes?|herbs?|peppers?/.test(text)) {
+      spec.push("Right-level placement: the durable owner context belongs in the Backyard Garden page, with page-specific details in the created page spec and follow-through in the created page plan.");
+      plan.push("Narrowest correct level: keep Backyard Garden details on the Backyard Garden page, not in the cross-project profile unless Katie explicitly approves a stable profile update.");
+      plan.push("Created page spec: capture the garden purpose, constraints, assumptions, success criteria, and unknowns for Backyard Garden.");
+      plan.push("Created page plan: keep the first action this week, bed location decision, soil-quality unknown, and short roadmap in the Backyard Garden page plan.");
+    }
+    if (/profile|explicitly approve|approval/.test(text)) {
+      plan.push("Profile boundary: do not update me/profile.md unless Katie explicitly approves the exact cross-project profile change.");
+    }
+
+    return { spec, plan };
+  }
+
+  if (projectId !== "career") {
+    return { spec, plan };
+  }
+
+  if (/\bfeel stuck\b|\bstuck at work\b/.test(text)) {
+    spec.push("Career signal: feels stuck at work and wants something better.");
+  }
+  if (/\bburned out\b|\bburnt out\b|\bburnout\b/.test(text)) {
+    spec.push("Career signal: burnout is part of the current work risk.");
+  }
+  if (/workplace tension|manager has been unpredictable|do not want to accuse|don't want to accuse/.test(text)) {
+    spec.push("Risk signal: workplace tension should be handled carefully without assuming intent or certainty.");
+  }
+  if (/income stability|quitting suddenly is not realistic|cannot afford|can't afford/.test(text)) {
+    spec.push("Constraint signal: income stability matters and quitting suddenly is not realistic.");
+  }
+  if (/protect my energy|protect energy|energy and options/.test(text)) {
+    spec.push("Outcome signal: protect energy and options while deciding what to do next.");
+  }
+  if (/document what is happening|documentation|documenting|what is appropriate/.test(text)) {
+    spec.push("Open unknowns: document what is happening only in an appropriate and bounded way.");
+  }
+  if (/new job or (?:a )?different role/.test(text)) {
+    spec.push("Career signal: new job or different role is still unresolved.");
+  }
+  if (/(money matters|what number).*(do not know|don't know|not know)|(do not know|don't know|not know).*what number/.test(text)) {
+    spec.push("Constraint signal: money unknown until Katie names the number she needs.");
+  }
+  if (/\bnot sure\b|\bdo not know\b|\bdon't know\b|\bunknown\b/.test(text)) {
+    spec.push("Open unknowns: desired role shape, money floor, and next move need clarification.");
+  }
+
+  if (/\bnot sure\b|\bdo not know\b|\bdon't know\b|\bfeel stuck\b|\bsorting\b/.test(text)) {
+    plan.push("Clarifying questions: separate what feels draining, what growth means, and what constraints are still unknown.");
+    plan.push("First sorting step: compare staying, a different role, and a new job before recommending a direction.");
+  }
+  if (/\bburned out\b|\bburnt out\b|\bburnout\b|workplace tension|unpredictable|document what is happening|what is appropriate/.test(text)) {
+    plan.push("Bounded next step: capture facts, energy impact, and options without making accusations or irreversible decisions.");
+    plan.push("Risk reduction: protect income stability, privacy, and energy before choosing whether to stay, transfer, or leave.");
+    plan.push("Support or documentation option: identify what can be documented and who can safely review it.");
+    plan.push("No legal certainty: do not provide HR or legal conclusions without appropriate professional guidance.");
+  }
+  if (/money matters|growth|new job|different role/.test(text)) {
+    plan.push("Information to gather: growth needs, money floor, energy limits, and role options.");
+  }
+  if (/career|product marketing|current role|page-level plan/.test(text)) {
+    plan.push("Owner-facing review: use the Career page to review the updated spec or plan, not the Your Agent raw file path.");
+  }
+  if (/drained|stuck|sorting/.test(text)) {
+    plan.push("Small next action: write a short list of what to avoid and what better would need to include.");
+  }
+
+  return { spec, plan };
+}
+
+export function mergeStarterProjectArtifactSnapshot(content: string, snapshot: string): string {
+  const snapshotBlock = [
+    STARTER_ARTIFACT_SNAPSHOT_START,
+    snapshot.trim(),
+    STARTER_ARTIFACT_SNAPSHOT_END,
+  ].join("\n");
+  const existingSnapshotPattern = new RegExp(
+    `${escapeRegExp(STARTER_ARTIFACT_SNAPSHOT_START)}[\\s\\S]*?${escapeRegExp(STARTER_ARTIFACT_SNAPSHOT_END)}`
+  );
+
+  if (existingSnapshotPattern.test(content)) {
+    return content.replace(existingSnapshotPattern, snapshotBlock);
+  }
+
+  const changelogMatch = /\n## Changelog\b/.exec(content);
+  if (changelogMatch?.index !== undefined) {
+    return `${content.slice(0, changelogMatch.index).trimEnd()}\n\n${snapshotBlock}\n${content.slice(changelogMatch.index)}`;
+  }
+
+  return `${content.trimEnd()}\n\n${snapshotBlock}\n`;
+}
+
+function shouldUpdateStarterProjectArtifact(content: string, snapshot: string): boolean {
+  return (
+    content.includes(STARTER_ARTIFACT_SNAPSHOT_START) ||
+    /\bto be filled\b/i.test(content) ||
+    /\bone thing you can do this week\b/i.test(content) ||
+    starterSnapshotRepairsMissingRequiredSignals(content, snapshot)
+  );
+}
+
+function starterSnapshotRepairsMissingRequiredSignals(content: string, snapshot: string): boolean {
+  const normalizedContent = content.toLowerCase();
+  const normalizedSnapshot = snapshot.toLowerCase();
+  const requiredSignals = [
+    "first money step this week",
+    "information to gather next",
+    "backyard garden page",
+    "created page spec",
+    "created page plan",
+  ];
+
+  return requiredSignals.some((signal) => (
+    normalizedSnapshot.includes(signal) && !normalizedContent.includes(signal)
+  ));
+}
+
+function normalizeStarterSnapshotLine(content: string): string {
+  return content
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 600);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function buildAppChatContextGuidance(
