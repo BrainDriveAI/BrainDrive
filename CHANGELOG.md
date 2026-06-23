@@ -19,6 +19,7 @@
 - MCP release development dependencies were updated for newer `tsx` and `vitest` patch releases. (`#158`)
 - TypeScript workspace development dependencies were updated for newer Tauri CLI, `tsx`, and `vitest` patch releases. (`#159`)
 - Client web dependencies were updated across AI SDK, Tauri API, Lucide, Radix UI, React, React Router, Playwright, Tailwind/Vite tooling, Happy DOM, shadcn, and Vite. (`#160`)
+- NPM lockfiles were refreshed to pull patched transitive versions for current security advisories across the TypeScript, client web, and MCP release workspaces. (`#167`)
 
 ### Fixed
 - Starter-pack generated artifacts preserve more owner-specific anchors for vague, risky, or incomplete Career, Fitness, Finance, and Relationships interviews. (`#148`)
