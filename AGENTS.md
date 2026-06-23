@@ -147,6 +147,7 @@ Use `README.md`, `ROADMAP.md`, and `CONTRIBUTING.md` for public product and cont
 - `builds/typescript/client_web/src/App.tsx`: React app root.
 - `builds/typescript/client_web/src/components/chat/ChatPanel.tsx`: chat UI wiring.
 - `builds/typescript/client_web/src/components/settings/SettingsModal.tsx`: settings flows.
+- UI design/colors/tokens: `builds/typescript/client_web/src/design/tokens.ts` and `builds/typescript/client_web/src/index.css` are the design source of truth; see the Design System section of `builds/typescript/client_web/README.md`. Dark mode only; amber (`#F5A623`) primary uses dark (`#03050A`) text; never put light text on a light fill.
 - `builds/typescript/src-tauri/`: desktop shell.
 - `builds/mcp_release/`: MCP release package.
 - `installer/`: install and bootstrap assets.
