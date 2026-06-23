@@ -26,7 +26,7 @@ The active page's `plan.md`.
 7. Include one bite-sized first step, a practical near-term roadmap, a clear destination, and remaining blockers.
 8. Keep later phases high-level until earlier steps produce better information.
 9. Add todos only for concrete next actions after the plan is written.
-10. Tell the owner what changed and point them to Your Plan in BrainDrive.
+10. Tell the owner what changed and point them to Your Plan in the sidebar — by product name, never by filename or path.
 
 ## Quality Bar
 
