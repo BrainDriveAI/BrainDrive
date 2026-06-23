@@ -94,10 +94,10 @@ describe("ChatPanel typing indicator behavior", () => {
     render(<ChatPanel activeConversationId={null} isEmpty={false} />);
 
     expect(screen.getByText("This session is getting long.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Start New Conversation" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start New Conversation" })).not.toBeInTheDocument();
   });
 
-  it("shows overflow-specific recovery actions", () => {
+  it("does not expose fresh conversation actions for overflow errors", () => {
     useGatewayChatMock.mockReturnValue(
       makeHookState({
         messages: [{ id: "u-1", role: "user", content: "Continue from this prompt" }],
@@ -108,8 +108,8 @@ describe("ChatPanel typing indicator behavior", () => {
 
     render(<ChatPanel activeConversationId={null} isEmpty={false} />);
 
-    expect(screen.getByRole("button", { name: "Start New Conversation" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Continue in New Conversation" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start New Conversation" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Continue in New Conversation" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Open Settings" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Try Again" })).not.toBeInTheDocument();
   });
@@ -141,30 +141,24 @@ describe("ChatPanel typing indicator behavior", () => {
     });
   });
 
-  it("offers a fresh conversation action for normal existing history", async () => {
+  it("does not offer a fresh conversation action for normal existing history", () => {
     const hookState = makeHookState({
       messages: [
         { id: "u-1", role: "user", content: "I want to work on career planning." },
         { id: "a-1", role: "assistant", content: "Let's start with your current role." },
       ],
     });
-    const onStartNewConversation = vi.fn(async () => undefined);
     useGatewayChatMock.mockReturnValue(hookState);
 
     render(
       <ChatPanel
         activeConversationId="conversation-1"
         isEmpty={false}
-        onStartNewConversation={onStartNewConversation}
       />
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Start New Conversation" }));
-
-    expect(hookState.startNewConversation).toHaveBeenCalledTimes(1);
-    await waitFor(() => {
-      expect(onStartNewConversation).toHaveBeenCalledTimes(1);
-    });
+    expect(screen.queryByRole("button", { name: "Start New Conversation" })).not.toBeInTheDocument();
+    expect(hookState.startNewConversation).not.toHaveBeenCalled();
   });
 
   it("uploads PDF attachments through the selected project and sends a durable upload event", async () => {
