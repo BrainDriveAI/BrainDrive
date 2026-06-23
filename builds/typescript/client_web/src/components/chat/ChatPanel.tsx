@@ -45,7 +45,6 @@ type ChatPanelProps = {
   draftKey?: string | null;
   isEmpty?: boolean;
   onConversationComplete?: (conversationId: string) => void;
-  onStartNewConversation?: () => void | Promise<void>;
   messageMetadata?: Record<string, unknown>;
   contentOverride?: ReactNode;
   onSendMessage?: () => void;
@@ -247,7 +246,6 @@ export default function ChatPanel({
   draftKey = null,
   isEmpty = false,
   onConversationComplete,
-  onStartNewConversation,
   messageMetadata,
   contentOverride,
   onSendMessage,
@@ -281,7 +279,6 @@ export default function ChatPanel({
     contextWindowWarning,
     append,
     stop,
-    startNewConversation,
   } = useGatewayChat({
     conversationId: activeConversationId,
     projectId: activeProjectId ?? null,
@@ -394,11 +391,6 @@ export default function ChatPanel({
     : visibleChatError;
   const shouldShowEmptyState = isEmpty && messages.length === 0 && !isLoading;
   const shouldShowConversation = contentOverride === undefined;
-  const shouldShowManualConversationReset =
-    messages.length > 0 &&
-    !isLoading &&
-    !contextWindowWarning &&
-    !visibleChatError;
 
   function resetErrorPresentation() {
     setHistoryError(null);
@@ -424,26 +416,6 @@ export default function ChatPanel({
       },
       echoUserMessage: false,
     });
-  }
-
-  async function handleStartNewConversation() {
-    resetErrorPresentation();
-    setHistoryMessages([]);
-    startNewConversation();
-    try {
-      await onStartNewConversation?.();
-    } catch (error) {
-      setHistoryError(error instanceof Error ? error.message : String(error));
-      setConnectionStatus("disconnected");
-    }
-  }
-
-  async function handleContinueInNewConversation() {
-    const replayContent = lastUserMessage?.content?.trim();
-    await handleStartNewConversation();
-    if (replayContent && replayContent.length > 0) {
-      append(replayContent, { metadata: messageMetadata });
-    }
   }
 
   function handleDragOver(e: DragEvent) {
@@ -943,17 +915,6 @@ export default function ChatPanel({
                 onRetry={retryUpload}
                 onToggleDetails={toggleUploadActivityDetails}
               />
-              {shouldShowManualConversationReset && (
-                <div className="mx-auto flex w-full max-w-[780px] justify-end px-4 py-2">
-                  <button
-                    type="button"
-                    onClick={handleStartNewConversation}
-                    className="rounded-lg border border-bd-border-primary px-3 py-1.5 text-xs font-medium text-bd-text-secondary transition-colors hover:border-bd-amber/50 hover:text-bd-text-primary"
-                  >
-                    Start New Conversation
-                  </button>
-                </div>
-              )}
               {contextWindowWarning && !visibleChatError && (
                 <div className="mx-auto w-full max-w-[780px] py-2">
                   <div className="rounded-xl border border-bd-amber/40 bg-bd-amber/10 px-4 py-3 text-sm text-bd-text-primary">
@@ -963,13 +924,6 @@ export default function ChatPanel({
                         ({Math.round(contextWindowWarning.ratio * 100)}% of current prompt budget)
                       </span>
                     </p>
-                    <button
-                      type="button"
-                      onClick={handleStartNewConversation}
-                      className="mt-2 rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover"
-                    >
-                      Start New Conversation
-                    </button>
                   </div>
                 </div>
               )}
@@ -983,14 +937,6 @@ export default function ChatPanel({
                       : isProviderError && lastUserMessage
                         ? handleRetryCurrentTurn
                         : () => resetErrorPresentation()
-                  }
-                  primaryActionLabel={isContextOverflowError ? "Start New Conversation" : undefined}
-                  onPrimaryAction={isContextOverflowError ? handleStartNewConversation : undefined}
-                  secondaryActionLabel={
-                    isContextOverflowError && lastUserMessage ? "Continue in New Conversation" : undefined
-                  }
-                  onSecondaryAction={
-                    isContextOverflowError && lastUserMessage ? handleContinueInNewConversation : undefined
                   }
                   onDismiss={() => {
                     setHistoryError(null);

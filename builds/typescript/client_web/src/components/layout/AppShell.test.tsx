@@ -7,7 +7,6 @@ import type { Project, ProjectFile } from "@/types/ui";
 const refreshProjectsMock = vi.fn();
 const refreshSelectedProjectFilesMock = vi.fn<() => Promise<ProjectFile[]>>();
 const selectProjectMock = vi.fn();
-const clearProjectConversationMock = vi.fn<(id: string) => Promise<void>>();
 
 const projects: Project[] = [
   {
@@ -63,7 +62,7 @@ vi.mock("@/hooks/useProjects", () => ({
     addProject: vi.fn(),
     removeProject: vi.fn(),
     renameProject: vi.fn(),
-    clearProjectConversation: clearProjectConversationMock,
+    clearProjectConversation: vi.fn(),
   }),
 }));
 
@@ -84,14 +83,10 @@ vi.mock("./Sidebar", () => ({
 vi.mock("@/components/chat/ChatPanel", () => ({
   default: (props: {
     onConversationComplete?: (conversationId: string) => void;
-    onStartNewConversation?: () => void | Promise<void>;
   }) => (
     <div>
       <button type="button" onClick={() => props.onConversationComplete?.("conv-finance")}>
         Complete conversation
-      </button>
-      <button type="button" onClick={() => void props.onStartNewConversation?.()}>
-        Start fresh
       </button>
     </div>
   ),
@@ -103,8 +98,6 @@ describe("AppShell project file refresh", () => {
     refreshSelectedProjectFilesMock.mockReset();
     refreshSelectedProjectFilesMock.mockResolvedValue([]);
     selectProjectMock.mockReset();
-    clearProjectConversationMock.mockReset();
-    clearProjectConversationMock.mockResolvedValue();
 
     vi.stubGlobal(
       "ResizeObserver",
@@ -134,15 +127,4 @@ describe("AppShell project file refresh", () => {
     expect(selectProjectMock).not.toHaveBeenCalled();
   });
 
-  it("detaches the selected project conversation before starting fresh", async () => {
-    const user = userEvent.setup();
-
-    render(<AppShell />);
-
-    await user.click(screen.getByRole("button", { name: "Start fresh" }));
-
-    await waitFor(() => {
-      expect(clearProjectConversationMock).toHaveBeenCalledWith("finance");
-    });
-  });
 });
