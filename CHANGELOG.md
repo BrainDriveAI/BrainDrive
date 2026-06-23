@@ -8,6 +8,7 @@
 
 ### Changed
 - BrainDrive now uses canonical root agent instructions in `AGENTS.md`, with `CLAUDE.md` and `GEMINI.md` resolving to the same guidance. (`6e7d03ed`)
+- Agent and client web documentation now point contributors to the design token source of truth and clarify dark-mode contrast rules for amber controls. (`#164`)
 - BrainDrive Models now uses the `braindrive-models-default` alias in provider config, fallback preferences, starter-pack preferences, and related tests. (`6e7d03ed`)
 - OpenRouter defaults now use GLM 5.2 for direct OpenRouter, starter-pack OpenRouter preferences, and memory fallback defaults. (`#162`)
 - Starter-pack advisors now point owners to product surfaces like Your Goals, Your Plan, Your Profile, and Your Todos in the sidebar instead of exposing internal filenames or paths. (`#161`)
