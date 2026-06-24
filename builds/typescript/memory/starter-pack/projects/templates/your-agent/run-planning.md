@@ -20,7 +20,7 @@ Turn the Your Agent spec into a concrete sequence for improving how BrainDrive r
 
 Lead with the owner's most important BrainDrive improvement. Make the first step small, concrete, and tied to the current experience. If the work belongs to another page, name the owning page, the owner-facing artifact to review, and the manual next step. Keep later phases high-level until the owner has tried the next step and new context exists.
 
-Use profile updates only for confirmed stable facts. Keep page-specific detail in the page that owns it. Route to a child app only when the page/process outcome is clear, specialized execution is required, and a suitable child app exists; otherwise keep the work manual or page-level.
+Use profile updates only for confirmed stable facts. Keep page-specific detail in the page that owns it. Keep execution work manual or page-level.
 
 ## Done Criteria
 

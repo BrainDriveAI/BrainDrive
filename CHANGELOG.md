@@ -1,3 +1,33 @@
+## [26.06.24] - 2026-06-24
+
+### Added
+- No user-facing additions today.
+
+### Changed
+- Production release tooling now supports same-day patch package versions such as `26.6.23.1`, with matching package metadata and Docker release-script documentation. (`#173`)
+- Starter-pack project templates were simplified to remove child-app handoff language and persona-specific shortcut references, keeping the baseline owner-facing and aligned with the current product surface. (`#174`)
+- New OpenRouter users now default to `anthropic/claude-haiku-4.5`, while existing saved model preferences remain unchanged. (`#176`)
+
+### Fixed
+- Startup now lands on Your Agent by seeding the protected `braindrive-plus-one` project first for new memory layouts and repairing existing project manifests that are missing it. (`#175`)
+
+### Removed
+- Removed stale child-app and persona-specific guidance from starter-pack templates now that those paths are not part of the current product surface. (`#174`)
+
+## [26.06.23.1] - 2026-06-23
+
+### Added
+- No user-facing additions in this patch release.
+
+### Changed
+- No user-facing changes in this patch release.
+
+### Fixed
+- No user-facing fixes in this patch release.
+
+### Removed
+- Removed the chat panel's start-new-conversation controls so conversation reset behavior stays out of the main chat surface. (`#172`)
+
 ## [26.06.23] - 2026-06-23
 
 ### Added

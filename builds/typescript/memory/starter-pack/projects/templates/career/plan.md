@@ -1,6 +1,6 @@
 # Career Plan
 
-*Owner state for ordered next steps, owner decisions, milestones, conversation prep, child-app handoffs, review status, and roadmap.*
+*Owner state for ordered next steps, owner decisions, milestones, conversation prep, review status, and roadmap.*
 
 **Status:** Starter template - no plan created yet
 
@@ -23,12 +23,6 @@ To be filled after alignment.
 *Owner decisions, tradeoffs, criteria, timing choices, and conversations that shape the Career plan.*
 
 To be filled after alignment.
-
-## Child-App Handoffs
-
-*Execution steps that should move to a specialized child app, including the reason for the handoff and only the page-level context needed.*
-
-To be filled when a plan step requires specialized execution and a suitable child app exists.
 
 ## Review Status
 

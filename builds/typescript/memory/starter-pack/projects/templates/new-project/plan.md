@@ -20,7 +20,7 @@ To be filled after alignment.
 
 ## Routing Decision
 
-*Why this should become a new page, route to an existing page, stay as a task, become a future child-app candidate, or be parked as an idea.*
+*Why this should become a new page, route to an existing page, stay as a task, or be parked as an idea.*
 
 To be filled after alignment.
 

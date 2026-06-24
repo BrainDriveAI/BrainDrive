@@ -47,4 +47,4 @@ Update `spec.md`, summarize material changes, update `me/profile.md` only for co
 
 ## What This Procedure Is Not
 
-It is not a place to store secrets, provider credentials, raw page detail, one-off facts that belong only in a specific project, hidden calendar/reminder behavior, or child-app execution before the page process is clear.
+It is not a place to store secrets, provider credentials, raw page detail, one-off facts that belong only in a specific project, or hidden calendar/reminder behavior.

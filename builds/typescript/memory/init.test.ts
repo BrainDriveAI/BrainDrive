@@ -9,7 +9,7 @@ import { initializeMemoryLayout, scaffoldProjectFiles } from "./init.js";
 describe("memory init project scaffolding", () => {
   it("scaffolds Draft 3 life-area layouts without legacy app or source folders", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "memory-init-index-test-"));
-    const rootDir = path.join(tempRoot, "repo");
+    const rootDir = path.resolve(".");
     const memoryRoot = path.join(tempRoot, "memory");
 
     try {
@@ -21,6 +21,7 @@ describe("memory init project scaffolding", () => {
         .resolves.toContain("# Owner Profile");
       const projectsManifest = JSON.parse(await readFile(path.join(memoryRoot, "documents", "projects.json"), "utf8")) as Array<{ id: string }>;
       expect(projectsManifest.map((project) => project.id)).toEqual([
+        "braindrive-plus-one",
         "finance",
         "fitness",
         "career",
@@ -28,11 +29,11 @@ describe("memory init project scaffolding", () => {
         "new-project",
       ]);
       await expect(readFile(path.join(memoryRoot, "documents", "braindrive-plus-one", "AGENT.md"), "utf8"))
-        .rejects.toThrow();
+        .resolves.toContain("# Your Agent - Agent Context");
       await expect(readFile(path.join(memoryRoot, "documents", "braindrive-plus-one", "spec.md"), "utf8"))
-        .rejects.toThrow();
+        .resolves.toContain("# Your Agent Spec");
       await expect(readFile(path.join(memoryRoot, "documents", "braindrive-plus-one", "plan.md"), "utf8"))
-        .rejects.toThrow();
+        .resolves.toContain("# Your Agent Plan");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "index.md"), "utf8"))
         .rejects.toThrow();
       await expect(readFile(path.join(memoryRoot, "documents", "career", "index.md"), "utf8"))
