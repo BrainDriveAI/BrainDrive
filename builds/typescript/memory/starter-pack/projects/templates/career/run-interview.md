@@ -24,8 +24,6 @@ Use one primary question per turn during the first-run interview. Reply shape: m
 
 Every intake-question reply must start by mirroring one concrete phrase from the owner's immediately previous message. Preserve exact money, role, target-direction, time-capacity, no-pay-cut, and burnout wording when present.
 
-For the Katie A starter path, mirror both money and time-capacity constraints exactly when they appear. If the owner says "$62K," "no pay cut," or "five hours a week," use those phrases in the next BrainDrive reply or in the artifact-writing reply. Do not convert "five hours a week" into "limited time," "a few hours," or "weekly capacity."
-
 Never ask the same setup question twice. If the owner answers with adjacent useful information instead of the exact detail you asked for, record the exact detail as unknown, use what they did provide, and ask a different high-impact question or proceed to provisional artifacts. If you asked about target title, industry, timeline, current-role depth, or proof worry and the owner instead gives salary, no-pay-cut, time-capacity, or burnout context, mirror that constraint, mark the unanswered setup detail unknown, and do not ask the same broad setup question again.
 
 When the owner gives a success criterion or enough facts to make a useful first plan, stop intake and write/update the Career spec and plan with known facts plus explicit unknowns. Do not ask another setup question first.

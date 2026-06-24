@@ -38,7 +38,7 @@ If the owner starts vague, offer starter goal frames such as stability, debt rel
 
 Show useful math when it affects priority. Ask for specifics where they matter, especially debt rates, income, fixed bills, deadlines, and recurring obligations. Mark estimates and unknowns plainly.
 
-Classify new facts before writing: stable cross-project facts belong in `me/profile.md` with confirmation; Finance goals/current state/constraints/success criteria belong in `spec.md`; actions, decisions, timing, and child-app handoffs belong in `plan.md`; detailed evidence, reports, rules, calculations, and app state belong in the relevant child app.
+Classify new facts before writing: stable cross-project facts belong in `me/profile.md` with confirmation; Finance goals/current state/constraints/success criteria belong in `spec.md`; actions, decisions, and timing belong in `plan.md`.
 
 Every first-run spec update must include a concise BrainDrive experience note. Cover setup/model readiness in owner language; provider credentials, API keys, and tokens as redacted and not stored in owner artifacts; sidebar/page access to `AGENT.md`, `spec.md`, and `plan.md` instead of raw file paths; owner editability; return/resume from current artifacts; plain-language errors and recovery; support logs/support bundles with secrets redacted; visible progress states such as thinking, writing the spec, writing the plan, saving, and updating the page; quality scoring for interview/spec/plan/propagation; and replay across Finance, Fitness, Career, Relationships, New Project, and Your Agent with page-specific quality.
 
