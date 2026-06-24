@@ -1,5 +1,10 @@
 [
   {
+    "id": "braindrive-plus-one",
+    "name": "BrainDrive+1",
+    "icon": "sparkles"
+  },
+  {
     "id": "finance",
     "name": "Finance",
     "icon": "dollar-sign"
