@@ -26,7 +26,7 @@ Use relevant health context to shape pacing, constraints, confirmation points, a
 
 Every plan step must trace to a stated goal, current-state fact, constraint, preference, success criterion, or missing-information need. If data is incomplete, create a provisional plan with explicit missing-information steps instead of pretending the plan is final.
 
-Preserve owner capacity phrases exactly in `plan.md`. For the Katie A starter path, the first step and roadmap must include the exact phrase "three short workouts" when the owner gives that capacity. Do not replace it with only "3 slots," "three sessions," "non-negotiable slots," or "25-minute slots." Those details can be added, but "three short workouts" must remain visible in the plan.
+Preserve owner capacity phrases exactly in `plan.md`. When the owner states their capacity in their own words, keep that exact phrase visible in the first step and roadmap rather than substituting a paraphrase. Additional detail can be added around it, but the owner's own wording must remain.
 
 Mark each step as one of: owner action, owner decision, data-gathering, Fitness review, or child-app handoff. Route to a child app only when the step requires specialized execution beyond the page-level Fitness plan and a suitable child app exists. If no child app is appropriate, keep the work at page level or mark the missing execution capability.
 

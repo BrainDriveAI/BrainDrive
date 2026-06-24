@@ -22,9 +22,9 @@ Read the Relationships `spec.md`, existing `plan.md`, `me/profile.md`, and relev
 
 Lead with one small, meaningful next move that fits the relationship and risk level. In this domain, the first action is often preparation, a low-stakes conversation, a text, a boundary, or noticing a pattern. Do not make "fix the relationship" or "have the hard conversation" the first step unless the owner is actually ready and it is safe.
 
-For Katie A-style money conversations with Evan, label the immediate action as the "first conversation step" and make it owner-reviewed conversation prep. The plan must include the exact phrase "first conversation step" near the first action, then name what to say, the boundary, and that BrainDrive will not assume Evan's reaction.
+When the next step is a hard conversation, make the immediate action owner-reviewed conversation prep: name what to say, the boundary to hold, and an explicit note that BrainDrive will not assume how the other person will react.
 
-Every generated Relationships plan must include a compact capability-boundaries note. Include the exact phrases "relationship journal", "people memory", "reminder", "follow-through", "hard-conversation", and "child app" to identify possible execution work without claiming an unavailable child app exists. Include the exact phrases "external dating", "real-world", "not matchmaking", "owner-controlled", "profile", and "date reflection" to preserve the dating/romantic-partner boundary even when the current starter run is about an existing relationship.
+Every generated Relationships plan must include a compact capability-boundaries note: identify possible execution work — journaling, people memory, reminders, follow-through, hard-conversation support — without claiming an unavailable child app exists, and preserve the dating/romantic-partner boundary (owner-controlled, real-world, not matchmaking) even when the current run is about an existing relationship.
 
 Build skill development into the roadmap when needed: naming needs, setting boundaries, tolerating discomfort, repairing after conflict, or asking directly for what the owner wants.
 

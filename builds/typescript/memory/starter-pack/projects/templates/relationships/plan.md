@@ -10,7 +10,7 @@
 
 *One small, meaningful thing the owner can do this week to improve or clarify an important relationship.*
 
-To be filled after alignment. For conversation-prep plans, name the first conversation step, what to say, the boundary, and what BrainDrive will not assume about the other person's reaction.
+To be filled after alignment. For conversation-prep plans, name the first step of the conversation, what to say, the boundary, and what BrainDrive will not assume about the other person's reaction.
 
 ## The Roadmap
 

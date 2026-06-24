@@ -10,7 +10,7 @@
 
 *One realistic thing the owner can do this week to build momentum.*
 
-To be filled after alignment. For Katie A starter updates, preserve the exact phrase "three short workouts" when it is the owner's stated capacity.
+To be filled after alignment. Preserve the owner's stated capacity in their own exact words.
 
 ## The Roadmap
 
