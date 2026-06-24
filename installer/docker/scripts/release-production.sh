@@ -22,7 +22,7 @@ Automates the Monday production release runbook:
 8. Print GitHub Release publishing checklist
 
 Options:
-  --package-version <yy.m.d>   Release version (default: today's local date, e.g. 26.4.16)
+  --package-version <yy.m.d[.n]> Release version (default: today's local date, e.g. 26.4.16)
   --image-tag <tag>            Image/GitHub tag (default: v<package-version>)
   --channel <name>             Release channel for manifest (default: stable)
   --app-image <image>          App image repo (default: ghcr.io/braindriveai/braindrive-app)
@@ -140,8 +140,8 @@ if [[ "${IMAGE_TAG}" != "v${PACKAGE_VERSION}" ]]; then
   exit 1
 fi
 
-if [[ ! "${PACKAGE_VERSION}" =~ ^[0-9]{2}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
-  echo "PACKAGE_VERSION must look like YY.M.D (example: 26.4.16): ${PACKAGE_VERSION}" >&2
+if [[ ! "${PACKAGE_VERSION}" =~ ^[0-9]{2}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?$ ]]; then
+  echo "PACKAGE_VERSION must look like YY.M.D or YY.M.D.N (examples: 26.4.16, 26.6.23.1): ${PACKAGE_VERSION}" >&2
   exit 1
 fi
 
