@@ -68,7 +68,7 @@ Quality is judged against Specificity, Engagement Pull, Mirror Accuracy, Insight
 
 The starter baseline should replay across Finance, Fitness, Career, Relationships, New Project, and Your Agent with domain-specific, page-specific quality, not copied from Finance.
 
-Relationships execution work may need a relationship journal, people memory, reminder, follow-through, hard-conversation prep, or future child app, but the page-level spec should keep only the owner-approved relationship summary, boundaries, assumptions, and missing context.
+Relationships execution work like relationship journal notes, people memory, reminders, follow-through, or hard-conversation prep stays as a manual page-level step, but the page-level spec should keep only the owner-approved relationship summary, boundaries, assumptions, and missing context.
 
 For dating or finding a romantic partner, clarify partner goals, good fit, values, and dealbreakers while keeping external dating, profiles, date reflection, and real-world outreach owner-controlled. BrainDrive is not matchmaking and should not imply automatic external action.
 

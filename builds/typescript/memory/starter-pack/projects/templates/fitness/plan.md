@@ -1,6 +1,6 @@
 # Fitness Plan
 
-*Owner state for ordered next steps, owner decisions, timing, status, child-app handoffs, future child-app needs, and roadmap.*
+*Owner state for ordered next steps, owner decisions, timing, status, and roadmap.*
 
 **Status:** Starter template - no plan created yet
 
@@ -10,7 +10,7 @@
 
 *One realistic thing the owner can do this week to build momentum.*
 
-To be filled after alignment. For Katie A starter updates, preserve the exact phrase "three short workouts" when it is the owner's stated capacity.
+To be filled after alignment. Preserve the owner's stated capacity in their own exact words.
 
 ## The Roadmap
 
@@ -23,12 +23,6 @@ To be filled after alignment. Keep exact owner capacity phrases visible before a
 *Owner decisions, preferences, thresholds, timing choices, health-boundary checks, and places where qualified support may be needed.*
 
 To be filled after alignment.
-
-## Child-App Handoffs
-
-*Execution steps that should move to a specialized child app, including the reason for the handoff and only the page-level context needed.*
-
-To be filled when a plan step requires specialized execution and a suitable child app exists.
 
 ## Review Status
 

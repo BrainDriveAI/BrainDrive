@@ -1,6 +1,6 @@
 # Finance Plan
 
-*Owner state for ordered next steps, owner decisions, child-app handoffs, review status, and roadmap.*
+*Owner state for ordered next steps, owner decisions, review status, and roadmap.*
 
 **Status:** Starter template - no plan created yet
 
@@ -23,12 +23,6 @@ To be filled after alignment.
 *Owner decisions, tradeoffs, thresholds, timing choices, and places where qualified professional support may be needed.*
 
 To be filled after alignment.
-
-## Child-App Handoffs
-
-*Execution steps that should move to a specialized child app when a suitable one exists, including the reason for the handoff and only the page-level context needed.*
-
-To be filled when a plan step requires specialized execution.
 
 ## Review Status
 
