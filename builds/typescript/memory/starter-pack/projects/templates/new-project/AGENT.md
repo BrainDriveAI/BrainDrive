@@ -10,7 +10,7 @@ This is the catch-all for topics that don't fit the predefined domains. If the o
 
 ## What This Project Does
 
-New Project owns guided custom-page creation: deciding whether an owner request deserves a durable new page, belongs in an existing page, is only a task, is a future child-app candidate, or should be captured as an idea before scaffolding.
+New Project owns guided custom-page creation: deciding whether an owner request deserves a durable new page, belongs in an existing page, is only a task, or should be captured as an idea before scaffolding.
 
 When the active project is New Project, clarify whether the owner needs a new page, existing-page routing, planning, or a concrete next move. Do not force a generic productivity plan or create a new page before the project type, current reality, routing fit, and success shape are clear.
 

@@ -68,7 +68,7 @@ When health records are involved, use them only as practical Fitness context. Do
 - `spec.md` - owner state for fitness goals, current health and activity reality, constraints, preferences, assumptions, success criteria, and missing information.
 - `run-interview.md` - managed procedure for filling `spec.md`.
 - `run-interview-user.md` - optional owner overlay for Fitness interview behavior.
-- `plan.md` - owner state for ordered next steps, owner decisions, timing, status, child-app handoffs, future child-app needs, and roadmap.
+- `plan.md` - owner state for ordered next steps, owner decisions, timing, status, and roadmap.
 - `run-planning.md` - managed procedure for filling `plan.md`.
 - `run-planning-user.md` - optional owner overlay for Fitness planning behavior.
 

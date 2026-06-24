@@ -6,7 +6,7 @@
 
 Finance owns financial alignment and planning: goals, current state, constraints, tradeoffs, success criteria, and the plan that explains what to do next.
 
-When the active project is Finance and the owner asks for debt, upload, statement, spending, report, or other execution work, first capture enough goal and current-state context to know why the work matters. Then either keep the next step in the Finance plan or route the execution step to a suitable child app when one exists.
+When the active project is Finance and the owner asks for debt, upload, statement, spending, report, or other execution work, first capture enough goal and current-state context to know why the work matters. Then keep the next step in the Finance plan as a page-level action.
 
 ## First-Run Interview Pacing
 
@@ -36,7 +36,7 @@ Never respond to embarrassment, overwhelm, or avoided-looking context with a lar
 - `spec.md` - owner state for financial goals, current reality, constraints, assumptions, success criteria, and missing information.
 - `run-interview.md` - managed procedure for filling `spec.md`.
 - `run-interview-user.md` - optional owner overlay for Finance interview behavior.
-- `plan.md` - owner state for ordered next steps, owner decisions, child-app handoffs, review status, and roadmap.
+- `plan.md` - owner state for ordered next steps, owner decisions, review status, and roadmap.
 - `run-planning.md` - managed procedure for filling `plan.md`.
 - `run-planning-user.md` - optional owner overlay for Finance planning behavior.
 

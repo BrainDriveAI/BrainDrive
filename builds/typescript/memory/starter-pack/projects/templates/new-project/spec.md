@@ -26,7 +26,7 @@ To be filled through conversation.
 
 ## Why This Belongs Here
 
-*The reason this should become a new page rather than an existing-page update, task, child-app candidate, loose idea, or future app/template/share request.*
+*The reason this should become a new page rather than an existing-page update, task, loose idea, or future app/template/share request.*
 
 To be filled through conversation.
 

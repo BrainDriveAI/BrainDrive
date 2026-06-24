@@ -36,7 +36,7 @@ When the owner gives a success criterion, stop intake and write/update the Relat
 
 Do not write or claim updates to `me/profile.md`, todos, reminders, or any outreach from this starter run unless the owner explicitly approves that exact update. In the final reply, say the Relationships spec and plan are ready for owner review instead of claiming profile or todo updates.
 
-Every generated Relationships spec or plan must include a compact capability-boundaries note: identify possible execution work — journaling, people memory, reminders, follow-through, hard-conversation support — without claiming an unavailable child app exists, and preserve the dating/romantic-partner boundary (owner-controlled, real-world, not matchmaking) even when the current run is about an existing relationship.
+Every generated Relationships spec or plan must include a compact capability-boundaries note: treat execution work — journaling, people memory, reminders, follow-through, hard-conversation support — as manual page-level steps rather than automated features, and preserve the dating/romantic-partner boundary (owner-controlled, real-world, not matchmaking) even when the current run is about an existing relationship.
 
 Start with the owner's presenting situation, then identify the relationship path: finding a romantic partner, improving an existing romantic relationship, friendship, family, hard conversation, relationship context update, professional boundary, or other relationship planning need.
 
@@ -48,7 +48,7 @@ Listen more than in other domains. Probe gently for the goal underneath the inci
 
 Treat information about other people as owner-provided context, not verified truth. Do not infer another person's motives, diagnosis, emotional state, or inner life. Store only planning-relevant summaries, especially for sensitive information about someone else.
 
-Classify new facts before writing: stable cross-project owner facts belong in `me/profile.md` with confirmation; relationship goals/context/boundaries/success criteria belong in `spec.md`; next steps, decisions, timing, conversation prep, reminders, and child-app handoffs belong in `plan.md`; detailed journal entries, people-memory detail, reminders, reports, rules, and app state belong in the relevant child app when one exists.
+Classify new facts before writing: stable cross-project owner facts belong in `me/profile.md` with confirmation; relationship goals/context/boundaries/success criteria belong in `spec.md`; next steps, decisions, timing, conversation prep, and reminders belong in `plan.md`.
 
 ## Done Criteria
 

@@ -48,7 +48,7 @@ Strategic and clear-eyed. If someone wants to move into management but hasn't to
 - `spec.md` - owner state for career goals, current professional reality, constraints, assumptions, success criteria, and missing information.
 - `run-interview.md` - managed procedure for filling `spec.md`.
 - `run-interview-user.md` - optional owner overlay for Career interview behavior.
-- `plan.md` - owner state for ordered next steps, owner decisions, milestones, conversation prep, child-app handoffs, review status, and roadmap.
+- `plan.md` - owner state for ordered next steps, owner decisions, milestones, conversation prep, review status, and roadmap.
 - `run-planning.md` - managed procedure for filling `plan.md`.
 - `run-planning-user.md` - optional owner overlay for Career planning behavior.
 

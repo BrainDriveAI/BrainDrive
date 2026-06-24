@@ -8,7 +8,7 @@ Update sections in place in `plan.md`; never replace the whole file. Always keep
 
 ## What This Procedure Accomplishes
 
-Turn the Fitness spec into a concrete sequence with one immediate step, a practical roadmap, owner decisions, child-app handoffs when needed, review status, and clear blockers.
+Turn the Fitness spec into a concrete sequence with one immediate step, a practical roadmap, owner decisions, review status, and clear blockers.
 
 ## When to Run
 
@@ -18,7 +18,7 @@ Turn the Fitness spec into a concrete sequence with one immediate step, a practi
 
 ## Method
 
-Read the Fitness `spec.md`, existing `plan.md`, `me/profile.md`, and relevant child-app summaries before planning. Confirm the spec has enough goal, current-state, constraint, preference, assumption, and success-criteria context to plan. If not, run or suggest the Fitness interview first.
+Read the Fitness `spec.md`, existing `plan.md`, and `me/profile.md` before planning. Confirm the spec has enough goal, current-state, constraint, preference, assumption, and success-criteria context to plan. If not, run or suggest the Fitness interview first.
 
 Lead with the owner's most important fitness outcome, then scale the plan to their actual baseline. Favor a sustainable plan they can repeat over a more impressive plan they will abandon. Build learning into the plan when needed: basic training structure, nutrition fundamentals, recovery, tracking, or injury-safe progression.
 
@@ -28,15 +28,13 @@ Every plan step must trace to a stated goal, current-state fact, constraint, pre
 
 Preserve owner capacity phrases exactly in `plan.md`. When the owner states their capacity in their own words, keep that exact phrase visible in the first step and roadmap rather than substituting a paraphrase. Additional detail can be added around it, but the owner's own wording must remain.
 
-Mark each step as one of: owner action, owner decision, data-gathering, Fitness review, or child-app handoff. Route to a child app only when the step requires specialized execution beyond the page-level Fitness plan and a suitable child app exists. If no child app is appropriate, keep the work at page level or mark the missing execution capability.
-
-When child-app output changes the Fitness plan, record only the page-level implication, decision, or next step. Do not copy detailed logs, evidence, reports, rules, calculations, or app state into Fitness.
+Mark each step as one of: owner action, owner decision, data-gathering, or Fitness review. Keep all execution work at the page level as a manual step.
 
 Every first-run plan update must include a concise BrainDrive experience and review path. Cover the owner-facing sidebar/page location for `AGENT.md`, `spec.md`, and `plan.md`; the current first action in BrainDrive; how the owner can edit or ask for revisions; how a return visit should continue from existing artifacts; plain-language recovery for setup/model/write/rendering trouble; support logs/support bundles with secrets redacted; visible progress states while BrainDrive is thinking, writing, saving, or updating; and that quality is judged against interview, spec, plan, propagation, and page-specific replay across the default pages.
 
 ## Done Criteria
 
-`plan.md` names the first step, roadmap, owner decisions, child-app handoffs when needed, review status, destination, and remaining blockers without over-prescribing or presenting medical certainty.
+`plan.md` names the first step, roadmap, owner decisions, review status, destination, and remaining blockers without over-prescribing or presenting medical certainty.
 
 ## After Running
 
