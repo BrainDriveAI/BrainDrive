@@ -34,7 +34,7 @@ describe("preferences compatibility", () => {
       path.join(preferencesDir, "default.json"),
       `${JSON.stringify(
         {
-          default_model: "z-ai/glm-5.2",
+          default_model: "anthropic/claude-haiku-4.5",
           approval_mode: "ask-on-write",
           provider_base_urls: {
             ollama: "http://127.0.0.1:11434/v1",
@@ -50,7 +50,7 @@ describe("preferences compatibility", () => {
     );
 
     const loaded = await loadPreferences(tempRoot);
-    expect(loaded.default_model).toBe("z-ai/glm-5.2");
+    expect(loaded.default_model).toBe("anthropic/claude-haiku-4.5");
     expect(loaded.secret_resolution?.on_missing).toBe("fail_closed");
     expect(loaded.prompt_audit?.enabled).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(loaded as Record<string, unknown>, "twilio_sms")).toBe(false);
@@ -71,7 +71,7 @@ describe("preferences compatibility", () => {
     await mkdir(preferencesDir, { recursive: true });
 
     const nextPreferences = {
-      default_model: "z-ai/glm-5.2",
+      default_model: "anthropic/claude-haiku-4.5",
       approval_mode: "ask-on-write",
       twilio_sms: {
         enabled: true,
@@ -100,7 +100,7 @@ describe("preferences compatibility", () => {
       path.join(preferencesDir, "default.json"),
       `${JSON.stringify(
         {
-          default_model: "z-ai/glm-5.2",
+          default_model: "anthropic/claude-haiku-4.5",
           approval_mode: "ask-on-write",
           prompt_audit: {
             enabled: true,
