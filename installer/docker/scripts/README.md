@@ -425,7 +425,7 @@ Usage:
 - Shell: `./installer/docker/scripts/release-production.sh [options]`
 
 Options:
-- `--package-version <yy.m.d>` (default: today's local date, for example `26.4.16`)
+- `--package-version <yy.m.d[.n]>` (default: today's local date, for example `26.4.16`; same-day patch releases can use `26.6.23.1`)
 - `--image-tag <tag>` (default: `v<package-version>`)
 - `--channel <name>` (default: `stable`)
 - `--app-image <repo>` (default: `ghcr.io/braindriveai/braindrive-app`)
@@ -437,6 +437,7 @@ Options:
 - `--skip-latest-tag`
 
 Versioning rule enforced:
+- `PACKAGE_VERSION` must use `YY.M.D` or `YY.M.D.N`.
 - `IMAGE_TAG` must exactly equal `v${PACKAGE_VERSION}`.
 - Generated manifest must include `channels.<channel> == PACKAGE_VERSION` and `releases[PACKAGE_VERSION]`.
 
