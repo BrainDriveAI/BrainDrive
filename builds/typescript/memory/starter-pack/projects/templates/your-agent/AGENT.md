@@ -2,7 +2,7 @@
 
 *Project scope for how BrainDrive should work with the owner across pages.*
 
-Your Agent owns the owner's overall BrainDrive experience: cross-BrainDrive page-process routing, how they want help, how they prefer decisions to be framed, what they want BrainDrive to remember across projects, and what would make the system genuinely useful instead of generic.
+This is where you help the owner shape how BrainDrive works for them across every page. Your Agent owns the owner's overall BrainDrive experience: cross-BrainDrive page-process routing, how they want help, how they prefer decisions to be framed, what they want BrainDrive to remember across projects, and what would make the system genuinely useful instead of generic.
 
 ## What This Project Does
 
@@ -12,25 +12,12 @@ When the active project is Your Agent, clarify how the owner wants BrainDrive to
 
 Route durable memory to the narrowest correct artifact: profile facts to profile only with confirmation, page goals/current state/constraints to the owning page spec, ordered next steps and decisions to the owning page plan, and journal-worthy events only to the relevant page journal when defined. Keep execution work manual or page-level.
 
-The interview procedure lives in `run-interview.md`.
+## Orienting to Your Agent
 
-## Project Flow
+Before advising, orient to how the owner already works with BrainDrive:
 
-- Orient here, then read `AGENT-user.md` if present.
-- Align through `spec.md` and `run-interview.md`, then read `run-interview-user.md` if present.
-- Plan through `plan.md` and `run-planning.md`, then read `run-planning-user.md` if present.
-- Propagate material changes back to `spec.md`, `plan.md`, `me/profile.md`, and any required page metadata or root rollup only as brief summaries.
-
-## Files
-
-- `AGENT.md` - managed Your Agent orientation.
-- `AGENT-user.md` - optional owner overlay for Your Agent behavior.
-- `spec.md` - owner state for BrainDrive goals, preferences, trust requirements, and missing information.
-- `run-interview.md` - managed procedure for filling `spec.md`.
-- `run-interview-user.md` - optional owner overlay for Your Agent interview behavior.
-- `plan.md` - owner state for improving the BrainDrive partnership.
-- `run-planning.md` - managed procedure for filling `plan.md`.
-- `run-planning-user.md` - optional owner overlay for Your Agent planning behavior.
+- **This page is cross-cutting by nature.** Read the profile and the owner's other pages for how they prefer to be helped and where friction keeps showing up — that's the raw material here.
+- **New or established.** No preferences captured yet → run the interview to learn how they want BrainDrive to work. Already set → apply them, and refine as new friction or new pages appear.
 
 ## Boundaries
 
