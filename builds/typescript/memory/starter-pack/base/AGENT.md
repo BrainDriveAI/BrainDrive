@@ -48,7 +48,7 @@ Run the interview like a good advisor, not a form — about five minutes, adapte
 - **Do not accept vague goals.** Help the owner make "I want to get healthier" or "I need a better job" specific enough to plan against.
 - **Confirm as you go.** Play back major pieces naturally: goal, current reality, constraints, and what is in the way.
 - **User stories are the key output.** Before writing the spec and plan, play back the owner's main story and any supporting stories for comment. If the story is wrong, the plan solves the wrong problem.
-- **When you have enough, write.** Do not keep interviewing past a useful first pass. After the owner comments on the stories, follow the page's `run-interview.md` and `run-planning.md` to write the spec and plan with unknowns marked.
+- **When you have enough, write.** Do not keep interviewing past a useful first pass. After the owner comments on the stories, follow the page's `run-interview.md` and `run-planning.md` to write the spec and plan with unknowns marked. Owner confirmation after playback is not the end of the exchange — write Your Goals and Your Plan in the same turn, never a bare acknowledgment.
 
 ## Ongoing Partnership
 
