@@ -8,7 +8,7 @@ Update sections in place in `spec.md`; never replace the whole file. Always keep
 
 ## What This Procedure Accomplishes
 
-Build a clear health and fitness picture and capture the owner's goals, current reality, constraints, preferences, assumptions, success criteria, and missing information.
+This is the owner's Fitness intake, and it does two jobs at once: it gives you the picture you need to coach well — goals, current reality, constraints, preferences, assumptions, success criteria, and what's still unknown — and it helps the owner get clear on what they actually want, not just what they first say.
 
 ## When to Run
 
@@ -20,7 +20,7 @@ Build a clear health and fitness picture and capture the owner's goals, current 
 
 Read `me/profile.md`, the Fitness `spec.md`, and the Fitness `plan.md` before asking broad setup questions. Summarize the known context briefly and ask what is missing, stale, or unconfirmed.
 
-Ask one meaningful question at a time and adapt to the answer. Before moving on, mirror the constraints that matter — injury, pain, safety, time, equipment, schedule, sleep, recovery — in the owner's own numbers and wording rather than softening them into generic terms, and when they raise an injury or safety concern keep the not-a-diagnosis boundary. Then ask the single highest-impact missing question and stop. Vary your phrasing naturally rather than pasting a fixed template. Treat duration, equipment, target date, running history, injuries, schedule, and preferences as separate turns, not one bundled checklist. If the owner answers with adjacent information instead of what you asked, record the asked-for detail as unknown and move to a different high-impact question rather than re-asking it. When the owner gives a success criterion, or after about four or five answers, stop intake and write a provisional spec and plan with the remaining gaps marked unknown.
+Ask one meaningful question at a time and adapt to the answer. Before moving on, mirror the constraints that matter — injury, pain, safety, time, equipment, schedule, sleep, recovery — in the owner's own numbers and wording rather than softening them into generic terms, and when they raise an injury or safety concern keep the not-a-diagnosis boundary. Then ask the single highest-impact missing question and stop. Vary your phrasing naturally rather than pasting a fixed template. Treat duration, equipment, target date, running history, injuries, schedule, and preferences as separate turns, not one bundled checklist. If the owner answers with adjacent information instead of what you asked, record the asked-for detail as unknown and move to a different high-impact question rather than re-asking it. When the owner gives a success criterion, or after about four or five answers, stop intake and run the user-story playback below before writing.
 
 Start with the owner's presenting goal, then map the full health and fitness landscape over multiple adaptive turns: current activity, nutrition patterns, sleep, stress, injuries, physical constraints, medications or health constraints they volunteer, schedule, equipment, experience level, and past attempts. Do not ask for the whole landscape at once; choose the next most useful missing piece.
 
@@ -28,9 +28,7 @@ Adapt follow-ups to the owner's starting position. Watch for starting from scrat
 
 Probe for what the owner actually does, not what they intend to do. Surface all-or-nothing thinking, sleep or stress blockers, event-driven motivation, shame, injury fear, and nutrition patterns that could make a plan fail. Ask for health documents only when they could materially improve the Fitness plan, and make them optional.
 
-Classify new facts before writing: stable cross-project facts belong in `me/profile.md` with confirmation; Fitness goals/current state/constraints/preferences/success criteria belong in `spec.md`; ordered next steps, decisions, timing, and status belong in `plan.md`.
-
-Every first-run spec update must include a concise BrainDrive experience note. Cover setup/model readiness in owner language; provider credentials, API keys, and tokens as redacted and not stored in owner artifacts; sidebar/page access to `AGENT.md`, `spec.md`, and `plan.md` instead of raw file paths; owner editability; return/resume from current artifacts; plain-language errors and recovery; support logs/support bundles with secrets redacted; visible progress states such as thinking, writing the spec, writing the plan, saving, and updating the page; quality scoring for interview/spec/plan/propagation; and replay across Finance, Fitness, Career, Relationships, New Project, and Your Agent with page-specific quality.
+User-story playback — the final exchange before writing. When you have enough, synthesize the owner's main goal as one user story in their words — "I want to [outcome] so that [why]" — plus any supporting stories that ladder up to it. Play them back in chat and invite changes, for example: "Here's what I think you're trying to do: [main story]; [supporting stories]. Change anything before I turn this into Your Goals and Your Plan." Only after the owner responds, write the spec and plan, routing each new fact to the right file: stable cross-project facts to `me/profile.md` with confirmation; Fitness goals, current state, constraints, preferences, and success criteria to `spec.md`; ordered next steps, decisions, timing, and status to `plan.md`. Mark remaining gaps as unknown.
 
 ## Done Criteria
 
