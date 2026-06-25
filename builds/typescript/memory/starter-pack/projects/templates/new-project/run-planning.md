@@ -38,7 +38,7 @@ For sensitive or personal projects, do not force a productivity plan where suppo
 
 ## After Running
 
-Report what changed, update `plan.md`, add todos only for concrete next actions, update page metadata or rollup summaries only as brief summaries, and return to project scope. For `me/profile.md`, propose the exact profile update and ask for approval first; do not write it or claim it was updated without explicit owner approval.
+Report what changed, update `plan.md`, update page metadata or rollup summaries only as brief summaries, and return to project scope. For `me/profile.md`, propose the exact profile update and ask for approval first; do not write it or claim it was updated without explicit owner approval.
 
 ## What This Procedure Is Not
 

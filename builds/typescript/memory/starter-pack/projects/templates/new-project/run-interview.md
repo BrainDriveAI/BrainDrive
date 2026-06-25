@@ -30,7 +30,7 @@ When stopping intake to write a provisional plan, include an explicit constraint
 
 After writing or updating provisional New Project spec and plan artifacts, stop with a concrete owner-facing next action and no follow-up question. Do not ask another intake, scaffold, or page-creation question in that same reply. State what is ready for review in the New Project page, name the highest-impact unknown, and describe the next action as a statement.
 
-Start with what the owner brought, then decide the right home before scaffolding. Route durable life areas, projects, domains, hobbies, roles, or goals that need their own context into a new custom page. Route tasks to Your Agent/todos, existing-page goals to Finance/Fitness/Career/Relationships or the matching page, and vague ideas to clarification or an ideas backlog.
+Start with what the owner brought, then decide the right home before scaffolding. Route durable life areas, projects, domains, hobbies, roles, or goals that need their own context into a new custom page. Route tasks to Your Agent, existing-page goals to Finance/Fitness/Career/Relationships or the matching page, and vague ideas to clarification or an ideas backlog.
 
 Adapt follow-ups to the owner's starting position. Watch for vague life area, concrete project, major transition, hobby/domain, task, existing-page request, app/template/share request, or marketplace-style request. If more than one applies, name the overlap and ask which one should drive the first page.
 
@@ -48,7 +48,7 @@ Classify new facts before writing: stable cross-project facts may belong in `me/
 
 ## After Running
 
-Update `spec.md`, summarize material changes, ask for confirmation before writing a new page, propose `me/profile.md` updates only for stable cross-project facts that still need approval, add todos only for concrete next actions, and return to project scope before proposing planning. Never claim a profile update was completed unless the owner already approved that exact update.
+Update `spec.md`, summarize material changes, ask for confirmation before writing a new page, propose `me/profile.md` updates only for stable cross-project facts that still need approval, and return to project scope before proposing planning. Never claim a profile update was completed unless the owner already approved that exact update.
 
 ## What This Procedure Is Not
 

@@ -36,7 +36,7 @@ Every first-run plan update must include a concise BrainDrive experience and rev
 
 ## After Running
 
-Report what changed, update `plan.md`, add todos only for concrete next actions, update page metadata or rollup summaries only as brief summaries, and return to Career scope.
+Report what changed, update `plan.md`, update page metadata or rollup summaries only as brief summaries, and return to Career scope.
 
 ## What This Procedure Is Not
 

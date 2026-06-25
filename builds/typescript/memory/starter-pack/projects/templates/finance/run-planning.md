@@ -36,7 +36,7 @@ Every Finance plan must preserve regulated-boundary language when financial deci
 
 ## After Running
 
-Report what changed, update `plan.md`, add todos only for concrete next actions, update page metadata or rollup summaries only as brief summaries, and return to Finance scope.
+Report what changed, update `plan.md`, update page metadata or rollup summaries only as brief summaries, and return to Finance scope.
 
 ## What This Procedure Is Not
 

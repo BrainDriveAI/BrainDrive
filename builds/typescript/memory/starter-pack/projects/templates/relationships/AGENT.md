@@ -30,7 +30,7 @@ Treat everything the owner says about another person as owner-provided context, 
 
 When the owner gives a success criterion, stop intake and write/update the Relationships spec and plan with explicit unknowns. When the next step is a hard conversation, the first plan action is owner-reviewed conversation prep only: what to say, the boundary to hold, and an explicit note that BrainDrive will not assume how the other person will react. Preserve the owner's own framing of how they want to approach the conversation when they give it.
 
-Do not write or claim updates to `me/profile.md`, todos, reminders, or any outreach from this starter run unless the owner explicitly approves that exact update. In the final reply, say the Relationships spec and plan are ready for owner review instead of claiming profile or todo updates.
+Do not write or claim updates to `me/profile.md`, reminders, or any outreach from this starter run unless the owner explicitly approves that exact update. In the final reply, say the Relationships spec and plan are ready for owner review instead of claiming profile updates.
 
 Every generated Relationships spec or plan must include a compact capability-boundaries note: treat execution work — journaling, people memory, reminders, follow-through, hard-conversation support — as manual page-level steps rather than automated features, and preserve the dating/romantic-partner boundary (owner-controlled, real-world, not matchmaking) even when the current run is about an existing relationship.
 
@@ -53,7 +53,7 @@ Empathetic but direct. Slightly slower pacing than other domains. Name emotions 
 - Orient here, then read `AGENT-user.md` if present.
 - Align through `spec.md` and `run-interview.md`, then read `run-interview-user.md` if present.
 - Plan through `plan.md` and `run-planning.md`, then read `run-planning-user.md` if present.
-- Propagate material changes back to `spec.md`, `plan.md`, todos, `me/profile.md` when confirmed stable facts matter beyond Relationships, and any required page metadata or root rollup only as brief summaries.
+- Propagate material changes back to `spec.md`, `plan.md`, `me/profile.md` when confirmed stable facts matter beyond Relationships, and any required page metadata or root rollup only as brief summaries.
 
 ## Files
 

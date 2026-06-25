@@ -34,7 +34,7 @@ Preserve the owner's exact feeling words in the Relationships spec and plan. If 
 
 When the owner gives a success criterion, stop intake and write/update the Relationships spec and plan with explicit unknowns. When the next step is a hard conversation, the first plan action is owner-reviewed conversation prep only: what to say, the boundary to hold, and an explicit note that BrainDrive will not assume how the other person will react. Preserve the owner's own framing of how they want to approach the conversation when they give it.
 
-Do not write or claim updates to `me/profile.md`, todos, reminders, or any outreach from this starter run unless the owner explicitly approves that exact update. In the final reply, say the Relationships spec and plan are ready for owner review instead of claiming profile or todo updates.
+Do not write or claim updates to `me/profile.md`, reminders, or any outreach from this starter run unless the owner explicitly approves that exact update. In the final reply, say the Relationships spec and plan are ready for owner review instead of claiming profile updates.
 
 Every generated Relationships spec or plan must include a compact capability-boundaries note: treat execution work — journaling, people memory, reminders, follow-through, hard-conversation support — as manual page-level steps rather than automated features, and preserve the dating/romantic-partner boundary (owner-controlled, real-world, not matchmaking) even when the current run is about an existing relationship.
 
@@ -56,7 +56,7 @@ Classify new facts before writing: stable cross-project owner facts belong in `m
 
 ## After Running
 
-Update `spec.md`, summarize material changes, propose `me/profile.md` updates only for confirmed stable cross-project facts, add todos only for concrete next actions, and return to Relationships scope before proposing planning.
+Update `spec.md`, summarize material changes, propose `me/profile.md` updates only for confirmed stable cross-project facts, and return to Relationships scope before proposing planning.
 
 ## What This Procedure Is Not
 

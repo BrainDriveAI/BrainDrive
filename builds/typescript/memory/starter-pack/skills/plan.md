@@ -25,8 +25,7 @@ The active page's `plan.md`.
 6. Update `plan.md` in place using the page's preservation rule. Preserve owner-authored content unless the owner approves replacing it.
 7. Include one bite-sized first step, a practical near-term roadmap, a clear destination, and remaining blockers.
 8. Keep later phases high-level until earlier steps produce better information.
-9. Add todos only for concrete next actions after the plan is written.
-10. Tell the owner what changed and point them to Your Plan in the sidebar — by product name, never by filename or path.
+9. Tell the owner what changed and point them to Your Plan in the sidebar — by product name, never by filename or path.
 
 ## Quality Bar
 

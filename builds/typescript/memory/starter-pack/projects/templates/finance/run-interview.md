@@ -50,7 +50,7 @@ Every first-run Finance spec must also state that regulated areas are boundaries
 
 ## After Running
 
-Update `spec.md`, summarize material changes, propose `me/profile.md` updates only for confirmed stable cross-project facts, add todos only for concrete next actions, and return to Finance scope before proposing planning.
+Update `spec.md`, summarize material changes, propose `me/profile.md` updates only for confirmed stable cross-project facts, and return to Finance scope before proposing planning.
 
 ## What This Procedure Is Not
 

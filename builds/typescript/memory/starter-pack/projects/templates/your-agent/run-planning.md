@@ -28,7 +28,7 @@ Use profile updates only for confirmed stable facts. Keep page-specific detail i
 
 ## After Running
 
-Report what changed, update `plan.md`, add todos only for concrete next actions, update profile or rollup summaries only when appropriate, and return to Your Agent scope.
+Report what changed, update `plan.md`, update profile or rollup summaries only when appropriate, and return to Your Agent scope.
 
 ## What This Procedure Is Not
 

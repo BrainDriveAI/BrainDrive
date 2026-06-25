@@ -19,7 +19,7 @@ Build a clear picture of how the owner wants BrainDrive to help across projects,
 
 ## Method
 
-Tell the owner the first interview should take about 5 minutes. Read `me/profile.md`, current todos, and any relevant page context before asking broad setup questions.
+Tell the owner the first interview should take about 5 minutes. Read `me/profile.md` and any relevant page context before asking broad setup questions.
 
 Use one primary question per turn during the first-run interview. Reply shape: mirror every concrete owner signal from the last answer in one sentence, name the missing or unknown context that would most change the next step, ask exactly one question, then stop. Use at most one question mark in the whole reply. Do not use numbered or bulleted question lists. Do not add parenthetical subquestions. Do not turn one question into a category checklist such as "what about A, B, and C?" Do not ask compound questions joined by "and", and do not ask a rephrased second question after the first one. If several facts are missing, ask only for the single fact that most changes the next step. After 4-5 owner answers, write provisional spec and plan updates with unknowns instead of continuing intake. Mirror concrete money, time, health, safety, boundary, page-routing, deadline, or risk constraints in the next reply before asking another question.
 
@@ -43,7 +43,7 @@ Ask before treating inferred preferences or personal facts as settled profile me
 
 ## After Running
 
-Update `spec.md`, summarize material changes, update `me/profile.md` only for confirmed stable facts, add todos only for concrete next actions, and return to Your Agent scope before proposing planning.
+Update `spec.md`, summarize material changes, update `me/profile.md` only for confirmed stable facts, and return to Your Agent scope before proposing planning.
 
 ## What This Procedure Is Not
 
