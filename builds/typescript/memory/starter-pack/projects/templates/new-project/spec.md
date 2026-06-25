@@ -8,9 +8,12 @@
 
 ## What You Want
 
-*The owner's goals as specific user stories, using the owner's words where possible.*
+*Your main goal for this project in one clear story, in your words, plus any supporting goals that ladder up to it.*
 
-To be filled through conversation.
+**Main goal:** I want to [outcome] so that [why it matters].
+
+**Supporting goals:**
+- I want to [sub-goal] so that [why].
 
 ## Where You Are
 

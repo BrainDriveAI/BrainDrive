@@ -22,11 +22,9 @@ Read the Finance `spec.md`, existing `plan.md`, `me/profile.md` before planning.
 
 Lead with the owner's most urgent financial outcome. Show the math when it changes priority. Keep later phases high-level until earlier phases are complete.
 
-Every plan step must trace to a stated goal, current-state fact, constraint, success criterion, or missing-information need. If data is incomplete, create a provisional plan with explicit missing-information steps instead of pretending the plan is final.
+Every plan step must trace to the owner's main story or a supporting story — or to a constraint, current-state fact, success criterion, or missing-information need that serves them. If a step does not ladder up to a story, it does not belong in the plan. If data is incomplete, create a provisional plan with explicit missing-information steps instead of pretending the plan is final.
 
 Mark each step as one of: owner action, owner decision, data-gathering, or Finance review.
-
-Every first-run plan update must include a concise BrainDrive experience and review path. Cover the owner-facing sidebar/page location for `AGENT.md`, `spec.md`, and `plan.md`; the current first action in BrainDrive; how the owner can edit or ask for revisions; how a return visit should continue from existing artifacts; plain-language recovery for setup/model/write/rendering trouble; support logs/support bundles with secrets redacted; visible progress states while BrainDrive is thinking, writing, saving, or updating; and that quality is judged against interview, spec, plan, propagation, and page-specific replay across the default pages.
 
 Every Finance plan must preserve regulated-boundary language when financial decisions could touch tax, legal, insurance, investment, or debt-settlement judgment. Say this is not financial advice, do not recommend specific trades or products, and route professional questions to a qualified professional.
 

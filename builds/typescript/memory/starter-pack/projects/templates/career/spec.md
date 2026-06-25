@@ -8,9 +8,12 @@
 
 ## What You Want
 
-*The owner's career goals as specific user stories, using the owner's words where possible.*
+*Your main goal for Career in one clear story, in your words, plus any supporting goals that ladder up to it.*
 
-To be filled through conversation.
+**Main goal:** I want to [outcome] so that [why it matters].
+
+**Supporting goals:**
+- I want to [sub-goal] so that [why].
 
 ## Where You Are
 
@@ -47,26 +50,6 @@ To be filled through conversation.
 *Information gaps that could change the plan, separated from threads that are only worth exploring later.*
 
 To be filled through conversation.
-
-## BrainDrive Experience Notes
-
-BrainDrive should keep setup and model readiness understandable in plain language, with a clear recovery path when credits, provider setup, or model-ready state is missing.
-
-Provider credentials, API keys, tokens, and secrets must stay redacted and not exposed in owner artifacts.
-
-The normal owner-facing review path is through the BrainDrive sidebar and page experience for `AGENT.md`, `spec.md`, and `plan.md`, not raw file paths.
-
-Artifacts should render cleanly with readable headings, lists, tables, links, and checklists, remain owner-editable, and support return/resume from the latest saved current context.
-
-Relevant profile and page context should be used before broad setup questions, and inferred stable owner facts should be confirmed before being treated as cross-project profile memory.
-
-Errors should explain what happened, what was saved or skipped, and the next recovery action in plain language. Support logs or support bundles should include diagnostic information while excluding or redacting credentials and secrets.
-
-Progress states should make it clear when BrainDrive is thinking, writing the spec, writing the plan, saving, updating the page, still working, or recovering from a long wait.
-
-Quality is judged against Specificity, Engagement Pull, Mirror Accuracy, Insight Quality, Actionability, Honest Gaps, No Overwhelm, interview quality, spec quality, plan quality, propagation quality, model, tool/write, and needs-human-review layers.
-
-The starter baseline should replay across Finance, Fitness, Career, Relationships, New Project, and Your Agent with domain-specific, page-specific quality, not copied from Finance.
 
 ## Changelog
 

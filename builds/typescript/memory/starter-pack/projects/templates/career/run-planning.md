@@ -24,11 +24,9 @@ Lead with the owner's most important career outcome. Make the first step realist
 
 Keep later phases high-level until earlier steps have changed the facts. Do not build phases for goals or threads marked only as worth exploring later.
 
-Every plan step must trace to a stated goal, current-role fact, constraint, success criterion, decision need, or missing-information need. If data is incomplete, create a provisional plan with explicit missing-information steps instead of pretending the plan is final.
+Every plan step must trace to the owner's main story or a supporting story — or to a current-role fact, constraint, success criterion, decision need, or missing-information need that serves them. If a step does not ladder up to a story, it does not belong in the plan. If data is incomplete, create a provisional plan with explicit missing-information steps instead of pretending the plan is final.
 
 Mark each step as one of: owner action, owner decision, data-gathering, conversation prep, or Career review. Keep all execution work at the page level as a manual step.
-
-Every first-run plan update must include a concise BrainDrive experience and review path. Cover the owner-facing sidebar/page location for `AGENT.md`, `spec.md`, and `plan.md`; the current first action in BrainDrive; how the owner can edit or ask for revisions; how a return visit should continue from existing artifacts; plain-language recovery for setup/model/write/rendering trouble; support logs/support bundles with secrets redacted; visible progress states while BrainDrive is thinking, writing, saving, or updating; and that quality is judged against interview, spec, plan, propagation, and page-specific replay across the default pages.
 
 ## Done Criteria
 

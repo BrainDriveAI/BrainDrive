@@ -42,22 +42,6 @@ To be filled as goals get more specific.
 
 To be filled through conversation.
 
-## BrainDrive Review And Recovery
-
-Review `AGENT.md`, `spec.md`, and `plan.md` through the owner-facing BrainDrive sidebar or page experience. The owner can edit artifacts directly or ask BrainDrive for revisions while preserving owner-authored content unless replacement is explicitly approved.
-
-On return visits, continue from existing artifacts, the current plan, and the latest saved context instead of restarting from scratch. If artifacts are missing, corrupted, inconsistent, or blocked by setup/model/write/rendering trouble, explain what happened, what was saved or skipped, and the recovery path in plain language.
-
-If help is needed, use support logs or a support bundle with diagnostic information and redacted API keys, tokens, credentials, and secrets.
-
-During waits, BrainDrive should show progress such as thinking, writing your spec, writing your plan, saving, updating your page, still working, not frozen, or recovering from a long wait.
-
-The harness scores interview, spec, plan, propagation, and page-specific replay quality across Finance, Fitness, Career, Relationships, New Project, and Your Agent.
-
-Relationships follow-through stays as a manual step in this page-level plan — things like relationship journal notes, people memory, reminders, hard-conversation prep, or follow-through support are tracked here manually, not as automated features.
-
-Dating and romantic partner work should remain owner-controlled and external where needed: BrainDrive can help clarify partner values, good fit, dealbreakers, profile wording, and date reflection, but it is not matchmaking and does not contact anyone.
-
 ## Changelog
 
 - Starter template created.

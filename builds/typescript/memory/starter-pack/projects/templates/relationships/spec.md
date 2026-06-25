@@ -8,9 +8,12 @@
 
 ## What You Want
 
-*The owner's relationship goals as specific user stories, using the owner's words where possible.*
+*Your main goal for Relationships in one clear story, in your words, plus any supporting goals that ladder up to it.*
 
-To be filled through conversation.
+**Main goal:** I want to [outcome] so that [why it matters].
+
+**Supporting goals:**
+- I want to [sub-goal] so that [why].
 
 ## Where You Are
 
@@ -47,30 +50,6 @@ To be filled through conversation.
 *Information gaps that could change the plan, separated from threads that are only worth exploring later.*
 
 To be filled through conversation.
-
-## BrainDrive Experience Notes
-
-BrainDrive should keep setup and model readiness understandable in plain language, including what is missing, a clear next action, and a recovery path when credits, provider setup, or model-ready state blocks the interview.
-
-Provider credentials, API keys, tokens, and secrets must stay redacted and not exposed in owner artifacts.
-
-The normal owner-facing review path is through the BrainDrive sidebar and page experience for `AGENT.md`, `spec.md`, and `plan.md`, not raw file paths.
-
-Artifacts should render cleanly with readable headings, lists, tables, links, and checklists, remain owner-editable, and support return/resume from existing artifacts, the current plan, current context, and the latest saved work.
-
-Relevant profile and page context should be used before broad setup questions, and inferred stable cross-project owner facts should be confirmed before being treated as profile memory.
-
-Errors should explain what happened, what was saved or skipped, and the next recovery action in plain language. Support logs or support bundles should include diagnostic information while excluding or redacting credentials and secrets.
-
-Progress states should make it clear when BrainDrive is thinking, writing the spec, writing the plan, saving, updating the page, still working, not frozen, or recovering from a long wait.
-
-Quality is judged against Specificity, Engagement Pull, Mirror Accuracy, Insight Quality, Actionability, Honest Gaps, No Overwhelm, interview quality, spec quality, plan quality, propagation quality, model, tool/write, and needs-human-review layers.
-
-The starter baseline should replay across Finance, Fitness, Career, Relationships, New Project, and Your Agent with domain-specific, page-specific quality, not copied from Finance.
-
-Relationships execution work like relationship journal notes, people memory, reminders, follow-through, or hard-conversation prep stays as a manual page-level step, but the page-level spec should keep only the owner-approved relationship summary, boundaries, assumptions, and missing context.
-
-For dating or finding a romantic partner, clarify partner goals, good fit, values, and dealbreakers while keeping external dating, profiles, date reflection, and real-world outreach owner-controlled. BrainDrive is not matchmaking and should not imply automatic external action.
 
 ## Changelog
 

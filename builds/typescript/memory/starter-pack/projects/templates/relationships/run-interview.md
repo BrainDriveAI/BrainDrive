@@ -8,7 +8,7 @@ Update sections in place in `spec.md`; never replace the whole file. Always keep
 
 ## What This Procedure Accomplishes
 
-Build a clear relationship path and capture the owner's goals, owner-provided context, boundaries, assumptions, success criteria, and missing information.
+This is the owner's Relationships intake, and it does two jobs at once: it gives you the picture you need to advise well — goals, owner-provided context, boundaries, assumptions, success criteria, and what's still unknown — and it helps the owner get clear on what they actually want, not just what they first say.
 
 ## When to Run
 
@@ -20,21 +20,17 @@ Build a clear relationship path and capture the owner's goals, owner-provided co
 
 Read `me/profile.md`, the Relationships `spec.md`, the Relationships `plan.md`, and relevant page summaries before asking broad setup questions. Summarize the known context briefly and ask what is missing, stale, or unconfirmed.
 
-Use one primary question per turn during the first-run interview. Reply shape: mirror one useful owner signal in one sentence, name the one missing or unconfirmed context item with wording like "The missing context I need is..." or "The unconfirmed part is...", ask exactly one question, then stop. Use at most one question mark in the whole reply. Do not use numbered or bulleted question lists. Do not add parenthetical subquestions. Do not turn one question into a category checklist such as "what about A, B, and C?" Do not ask a broad question and then restate it as example questions; if examples help, make them non-question fragments inside the same sentence. Do not repeat the same broad relationship question after the owner answers; adapt the next question to the answer they just gave. If the owner answers a different useful point instead of the missing item, record that missing item as an unknown and move to the next most useful question or provisional artifacts. If several facts are missing, ask only for the single fact that most changes the next step. After 4-5 owner answers, write provisional spec and plan updates with unknowns instead of continuing intake. When writing that provisional plan, include what needs owner review and add this explicit sentence to `plan.md`: "Any relationship action, talking point, or outreach is for owner review and approval only; BrainDrive will not auto-send or act for the owner." Mirror concrete money, time, health, safety, boundary, deadline, or risk constraints in the next reply before asking another question.
+Ask one meaningful question at a time and adapt to the answer. This domain needs more listening than the others — go gently. Before moving on, mirror what matters in the owner's own words: the relationship area, the exact feeling words they use, a boundary, a safety or trust concern, their emotional capacity right now. Then ask the single highest-impact missing question and stop. Vary your phrasing naturally rather than pasting a fixed template. If the owner answers a different useful point instead of what you asked, record the missing item as unknown and move to the next most useful question rather than re-asking it. When the owner gives a success criterion, or after about four or five answers, stop intake and run the user-story playback below before writing.
 
-Every intake-question reply must start by mirroring one concrete phrase from the owner's immediately previous message. Preserve exact relationship-area, emotion, boundary, safety, capacity, trust, family, friends, dating, or outreach wording when present.
-
-Never ask the same relationship setup question twice. If the owner answers with adjacent useful information instead of the exact detail you asked for, record the exact detail as unknown, use what they did provide, and ask a different high-impact question or proceed to provisional artifacts. If you asked which relationship area matters and the owner instead gives a feeling, boundary, safety, trust, or capacity concern, mirror that context, mark the relationship area unknown if still unconfirmed, and do not ask the same broad relationship-area question again.
-
-When the owner gives a success criterion or enough facts to make a useful first plan, stop intake and write/update the Relationships spec and plan with known facts plus explicit unknowns. Do not ask another setup question first.
+User-story playback — the final exchange before writing. When you have enough, synthesize the owner's main goal as one user story in their words — "I want to [outcome] so that [why]" — plus any supporting stories that ladder up to it. Play them back in chat and invite changes, for example: "Here's what I think you're trying to do: [main story]; [supporting stories]. Change anything before I turn this into Your Goals and Your Plan." Only after the owner responds, write the spec and plan with explicit unknowns, routing each new fact to the right file: stable cross-project owner facts to `me/profile.md` with confirmation; relationship goals, context, boundaries, and success criteria to `spec.md`; next steps, decisions, timing, and conversation prep to `plan.md`. Add this sentence to the plan: "Any relationship action, talking point, or outreach is for owner review and approval only; BrainDrive will not auto-send or act for the owner." In your final reply, say the spec and plan are ready for owner review.
 
 ## Conversation Prep and Boundaries
 
 Preserve the owner's exact feeling words in the Relationships spec and plan. If the owner names an emotion, keep that exact word rather than substituting a noun form or a paraphrase.
 
-When the owner gives a success criterion, stop intake and write/update the Relationships spec and plan with explicit unknowns. When the next step is a hard conversation, the first plan action is owner-reviewed conversation prep only: what to say, the boundary to hold, and an explicit note that BrainDrive will not assume how the other person will react. Preserve the owner's own framing of how they want to approach the conversation when they give it.
+When the next step is a hard conversation, the first plan action is owner-reviewed conversation prep only: what to say, the boundary to hold, and an explicit note that BrainDrive will not assume how the other person will react. Preserve the owner's own framing of how they want to approach the conversation when they give it.
 
-Do not write or claim updates to `me/profile.md`, reminders, or any outreach from this starter run unless the owner explicitly approves that exact update. In the final reply, say the Relationships spec and plan are ready for owner review instead of claiming profile updates.
+Do not write or claim updates to `me/profile.md`, reminders, or any outreach from this starter run unless the owner explicitly approves that exact update.
 
 Every generated Relationships spec or plan must include a compact capability-boundaries note: treat execution work — journaling, people memory, reminders, follow-through, hard-conversation support — as manual page-level steps rather than automated features, and preserve the dating/romantic-partner boundary (owner-controlled, real-world, not matchmaking) even when the current run is about an existing relationship.
 
@@ -47,8 +43,6 @@ Adapt follow-ups to the owner's starting position. Do not use the same checklist
 Listen more than in other domains. Probe gently for the goal underneath the incident. Surface patterns, unspoken expectations, avoidance, boundaries, and situations where the surface issue may not be the real issue. Do not turn one conflict into a plan until the relevant relationship map is clear.
 
 Treat information about other people as owner-provided context, not verified truth. Do not infer another person's motives, diagnosis, emotional state, or inner life. Store only planning-relevant summaries, especially for sensitive information about someone else.
-
-Classify new facts before writing: stable cross-project owner facts belong in `me/profile.md` with confirmation; relationship goals/context/boundaries/success criteria belong in `spec.md`; next steps, decisions, timing, conversation prep, and reminders belong in `plan.md`.
 
 ## Done Criteria
 

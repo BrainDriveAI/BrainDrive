@@ -8,7 +8,7 @@ Update sections in place in `spec.md`; never replace the whole file. Always keep
 
 ## What This Procedure Accomplishes
 
-Build a clear career picture and capture the owner's goals, current reality, constraints, assumptions, success criteria, and missing information.
+This is the owner's Career intake, and it does two jobs at once: it gives you the picture you need to advise well — goals, current reality, constraints, assumptions, success criteria, and what's still unknown — and it helps the owner get clear on what they actually want, not just what they first say.
 
 ## When to Run
 
@@ -20,13 +20,7 @@ Build a clear career picture and capture the owner's goals, current reality, con
 
 Read `me/profile.md`, the Career `spec.md`, the Career `plan.md`, and relevant cross-page context before asking broad setup questions. Summarize the known context briefly and ask what is missing, stale, or unconfirmed.
 
-Use one primary question per turn during the first-run interview. Reply shape: mirror one useful owner signal in one sentence, ask exactly one question, then stop. Use at most one question mark in the whole reply. Do not use numbered or bulleted question lists. Do not add parenthetical subquestions. Do not turn one question into a category checklist such as "what about A, B, and C?" Never write two question marks in one reply. Bad: "What does that look like for you? A salary floor, a no-pay-cut boundary, something else?" Good: "Your product marketing direction and money worry are the key constraints. The missing context I need is the money boundary: is there a salary floor or no-pay-cut boundary you need to protect?" If several facts are missing, ask only for the single fact that most changes the next step. After 4-5 owner answers, write provisional spec and plan updates with unknowns instead of continuing intake. Mirror concrete money, time, health, safety, boundary, deadline, or risk constraints in the next reply before asking another question.
-
-Every intake-question reply must start by mirroring one concrete phrase from the owner's immediately previous message. Preserve exact money, role, target-direction, time-capacity, no-pay-cut, and burnout wording when present.
-
-Never ask the same setup question twice. If the owner answers with adjacent useful information instead of the exact detail you asked for, record the exact detail as unknown, use what they did provide, and ask a different high-impact question or proceed to provisional artifacts. If you asked about target title, industry, timeline, current-role depth, or proof worry and the owner instead gives salary, no-pay-cut, time-capacity, or burnout context, mirror that constraint, mark the unanswered setup detail unknown, and do not ask the same broad setup question again.
-
-When the owner gives a success criterion or enough facts to make a useful first plan, stop intake and write/update the Career spec and plan with known facts plus explicit unknowns. Do not ask another setup question first.
+Ask one meaningful question at a time and adapt to the answer. Before moving on, mirror the constraints that matter — a salary floor or no-pay-cut boundary, time capacity, a burnout limit, a deadline, household commitments — in the owner's own words. Then ask the single highest-impact missing question and stop. Vary your phrasing naturally rather than pasting a fixed template. If the owner answers with adjacent information instead of what you asked, record the asked-for detail as unknown and move to a different high-impact question rather than re-asking it. When the owner gives a success criterion, or after about four or five answers, stop intake and run the user-story playback below before writing.
 
 Start with the owner's presenting concern, then map the broader career landscape over multiple adaptive turns: current role, industry, tenure, income, skills, satisfaction, trajectory, growth ceiling, manager dynamics, household impact, timing constraints, and what they are running toward or away from. Do not ask for the whole landscape at once; choose the next most useful missing piece.
 
@@ -34,9 +28,7 @@ Adapt follow-ups to the owner's starting position. Watch for early career or fir
 
 Test the owner's narrative instead of accepting it blindly. Surface assumptions about promotions, pivots, compensation, job search, skill gaps, confidence, golden handcuffs, and timelines. If burnout or trauma-like symptoms appear, mark that as a path-changing support gap rather than treating it as a normal career tactic problem.
 
-Classify new facts before writing: stable cross-project facts belong in `me/profile.md` with confirmation; Career goals/current role/trajectory/constraints/success criteria belong in `spec.md`; next steps, decisions, milestones, and conversation prep belong in `plan.md`.
-
-Every first-run spec update must include a concise BrainDrive experience note. Cover setup/model readiness in owner language; provider credentials, API keys, and tokens as redacted and not stored in owner artifacts; sidebar/page access to `AGENT.md`, `spec.md`, and `plan.md` instead of raw file paths; owner editability; return/resume from current artifacts; plain-language errors and recovery; support logs/support bundles with secrets redacted; visible progress states such as thinking, writing the spec, writing the plan, saving, and updating the page; quality scoring for interview/spec/plan/propagation; and replay across Finance, Fitness, Career, Relationships, New Project, and Your Agent with page-specific quality.
+User-story playback — the final exchange before writing. When you have enough, synthesize the owner's main goal as one user story in their words — "I want to [outcome] so that [why]" — plus any supporting stories that ladder up to it. Play them back in chat and invite changes, for example: "Here's what I think you're trying to do: [main story]; [supporting stories]. Change anything before I turn this into Your Goals and Your Plan." Only after the owner responds, write the spec and plan, routing each new fact to the right file: stable cross-project facts to `me/profile.md` with confirmation; Career goals, current role, trajectory, constraints, and success criteria to `spec.md`; next steps, decisions, milestones, and conversation prep to `plan.md`. Mark remaining gaps as unknown.
 
 ## Done Criteria
 

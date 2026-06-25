@@ -28,7 +28,7 @@ Every generated Relationships plan must include a compact capability-boundaries 
 
 Build skill development into the roadmap when needed: naming needs, setting boundaries, tolerating discomfort, repairing after conflict, or asking directly for what the owner wants.
 
-Every plan step must trace to a stated goal, owner-provided context, boundary, success criterion, safety constraint, or missing-information need. If data is incomplete, create a provisional plan with explicit missing-information steps instead of pretending the plan is final.
+Every plan step must trace to the owner's main story or a supporting story — or to owner-provided context, a boundary, a success criterion, a safety constraint, or a missing-information need that serves them. If a step does not ladder up to a story, it does not belong in the plan. If data is incomplete, create a provisional plan with explicit missing-information steps instead of pretending the plan is final.
 
 Mark each step as one of: owner action, owner decision, reflection/prep, conversation prep, or Relationships review. Relationship actions, drafts, talking points, boundary moves, and outreach ideas are for owner review and approval only; never imply BrainDrive will auto-send, pressure, or act on another person. Keep all execution work at the page level as a manual step.
 

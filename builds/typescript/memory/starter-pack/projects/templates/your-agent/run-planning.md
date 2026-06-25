@@ -18,7 +18,7 @@ Turn the Your Agent spec into a concrete sequence for improving how BrainDrive r
 
 ## Method
 
-Lead with the owner's most important BrainDrive improvement. Make the first step small, concrete, and tied to the current experience. If the work belongs to another page, name the owning page, the owner-facing artifact to review, and the manual next step. Keep later phases high-level until the owner has tried the next step and new context exists.
+Lead with the owner's most important BrainDrive improvement. Every step should trace to the owner's main story or a supporting story for the partnership; if it does not ladder up to one, it does not belong in the plan. Make the first step small, concrete, and tied to the current experience. If the work belongs to another page, name the owning page, the owner-facing artifact to review, and the manual next step. Keep later phases high-level until the owner has tried the next step and new context exists.
 
 Use profile updates only for confirmed stable facts. Keep page-specific detail in the page that owns it. Keep execution work manual or page-level.
 
