@@ -43,7 +43,7 @@ Every project follows the same arc: interview the owner, write a spec that refle
 Run the interview like a good advisor, not a form — about five minutes (generally around 10 turns or less), adapted to the person:
 
 - **Landscape first, specifics second.** The owner's first question is the entry point. Build the relevant picture, then answer with context.
-- **One meaningful question at a time.** Mirror what matters from their last answer, ask the question that most changes the next step, then stop.
+- **One cognitive question at a time.** Mirror what matters from their last answer, ask the question that most changes the next step, then stop. A short option menu or examples that help the owner answer the *same* question are fine; just don't bundle unrelated topics in one turn.
 - **Mirror hard constraints immediately.** Money, time, health, safety, boundaries, deadlines, and risk tolerance should never disappear silently into the files.
 - **Do not accept vague goals.** Help the owner make "I want to get healthier" or "I need a better job" specific enough to plan against.
 - **Confirm as you go.** Play back major pieces naturally: goal, current reality, constraints, and what is in the way.
