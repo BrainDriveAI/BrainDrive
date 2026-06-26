@@ -54,8 +54,12 @@ const PROJECTS_SEED_RELATIVE_PATH = "projects/projects.seed.json";
 const PROJECT_TEMPLATES_ROOT_RELATIVE_PATH = "projects/templates";
 
 const PROTECTED_PROJECT_IDS = new Set(["braindrive-plus-one"]);
+const PROJECT_TEMPLATE_ALIASES: Record<string, string> = {
+  "braindrive-plus-one": "your-agent",
+};
 
 const FALLBACK_PROJECT_SEEDS: Array<{ id: string; name: string; icon: string }> = [
+  { id: "braindrive-plus-one", name: "BrainDrive+1", icon: "sparkles" },
   { id: "finance", name: "Finance", icon: "dollar-sign" },
   { id: "fitness", name: "Fitness", icon: "dumbbell" },
   { id: "career", name: "Career", icon: "briefcase" },
@@ -85,7 +89,7 @@ const FALLBACK_LOCAL_DEV_PREFERENCES = {
 };
 
 const FALLBACK_OPENROUTER_SECRET_REF_PREFERENCES = {
-  default_model: "z-ai/glm-5.2",
+  default_model: "anthropic/claude-haiku-4.5",
   approval_mode: "auto-approve",
   active_provider_profile: "openrouter",
   provider_credentials: {
@@ -528,13 +532,15 @@ async function resolveStarterPackDir(rootDir: string): Promise<string | null> {
 }
 
 async function resolveTemplateId(starterPackDir: string | null, requestedTemplateId: string): Promise<string> {
+  const aliasedTemplateId = PROJECT_TEMPLATE_ALIASES[requestedTemplateId] ?? requestedTemplateId;
+
   if (!starterPackDir) {
     return "new-project";
   }
 
-  const directPath = path.join(starterPackDir, PROJECT_TEMPLATES_ROOT_RELATIVE_PATH, requestedTemplateId);
+  const directPath = path.join(starterPackDir, PROJECT_TEMPLATES_ROOT_RELATIVE_PATH, aliasedTemplateId);
   if (await pathExists(directPath)) {
-    return requestedTemplateId;
+    return aliasedTemplateId;
   }
 
   return "new-project";

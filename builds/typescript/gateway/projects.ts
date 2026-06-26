@@ -39,6 +39,14 @@ type UploadedMarkdownOptions =
 
 const PROJECTS_MANIFEST_RELATIVE_PATH = "documents/projects.json";
 const DEFAULT_PROJECT_ICON = "folder";
+const ROOT_AGENT_PROJECT_ID = "braindrive-plus-one";
+const ROOT_AGENT_PROJECT: GatewayProject = {
+  id: ROOT_AGENT_PROJECT_ID,
+  name: "BrainDrive+1",
+  icon: "sparkles",
+  conversation_id: null,
+  default_skill_ids: [],
+};
 
 export class ProtectedProjectError extends Error {
   readonly code = "project_protected";
@@ -373,14 +381,39 @@ export class GatewayProjectService {
       return [];
     }
 
-    return parsed
+    const projects = parsed
       .map(parseProjectRecord)
       .filter((project): project is GatewayProject => project !== null);
+    return this.ensureRootAgentProject(projects);
   }
 
   private async writeProjects(projects: GatewayProject[]): Promise<void> {
     await this.ensureManifest();
     await writeFile(this.manifestPath, `${JSON.stringify(projects, null, 2)}\n`, "utf8");
+  }
+
+  private async ensureRootAgentProject(projects: GatewayProject[]): Promise<GatewayProject[]> {
+    const rootAgent = projects.find((project) => project.id === ROOT_AGENT_PROJECT_ID);
+    if (rootAgent) {
+      return rootAgent === projects[0]
+        ? projects
+        : [
+            rootAgent,
+            ...projects.filter((project) => project.id !== ROOT_AGENT_PROJECT_ID),
+          ];
+    }
+
+    const nextProjects = [
+      ROOT_AGENT_PROJECT,
+      ...projects,
+    ];
+    await this.writeProjects(nextProjects);
+    await scaffoldProjectFiles(this.rootDir, this.memoryRoot, ROOT_AGENT_PROJECT.id, ROOT_AGENT_PROJECT.name, {
+      templateId: "your-agent",
+      force: false,
+      dryRun: false,
+    });
+    return nextProjects;
   }
 
   private async ensureManifest(): Promise<void> {
