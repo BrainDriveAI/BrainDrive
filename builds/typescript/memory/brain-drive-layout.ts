@@ -7,6 +7,7 @@ export type BrainDriveMemoryFileOwnership =
   | "generated_output"
   | "durable_archive"
   | "source"
+  | "legacy_retired"
   | "system_internal";
 
 export type BrainDriveMemoryFileRole =
@@ -49,7 +50,12 @@ export function normalizeBrainDriveMemoryPath(relativePath: string): string {
 
 export function overlayPathForManagedBase(relativePath: string): string | null {
   const normalized = normalizeBrainDriveMemoryPath(relativePath);
-  if (!normalized.toLowerCase().endsWith(".md") || isUserOverlayPath(normalized)) {
+  if (
+    !normalized.toLowerCase().endsWith(".md") ||
+    isRetiredFinanceBudgetPath(normalized) ||
+    isRetiredFinanceBudgetArchivePath(normalized) ||
+    isUserOverlayPath(normalized)
+  ) {
     return null;
   }
 
@@ -64,7 +70,7 @@ export function overlayPathForManagedBase(relativePath: string): string | null {
 
 export function managedBasePathForOverlay(relativePath: string): string | null {
   const normalized = normalizeBrainDriveMemoryPath(relativePath);
-  if (!isUserOverlayPath(normalized)) {
+  if (isRetiredFinanceBudgetPath(normalized) || isRetiredFinanceBudgetArchivePath(normalized) || !isUserOverlayPath(normalized)) {
     return null;
   }
 
@@ -72,7 +78,12 @@ export function managedBasePathForOverlay(relativePath: string): string | null {
 }
 
 export function isUserOverlayPath(relativePath: string): boolean {
-  return /(?:^|\/)[^/]+-user\.md$/i.test(normalizeBrainDriveMemoryPath(relativePath));
+  const normalized = normalizeBrainDriveMemoryPath(relativePath);
+  return (
+    !isRetiredFinanceBudgetPath(normalized) &&
+    !isRetiredFinanceBudgetArchivePath(normalized) &&
+    /(?:^|\/)[^/]+-user\.md$/i.test(normalized)
+  );
 }
 
 export function isManagedBasePath(relativePath: string): boolean {
@@ -103,6 +114,13 @@ export function classifyBrainDriveMemoryPath(relativePath: string): BrainDriveMe
 
   if (SYSTEM_ROOTS.has(parts[0] ?? "")) {
     return classification(normalized, "system_internal", "system");
+  }
+
+  if (isRetiredFinanceBudgetPath(normalized) || isRetiredFinanceBudgetArchivePath(normalized)) {
+    return classification(normalized, "legacy_retired", "system", {
+      canStarterPackReplace: false,
+      canOwnerCustomize: false,
+    });
   }
 
   if (isUserOverlayPath(normalized)) {
@@ -263,6 +281,16 @@ function classification(
     canOwnerCustomize: ownership === "managed_base",
     ...overrides,
   };
+}
+
+function isRetiredFinanceBudgetPath(relativePath: string): boolean {
+  const normalized = normalizeBrainDriveMemoryPath(relativePath);
+  return /^documents\/finance\/(?:budget(?:\/|\.md$)|budgeting(?:\/|$))/i.test(normalized);
+}
+
+function isRetiredFinanceBudgetArchivePath(relativePath: string): boolean {
+  const normalized = normalizeBrainDriveMemoryPath(relativePath);
+  return /^documents\/finance\/archive\/retired-budget(?:\/|$)/i.test(normalized);
 }
 
 function roleForOverlay(relativePath: string): BrainDriveMemoryFileRole {

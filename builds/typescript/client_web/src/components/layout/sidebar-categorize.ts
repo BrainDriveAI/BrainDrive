@@ -44,8 +44,6 @@ export type AppSidebarModel = {
   advanced: SidebarFileItem[];
 };
 
-const KNOWN_APP_FOLDERS = new Set(["budget"]);
-
 export function buildProjectSidebarModel(projectId: string, files: ProjectFile[]): ProjectSidebarModel {
   const items = files.map((file) => toFileItem(file, projectId, null));
   const appPaths = findAppPaths(projectId, files);
@@ -167,11 +165,13 @@ function findAppPaths(projectId: string, files: ProjectFile[]): string[] {
     if (!folder || !fileName) {
       continue;
     }
+    if (isRetiredFinanceBudgetFolder(projectId, folder)) {
+      continue;
+    }
 
     const current = folders.get(folder) ?? { hasAgent: false, hasState: false, known: false };
     current.hasAgent ||= fileName === "AGENT.md";
     current.hasState ||= fileName === `${folder}.md`;
-    current.known ||= KNOWN_APP_FOLDERS.has(folder);
     folders.set(folder, current);
   }
 
@@ -179,6 +179,10 @@ function findAppPaths(projectId: string, files: ProjectFile[]): string[] {
     .filter(([, meta]) => meta.hasAgent || meta.hasState || meta.known)
     .map(([folder]) => folder)
     .sort((left, right) => appDisplayLabel(left).localeCompare(appDisplayLabel(right)));
+}
+
+function isRetiredFinanceBudgetFolder(projectId: string, folder: string): boolean {
+  return projectId === "finance" && folder.toLowerCase() === "budget";
 }
 
 function buildAppEntry(projectId: string, appPath: string, files: ProjectFile[]): SidebarAppEntry {
