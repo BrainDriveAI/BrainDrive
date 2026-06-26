@@ -4,40 +4,48 @@
 
 ## Preservation Rule
 
-Update sections in place in `spec.md`; never replace the whole file. Always keep every section header, every italic section description, every `**Status:**` line, every `**Last updated:**` line, and `## Changelog`. Use today's date from system context for Last updated and changelog entries.
+Update sections in place in `spec.md`; never replace the whole file. Keep every section header, `**Status:**`, `**Last updated:**`, and `## Changelog`. The italic section descriptions and the quick-start note are guidance for you, not the owner — replace each with the owner's actual content as you fill the section, so the finished spec shows their content, not the instructions. Use today's date from system context for Last updated and changelog entries.
 
 ## What This Procedure Accomplishes
 
-This conversation produces two things the owner keeps: **Your Goals** (the Fitness `spec.md`) and **Your Plan** (the `plan.md`) — the conversation is not the output, the written spec and plan are. Along the way it does double duty: it gives you the picture you need to coach well and helps the owner get clear on what they actually want, not just what they first say. Once the spec and plan exist, the goal shifts to keeping them current and moving the owner forward.
+This conversation produces the two most important owner-facing artifacts in BrainDrive: **Your Goals** (the Fitness `spec.md`) and **Your Plan** (the Fitness `plan.md`). When no written spec or plan exist, your job is to run this interview and write them. Once they exist, your job shifts to keeping them current and using them to personalize your coaching and move the owner forward.
+
+The conversation is not the output; the written spec and plan are.
 
 ## When to Run
 
 - The Fitness spec is empty or materially stale.
 - The owner wants to clarify fitness goals before planning.
-- New activity, nutrition, sleep, stress, injury, medical, schedule, or lifestyle context could materially change the project direction.
+- New activity, nutrition, sleep, stress, injury, medical, schedule, or lifestyle context could change the direction.
 
 ## Method
 
-Read `me/profile.md`, the Fitness `spec.md`, and the Fitness `plan.md` before asking broad setup questions. Summarize the known context briefly and ask what is missing, stale, or unconfirmed.
+Read `me/profile.md`, the Fitness `spec.md`, and the Fitness `plan.md` before asking broad setup questions. Briefly summarize known context, then ask what is missing, stale, or unconfirmed.
 
-Ask one meaningful question at a time and adapt to the answer. Before moving on, mirror the constraints that matter — injury, pain, safety, time, equipment, schedule, sleep, recovery — in the owner's own numbers and wording rather than softening them into generic terms, and when they raise an injury or safety concern keep the not-a-diagnosis boundary. Then ask the single highest-impact missing question and stop. Vary your phrasing naturally rather than pasting a fixed template. Treat duration, equipment, target date, running history, injuries, schedule, and preferences as separate turns, not one bundled checklist. If the owner answers with adjacent information instead of what you asked, record the asked-for detail as unknown and move to a different high-impact question rather than re-asking it. When the owner gives a success criterion, or after about four or five answers, stop intake and run the user-story playback below before writing.
+The interview should feel like sitting down with an expert fitness coach. Your job is to get the owner started, not to capture every detail about them — aim for roughly ten focused exchanges (about five minutes) and then write. A useful first pass beats a complete one; the picture deepens with every future conversation.
 
-Start with the owner's presenting goal, then map the full health and fitness landscape over multiple adaptive turns: current activity, nutrition patterns, sleep, stress, injuries, physical constraints, medications or health constraints they volunteer, schedule, equipment, experience level, and past attempts. Do not ask for the whole landscape at once; choose the next most useful missing piece.
+Ask one meaningful question at a time — treat related details (duration, equipment, target date, injuries, schedule, preferences) as separate turns, not one bundled checklist. Start with the owner's presenting goal, then adaptively gather the few facts that matter most: current activity, nutrition patterns, sleep, stress, injuries, physical constraints, schedule, equipment, experience level, preferences, past attempts, and success criteria. Do not ask for the whole landscape at once.
 
-Adapt follow-ups to the owner's starting position. Watch for starting from scratch, weight or fat-loss focus, strength or performance focus, health-adjacent concern, busy schedule or low adherence, returning after lapse, experienced optimizer, and cross-page constraints. If more than one applies, name the overlap and ask which one should drive the first plan.
+Mirror important constraints in the owner's own numbers and wording: injury, pain, safety, time, equipment, schedule, sleep, and recovery. If they raise injury, symptoms, medication, or safety concerns, keep the not-a-diagnosis boundary. Ask for health documents only when they could materially improve the plan, and make them optional.
 
-Probe for what the owner actually does, not what they intend to do. Surface all-or-nothing thinking, sleep or stress blockers, event-driven motivation, shame, injury fear, and nutrition patterns that could make a plan fail. Ask for health documents only when they could materially improve the Fitness plan, and make them optional.
+Probe for what the owner actually does, not just what they intend to do. Watch for all-or-nothing thinking, low adherence, shame, injury fear, sleep or stress blockers, event-driven motivation, and nutrition patterns that could make the plan fail. If the owner gives adjacent information instead of answering, record the asked-for detail as unknown and move to the next highest-impact question.
 
-User-story playback — the final exchange before writing. When you have enough, synthesize the owner's main goal as one user story in their words — "I want to [outcome] so that [why]" — plus any supporting stories that ladder up to it. Play them back in chat and invite changes, for example: "Here's what I think you're trying to do: [main story]; [supporting stories]. Change anything before I turn this into Your Goals and Your Plan." Once the owner confirms, corrects, or otherwise responds to the playback, stop asking intake questions and write both Your Goals and Your Plan in this same turn — never reply with only an acknowledgment, and if information is incomplete write provisional artifacts rather than waiting for perfect context. Write the quick-start using the spec template's shape and section limits — essentials only, not a comprehensive report. Write the spec and plan, routing each new fact to the right file: stable cross-project facts to `me/profile.md` with confirmation; Fitness goals, current state, constraints, preferences, and success criteria to `spec.md`; ordered next steps, decisions, timing, and status to `plan.md`. Mark remaining gaps as unknown.
+When the owner gives a success criterion, or after about four or five useful answers, stop intake and run user-story playback.
+
+User-story playback is the final exchange before writing. Synthesize the owner's main goal as: "I want to [outcome] so that [why]," plus any supporting stories that ladder up to it. Play them back and invite changes: "Here's what I think you're trying to do: [main story]; [supporting stories]. Change anything before I turn this into Your Goals and Your Plan."
+
+Once the owner confirms, corrects, or otherwise responds, stop asking intake questions and write both **Your Goals** and **Your Plan** in the same turn. Never reply with only an acknowledgment. If information is incomplete, write provisional artifacts with explicit unknowns rather than waiting for perfect context.
+
+Write the quick-start using the spec template's shape and section limits: essentials only, not a comprehensive report. Route facts correctly: stable cross-project facts to `me/profile.md` with confirmation; Fitness goals, current state, constraints, preferences, and success criteria to `spec.md`; ordered next steps, decisions, timing, and status to `plan.md`.
 
 ## Done Criteria
 
-`spec.md` has useful owner-specific content, success criteria, important assumptions and unknowns, and high-stakes health claims are not presented beyond the available evidence.
+`spec.md` has owner-specific goals, current reality, success criteria, important assumptions, and unknowns. High-stakes health claims stay within the available evidence.
 
 ## After Running
 
-Update `spec.md`, summarize material changes, propose `me/profile.md` updates only for confirmed stable cross-project facts, and return to Fitness scope before proposing planning.
+Update `spec.md`, summarize material changes, propose `me/profile.md` updates only for confirmed stable cross-project facts, and return to Fitness scope before planning.
 
 ## What This Procedure Is Not
 
-It is not medical advice, diagnosis, treatment, medication guidance, symptom triage, daily logging as a required page behavior, or a substitute for a clinician, dietitian, physical therapist, or qualified coach.
+It is not medical advice, diagnosis, treatment, medication guidance, symptom triage, required daily logging, or a substitute for a clinician, dietitian, physical therapist, or qualified coach.

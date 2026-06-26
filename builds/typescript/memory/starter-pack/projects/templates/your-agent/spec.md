@@ -2,7 +2,7 @@
 
 *Owner state for BrainDrive goals, preferences, trust requirements, and missing information.*
 
-*This is a scannable quick-start, not a report — aim to keep the whole thing under ~400 words. Capture the essentials in each section; mark the rest unknown rather than padding.*
+*This is a scannable quick-start, not a report — aim to keep the whole thing under ~500 words. Capture the essentials in each section; mark the rest unknown rather than padding.*
 
 **Status:** Starter template - no interview conducted yet
 

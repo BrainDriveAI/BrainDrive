@@ -4,7 +4,7 @@
 
 ## Preservation Rule
 
-Update sections in place in `spec.md`; never replace the whole file. Always keep every section header, every italic section description, every `**Status:**` line, every `**Last updated:**` line, and `## Changelog`. Use today's date from system context for Last updated and changelog entries.
+Update sections in place in `spec.md`; never replace the whole file. Keep every section header, `**Status:**`, `**Last updated:**`, and `## Changelog`. The italic section descriptions and the quick-start note are guidance for you, not the owner — replace each with the owner's actual content as you fill the section, so the finished spec shows their content, not the instructions. Use today's date from system context for Last updated and changelog entries.
 
 ## What This Procedure Accomplishes
 
