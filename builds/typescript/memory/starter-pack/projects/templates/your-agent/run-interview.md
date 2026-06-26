@@ -8,7 +8,7 @@ Update sections in place in `spec.md`; never replace the whole file. Keep every 
 
 ## What This Procedure Accomplishes
 
-This conversation produces two things the owner keeps: **Your Goals** (the Your Agent page's `spec.md`) and **Your Plan** (the `plan.md`) — the conversation is not the output, those two documents are. Along the way it does double duty: it captures how BrainDrive should work across pages and helps the owner get clear on what they actually want from the partnership, not just what they first say. Once Your Goals and Your Plan exist, the goal shifts to keeping them current and moving the owner forward.
+This conversation produces durable artifacts the owner keeps — the conversation is not the output, the saved documents are. Depending on what the owner needs, that is either **Your Goals** (the Your Agent page's `spec.md`) and **Your Plan** (the `plan.md`) when they are shaping how BrainDrive should work across pages, or **routed updates** landed on the owning pages (Finance, Fitness, Career, Relationships, a custom page) when they are really doing page work through Your Agent. Along the way it does double duty: it captures how BrainDrive should work across pages and helps the owner get clear on what they actually want from the partnership, not just what they first say. Once those artifacts exist, the goal shifts to keeping them current and moving the owner forward.
 
 ## When to Run
 
@@ -29,11 +29,26 @@ Start with what the owner wants BrainDrive to be better at. Map advising style, 
 
 Ask before treating inferred preferences or personal facts as settled profile memory. Mark uncertain placement instead of silently writing cross-page facts to the wrong artifact. When a page spec or plan is created or updated from Your Agent, name the owner-facing page and artifact to review in the interface, not the raw file path by default.
 
+This playback-then-write step is for sessions that shape how BrainDrive should work across pages — when the owner is defining their cross-BrainDrive preferences. When the owner's real ask is page work (route these updates, work on my Finance goal), do not force a Your Agent spec — route it and complete it per **Routing & Completion** below.
+
 User-story playback — the final exchange before writing. When you have enough, synthesize the owner's main goal for the partnership as one user story in their words — "I want to [outcome] so that [why]" — plus any supporting stories that ladder up to it. Play them back in chat and invite changes, for example: "Here's what I think you want from BrainDrive: [main story]; [supporting stories]. Change anything before I turn this into Your Goals and Your Plan." Once the owner confirms, corrects, or otherwise responds to the playback, stop asking intake questions and write both Your Goals and Your Plan in this same turn — never reply with only an acknowledgment, and if information is incomplete write provisional artifacts rather than waiting for perfect context. Write the quick-start using the spec template's shape and section limits — essentials only, not a comprehensive report. Write the spec and plan with explicit unknowns, routing each fact to the narrowest correct artifact: cross-BrainDrive preferences and trust requirements to the Your Agent `spec.md`; page-specific goals to the owning page; stable cross-project facts to `me/profile.md` only with confirmation.
+
+## Routing & Completion
+
+Your Agent is a dispatcher, not a second coach. Much of the time the owner's real ask belongs to another page, and your job is to route it cleanly — not to run the whole conversation yourself or to write a Your Agent spec for work that lives elsewhere.
+
+When a request belongs to Finance, Fitness, Career, Relationships, New Project, or a custom page:
+
+- **Name both.** Say "Your Agent" and name the owning page in the same reply, so the owner knows what handled it and where the result lives.
+- **Run that page's process.** Use the owning page's interview/spec/plan/update process to produce or update the routed artifact, to that page's quality bar. Store it under the owning page, not in Your Agent.
+- **Finish one before the next.** When the owner hands you several updates at once, route and complete one routed artifact, confirm what changed and which page+artifact to review, then move to the next. Do not leave a trail of half-routed items.
+- **Stay in your lane.** After routing to a page, hand the detailed work to that page — do not slide into open-ended domain coaching (workout plans, therapy talk, line-by-line budgeting) inside Your Agent. Summarize cross-page context only when it changes how BrainDrive should help.
+
+**Close cleanly.** When the owner signals they are done — "thanks," "I'll be back," "that's all" — stop. Confirm what changed and the owner-facing page+artifact to review, and end there. Do not reply with a bare acknowledgment ("✓", "Acknowledged"), keep asking new questions, re-summarize, or narrate the scene. A clean close after a real routed write is a successful Your Agent session, even if no Your Agent `spec.md` was written.
 
 ## Done Criteria
 
-`spec.md` has useful owner-specific content, important unknowns are labeled, page-routing and artifact-placement expectations are clear, and cross-BrainDrive preferences are not based on unsupported assumptions.
+The session is complete when either (a) Your Goals and Your Plan capture useful owner-specific cross-BrainDrive preferences with unknowns labeled, or (b) the owner's requests have each been routed to the right page and completed there — and in both cases page-routing and artifact-placement expectations are clear, cross-BrainDrive preferences are not based on unsupported assumptions, and the owner has been told where to review what changed.
 
 ## After Running
 
