@@ -7,12 +7,14 @@
 - Production release tooling now supports same-day patch package versions such as `26.6.23.1`, with matching package metadata and Docker release-script documentation. (`#173`)
 - Starter-pack project templates were simplified to remove child-app handoff language and persona-specific shortcut references, keeping the baseline owner-facing and aligned with the current product surface. (`#174`)
 - New OpenRouter users now default to `anthropic/claude-haiku-4.5`, while existing saved model preferences remain unchanged. (`#176`)
+- Finance statement uploads now stay in the parent Finance project and appear as ordinary uploaded files instead of Budget app source files.
 
 ### Fixed
 - Startup now lands on Your Agent by seeding the protected `braindrive-plus-one` project first for new memory layouts and repairing existing project manifests that are missing it. (`#175`)
 
 ### Removed
 - Removed stale child-app and persona-specific guidance from starter-pack templates now that those paths are not part of the current product surface. (`#174`)
+- Removed active Finance Budget app assumptions from runtime prompts, upload routing, starter-pack layout, migration handling, and web client labels.
 
 ## [26.06.23.1] - 2026-06-23
 

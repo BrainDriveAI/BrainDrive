@@ -231,8 +231,8 @@ Response example for `/api/projects/finance/files`:
     "path": "finance/spec.md"
   },
   {
-    "name": "budget/budget.md",
-    "path": "documents/finance/budget/budget.md"
+    "name": "2026-05-capital-one.md",
+    "path": "documents/finance/2026-05-capital-one.md"
   }
 ]
 ```
@@ -314,7 +314,7 @@ Uploads a document into a writable project folder and saves the result as markdo
 `braindrive-plus-one` is not a valid upload target. Markdown and text files are saved directly. CSV files are converted directly to markdown tables. Images and PDFs are converted to markdown through the configured provider before the markdown file is written.
 Successful uploads create or update the project's document index when that project uses one.
 
-Finance uploads include an additional metadata pass after conversion. Statement-like bank and credit card uploads may be saved under `documents/finance/budget/statements/` with a safe model-suggested filename such as `2026-05-capital-one.md`; those source uploads update `documents/finance/budget/statements/README.md`, and the final response path is authoritative.
+Finance uploads include an additional metadata pass after conversion. Statement-like bank and credit card uploads are saved in the parent Finance project folder with a safe model-suggested filename such as `2026-05-capital-one.md`; those uploads update the normal `documents/finance/index.md`, and the final response path is authoritative.
 
 Supported inputs:
 
@@ -346,13 +346,13 @@ Request body:
 }
 ```
 
-CSV uploads return `conversion: "direct_csv_upload"`. A Finance statement upload can instead return a nested path:
+CSV uploads return `conversion: "direct_csv_upload"`. A Finance statement upload can return a statement-derived filename in the parent Finance folder:
 
 ```json
 {
   "file": {
     "name": "2026-05-capital-one.md",
-    "path": "documents/finance/budget/statements/2026-05-capital-one.md"
+    "path": "documents/finance/2026-05-capital-one.md"
   },
   "conversion": "direct_csv_upload"
 }

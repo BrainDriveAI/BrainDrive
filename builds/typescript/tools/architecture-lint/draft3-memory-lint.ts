@@ -79,8 +79,8 @@ const FINANCE_REQUIRED_MARKERS: Array<{ file: string; marker: string; descriptio
   },
   {
     file: "AGENT.md",
-    marker: "Child apps own specialized execution work",
-    description: "Finance child-app execution boundary",
+    marker: "page-level action",
+    description: "Finance page-level execution boundary",
   },
   {
     file: "spec.md",
@@ -104,8 +104,8 @@ const FINANCE_REQUIRED_MARKERS: Array<{ file: string; marker: string; descriptio
   },
   {
     file: "plan.md",
-    marker: "## Child-App Handoffs",
-    description: "Finance child-app handoff section",
+    marker: "## Review Status",
+    description: "Finance review status section",
   },
   {
     file: "plan.md",
@@ -119,8 +119,8 @@ const FINANCE_REQUIRED_MARKERS: Array<{ file: string; marker: string; descriptio
   },
   {
     file: "run-planning.md",
-    marker: "Route to a child app only",
-    description: "Finance child-app routing gate",
+    marker: "return to Finance scope",
+    description: "Finance page-level execution boundary",
   },
 ];
 
@@ -143,13 +143,13 @@ const SURFACE_REQUIRED_MARKERS: Record<string, Array<{ file: string; marker: str
     },
     {
       file: "plan.md",
-      marker: "## Child-App Handoffs",
-      description: "Career child-app handoff section",
+      marker: "## Review Status",
+      description: "Career review status section",
     },
     {
       file: "run-planning.md",
-      marker: "Route to a child app only",
-      description: "Career child-app routing gate",
+      marker: "Keep all execution work at the page level as a manual step",
+      description: "Career page-level execution boundary",
     },
   ],
   fitness: [
@@ -170,13 +170,13 @@ const SURFACE_REQUIRED_MARKERS: Record<string, Array<{ file: string; marker: str
     },
     {
       file: "plan.md",
-      marker: "## Child-App Handoffs",
-      description: "Fitness child-app handoff section",
+      marker: "## Review Status",
+      description: "Fitness review status section",
     },
     {
       file: "run-planning.md",
-      marker: "Route to a child app only",
-      description: "Fitness child-app routing gate",
+      marker: "Keep all execution work at the page level as a manual step",
+      description: "Fitness page-level execution boundary",
     },
   ],
   "new-project": [
@@ -224,13 +224,13 @@ const SURFACE_REQUIRED_MARKERS: Record<string, Array<{ file: string; marker: str
     },
     {
       file: "plan.md",
-      marker: "## Child-App Handoffs",
-      description: "Relationships child-app handoff section",
+      marker: "## Review Status",
+      description: "Relationships review status section",
     },
     {
       file: "run-planning.md",
-      marker: "Route to a child app only",
-      description: "Relationships child-app routing gate",
+      marker: "Keep all execution work at the page level as a manual step",
+      description: "Relationships page-level execution boundary",
     },
   ],
 };
@@ -252,9 +252,6 @@ export async function lintDraft3MemoryStarterPack(starterPackRoot: string): Prom
   }
 
   const projectSeeds = await readOptional(path.join(starterPackRoot, "projects", "projects.seed.json"));
-  if (projectSeeds !== null && /"id"\s*:\s*"braindrive-plus-one"/.test(projectSeeds)) {
-    errors.push("BrainDrive+1 must not be seeded as a normal project");
-  }
   if (projectSeeds !== null) {
     const seededProjectIds = parseProjectSeedIds(projectSeeds);
     if (seededProjectIds === null) {

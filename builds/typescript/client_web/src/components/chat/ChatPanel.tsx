@@ -520,7 +520,7 @@ export default function ChatPanel({
       }
     }
 
-    lines.push("", "Please acknowledge the uploaded statement evidence and update the received/missing checklist for the budget setup before continuing.");
+    lines.push("", "Please acknowledge the uploaded file evidence and use it for this project only when it is relevant.");
     return lines.join("\n");
   }
 

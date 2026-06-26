@@ -118,15 +118,6 @@ function appIntro(appPath: string): ProjectIntro {
     .replace(/[_-]+/g, " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 
-  if (appName === "budget") {
-    return {
-      heading: "Let's work on your budget",
-      description:
-        "Ask about your saved budget, uploaded statements, spending progress, or the next budget report.",
-      cta: "Review my budget"
-    };
-  }
-
   return {
     heading: `Let's work on your ${label.toLowerCase()}`,
     description: "Ask a focused question for this part of the project.",

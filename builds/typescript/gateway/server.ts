@@ -47,8 +47,7 @@ import type {
   GatewayEngineRequest,
   InstallLocation,
   Preferences,
-  RuntimeConfig,
-  ToolExecutionResult
+  RuntimeConfig
 } from "../contracts.js";
 import { runAgentLoop, type ToolExecutionGuard } from "../engine/loop.js";
 import { classifyProviderError } from "../engine/errors.js";
@@ -70,7 +69,6 @@ import {
   readMemoryUpdateReport,
   runAutomaticMemoryUpdate,
 } from "../memory/update-prompting.js";
-import { canWriteGeneratedReportArchive } from "../memory/brain-drive-layout.js";
 import {
   createSupportBundle,
   listSupportBundles,
@@ -2469,8 +2467,7 @@ export async function buildServer(rootDir = process.cwd()) {
       );
       const importedAt = new Date().toISOString();
       const markdown = buildUploadedMarkdownDocument(uploadInput, converted, { importedAt, metadata });
-      const uploadDirectory = project.id === "finance" && metadata.statementLike ? "budget/statements" : undefined;
-      const preferredFileName = uploadDirectory
+      const preferredFileName = project.id === "finance" && metadata.statementLike
         ? sanitizeSuggestedMarkdownFileName(metadata.suggestedFileName, parsed.data.file_name)
         : undefined;
       const file = await projects.createUploadedMarkdownFile(
@@ -2478,7 +2475,6 @@ export async function buildServer(rootDir = process.cwd()) {
         parsed.data.file_name,
         markdown,
         {
-          directory: uploadDirectory,
           preferredFileName,
           indexEntry: (filePath, fileName) => {
             const entry = buildUploadedDocumentIndexEntry(
@@ -2507,7 +2503,7 @@ export async function buildServer(rootDir = process.cwd()) {
           ...file,
           ownerLabel: ownerUploadLabel(parsed.data.file_name, metadata),
           statementMonth: metadata.statementMonth ? readableYearMonth(metadata.statementMonth) : null,
-          destinationLabel: uploadDirectory ? "Budget statements" : project.name,
+          destinationLabel: project.name,
           sourceType: ownerSourceType(metadata),
           accountName: metadata.institution,
         },
@@ -3399,50 +3395,15 @@ export function buildProjectChatContext(
   files: GatewayProjectFile[],
   options: { appPath?: string | null } = {}
 ): string {
-  const sortedFiles = [...files].sort((left, right) => left.name.localeCompare(right.name));
+  const sortedFiles = files
+    .filter((file) => !isRetiredBudgetArchiveContextFile(projectId, file))
+    .sort((left, right) => left.name.localeCompare(right.name));
   const visibleFiles = sortedFiles.slice(0, 80);
   const omittedCount = Math.max(0, sortedFiles.length - visibleFiles.length);
   const hasIndex = sortedFiles.some((file) => file.name === "index.md" || file.path === `documents/${projectId}/index.md`);
   const appPath = normalizeProjectRelativePath(options.appPath ?? null);
-  const appContextGuidance = appPath
+  const appContextGuidance = appPath && !(projectId === "finance" && appPath === "budget")
     ? buildAppChatContextGuidance(projectId, appPath, sortedFiles)
-    : [];
-  const financeBudgetGuidance = projectId === "finance"
-    ? [
-        "Read documents/finance/AGENT.md, then documents/finance/AGENT-user.md if present. For project alignment, read documents/finance/spec.md and documents/finance/plan.md.",
-        "For budget work, read documents/finance/budget/AGENT.md, then documents/finance/budget/AGENT-user.md if present.",
-        "For budgeting questions, read documents/finance/budget/budget.md, documents/finance/budget/budget-rules.md, and documents/finance/budget/budget-rules-user.md when present.",
-        "For a Budget procedure, read the managed procedure first, then the matching -user.md overlay if present, such as compare.md before compare-user.md.",
-        "For explicit Finance execution requests about budgets, debt, uploads, statements, spending, or reports, complete the Finance task before coaching or cross-domain discussion.",
-        "When asking the owner for statements or supporting documents, ask them to attach files in chat or use the visible upload button. Do not ask the owner to manually place files into documents/finance/... paths.",
-        "For 'how did I do?', monthly comparison, over/under, or budget progress questions, treat documents/finance/budget/budget.md as the saved budget and compare statement actuals against it.",
-        "Use documents/finance/budget/statements/ as source evidence and documents/finance/budget/reports/ as derived output for budget reports.",
-        "Maintain a visible received/missing statement checklist during budget setup, grounded in uploaded source evidence and statement metadata. Do not proceed to a statement-backed baseline until required evidence is present or the owner approves a partial baseline.",
-        "Do not write to documents/finance/budget/budget.md during a saved-budget comparison unless the owner explicitly asks to revise the saved budget.",
-        "During saved-budget comparison mode, do not call memory_write, memory_edit, or memory_delete on documents/finance/budget/budget.md; write comparison output only to documents/finance/budget/reports/latest.md or a closed-period reports file.",
-        "Preserve documents/finance/budget/budget.md byte-for-byte during saved-budget comparisons. Do not make formatting-only, table-alignment, whitespace, note, category, or no-op rewrites.",
-        "If the owner says to leave the saved budget alone, not rewrite the saved budget, or compare against the saved budget, documents/finance/budget/budget.md is read-only for that turn.",
-        "If you are about to write documents/finance/budget/budget.md during a comparison, stop and write the comparison findings to documents/finance/budget/reports/latest.md instead.",
-        "Put saved-budget comparison findings in documents/finance/budget/reports/latest.md; answer direct comparison questions with best-effort evidence before asking extra clarification questions.",
-        "Do not write a monthly archive such as documents/finance/budget/reports/monthly-YYYY-MM.md until today's date is after the reported month has closed.",
-        "Check for duplicate or overlapping statement evidence before counting transactions in budget reports.",
-        "Before writing a budget comparison report, re-read the relevant statement files, build a source evidence ledger, account for named merchants, and do not claim a merchant is missing unless the relevant source files were checked.",
-        "For monthly comparisons, read statement files whose date range overlaps the requested month even if the filename uses the starting month, ending month, account name, or converted upload name.",
-        "If an upload was just mentioned but the expected filename is not visible, call memory_list on documents/finance/budget and documents/finance/budget/statements and search converted statement filenames/date ranges before asking the owner to re-upload.",
-        "Treat source evidence ledger rows as locked evidence for the comparison turn; if a found item is named by the owner, new/unusual, material, excluded, or needs review, carry it into the final report.",
-        "Before finalizing reports/latest.md, verify that every owner-named item found in source statements appears by exact statement description in the final report; if it is absent, revise the report before answering.",
-        "If the owner mentions a named merchant or transaction, search source statements for that exact item and close variants before answering; if source evidence shows it, do not accept a later conversational guess that it was absent.",
-        "For monthly comparisons, extract owner-requested merchant, item, trip, bill, and transaction names from the current request and recent follow-ups, then include an Owner-Requested Items Audit in reports/latest.md.",
-        "The Owner-Requested Items Audit must list each requested item, search result, sources checked, exact source match, amount, date, and final report treatment. If a requested item is not found, say which source files/date ranges were checked; if uncertain, mark Needs Review instead of omitting it.",
-        "Every found owner-requested item must appear both in the audit and in a final treatment section such as New Or Unbudgeted Items, Category Breakdown, Excluded From Expense Totals, or Needs Review.",
-        "Before answering, compare the Owner-Requested Items Audit rows against the final report sections and revise reports/latest.md if any found or needs-review owner-requested item is missing from its treatment section.",
-        "Every monthly comparison report must include a New Or Unbudgeted Items section for new, unusual, travel, lodging, vacation, entertainment, shopping, or unclear merchants, even when the overall month is under budget.",
-        "If source evidence includes travel, lodging, trip, weekend, vacation, airline, rental, large discretionary, or otherwise unusual charges, list the exact transaction description, amount, date, account/source, and likely category.",
-        "Budget report summaries must agree with their category tables and must list excluded payments, transfers, refunds, fees, and investment movement separately from ordinary spending.",
-        "Every monthly comparison report must include a literal 'Excluded From Expense Totals' section with a table of Type, Payee/Account, Amount, Source, and Why Excluded.",
-        "When source statements include credit-card or debt payments, list those rows by source payee/account in Excluded From Expense Totals as debt payments/transfers, not ordinary spending; list interest or finance charges separately.",
-        "Relationship context can be noted briefly after the requested Finance artifact, but never pause, stop, or redirect unfinished budget, statement, debt, upload, or report work to the Relationships project.",
-      ]
     : [];
   const fileList = visibleFiles.length > 0
     ? visibleFiles.map((file) => `- ${file.path}`).join("\n")
@@ -3459,11 +3420,10 @@ export function buildProjectChatContext(
     `You are currently in the **${projectId}** project.`,
     `Read this project's AGENT.md, then AGENT-user.md if present, followed by spec.md and plan.md from the documents/${projectId}/ folder.`,
     projectId === "finance"
-      ? "Finance uses Draft 3 app folders and reference folders; do not rely on documents/finance/index.md, documents/finance/rules.md, or documents/finance/budgeting/ as active product paths."
+      ? "For Finance project alignment, use documents/finance/AGENT.md, AGENT-user.md if present, spec.md, plan.md, run-interview.md, and run-planning.md."
       : hasIndex
       ? `Read documents/${projectId}/index.md before deciding which supporting documents to open. It is this folder's document map.`
       : `If documents/${projectId}/index.md appears later in the file list, read it before deciding which supporting documents to open.`,
-    ...financeBudgetGuidance,
     ...appContextGuidance,
     "Stay focused on this domain; do not read or reference other projects unless the conversation specifically calls for cross-domain connections.",
     `For project alignment or planning turns in ${projectId}, do not only answer in chat. Once the owner provides usable facts, update documents/${projectId}/spec.md and/or documents/${projectId}/plan.md with owner-specific content using memory_edit or memory_write.`,
@@ -3481,6 +3441,10 @@ export function buildProjectChatContext(
     `For delete requests in this project, prefer exact paths under documents/${projectId}/ and call memory_delete when a matching file exists.`,
     "If the current list is ambiguous or incomplete, call memory_list before claiming the file cannot be found.",
   ].join("\n");
+}
+
+function isRetiredBudgetArchiveContextFile(projectId: string, file: GatewayProjectFile): boolean {
+  return projectId === "finance" && /^documents\/finance\/archive\/retired-budget(?:\/|$)/i.test(file.path);
 }
 
 export function buildProjectConversationGuard(projectId: string, conversation: ConversationDetail | null): string {
@@ -4340,191 +4304,13 @@ function hashText(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
-const FINANCE_BUDGET_PROTECTED_PATH = "documents/finance/budget/budget.md";
-const FINANCE_BUDGET_MUTATION_TOOLS = new Set(["memory_write", "memory_edit", "memory_delete"]);
-
 export function createBrainDriveMemorySafetyGuard(
   projectId: string | null,
   conversation: ConversationDetail | null
 ): ToolExecutionGuard {
-  const financeBudgetGuard = createFinanceBudgetProtectionGuard(projectId, conversation);
-
-  return (toolName, input) => {
-    const reportArchiveResult = guardGeneratedReportArchiveWrite(toolName, input);
-    if (reportArchiveResult) {
-      return reportArchiveResult;
-    }
-
-    return financeBudgetGuard?.(toolName, input) ?? null;
-  };
-}
-
-export function createFinanceBudgetProtectionGuard(
-  projectId: string | null,
-  conversation: ConversationDetail | null
-): ToolExecutionGuard | undefined {
-  if (projectId !== "finance" || !conversationHasSavedBudgetComparison(conversation)) {
-    return undefined;
-  }
-
-  const latestUserMessage = latestUserMessageContent(conversation);
-  if (latestUserMessage && isExplicitSavedBudgetRevisionRequest(latestUserMessage)) {
-    return undefined;
-  }
-
-  return (toolName, input) => {
-    if (!isProtectedFinanceBudgetMutation(toolName, input)) {
-      return null;
-    }
-
-    const output = {
-      code: "permission_denied",
-      message:
-        "documents/finance/budget/budget.md is read-only during a saved-budget comparison. Read it for saved limits and write comparison findings to documents/finance/budget/reports/latest.md instead. Only revise the saved budget when the owner explicitly asks to change the budget.",
-      path: FINANCE_BUDGET_PROTECTED_PATH,
-      recoverable: true,
-    };
-
-    return {
-      status: "error",
-      output,
-      recoverable: true,
-    } satisfies ToolExecutionResult;
-  };
-}
-
-export function isProtectedFinanceBudgetMutation(toolName: string, input: Record<string, unknown>): boolean {
-  if (!FINANCE_BUDGET_MUTATION_TOOLS.has(toolName)) {
-    return false;
-  }
-
-  return normalizeMemoryRelativePath(input.path) === FINANCE_BUDGET_PROTECTED_PATH;
-}
-
-function guardGeneratedReportArchiveWrite(toolName: string, input: Record<string, unknown>): ToolExecutionResult | null {
-  if (!FINANCE_BUDGET_MUTATION_TOOLS.has(toolName)) {
-    return null;
-  }
-
-  const targetPath = normalizeMemoryRelativePath(input.path);
-  const archiveCheck = canWriteGeneratedReportArchive(targetPath);
-  if (archiveCheck.allowed) {
-    return null;
-  }
-
-  return {
-    status: "error",
-    output: {
-      code: "permission_denied",
-      message: archiveCheck.reason ?? "Generated report archive write is not allowed for this path.",
-      path: targetPath,
-      recoverable: true,
-    },
-    recoverable: true,
-  };
-}
-
-export function conversationHasSavedBudgetComparison(conversation: ConversationDetail | null): boolean {
-  if (!conversation) {
-    return false;
-  }
-
-  return conversation.messages
-    .filter((message) => message.role === "user")
-    .slice(-12)
-    .some((message) => isSavedBudgetComparisonRequest(message.content));
-}
-
-function latestUserMessageContent(conversation: ConversationDetail | null): string | null {
-  if (!conversation) {
-    return null;
-  }
-
-  for (let index = conversation.messages.length - 1; index >= 0; index -= 1) {
-    const message = conversation.messages[index];
-    if (message.role === "user") {
-      return message.content;
-    }
-  }
-
-  return null;
-}
-
-function isSavedBudgetComparisonRequest(content: string): boolean {
-  const text = normalizeComparisonText(content);
-  if (!text) {
-    return false;
-  }
-
-  if (
-    text.includes("do not rewrite the saved budget") ||
-    text.includes("dont rewrite the saved budget") ||
-    text.includes("leave the saved budget alone") ||
-    text.includes("saved budget alone")
-  ) {
-    return true;
-  }
-
-  const savedBudgetCue =
-    text.includes("saved budget") ||
-    text.includes("budget md") ||
-    text.includes("documents finance budget md") ||
-    text.includes("saved limits");
-  const comparisonCue =
-    text.includes("how did i do") ||
-    text.includes("compare") ||
-    text.includes("comparison") ||
-    text.includes("actual spending") ||
-    text.includes("over under") ||
-    text.includes("over budget") ||
-    text.includes("under budget") ||
-    text.includes("variance") ||
-    text.includes("against the saved limits") ||
-    text.includes("against saved limits");
-
-  return savedBudgetCue && comparisonCue;
-}
-
-function isExplicitSavedBudgetRevisionRequest(content: string): boolean {
-  const text = normalizeComparisonText(content);
-  if (!text || text.includes("do not") || text.includes("dont") || text.includes("leave")) {
-    return false;
-  }
-
-  const budgetCue = text.includes("budget") || text.includes("budget md") || text.includes("saved plan");
-  const revisionCue =
-    text.includes("change") ||
-    text.includes("revise") ||
-    text.includes("update") ||
-    text.includes("edit") ||
-    text.includes("rewrite") ||
-    text.includes("replace") ||
-    text.includes("set the limit") ||
-    text.includes("set my limit");
-
-  return budgetCue && revisionCue;
-}
-
-function normalizeComparisonText(content: string): string {
-  return content
-    .toLowerCase()
-    .replace(/[`'"]/g, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function normalizeMemoryRelativePath(value: unknown): string {
-  if (typeof value !== "string") {
-    return "";
-  }
-
-  let normalized = value.trim().replace(/\\/g, "/");
-  while (normalized.startsWith("./")) {
-    normalized = normalized.slice(2);
-  }
-  normalized = normalized.replace(/^\/+/, "");
-  return path.posix.normalize(normalized);
+  void projectId;
+  void conversation;
+  return () => null;
 }
 
 if (isDirectEntrypoint(process.argv[1], import.meta.url)) {

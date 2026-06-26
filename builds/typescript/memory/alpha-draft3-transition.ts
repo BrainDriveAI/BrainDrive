@@ -1,6 +1,6 @@
 import path from "node:path";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 
 import { commitMemoryChange, exportMemoryArchive } from "../git.js";
 import { resolveMemoryPath } from "./paths.js";
@@ -41,78 +41,75 @@ const TRANSITION_ID = "draft3-memory-alpha";
 const PLAN_PATH = `system/updates/plans/${TRANSITION_ID}.json`;
 const REPORT_PATH = `system/updates/reports/${TRANSITION_ID}.md`;
 const BACKUP_PATH = `system/updates/backups/${TRANSITION_ID}.tar.gz`;
-const ARCHIVE_ROOT = `system/updates/pre-draft3-layout/${TRANSITION_ID}`;
+const ACTIVE_BUDGET_ROOT = "documents/finance/budget";
+const RETIRED_BUDGET_ARCHIVE_ROOT = "documents/finance/archive/retired-budget";
+const RETIRED_BUDGET_README = `${RETIRED_BUDGET_ARCHIVE_ROOT}/README.md`;
 
-const LEGACY_FINANCE_PATHS = [
-  "documents/finance/budget.md",
-  "documents/finance/rules.md",
-  "documents/finance/budgeting/first-pass-budget.md",
-  "documents/finance/budgeting/monthly-comparison.md",
-  "documents/finance/budgeting/source-evidence.md",
-  "documents/finance/budgeting/report-contract.md",
-  "documents/finance/budgeting/saved-budget-rules.md",
-  "documents/finance/budgeting/index.md",
-  "documents/finance/index.md",
-  "documents/finance/statements/README.md",
-  "documents/finance/reports/README.md",
-  "documents/finance/reports/latest.md",
+const PRE_DRAFT_BUDGET_ARCHIVE_PATHS = [
+  {
+    from: "documents/finance/budget.md",
+    to: `${RETIRED_BUDGET_ARCHIVE_ROOT}/pre-draft/budget.md`,
+  },
+  {
+    from: "documents/finance/rules.md",
+    to: `${RETIRED_BUDGET_ARCHIVE_ROOT}/pre-draft/rules.md`,
+  },
+  {
+    from: "documents/finance/budgeting/first-pass-budget.md",
+    to: `${RETIRED_BUDGET_ARCHIVE_ROOT}/pre-draft/budgeting/first-pass-budget.md`,
+  },
+  {
+    from: "documents/finance/budgeting/monthly-comparison.md",
+    to: `${RETIRED_BUDGET_ARCHIVE_ROOT}/pre-draft/budgeting/monthly-comparison.md`,
+  },
+  {
+    from: "documents/finance/budgeting/source-evidence.md",
+    to: `${RETIRED_BUDGET_ARCHIVE_ROOT}/pre-draft/budgeting/source-evidence.md`,
+  },
+  {
+    from: "documents/finance/budgeting/report-contract.md",
+    to: `${RETIRED_BUDGET_ARCHIVE_ROOT}/pre-draft/budgeting/report-contract.md`,
+  },
+  {
+    from: "documents/finance/budgeting/saved-budget-rules.md",
+    to: `${RETIRED_BUDGET_ARCHIVE_ROOT}/pre-draft/budgeting/saved-budget-rules.md`,
+  },
+  {
+    from: "documents/finance/budgeting/index.md",
+    to: `${RETIRED_BUDGET_ARCHIVE_ROOT}/pre-draft/budgeting/index.md`,
+  },
+  {
+    from: "documents/finance/statements/README.md",
+    to: `${RETIRED_BUDGET_ARCHIVE_ROOT}/pre-draft/statements/README.md`,
+  },
+  {
+    from: "documents/finance/reports/README.md",
+    to: `${RETIRED_BUDGET_ARCHIVE_ROOT}/pre-draft/reports/README.md`,
+  },
+  {
+    from: "documents/finance/reports/latest.md",
+    to: `${RETIRED_BUDGET_ARCHIVE_ROOT}/pre-draft/reports/latest.md`,
+  },
 ] as const;
 
 export async function buildAlphaDraft3TransitionPlan(memoryRoot: string): Promise<AlphaDraft3TransitionPlan> {
   const detectedLayout = detectFinanceLayout(memoryRoot);
   const items: AlphaDraft3TransitionItem[] = [];
 
-  if (detectedLayout === "pre_draft3_finance") {
-    await addCopyIfSourceExists(memoryRoot, items, {
-      from: "documents/finance/budget.md",
-      to: "documents/finance/budget/budget.md",
-      reason: "Move saved budget state into the Draft 3 Budget app state artifact.",
-    });
-    await addCopyIfSourceExists(memoryRoot, items, {
-      from: "documents/finance/rules.md",
-      to: "documents/finance/budget/budget-rules-user.md",
-      reason: "Preserve owner-approved accumulated rules in the owner rule overlay.",
-    });
-    await addCopyIfSourceExists(memoryRoot, items, {
-      from: "documents/finance/budgeting/first-pass-budget.md",
-      to: "documents/finance/budget/create-user.md",
-      reason: "Preserve customized legacy create-budget procedure guidance as an owner overlay.",
-    });
-    await addCopyIfSourceExists(memoryRoot, items, {
-      from: "documents/finance/budgeting/monthly-comparison.md",
-      to: "documents/finance/budget/compare-user.md",
-      reason: "Preserve customized legacy comparison procedure guidance as an owner overlay.",
+  const activeBudgetFiles = await collectRelativeFiles(memoryRoot, ACTIVE_BUDGET_ROOT);
+  for (const activeBudgetFile of activeBudgetFiles) {
+    items.push({
+      from_path: activeBudgetFile,
+      to_path: retiredBudgetTargetForActivePath(activeBudgetFile),
+      action: "archive",
+      reason: "Archive retired Finance Budget app content as historical owner data.",
     });
   }
 
-  await addCopyIfSourceExists(memoryRoot, items, {
-    from: "documents/finance/statements/README.md",
-    to: "documents/finance/budget/statements/README.md",
-    reason: "Move Budget source evidence folder contract under the Budget app.",
-  });
-  await addCopyIfSourceExists(memoryRoot, items, {
-    from: "documents/finance/reports/README.md",
-    to: "documents/finance/budget/reports/README.md",
-    reason: "Move Budget report folder contract under the Budget app.",
-  });
-  await addCopyIfSourceExists(memoryRoot, items, {
-    from: "documents/finance/reports/latest.md",
-    to: "documents/finance/budget/reports/latest.md",
-    reason: "Move latest Budget comparison output under the Budget app.",
-  });
-
-  for (const legacyPath of LEGACY_FINANCE_PATHS) {
-    if (!existsSync(resolveMemoryPath(memoryRoot, legacyPath))) {
-      continue;
-    }
-    if (items.some((item) => item.from_path === legacyPath)) {
-      continue;
-    }
-    items.push({
-      from_path: legacyPath,
-      to_path: `${ARCHIVE_ROOT}/${legacyPath}`,
-      action: "owner_review",
-      reason: "Legacy content may be useful but does not have a deterministic Draft 3 destination.",
+  for (const legacyPath of PRE_DRAFT_BUDGET_ARCHIVE_PATHS) {
+    await addArchiveIfSourceExists(memoryRoot, items, {
+      ...legacyPath,
+      reason: "Archive retired pre-Draft-3 Budgetting content as historical owner data.",
     });
   }
 
@@ -121,7 +118,9 @@ export async function buildAlphaDraft3TransitionPlan(memoryRoot: string): Promis
     transition_id: TRANSITION_ID,
     detected_layout: detectedLayout,
     items,
-    review_paths: items.filter((item) => item.action === "owner_review").map((item) => item.from_path),
+    review_paths: items
+      .filter((item) => item.action === "archive" && item.to_path)
+      .map((item) => item.to_path as string),
     generated_at: new Date().toISOString(),
   };
 }
@@ -144,39 +143,39 @@ export async function applyAlphaDraft3Transition(memoryRoot: string): Promise<Al
   await mkdir(path.dirname(planPath), { recursive: true });
   await writeFile(planPath, `${JSON.stringify(plan, null, 2)}\n`, "utf8");
 
-  const applicable = plan.items.filter((item) => item.action === "copy" && item.to_path);
-  const backupPath = applicable.length > 0 || plan.review_paths.length > 0
+  const archiveItems = plan.items.filter((item) => item.action === "archive" && item.to_path);
+  const backupPath = plan.review_paths.length > 0
     ? await createTransitionBackup(memoryRoot)
     : null;
   const appliedPaths: string[] = [];
   const archivedPaths: string[] = [];
 
-  for (const item of applicable) {
+  for (const item of archiveItems) {
     if (!item.to_path) {
       continue;
     }
     const sourcePath = resolveMemoryPath(memoryRoot, item.from_path);
-    const targetPath = resolveMemoryPath(memoryRoot, item.to_path);
-    if (existsSync(targetPath)) {
-      continue;
-    }
-    const content = await readFile(sourcePath, "utf8");
-    await mkdir(path.dirname(targetPath), { recursive: true });
-    await writeFile(targetPath, normalizeFileContent(content), "utf8");
-    appliedPaths.push(item.to_path);
-  }
-
-  for (const legacyPath of LEGACY_FINANCE_PATHS) {
-    const sourcePath = resolveMemoryPath(memoryRoot, legacyPath);
     if (!existsSync(sourcePath)) {
       continue;
     }
-    const archiveRelativePath = `${ARCHIVE_ROOT}/${legacyPath}`;
+    const content = await readFile(sourcePath);
+    const archiveRelativePath = await resolveArchiveTarget(memoryRoot, item.to_path, content, item.from_path);
     const archivePath = resolveMemoryPath(memoryRoot, archiveRelativePath);
-    await mkdir(path.dirname(archivePath), { recursive: true });
-    await writeFile(archivePath, await readFile(sourcePath, "utf8"), "utf8");
+    if (!existsSync(archivePath)) {
+      await mkdir(path.dirname(archivePath), { recursive: true });
+      await writeFile(archivePath, content);
+    }
     await rm(sourcePath, { force: true });
     archivedPaths.push(archiveRelativePath);
+  }
+
+  if (archiveItems.length > 0) {
+    await rm(resolveMemoryPath(memoryRoot, ACTIVE_BUDGET_ROOT), { recursive: true, force: true });
+    if (!existsSync(resolveMemoryPath(memoryRoot, RETIRED_BUDGET_README))) {
+      await mkdir(path.dirname(resolveMemoryPath(memoryRoot, RETIRED_BUDGET_README)), { recursive: true });
+      await writeFile(resolveMemoryPath(memoryRoot, RETIRED_BUDGET_README), retiredBudgetReadme(), "utf8");
+      archivedPaths.push(RETIRED_BUDGET_README);
+    }
   }
 
   const reportPath = await writeTransitionReport(memoryRoot, plan, {
@@ -213,7 +212,7 @@ function detectFinanceLayout(memoryRoot: string): AlphaDraft3TransitionPlan["det
   return "unknown_or_not_seeded";
 }
 
-async function addCopyIfSourceExists(
+async function addArchiveIfSourceExists(
   memoryRoot: string,
   items: AlphaDraft3TransitionItem[],
   input: {
@@ -226,12 +225,65 @@ async function addCopyIfSourceExists(
     return;
   }
 
+  if (items.some((item) => item.from_path === input.from)) {
+    return;
+  }
+
   items.push({
     from_path: input.from,
     to_path: input.to,
-    action: existsSync(resolveMemoryPath(memoryRoot, input.to)) ? "no_change" : "copy",
+    action: "archive",
     reason: input.reason,
   });
+}
+
+async function collectRelativeFiles(memoryRoot: string, relativeRoot: string): Promise<string[]> {
+  const absoluteRoot = resolveMemoryPath(memoryRoot, relativeRoot);
+  if (!existsSync(absoluteRoot)) {
+    return [];
+  }
+
+  const files: string[] = [];
+  const visit = async (absoluteDirectory: string, relativeDirectory: string): Promise<void> => {
+    const entries = await readdir(absoluteDirectory, { withFileTypes: true });
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      const absolutePath = path.join(absoluteDirectory, entry.name);
+      const relativePath = `${relativeDirectory}/${entry.name}`;
+      if (entry.isDirectory()) {
+        await visit(absolutePath, relativePath);
+      } else if (entry.isFile()) {
+        files.push(relativePath.replace(/\\/g, "/"));
+      }
+    }
+  };
+
+  await visit(absoluteRoot, relativeRoot);
+  return files;
+}
+
+function retiredBudgetTargetForActivePath(relativePath: string): string {
+  const activeRelativePath = relativePath.slice(`${ACTIVE_BUDGET_ROOT}/`.length);
+  const archiveRelativePath = activeRelativePath === "README.md" ? "original-README.md" : activeRelativePath;
+  return `${RETIRED_BUDGET_ARCHIVE_ROOT}/${archiveRelativePath}`;
+}
+
+async function resolveArchiveTarget(
+  memoryRoot: string,
+  preferredTarget: string,
+  content: Buffer,
+  sourcePath: string
+): Promise<string> {
+  const targetPath = resolveMemoryPath(memoryRoot, preferredTarget);
+  if (!existsSync(targetPath)) {
+    return preferredTarget;
+  }
+
+  const existing = await readFile(targetPath);
+  if (existing.equals(content)) {
+    return preferredTarget;
+  }
+
+  return `${RETIRED_BUDGET_ARCHIVE_ROOT}/conflicts/${sourcePath}`;
 }
 
 async function createTransitionBackup(memoryRoot: string): Promise<string> {
@@ -257,13 +309,13 @@ async function writeTransitionReport(
     `Detected layout: ${plan.detected_layout}`,
     `Generated at: ${new Date().toISOString()}`,
     "",
-    "BrainDrive updated Finance memory structure to support managed base files plus owner overlays.",
+    "BrainDrive archived retired Finance Budgetting files so they remain available as historical owner data without recreating the active Budget app.",
     "",
-    "## Applied",
+    "## Active Draft 3 Files Created",
     "",
     ...(result.appliedPaths.length > 0
       ? result.appliedPaths.map((entry) => `- ${entry}`)
-      : ["- No Draft 3 files needed to be created."]),
+      : ["- No active Budget app paths were created."]),
     "",
     "## Archived Legacy Paths",
     "",
@@ -274,7 +326,7 @@ async function writeTransitionReport(
     "## Owner Review",
     "",
     ...(plan.review_paths.length > 0
-      ? plan.review_paths.map((entry) => `- Review legacy content from ${entry} in the transition archive.`)
+      ? plan.review_paths.map((entry) => `- Review archived historical Budgetting content at ${entry}.`)
       : ["- No legacy paths require owner review."]),
     "",
     "## Backup",
@@ -287,6 +339,13 @@ async function writeTransitionReport(
   return REPORT_PATH;
 }
 
-function normalizeFileContent(content: string): string {
-  return content.endsWith("\n") ? content : `${content}\n`;
+function retiredBudgetReadme(): string {
+  return [
+    "# Retired Budgetting Archive",
+    "",
+    "Budgetting was retired as a built-in Finance execution app.",
+    "",
+    "Files in this folder are historical owner data preserved from earlier BrainDrive versions. They are not active Finance app templates, managed base files, generated reports, or default Finance chat context.",
+    "",
+  ].join("\n");
 }
