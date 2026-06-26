@@ -1,6 +1,8 @@
-# Project Spec
+# Your Goals
 
 *Owner state for routing judgment, page-creation goals, current reality, constraints, assumptions, success criteria, and missing information.*
+
+*This is a scannable quick-start, not a report — aim to keep the whole thing under ~400 words. Capture the essentials in each section; mark the rest unknown rather than padding.*
 
 **Status:** Starter template - no interview conducted yet
 
@@ -17,13 +19,13 @@
 
 ## Where You Are
 
-*The full project context: what exists already, available resources, who else is involved, timing, constraints, and how this fits into everything else going on.*
+*The few facts that actually shape the plan — what exists already, key resources and constraints, and how this fits in. A few sentences or bullets, not a full inventory.*
 
 To be filled through conversation.
 
 ## What's In The Way
 
-*Practical, emotional, scope, timing, resource, knowledge, or decision obstacles that shape the plan.*
+*The 1–3 obstacles most likely to derail the plan — not an exhaustive list.*
 
 To be filled through conversation.
 
@@ -35,13 +37,13 @@ To be filled through conversation.
 
 ## What Good Looks Like
 
-*The owner's success criteria, page usefulness threshold, first scaffold expectations, and what would make the created page worth returning to.*
+*What success looks like to the owner, in a sentence or two — what would make the new page worth returning to.*
 
 To be filled through conversation.
 
 ## Assumptions And Unknowns
 
-*Unverified claims, unclear routing, duplicate-page risk, future capability requests, and assumptions that should not be treated as settled facts.*
+*Key unknowns not to treat as settled — unclear routing, duplicate-page risk — only the ones that matter.*
 
 To be filled through conversation.
 
@@ -53,7 +55,7 @@ To be filled through conversation.
 
 ## What's Still Missing
 
-*Information gaps that could change the plan, separated from threads that are only worth exploring later.*
+*The 1–2 gaps that could most change the plan.*
 
 To be filled through conversation.
 
