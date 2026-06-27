@@ -104,7 +104,6 @@ describe("Sidebar", () => {
 
   it("shows Finance project scope with owner labels and generic uploaded files", async () => {
     const user = userEvent.setup();
-    const onSelectAppPath = vi.fn();
     const onFileClick = vi.fn();
 
     render(
@@ -118,7 +117,6 @@ describe("Sidebar", () => {
           { name: "2026-05-capital-one.md", path: "documents/finance/2026-05-capital-one.md" },
           { name: "archive/retired-budget/budget.md", path: "documents/finance/archive/retired-budget/budget.md" }
         ]}
-        onSelectAppPath={onSelectAppPath}
         onFileClick={onFileClick}
       />
     );
@@ -134,14 +132,13 @@ describe("Sidebar", () => {
 
     await user.click(screen.getByRole("button", { name: "2026 05 Capital One" }));
 
-    expect(onSelectAppPath).not.toHaveBeenCalled();
     expect(onFileClick).toHaveBeenCalledWith({
       name: "2026-05-capital-one.md",
       path: "documents/finance/2026-05-capital-one.md"
     });
   });
 
-  it("groups generic app files and hides managed instructions until advanced is shown", async () => {
+  it("shows nested folder files as project files without app navigation", async () => {
     const user = userEvent.setup();
     const onFileClick = vi.fn();
 
@@ -155,7 +152,6 @@ describe("Sidebar", () => {
           icon: "home",
           conversationId: null
         }}
-        activeAppPath="garden"
         projectFiles={[
           { name: "garden/garden.md", path: "documents/home/garden/garden.md" },
           { name: "garden/compare.md", path: "documents/home/garden/compare.md" },
@@ -168,12 +164,15 @@ describe("Sidebar", () => {
     );
 
     expect(screen.getByText("Your Files")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Reports" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Sources" })).toBeInTheDocument();
-    expect(screen.getByText("Advanced")).toBeInTheDocument();
-    expect(screen.getByText("compare.md")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Garden" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "LatestGenerated" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Seed List" })).toBeInTheDocument();
+    expect(screen.queryByText("Apps")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reports" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sources" })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Customize compare.md" }));
+    await user.click(screen.getByRole("button", { name: "Show advanced" }));
+    await user.click(screen.getByRole("button", { name: "Customize Compare" }));
 
     expect(onFileClick).toHaveBeenCalledWith({
       name: "compare-user.md",

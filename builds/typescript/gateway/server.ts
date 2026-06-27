@@ -745,7 +745,6 @@ export async function buildServer(rootDir = process.cwd()) {
 
     const { conversationId, message: currentUserMessage } = conversations.persistUserMessage(requestedConversationId, body);
     const projectId = isProjectMetadata(body.metadata) ? body.metadata.project.trim() : null;
-    const appPath = projectId ? normalizeAppMetadataPath(body.metadata) : null;
     if (isProjectMetadata(body.metadata)) {
       await projects.attachConversation(body.metadata.project.trim(), conversationId);
     }
@@ -782,7 +781,7 @@ export async function buildServer(rootDir = process.cwd()) {
     const conversation = conversations.detail(conversationId);
     const projectFiles = projectId ? (await projects.listProjectFiles(projectId))?.files ?? [] : [];
     const projectContext = projectId
-      ? buildProjectChatContext(projectId, projectFiles, { appPath })
+      ? buildProjectChatContext(projectId, projectFiles)
       : "";
     const conversationGuard = projectId
       ? buildProjectConversationGuard(projectId, conversation)
@@ -831,7 +830,6 @@ export async function buildServer(rootDir = process.cwd()) {
     await promptAuditRecorder?.append("prompt_audit.trace_started", {
       route: "/message",
       project_id: projectId,
-      app_path: appPath,
       requested_conversation_id: requestedConversationId ?? null,
       enabled_detail: promptAuditRecorder.detail,
     });
@@ -839,7 +837,6 @@ export async function buildServer(rootDir = process.cwd()) {
       memoryRoot: runtimeConfig.memory_root,
       conversationId,
       projectId,
-      appPath,
       projectFiles,
       projectContext,
       currentUserMessage,
@@ -3392,8 +3389,7 @@ function normalizeOllamaOpenAIBaseUrl(baseUrl: string): string {
 
 export function buildProjectChatContext(
   projectId: string,
-  files: GatewayProjectFile[],
-  options: { appPath?: string | null } = {}
+  files: GatewayProjectFile[]
 ): string {
   const sortedFiles = files
     .filter((file) => !isRetiredBudgetArchiveContextFile(projectId, file))
@@ -3401,10 +3397,6 @@ export function buildProjectChatContext(
   const visibleFiles = sortedFiles.slice(0, 80);
   const omittedCount = Math.max(0, sortedFiles.length - visibleFiles.length);
   const hasIndex = sortedFiles.some((file) => file.name === "index.md" || file.path === `documents/${projectId}/index.md`);
-  const appPath = normalizeProjectRelativePath(options.appPath ?? null);
-  const appContextGuidance = appPath && !(projectId === "finance" && appPath === "budget")
-    ? buildAppChatContextGuidance(projectId, appPath, sortedFiles)
-    : [];
   const fileList = visibleFiles.length > 0
     ? visibleFiles.map((file) => `- ${file.path}`).join("\n")
     : "- No files currently exist in this project folder.";
@@ -3424,12 +3416,8 @@ export function buildProjectChatContext(
       : hasIndex
       ? `Read documents/${projectId}/index.md before deciding which supporting documents to open. It is this folder's document map.`
       : `If documents/${projectId}/index.md appears later in the file list, read it before deciding which supporting documents to open.`,
-    ...appContextGuidance,
     "Stay focused on this domain; do not read or reference other projects unless the conversation specifically calls for cross-domain connections.",
-    `For project alignment or planning turns in ${projectId}, do not only answer in chat. Once the owner provides usable facts, update documents/${projectId}/spec.md and/or documents/${projectId}/plan.md with owner-specific content using memory_edit or memory_write.`,
-    `For starter templates, replace placeholder lines like "To be filled..." with concise provisional summaries grounded in the owner's words, while preserving section headers, status, last-updated fields, and changelog structure.`,
-    "Do not wait for a perfect interview before writing durable state; write what is known, mark uncertainty, and list missing information explicitly.",
-    "After writing project state, tell the owner what changed and keep the conversation moving with the next useful question or action.",
+    `The project has documents/${projectId}/spec.md and documents/${projectId}/plan.md files. Follow this project's AGENT.md and run-interview.md for when and how to update them.`,
     "",
     "### Current Project Files",
     "",
@@ -3452,10 +3440,9 @@ export function buildProjectConversationGuard(projectId: string, conversation: C
   const latestUser = [...messages].reverse().find((message) => message.role === "user");
   const askedLabels = collectAskedMissingContextLabels(messages);
   const askedQuestions = collectAskedQuestionTexts(messages);
-  const hasSuccessCriterion = latestUser ? includesProjectSuccessCriterion(latestUser.content) : false;
   const projectSpecificGuidance = latestUser ? buildProjectSpecificTurnGuard(projectId, messages, latestUser.content) : [];
 
-  if (askedLabels.length === 0 && askedQuestions.length === 0 && projectSpecificGuidance.length === 0 && !hasSuccessCriterion) {
+  if (askedLabels.length === 0 && askedQuestions.length === 0 && projectSpecificGuidance.length === 0) {
     return "";
   }
 
@@ -3483,15 +3470,6 @@ export function buildProjectConversationGuard(projectId: string, conversation: C
 
   lines.push(...projectSpecificGuidance);
 
-  if (hasSuccessCriterion) {
-    lines.push(
-      "The owner's latest message gives a success criterion. Do not ask another intake question this turn.",
-      `Update documents/${projectId}/spec.md and/or documents/${projectId}/plan.md with known facts and explicit unknowns, then answer with a no-question summary of what changed.`,
-      "Preserve the owner's exact success wording in the plan artifact.",
-      "The final reply for this turn must contain zero question marks. If you list information to gather next, phrase each item as a statement, not a question."
-    );
-  }
-
   lines.push(
     "If you ask any question this turn, ask exactly one question and use at most one question mark.",
     ""
@@ -3508,21 +3486,6 @@ function buildProjectSpecificTurnGuard(projectId: string, messages: Conversation
     .map((message) => message.content)
     .join("\n")
     .toLowerCase();
-
-  if (/\bmore energy\b/.test(latestUser) || /\bstrength\b/.test(latestUser) || /\b5k\b/.test(latestUser)) {
-    guidance.push(
-      "Fitness-specific guard: mirror concrete outcome phrases from the owner before narrowing. If the owner said more energy, strength, or 5K, repeat at least one of those exact phrases this turn."
-    );
-  }
-
-  if (
-    /\btoo intense\b/.test(latestUser)
-    && /\b(workouts?\s+usually\s+(?:look\s+like|involve)|bodyweight|weights|cardio|how\s+long)\b/.test(assistantText)
-  ) {
-    guidance.push(
-      "Fitness-specific guard: the owner answered with an adherence constraint, plans get too intense. Mirror plans get too intense, mark workout composition and duration unknown if needed, and do not ask the workout-details question again."
-    );
-  }
 
   if (projectId === "career") {
     if (/\b(pay cut|no pay cut|\$[0-9]|hours?\s+(?:a|per)\s+week|burnout|product marketing|marketing coordinator)\b/.test(latestUser)) {
@@ -3561,12 +3524,6 @@ function buildProjectSpecificTurnGuard(projectId: string, messages: Conversation
     ) {
       guidance.push(
         "Finance-specific guard: the owner gave adjacent useful finance information. Record the unanswered setup detail as unknown if needed, and do not repeat the same finance intake question."
-      );
-    }
-
-    if (/\b(embarrassed|overwhelmed|avoided looking|avoid(?:ed)? looking|don't know|do not know|rough|estimate)\b/.test(latestUser)) {
-      guidance.push(
-        "Finance-specific guard: do not respond with a large budget worksheet, table, checklist, or multi-category bucket request. Mark the detailed monthly expense breakdown unknown if needed and write a small first step for gathering statements or rough estimates."
       );
     }
   }
@@ -3703,10 +3660,6 @@ function normalizeQuestionForRepeatGuard(question: string): string {
     .replace(/[^a-z0-9?]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-function includesProjectSuccessCriterion(content: string): boolean {
-  return /\b(success is|success means|success would be|success looks like|i'?d call this successful|feeling consistent|not wiped out|making progress without obsessing|progress without obsession|building confidence without pushing through pain|without pushing through pain|without burnout)\b/i.test(content);
 }
 
 const STARTER_ARTIFACT_SNAPSHOT_START = "<!-- BrainDrive starter owner snapshot: start -->";
@@ -4106,84 +4059,10 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function buildAppChatContextGuidance(
-  projectId: string,
-  appPath: string,
-  files: GatewayProjectFile[]
-): string[] {
-  const appRootName = appPath.split("/").filter(Boolean).pop() ?? appPath;
-  const appPrefix = `documents/${projectId}/${appPath}/`;
-  const appFiles = files.filter((file) => file.path.startsWith(appPrefix));
-  const hasAppAgent = appFiles.some((file) => file.path === `${appPrefix}AGENT.md`);
-  const hasAppOverlay = appFiles.some((file) => file.path === `${appPrefix}AGENT-user.md`);
-  const hasAppState = appFiles.some((file) => file.path === `${appPrefix}${appRootName}.md`);
-  const hasRules = appFiles.some((file) => file.path === `${appPrefix}${appRootName}-rules.md`);
-  const hasRulesOverlay = appFiles.some((file) => file.path === `${appPrefix}${appRootName}-rules-user.md`);
-  const hasNestedStatements = appFiles.some((file) => file.path.startsWith(`${appPrefix}statements/`));
-  const hasNestedReports = appFiles.some((file) => file.path.startsWith(`${appPrefix}reports/`));
-
-  return [
-    "",
-    "### Active App Scope",
-    "",
-    `The client is focused on the app folder documents/${projectId}/${appPath}/.`,
-    hasAppAgent
-      ? `Read documents/${projectId}/${appPath}/AGENT.md${hasAppOverlay ? `, then documents/${projectId}/${appPath}/AGENT-user.md` : ""} before app-specific work.`
-      : `No AGENT.md is currently listed for documents/${projectId}/${appPath}/; use the project AGENT.md and the app files that are present.`,
-    hasAppState
-      ? `Treat documents/${projectId}/${appPath}/${appRootName}.md as this app's owner state file.`
-      : `No ${appRootName}.md state file is currently listed for this app; inspect the app folder before assuming the state path.`,
-    hasRules
-      ? `For app rules, read documents/${projectId}/${appPath}/${appRootName}-rules.md${hasRulesOverlay ? `, then documents/${projectId}/${appPath}/${appRootName}-rules-user.md` : ""}.`
-      : `No ${appRootName}-rules.md file is currently listed for this app.`,
-    hasNestedStatements
-      ? `Use documents/${projectId}/${appPath}/statements/ as app source evidence when relevant.`
-      : "",
-    hasNestedReports
-      ? `Use documents/${projectId}/${appPath}/reports/ for app-generated reports when relevant.`
-      : "",
-    `Stay inside documents/${projectId}/${appPath}/ for app-specific reads and writes unless the owner asks for project-level work or the app instructions point to project-level source/output folders.`,
-  ].filter(Boolean);
-}
-
-function normalizeAppMetadataPath(metadata: Record<string, unknown> | undefined): string | null {
-  if (typeof metadata?.app !== "string") {
-    return null;
-  }
-
-  return normalizeProjectRelativePath(metadata.app);
-}
-
-function normalizeProjectRelativePath(value: string | null): string | null {
-  if (!value) {
-    return null;
-  }
-
-  const normalized = value
-    .replace(/\\/g, "/")
-    .replace(/^\/+/, "")
-    .replace(/\/+/g, "/")
-    .replace(/\/$/, "")
-    .trim();
-
-  if (
-    normalized.length === 0 ||
-    normalized.startsWith("../") ||
-    normalized.includes("/../") ||
-    normalized === ".." ||
-    normalized.includes("\0")
-  ) {
-    return null;
-  }
-
-  return normalized;
-}
-
 async function buildPromptAuditAssembly(input: {
   memoryRoot: string;
   conversationId: string;
   projectId: string | null;
-  appPath: string | null;
   projectFiles: GatewayProjectFile[];
   projectContext: string;
   currentUserMessage: ConversationMessage;
@@ -4232,7 +4111,6 @@ async function buildPromptAuditAssembly(input: {
     },
     project_context: {
       project_id: input.projectId,
-      app_path: input.appPath,
       files: input.projectFiles.map((file) => ({
         name: file.name,
         path: file.path,
