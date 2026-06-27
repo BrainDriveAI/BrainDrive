@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import type { ProjectFile } from "@/types/ui";
 
-import { buildAppSidebarModel, buildProjectSidebarModel } from "./sidebar-categorize";
-import { appDisplayLabel, projectDisplayLabel, rootProjectDisplayLabel, sidebarFileLabel } from "./sidebar-labels";
+import { buildProjectSidebarModel } from "./sidebar-categorize";
+import { projectDisplayLabel, rootProjectDisplayLabel, sidebarFileLabel } from "./sidebar-labels";
 
 const financeFiles: ProjectFile[] = [
   { name: "AGENT.md", path: "documents/finance/AGENT.md" },
@@ -36,11 +36,10 @@ describe("sidebar labels", () => {
     expect(rootProjectDisplayLabel("fitness", "Fitness")).toBe("Fitness");
     expect(rootProjectDisplayLabel("finance", "Finance")).toBe("Finance");
     expect(rootProjectDisplayLabel("new-project", "Your New Project")).toBe("Your New Project");
-    expect(appDisplayLabel("garden")).toBe("Your Garden");
     expect(sidebarFileLabel({ name: "spec.md", path: "documents/finance/spec.md" }, "finance")).toBe("Your Goals");
     expect(sidebarFileLabel({ name: "plan.md", path: "documents/finance/plan.md" }, "finance")).toBe("Your Plan");
     expect(sidebarFileLabel({ name: "2026-05-capital-one.md", path: "documents/finance/2026-05-capital-one.md" }, "finance")).toBe("2026 05 Capital One");
-    expect(sidebarFileLabel({ name: "garden.md", path: "documents/home/garden/garden.md" }, "home", "garden")).toBe("Your Garden");
+    expect(sidebarFileLabel({ name: "garden.md", path: "documents/home/garden/garden.md" }, "home")).toBe("Garden");
   });
 });
 
@@ -50,7 +49,6 @@ describe("sidebar categorization", () => {
 
     expect(model.goals?.label).toBe("Your Goals");
     expect(model.plan?.label).toBe("Your Plan");
-    expect(model.apps).toEqual([]);
     expect(model.files.map((item) => item.canonicalPath)).toEqual([
       "2026-05-capital-one.md",
       "archive/retired-budget/budget.md",
@@ -62,21 +60,19 @@ describe("sidebar categorization", () => {
     ]);
   });
 
-  it("builds a generic app model without losing managed files or overlays", () => {
-    const model = buildAppSidebarModel("home", "garden", gardenFiles);
+  it("keeps nested folder files in the project model without creating child apps", () => {
+    const model = buildProjectSidebarModel("home", gardenFiles);
 
-    expect(model.primary.map((item) => item.label)).toEqual(["Your Garden"]);
-    expect(model.files).toEqual([]);
-    expect(model.folders.map((folder) => folder.label)).toEqual(["Reports", "Sources"]);
-    expect(model.folders.find((folder) => folder.label === "Reports")?.files.map((item) => item.canonicalPath)).toEqual([
+    expect(model.files.map((item) => item.canonicalPath)).toEqual([
+      "garden/garden.md",
       "garden/reports/latest.md",
-    ]);
-    expect(model.folders.find((folder) => folder.label === "Sources")?.files.map((item) => item.canonicalPath)).toEqual([
       "garden/sources/seed-list.md",
     ]);
     expect(model.advanced.map((item) => item.canonicalPath)).toEqual([
       "garden/AGENT.md",
+      "garden/compare-user.md",
       "garden/compare.md",
+      "garden/garden-rules-user.md",
       "garden/garden-rules.md",
     ]);
     expect(model.advanced.find((item) => item.canonicalPath === "garden/compare.md")?.overlayPath).toBe(

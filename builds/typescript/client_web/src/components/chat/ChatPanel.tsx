@@ -41,7 +41,6 @@ function formatToolStatus(toolName: string): string {
 type ChatPanelProps = {
   activeConversationId: string | null;
   activeProjectId?: string | null;
-  activeAppPath?: string | null;
   draftKey?: string | null;
   isEmpty?: boolean;
   onConversationComplete?: (conversationId: string) => void;
@@ -242,7 +241,6 @@ function UploadActivityList({
 export default function ChatPanel({
   activeConversationId,
   activeProjectId,
-  activeAppPath,
   draftKey = null,
   isEmpty = false,
   onConversationComplete,
@@ -338,7 +336,7 @@ export default function ChatPanel({
     setAttachments([]);
     setUploadActivities([]);
     setFileError(null);
-  }, [activeProjectId, activeAppPath]);
+  }, [activeProjectId]);
 
   useEffect(() => {
     if (wasLoadingRef.current && !isLoading && !error && conversationId) {
@@ -901,7 +899,6 @@ export default function ChatPanel({
           {shouldShowConversation ? (shouldShowEmptyState ? (
             <EmptyState
               projectId={activeProjectId}
-              appPath={activeAppPath}
               onSuggestionClick={(suggestion) => append(suggestion, { metadata: messageMetadata })}
             />
           ) : (

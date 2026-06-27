@@ -1,4 +1,4 @@
-import { Bot, ChevronDown, ChevronLeft, ChevronRight, FileText, Folder, MoreHorizontal, Pencil, Plus, Trash2, Wallet, X } from "lucide-react";
+import { Bot, ChevronLeft, FileText, MoreHorizontal, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { getSession } from "@/api/auth-adapter";
@@ -7,13 +7,10 @@ import type { Project, ProjectFile, UserProfile } from "@/types/ui";
 
 import ProfileMenu from "./ProfileMenu";
 import {
-  buildAppSidebarModel,
   buildProjectSidebarModel,
-  defaultAppFile,
   type SidebarFileItem,
-  type SidebarFolderItem,
 } from "./sidebar-categorize";
-import { appShortLabel, projectDisplayLabel, projectShortLabel, rootProjectDisplayLabel } from "./sidebar-labels";
+import { projectDisplayLabel, rootProjectDisplayLabel } from "./sidebar-labels";
 import { getProjectIcon } from "./project-icons";
 import SidebarCollapsed from "./SidebarCollapsed";
 
@@ -29,13 +26,11 @@ type SidebarProps = {
   projects: Project[];
   selectedProjectId: string | null;
   selectedProject: Project | null;
-  activeAppPath?: string | null;
   projectFiles: ProjectFile[];
   isLoadingProjects: boolean;
   isLoadingFiles: boolean;
   onSelectProject: (projectId: string) => void;
   onDeselectProject: () => void;
-  onSelectAppPath?: (appPath: string | null) => void;
   onReturnToChat: () => void;
   onFileClick: (file: ProjectFile) => void;
   onOpenSettings: () => void;
@@ -56,13 +51,11 @@ export default function Sidebar({
   projects,
   selectedProjectId,
   selectedProject,
-  activeAppPath = null,
   projectFiles,
   isLoadingProjects,
   isLoadingFiles,
   onSelectProject,
   onDeselectProject,
-  onSelectAppPath,
   onReturnToChat,
   onFileClick,
   onOpenSettings,
@@ -82,7 +75,6 @@ export default function Sidebar({
   const [menuOpenForProject, setMenuOpenForProject] = useState<string | null>(null);
   const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
   const [showAdvancedFiles, setShowAdvancedFiles] = useState(false);
-  const [openFolders, setOpenFolders] = useState<Set<string>>(new Set());
   const [renameValue, setRenameValue] = useState("");
   const newProjectInputRef = useRef<HTMLInputElement | null>(null);
   const projectMenuRef = useRef<HTMLDivElement | null>(null);
@@ -179,27 +171,9 @@ export default function Sidebar({
   const isBdPlusOne = selectedProjectId === "braindrive-plus-one";
   const isProjectView = selectedProject !== null && !isBdPlusOne;
   const projectModel = selectedProject ? buildProjectSidebarModel(selectedProject.id, projectFiles) : null;
-  const appModel = selectedProject && activeAppPath
-    ? buildAppSidebarModel(selectedProject.id, activeAppPath, projectFiles)
-    : null;
   const selectedProjectLabel = selectedProject
     ? projectDisplayLabel(selectedProject.id, selectedProject.name)
     : "";
-  const selectedProjectShortLabel = selectedProject
-    ? projectShortLabel(selectedProject.id, selectedProject.name)
-    : "";
-
-  function toggleFolder(folderPath: string) {
-    setOpenFolders((current) => {
-      const next = new Set(current);
-      if (next.has(folderPath)) {
-        next.delete(folderPath);
-      } else {
-        next.add(folderPath);
-      }
-      return next;
-    });
-  }
 
   return (
     <aside className="flex h-dvh w-[300px] flex-col border-r border-bd-border bg-bd-bg-secondary transition-all duration-200 md:w-sidebar">
@@ -239,13 +213,8 @@ export default function Sidebar({
           <div className="flex items-center gap-2 px-4 pb-3 pt-2">
             <button
               type="button"
-              aria-label={activeAppPath ? "Back to project" : "Back to project list"}
+              aria-label="Back to project list"
               onClick={() => {
-                if (activeAppPath) {
-                  onSelectAppPath?.(null);
-                  onReturnToChat();
-                  return;
-                }
                 onDeselectProject();
               }}
               className="flex h-7 w-7 items-center justify-center rounded-md text-bd-text-secondary transition-colors duration-200 hover:bg-bd-bg-hover hover:text-bd-text-primary"
@@ -255,36 +224,13 @@ export default function Sidebar({
             <button
               type="button"
               onClick={() => {
-                if (activeAppPath) {
-                  onSelectAppPath?.(null);
-                }
                 onReturnToChat();
                 onClose?.();
               }}
               className="min-w-0 truncate text-left text-sm text-bd-text-secondary transition-colors duration-200 hover:text-bd-text-primary"
             >
-              {activeAppPath ? selectedProjectShortLabel : selectedProjectLabel}
+              {selectedProjectLabel}
             </button>
-            {activeAppPath ? (
-              <>
-                <ChevronRight size={13} strokeWidth={1.7} className="shrink-0 text-bd-text-muted" />
-                <button
-                  type="button"
-                  onClick={() => {
-                    const appFile = defaultAppFile(selectedProject.id, activeAppPath, projectFiles);
-                    if (appFile) {
-                      onFileClick(appFile);
-                    } else {
-                      onReturnToChat();
-                    }
-                    onClose?.();
-                  }}
-                  className="min-w-0 truncate text-left text-sm font-medium text-bd-text-primary transition-colors duration-200 hover:text-bd-amber"
-                >
-                  {appShortLabel(activeAppPath)}
-                </button>
-              </>
-            ) : null}
           </div>
         ) : null}
 
@@ -303,30 +249,7 @@ export default function Sidebar({
                 <div className="px-3 py-4 text-sm text-bd-text-muted">No files yet</div>
               ) : (
                 <>
-                  {appModel ? (
-                    <>
-                      <SidebarFileSection
-                        label="Your Files"
-                        items={appModel.files}
-                        onFileClick={onFileClick}
-                        onClose={onClose}
-                      />
-                      <SidebarFolderSection
-                        label={appModel.files.length > 0 ? undefined : "Your Files"}
-                        folders={appModel.folders}
-                        openFolders={openFolders}
-                        onToggleFolder={toggleFolder}
-                        onFileClick={onFileClick}
-                        onClose={onClose}
-                      />
-                      <SidebarFileSection
-                        label="Advanced"
-                        items={appModel.advanced}
-                        onFileClick={onFileClick}
-                        onClose={onClose}
-                      />
-                    </>
-                  ) : projectModel ? (
+                  {projectModel ? (
                     <>
                       <SidebarFileSection
                         label="Plan"
@@ -334,35 +257,6 @@ export default function Sidebar({
                         onFileClick={onFileClick}
                         onClose={onClose}
                       />
-                      {projectModel.apps.length > 0 ? (
-                        <div className="pb-2">
-                          <div className="px-3 pb-1 pt-2 text-[11px] font-medium uppercase tracking-normal text-bd-text-muted">
-                            Apps
-                          </div>
-                          <div className="space-y-1">
-                            {projectModel.apps.map((app) => (
-                              <button
-                                key={app.path}
-                                type="button"
-                                onClick={() => {
-                                  onSelectAppPath?.(app.path);
-                                  if (app.stateFile) {
-                                    onFileClick(app.stateFile);
-                                  } else {
-                                    onReturnToChat();
-                                  }
-                                  onClose?.();
-                                }}
-                                className="flex w-full min-w-0 items-center gap-3 rounded-md px-3 py-2 text-left text-[14px] text-bd-text-primary transition-colors duration-200 hover:bg-bd-bg-hover"
-                              >
-                                <Wallet size={16} strokeWidth={1.5} className="shrink-0 text-bd-text-muted" />
-                                <span className="truncate">{app.label}</span>
-                                <ChevronRight size={14} strokeWidth={1.5} className="ml-auto shrink-0 text-bd-text-muted" />
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
                       <SidebarFileSection
                         label="Your Files"
                         items={projectModel.files}
@@ -649,70 +543,6 @@ function SidebarFileSection({
             onClose={onClose}
           />
         ))}
-      </div>
-    </div>
-  );
-}
-
-function SidebarFolderSection({
-  label,
-  folders,
-  openFolders,
-  onToggleFolder,
-  onFileClick,
-  onClose,
-}: {
-  label?: string;
-  folders: SidebarFolderItem[];
-  openFolders: Set<string>;
-  onToggleFolder: (folderPath: string) => void;
-  onFileClick: (file: ProjectFile) => void;
-  onClose?: () => void;
-}) {
-  if (folders.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="pb-2">
-      {label ? (
-        <div className="px-3 pb-1 pt-2 text-[11px] font-medium uppercase tracking-normal text-bd-text-muted">
-          {label}
-        </div>
-      ) : null}
-      <div className="space-y-1">
-        {folders.map((folder) => {
-          const isOpen = openFolders.has(folder.path);
-          return (
-            <div key={folder.path}>
-              <button
-                type="button"
-                onClick={() => onToggleFolder(folder.path)}
-                className="flex w-full min-w-0 items-center gap-3 rounded-md px-3 py-2 text-left text-[14px] text-bd-text-primary transition-colors duration-200 hover:bg-bd-bg-hover"
-              >
-                {isOpen ? (
-                  <ChevronDown size={14} strokeWidth={1.5} className="shrink-0 text-bd-text-muted" />
-                ) : (
-                  <ChevronRight size={14} strokeWidth={1.5} className="shrink-0 text-bd-text-muted" />
-                )}
-                <Folder size={16} strokeWidth={1.5} className="shrink-0 text-bd-text-muted" />
-                <span className="truncate">{folder.label}</span>
-              </button>
-              {isOpen ? (
-                <div className="ml-6 mt-1 space-y-1">
-                  {folder.files.map((item) => (
-                    <SidebarFileButton
-                      key={item.file.path}
-                      item={item}
-                      onFileClick={onFileClick}
-                      onClose={onClose}
-                    />
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
       </div>
     </div>
   );

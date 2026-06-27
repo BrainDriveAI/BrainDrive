@@ -39,10 +39,12 @@ describe("project chat context", () => {
     expect(context).toContain("current file list at the start of this user turn");
     expect(context).toContain("Do not rely on earlier conversation claims");
     expect(context).toContain("call memory_delete when a matching file exists");
-    expect(context).toContain("do not only answer in chat");
-    expect(context).toContain("update documents/finance/spec.md and/or documents/finance/plan.md");
-    expect(context).toContain("replace placeholder lines like \"To be filled...\"");
-    expect(context).toContain("Do not wait for a perfect interview before writing durable state");
+    expect(context).toContain("The project has documents/finance/spec.md and documents/finance/plan.md files");
+    expect(context).toContain("Follow this project's AGENT.md and run-interview.md");
+    expect(context).not.toContain("Once the owner provides usable facts");
+    expect(context).not.toContain("Do not wait for a perfect interview before writing durable state");
+    expect(context).not.toContain("do not only answer in chat");
+    expect(context).not.toContain("update documents/finance/spec.md and/or documents/finance/plan.md");
   });
 
   it("does not include retired Budget archive files in default Finance chat context", () => {
@@ -66,7 +68,7 @@ describe("project chat context", () => {
     expect(context).not.toContain("statements/may.md");
   });
 
-  it("requires durable spec and plan writes for non-Finance starter project alignment", () => {
+  it("describes project artifacts without forcing starter project write timing", () => {
     const context = buildProjectChatContext("career", [
       {
         name: "AGENT.md",
@@ -91,11 +93,12 @@ describe("project chat context", () => {
     ]);
 
     expect(context).toContain("You are currently in the **career** project.");
-    expect(context).toContain("do not only answer in chat");
-    expect(context).toContain("Once the owner provides usable facts, update documents/career/spec.md and/or documents/career/plan.md");
-    expect(context).toContain("replace placeholder lines like \"To be filled...\"");
-    expect(context).toContain("mark uncertainty");
-    expect(context).toContain("tell the owner what changed");
+    expect(context).toContain("The project has documents/career/spec.md and documents/career/plan.md files");
+    expect(context).toContain("Follow this project's AGENT.md and run-interview.md");
+    expect(context).not.toContain("Once the owner provides usable facts");
+    expect(context).not.toContain("Do not wait for a perfect interview");
+    expect(context).not.toContain("mark uncertainty");
+    expect(context).not.toContain("tell the owner what changed");
   });
 
   it("adds a current-turn guard for repeated missing context during project interviews", () => {
@@ -166,7 +169,7 @@ describe("project chat context", () => {
     expect(guard).toContain("mark it unknown");
   });
 
-  it("adds a current-turn guard when the owner gives a success criterion", () => {
+  it("does not force artifact writes when the owner gives a success criterion", () => {
     const guard = buildProjectConversationGuard("fitness", {
       id: "conversation-1",
       title: null,
@@ -182,12 +185,12 @@ describe("project chat context", () => {
       ],
     });
 
-    expect(guard).toContain("The owner's latest message gives a success criterion");
-    expect(guard).toContain("Do not ask another intake question this turn");
-    expect(guard).toContain("documents/fitness/spec.md");
+    expect(guard).not.toContain("Update documents/fitness/spec.md");
+    expect(guard).not.toContain("documents/fitness/plan.md with known facts");
+    expect(guard).not.toContain("no-question summary");
   });
 
-  it("adds a Fitness guard for concrete outcome phrases in the first reply", () => {
+  it("does not add Fitness-specific runtime behavior for concrete outcome phrases", () => {
     const guard = buildProjectConversationGuard("fitness", {
       id: "conversation-1",
       title: null,
@@ -203,13 +206,10 @@ describe("project chat context", () => {
       ],
     });
 
-    expect(guard).toContain("Fitness-specific guard");
-    expect(guard).toContain("more energy");
-    expect(guard).toContain("strength");
-    expect(guard).toContain("5K");
+    expect(guard).toBe("");
   });
 
-  it("adds a Fitness guard when adjacent constraint answers a workout-details question", () => {
+  it("does not add Fitness-specific runtime behavior when an adjacent constraint answers a workout-details question", () => {
     const guard = buildProjectConversationGuard("fitness", {
       id: "conversation-1",
       title: null,
@@ -237,9 +237,12 @@ describe("project chat context", () => {
       ],
     });
 
-    expect(guard).toContain("plans get too intense");
-    expect(guard).toContain("mark workout composition and duration unknown");
-    expect(guard).toContain("do not ask the workout-details question again");
+    expect(guard).toContain("You already asked these exact questions");
+    expect(guard).toContain("What do those workouts usually look like?");
+    expect(guard).not.toContain("Fitness-specific guard");
+    expect(guard).not.toContain("plans get too intense");
+    expect(guard).not.toContain("mark workout composition and duration unknown");
+    expect(guard).not.toContain("do not ask the workout-details question again");
   });
 
   it("adds a Career guard for adjacent constraint answers", () => {
@@ -318,7 +321,7 @@ describe("project chat context", () => {
     expect(guard).toContain("Mirror every amount back");
   });
 
-  it("adds a Finance guard against large worksheets after embarrassment or avoidance", () => {
+  it("does not add a Finance runtime deferral after embarrassment or avoidance", () => {
     const guard = buildProjectConversationGuard("finance", {
       id: "conversation-1",
       title: null,
@@ -334,13 +337,13 @@ describe("project chat context", () => {
       ],
     });
 
-    expect(guard).toContain("Finance-specific guard");
-    expect(guard).toContain("large budget worksheet");
-    expect(guard).toContain("Mark the detailed monthly expense breakdown unknown");
-    expect(guard).toContain("small first step");
+    expect(guard).not.toContain("large budget worksheet");
+    expect(guard).not.toContain("Mark the detailed monthly expense breakdown unknown");
+    expect(guard).not.toContain("small first step");
+    expect(guard).not.toContain("gathering statements or rough estimates");
   });
 
-  it("treats success would be as a Finance artifact-writing stop point", () => {
+  it("does not treat success would be as a runtime artifact-writing stop point", () => {
     const guard = buildProjectConversationGuard("finance", {
       id: "conversation-1",
       title: null,
@@ -356,11 +359,10 @@ describe("project chat context", () => {
       ],
     });
 
-    expect(guard).toContain("The owner's latest message gives a success criterion");
-    expect(guard).toContain("Do not ask another intake question this turn");
-    expect(guard).toContain("documents/finance/spec.md");
-    expect(guard).toContain("Preserve the owner's exact success wording");
-    expect(guard).toContain("must contain zero question marks");
+    expect(guard).not.toContain("Update documents/finance/spec.md");
+    expect(guard).not.toContain("documents/finance/plan.md with known facts");
+    expect(guard).not.toContain("Preserve the owner's exact success wording");
+    expect(guard).not.toContain("must contain zero question marks");
   });
 
   it("adds a Relationships guard for broad relationship-area repeats", () => {
@@ -683,7 +685,7 @@ describe("project chat context", () => {
     expect(secondMerge.match(/BrainDrive starter owner snapshot: start/g)).toHaveLength(1);
   });
 
-  it("does not add app-scope context when client metadata selects the retired Finance Budget folder", () => {
+  it("does not add app-scope context for nested project folders", () => {
     const context = buildProjectChatContext("finance", [
       {
         name: "AGENT.md",
@@ -717,7 +719,7 @@ describe("project chat context", () => {
         name: "budget/reports/latest.md",
         path: "documents/finance/budget/reports/latest.md",
       },
-    ], { appPath: "budget" });
+    ]);
 
     expect(context).not.toContain("### Active App Scope");
     expect(context).not.toContain("focused on the app folder documents/finance/budget/");
