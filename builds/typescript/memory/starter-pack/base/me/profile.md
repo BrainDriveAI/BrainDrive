@@ -1,4 +1,4 @@
-# Owner Profile
+# Your Profile
 
 *Cross-project owner context: stable facts, values, preferences, and life context that matter in more than one project.*
 
@@ -12,7 +12,7 @@
 
 To be filled through conversation.
 
-## What Matters To Them
+## What Matters To Me
 
 *Deep values, priorities, goals, and cross-cutting constraints that affect multiple projects.*
 

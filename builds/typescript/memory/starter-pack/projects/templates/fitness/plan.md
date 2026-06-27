@@ -1,4 +1,4 @@
-# Fitness Plan
+# Your Plan
 
 *Owner state for ordered next steps, owner decisions, timing, status, and roadmap.*
 
@@ -41,18 +41,6 @@ To be filled as goals get more specific.
 *Gaps that must be resolved before the plan can be considered stable.*
 
 To be filled through conversation.
-
-## BrainDrive Review And Recovery
-
-Review `AGENT.md`, `spec.md`, and `plan.md` through the owner-facing BrainDrive sidebar or page experience. The owner can edit artifacts directly or ask BrainDrive for revisions while preserving owner-authored content unless replacement is explicitly approved.
-
-On return visits, continue from existing artifacts, the current plan, and the latest saved context instead of restarting from scratch. If artifacts are missing, corrupted, inconsistent, or blocked by setup/model/write/rendering trouble, explain the recovery path in plain language.
-
-If help is needed, use support logs or a support bundle with diagnostic information and redacted API keys, tokens, credentials, and secrets.
-
-During waits, BrainDrive should show progress such as thinking, writing your spec, writing your plan, saving, updating your page, still working, or recovering from a long wait.
-
-The harness scores interview, spec, plan, propagation, and page-specific replay quality across Finance, Fitness, Career, Relationships, New Project, and Your Agent.
 
 ## Changelog
 

@@ -1,6 +1,8 @@
-# Relationships Spec
+# Your Goals
 
 *Owner state for relationship goals, owner-provided context, boundaries, assumptions, success criteria, and missing information.*
+
+*This is a scannable quick-start, not a report — aim to keep the whole thing under ~500 words. Capture the essentials in each section; mark the rest unknown rather than padding.*
 
 **Status:** Starter template - no interview conducted yet
 
@@ -8,31 +10,34 @@
 
 ## What You Want
 
-*The owner's relationship goals as specific user stories, using the owner's words where possible.*
+*Your main goal for Relationships in one clear story, in your words, plus any supporting goals that ladder up to it.*
 
-To be filled through conversation.
+**Main goal:** I want to [outcome] so that [why it matters].
+
+**Supporting goals:**
+- I want to [sub-goal] so that [why].
 
 ## Where You Are
 
-*The full relationship landscape: partner, family, kids, friends, colleagues, key patterns, what is working, what is strained, and what triggered this conversation.*
+*The few facts that actually shape the plan — who's involved, what's strained, and what triggered this. A few sentences or bullets, not a full inventory.*
 
 To be filled through conversation.
 
 ## What's In The Way
 
-*Practical, emotional, communication, boundary, expectation, trust, timing, safety, or pattern-level obstacles that shape the plan.*
+*The 1–3 obstacles most likely to derail the plan — not an exhaustive list.*
 
 To be filled through conversation.
 
 ## What Good Looks Like
 
-*The owner's success criteria, desired relationship path, boundaries, confidence threshold, and what would make the Relationships plan feel safe and useful.*
+*What success looks like to the owner, in a sentence or two — the signal the plan is working.*
 
 To be filled through conversation.
 
 ## Assumptions And Unknowns
 
-*Owner-provided interpretations, unverified claims about other people, missing context, safety unknowns, and assumptions that should not be treated as settled facts.*
+*Key interpretations or unknowns not to treat as settled — especially claims about other people — only the ones that matter for planning.*
 
 To be filled through conversation.
 
@@ -44,33 +49,9 @@ To be filled through conversation.
 
 ## What's Still Missing
 
-*Information gaps that could change the plan, separated from threads that are only worth exploring later.*
+*The 1–2 gaps that could most change the plan.*
 
 To be filled through conversation.
-
-## BrainDrive Experience Notes
-
-BrainDrive should keep setup and model readiness understandable in plain language, including what is missing, a clear next action, and a recovery path when credits, provider setup, or model-ready state blocks the interview.
-
-Provider credentials, API keys, tokens, and secrets must stay redacted and not exposed in owner artifacts.
-
-The normal owner-facing review path is through the BrainDrive sidebar and page experience for `AGENT.md`, `spec.md`, and `plan.md`, not raw file paths.
-
-Artifacts should render cleanly with readable headings, lists, tables, links, and checklists, remain owner-editable, and support return/resume from existing artifacts, the current plan, current context, and the latest saved work.
-
-Relevant profile and page context should be used before broad setup questions, and inferred stable cross-project owner facts should be confirmed before being treated as profile memory.
-
-Errors should explain what happened, what was saved or skipped, and the next recovery action in plain language. Support logs or support bundles should include diagnostic information while excluding or redacting credentials and secrets.
-
-Progress states should make it clear when BrainDrive is thinking, writing the spec, writing the plan, saving, updating the page, still working, not frozen, or recovering from a long wait.
-
-Quality is judged against Specificity, Engagement Pull, Mirror Accuracy, Insight Quality, Actionability, Honest Gaps, No Overwhelm, interview quality, spec quality, plan quality, propagation quality, model, tool/write, and needs-human-review layers.
-
-The starter baseline should replay across Finance, Fitness, Career, Relationships, New Project, and Your Agent with domain-specific, page-specific quality, not copied from Finance.
-
-Relationships execution work like relationship journal notes, people memory, reminders, follow-through, or hard-conversation prep stays as a manual page-level step, but the page-level spec should keep only the owner-approved relationship summary, boundaries, assumptions, and missing context.
-
-For dating or finding a romantic partner, clarify partner goals, good fit, values, and dealbreakers while keeping external dating, profiles, date reflection, and real-world outreach owner-controlled. BrainDrive is not matchmaking and should not imply automatic external action.
 
 ## Changelog
 
