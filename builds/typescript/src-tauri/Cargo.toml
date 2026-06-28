@@ -1,6 +1,6 @@
 [package]
 name = "braindrive-desktop"
-version = "26.5.25"
+version = "26.6.28"
 description = "BrainDrive native desktop shell"
 authors = ["BrainDrive"]
 edition = "2021"
