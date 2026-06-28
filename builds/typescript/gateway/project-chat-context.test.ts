@@ -1,13 +1,10 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
-  buildStarterProjectArtifactSnapshot,
   buildProjectConversationGuard,
   buildProjectChatContext,
-  mergeStarterProjectArtifactSnapshot,
-  starterSnapshotProjectIds,
 } from "./server.js";
-import type { ConversationDetail } from "../contracts.js";
 
 describe("project chat context", () => {
   it("includes current project files and Finance parent-project guidance without Budget app instructions", () => {
@@ -442,247 +439,22 @@ describe("project chat context", () => {
     expect(yourAgentGuard).toContain("do not repeat the same setup question");
   });
 
-  it("builds starter artifact snapshots from owner conversation messages", () => {
-    const snapshot = buildStarterProjectArtifactSnapshot("career", conversationWithUserMessages([
-      "I am a marketing coordinator making $62K and want to move toward product marketing.",
-      "I can spend five hours a week and need no pay cut.",
-    ]));
+  it("does not keep runtime starter artifact snapshot auto-write code", () => {
+    const serverSource = readFileSync(new URL("./server.ts", import.meta.url), "utf8");
 
-    expect(snapshot?.spec).toContain("marketing coordinator");
-    expect(snapshot?.spec).toContain("$62K");
-    expect(snapshot?.spec).toContain("product marketing");
-    expect(snapshot?.plan).toContain("First action this week");
-    expect(snapshot?.plan).toContain("Proof points");
-    expect(snapshot?.plan).toContain("five hours a week");
-  });
-
-  it("routes Your Agent starter snapshots to the detected owning page", () => {
-    const conversation = conversationWithUserMessages([
-      "I want to use Your Agent instead of deciding which page to open first.",
-      "The area is Career: I am deciding whether to push toward product marketing or improve my current role first.",
-      "If you create or update artifacts, tell me the owner-facing page and artifact to review.",
-    ]);
-
-    expect(starterSnapshotProjectIds("braindrive-plus-one", conversation)).toEqual([
-      "braindrive-plus-one",
-      "career",
-    ]);
-    const snapshot = buildStarterProjectArtifactSnapshot("career", conversation);
-    expect(snapshot?.spec).toContain("product marketing");
-    expect(snapshot?.plan).toContain("Career page");
-    expect(snapshot?.plan).toContain("Proof points");
-  });
-
-  it("adds Career starter anchors for vague owner direction", () => {
-    const snapshot = buildStarterProjectArtifactSnapshot("career", conversationWithUserMessages([
-      "I feel stuck at work and want something better, but I do not really know what that means yet.",
-      "I mostly know I do not want to feel this drained.",
-      "I want more growth, but I am not sure if that means a new job or a different role.",
-      "Money matters, but I do not know what number I need.",
-      "I need help sorting out what to look at first.",
-    ]));
-
-    expect(snapshot?.spec).toContain("feels stuck");
-    expect(snapshot?.spec).toContain("new job or different role");
-    expect(snapshot?.spec).toContain("money unknown");
-    expect(snapshot?.spec).toContain("Open unknowns");
-    expect(snapshot?.plan).toContain("Clarifying questions");
-    expect(snapshot?.plan).toContain("First sorting step");
-    expect(snapshot?.plan).toContain("Information to gather");
-    expect(snapshot?.plan).toContain("Small next action");
-  });
-
-  it("adds Fitness starter anchors for vague movement goals", () => {
-    const snapshot = buildStarterProjectArtifactSnapshot("fitness", conversationWithUserMessages([
-      "I just want to get healthier and move more. I do not know where to start.",
-      "I am not doing much right now.",
-      "I get overwhelmed by plans that are too intense.",
-      "I could probably start with two or three small things a week.",
-      "I want to feel like I am making progress without obsessing over it.",
-    ]));
-
-    expect(snapshot?.spec).toContain("get healthier and move more");
-    expect(snapshot?.spec).toContain("low-current-activity baseline");
-    expect(snapshot?.spec).toContain("intense plans");
-    expect(snapshot?.plan).toContain("Starter goal");
-    expect(snapshot?.plan).toContain("Small first action");
-    expect(snapshot?.plan).toContain("two or three times a week");
-    expect(snapshot?.plan).toContain("Honest unknowns");
-  });
-
-  it("adds Finance starter anchors for Katie's vague debt setup", () => {
-    const snapshot = buildStarterProjectArtifactSnapshot("finance", conversationWithUserMessages([
-      "I need to get better with money. I do not know where to start.",
-      "I have some debt but I do not know the exact number.",
-      "I avoid checking because it stresses me out.",
-      "I want something simple that gets me unstuck.",
-      "I can probably gather balances this week if I know what to look for.",
-    ]));
-
-    expect(snapshot?.spec).toContain("get better with money");
-    expect(snapshot?.spec).toContain("some debt");
-    expect(snapshot?.spec).toContain("avoid checking");
-    expect(snapshot?.spec).toContain("simple");
-    expect(snapshot?.spec).toContain("gather balances");
-    expect(snapshot?.plan).toContain("First checking step");
-    expect(snapshot?.plan).toContain("Balances to gather");
-    expect(snapshot?.plan).toContain("Small next action");
-    expect(snapshot?.plan).toContain("Unknowns");
-  });
-
-  it("adds Finance starter anchors for Katie's exact success wording", () => {
-    const snapshot = buildStarterProjectArtifactSnapshot("finance", conversationWithUserMessages([
-      "I want help getting my finances under control. I have credit card debt from emergencies, no real emergency fund, and I want a plan before I upload any statements.",
-      "I make about $62K and bring home around $3,800 a month.",
-      "I think the credit card debt is around $8K.",
-      "I am embarrassed and I have avoided looking closely for a while.",
-      "Success would be knowing my first money step this week and what information to gather next.",
-    ]));
-
-    expect(snapshot?.spec).toContain("first money step this week");
-    expect(snapshot?.spec).toContain("information to gather next");
-    expect(snapshot?.plan).toContain("first money step this week");
-    expect(snapshot?.plan).toContain("information to gather next");
-  });
-
-  it("adds Fitness starter anchors for injury-safety goals", () => {
-    const snapshot = buildStarterProjectArtifactSnapshot("fitness", conversationWithUserMessages([
-      "I want to get active again, but I had a knee injury a while back and I am nervous about making it worse.",
-      "I am not asking for a diagnosis. I just need a safe way to think about next steps.",
-      "Walking is usually okay, but running too fast makes me nervous.",
-      "I can check with a professional if the plan tells me what to ask.",
-      "Success is building confidence without pushing through pain.",
-    ]));
-
-    expect(snapshot?.spec).toContain("knee injury");
-    expect(snapshot?.spec).toContain("safe next steps");
-    expect(snapshot?.spec).toContain("walking");
-    expect(snapshot?.spec).toContain("professional input");
-    expect(snapshot?.spec).toContain("without pushing through pain");
-    expect(snapshot?.plan).toContain("Low-impact first action");
-    expect(snapshot?.plan).toContain("Professional input");
-    expect(snapshot?.plan).toContain("Pain boundary");
-    expect(snapshot?.plan).toContain("Gradual progress");
-  });
-
-  it("adds Relationships starter anchors for money conversations", () => {
-    const snapshot = buildStarterProjectArtifactSnapshot("relationships", conversationWithUserMessages([
-      "I want help improving communication with my boyfriend Evan. We avoid money conversations, and I want a better way to talk without making it feel like a fight.",
-      "I feel embarrassed and defensive, so I usually delay the conversation.",
-      "Evan is not hostile, but I worry he will think I am irresponsible.",
-      "Success would be one honest conversation that does not spiral.",
-      "I want to be direct without dumping everything at once.",
-    ]));
-
-    expect(snapshot?.spec).toContain("Evan");
-    expect(snapshot?.spec).toContain("money conversations");
-    expect(snapshot?.spec).toContain("embarrassed");
-    expect(snapshot?.spec).toContain("defensive");
-    expect(snapshot?.spec).toContain("honest conversation");
-    expect(snapshot?.plan).toContain("First conversation step");
-    expect(snapshot?.plan).toContain("Boundary");
-    expect(snapshot?.plan).toContain("What to say");
-    expect(snapshot?.plan).toContain("not assuming Evan's reaction");
-  });
-
-  it("adds Relationships starter anchors for vague relationship direction", () => {
-    const snapshot = buildStarterProjectArtifactSnapshot("relationships", conversationWithUserMessages([
-      "I want my relationships to feel better. I do not really know how to explain it.",
-      "I think I feel disconnected from people.",
-      "I am not sure if it is family, friends, or dating stuff first.",
-      "I avoid bringing things up because I do not want to be too much.",
-      "I need help figuring out what to work on first.",
-    ]));
-
-    expect(snapshot?.spec).toContain("feel better");
-    expect(snapshot?.spec).toContain("disconnected");
-    expect(snapshot?.spec).toContain("family, friends, or dating");
-    expect(snapshot?.spec).toContain("what to work on first");
-    expect(snapshot?.plan).toContain("Clarifying step");
-    expect(snapshot?.plan).toContain("Relationship area to choose");
-    expect(snapshot?.plan).toContain("Low-pressure first action");
-    expect(snapshot?.plan).toContain("Unknowns");
-  });
-
-  it("adds Relationships starter anchors for safety-sensitive boundary planning", () => {
-    const snapshot = buildStarterProjectArtifactSnapshot("relationships", conversationWithUserMessages([
-      "I need help thinking through a relationship boundary, but I am worried because the other person can get intense when I say no.",
-      "I do not want to overreact, but I also do not want to ignore the pattern.",
-      "I want a plan that helps me stay calm and safe.",
-      "I am not ready for a big confrontation.",
-      "Success would be knowing what small step to take and what signs mean I should get more support.",
-    ]));
-
-    expect(snapshot?.spec).toContain("boundary");
-    expect(snapshot?.spec).toContain("gets intense");
-    expect(snapshot?.spec).toContain("say no");
-    expect(snapshot?.spec).toContain("stay calm and safe");
-    expect(snapshot?.spec).toContain("not ready for a big confrontation");
-    expect(snapshot?.spec).toContain("more support");
-    expect(snapshot?.plan).toContain("Safe small step");
-    expect(snapshot?.plan).toContain("Support option");
-    expect(snapshot?.plan).toContain("No confrontation pressure");
-    expect(snapshot?.plan).toContain("Warning signs");
-  });
-
-  it("adds New Project starter anchors for created page placement", () => {
-    const snapshot = buildStarterProjectArtifactSnapshot("new-project", conversationWithUserMessages([
-      "I want to create a new BrainDrive page for planning a backyard garden project.",
-      "The goal is a small beginner vegetable garden for this spring, mostly tomatoes, herbs, and peppers.",
-      "Constraints are a sunny but small yard, about $300, weekend time only, and I do not know my soil quality yet.",
-      "Please name it Backyard Garden and make the first plan something I can do this week without pretending there is marketplace, sharing, or app generation. Do not update my profile unless I explicitly approve it.",
-    ]));
-
-    expect(snapshot?.spec).toContain("Backyard Garden page");
-    expect(snapshot?.spec).toContain("created page spec");
-    expect(snapshot?.plan).toContain("Narrowest correct level");
-    expect(snapshot?.plan).toContain("Created page spec");
-    expect(snapshot?.plan).toContain("Created page plan");
-    expect(snapshot?.plan).toContain("me/profile.md");
-  });
-
-  it("adds Career starter anchors for burnout and workplace-risk direction", () => {
-    const snapshot = buildStarterProjectArtifactSnapshot("career", conversationWithUserMessages([
-      "I think I may need to leave my job, but I am burned out and worried about saying too much because there is some workplace tension I do not want spread around.",
-      "My manager has been unpredictable, but I do not want to accuse anyone without proof.",
-      "I need income stability, so quitting suddenly is not realistic.",
-      "I want a plan that helps me protect my energy and options.",
-      "I may need to document what is happening, but I do not know what is appropriate.",
-    ]));
-
-    expect(snapshot?.spec).toContain("burnout");
-    expect(snapshot?.spec).toContain("workplace tension");
-    expect(snapshot?.spec).toContain("income stability");
-    expect(snapshot?.spec).toContain("protect energy");
-    expect(snapshot?.spec).toContain("document what is happening");
-    expect(snapshot?.spec).toContain("Open unknowns");
-    expect(snapshot?.plan).toContain("Bounded next step");
-    expect(snapshot?.plan).toContain("Risk reduction");
-    expect(snapshot?.plan).toContain("Support or documentation option");
-    expect(snapshot?.plan).toContain("No legal certainty");
-  });
-
-  it("merges starter artifact snapshots before the changelog and replaces old snapshots", () => {
-    const template = [
-      "# Career Spec",
-      "",
-      "## What You Want",
-      "",
-      "To be filled through conversation.",
-      "",
-      "## Changelog",
-      "",
-      "- Created.",
-      "",
-    ].join("\n");
-
-    const firstMerge = mergeStarterProjectArtifactSnapshot(template, "### Owner Conversation Snapshot\n\n- Owner turn 1: marketing coordinator");
-    const secondMerge = mergeStarterProjectArtifactSnapshot(firstMerge, "### Owner Conversation Snapshot\n\n- Owner turn 1: product marketing");
-
-    expect(firstMerge.indexOf("BrainDrive starter owner snapshot")).toBeLessThan(firstMerge.indexOf("## Changelog"));
-    expect(secondMerge).toContain("product marketing");
-    expect(secondMerge).not.toContain("marketing coordinator");
-    expect(secondMerge.match(/BrainDrive starter owner snapshot: start/g)).toHaveLength(1);
+    expect(serverSource).not.toContain("persistStarterProjectArtifactSnapshots");
+    expect(serverSource).not.toContain("persistStarterProjectArtifactSnapshot");
+    expect(serverSource).not.toContain("starterSnapshotProjectIds");
+    expect(serverSource).not.toContain("buildStarterProjectArtifactSnapshot");
+    expect(serverSource).not.toContain("buildStarterDerivedAnchors");
+    expect(serverSource).not.toContain("mergeStarterProjectArtifactSnapshot");
+    expect(serverSource).not.toContain("project.artifact_snapshot");
+    expect(serverSource).not.toContain("project.artifact_snapshot_after_reply");
+    expect(serverSource).not.toContain("BrainDrive starter owner snapshot");
+    expect(serverSource).not.toContain("Owner Conversation Snapshot");
+    expect(serverSource).not.toContain("Derived Starter Anchors");
+    expect(serverSource).not.toContain("Starter Plan Snapshot");
+    expect(serverSource).not.toContain("Katie");
   });
 
   it("does not add app-scope context for nested project folders", () => {
@@ -728,18 +500,3 @@ describe("project chat context", () => {
     expect(context).not.toContain("Use documents/finance/budget/reports/ for app-generated reports");
   });
 });
-
-function conversationWithUserMessages(messages: string[]): ConversationDetail {
-  return {
-    id: "conversation-test",
-    title: null,
-    created_at: "2026-05-19T00:00:00.000Z",
-    updated_at: "2026-05-19T00:00:00.000Z",
-    messages: messages.map((content, index) => ({
-      id: `message-${index}`,
-      role: "user",
-      content,
-      timestamp: "2026-05-19T00:00:00.000Z",
-    })),
-  };
-}
