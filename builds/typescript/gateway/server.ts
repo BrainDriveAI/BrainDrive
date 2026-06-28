@@ -47,8 +47,7 @@ import type {
   GatewayEngineRequest,
   InstallLocation,
   Preferences,
-  RuntimeConfig,
-  ToolExecutionResult
+  RuntimeConfig
 } from "../contracts.js";
 import { runAgentLoop, type ToolExecutionGuard } from "../engine/loop.js";
 import { classifyProviderError } from "../engine/errors.js";
@@ -70,7 +69,6 @@ import {
   readMemoryUpdateReport,
   runAutomaticMemoryUpdate,
 } from "../memory/update-prompting.js";
-import { canWriteGeneratedReportArchive } from "../memory/brain-drive-layout.js";
 import {
   createSupportBundle,
   listSupportBundles,
@@ -747,24 +745,8 @@ export async function buildServer(rootDir = process.cwd()) {
 
     const { conversationId, message: currentUserMessage } = conversations.persistUserMessage(requestedConversationId, body);
     const projectId = isProjectMetadata(body.metadata) ? body.metadata.project.trim() : null;
-    const appPath = projectId ? normalizeAppMetadataPath(body.metadata) : null;
     if (isProjectMetadata(body.metadata)) {
       await projects.attachConversation(body.metadata.project.trim(), conversationId);
-    }
-    if (projectId) {
-      const conversation = conversations.detail(conversationId);
-      const starterSnapshotResult = await persistStarterProjectArtifactSnapshots(
-        projects,
-        projectId,
-        conversation
-      ).catch((error: unknown) => ({
-        error: error instanceof Error ? error.message : String(error),
-      }));
-      auditLog("project.artifact_snapshot", {
-        conversation_id: conversationId,
-        project_id: projectId,
-        ...starterSnapshotResult,
-      });
     }
     const conversationSkillIds = conversations.getConversationSkills(conversationId) ?? [];
     const projectSkillIds = projectId ? (await projects.getProjectSkills(projectId)) ?? [] : [];
@@ -784,7 +766,7 @@ export async function buildServer(rootDir = process.cwd()) {
     const conversation = conversations.detail(conversationId);
     const projectFiles = projectId ? (await projects.listProjectFiles(projectId))?.files ?? [] : [];
     const projectContext = projectId
-      ? buildProjectChatContext(projectId, projectFiles, { appPath })
+      ? buildProjectChatContext(projectId, projectFiles)
       : "";
     const conversationGuard = projectId
       ? buildProjectConversationGuard(projectId, conversation)
@@ -833,7 +815,6 @@ export async function buildServer(rootDir = process.cwd()) {
     await promptAuditRecorder?.append("prompt_audit.trace_started", {
       route: "/message",
       project_id: projectId,
-      app_path: appPath,
       requested_conversation_id: requestedConversationId ?? null,
       enabled_detail: promptAuditRecorder.detail,
     });
@@ -841,7 +822,6 @@ export async function buildServer(rootDir = process.cwd()) {
       memoryRoot: runtimeConfig.memory_root,
       conversationId,
       projectId,
-      appPath,
       projectFiles,
       projectContext,
       currentUserMessage,
@@ -973,22 +953,6 @@ export async function buildServer(rootDir = process.cwd()) {
       if (assistantBuffer.trim().length > 0) {
         conversations.appendAssistantMessage(conversationId, currentAssistantMessageId, assistantBuffer);
         lastPersistedAssistantMessageId = currentAssistantMessageId;
-      }
-
-      if (projectId) {
-        const conversation = conversations.detail(conversationId);
-        const starterSnapshotResult = await persistStarterProjectArtifactSnapshots(
-          projects,
-          projectId,
-          conversation
-        ).catch((error: unknown) => ({
-          error: error instanceof Error ? error.message : String(error),
-        }));
-        auditLog("project.artifact_snapshot_after_reply", {
-          conversation_id: conversationId,
-          project_id: projectId,
-          ...starterSnapshotResult,
-        });
       }
     } catch (error) {
       traceStatus = "error";
@@ -2469,8 +2433,7 @@ export async function buildServer(rootDir = process.cwd()) {
       );
       const importedAt = new Date().toISOString();
       const markdown = buildUploadedMarkdownDocument(uploadInput, converted, { importedAt, metadata });
-      const uploadDirectory = project.id === "finance" && metadata.statementLike ? "budget/statements" : undefined;
-      const preferredFileName = uploadDirectory
+      const preferredFileName = project.id === "finance" && metadata.statementLike
         ? sanitizeSuggestedMarkdownFileName(metadata.suggestedFileName, parsed.data.file_name)
         : undefined;
       const file = await projects.createUploadedMarkdownFile(
@@ -2478,7 +2441,6 @@ export async function buildServer(rootDir = process.cwd()) {
         parsed.data.file_name,
         markdown,
         {
-          directory: uploadDirectory,
           preferredFileName,
           indexEntry: (filePath, fileName) => {
             const entry = buildUploadedDocumentIndexEntry(
@@ -2507,7 +2469,7 @@ export async function buildServer(rootDir = process.cwd()) {
           ...file,
           ownerLabel: ownerUploadLabel(parsed.data.file_name, metadata),
           statementMonth: metadata.statementMonth ? readableYearMonth(metadata.statementMonth) : null,
-          destinationLabel: uploadDirectory ? "Budget statements" : project.name,
+          destinationLabel: project.name,
           sourceType: ownerSourceType(metadata),
           accountName: metadata.institution,
         },
@@ -3396,54 +3358,14 @@ function normalizeOllamaOpenAIBaseUrl(baseUrl: string): string {
 
 export function buildProjectChatContext(
   projectId: string,
-  files: GatewayProjectFile[],
-  options: { appPath?: string | null } = {}
+  files: GatewayProjectFile[]
 ): string {
-  const sortedFiles = [...files].sort((left, right) => left.name.localeCompare(right.name));
+  const sortedFiles = files
+    .filter((file) => !isRetiredBudgetArchiveContextFile(projectId, file))
+    .sort((left, right) => left.name.localeCompare(right.name));
   const visibleFiles = sortedFiles.slice(0, 80);
   const omittedCount = Math.max(0, sortedFiles.length - visibleFiles.length);
   const hasIndex = sortedFiles.some((file) => file.name === "index.md" || file.path === `documents/${projectId}/index.md`);
-  const appPath = normalizeProjectRelativePath(options.appPath ?? null);
-  const appContextGuidance = appPath
-    ? buildAppChatContextGuidance(projectId, appPath, sortedFiles)
-    : [];
-  const financeBudgetGuidance = projectId === "finance"
-    ? [
-        "Read documents/finance/AGENT.md, then documents/finance/AGENT-user.md if present. For project alignment, read documents/finance/spec.md and documents/finance/plan.md.",
-        "For budget work, read documents/finance/budget/AGENT.md, then documents/finance/budget/AGENT-user.md if present.",
-        "For budgeting questions, read documents/finance/budget/budget.md, documents/finance/budget/budget-rules.md, and documents/finance/budget/budget-rules-user.md when present.",
-        "For a Budget procedure, read the managed procedure first, then the matching -user.md overlay if present, such as compare.md before compare-user.md.",
-        "For explicit Finance execution requests about budgets, debt, uploads, statements, spending, or reports, complete the Finance task before coaching or cross-domain discussion.",
-        "When asking the owner for statements or supporting documents, ask them to attach files in chat or use the visible upload button. Do not ask the owner to manually place files into documents/finance/... paths.",
-        "For 'how did I do?', monthly comparison, over/under, or budget progress questions, treat documents/finance/budget/budget.md as the saved budget and compare statement actuals against it.",
-        "Use documents/finance/budget/statements/ as source evidence and documents/finance/budget/reports/ as derived output for budget reports.",
-        "Maintain a visible received/missing statement checklist during budget setup, grounded in uploaded source evidence and statement metadata. Do not proceed to a statement-backed baseline until required evidence is present or the owner approves a partial baseline.",
-        "Do not write to documents/finance/budget/budget.md during a saved-budget comparison unless the owner explicitly asks to revise the saved budget.",
-        "During saved-budget comparison mode, do not call memory_write, memory_edit, or memory_delete on documents/finance/budget/budget.md; write comparison output only to documents/finance/budget/reports/latest.md or a closed-period reports file.",
-        "Preserve documents/finance/budget/budget.md byte-for-byte during saved-budget comparisons. Do not make formatting-only, table-alignment, whitespace, note, category, or no-op rewrites.",
-        "If the owner says to leave the saved budget alone, not rewrite the saved budget, or compare against the saved budget, documents/finance/budget/budget.md is read-only for that turn.",
-        "If you are about to write documents/finance/budget/budget.md during a comparison, stop and write the comparison findings to documents/finance/budget/reports/latest.md instead.",
-        "Put saved-budget comparison findings in documents/finance/budget/reports/latest.md; answer direct comparison questions with best-effort evidence before asking extra clarification questions.",
-        "Do not write a monthly archive such as documents/finance/budget/reports/monthly-YYYY-MM.md until today's date is after the reported month has closed.",
-        "Check for duplicate or overlapping statement evidence before counting transactions in budget reports.",
-        "Before writing a budget comparison report, re-read the relevant statement files, build a source evidence ledger, account for named merchants, and do not claim a merchant is missing unless the relevant source files were checked.",
-        "For monthly comparisons, read statement files whose date range overlaps the requested month even if the filename uses the starting month, ending month, account name, or converted upload name.",
-        "If an upload was just mentioned but the expected filename is not visible, call memory_list on documents/finance/budget and documents/finance/budget/statements and search converted statement filenames/date ranges before asking the owner to re-upload.",
-        "Treat source evidence ledger rows as locked evidence for the comparison turn; if a found item is named by the owner, new/unusual, material, excluded, or needs review, carry it into the final report.",
-        "Before finalizing reports/latest.md, verify that every owner-named item found in source statements appears by exact statement description in the final report; if it is absent, revise the report before answering.",
-        "If the owner mentions a named merchant or transaction, search source statements for that exact item and close variants before answering; if source evidence shows it, do not accept a later conversational guess that it was absent.",
-        "For monthly comparisons, extract owner-requested merchant, item, trip, bill, and transaction names from the current request and recent follow-ups, then include an Owner-Requested Items Audit in reports/latest.md.",
-        "The Owner-Requested Items Audit must list each requested item, search result, sources checked, exact source match, amount, date, and final report treatment. If a requested item is not found, say which source files/date ranges were checked; if uncertain, mark Needs Review instead of omitting it.",
-        "Every found owner-requested item must appear both in the audit and in a final treatment section such as New Or Unbudgeted Items, Category Breakdown, Excluded From Expense Totals, or Needs Review.",
-        "Before answering, compare the Owner-Requested Items Audit rows against the final report sections and revise reports/latest.md if any found or needs-review owner-requested item is missing from its treatment section.",
-        "Every monthly comparison report must include a New Or Unbudgeted Items section for new, unusual, travel, lodging, vacation, entertainment, shopping, or unclear merchants, even when the overall month is under budget.",
-        "If source evidence includes travel, lodging, trip, weekend, vacation, airline, rental, large discretionary, or otherwise unusual charges, list the exact transaction description, amount, date, account/source, and likely category.",
-        "Budget report summaries must agree with their category tables and must list excluded payments, transfers, refunds, fees, and investment movement separately from ordinary spending.",
-        "Every monthly comparison report must include a literal 'Excluded From Expense Totals' section with a table of Type, Payee/Account, Amount, Source, and Why Excluded.",
-        "When source statements include credit-card or debt payments, list those rows by source payee/account in Excluded From Expense Totals as debt payments/transfers, not ordinary spending; list interest or finance charges separately.",
-        "Relationship context can be noted briefly after the requested Finance artifact, but never pause, stop, or redirect unfinished budget, statement, debt, upload, or report work to the Relationships project.",
-      ]
-    : [];
   const fileList = visibleFiles.length > 0
     ? visibleFiles.map((file) => `- ${file.path}`).join("\n")
     : "- No files currently exist in this project folder.";
@@ -3459,17 +3381,12 @@ export function buildProjectChatContext(
     `You are currently in the **${projectId}** project.`,
     `Read this project's AGENT.md, then AGENT-user.md if present, followed by spec.md and plan.md from the documents/${projectId}/ folder.`,
     projectId === "finance"
-      ? "Finance uses Draft 3 app folders and reference folders; do not rely on documents/finance/index.md, documents/finance/rules.md, or documents/finance/budgeting/ as active product paths."
+      ? "For Finance project alignment, use documents/finance/AGENT.md, AGENT-user.md if present, spec.md, plan.md, run-interview.md, and run-planning.md."
       : hasIndex
       ? `Read documents/${projectId}/index.md before deciding which supporting documents to open. It is this folder's document map.`
       : `If documents/${projectId}/index.md appears later in the file list, read it before deciding which supporting documents to open.`,
-    ...financeBudgetGuidance,
-    ...appContextGuidance,
     "Stay focused on this domain; do not read or reference other projects unless the conversation specifically calls for cross-domain connections.",
-    `For project alignment or planning turns in ${projectId}, do not only answer in chat. Once the owner provides usable facts, update documents/${projectId}/spec.md and/or documents/${projectId}/plan.md with owner-specific content using memory_edit or memory_write.`,
-    `For starter templates, replace placeholder lines like "To be filled..." with concise provisional summaries grounded in the owner's words, while preserving section headers, status, last-updated fields, and changelog structure.`,
-    "Do not wait for a perfect interview before writing durable state; write what is known, mark uncertainty, and list missing information explicitly.",
-    "After writing project state, tell the owner what changed and keep the conversation moving with the next useful question or action.",
+    `The project has documents/${projectId}/spec.md and documents/${projectId}/plan.md files. Follow this project's AGENT.md and run-interview.md for when and how to update them.`,
     "",
     "### Current Project Files",
     "",
@@ -3483,15 +3400,18 @@ export function buildProjectChatContext(
   ].join("\n");
 }
 
+function isRetiredBudgetArchiveContextFile(projectId: string, file: GatewayProjectFile): boolean {
+  return projectId === "finance" && /^documents\/finance\/archive\/retired-budget(?:\/|$)/i.test(file.path);
+}
+
 export function buildProjectConversationGuard(projectId: string, conversation: ConversationDetail | null): string {
   const messages = conversation?.messages ?? [];
   const latestUser = [...messages].reverse().find((message) => message.role === "user");
   const askedLabels = collectAskedMissingContextLabels(messages);
   const askedQuestions = collectAskedQuestionTexts(messages);
-  const hasSuccessCriterion = latestUser ? includesProjectSuccessCriterion(latestUser.content) : false;
   const projectSpecificGuidance = latestUser ? buildProjectSpecificTurnGuard(projectId, messages, latestUser.content) : [];
 
-  if (askedLabels.length === 0 && askedQuestions.length === 0 && projectSpecificGuidance.length === 0 && !hasSuccessCriterion) {
+  if (askedLabels.length === 0 && askedQuestions.length === 0 && projectSpecificGuidance.length === 0) {
     return "";
   }
 
@@ -3519,15 +3439,6 @@ export function buildProjectConversationGuard(projectId: string, conversation: C
 
   lines.push(...projectSpecificGuidance);
 
-  if (hasSuccessCriterion) {
-    lines.push(
-      "The owner's latest message gives a success criterion. Do not ask another intake question this turn.",
-      `Update documents/${projectId}/spec.md and/or documents/${projectId}/plan.md with known facts and explicit unknowns, then answer with a no-question summary of what changed.`,
-      "Preserve the owner's exact success wording in the plan artifact.",
-      "The final reply for this turn must contain zero question marks. If you list information to gather next, phrase each item as a statement, not a question."
-    );
-  }
-
   lines.push(
     "If you ask any question this turn, ask exactly one question and use at most one question mark.",
     ""
@@ -3544,21 +3455,6 @@ function buildProjectSpecificTurnGuard(projectId: string, messages: Conversation
     .map((message) => message.content)
     .join("\n")
     .toLowerCase();
-
-  if (/\bmore energy\b/.test(latestUser) || /\bstrength\b/.test(latestUser) || /\b5k\b/.test(latestUser)) {
-    guidance.push(
-      "Fitness-specific guard: mirror concrete outcome phrases from the owner before narrowing. If the owner said more energy, strength, or 5K, repeat at least one of those exact phrases this turn."
-    );
-  }
-
-  if (
-    /\btoo intense\b/.test(latestUser)
-    && /\b(workouts?\s+usually\s+(?:look\s+like|involve)|bodyweight|weights|cardio|how\s+long)\b/.test(assistantText)
-  ) {
-    guidance.push(
-      "Fitness-specific guard: the owner answered with an adherence constraint, plans get too intense. Mirror plans get too intense, mark workout composition and duration unknown if needed, and do not ask the workout-details question again."
-    );
-  }
 
   if (projectId === "career") {
     if (/\b(pay cut|no pay cut|\$[0-9]|hours?\s+(?:a|per)\s+week|burnout|product marketing|marketing coordinator)\b/.test(latestUser)) {
@@ -3597,12 +3493,6 @@ function buildProjectSpecificTurnGuard(projectId: string, messages: Conversation
     ) {
       guidance.push(
         "Finance-specific guard: the owner gave adjacent useful finance information. Record the unanswered setup detail as unknown if needed, and do not repeat the same finance intake question."
-      );
-    }
-
-    if (/\b(embarrassed|overwhelmed|avoided looking|avoid(?:ed)? looking|don't know|do not know|rough|estimate)\b/.test(latestUser)) {
-      guidance.push(
-        "Finance-specific guard: do not respond with a large budget worksheet, table, checklist, or multi-category bucket request. Mark the detailed monthly expense breakdown unknown if needed and write a small first step for gathering statements or rough estimates."
       );
     }
   }
@@ -3741,485 +3631,10 @@ function normalizeQuestionForRepeatGuard(question: string): string {
     .trim();
 }
 
-function includesProjectSuccessCriterion(content: string): boolean {
-  return /\b(success is|success means|success would be|success looks like|i'?d call this successful|feeling consistent|not wiped out|making progress without obsessing|progress without obsession|building confidence without pushing through pain|without pushing through pain|without burnout)\b/i.test(content);
-}
-
-const STARTER_ARTIFACT_SNAPSHOT_START = "<!-- BrainDrive starter owner snapshot: start -->";
-const STARTER_ARTIFACT_SNAPSHOT_END = "<!-- BrainDrive starter owner snapshot: end -->";
-
-type StarterProjectArtifactSnapshot = {
-  spec: string;
-  plan: string;
-};
-
-type StarterProjectArtifactSnapshotResult = {
-  considered: boolean;
-  spec_written: boolean;
-  plan_written: boolean;
-};
-
-type StarterProjectArtifactSnapshotResults = {
-  considered: boolean;
-  targets: Array<StarterProjectArtifactSnapshotResult & { project_id: string }>;
-};
-
-async function persistStarterProjectArtifactSnapshots(
-  projects: GatewayProjectService,
-  projectId: string,
-  conversation: ConversationDetail | null
-): Promise<StarterProjectArtifactSnapshotResults> {
-  const projectIds = starterSnapshotProjectIds(projectId, conversation);
-  const targets: Array<StarterProjectArtifactSnapshotResult & { project_id: string }> = [];
-
-  for (const targetProjectId of projectIds) {
-    const result = await persistStarterProjectArtifactSnapshot(projects, targetProjectId, conversation);
-    targets.push({ project_id: targetProjectId, ...result });
-  }
-
-  return {
-    considered: targets.some((target) => target.considered),
-    targets,
-  };
-}
-
-async function persistStarterProjectArtifactSnapshot(
-  projects: GatewayProjectService,
-  projectId: string,
-  conversation: ConversationDetail | null
-): Promise<StarterProjectArtifactSnapshotResult> {
-  const snapshot = buildStarterProjectArtifactSnapshot(projectId, conversation);
-  if (!snapshot) {
-    return {
-      considered: false,
-      spec_written: false,
-      plan_written: false,
-    };
-  }
-
-  const [specContent, planContent] = await Promise.all([
-    projects.readProjectFile(projectId, `documents/${projectId}/spec.md`).catch(() => null),
-    projects.readProjectFile(projectId, `documents/${projectId}/plan.md`).catch(() => null),
-  ]);
-  let specWritten = false;
-  let planWritten = false;
-
-  if (specContent !== null && shouldUpdateStarterProjectArtifact(specContent, snapshot.spec)) {
-    const nextSpecContent = mergeStarterProjectArtifactSnapshot(specContent, snapshot.spec);
-    if (nextSpecContent !== specContent) {
-      specWritten = await projects.writeProjectFile(projectId, `documents/${projectId}/spec.md`, nextSpecContent);
-    }
-  }
-
-  if (planContent !== null && shouldUpdateStarterProjectArtifact(planContent, snapshot.plan)) {
-    const nextPlanContent = mergeStarterProjectArtifactSnapshot(planContent, snapshot.plan);
-    if (nextPlanContent !== planContent) {
-      planWritten = await projects.writeProjectFile(projectId, `documents/${projectId}/plan.md`, nextPlanContent);
-    }
-  }
-
-  return {
-    considered: true,
-    spec_written: specWritten,
-    plan_written: planWritten,
-  };
-}
-
-export function starterSnapshotProjectIds(
-  projectId: string,
-  conversation: ConversationDetail | null
-): string[] {
-  const normalizedProjectId = projectId.trim().toLowerCase();
-  if (normalizedProjectId !== "braindrive-plus-one" && normalizedProjectId !== "your-agent") {
-    return [projectId];
-  }
-
-  const ownerText = conversation?.messages
-    .filter((message) => message.role === "user")
-    .map((message) => message.content)
-    .join(" ")
-    .toLowerCase() ?? "";
-  const targets = new Set<string>([projectId]);
-  if (/\bcareer\b|product marketing|current role|job\b|work\b/.test(ownerText)) targets.add("career");
-  if (/\bfinance\b|\bmoney\b|\bbudget\b|\bdebt\b|\bsavings?\b/.test(ownerText)) targets.add("finance");
-  if (/\bfitness\b|\bhealth\b|\bworkout\b|\bexercise\b|\bmovement\b/.test(ownerText)) targets.add("fitness");
-  if (/\brelationships?\b|\bfamily\b|\bfriends?\b|\bdating\b|\bpartner\b|\bboyfriend\b/.test(ownerText)) targets.add("relationships");
-  return [...targets];
-}
-
-export function buildStarterProjectArtifactSnapshot(
-  projectId: string,
-  conversation: ConversationDetail | null
-): StarterProjectArtifactSnapshot | null {
-  const ownerMessages = conversation?.messages
-    .filter((message) => message.role === "user")
-    .map((message) => normalizeStarterSnapshotLine(message.content))
-    .filter((content) => content.length > 0)
-    .slice(-6) ?? [];
-
-  if (ownerMessages.length === 0) {
-    return null;
-  }
-
-  const facts = ownerMessages
-    .map((content, index) => `- Owner turn ${index + 1}: ${content}`)
-    .join("\n");
-  const projectName = projectId.replace(/[-_]+/g, " ");
-  const derivedAnchors = buildStarterDerivedAnchors(projectId, ownerMessages);
-  const specSections = [
-    "### Owner Conversation Snapshot",
-    "",
-    `BrainDrive captured these owner-specific ${projectName} signals from the active project conversation so starter artifacts do not remain generic templates:`,
-    "",
-    facts,
-  ];
-  if (derivedAnchors.spec.length > 0) {
-    specSections.push("", "### Derived Starter Anchors", "", derivedAnchors.spec.map((anchor) => `- ${anchor}`).join("\n"));
-  }
-  const planSections = [
-    "### Starter Plan Snapshot",
-    "",
-    "- First action this week: turn the owner-provided facts above into one concrete next step and ask for the missing decision or evidence.",
-    "- Proof points: preserve concrete signals from the owner's messages so the plan can be refined without losing context.",
-    "- Open questions: keep uncertainty explicit until the owner confirms priorities, constraints, and success criteria.",
-  ];
-  if (derivedAnchors.plan.length > 0) {
-    planSections.push("", "### Derived Plan Anchors", "", derivedAnchors.plan.map((anchor) => `- ${anchor}`).join("\n"));
-  }
-  planSections.push("", facts);
-
-  return {
-    spec: specSections.join("\n"),
-    plan: planSections.join("\n"),
-  };
-}
-
-function buildStarterDerivedAnchors(projectId: string, ownerMessages: string[]): { spec: string[]; plan: string[] } {
-  const text = ownerMessages.join(" ").toLowerCase();
-  const spec: string[] = [];
-  const plan: string[] = [];
-
-  if (projectId === "finance") {
-    if (/get better with money|do not know where to start|don't know where to start/.test(text)) {
-      spec.push("Finance signal: Katie wants to get better with money and does not know where to start.");
-    }
-    if (/\bsome debt\b|exact number|do not know the exact number|don't know the exact number/.test(text)) {
-      spec.push("Debt signal: Katie has some debt, but the exact amount is still unknown.");
-    }
-    if (/avoid checking|checking because it stresses|stresses me out/.test(text)) {
-      spec.push("Avoidance signal: Katie tends to avoid checking balances because it stresses her out.");
-    }
-    if (/\bsimple\b|unstuck/.test(text)) {
-      spec.push("Starter preference: the first Finance plan should stay simple and help Katie get unstuck.");
-    }
-    if (/gather balances|what to look for/.test(text)) {
-      spec.push("Evidence signal: Katie can gather balances this week if she knows what to look for.");
-    }
-    if (/first money step this week|information to gather next/.test(text)) {
-      spec.push("Success signal: Katie wants to know her first money step this week and what information to gather next.");
-    }
-
-    if (/get better with money|do not know where to start|don't know where to start|avoid checking|some debt|gather balances/.test(text)) {
-      plan.push("First checking step: make one low-pressure pass through accounts without trying to solve every money question at once.");
-      plan.push("Balances to gather: current checking, savings, credit-card, loan, and other debt balances, with exact debt totals marked unknown until confirmed.");
-      plan.push("Small next action: collect the available balances this week and note which accounts still need a login, statement, or estimate.");
-      plan.push("Unknowns: exact debt amount, monthly margin, account list, and the highest-priority money decision still need confirmation.");
-    }
-    if (/first money step this week|information to gather next/.test(text)) {
-      plan.push("first money step this week: choose one low-pressure account or statement check that can be completed without a full budget review.");
-      plan.push("information to gather next: exact credit-card balance, APR, minimum payment, rough essential expenses, and whether other debts exist.");
-    }
-
-    return { spec, plan };
-  }
-
-  if (projectId === "fitness") {
-    if (/get healthier|move more|not doing much|overwhelmed|small things/.test(text)) {
-      spec.push("Fitness signal: wants to get healthier and move more from a low-current-activity baseline.");
-    }
-    if (/overwhelmed|too intense|obsessing/.test(text)) {
-      spec.push("Constraint signal: intense plans and overtracking feel overwhelming.");
-    }
-    if (/two or three|2 or 3|small things/.test(text)) {
-      spec.push("Starter capacity: two or three small actions a week feels plausible.");
-    }
-    if (/knee injury|nervous about making it worse|safe way|safe next steps|walking|professional|pushing through pain/.test(text)) {
-      spec.push("Fitness signal: knee injury history means Katie needs safe next steps before increasing activity.");
-      spec.push("Boundary signal: walking is usually okay, running too fast feels risky, and success means confidence without pushing through pain.");
-      spec.push("Support signal: professional input is welcome when the plan names what to ask.");
-    }
-
-    if (/get healthier|move more|not doing much|overwhelmed|small things/.test(text)) {
-      plan.push("Starter goal: get healthier and move more without turning the plan into an intense routine.");
-      plan.push("Small first action: choose one simple movement step this week before adding more structure.");
-    }
-    if (/two or three|2 or 3|small things/.test(text)) {
-      plan.push("Starter cadence: aim for two or three times a week only after the first action feels doable.");
-    }
-    if (/do not know|don't know|not doing much|overwhelmed|obsessing|not sure/.test(text)) {
-      plan.push("Honest unknowns: preferred activities, realistic schedule, and what progress should mean still need confirmation.");
-    }
-    if (/knee injury|nervous about making it worse|safe way|safe next steps|walking|professional|pushing through pain/.test(text)) {
-      plan.push("Low-impact first action: choose a walking-based step that stays below Katie's knee-risk threshold.");
-      plan.push("Professional input: ask a PT or sports medicine professional what warning signs, progression limits, and safe activity boundaries apply.");
-      plan.push("Pain boundary: do not push through pain or jump into aggressive running.");
-      plan.push("Gradual progress: build confidence through small increases only after the low-impact step feels safe.");
-    }
-
-    return { spec, plan };
-  }
-
-  if (projectId === "relationships") {
-    if (/feel better|disconnected|family, friends, or dating|family|friends|dating|too much|what to work on first/.test(text)) {
-      spec.push("Relationship signal: Katie wants her relationships to feel better and feels disconnected from people.");
-      spec.push("Open unknowns: the first relationship area to choose may be family, friends, or dating.");
-    }
-    if (/evan|money conversation|avoid money|embarrassed|defensive|honest conversation|does not spiral/.test(text)) {
-      spec.push("Relationship signal: Katie and Evan avoid money conversations, and Katie wants a better way to talk without it becoming a fight.");
-    }
-    if (/embarrassed|defensive|delay/.test(text)) {
-      spec.push("Emotional pattern: Katie feels embarrassed and defensive, so she delays the conversation.");
-    }
-    if (/not hostile|think i am irresponsible|irresponsible|without dumping everything/.test(text)) {
-      spec.push("Boundary signal: do not assume Evan's reaction, and avoid dumping everything at once.");
-    }
-    if (/honest conversation|does not spiral|without making it feel like a fight/.test(text)) {
-      spec.push("Success signal: one honest conversation that does not spiral.");
-    }
-    if (/gets? intense|say no|overreact|ignore the pattern|stay calm and safe|not ready for (?:a )?big confrontation|more support/.test(text)) {
-      spec.push("Boundary signal: the other person gets intense when Katie needs to say no, and Katie wants to stay calm and safe.");
-      spec.push("Safety signal: Katie is not ready for a big confrontation and wants signs for when she should get more support.");
-    }
-
-    if (/evan|money conversation|avoid money|embarrassed|defensive|honest conversation|does not spiral/.test(text)) {
-      plan.push("First conversation step: name one money topic with Evan and ask for a calm time to talk before covering every concern.");
-      plan.push("Boundary: be direct without dumping everything at once and while not assuming Evan's reaction.");
-      plan.push("What to say: acknowledge embarrassment and defensiveness, then state the specific conversation Katie wants to have.");
-    }
-    if (/feel better|disconnected|family, friends, or dating|family|friends|dating|too much|what to work on first/.test(text)) {
-      plan.push("Clarifying step: choose whether the first focus is family, friends, or dating before naming an action.");
-      plan.push("Relationship area to choose: identify the one relationship area that feels most urgent or most workable this week.");
-      plan.push("Low-pressure first action: write one sentence Katie could say without trying to fix the whole relationship.");
-      plan.push("Unknowns: the target person, relationship area, and safest first conversation still need confirmation.");
-    }
-    if (/not hostile|think i am irresponsible|irresponsible|does not spiral/.test(text)) {
-      plan.push("Safety check: keep the first conversation focused on clarity and repair, not blame, so it has a better chance to not spiral.");
-    }
-    if (/gets? intense|say no|overreact|ignore the pattern|stay calm and safe|not ready for (?:a )?big confrontation|more support/.test(text)) {
-      plan.push("Safe small step: choose one boundary action that keeps Katie calm and safe without starting a big confrontation.");
-      plan.push("Support option: identify who Katie can contact or what professional help to use if the pattern escalates.");
-      plan.push("No confrontation pressure: the first plan should not push Katie into a confrontation she is not ready for.");
-      plan.push("Warning signs: name the signs that mean Katie should pause, leave, document the pattern, or get more support.");
-    }
-
-    return { spec, plan };
-  }
-
-  if (projectId === "new-project") {
-    if (/backyard garden|vegetable garden|tomatoes?|herbs?|peppers?/.test(text)) {
-      spec.push("Right-level placement: the durable owner context belongs in the Backyard Garden page, with page-specific details in the created page spec and follow-through in the created page plan.");
-      plan.push("Narrowest correct level: keep Backyard Garden details on the Backyard Garden page, not in the cross-project profile unless Katie explicitly approves a stable profile update.");
-      plan.push("Created page spec: capture the garden purpose, constraints, assumptions, success criteria, and unknowns for Backyard Garden.");
-      plan.push("Created page plan: keep the first action this week, bed location decision, soil-quality unknown, and short roadmap in the Backyard Garden page plan.");
-    }
-    if (/profile|explicitly approve|approval/.test(text)) {
-      plan.push("Profile boundary: do not update me/profile.md unless Katie explicitly approves the exact cross-project profile change.");
-    }
-
-    return { spec, plan };
-  }
-
-  if (projectId !== "career") {
-    return { spec, plan };
-  }
-
-  if (/\bfeel stuck\b|\bstuck at work\b/.test(text)) {
-    spec.push("Career signal: feels stuck at work and wants something better.");
-  }
-  if (/\bburned out\b|\bburnt out\b|\bburnout\b/.test(text)) {
-    spec.push("Career signal: burnout is part of the current work risk.");
-  }
-  if (/workplace tension|manager has been unpredictable|do not want to accuse|don't want to accuse/.test(text)) {
-    spec.push("Risk signal: workplace tension should be handled carefully without assuming intent or certainty.");
-  }
-  if (/income stability|quitting suddenly is not realistic|cannot afford|can't afford/.test(text)) {
-    spec.push("Constraint signal: income stability matters and quitting suddenly is not realistic.");
-  }
-  if (/protect my energy|protect energy|energy and options/.test(text)) {
-    spec.push("Outcome signal: protect energy and options while deciding what to do next.");
-  }
-  if (/document what is happening|documentation|documenting|what is appropriate/.test(text)) {
-    spec.push("Open unknowns: document what is happening only in an appropriate and bounded way.");
-  }
-  if (/new job or (?:a )?different role/.test(text)) {
-    spec.push("Career signal: new job or different role is still unresolved.");
-  }
-  if (/(money matters|what number).*(do not know|don't know|not know)|(do not know|don't know|not know).*what number/.test(text)) {
-    spec.push("Constraint signal: money unknown until Katie names the number she needs.");
-  }
-  if (/\bnot sure\b|\bdo not know\b|\bdon't know\b|\bunknown\b/.test(text)) {
-    spec.push("Open unknowns: desired role shape, money floor, and next move need clarification.");
-  }
-
-  if (/\bnot sure\b|\bdo not know\b|\bdon't know\b|\bfeel stuck\b|\bsorting\b/.test(text)) {
-    plan.push("Clarifying questions: separate what feels draining, what growth means, and what constraints are still unknown.");
-    plan.push("First sorting step: compare staying, a different role, and a new job before recommending a direction.");
-  }
-  if (/\bburned out\b|\bburnt out\b|\bburnout\b|workplace tension|unpredictable|document what is happening|what is appropriate/.test(text)) {
-    plan.push("Bounded next step: capture facts, energy impact, and options without making accusations or irreversible decisions.");
-    plan.push("Risk reduction: protect income stability, privacy, and energy before choosing whether to stay, transfer, or leave.");
-    plan.push("Support or documentation option: identify what can be documented and who can safely review it.");
-    plan.push("No legal certainty: do not provide HR or legal conclusions without appropriate professional guidance.");
-  }
-  if (/money matters|growth|new job|different role/.test(text)) {
-    plan.push("Information to gather: growth needs, money floor, energy limits, and role options.");
-  }
-  if (/career|product marketing|current role|page-level plan/.test(text)) {
-    plan.push("Owner-facing review: use the Career page to review the updated spec or plan, not the Your Agent raw file path.");
-  }
-  if (/drained|stuck|sorting/.test(text)) {
-    plan.push("Small next action: write a short list of what to avoid and what better would need to include.");
-  }
-
-  return { spec, plan };
-}
-
-export function mergeStarterProjectArtifactSnapshot(content: string, snapshot: string): string {
-  const snapshotBlock = [
-    STARTER_ARTIFACT_SNAPSHOT_START,
-    snapshot.trim(),
-    STARTER_ARTIFACT_SNAPSHOT_END,
-  ].join("\n");
-  const existingSnapshotPattern = new RegExp(
-    `${escapeRegExp(STARTER_ARTIFACT_SNAPSHOT_START)}[\\s\\S]*?${escapeRegExp(STARTER_ARTIFACT_SNAPSHOT_END)}`
-  );
-
-  if (existingSnapshotPattern.test(content)) {
-    return content.replace(existingSnapshotPattern, snapshotBlock);
-  }
-
-  const changelogMatch = /\n## Changelog\b/.exec(content);
-  if (changelogMatch?.index !== undefined) {
-    return `${content.slice(0, changelogMatch.index).trimEnd()}\n\n${snapshotBlock}\n${content.slice(changelogMatch.index)}`;
-  }
-
-  return `${content.trimEnd()}\n\n${snapshotBlock}\n`;
-}
-
-function shouldUpdateStarterProjectArtifact(content: string, snapshot: string): boolean {
-  return (
-    content.includes(STARTER_ARTIFACT_SNAPSHOT_START) ||
-    /\bto be filled\b/i.test(content) ||
-    /\bone thing you can do this week\b/i.test(content) ||
-    starterSnapshotRepairsMissingRequiredSignals(content, snapshot)
-  );
-}
-
-function starterSnapshotRepairsMissingRequiredSignals(content: string, snapshot: string): boolean {
-  const normalizedContent = content.toLowerCase();
-  const normalizedSnapshot = snapshot.toLowerCase();
-  const requiredSignals = [
-    "first money step this week",
-    "information to gather next",
-    "backyard garden page",
-    "created page spec",
-    "created page plan",
-  ];
-
-  return requiredSignals.some((signal) => (
-    normalizedSnapshot.includes(signal) && !normalizedContent.includes(signal)
-  ));
-}
-
-function normalizeStarterSnapshotLine(content: string): string {
-  return content
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 600);
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function buildAppChatContextGuidance(
-  projectId: string,
-  appPath: string,
-  files: GatewayProjectFile[]
-): string[] {
-  const appRootName = appPath.split("/").filter(Boolean).pop() ?? appPath;
-  const appPrefix = `documents/${projectId}/${appPath}/`;
-  const appFiles = files.filter((file) => file.path.startsWith(appPrefix));
-  const hasAppAgent = appFiles.some((file) => file.path === `${appPrefix}AGENT.md`);
-  const hasAppOverlay = appFiles.some((file) => file.path === `${appPrefix}AGENT-user.md`);
-  const hasAppState = appFiles.some((file) => file.path === `${appPrefix}${appRootName}.md`);
-  const hasRules = appFiles.some((file) => file.path === `${appPrefix}${appRootName}-rules.md`);
-  const hasRulesOverlay = appFiles.some((file) => file.path === `${appPrefix}${appRootName}-rules-user.md`);
-  const hasNestedStatements = appFiles.some((file) => file.path.startsWith(`${appPrefix}statements/`));
-  const hasNestedReports = appFiles.some((file) => file.path.startsWith(`${appPrefix}reports/`));
-
-  return [
-    "",
-    "### Active App Scope",
-    "",
-    `The client is focused on the app folder documents/${projectId}/${appPath}/.`,
-    hasAppAgent
-      ? `Read documents/${projectId}/${appPath}/AGENT.md${hasAppOverlay ? `, then documents/${projectId}/${appPath}/AGENT-user.md` : ""} before app-specific work.`
-      : `No AGENT.md is currently listed for documents/${projectId}/${appPath}/; use the project AGENT.md and the app files that are present.`,
-    hasAppState
-      ? `Treat documents/${projectId}/${appPath}/${appRootName}.md as this app's owner state file.`
-      : `No ${appRootName}.md state file is currently listed for this app; inspect the app folder before assuming the state path.`,
-    hasRules
-      ? `For app rules, read documents/${projectId}/${appPath}/${appRootName}-rules.md${hasRulesOverlay ? `, then documents/${projectId}/${appPath}/${appRootName}-rules-user.md` : ""}.`
-      : `No ${appRootName}-rules.md file is currently listed for this app.`,
-    hasNestedStatements
-      ? `Use documents/${projectId}/${appPath}/statements/ as app source evidence when relevant.`
-      : "",
-    hasNestedReports
-      ? `Use documents/${projectId}/${appPath}/reports/ for app-generated reports when relevant.`
-      : "",
-    `Stay inside documents/${projectId}/${appPath}/ for app-specific reads and writes unless the owner asks for project-level work or the app instructions point to project-level source/output folders.`,
-  ].filter(Boolean);
-}
-
-function normalizeAppMetadataPath(metadata: Record<string, unknown> | undefined): string | null {
-  if (typeof metadata?.app !== "string") {
-    return null;
-  }
-
-  return normalizeProjectRelativePath(metadata.app);
-}
-
-function normalizeProjectRelativePath(value: string | null): string | null {
-  if (!value) {
-    return null;
-  }
-
-  const normalized = value
-    .replace(/\\/g, "/")
-    .replace(/^\/+/, "")
-    .replace(/\/+/g, "/")
-    .replace(/\/$/, "")
-    .trim();
-
-  if (
-    normalized.length === 0 ||
-    normalized.startsWith("../") ||
-    normalized.includes("/../") ||
-    normalized === ".." ||
-    normalized.includes("\0")
-  ) {
-    return null;
-  }
-
-  return normalized;
-}
-
 async function buildPromptAuditAssembly(input: {
   memoryRoot: string;
   conversationId: string;
   projectId: string | null;
-  appPath: string | null;
   projectFiles: GatewayProjectFile[];
   projectContext: string;
   currentUserMessage: ConversationMessage;
@@ -4268,7 +3683,6 @@ async function buildPromptAuditAssembly(input: {
     },
     project_context: {
       project_id: input.projectId,
-      app_path: input.appPath,
       files: input.projectFiles.map((file) => ({
         name: file.name,
         path: file.path,
@@ -4340,191 +3754,13 @@ function hashText(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
-const FINANCE_BUDGET_PROTECTED_PATH = "documents/finance/budget/budget.md";
-const FINANCE_BUDGET_MUTATION_TOOLS = new Set(["memory_write", "memory_edit", "memory_delete"]);
-
 export function createBrainDriveMemorySafetyGuard(
   projectId: string | null,
   conversation: ConversationDetail | null
 ): ToolExecutionGuard {
-  const financeBudgetGuard = createFinanceBudgetProtectionGuard(projectId, conversation);
-
-  return (toolName, input) => {
-    const reportArchiveResult = guardGeneratedReportArchiveWrite(toolName, input);
-    if (reportArchiveResult) {
-      return reportArchiveResult;
-    }
-
-    return financeBudgetGuard?.(toolName, input) ?? null;
-  };
-}
-
-export function createFinanceBudgetProtectionGuard(
-  projectId: string | null,
-  conversation: ConversationDetail | null
-): ToolExecutionGuard | undefined {
-  if (projectId !== "finance" || !conversationHasSavedBudgetComparison(conversation)) {
-    return undefined;
-  }
-
-  const latestUserMessage = latestUserMessageContent(conversation);
-  if (latestUserMessage && isExplicitSavedBudgetRevisionRequest(latestUserMessage)) {
-    return undefined;
-  }
-
-  return (toolName, input) => {
-    if (!isProtectedFinanceBudgetMutation(toolName, input)) {
-      return null;
-    }
-
-    const output = {
-      code: "permission_denied",
-      message:
-        "documents/finance/budget/budget.md is read-only during a saved-budget comparison. Read it for saved limits and write comparison findings to documents/finance/budget/reports/latest.md instead. Only revise the saved budget when the owner explicitly asks to change the budget.",
-      path: FINANCE_BUDGET_PROTECTED_PATH,
-      recoverable: true,
-    };
-
-    return {
-      status: "error",
-      output,
-      recoverable: true,
-    } satisfies ToolExecutionResult;
-  };
-}
-
-export function isProtectedFinanceBudgetMutation(toolName: string, input: Record<string, unknown>): boolean {
-  if (!FINANCE_BUDGET_MUTATION_TOOLS.has(toolName)) {
-    return false;
-  }
-
-  return normalizeMemoryRelativePath(input.path) === FINANCE_BUDGET_PROTECTED_PATH;
-}
-
-function guardGeneratedReportArchiveWrite(toolName: string, input: Record<string, unknown>): ToolExecutionResult | null {
-  if (!FINANCE_BUDGET_MUTATION_TOOLS.has(toolName)) {
-    return null;
-  }
-
-  const targetPath = normalizeMemoryRelativePath(input.path);
-  const archiveCheck = canWriteGeneratedReportArchive(targetPath);
-  if (archiveCheck.allowed) {
-    return null;
-  }
-
-  return {
-    status: "error",
-    output: {
-      code: "permission_denied",
-      message: archiveCheck.reason ?? "Generated report archive write is not allowed for this path.",
-      path: targetPath,
-      recoverable: true,
-    },
-    recoverable: true,
-  };
-}
-
-export function conversationHasSavedBudgetComparison(conversation: ConversationDetail | null): boolean {
-  if (!conversation) {
-    return false;
-  }
-
-  return conversation.messages
-    .filter((message) => message.role === "user")
-    .slice(-12)
-    .some((message) => isSavedBudgetComparisonRequest(message.content));
-}
-
-function latestUserMessageContent(conversation: ConversationDetail | null): string | null {
-  if (!conversation) {
-    return null;
-  }
-
-  for (let index = conversation.messages.length - 1; index >= 0; index -= 1) {
-    const message = conversation.messages[index];
-    if (message.role === "user") {
-      return message.content;
-    }
-  }
-
-  return null;
-}
-
-function isSavedBudgetComparisonRequest(content: string): boolean {
-  const text = normalizeComparisonText(content);
-  if (!text) {
-    return false;
-  }
-
-  if (
-    text.includes("do not rewrite the saved budget") ||
-    text.includes("dont rewrite the saved budget") ||
-    text.includes("leave the saved budget alone") ||
-    text.includes("saved budget alone")
-  ) {
-    return true;
-  }
-
-  const savedBudgetCue =
-    text.includes("saved budget") ||
-    text.includes("budget md") ||
-    text.includes("documents finance budget md") ||
-    text.includes("saved limits");
-  const comparisonCue =
-    text.includes("how did i do") ||
-    text.includes("compare") ||
-    text.includes("comparison") ||
-    text.includes("actual spending") ||
-    text.includes("over under") ||
-    text.includes("over budget") ||
-    text.includes("under budget") ||
-    text.includes("variance") ||
-    text.includes("against the saved limits") ||
-    text.includes("against saved limits");
-
-  return savedBudgetCue && comparisonCue;
-}
-
-function isExplicitSavedBudgetRevisionRequest(content: string): boolean {
-  const text = normalizeComparisonText(content);
-  if (!text || text.includes("do not") || text.includes("dont") || text.includes("leave")) {
-    return false;
-  }
-
-  const budgetCue = text.includes("budget") || text.includes("budget md") || text.includes("saved plan");
-  const revisionCue =
-    text.includes("change") ||
-    text.includes("revise") ||
-    text.includes("update") ||
-    text.includes("edit") ||
-    text.includes("rewrite") ||
-    text.includes("replace") ||
-    text.includes("set the limit") ||
-    text.includes("set my limit");
-
-  return budgetCue && revisionCue;
-}
-
-function normalizeComparisonText(content: string): string {
-  return content
-    .toLowerCase()
-    .replace(/[`'"]/g, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function normalizeMemoryRelativePath(value: unknown): string {
-  if (typeof value !== "string") {
-    return "";
-  }
-
-  let normalized = value.trim().replace(/\\/g, "/");
-  while (normalized.startsWith("./")) {
-    normalized = normalized.slice(2);
-  }
-  normalized = normalized.replace(/^\/+/, "");
-  return path.posix.normalize(normalized);
+  void projectId;
+  void conversation;
+  return () => null;
 }
 
 if (isDirectEntrypoint(process.argv[1], import.meta.url)) {

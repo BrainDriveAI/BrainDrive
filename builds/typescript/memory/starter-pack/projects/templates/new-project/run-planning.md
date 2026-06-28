@@ -22,7 +22,7 @@ Read the New Project `spec.md`, existing `plan.md`, `me/profile.md`, existing pa
 
 Lead with the owner's desired outcome and the routing decision. Make the first step concrete, small enough to do, and tied to the current reality. Keep later phases high-level until earlier phases change the facts. Do not build phases for threads marked only as worth exploring later.
 
-Every plan step must trace to a stated goal, current-state fact, routing rationale, success criterion, or missing-information need. If the request is not ready for a new page, create a provisional plan that clarifies what is missing rather than scaffolding placeholder files.
+Every plan step must trace to the owner's main story or a supporting story — or to a current-state fact, routing rationale, success criterion, or missing-information need that serves them. If a step does not ladder up to a story, it does not belong in the plan. If the request is not ready for a new page, create a provisional plan that clarifies what is missing rather than scaffolding placeholder files.
 
 If creating a page, the plan must identify the page name, slug, why it deserves a durable memory home, first spec content, first plan content, and immediate next step. Placeholder-only files are not sufficient.
 
@@ -38,7 +38,7 @@ For sensitive or personal projects, do not force a productivity plan where suppo
 
 ## After Running
 
-Report what changed, update `plan.md`, add todos only for concrete next actions, update page metadata or rollup summaries only as brief summaries, and return to project scope. For `me/profile.md`, propose the exact profile update and ask for approval first; do not write it or claim it was updated without explicit owner approval.
+Report what changed, update `plan.md`, update page metadata or rollup summaries only as brief summaries, and return to project scope. For `me/profile.md`, propose the exact profile update and ask for approval first; do not write it or claim it was updated without explicit owner approval.
 
 ## What This Procedure Is Not
 

@@ -17,21 +17,12 @@ The active page's `plan.md`.
 
 ## Instructions
 
-1. Read the active page `AGENT.md`, `spec.md`, `plan.md`, and `run-planning.md`.
-2. Read `me/profile.md` for relevant stable owner context.
-3. Read overlays such as `AGENT-user.md` and `run-planning-user.md` when present.
-4. Confirm the page spec is specific enough to plan. If not, run or suggest `/interview` first.
-5. Derive the plan from the accepted page spec and current owner intent. Do not invent missing facts.
-6. Update `plan.md` in place using the page's preservation rule. Preserve owner-authored content unless the owner approves replacing it.
-7. Include one bite-sized first step, a practical near-term roadmap, a clear destination, and remaining blockers.
-8. Keep later phases high-level until earlier steps produce better information.
-9. Add todos only for concrete next actions after the plan is written.
-10. Tell the owner what changed and point them to Your Plan in the sidebar — by product name, never by filename or path.
-
-## Quality Bar
-
-A useful page plan is actionable, faithful to the spec, appropriately scoped, and not overwhelming. The first step should be small enough to do now or this week.
+1. Read the active page's `AGENT.md`, `spec.md`, `plan.md`, and `run-planning.md`, plus `me/profile.md` and any overlays.
+2. Confirm the spec is specific enough to plan; if not, run or suggest `/interview` first.
+3. Build or update `plan.md` by following that page's `run-planning.md` — it owns how to turn the spec into a plan, including tracing each step to the owner's stories. Do not keep a separate planning method here.
+4. Preserve owner-authored content; update in place using the page's preservation rule.
+5. Tell the owner what changed and point them to Your Plan in the sidebar — by product name, never by filename.
 
 ## Not This
 
-This skill does not create software-factory `build-plan.md` files. The owner-facing page artifact is `plan.md`, labeled in BrainDrive as Your Plan.
+This skill does not create software-factory `build-plan.md` files. The owner-facing artifact is the page plan, shown as Your Plan.

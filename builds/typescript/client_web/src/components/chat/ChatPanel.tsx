@@ -41,7 +41,6 @@ function formatToolStatus(toolName: string): string {
 type ChatPanelProps = {
   activeConversationId: string | null;
   activeProjectId?: string | null;
-  activeAppPath?: string | null;
   draftKey?: string | null;
   isEmpty?: boolean;
   onConversationComplete?: (conversationId: string) => void;
@@ -242,7 +241,6 @@ function UploadActivityList({
 export default function ChatPanel({
   activeConversationId,
   activeProjectId,
-  activeAppPath,
   draftKey = null,
   isEmpty = false,
   onConversationComplete,
@@ -338,7 +336,7 @@ export default function ChatPanel({
     setAttachments([]);
     setUploadActivities([]);
     setFileError(null);
-  }, [activeProjectId, activeAppPath]);
+  }, [activeProjectId]);
 
   useEffect(() => {
     if (wasLoadingRef.current && !isLoading && !error && conversationId) {
@@ -520,7 +518,7 @@ export default function ChatPanel({
       }
     }
 
-    lines.push("", "Please acknowledge the uploaded statement evidence and update the received/missing checklist for the budget setup before continuing.");
+    lines.push("", "Please acknowledge the uploaded file evidence and use it for this project only when it is relevant.");
     return lines.join("\n");
   }
 
@@ -901,7 +899,6 @@ export default function ChatPanel({
           {shouldShowConversation ? (shouldShowEmptyState ? (
             <EmptyState
               projectId={activeProjectId}
-              appPath={activeAppPath}
               onSuggestionClick={(suggestion) => append(suggestion, { metadata: messageMetadata })}
             />
           ) : (

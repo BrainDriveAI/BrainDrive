@@ -117,7 +117,7 @@ describe("ChatPanel typing indicator behavior", () => {
   it("treats provider timeout messages as provider errors regardless of casing", () => {
     const onOpenSettings = vi.fn();
     const hookState = makeHookState({
-      messages: [{ id: "u-1", role: "user", content: "Please build my budget." }],
+      messages: [{ id: "u-1", role: "user", content: "Please build my finance plan." }],
       error: new Error("Provider did not respond in time.\nWhat to check:\n1. Retry the request."),
       errorCode: "provider_error",
     });
@@ -132,7 +132,7 @@ describe("ChatPanel typing indicator behavior", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Try Again" }));
 
-    expect(hookState.append).toHaveBeenCalledWith("Please build my budget.", {
+    expect(hookState.append).toHaveBeenCalledWith("Please build my finance plan.", {
       metadata: {
         retry_of_message_id: "u-1",
         retry_reason: "provider_error",
@@ -169,7 +169,7 @@ describe("ChatPanel typing indicator behavior", () => {
       path: "documents/finance/statement.md",
       ownerLabel: "Northbridge credit card statement",
       statementMonth: "May 2026",
-      destinationLabel: "Budget statements",
+      destinationLabel: "Finance",
     }));
     useGatewayChatMock.mockReturnValue(hookState);
 
@@ -199,7 +199,7 @@ describe("ChatPanel typing indicator behavior", () => {
       );
     });
     expect(hookState.append).toHaveBeenCalledWith(
-      expect.stringContaining("Northbridge credit card statement (May 2026 - Budget statements)"),
+      expect.stringContaining("Northbridge credit card statement (May 2026 - Finance)"),
       expect.any(Object)
     );
     expect(hookState.append).not.toHaveBeenCalledWith(
@@ -223,11 +223,11 @@ describe("ChatPanel typing indicator behavior", () => {
       .fn()
       .mockResolvedValueOnce({
         name: "february.md",
-        path: "documents/finance/budget/statements/february.md",
+        path: "documents/finance/february.md",
       })
       .mockResolvedValueOnce({
         name: "march.md",
-        path: "documents/finance/budget/statements/march.md",
+        path: "documents/finance/march.md",
       });
     useGatewayChatMock.mockReturnValue(hookState);
 
@@ -278,10 +278,10 @@ describe("ChatPanel typing indicator behavior", () => {
       .fn()
       .mockResolvedValueOnce({
         name: "may.md",
-        path: "documents/finance/budget/statements/may.md",
+        path: "documents/finance/may.md",
         ownerLabel: "Capital One credit card statement",
         statementMonth: "May 2026",
-        destinationLabel: "Budget statements",
+        destinationLabel: "Finance",
       })
       .mockRejectedValueOnce(new Error("ai_pdf_to_markdown returned empty markdown from OpenRouter parser"));
     useGatewayChatMock.mockReturnValue(hookState);
@@ -328,9 +328,9 @@ describe("ChatPanel typing indicator behavior", () => {
       .mockRejectedValueOnce(new Error("Document conversion provider failed."))
       .mockResolvedValueOnce({
         name: "june.md",
-        path: "documents/finance/budget/statements/june.md",
+        path: "documents/finance/june.md",
         ownerLabel: "June statement",
-        destinationLabel: "Budget statements",
+        destinationLabel: "Finance",
       });
     useGatewayChatMock.mockReturnValue(hookState);
 

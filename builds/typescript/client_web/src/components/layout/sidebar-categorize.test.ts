@@ -2,24 +2,27 @@ import { describe, expect, it } from "vitest";
 
 import type { ProjectFile } from "@/types/ui";
 
-import { buildAppSidebarModel, buildProjectSidebarModel } from "./sidebar-categorize";
-import { appDisplayLabel, projectDisplayLabel, rootProjectDisplayLabel, sidebarFileLabel } from "./sidebar-labels";
+import { buildProjectSidebarModel } from "./sidebar-categorize";
+import { projectDisplayLabel, rootProjectDisplayLabel, sidebarFileLabel } from "./sidebar-labels";
 
 const financeFiles: ProjectFile[] = [
   { name: "AGENT.md", path: "documents/finance/AGENT.md" },
   { name: "AGENT-user.md", path: "documents/finance/AGENT-user.md" },
   { name: "spec.md", path: "documents/finance/spec.md" },
   { name: "plan.md", path: "documents/finance/plan.md" },
-  { name: "budget/AGENT.md", path: "documents/finance/budget/AGENT.md" },
-  { name: "budget/budget.md", path: "documents/finance/budget/budget.md" },
-  { name: "budget/budget-rules.md", path: "documents/finance/budget/budget-rules.md" },
-  { name: "budget/budget-rules-user.md", path: "documents/finance/budget/budget-rules-user.md" },
-  { name: "budget/compare.md", path: "documents/finance/budget/compare.md" },
-  { name: "budget/compare-user.md", path: "documents/finance/budget/compare-user.md" },
-  { name: "budget/create.md", path: "documents/finance/budget/create.md" },
-  { name: "budget/create-user.md", path: "documents/finance/budget/create-user.md" },
-  { name: "budget/reports/latest.md", path: "documents/finance/budget/reports/latest.md" },
-  { name: "budget/statements/2026-05-card.md", path: "documents/finance/budget/statements/2026-05-card.md" },
+  { name: "2026-05-capital-one.md", path: "documents/finance/2026-05-capital-one.md" },
+  { name: "archive/retired-budget/budget.md", path: "documents/finance/archive/retired-budget/budget.md" },
+];
+
+const gardenFiles: ProjectFile[] = [
+  { name: "garden/AGENT.md", path: "documents/home/garden/AGENT.md" },
+  { name: "garden/garden.md", path: "documents/home/garden/garden.md" },
+  { name: "garden/garden-rules.md", path: "documents/home/garden/garden-rules.md" },
+  { name: "garden/garden-rules-user.md", path: "documents/home/garden/garden-rules-user.md" },
+  { name: "garden/compare.md", path: "documents/home/garden/compare.md" },
+  { name: "garden/compare-user.md", path: "documents/home/garden/compare-user.md" },
+  { name: "garden/reports/latest.md", path: "documents/home/garden/reports/latest.md" },
+  { name: "garden/sources/seed-list.md", path: "documents/home/garden/sources/seed-list.md" },
 ];
 
 describe("sidebar labels", () => {
@@ -33,52 +36,47 @@ describe("sidebar labels", () => {
     expect(rootProjectDisplayLabel("fitness", "Fitness")).toBe("Fitness");
     expect(rootProjectDisplayLabel("finance", "Finance")).toBe("Finance");
     expect(rootProjectDisplayLabel("new-project", "Your New Project")).toBe("Your New Project");
-    expect(appDisplayLabel("budget")).toBe("Your Budget");
     expect(sidebarFileLabel({ name: "spec.md", path: "documents/finance/spec.md" }, "finance")).toBe("Your Goals");
     expect(sidebarFileLabel({ name: "plan.md", path: "documents/finance/plan.md" }, "finance")).toBe("Your Plan");
-    expect(sidebarFileLabel({ name: "budget.md", path: "documents/finance/budget/budget.md" }, "finance", "budget")).toBe("Your Budget");
+    expect(sidebarFileLabel({ name: "2026-05-capital-one.md", path: "documents/finance/2026-05-capital-one.md" }, "finance")).toBe("2026 05 Capital One");
+    expect(sidebarFileLabel({ name: "garden.md", path: "documents/home/garden/garden.md" }, "home")).toBe("Garden");
   });
 });
 
 describe("sidebar categorization", () => {
-  it("builds a project model with goals, plan, apps, files, and advanced items", () => {
+  it("builds a Finance project model with parent files and no active Budget app", () => {
     const model = buildProjectSidebarModel("finance", financeFiles);
 
     expect(model.goals?.label).toBe("Your Goals");
     expect(model.plan?.label).toBe("Your Plan");
-    expect(model.apps).toEqual([
-      expect.objectContaining({
-        path: "budget",
-        label: "Your Budget",
-      }),
+    expect(model.files.map((item) => item.canonicalPath)).toEqual([
+      "2026-05-capital-one.md",
+      "archive/retired-budget/budget.md",
     ]);
-    expect(model.files.map((item) => item.canonicalPath)).toEqual([]);
+    expect(model.files.find((item) => item.canonicalPath === "2026-05-capital-one.md")?.label).toBe("2026 05 Capital One");
     expect(model.advanced.map((item) => item.canonicalPath)).toEqual([
       "AGENT-user.md",
       "AGENT.md",
     ]);
   });
 
-  it("builds an app model without losing managed files or overlays", () => {
-    const model = buildAppSidebarModel("finance", "budget", financeFiles);
+  it("keeps nested folder files in the project model without creating child apps", () => {
+    const model = buildProjectSidebarModel("home", gardenFiles);
 
-    expect(model.primary.map((item) => item.label)).toEqual(["Your Budget"]);
-    expect(model.files).toEqual([]);
-    expect(model.folders.map((folder) => folder.label)).toEqual(["Reports", "Statements"]);
-    expect(model.folders.find((folder) => folder.label === "Reports")?.files.map((item) => item.canonicalPath)).toEqual([
-      "budget/reports/latest.md",
-    ]);
-    expect(model.folders.find((folder) => folder.label === "Statements")?.files.map((item) => item.canonicalPath)).toEqual([
-      "budget/statements/2026-05-card.md",
+    expect(model.files.map((item) => item.canonicalPath)).toEqual([
+      "garden/garden.md",
+      "garden/reports/latest.md",
+      "garden/sources/seed-list.md",
     ]);
     expect(model.advanced.map((item) => item.canonicalPath)).toEqual([
-      "budget/AGENT.md",
-      "budget/budget-rules.md",
-      "budget/compare.md",
-      "budget/create.md",
+      "garden/AGENT.md",
+      "garden/compare-user.md",
+      "garden/compare.md",
+      "garden/garden-rules-user.md",
+      "garden/garden-rules.md",
     ]);
-    expect(model.advanced.find((item) => item.canonicalPath === "budget/compare.md")?.overlayPath).toBe(
-      "documents/finance/budget/compare-user.md"
+    expect(model.advanced.find((item) => item.canonicalPath === "garden/compare.md")?.overlayPath).toBe(
+      "documents/home/garden/compare-user.md"
     );
   });
 });

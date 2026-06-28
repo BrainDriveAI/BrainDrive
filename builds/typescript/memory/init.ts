@@ -89,7 +89,7 @@ const FALLBACK_LOCAL_DEV_PREFERENCES = {
 };
 
 const FALLBACK_OPENROUTER_SECRET_REF_PREFERENCES = {
-  default_model: "anthropic/claude-haiku-4.5",
+  default_model: "z-ai/glm-5.2",
   approval_mode: "auto-approve",
   active_provider_profile: "openrouter",
   provider_credentials: {
@@ -771,7 +771,7 @@ function fallbackTodoSeed(): string {
 
 function fallbackProfileSeed(): string {
   return [
-    "# Owner Profile",
+    "# Your Profile",
     "",
     "*Cross-project owner context: stable facts, values, preferences, and life context that matter in more than one project.*",
     "",

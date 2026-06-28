@@ -44,51 +44,17 @@ export function projectShortLabel(projectId: string, projectName: string): strin
   return PROJECT_SHORT_LABELS[normalizedId] ?? PROJECT_SHORT_LABELS[normalizedName] ?? stripYourPrefix(titleCase(projectName));
 }
 
-export function appDisplayLabel(appPath: string): string {
-  return `Your ${appShortLabel(appPath)}`;
-}
-
-export function appShortLabel(appPath: string): string {
-  return titleCase(lastPathSegment(appPath));
-}
-
-export function sidebarFileLabel(file: ProjectFile, projectId: string, appPath?: string | null): string {
+export function sidebarFileLabel(file: ProjectFile, projectId: string): string {
   const relativePath = projectRelativePath(file.path, projectId);
   const fileName = relativePath.split("/").pop() ?? file.name;
   const baseName = fileName.replace(/\.md$/i, "");
 
-  if (!appPath && relativePath === "spec.md") {
+  if (relativePath === "spec.md") {
     return "Your Goals";
   }
 
-  if (!appPath && relativePath === "plan.md") {
+  if (relativePath === "plan.md") {
     return "Your Plan";
-  }
-
-  if (appPath) {
-    const normalizedAppPath = normalizePath(appPath);
-    const appRootName = lastPathSegment(normalizedAppPath);
-    const appRelative = stripPrefix(relativePath, `${normalizedAppPath}/`) ?? relativePath;
-
-    if (appRelative === `${appRootName}.md`) {
-      return appDisplayLabel(normalizedAppPath);
-    }
-
-    if (appRelative === "spec.md") {
-      return "Your Goals";
-    }
-
-    if (appRelative === "plan.md") {
-      return "Your Plan";
-    }
-
-    if (appRelative === `${appRootName}-rules.md`) {
-      return "Your Rules";
-    }
-
-    if (appRelative === `${appRootName}-rules-user.md`) {
-      return "Your Custom Rules";
-    }
   }
 
   if (fileName === "AGENT.md") {
@@ -145,15 +111,6 @@ export function projectRelativePath(filePath: string, projectId: string): string
 
 export function normalizePath(pathValue: string): string {
   return pathValue.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+/g, "/");
-}
-
-function stripPrefix(value: string, prefix: string): string | null {
-  return value.startsWith(prefix) ? value.slice(prefix.length) : null;
-}
-
-function lastPathSegment(value: string): string {
-  const normalized = normalizePath(value);
-  return normalized.split("/").filter(Boolean).pop() ?? normalized;
 }
 
 function titleCase(value: string): string {

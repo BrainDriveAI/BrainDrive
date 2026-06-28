@@ -83,7 +83,9 @@ describe("Sidebar", () => {
         selectedProjectId="finance"
         selectedProject={mockProjects[0]!}
         projectFiles={[
-          { name: "budget.md", path: "finance/budget.md" },
+          { name: "spec.md", path: "documents/finance/spec.md" },
+          { name: "plan.md", path: "documents/finance/plan.md" },
+          { name: "2026-05-capital-one.md", path: "documents/finance/2026-05-capital-one.md" },
           { name: "AGENT.md", path: "finance/AGENT.md" },
           { name: "run-interview.md", path: "finance/run-interview.md" },
           { name: "run-planning.md", path: "finance/run-planning.md" }
@@ -92,15 +94,16 @@ describe("Sidebar", () => {
     );
 
     expect(screen.getByRole("button", { name: "Your Finance" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Budget" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Your Goals" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Your Plan" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "2026 05 Capital One" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Show advanced" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Show advanced 3" })).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText("Search chats...")).not.toBeInTheDocument();
   });
 
-  it("shows Draft 3 project scope with owner labels and app entry", async () => {
+  it("shows Finance project scope with owner labels and generic uploaded files", async () => {
     const user = userEvent.setup();
-    const onSelectAppPath = vi.fn();
     const onFileClick = vi.fn();
 
     render(
@@ -111,11 +114,9 @@ describe("Sidebar", () => {
         projectFiles={[
           { name: "spec.md", path: "documents/finance/spec.md" },
           { name: "plan.md", path: "documents/finance/plan.md" },
-          { name: "budget/budget.md", path: "documents/finance/budget/budget.md" },
-          { name: "budget/reports/latest.md", path: "documents/finance/budget/reports/latest.md" },
-          { name: "budget/statements/2026-05-card.md", path: "documents/finance/budget/statements/2026-05-card.md" }
+          { name: "2026-05-capital-one.md", path: "documents/finance/2026-05-capital-one.md" },
+          { name: "archive/retired-budget/budget.md", path: "documents/finance/archive/retired-budget/budget.md" }
         ]}
-        onSelectAppPath={onSelectAppPath}
         onFileClick={onFileClick}
       />
     );
@@ -123,51 +124,59 @@ describe("Sidebar", () => {
     expect(screen.getByText("Plan")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Your Goals" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Your Plan" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Your Budget" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "2026 05 Capital One" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Budget" })).toBeInTheDocument();
+    expect(screen.queryByText("Apps")).not.toBeInTheDocument();
     expect(screen.queryByText("Generated")).not.toBeInTheDocument();
     expect(screen.queryByText("Source")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Your Budget" }));
+    await user.click(screen.getByRole("button", { name: "2026 05 Capital One" }));
 
-    expect(onSelectAppPath).toHaveBeenCalledWith("budget");
     expect(onFileClick).toHaveBeenCalledWith({
-      name: "budget/budget.md",
-      path: "documents/finance/budget/budget.md"
+      name: "2026-05-capital-one.md",
+      path: "documents/finance/2026-05-capital-one.md"
     });
   });
 
-  it("groups Draft 3 app files and hides managed instructions until advanced is shown", async () => {
+  it("shows nested folder files as project files without app navigation", async () => {
     const user = userEvent.setup();
     const onFileClick = vi.fn();
 
     render(
       <Sidebar
         {...baseProps}
-        selectedProjectId="finance"
-        selectedProject={mockProjects[0]!}
-        activeAppPath="budget"
+        selectedProjectId="home"
+        selectedProject={{
+          id: "home",
+          name: "Home",
+          icon: "home",
+          conversationId: null
+        }}
         projectFiles={[
-          { name: "budget/budget.md", path: "documents/finance/budget/budget.md" },
-          { name: "budget/compare.md", path: "documents/finance/budget/compare.md" },
-          { name: "budget/compare-user.md", path: "documents/finance/budget/compare-user.md" },
-          { name: "budget/reports/latest.md", path: "documents/finance/budget/reports/latest.md" },
-          { name: "budget/statements/2026-05-card.md", path: "documents/finance/budget/statements/2026-05-card.md" }
+          { name: "garden/garden.md", path: "documents/home/garden/garden.md" },
+          { name: "garden/compare.md", path: "documents/home/garden/compare.md" },
+          { name: "garden/compare-user.md", path: "documents/home/garden/compare-user.md" },
+          { name: "garden/reports/latest.md", path: "documents/home/garden/reports/latest.md" },
+          { name: "garden/sources/seed-list.md", path: "documents/home/garden/sources/seed-list.md" }
         ]}
         onFileClick={onFileClick}
       />
     );
 
     expect(screen.getByText("Your Files")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Reports" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Statements" })).toBeInTheDocument();
-    expect(screen.getByText("Advanced")).toBeInTheDocument();
-    expect(screen.getByText("compare.md")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Garden" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "LatestGenerated" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Seed List" })).toBeInTheDocument();
+    expect(screen.queryByText("Apps")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reports" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sources" })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Customize compare.md" }));
+    await user.click(screen.getByRole("button", { name: "Show advanced" }));
+    await user.click(screen.getByRole("button", { name: "Customize Compare" }));
 
     expect(onFileClick).toHaveBeenCalledWith({
       name: "compare-user.md",
-      path: "documents/finance/budget/compare-user.md"
+      path: "documents/home/garden/compare-user.md"
     });
   });
 
@@ -181,7 +190,7 @@ describe("Sidebar", () => {
         {...baseProps}
         selectedProjectId="finance"
         selectedProject={mockProjects[0]!}
-        projectFiles={[{ name: "budget.md", path: "finance/budget.md" }]}
+        projectFiles={[{ name: "plan.md", path: "documents/finance/plan.md" }]}
         onDeselectProject={onDeselectProject}
         onReturnToChat={onReturnToChat}
       />
@@ -200,7 +209,7 @@ describe("Sidebar", () => {
         {...baseProps}
         selectedProjectId="finance"
         selectedProject={mockProjects[0]!}
-        projectFiles={[{ name: "budget.md", path: "finance/budget.md" }]}
+        projectFiles={[{ name: "plan.md", path: "documents/finance/plan.md" }]}
         onUploadDocument={async () => {}}
       />
     );

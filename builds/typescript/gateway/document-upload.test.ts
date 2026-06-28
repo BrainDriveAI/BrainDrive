@@ -478,7 +478,7 @@ describe("document upload conversion", () => {
     const entry = buildUploadedDocumentIndexEntry(
       input,
       converted,
-      "budget/statements/2026-05-capital-one.md",
+      "2026-05-capital-one.md",
       "2026-05-14T16:00:00.000Z",
       metadata
     );
@@ -486,7 +486,7 @@ describe("document upload conversion", () => {
     expect(document).toContain('document_type: "credit_card_statement"');
     expect(document).toContain('statement_month: "2026-05"');
     expect(document).toContain("tags:\n  - \"statement\"");
-    expect(entry.fileName).toBe("budget/statements/2026-05-capital-one.md");
+    expect(entry.fileName).toBe("2026-05-capital-one.md");
     expect(entry.type).toBe("Credit card statement");
     expect(entry.readWhen).toContain("2026-05");
   });

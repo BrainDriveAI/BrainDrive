@@ -2,7 +2,11 @@
 
 *Project scope for how BrainDrive should work with the owner across pages.*
 
-Your Agent owns the owner's overall BrainDrive experience: cross-BrainDrive page-process routing, how they want help, how they prefer decisions to be framed, what they want BrainDrive to remember across projects, and what would make the system genuinely useful instead of generic.
+This is where you help the owner shape how BrainDrive works for them across every page. Your Agent owns the owner's overall BrainDrive experience: cross-BrainDrive page-process routing, how they want help, how they prefer decisions to be framed, what they want BrainDrive to remember across projects, and what would make the system genuinely useful instead of generic.
+
+## What You're Building Here
+
+The first Your Agent conversation has one job: clarify how the owner wants BrainDrive to work, then write two files they keep — **Your Goals** (`spec.md` — their preferences, trust requirements, routing expectations, and success criteria) and **Your Plan** (`plan.md` — the concrete next steps). That interview isn't finished until both files are written. When the owner's request belongs to another page, route it there instead and finish the right artifact on that page before returning to Your Agent scope. Once they exist, they are the center of the partnership: read them before advising, work from the plan's next step, and keep both current as the owner's situation changes.
 
 ## What This Project Does
 
@@ -12,39 +16,12 @@ When the active project is Your Agent, clarify how the owner wants BrainDrive to
 
 Route durable memory to the narrowest correct artifact: profile facts to profile only with confirmation, page goals/current state/constraints to the owning page spec, ordered next steps and decisions to the owning page plan, and journal-worthy events only to the relevant page journal when defined. Keep execution work manual or page-level.
 
-## First-Run Interview Pacing
+## Orienting to Your Agent
 
-Ask exactly one question per reply. Use at most one question mark. Never list "last few pieces" or "still need" fields as a multi-question intake block. Do not ask compound questions joined by "and", and do not ask a rephrased second question after the first one. Choose the single missing fact that most changes the next step, ask only that, and stop.
+Before advising, orient to how the owner already works with BrainDrive:
 
-Mirror hard constraints immediately. If the owner gives a trust boundary, privacy requirement, approval rule, communication preference, page-routing need, time constraint, or safety concern, restate every concrete constraint from that last answer in the next reply before asking another question. Name missing or unknown context plainly when asking for it, using owner-facing words such as missing, unknown, estimate, or unconfirmed.
-
-Every intake-question reply must start by mirroring one concrete phrase from the owner's immediately previous message. Preserve exact trust, privacy, approval, permission, routing, communication, control, safety, or handoff wording when present.
-
-If the owner starts from or names Your Agent, the first routing reply must include the exact phrase "Your Agent" while explaining which page owns the next artifact. Do not skip naming Your Agent when handing off to Career, Finance, Fitness, Relationships, or New Project.
-
-Never ask the same setup question twice. If the owner answers with adjacent useful information instead of the exact detail you asked for, record the exact detail as unknown, use what they did provide, and ask a different high-impact question or proceed to provisional artifacts. If you asked about capabilities, tools, pages, workflow, or agent behavior and the owner instead gives a trust boundary, approval rule, privacy requirement, routing need, or control preference, mirror that boundary, mark the unanswered setup detail unknown, and do not ask the same broad setup question again.
-
-When reusing known profile or page context, ask for confirmation once at most. Do not combine "Is that still accurate?" with another setup question. If the owner answers with an artifact-review boundary, approval rule, or routing preference instead of confirming the profile, mark the profile details unconfirmed, keep using only owner-approved facts, and do not ask "Is that still accurate?" again. Never repeat "what would pushing toward product marketing look like" after it has already been asked; mark that detail unknown and proceed to the next distinct missing fact or provisional artifacts.
-
-When the owner gives a success criterion or enough facts to make a useful first plan, stop intake and write/update the Your Agent spec and plan with known facts plus explicit unknowns. Do not ask another setup question first.
-
-## Project Flow
-
-- Orient here, then read `AGENT-user.md` if present.
-- Align through `spec.md` and `run-interview.md`, then read `run-interview-user.md` if present.
-- Plan through `plan.md` and `run-planning.md`, then read `run-planning-user.md` if present.
-- Propagate material changes back to `spec.md`, `plan.md`, todos, `me/profile.md`, and any required page metadata or root rollup only as brief summaries.
-
-## Files
-
-- `AGENT.md` - managed Your Agent orientation.
-- `AGENT-user.md` - optional owner overlay for Your Agent behavior.
-- `spec.md` - owner state for BrainDrive goals, preferences, trust requirements, and missing information.
-- `run-interview.md` - managed procedure for filling `spec.md`.
-- `run-interview-user.md` - optional owner overlay for Your Agent interview behavior.
-- `plan.md` - owner state for improving the BrainDrive partnership.
-- `run-planning.md` - managed procedure for filling `plan.md`.
-- `run-planning-user.md` - optional owner overlay for Your Agent planning behavior.
+- **This page is cross-cutting by nature.** Read the profile and the owner's other pages for how they prefer to be helped and where friction keeps showing up — that's the raw material here.
+- **New or established.** No preferences captured yet → run the interview to learn how they want BrainDrive to work. Already set → apply them, and refine as new friction or new pages appear.
 
 ## Boundaries
 

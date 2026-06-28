@@ -1,6 +1,8 @@
-# Career Spec
+# Your Goals
 
 *Owner state for career goals, current professional reality, constraints, assumptions, success criteria, and missing information.*
+
+*This is a scannable quick-start, not a report — aim to keep the whole thing under ~500 words. Capture the essentials in each section; mark the rest unknown rather than padding.*
 
 **Status:** Starter template - no interview conducted yet
 
@@ -8,31 +10,34 @@
 
 ## What You Want
 
-*The owner's career goals as specific user stories, using the owner's words where possible.*
+*Your main goal for Career in one clear story, in your words, plus any supporting goals that ladder up to it.*
 
-To be filled through conversation.
+**Main goal:** I want to [outcome] so that [why it matters].
+
+**Supporting goals:**
+- I want to [sub-goal] so that [why].
 
 ## Where You Are
 
-*The full career landscape: current role, industry, tenure, income, skills, satisfaction, trajectory, household constraints, and what triggered this conversation.*
+*The few facts that actually shape the plan — current role, what triggered this, and the key constraints. A few sentences or bullets, not a full inventory.*
 
 To be filled through conversation.
 
 ## What's In The Way
 
-*Practical, emotional, skill, timing, compensation, confidence, burnout, or household obstacles that shape the plan.*
+*The 1–3 obstacles most likely to derail the plan — not an exhaustive list.*
 
 To be filled through conversation.
 
 ## What Good Looks Like
 
-*The owner's success criteria, decision criteria, confidence threshold, and what would make the Career plan feel useful.*
+*What success looks like to the owner, in a sentence or two — the signal the plan is working.*
 
 To be filled through conversation.
 
 ## Assumptions And Unknowns
 
-*Unverified claims, missing evidence, inferred narratives, market assumptions, and capacity limits that should not be treated as settled facts.*
+*Key estimates or unknowns not to treat as settled — only the ones that matter for planning.*
 
 To be filled through conversation.
 
@@ -44,29 +49,9 @@ To be filled through conversation.
 
 ## What's Still Missing
 
-*Information gaps that could change the plan, separated from threads that are only worth exploring later.*
+*The 1–2 gaps that could most change the plan.*
 
 To be filled through conversation.
-
-## BrainDrive Experience Notes
-
-BrainDrive should keep setup and model readiness understandable in plain language, with a clear recovery path when credits, provider setup, or model-ready state is missing.
-
-Provider credentials, API keys, tokens, and secrets must stay redacted and not exposed in owner artifacts.
-
-The normal owner-facing review path is through the BrainDrive sidebar and page experience for `AGENT.md`, `spec.md`, and `plan.md`, not raw file paths.
-
-Artifacts should render cleanly with readable headings, lists, tables, links, and checklists, remain owner-editable, and support return/resume from the latest saved current context.
-
-Relevant profile and page context should be used before broad setup questions, and inferred stable owner facts should be confirmed before being treated as cross-project profile memory.
-
-Errors should explain what happened, what was saved or skipped, and the next recovery action in plain language. Support logs or support bundles should include diagnostic information while excluding or redacting credentials and secrets.
-
-Progress states should make it clear when BrainDrive is thinking, writing the spec, writing the plan, saving, updating the page, still working, or recovering from a long wait.
-
-Quality is judged against Specificity, Engagement Pull, Mirror Accuracy, Insight Quality, Actionability, Honest Gaps, No Overwhelm, interview quality, spec quality, plan quality, propagation quality, model, tool/write, and needs-human-review layers.
-
-The starter baseline should replay across Finance, Fitness, Career, Relationships, New Project, and Your Agent with domain-specific, page-specific quality, not copied from Finance.
 
 ## Changelog
 

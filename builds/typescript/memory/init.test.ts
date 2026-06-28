@@ -18,7 +18,7 @@ describe("memory init project scaffolding", () => {
       });
 
       await expect(readFile(path.join(memoryRoot, "me", "profile.md"), "utf8"))
-        .resolves.toContain("# Owner Profile");
+        .resolves.toContain("# Your Profile");
       const projectsManifest = JSON.parse(await readFile(path.join(memoryRoot, "documents", "projects.json"), "utf8")) as Array<{ id: string }>;
       expect(projectsManifest.map((project) => project.id)).toEqual([
         "braindrive-plus-one",
@@ -31,9 +31,9 @@ describe("memory init project scaffolding", () => {
       await expect(readFile(path.join(memoryRoot, "documents", "braindrive-plus-one", "AGENT.md"), "utf8"))
         .resolves.toContain("# Your Agent - Agent Context");
       await expect(readFile(path.join(memoryRoot, "documents", "braindrive-plus-one", "spec.md"), "utf8"))
-        .resolves.toContain("# Your Agent Spec");
+        .resolves.toContain("# Your Goals");
       await expect(readFile(path.join(memoryRoot, "documents", "braindrive-plus-one", "plan.md"), "utf8"))
-        .resolves.toContain("# Your Agent Plan");
+        .resolves.toContain("# Your Plan");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "index.md"), "utf8"))
         .rejects.toThrow();
       await expect(readFile(path.join(memoryRoot, "documents", "career", "index.md"), "utf8"))

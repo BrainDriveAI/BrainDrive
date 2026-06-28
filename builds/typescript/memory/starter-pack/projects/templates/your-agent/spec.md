@@ -1,6 +1,8 @@
-# Your Agent Spec
+# Your Goals
 
 *Owner state for BrainDrive goals, preferences, trust requirements, and missing information.*
+
+*This is a scannable quick-start, not a report — aim to keep the whole thing under ~500 words. Capture the essentials in each section; mark the rest unknown rather than padding.*
 
 **Status:** Starter template - no interview conducted yet
 
@@ -8,25 +10,28 @@
 
 ## What You Want
 
-*The owner's goals for working with BrainDrive, written as specific user stories where possible.*
+*Your main goal for working with BrainDrive in one clear story, in your words, plus any supporting goals that ladder up to it.*
 
-To be filled through conversation.
+**Main goal:** I want to [outcome] so that [why it matters].
+
+**Supporting goals:**
+- I want to [sub-goal] so that [why].
 
 ## How You Want Help
 
-*The owner's preferred advising style, level of challenge, pacing, detail, reminders, and decision support.*
+*The owner's preferred advising style — challenge, pacing, detail, reminders. A few sentences, not every dimension.*
 
 To be filled through conversation.
 
 ## What BrainDrive Should Know
 
-*Stable cross-BrainDrive owner facts, values, preferences, life context, and recurring patterns that should inform future pages.*
+*The key cross-BrainDrive facts and preferences that should inform future pages — the essentials, not everything.*
 
 To be filled through conversation.
 
 ## What Needs Trust
 
-*Privacy, secret-handling, uncertainty, approval, edit, and transparency expectations that affect whether the owner trusts BrainDrive.*
+*The trust expectations that matter most — privacy, approvals, transparency. The few that shape behavior, not an exhaustive list.*
 
 To be filled through conversation.
 
@@ -38,7 +43,7 @@ To be filled through conversation.
 
 ## What's Still Missing
 
-*Information gaps that could change how BrainDrive should work with the owner.*
+*The 1–2 gaps that could most change how BrainDrive works with the owner.*
 
 To be filled through conversation.
 
