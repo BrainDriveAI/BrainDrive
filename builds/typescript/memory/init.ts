@@ -771,7 +771,7 @@ function fallbackTodoSeed(): string {
 
 function fallbackProfileSeed(): string {
   return [
-    "# Owner Profile",
+    "# Your Profile",
     "",
     "*Cross-project owner context: stable facts, values, preferences, and life context that matter in more than one project.*",
     "",
