@@ -11,7 +11,6 @@ import {
   sendMessage,
   updateMemoryBackupSettings,
   updateProviderCredential,
-  uploadProjectDocument,
   type ChatEvent,
 } from "./gateway-adapter";
 
@@ -165,54 +164,6 @@ describe("gateway-adapter settings models", () => {
       "/api/settings/models?provider_profile=openrouter",
       expect.objectContaining({ headers: expect.any(Object) })
     );
-  });
-});
-
-describe("gateway-adapter project document uploads", () => {
-  beforeEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it("uploads a project document as base64 JSON", async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          file: {
-            name: "statement.md",
-            path: "documents/finance/statement.md",
-          },
-          conversion: "direct_text_upload",
-        }),
-        {
-          status: 201,
-          headers: { "content-type": "application/json" },
-        }
-      )
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const file = new File(["hello"], "statement.txt", { type: "text/plain" });
-    const uploaded = await uploadProjectDocument("finance", file);
-
-    expect(uploaded).toEqual({
-      name: "statement.md",
-      path: "documents/finance/statement.md",
-    });
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/projects/finance/uploads",
-      expect.objectContaining({
-        method: "POST",
-        headers: expect.objectContaining({ "Content-Type": "application/json" }),
-      })
-    );
-    const calls = fetchMock.mock.calls as unknown as Array<[RequestInfo | URL, RequestInit]>;
-    const request = calls[0]![1];
-    expect(JSON.parse(String(request.body))).toMatchObject({
-      file_name: "statement.txt",
-      mime_type: "text/plain",
-      content_base64: "aGVsbG8=",
-      size: 5,
-    });
   });
 });
 

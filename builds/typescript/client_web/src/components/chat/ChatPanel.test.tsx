@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import type { Message } from "@/types/ui";
@@ -161,16 +161,8 @@ describe("ChatPanel typing indicator behavior", () => {
     expect(hookState.startNewConversation).not.toHaveBeenCalled();
   });
 
-  it("uploads PDF attachments through the selected project and sends a durable upload event", async () => {
-    const user = userEvent.setup();
+  it("does not expose retired document upload controls", () => {
     const hookState = makeHookState();
-    const onUploadDocument = vi.fn(async () => ({
-      name: "statement.md",
-      path: "documents/finance/statement.md",
-      ownerLabel: "Northbridge credit card statement",
-      statementMonth: "May 2026",
-      destinationLabel: "Finance",
-    }));
     useGatewayChatMock.mockReturnValue(hookState);
 
     const { container } = render(
@@ -178,190 +170,41 @@ describe("ChatPanel typing indicator behavior", () => {
         activeConversationId={null}
         activeProjectId="finance"
         isEmpty={false}
-        onUploadDocument={onUploadDocument}
       />
     );
 
-    const input = container.querySelector('input[type="file"]');
-    expect(input).toBeInstanceOf(HTMLInputElement);
+    expect(container.querySelector('input[type="file"]')).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Attach file" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Drop file here/)).not.toBeInTheDocument();
+  });
 
-    const file = new File(["%PDF-1.6"], "statement.pdf", { type: "application/pdf" });
-    await user.upload(input as HTMLInputElement, file);
+  it("ignores dropped files and sends only typed chat text", async () => {
+    const user = userEvent.setup();
+    const hookState = makeHookState();
+    useGatewayChatMock.mockReturnValue(hookState);
+
+    const { container } = render(
+      <ChatPanel
+        activeConversationId={null}
+        activeProjectId="finance"
+        isEmpty={false}
+      />
+    );
+
+    fireEvent.drop(container.firstElementChild ?? document.body, {
+      dataTransfer: {
+        files: [new File(["Date,Amount"], "statement.csv", { type: "text/csv" })],
+      },
+    });
+    expect(screen.queryByText(/statement.csv/)).not.toBeInTheDocument();
+
+    await user.type(screen.getAllByPlaceholderText("Message your BrainDrive...")[0]!, "Use ordinary chat.");
     await user.click(screen.getAllByRole("button", { name: "Send message" })[0]!);
 
-    await waitFor(() => {
-      expect(onUploadDocument).toHaveBeenCalledWith(file, { openAfterUpload: false });
-    });
-    await waitFor(() => {
-      expect(hookState.append).toHaveBeenCalledWith(
-        expect.stringContaining("Uploaded 1 file:"),
-        expect.any(Object)
-      );
-    });
-    expect(hookState.append).toHaveBeenCalledWith(
-      expect.stringContaining("Northbridge credit card statement (May 2026 - Finance)"),
-      expect.any(Object)
-    );
     expect(hookState.append).not.toHaveBeenCalledWith(
-      expect.stringContaining("documents/finance/statement.md"),
+      expect.stringContaining("statement.csv"),
       expect.any(Object)
     );
-    expect(screen.queryByText(/Source evidence:/)).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Details" }));
-    expect(screen.getByText("Source evidence: documents/finance/statement.md")).toBeInTheDocument();
-  });
-
-  it("uploads multiple selected project documents sequentially", async () => {
-    const user = userEvent.setup();
-    const hookState = makeHookState();
-    const lifecycleEvents: Array<Record<string, unknown>> = [];
-    function handleLifecycle(event: Event) {
-      lifecycleEvents.push((event as CustomEvent<Record<string, unknown>>).detail);
-    }
-    window.addEventListener("braindrive:upload-lifecycle", handleLifecycle);
-    const onUploadDocument = vi
-      .fn()
-      .mockResolvedValueOnce({
-        name: "february.md",
-        path: "documents/finance/february.md",
-      })
-      .mockResolvedValueOnce({
-        name: "march.md",
-        path: "documents/finance/march.md",
-      });
-    useGatewayChatMock.mockReturnValue(hookState);
-
-    const { container } = render(
-      <ChatPanel
-        activeConversationId={null}
-        activeProjectId="finance"
-        isEmpty={false}
-        onUploadDocument={onUploadDocument}
-      />
-    );
-
-    const input = container.querySelector('input[type="file"]');
-    expect(input).toBeInstanceOf(HTMLInputElement);
-
-    const february = new File(["Date,Amount"], "february.csv", { type: "text/csv" });
-    const march = new File(["Date,Amount"], "march.csv", { type: "text/csv" });
-    await user.upload(input as HTMLInputElement, [february, march]);
-    await user.click(screen.getAllByRole("button", { name: "Send message" })[0]!);
-
-    await waitFor(() => {
-      expect(onUploadDocument).toHaveBeenCalledTimes(2);
-    });
-    expect(onUploadDocument.mock.calls[0]).toEqual([february, { openAfterUpload: false }]);
-    expect(onUploadDocument.mock.calls[1]).toEqual([march, { openAfterUpload: false }]);
-    await waitFor(() => {
-      expect(hookState.append).toHaveBeenCalledWith(
-        expect.stringContaining("Uploaded 2 files:"),
-        expect.any(Object)
-      );
-    });
-    expect(lifecycleEvents.map((event) => event.stage)).toEqual(expect.arrayContaining([
-      "selected",
-      "accepted_by_client_validation",
-      "upload_request_started",
-      "saved_to_memory",
-      "visible_receipt_rendered",
-      "attached_to_message",
-    ]));
-    expect(new Set(lifecycleEvents.map((event) => event.batchId)).size).toBe(1);
-    window.removeEventListener("braindrive:upload-lifecycle", handleLifecycle);
-  });
-
-  it("preserves successful uploads when another file fails with owner-safe copy", async () => {
-    const user = userEvent.setup();
-    const hookState = makeHookState();
-    const onUploadDocument = vi
-      .fn()
-      .mockResolvedValueOnce({
-        name: "may.md",
-        path: "documents/finance/may.md",
-        ownerLabel: "Capital One credit card statement",
-        statementMonth: "May 2026",
-        destinationLabel: "Finance",
-      })
-      .mockRejectedValueOnce(new Error("ai_pdf_to_markdown returned empty markdown from OpenRouter parser"));
-    useGatewayChatMock.mockReturnValue(hookState);
-
-    const { container } = render(
-      <ChatPanel
-        activeConversationId={null}
-        activeProjectId="finance"
-        isEmpty={false}
-        onUploadDocument={onUploadDocument}
-      />
-    );
-
-    const input = container.querySelector('input[type="file"]');
-    const csv = new File(["Date,Amount"], "may.csv", { type: "text/csv" });
-    const pdf = new File(["%PDF-1.6"], "june.pdf", { type: "application/pdf" });
-    await user.upload(input as HTMLInputElement, [csv, pdf]);
-    await user.click(screen.getAllByRole("button", { name: "Send message" })[0]!);
-
-    await waitFor(() => {
-      expect(onUploadDocument).toHaveBeenCalledTimes(2);
-    });
-    await waitFor(() => {
-      expect(hookState.append).toHaveBeenCalledWith(
-        expect.stringContaining("Capital One credit card statement"),
-        expect.any(Object)
-      );
-    });
-    expect(hookState.append).toHaveBeenCalledWith(
-      expect.stringContaining("We could not read this PDF"),
-      expect.any(Object)
-    );
-    expect(hookState.append).not.toHaveBeenCalledWith(
-      expect.stringContaining("ai_pdf_to_markdown"),
-      expect.any(Object)
-    );
-  });
-
-  it("retries a failed upload activity without re-uploading saved files", async () => {
-    const user = userEvent.setup();
-    const hookState = makeHookState();
-    const onUploadDocument = vi
-      .fn()
-      .mockRejectedValueOnce(new Error("Document conversion provider failed."))
-      .mockResolvedValueOnce({
-        name: "june.md",
-        path: "documents/finance/june.md",
-        ownerLabel: "June statement",
-        destinationLabel: "Finance",
-      });
-    useGatewayChatMock.mockReturnValue(hookState);
-
-    const { container } = render(
-      <ChatPanel
-        activeConversationId={null}
-        activeProjectId="finance"
-        isEmpty={false}
-        onUploadDocument={onUploadDocument}
-      />
-    );
-
-    const input = container.querySelector('input[type="file"]');
-    const pdf = new File(["%PDF-1.6"], "june.pdf", { type: "application/pdf" });
-    await user.upload(input as HTMLInputElement, pdf);
-    await user.click(screen.getAllByRole("button", { name: "Send message" })[0]!);
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
-    });
-    await user.click(screen.getByRole("button", { name: "Retry" }));
-
-    await waitFor(() => {
-      expect(onUploadDocument).toHaveBeenCalledTimes(2);
-    });
-    expect(onUploadDocument.mock.calls[1]).toEqual([pdf, { openAfterUpload: false }]);
-    await waitFor(() => {
-      expect(hookState.append).toHaveBeenCalledWith(
-        expect.stringContaining("June statement"),
-        expect.any(Object)
-      );
-    });
+    expect(hookState.append).toHaveBeenCalledWith("Use ordinary chat.", expect.any(Object));
   });
 });

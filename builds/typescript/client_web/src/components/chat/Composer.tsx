@@ -1,30 +1,16 @@
 import {
-  type ChangeEvent,
   type KeyboardEvent,
   type PointerEvent,
   useEffect,
   useRef,
   useState
 } from "react";
-import { ArrowUp, FileText, Plus, Square, X } from "lucide-react";
-
-import {
-  ACCEPTED_FILE_INPUT,
-  isAcceptedFile,
-  formatFileSize,
-  type AttachedFile
-} from "@/utils/file-utils";
+import { ArrowUp, Square } from "lucide-react";
 
 type ComposerProps = {
-  onSend?: (message: string, attachments?: File[]) => void;
+  onSend?: (message: string) => void;
   onStop?: () => void;
   isStreaming?: boolean;
-  attachments?: AttachedFile[];
-  onAttach?: (files: AttachedFile[]) => void;
-  onRemoveAttachment?: (index: number) => void;
-  onClearAttachments?: () => void;
-  fileError?: string | null;
-  onClearFileError?: () => void;
   layout?: "inline" | "mobile-fixed";
   onHeightChange?: (height: number) => void;
 };
@@ -40,22 +26,15 @@ export default function Composer({
   onSend,
   onStop,
   isStreaming = false,
-  attachments = [],
-  onAttach,
-  onRemoveAttachment,
-  onClearAttachments,
-  fileError,
-  onClearFileError,
   layout = "inline",
   onHeightChange
 }: ComposerProps) {
   const [message, setMessage] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const wasStreamingRef = useRef(isStreaming);
   const trimmedMessage = message.trim();
-  const hasContent = trimmedMessage.length > 0 || attachments.length > 0;
+  const hasContent = trimmedMessage.length > 0;
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -93,28 +72,11 @@ export default function Composer({
     wasStreamingRef.current = isStreaming;
   }, [isStreaming]);
 
-  function handleFileSelect(files: FileList | File[]) {
-    onClearFileError?.();
-
-    const nextAttachments = Array.from(files)
-      .filter((file) => isAcceptedFile(file))
-      .map((file) => ({
-        file,
-        name: file.name,
-        size: formatFileSize(file.size)
-      }));
-
-    if (nextAttachments.length > 0) {
-      onAttach?.(nextAttachments);
-    }
-  }
-
   function handleSend() {
     if (!hasContent) return;
 
-    onSend?.(trimmedMessage, attachments.map((attached) => attached.file));
+    onSend?.(trimmedMessage);
     setMessage("");
-    onClearAttachments?.();
 
     if (textareaRef.current) {
       textareaRef.current.style.height = "0px";
@@ -136,10 +98,6 @@ export default function Composer({
     }
   }
 
-  function handleChange(event: ChangeEvent<HTMLTextAreaElement>) {
-    setMessage(event.target.value);
-  }
-
   const containerClassName =
     layout === "mobile-fixed"
       ? "pointer-events-auto border-t border-bd-border bg-bd-bg-chat/96 px-4 pb-2 pt-3 shadow-[0_-12px_32px_rgba(1,2,8,0.55)] backdrop-blur-sm"
@@ -156,75 +114,12 @@ export default function Composer({
       }}
     >
       <div className="mx-auto w-full max-w-[780px]">
-        {fileError && (
-          <div className="mb-2 flex items-center justify-between rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-danger">
-            <span>{fileError}</span>
-            <button
-              type="button"
-              onClick={onClearFileError}
-              className="ml-2 shrink-0 text-bd-danger transition-opacity hover:opacity-70"
-            >
-              <X size={14} strokeWidth={1.5} />
-            </button>
-          </div>
-        )}
-
-        {attachments.length > 0 && (
-          <div className="mb-2 space-y-2">
-            {attachments.map((attachment, index) => (
-              <div
-                key={`${attachment.name}-${attachment.file.size}-${attachment.file.lastModified}-${index}`}
-                className="flex items-center gap-2 rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2"
-              >
-                <FileText size={16} strokeWidth={1.5} className="shrink-0 text-bd-text-secondary" />
-                <span className="min-w-0 flex-1 truncate text-sm text-bd-text-primary">
-                  {attachment.name}
-                </span>
-                <span className="shrink-0 text-xs text-bd-text-muted">
-                  {attachment.size}
-                </span>
-                <button
-                  type="button"
-                  aria-label={`Remove ${attachment.name}`}
-                  onClick={() => onRemoveAttachment?.(index)}
-                  className="shrink-0 text-bd-text-muted transition-colors hover:text-bd-text-secondary"
-                >
-                  <X size={14} strokeWidth={1.5} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
         <div className="flex items-end gap-2 rounded-[24px] border border-bd-border bg-bd-bg-tertiary p-2">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept={ACCEPTED_FILE_INPUT}
-            multiple
-            className="hidden"
-            onChange={(e) => {
-              if (e.target.files && e.target.files.length > 0) {
-                handleFileSelect(e.target.files);
-              }
-              e.target.value = "";
-            }}
-          />
-
-          <button
-            type="button"
-            aria-label="Attach file"
-            onClick={() => fileInputRef.current?.click()}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-bd-bg-hover text-bd-text-secondary transition-all duration-200 hover:bg-bd-bg-hover"
-          >
-            <Plus size={18} strokeWidth={1.5} />
-          </button>
-
           <textarea
             ref={textareaRef}
             value={message}
             rows={1}
-            onChange={handleChange}
+            onChange={(event) => setMessage(event.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Message your BrainDrive..."
             className="max-h-[120px] min-h-[36px] flex-1 resize-none overflow-y-auto border-0 bg-transparent px-1 py-2 text-base text-bd-text-primary outline-none placeholder:text-bd-text-muted md:text-[15px]"
