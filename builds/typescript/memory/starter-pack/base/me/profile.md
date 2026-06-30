@@ -24,6 +24,12 @@ To be filled through conversation.
 
 To be filled through conversation.
 
+## BrainDrive Preferences
+
+*How BrainDrive should behave across pages: routing expectations, approval rules, communication style, pacing, privacy boundaries, context use, and trust requirements.*
+
+To be filled through conversation.
+
 ## Changelog
 
 - Starter template created.

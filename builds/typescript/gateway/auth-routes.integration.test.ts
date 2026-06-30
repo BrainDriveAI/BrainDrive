@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 let mockRuntimeConfig: RuntimeConfig;
 let mockPreferences: Preferences;
-const { runMemoryBackupMock, restoreMemoryBackupMock, createMemoryBackupSchedulerMock } = vi.hoisted(() => ({
+const { runMemoryBackupMock, restoreMemoryBackupMock, createMemoryBackupSchedulerMock, commitMemoryChangeMock } = vi.hoisted(() => ({
   runMemoryBackupMock: vi.fn<
     (memoryRoot: string, preferences: Preferences) => Promise<MemoryBackupRunResult>
   >(
@@ -59,6 +59,7 @@ const { runMemoryBackupMock, restoreMemoryBackupMock, createMemoryBackupSchedule
       };
     }),
   })),
+  commitMemoryChangeMock: vi.fn(async () => {}),
 }));
 
 let mockAdapterConfig: AdapterConfig = {
@@ -92,7 +93,7 @@ vi.mock("../tools.js", () => ({
 
 vi.mock("../git.js", () => ({
   ensureGitReady: vi.fn(async () => {}),
-  commitMemoryChange: vi.fn(async () => {}),
+  commitMemoryChange: commitMemoryChangeMock,
   exportMemoryArchive: vi.fn(async (_memoryRoot: string, destinationPath: string) => {
     await mkdir(path.dirname(destinationPath), { recursive: true });
     await writeFile(destinationPath, "backup", "utf8");
@@ -324,6 +325,7 @@ describe.sequential("gateway auth route integration", () => {
     runMemoryBackupMock.mockClear();
     restoreMemoryBackupMock.mockClear();
     createMemoryBackupSchedulerMock.mockClear();
+    commitMemoryChangeMock.mockClear();
     vi.unstubAllGlobals();
   });
 
@@ -370,6 +372,56 @@ describe.sequential("gateway auth route integration", () => {
 
     const setCookieHeader = logoutResponse.headers["set-cookie"];
     expect(typeof setCookieHeader === "string" ? setCookieHeader : "").toContain("Max-Age=0");
+  });
+
+  it("rejects retired project document uploads without memory writes", async () => {
+    context = await createTestServer();
+
+    const signupResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/signup",
+      payload: {
+        identifier: "owner",
+        password: "password123",
+      },
+    });
+    expect(signupResponse.statusCode).toBe(201);
+    const tokenPayload = parseJson<{ access_token: string }>(signupResponse.body);
+    const memoryRoot = path.join(context.tempRoot, "memory");
+    await mkdir(path.join(memoryRoot, "documents", "finance"), { recursive: true });
+    await writeFile(
+      path.join(memoryRoot, "documents", "projects.json"),
+      JSON.stringify([{ id: "finance", name: "Finance", icon: "dollar-sign" }]),
+      "utf8"
+    );
+
+    commitMemoryChangeMock.mockClear();
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/projects/finance/uploads",
+      headers: {
+        authorization: `Bearer ${tokenPayload.access_token}`,
+      },
+      payload: {
+        file_name: "statement.csv",
+        mime_type: "text/csv",
+        content_base64: Buffer.from("Date,Amount\n2026-05-01,-12.34\n", "utf8").toString("base64"),
+        size: 30,
+      },
+    });
+
+    expect(response.statusCode).toBe(410);
+    expect(parseJson<{ code: string; error: string }>(response.body)).toEqual({
+      code: "document_processing_retired",
+      error: "Document processing has been retired in this build while BrainDrive redesigns file handling. No file was saved or processed.",
+    });
+    await expect(readFile(path.join(memoryRoot, "documents", "finance", "statement.md"), "utf8"))
+      .rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(path.join(memoryRoot, "documents", "finance", "index.md"), "utf8"))
+      .rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "statements", "README.md"), "utf8"))
+      .rejects.toMatchObject({ code: "ENOENT" });
+    expect(commitMemoryChangeMock).not.toHaveBeenCalled();
   });
 
   it("allows desktop-token requests in local mode after account initialization", async () => {
