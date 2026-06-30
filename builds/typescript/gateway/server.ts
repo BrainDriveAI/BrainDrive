@@ -81,15 +81,6 @@ import { initializeMasterKey, loadMasterKey } from "../secrets/key-provider.js";
 import { resolveSecretsPaths } from "../secrets/paths.js";
 import { getVaultSecret, upsertVaultSecret } from "../secrets/vault.js";
 import { GatewayConversationService } from "./conversations.js";
-import {
-  buildUploadedDocumentIndexEntry,
-  buildUploadedMarkdownDocument,
-  convertUploadedDocumentToMarkdown,
-  DocumentConversionProviderError,
-  inferUploadedDocumentMetadata,
-  sanitizeSuggestedMarkdownFileName,
-  type UploadedDocumentMetadata,
-} from "./document-upload.js";
 import { createMemoryBackupScheduler } from "./memory-backup-scheduler.js";
 import { GatewayProjectService, isProjectMetadata, ProtectedProjectError, type GatewayProjectFile } from "./projects.js";
 import { GatewaySkillService } from "./skills.js";
@@ -118,14 +109,8 @@ const rootAgentUpdateSchema = z
   })
   .strict();
 
-const projectDocumentUploadSchema = z
-  .object({
-    file_name: z.string().trim().min(1),
-    mime_type: z.string().trim().optional(),
-    content_base64: z.string().trim().min(1),
-    size: z.number().int().nonnegative().optional(),
-  })
-  .strict();
+const RETIRED_DOCUMENT_PROCESSING_MESSAGE =
+  "Document processing has been retired in this build while BrainDrive redesigns file handling. No file was saved or processed.";
 
 const skillCreateSchema = z
   .object({
@@ -2368,129 +2353,11 @@ export async function buildServer(rootDir = process.cwd()) {
   });
 
   app.post("/projects/:id/uploads", async (request, reply) => {
-    const params = request.params as { id: string };
-    const parsed = projectDocumentUploadSchema.safeParse(request.body);
-    if (!parsed.success) {
-      sendInvalidRequest(reply, "/projects/:id/uploads", parsed.error.issues.length);
-      return;
-    }
-
-    if (params.id === "braindrive-plus-one") {
-      reply.code(403).send({ error: "Open a folder to upload documents" });
-      return;
-    }
-
-    const project = await projects.getProject(params.id);
-    if (!project) {
-      reply.code(404).send({ error: "Project not found" });
-      return;
-    }
-
-    let data: Buffer;
-    try {
-      data = Buffer.from(parsed.data.content_base64, "base64");
-    } catch {
-      reply.code(400).send({ error: "Invalid file content" });
-      return;
-    }
-
-    if (data.length === 0) {
-      reply.code(400).send({ error: "Uploaded file is empty" });
-      return;
-    }
-
-    const sizeLimit = uploadSizeLimitFor(parsed.data.file_name, parsed.data.mime_type ?? "");
-    if (data.length > sizeLimit) {
-      reply.code(413).send({ error: "Uploaded file is too large" });
-      return;
-    }
-
-    try {
-      const uploadInput = {
-        fileName: parsed.data.file_name,
-        mimeType: parsed.data.mime_type ?? "application/octet-stream",
-        data,
-        projectId: project.id,
-        projectName: project.name,
-      };
-      const livePreferences = await loadLivePreferences();
-      const converted = await convertUploadedDocumentToMarkdown(
-        uploadInput,
-        runtimeConfig.provider_adapter,
-        adapterConfig,
-        livePreferences
-      );
-      const metadata = await inferUploadedDocumentMetadata(
-        uploadInput,
-        converted,
-        runtimeConfig.provider_adapter,
-        adapterConfig,
-        livePreferences
-      );
-      const importedAt = new Date().toISOString();
-      const markdown = buildUploadedMarkdownDocument(uploadInput, converted, { importedAt, metadata });
-      const preferredFileName = project.id === "finance" && metadata.statementLike
-        ? sanitizeSuggestedMarkdownFileName(metadata.suggestedFileName, parsed.data.file_name)
-        : undefined;
-      const file = await projects.createUploadedMarkdownFile(
-        project.id,
-        parsed.data.file_name,
-        markdown,
-        {
-          preferredFileName,
-          indexEntry: (filePath, fileName) => {
-            const entry = buildUploadedDocumentIndexEntry(
-              uploadInput,
-              converted,
-              filePath,
-              importedAt,
-              metadata
-            );
-            return {
-              type: entry.type,
-              summary: entry.summary,
-              readWhen: entry.readWhen,
-              importedAt: entry.importedAt,
-            };
-          },
-        }
-      );
-      if (!file) {
-        reply.code(404).send({ error: "Project not found" });
-        return;
-      }
-
-      reply.code(201).send({
-        file: {
-          ...file,
-          ownerLabel: ownerUploadLabel(parsed.data.file_name, metadata),
-          statementMonth: metadata.statementMonth ? readableYearMonth(metadata.statementMonth) : null,
-          destinationLabel: project.name,
-          sourceType: ownerSourceType(metadata),
-          accountName: metadata.institution,
-        },
-        conversion: converted.conversion,
-      });
-    } catch (error) {
-      if (error instanceof ProtectedProjectError) {
-        reply.code(403).send({ error: "Open a folder to upload documents" });
-        return;
-      }
-
-      if (error instanceof DocumentConversionProviderError) {
-        auditLog("document_upload.conversion_provider_error", {
-          status: error.status,
-          message: error.message,
-        });
-        reply.code(502).send({
-          error: "Document conversion provider failed. Check model credentials or try again.",
-          status: error.status,
-        });
-        return;
-      }
-
-      reply.code(400).send({ error: error instanceof Error ? error.message : "Document upload failed" });
-    }
+    void request;
+    reply.code(410).send({
+      error: RETIRED_DOCUMENT_PROCESSING_MESSAGE,
+      code: "document_processing_retired",
+    });
   });
 
   // --- Managed mode proxy endpoints ---
@@ -2550,83 +2417,6 @@ async function proxyToGateway(
 function stripQueryString(url: string): string {
   const index = url.indexOf("?");
   return index >= 0 ? url.slice(0, index) : url;
-}
-
-function uploadSizeLimitFor(fileName: string, mimeType: string): number {
-  const extension = fileName.toLowerCase().slice(fileName.lastIndexOf("."));
-  const normalizedMime = mimeType.toLowerCase();
-
-  if (extension === ".pdf" || normalizedMime === "application/pdf") {
-    return 25 * 1024 * 1024;
-  }
-
-  if (normalizedMime.startsWith("image/") || [".png", ".jpg", ".jpeg", ".webp"].includes(extension)) {
-    return 15 * 1024 * 1024;
-  }
-
-  return 5 * 1024 * 1024;
-}
-
-function ownerUploadLabel(fileName: string, metadata: UploadedDocumentMetadata): string {
-  const source = metadata.institution?.trim();
-  const documentType = ownerDocumentType(metadata);
-  if (source) {
-    return `${source} ${documentType}`;
-  }
-
-  return `${fileName.replace(/\.[^.]+$/, "")} ${documentType}`.replace(/\s+/g, " ").trim();
-}
-
-function ownerDocumentType(metadata: UploadedDocumentMetadata): string {
-  switch (metadata.documentType) {
-    case "bank_statement":
-      return "bank statement";
-    case "credit_card_statement":
-      return "credit card statement";
-    case "investment_statement":
-      return "investment statement";
-    case "budget_export":
-      return "budget export";
-    case "receipt":
-      return "receipt";
-    case "tax_document":
-      return "tax document";
-    case "paystub":
-      return "paystub";
-    case "other":
-      return "document";
-  }
-}
-
-function ownerSourceType(metadata: UploadedDocumentMetadata): string {
-  switch (metadata.accountType) {
-    case "checking":
-      return "Checking";
-    case "savings":
-      return "Savings";
-    case "credit_card":
-      return "Credit card";
-    case "bank_account":
-      return "Bank account";
-    case "investment":
-      return "Investment";
-    case "unknown":
-      return ownerDocumentType(metadata).replace(/\b\w/g, (letter) => letter.toUpperCase());
-  }
-}
-
-function readableYearMonth(value: string): string {
-  const match = /^(20\d{2})-(0[1-9]|1[0-2])$/.exec(value);
-  if (!match) {
-    return value;
-  }
-
-  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, 1));
-  return new Intl.DateTimeFormat("en-US", {
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(date);
 }
 
 function readRefreshTokenFromRequest(cookieHeader: unknown): string | undefined {

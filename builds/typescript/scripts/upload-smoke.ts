@@ -16,23 +16,17 @@ type AuthResponse = {
 };
 
 type UploadResponse = {
-  file?: {
-    name: string;
-    path: string;
-  };
-  conversion?: string;
+  code?: string;
   error?: string;
 };
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
   const token = options.token ?? await authenticate(options);
-  const upload = await uploadDocument(options, token);
+  await assertDocumentProcessingRetired(options, token);
 
-  process.stdout.write("Upload smoke passed.\n");
+  process.stdout.write("Document processing retirement smoke passed.\n");
   process.stdout.write(`Project: ${options.projectId}\n`);
-  process.stdout.write(`File: ${upload.file?.path ?? "unknown"}\n`);
-  process.stdout.write(`Conversion: ${upload.conversion ?? "unknown"}\n`);
 }
 
 async function authenticate(options: Options): Promise<string> {
@@ -64,7 +58,7 @@ async function authRequest(url: string, options: Options): Promise<AuthResponse>
   return (await response.json().catch(() => ({}))) as AuthResponse;
 }
 
-async function uploadDocument(options: Options, token: string): Promise<UploadResponse> {
+async function assertDocumentProcessingRetired(options: Options, token: string): Promise<void> {
   const source = await readUploadSource(options.filePath);
   const response = await fetch(`${options.baseUrl}/projects/${encodeURIComponent(options.projectId)}/uploads`, {
     method: "POST",
@@ -81,15 +75,9 @@ async function uploadDocument(options: Options, token: string): Promise<UploadRe
   });
 
   const payload = (await response.json().catch(() => ({}))) as UploadResponse;
-  if (!response.ok) {
-    throw new Error(payload.error ?? `Upload failed with HTTP ${response.status}`);
+  if (response.status !== 410 || payload.code !== "document_processing_retired") {
+    throw new Error(payload.error ?? `Expected retired upload response, received HTTP ${response.status}`);
   }
-
-  if (!payload.file?.path) {
-    throw new Error("Upload response did not include a created file path");
-  }
-
-  return payload;
 }
 
 async function readUploadSource(filePath: string | null): Promise<{
@@ -99,9 +87,9 @@ async function readUploadSource(filePath: string | null): Promise<{
 }> {
   if (!filePath) {
     return {
-      fileName: `upload-smoke-${Date.now()}.txt`,
+      fileName: `retired-upload-smoke-${Date.now()}.txt`,
       mimeType: "text/plain",
-      data: Buffer.from("# Upload Smoke\n\nThis file was created by the upload smoke test.\n", "utf8"),
+      data: Buffer.from("# Retired Upload Smoke\n\nThis file must not be saved or processed.\n", "utf8"),
     };
   }
 
@@ -205,7 +193,7 @@ function printHelp(): void {
       "Options:",
       "  --base-url <url>       Gateway URL. Default: http://127.0.0.1:8787",
       "  --project <id>         Project id. Default: finance",
-      "  --file <path>          Optional file to upload. Default: generated text file",
+      "  --file <path>          Optional stale upload payload. Default: generated text file",
       "  --identifier <name>    Test login. Default: uploadtest",
       "  --password <password>  Test password. Default: password123",
       "  --token <jwt>          Use an existing access token instead of login/signup",

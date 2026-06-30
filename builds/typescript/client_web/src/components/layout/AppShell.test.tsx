@@ -43,7 +43,6 @@ vi.mock("@/api/gateway-adapter", () => ({
     default_provider_profile: null,
     providers: [],
   })),
-  uploadProjectDocument: vi.fn(),
 }));
 
 vi.mock("@/hooks/useProjects", () => ({

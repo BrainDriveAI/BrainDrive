@@ -6,14 +6,12 @@ import {
   getMemoryUpdateReport,
   getMemoryUpdateStatus,
   getOnboardingStatus,
-  uploadProjectDocument,
 } from "@/api/gateway-adapter";
 import ChatPanel from "@/components/chat/ChatPanel";
 import DocumentView from "@/components/document/DocumentView";
 import SettingsModal from "@/components/settings/SettingsModal";
 import { useProjects } from "@/hooks/useProjects";
 import type { ProjectFile } from "@/types/ui";
-import { requiresMarkdownConversion } from "@/utils/file-utils";
 
 import Sidebar from "./Sidebar";
 
@@ -38,8 +36,6 @@ export default function AppShell({
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [activeFile, setActiveFile] = useState<ProjectFile | null>(null);
-  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
-  const [uploadError, setUploadError] = useState<string | null>(null);
   const [memoryUpdateNotice, setMemoryUpdateNotice] = useState<{
     migrationId: string;
     report: string;
@@ -115,8 +111,6 @@ export default function AppShell({
 
   useEffect(() => {
     setActiveFile(null);
-    setUploadStatus(null);
-    setUploadError(null);
   }, [selectedProjectId]);
 
   useEffect(() => {
@@ -229,36 +223,6 @@ export default function AppShell({
     setActiveFile(null);
   }
 
-  async function handleUploadDocument(
-    file: File,
-    options: { openAfterUpload?: boolean } = {}
-  ): Promise<ProjectFile | void> {
-    if (!selectedProject || selectedProject.id === "braindrive-plus-one") {
-      setUploadError("Open a folder to upload documents.");
-      return;
-    }
-
-    setUploadError(null);
-    setUploadStatus(requiresMarkdownConversion(file)
-      ? "Converting to markdown..."
-      : "Uploading document...");
-
-    try {
-      const uploadedFile = await uploadProjectDocument(selectedProject.id, file);
-      await refreshSelectedProjectFiles();
-      if (options.openAfterUpload ?? true) {
-        setActiveFile(uploadedFile);
-      }
-      setUploadStatus(null);
-      setIsMobileSidebarOpen(false);
-      return uploadedFile;
-    } catch (error) {
-      setUploadStatus(null);
-      setUploadError(error instanceof Error ? error.message : "Document upload failed.");
-      throw error;
-    }
-  }
-
   function handleConversationComplete() {
     refreshProjects();
 
@@ -366,9 +330,6 @@ export default function AppShell({
           onAddProject={addProject}
           onRemoveProject={removeProject}
           onRenameProject={renameProject}
-          onUploadDocument={handleUploadDocument}
-          uploadStatus={uploadStatus}
-          uploadError={uploadError}
         />
       </div>
 
@@ -405,9 +366,6 @@ export default function AppShell({
               onAddProject={addProject}
               onRemoveProject={removeProject}
               onRenameProject={renameProject}
-              onUploadDocument={handleUploadDocument}
-              uploadStatus={uploadStatus}
-              uploadError={uploadError}
               onClose={() => {
                 setIsMobileSidebarOpen(false);
               }}
@@ -465,7 +423,6 @@ export default function AppShell({
               messageMetadata={messageMetadata}
               contentOverride={documentContent}
               onSendMessage={handleReturnToChat}
-              onUploadDocument={handleUploadDocument}
               onOpenSettings={() => setIsSettingsOpen(true)}
             />
           )}

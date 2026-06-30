@@ -210,7 +210,6 @@ describe("Sidebar", () => {
         selectedProjectId="finance"
         selectedProject={mockProjects[0]!}
         projectFiles={[{ name: "plan.md", path: "documents/finance/plan.md" }]}
-        onUploadDocument={async () => {}}
       />
     );
 

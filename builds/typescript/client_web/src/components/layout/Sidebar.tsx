@@ -38,9 +38,6 @@ type SidebarProps = {
   onAddProject?: (name: string) => Promise<void>;
   onRemoveProject?: (id: string) => Promise<void>;
   onRenameProject?: (id: string, name: string) => Promise<void>;
-  onUploadDocument?: (file: File) => Promise<unknown>;
-  uploadStatus?: string | null;
-  uploadError?: string | null;
   tier?: "local" | "concierge";
   onClose?: () => void;
 };
@@ -63,8 +60,6 @@ export default function Sidebar({
   onAddProject,
   onRemoveProject,
   onRenameProject,
-  uploadStatus,
-  uploadError,
   tier = "local",
   onClose
 }: SidebarProps) {
@@ -237,12 +232,6 @@ export default function Sidebar({
         <ScrollArea className="min-h-0 flex-1 px-2 pb-4">
           {isProjectView ? (
             <div className="space-y-1 px-2">
-              {uploadStatus ? (
-                <div className="px-3 py-2 text-xs text-bd-text-muted">{uploadStatus}</div>
-              ) : null}
-              {uploadError ? (
-                <div className="px-3 py-2 text-xs leading-5 text-red-400">{uploadError}</div>
-              ) : null}
               {isLoadingFiles ? (
                 <div className="px-3 py-4 text-sm text-bd-text-muted">Loading files...</div>
               ) : projectFiles.length === 0 ? (
