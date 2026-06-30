@@ -144,7 +144,7 @@ dependencies = [
 
 [[package]]
 name = "braindrive-desktop"
-version = "26.6.28"
+version = "26.6.30"
 dependencies = [
  "serde",
  "serde_json",
