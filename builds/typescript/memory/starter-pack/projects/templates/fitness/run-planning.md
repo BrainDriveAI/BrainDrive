@@ -38,6 +38,8 @@ Mark each step as one of: owner action, owner decision, data-gathering, or Fitne
 
 Report what changed, update `plan.md`, update page metadata or rollup summaries only as brief summaries, and return to Fitness scope.
 
+If this is the first completed Fitness plan, make the handoff explicit: tell the owner the next step is to start executing the plan and use **Your Journal** (`journal/journal.md`) for owner-driven progress notes, wins, blockers, and changes between sessions. Ensure `journal/journal.md` exists; if it is missing, create it from the default journal template before the final reply. Do not require a journal entry yet and do not turn the journal into mandatory daily logging.
+
 ## What This Procedure Is Not
 
 It is not a medical treatment plan, crash diet, generic workout template, required journal/tracker workflow, or substitute for qualified health or coaching support.

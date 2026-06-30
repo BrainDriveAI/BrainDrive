@@ -40,6 +40,8 @@ Mark each step as one of: owner action, owner decision, reflection/prep, convers
 
 Report what changed, update `plan.md`, update page metadata or rollup summaries only as brief summaries, and return to Relationships scope.
 
+If this is the first completed Relationships plan, make the handoff explicit: tell the owner the next step is to start executing the plan and use **Your Journal** (`journal/journal.md`) for owner-driven follow-up notes, wins, blockers, context changes, and reflections between sessions. Ensure `journal/journal.md` exists; if it is missing, create it from the default journal template before the final reply. Do not require a journal entry yet and do not turn the journal into a CRM, tracker, passive memory feed, or automated outreach surface.
+
 ## What This Procedure Is Not
 
 It is not therapy, diagnosis, manipulation coaching, crisis response, passive ingestion, automatic outreach, surveillance, or a substitute for qualified support when safety is at issue.
