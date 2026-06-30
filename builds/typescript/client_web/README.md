@@ -54,8 +54,6 @@ client/
 │   │   └── useThreads.ts        # Thread state (mock data, replaced in Phase 4)
 │   ├── design/
 │   │   └── tokens.ts            # BrainDrive design tokens (reference)
-│   └── utils/
-│       └── file-utils.ts        # Shared file validation, formatting, types
 ├── index.html
 ├── package.json
 ├── tsconfig.json
@@ -88,23 +86,25 @@ In production, mode comes from `GET /api/config`. During development, a toggle i
 
 ## Current Status
 
-**All pre-backend UI is built.** The interface is fully functional as a visual shell — auth, settings, file upload, chat components, error states, empty state. Everything uses placeholder/mock data.
+**All pre-backend UI is built.** The interface is fully functional as a visual shell — auth, settings, chat components, error states, empty state. Everything uses placeholder/mock data.
 
 **What's placeholder (will change when backend is wired):**
 - Mock messages in `mockMessages.ts`
 - Mock threads in `mockThreads.ts`
 - Hardcoded user "Dave Waring" in sidebar profile
 - Auth flow accepts any credentials
-- File upload attaches but doesn't send
 - Typing indicator / connection state managed locally
 
 **What's permanent:**
 - Component structure and layout
 - Design tokens and styling
-- File upload UI (picker, drag-and-drop, validation)
 - Settings modal structure and mode-aware tabs
 - Error boundary, error messages, connection banner
 - Responsive mobile layout
+
+**What's retired:**
+- Document/file upload UI and document-processing flows are not part of the current client surface.
+- Future file handling should be specified as new work rather than restoring the retired upload path.
 
 ## Next Steps
 
@@ -114,7 +114,7 @@ Backend integration is blocked on the API contract spike with Dave J (T-298). Se
 2. **Phase 3** — Wire chat to Gateway via `useGatewayChat` adapter
 3. **Phase 4** — Wire threads to Gateway conversation list/history
 4. **Phase 5** — WhyFinder onboarding flow (if re-enabled)
-5. **Phase 6** — Settings, file upload, mobile polish with real backend
+5. **Phase 6** — Settings and mobile polish with real backend
 
 ## License
 
