@@ -48,7 +48,7 @@ describe("GatewayProjectService projects", () => {
 
       expect(listed.projects[0]).toMatchObject({
         id: "braindrive-plus-one",
-        name: "BrainDrive+1",
+        name: "Your Agent",
         icon: "sparkles",
       });
       expect(listed.projects.map((project) => project.id)).toEqual([

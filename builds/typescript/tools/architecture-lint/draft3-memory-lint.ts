@@ -248,7 +248,7 @@ export async function lintDraft3MemoryStarterPack(starterPackRoot: string): Prom
   }
 
   if (existsSync(path.join(starterPackRoot, "projects", "templates", "braindrive-plus-one"))) {
-    errors.push("BrainDrive+1 must not be scaffolded as a normal project template");
+    errors.push("The protected root agent slug must not be scaffolded as a normal project template");
   }
 
   const projectSeeds = await readOptional(path.join(starterPackRoot, "projects", "projects.seed.json"));

@@ -32,7 +32,7 @@ const DEFAULT_PROJECT_ICON = "folder";
 const ROOT_AGENT_PROJECT_ID = "braindrive-plus-one";
 const ROOT_AGENT_PROJECT: GatewayProject = {
   id: ROOT_AGENT_PROJECT_ID,
-  name: "BrainDrive+1",
+  name: "Your Agent",
   icon: "sparkles",
   conversation_id: null,
   default_skill_ids: [],
