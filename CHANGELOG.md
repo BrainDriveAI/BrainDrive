@@ -1,3 +1,59 @@
+## [26.06.30] - 2026-06-30
+
+### Added
+- No user-facing additions this week.
+
+### Changed
+- Updated web package metadata for the 26.6.28 release. (`#187`)
+- Updated desktop package metadata for the 26.6.28 release. (`#188`)
+- Streamlined Your Agent into a routing-focused starter experience with clearer preference capture and review guidance. (`#196`)
+- Updated client documentation to reflect that document upload and processing flows are no longer available. (`#198`)
+
+### Fixed
+- No user-facing fixes this week.
+
+### Removed
+- Removed document upload and processing from the chat experience and retired the legacy upload endpoint. (`#197`)
+
+## [26.06.28] - 2026-06-28
+
+### Added
+- Starter packs now include Your Agent and Finance-first owner-facing guidance for creating specs and plans. (`#146`)
+- Added the June 23, 2026 release notes covering the first dev-to-main release set. (`#163`)
+
+### Changed
+- Starter pack templates now follow the locked memory architecture with seeded owner context and fewer stale default project artifacts. (`#145`)
+- Career, Fitness, Relationships, and New Project starter templates now match their surface specs with clearer context, routing, and success criteria. (`#147`)
+- Starter pack interviews, planning guidance, project chat behavior, and upload retry handling were aligned for integration testing. (`#148`)
+- Scheduled npm dependency updates now target the dev integration branch before release. (`#150`)
+- Dependabot configuration on the default branch now routes scheduled npm version updates to dev. (`#151`)
+- MCP release development dependencies were updated to newer non-major versions for improved test and runtime tooling stability. (`#158`)
+- TypeScript workspace development dependencies were updated to newer non-major versions for improved build and test tooling stability. (`#159`)
+- Client web dependencies were updated to newer non-major versions with refreshed UI, routing, testing, and build tooling support. (`#160`)
+- OpenRouter now defaults to GLM 5.2 for direct provider setup and starter preferences. (`#162`)
+- Updated contributor and web client guidance with design-token and dark-mode contrast rules. (`#164`)
+- Updated the June 23, 2026 release notes to include the design guidance documentation changes. (`#165`)
+- Updated TypeScript runtime and web client release metadata to version 26.6.23. (`#169`)
+- Release metadata and tooling now support same-day patch versions in YY.M.D.N format. (`#173`)
+- Simplified starter project templates to use product-generic, owner-facing instructions. (`#174`)
+- New OpenRouter users now start with Claude Haiku 4.5 by default while existing model preferences remain unchanged. (`#176`)
+- The package release version was promoted to 26.6.24 across the main application and web client metadata. (`#179`)
+- Starter page interviews now use owner-agnostic templates with stronger confirmation, profile-capture, and baseline-quality guidance before writing goals and plans. (`#181`)
+- New direct OpenRouter users now default to GLM 5.2 while hosted BrainDrive Models continue using their existing configuration. (`#182`)
+- Starter page interviews now more clearly frame goals and plans as required outputs and let Finance users start from rough estimates without deferring setup. (`#184`)
+
+### Fixed
+- Starter pack advisor responses now point owners to sidebar product labels instead of exposing internal filenames. (`#161`)
+- Updated dependency lockfiles to pick up patched versions for reported security advisories. (`#167`)
+- New and repaired workspaces now land on Your Agent at startup. (`#175`)
+
+### Removed
+- Removed chat panel controls that let users start or continue in a new conversation. (`#171`)
+- Finance no longer presents or runs the retired Budgetting app workflow, and legacy Budget data is archived instead of kept active. (`#180`)
+- Runtime prompts no longer inject page-specific write timing, child-app, Finance, or Fitness behavior outside the starter-pack flow. (`#183`)
+- Chat runtime no longer auto-writes starter goals or plans, leaving artifact creation under the starter-pack assistant flow. (`#185`)
+
+
 ## [26.06.24] - 2026-06-24
 
 ### Added
