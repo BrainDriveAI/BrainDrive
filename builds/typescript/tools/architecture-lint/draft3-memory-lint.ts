@@ -25,6 +25,11 @@ const DEFAULT_PAGE_PROJECT_IDS = [
   "new-project",
 ] as const;
 
+const PAGE_JOURNAL_PROJECT_IDS = [
+  "fitness",
+  "relationships",
+] as const;
+
 const REQUIRED_PROJECT_FILES = [
   "AGENT.md",
   "spec.md",
@@ -56,6 +61,12 @@ const STALE_FITNESS_PATHS = [
 const PROCEDURE_FILES = [
   "run-interview.md",
   "run-planning.md",
+] as const;
+
+const JOURNAL_PROJECT_FILES = [
+  "run-journal.md",
+  "journal/AGENT.md",
+  "journal/journal.md",
 ] as const;
 
 const OPTIONAL_PROJECT_OVERLAY_FILES = [
@@ -294,6 +305,29 @@ export async function lintDraft3MemoryStarterPack(starterPackRoot: string): Prom
     for (const file of OPTIONAL_PROJECT_OVERLAY_FILES) {
       if (existsSync(path.join(projectRoot, file))) {
         errors.push(`Owner overlay must not be seeded by starter pack: ${projectId}/${file}`);
+      }
+    }
+
+    if (PAGE_JOURNAL_PROJECT_IDS.includes(projectId as typeof PAGE_JOURNAL_PROJECT_IDS[number])) {
+      for (const file of JOURNAL_PROJECT_FILES) {
+        if (!existsSync(path.join(projectRoot, file))) {
+          errors.push(`Missing required journal template file: ${projectId}/${file}`);
+        }
+      }
+
+      const journalProcedure = await readOptional(path.join(projectRoot, "run-journal.md"));
+      if (journalProcedure !== null && !/^## Preservation Rule\s*$/m.test(journalProcedure)) {
+        errors.push(`Procedure is missing Preservation Rule: ${projectId}/run-journal.md`);
+      }
+
+      const journalAgent = await readOptional(path.join(projectRoot, "journal", "AGENT.md"));
+      if (journalAgent !== null && !/^## Preservation Rule\s*$/m.test(journalAgent)) {
+        errors.push(`Journal AGENT.md is missing Preservation Rule: ${projectId}/journal/AGENT.md`);
+      }
+
+      const journalState = await readOptional(path.join(projectRoot, "journal", "journal.md"));
+      if (journalState !== null && !journalState.includes("# Your Journal")) {
+        errors.push(`Journal state template must be owner-facing: ${projectId}/journal/journal.md`);
       }
     }
 

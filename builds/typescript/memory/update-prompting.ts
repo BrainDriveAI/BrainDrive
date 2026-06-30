@@ -162,8 +162,8 @@ const REPORT_RELATIVE_DIR = "system/updates/reports";
 const BACKUP_RELATIVE_DIR = "system/updates/backups";
 const UNKNOWN_MEMORY_PACK_VERSION = "unknown";
 const DEFAULT_PROJECT_TEMPLATE_FILES = ["AGENT.md", "spec.md", "run-interview.md", "plan.md", "run-planning.md"] as const;
-const LIFE_AREA_PROJECT_TEMPLATE_FILES = DEFAULT_PROJECT_TEMPLATE_FILES;
-const LIFE_AREA_PROJECT_IDS = new Set(["career", "finance", "fitness", "relationships"]);
+const JOURNAL_PROJECT_TEMPLATE_FILES = ["run-journal.md", "journal/AGENT.md", "journal/journal.md"] as const;
+const PAGE_JOURNAL_PROJECT_IDS = new Set(["fitness", "relationships"]);
 
 export async function getMemoryUpdateStatus(
   rootDir: string,
@@ -455,10 +455,7 @@ export async function generateStarterPackManifest(
       for (const entry of entries
         .filter((item) => item.isDirectory() && item.name !== "braindrive-plus-one")
         .sort((left, right) => left.name.localeCompare(right.name))) {
-        const projectCoreFiles = LIFE_AREA_PROJECT_IDS.has(entry.name)
-          ? LIFE_AREA_PROJECT_TEMPLATE_FILES
-          : DEFAULT_PROJECT_TEMPLATE_FILES;
-        for (const projectFile of projectCoreFiles) {
+        for (const projectFile of projectTemplateFilesFor(entry.name)) {
           await addManifestFile(files, starterPackDir, {
             path: `documents/${entry.name}/${projectFile}`,
             sourcePath: `projects/templates/${entry.name}/${projectFile}`,
@@ -497,6 +494,14 @@ export async function generateStarterPackManifest(
     source: starterPackDir ?? "",
     files,
   };
+}
+
+function projectTemplateFilesFor(projectId: string): readonly string[] {
+  const files: string[] = [...DEFAULT_PROJECT_TEMPLATE_FILES];
+  if (PAGE_JOURNAL_PROJECT_IDS.has(projectId)) {
+    files.push(...JOURNAL_PROJECT_TEMPLATE_FILES);
+  }
+  return files;
 }
 
 async function ensureMemoryUpdateState(

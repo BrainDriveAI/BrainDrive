@@ -48,8 +48,8 @@ const PROJECTS_MANIFEST_RELATIVE_PATH = "documents/projects.json";
 const PROJECTS_SEEDED_MARKER_RELATIVE_PATH = "preferences/projects-seeded-v1.json";
 
 const PROJECT_TEMPLATE_FILES = ["AGENT.md", "spec.md", "run-interview.md", "plan.md", "run-planning.md"] as const;
-const LIFE_AREA_PROJECT_TEMPLATE_FILES = PROJECT_TEMPLATE_FILES;
-const LIFE_AREA_PROJECT_IDS = new Set(["career", "finance", "fitness", "relationships"]);
+const JOURNAL_PROJECT_TEMPLATE_FILES = ["run-journal.md", "journal/AGENT.md", "journal/journal.md"] as const;
+const PAGE_JOURNAL_PROJECT_IDS = new Set(["fitness", "relationships"]);
 const PROJECTS_SEED_RELATIVE_PATH = "projects/projects.seed.json";
 const PROJECT_TEMPLATES_ROOT_RELATIVE_PATH = "projects/templates";
 
@@ -275,11 +275,8 @@ export async function scaffoldProjectFiles(
 
   await ensureDirectory(resolveMemoryPath(absoluteMemoryRoot, `documents/${projectId}`), absoluteMemoryRoot, summary, dryRun);
 
-  const coreTemplateFiles =
-    LIFE_AREA_PROJECT_IDS.has(projectId) || LIFE_AREA_PROJECT_IDS.has(templateId)
-      ? LIFE_AREA_PROJECT_TEMPLATE_FILES
-      : PROJECT_TEMPLATE_FILES;
-  for (const templateFile of coreTemplateFiles) {
+  const templateFiles = projectTemplateFilesFor(projectId, templateId);
+  for (const templateFile of templateFiles) {
     await ensureProjectTemplateFile(
       absoluteMemoryRoot,
       starterPackDir,
@@ -297,6 +294,14 @@ export async function scaffoldProjectFiles(
     template_id: templateId,
     starter_pack_dir: starterPackDir,
   };
+}
+
+function projectTemplateFilesFor(projectId: string, templateId: string): readonly string[] {
+  const files: string[] = [...PROJECT_TEMPLATE_FILES];
+  if (PAGE_JOURNAL_PROJECT_IDS.has(projectId) || PAGE_JOURNAL_PROJECT_IDS.has(templateId)) {
+    files.push(...JOURNAL_PROJECT_TEMPLATE_FILES);
+  }
+  return files;
 }
 
 async function ensureProjectTemplateFile(
@@ -946,6 +951,71 @@ function fallbackProjectTemplateContent(projectName: string, fileName: string): 
       "## What This Procedure Is Not",
       "",
       "It is not a substitute for qualified professional support when the project requires it.",
+      "",
+    ].join("\n");
+  }
+
+  if (fileName === "run-journal.md") {
+    return [
+      `# ${projectName} Journal`,
+      "",
+      "*Procedure for follow-up sessions after `spec.md` and `plan.md` exist.*",
+      "",
+      "## Preservation Rule",
+      "",
+      "Before writing, correcting, or recovering `journal/journal.md`, read the existing file when it is readable. Never replace the whole file. Append new entries or targeted-edit only the intended entry. If the file is unreadable or corrupt, create a timestamped recovery file and do not overwrite the original.",
+      "",
+      "## What This Procedure Accomplishes",
+      "",
+      "Capture owner-provided follow-up history, review progress, surface patterns as hypotheses, and keep the project spec or plan current only when the owner approves a change.",
+      "",
+      "## When to Run",
+      "",
+      "- The owner returns after the project plan exists.",
+      "- The owner shares progress, blockers, wins, changes, or follow-up context.",
+      "- The owner asks what has been logged or asks to correct a prior journal entry.",
+      "",
+      "## Method",
+      "",
+      "Read `me/profile.md`, `spec.md`, `plan.md`, and `journal/journal.md` before acting. Append owner-provided history to `journal/journal.md` using a dated Markdown entry. Ask a concise clarification question before editing when the target entry is ambiguous. Treat pattern reflections as hypotheses and ask before updating `spec.md`, `plan.md`, or `me/profile.md`.",
+      "",
+      "## Done Criteria",
+      "",
+      "The journal entry or correction is saved safely, parent artifacts change only with owner approval, and the owner is told what changed and where.",
+      "",
+      "## What This Procedure Is Not",
+      "",
+      "It is not a tracker, dashboard, passive ingestion system, or replacement for the project spec and plan.",
+      "",
+    ].join("\n");
+  }
+
+  if (fileName === "journal/AGENT.md") {
+    return [
+      `# ${projectName} Journal - Agent Context`,
+      "",
+      "*Instructions for the owner's project journal folder.*",
+      "",
+      "This folder stores owner-provided follow-up history for the project after `spec.md` and `plan.md` exist.",
+      "",
+      "## Preservation Rule",
+      "",
+      "Before writing, correcting, or recovering `journal.md`, read the existing file when it is readable. Never replace the whole file. Append new entries or targeted-edit only the intended entry. If `journal.md` is unreadable or corrupt, create a timestamped recovery file and do not overwrite the original.",
+      "",
+      "## Boundaries",
+      "",
+      "- `journal.md` is owner state and historical evidence.",
+      "- `spec.md` and `plan.md` remain the current truth and change only with owner approval.",
+      "- Stable cross-project facts go to `me/profile.md` only with owner confirmation.",
+      "",
+    ].join("\n");
+  }
+
+  if (fileName === "journal/journal.md") {
+    return [
+      "# Your Journal",
+      "",
+      "No entries yet.",
       "",
     ].join("\n");
   }

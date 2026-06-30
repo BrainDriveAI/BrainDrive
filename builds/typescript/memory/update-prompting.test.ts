@@ -48,6 +48,15 @@ async function writeProjectTemplate(rootDir: string, projectId: string): Promise
   await writeFile(path.join(templateRoot, "run-planning.md"), `# ${title} Planning\n`, "utf8");
 }
 
+async function writeProjectJournalTemplate(rootDir: string, projectId: string): Promise<void> {
+  const templateRoot = path.join(rootDir, "memory", "starter-pack", "projects", "templates", projectId);
+  const title = projectId[0].toUpperCase() + projectId.slice(1);
+  await mkdir(path.join(templateRoot, "journal"), { recursive: true });
+  await writeFile(path.join(templateRoot, "run-journal.md"), `# ${title} Journal\n\n## Preservation Rule\n`, "utf8");
+  await writeFile(path.join(templateRoot, "journal", "AGENT.md"), `# ${title} Journal - Agent Context\n\n## Preservation Rule\n`, "utf8");
+  await writeFile(path.join(templateRoot, "journal", "journal.md"), "# Your Journal\n\nNo entries yet.\n", "utf8");
+}
+
 describe("memory update prompting", () => {
   it("auto-creates missing starter files and defers customized existing files without an LLM", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "memory-update-test-"));
@@ -123,6 +132,7 @@ describe("memory update prompting", () => {
       await writeStarterPack(rootDir);
       await writeProjectTemplate(rootDir, "finance");
       await writeProjectTemplate(rootDir, "fitness");
+      await writeProjectJournalTemplate(rootDir, "fitness");
       await mkdir(path.join(memoryRoot, "documents", "finance"), { recursive: true });
       await mkdir(path.join(memoryRoot, "documents", "fitness"), { recursive: true });
       await mkdir(path.join(memoryRoot, "me"), { recursive: true });
@@ -149,6 +159,11 @@ describe("memory update prompting", () => {
       expect(manifest.files.map((file) => file.path)).toContain("documents/fitness/AGENT.md");
       expect(manifest.files.map((file) => file.path)).toContain("documents/fitness/run-interview.md");
       expect(manifest.files.map((file) => file.path)).toContain("documents/fitness/run-planning.md");
+      expect(manifest.files.map((file) => file.path)).toContain("documents/fitness/run-journal.md");
+      expect(manifest.files.map((file) => file.path)).toContain("documents/fitness/journal/AGENT.md");
+      expect(manifest.files.map((file) => file.path)).toContain("documents/fitness/journal/journal.md");
+      expect(manifest.files.find((file) => file.path === "documents/fitness/journal/journal.md")?.merge_policy)
+        .toBe("preserve_owner_state");
       expect(manifest.files.map((file) => file.path)).not.toContain("documents/fitness/health-docs/index.md");
       expect(manifest.files.map((file) => file.path)).not.toContain("documents/fitness/health-docs/intake-and-disclaimer.md");
       expect(manifest.files.map((file) => file.path)).not.toContain("documents/fitness/health-docs/relevance-and-routing.md");
@@ -171,6 +186,9 @@ describe("memory update prompting", () => {
       expect(result?.deferred_paths).toContain("documents/finance/AGENT.md");
       expect(result?.applied_paths).toContain("documents/fitness/run-interview.md");
       expect(result?.applied_paths).toContain("documents/fitness/run-planning.md");
+      expect(result?.applied_paths).toContain("documents/fitness/run-journal.md");
+      expect(result?.applied_paths).toContain("documents/fitness/journal/AGENT.md");
+      expect(result?.applied_paths).toContain("documents/fitness/journal/journal.md");
       expect(result?.applied_paths).not.toContain("documents/fitness/index.md");
       expect(result?.applied_paths).not.toContain("documents/fitness/health-docs/index.md");
       expect(result?.applied_paths).not.toContain("documents/fitness/health-docs/intake-and-disclaimer.md");
@@ -197,6 +215,12 @@ describe("memory update prompting", () => {
         .resolves.toContain("# Fitness Interview");
       await expect(readFile(path.join(memoryRoot, "documents", "fitness", "run-planning.md"), "utf8"))
         .resolves.toContain("# Fitness Planning");
+      await expect(readFile(path.join(memoryRoot, "documents", "fitness", "run-journal.md"), "utf8"))
+        .resolves.toContain("# Fitness Journal");
+      await expect(readFile(path.join(memoryRoot, "documents", "fitness", "journal", "AGENT.md"), "utf8"))
+        .resolves.toContain("# Fitness Journal - Agent Context");
+      await expect(readFile(path.join(memoryRoot, "documents", "fitness", "journal", "journal.md"), "utf8"))
+        .resolves.toContain("# Your Journal");
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
