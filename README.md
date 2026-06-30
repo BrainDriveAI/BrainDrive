@@ -62,7 +62,7 @@ irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/boo
 
 ## How It Works
 
-1. **Land on BrainDrive+1** — your primary AI assistant. It knows everything across all your projects and helps you get started.
+1. **Land on Your Agent** — your primary AI assistant. It knows everything across all your projects and helps you get started.
 2. **Explore life areas** — Career, Relationships, Fitness, Finance are ready to go. Create new projects for anything else.
 3. **Interview** — your AI asks the right questions to understand your situation, goals, and what success looks like.
 4. **Spec** — it organizes what it learned into a clear, structured document — your goals, context, and success criteria.

@@ -747,7 +747,7 @@ export async function buildServer(rootDir = process.cwd()) {
 
     // Inject project context so the AI knows which project it's operating in.
     // Without this, the AI sees the base prompt but doesn't know which project
-    // files to read — it would read all projects and behave like BD+1.
+    // files to read — it would read all projects and behave like the root agent.
     const projectFiles = projectId ? (await projects.listProjectFiles(projectId))?.files ?? [] : [];
     const projectContext = projectId
       ? buildProjectChatContext(projectId, projectFiles)

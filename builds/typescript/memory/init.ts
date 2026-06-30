@@ -59,7 +59,7 @@ const PROJECT_TEMPLATE_ALIASES: Record<string, string> = {
 };
 
 const FALLBACK_PROJECT_SEEDS: Array<{ id: string; name: string; icon: string }> = [
-  { id: "braindrive-plus-one", name: "BrainDrive+1", icon: "sparkles" },
+  { id: "braindrive-plus-one", name: "Your Agent", icon: "sparkles" },
   { id: "finance", name: "Finance", icon: "dollar-sign" },
   { id: "fitness", name: "Fitness", icon: "dumbbell" },
   { id: "career", name: "Career", icon: "briefcase" },

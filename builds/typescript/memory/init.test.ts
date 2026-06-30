@@ -19,7 +19,11 @@ describe("memory init project scaffolding", () => {
 
       await expect(readFile(path.join(memoryRoot, "me", "profile.md"), "utf8"))
         .resolves.toContain("# Your Profile");
-      const projectsManifest = JSON.parse(await readFile(path.join(memoryRoot, "documents", "projects.json"), "utf8")) as Array<{ id: string }>;
+      const projectsManifest = JSON.parse(await readFile(path.join(memoryRoot, "documents", "projects.json"), "utf8")) as Array<{ id: string; name: string }>;
+      expect(projectsManifest[0]).toMatchObject({
+        id: "braindrive-plus-one",
+        name: "Your Agent",
+      });
       expect(projectsManifest.map((project) => project.id)).toEqual([
         "braindrive-plus-one",
         "finance",
@@ -31,9 +35,9 @@ describe("memory init project scaffolding", () => {
       await expect(readFile(path.join(memoryRoot, "documents", "braindrive-plus-one", "AGENT.md"), "utf8"))
         .resolves.toContain("# Your Agent - Agent Context");
       await expect(readFile(path.join(memoryRoot, "documents", "braindrive-plus-one", "spec.md"), "utf8"))
-        .resolves.toContain("# Your Goals");
+        .resolves.toContain("# Your Agent Spec");
       await expect(readFile(path.join(memoryRoot, "documents", "braindrive-plus-one", "plan.md"), "utf8"))
-        .resolves.toContain("# Your Plan");
+        .resolves.toContain("# Your Agent Plan");
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "index.md"), "utf8"))
         .rejects.toThrow();
       await expect(readFile(path.join(memoryRoot, "documents", "career", "index.md"), "utf8"))
@@ -120,7 +124,7 @@ describe("memory init project scaffolding", () => {
     }
   });
 
-  it("removes the unused legacy Your Agent project entry when BrainDrive+1 exists", async () => {
+  it("removes the unused legacy Your Agent project entry when the protected root agent exists", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "memory-init-your-agent-cleanup-test-"));
     const rootDir = path.join(tempRoot, "repo");
     const memoryRoot = path.join(tempRoot, "memory");
@@ -132,7 +136,7 @@ describe("memory init project scaffolding", () => {
         `${JSON.stringify([
           {
             id: "braindrive-plus-one",
-            name: "BrainDrive+1",
+            name: "Your Agent",
             icon: "sparkles",
             conversation_id: null,
             default_skill_ids: [],
@@ -174,7 +178,7 @@ describe("memory init project scaffolding", () => {
         `${JSON.stringify([
           {
             id: "braindrive-plus-one",
-            name: "BrainDrive+1",
+            name: "Your Agent",
             icon: "sparkles",
             conversation_id: null,
             default_skill_ids: [],

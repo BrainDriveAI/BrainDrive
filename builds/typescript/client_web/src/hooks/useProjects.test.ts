@@ -33,7 +33,7 @@ function deferred<T>() {
 const defaultProjects: Project[] = [
   {
     id: "braindrive-plus-one",
-    name: "BrainDrive+1",
+    name: "Your Agent",
     icon: "sparkles",
     conversationId: "conv-plus-one",
   },
