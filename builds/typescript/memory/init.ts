@@ -1,8 +1,18 @@
 import path from "node:path";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 
 import { bootstrapSkillsFromStarterPack, MemorySkillStore } from "./skills.js";
 import { resolveMemoryPath, toMemoryRelativePath } from "./paths.js";
+import {
+  ROOT_AGENT_CANONICAL_ID,
+  ROOT_AGENT_DISPLAY_NAME,
+  ROOT_AGENT_ICON,
+  ROOT_AGENT_LEGACY_IDS,
+  ROOT_AGENT_TEMPLATE_ID,
+  isRootAgentProjectId,
+  rootAgentProjectSeed,
+  rootAgentTemplateIdForProjectId,
+} from "./root-agent.js";
 
 export type MemoryInitProfile = "local-dev" | "openrouter-secret-ref" | "braindrive-managed-secret-ref";
 
@@ -53,13 +63,12 @@ const PAGE_JOURNAL_PROJECT_IDS = new Set(["fitness", "relationships"]);
 const PROJECTS_SEED_RELATIVE_PATH = "projects/projects.seed.json";
 const PROJECT_TEMPLATES_ROOT_RELATIVE_PATH = "projects/templates";
 
-const PROTECTED_PROJECT_IDS = new Set(["braindrive-plus-one"]);
-const PROJECT_TEMPLATE_ALIASES: Record<string, string> = {
-  "braindrive-plus-one": "your-agent",
-};
+const PROJECT_TEMPLATE_ALIASES: Record<string, string> = Object.fromEntries(
+  ROOT_AGENT_LEGACY_IDS.map((projectId) => [projectId, ROOT_AGENT_TEMPLATE_ID])
+);
 
 const FALLBACK_PROJECT_SEEDS: Array<{ id: string; name: string; icon: string }> = [
-  { id: "braindrive-plus-one", name: "Your Agent", icon: "sparkles" },
+  rootAgentProjectSeed(),
   { id: "finance", name: "Finance", icon: "dollar-sign" },
   { id: "fitness", name: "Fitness", icon: "dumbbell" },
   { id: "career", name: "Career", icon: "briefcase" },
@@ -142,7 +151,7 @@ const FALLBACK_BRAINDRIVE_MANAGED_SECRET_REF_PREFERENCES = {
 };
 
 export function isProtectedProjectId(projectId: string): boolean {
-  return PROTECTED_PROJECT_IDS.has(projectId.trim().toLowerCase());
+  return isRootAgentProjectId(projectId);
 }
 
 export async function initializeMemoryLayout(
@@ -271,17 +280,19 @@ export async function scaffoldProjectFiles(
   const force = options.force ?? false;
   const dryRun = options.dryRun ?? false;
   const starterPackDir = await resolveStarterPackDir(rootDir);
-  const templateId = await resolveTemplateId(starterPackDir, options.templateId ?? projectId);
+  const effectiveProjectId = isRootAgentProjectId(projectId) ? ROOT_AGENT_CANONICAL_ID : projectId;
+  const requestedTemplateId = options.templateId ?? effectiveProjectId;
+  const templateId = await resolveTemplateId(starterPackDir, requestedTemplateId);
 
-  await ensureDirectory(resolveMemoryPath(absoluteMemoryRoot, `documents/${projectId}`), absoluteMemoryRoot, summary, dryRun);
+  await ensureDirectory(resolveMemoryPath(absoluteMemoryRoot, `documents/${effectiveProjectId}`), absoluteMemoryRoot, summary, dryRun);
 
-  const templateFiles = projectTemplateFilesFor(projectId, templateId);
+  const templateFiles = projectTemplateFilesFor(effectiveProjectId, templateId);
   for (const templateFile of templateFiles) {
     await ensureProjectTemplateFile(
       absoluteMemoryRoot,
       starterPackDir,
       templateId,
-      projectId,
+      effectiveProjectId,
       projectName,
       templateFile,
       force,
@@ -297,6 +308,10 @@ export async function scaffoldProjectFiles(
 }
 
 function projectTemplateFilesFor(projectId: string, templateId: string): readonly string[] {
+  if (isRootAgentProjectId(projectId) || isRootAgentProjectId(templateId)) {
+    return ["AGENT.md"];
+  }
+
   const files: string[] = [...PROJECT_TEMPLATE_FILES];
   if (PAGE_JOURNAL_PROJECT_IDS.has(projectId) || PAGE_JOURNAL_PROJECT_IDS.has(templateId)) {
     files.push(...JOURNAL_PROJECT_TEMPLATE_FILES);
@@ -373,6 +388,12 @@ async function ensureProjectsManifestAndDefaults(
   const shouldAttemptSeed = seedDefaultProjects && (!markerExists || force);
   let manifestChanged = false;
 
+  const initialRootAgentRepair = repairRootAgentProjectEntries(projects, summary);
+  if (initialRootAgentRepair.changed) {
+    projects = initialRootAgentRepair.projects;
+    manifestChanged = true;
+  }
+
   if (shouldAttemptSeed) {
     const defaultProjects = await loadDefaultProjectsSeed(starterPackDir, summary);
     if (projects.length === 0 || force) {
@@ -417,10 +438,20 @@ async function ensureProjectsManifestAndDefaults(
     }
   }
 
-  const legacyCleanup = removeLegacyDuplicateRootAgentProject(projects);
-  if (legacyCleanup.changed) {
-    projects = legacyCleanup.projects;
+  const finalRootAgentRepair = repairRootAgentProjectEntries(projects, summary);
+  if (finalRootAgentRepair.changed) {
+    projects = finalRootAgentRepair.projects;
     manifestChanged = true;
+  }
+
+  await ensureRootAgentFolderCompatibility(memoryRoot, dryRun, summary);
+  if (projects.some((project) => project.id === ROOT_AGENT_CANONICAL_ID)) {
+    await scaffoldProjectFiles(rootDir, memoryRoot, ROOT_AGENT_CANONICAL_ID, ROOT_AGENT_DISPLAY_NAME, {
+      templateId: ROOT_AGENT_TEMPLATE_ID,
+      force: false,
+      dryRun,
+      summary,
+    });
   }
 
   if (manifestChanged || !manifestExisted) {
@@ -537,7 +568,10 @@ async function resolveStarterPackDir(rootDir: string): Promise<string | null> {
 }
 
 async function resolveTemplateId(starterPackDir: string | null, requestedTemplateId: string): Promise<string> {
-  const aliasedTemplateId = PROJECT_TEMPLATE_ALIASES[requestedTemplateId] ?? requestedTemplateId;
+  const normalizedRequestedTemplateId = requestedTemplateId.trim().toLowerCase();
+  const aliasedTemplateId = rootAgentTemplateIdForProjectId(
+    PROJECT_TEMPLATE_ALIASES[normalizedRequestedTemplateId] ?? normalizedRequestedTemplateId
+  );
 
   if (!starterPackDir) {
     return "new-project";
@@ -593,6 +627,10 @@ function parseProjectSeedEntry(value: unknown): { id: string; name: string; icon
   if (!id || !name || !icon) {
     return null;
   }
+  if (isRootAgentProjectId(id)) {
+    return rootAgentProjectSeed();
+  }
+
   return {
     id: id.toLowerCase(),
     name,
@@ -656,32 +694,142 @@ function sortProjects(projects: ProjectManifestEntry[]): ProjectManifestEntry[] 
   return [...projects];
 }
 
-function removeLegacyDuplicateRootAgentProject(projects: ProjectManifestEntry[]): {
+function repairRootAgentProjectEntries(
+  projects: ProjectManifestEntry[],
+  summary: MemoryInitSummary
+): {
   projects: ProjectManifestEntry[];
   changed: boolean;
 } {
-  const hasRootAgent = projects.some((project) => project.id === "braindrive-plus-one");
-  if (!hasRootAgent) {
+  const rootEntries = projects.filter((project) => isRootAgentProjectId(project.id));
+  if (rootEntries.length === 0) {
     return { projects, changed: false };
   }
 
-  let changed = false;
-  const nextProjects = projects.filter((project) => {
-    const isUnusedLegacySeed =
-      project.id === "your-agent" &&
-      project.name === "Your Agent" &&
-      project.icon === "sparkles" &&
-      project.conversation_id === null &&
-      project.default_skill_ids.length === 0;
-    if (!isUnusedLegacySeed) {
-      return true;
+  const nonRootEntries = projects.filter((project) => !isRootAgentProjectId(project.id));
+  const canonicalEntry = rootEntries.find((project) => project.id === ROOT_AGENT_CANONICAL_ID);
+  const primaryEntry = canonicalEntry ?? rootEntries[0]!;
+  const conversationIds = dedupeStrings(
+    rootEntries
+      .map((project) => project.conversation_id)
+      .filter((conversationId): conversationId is string => typeof conversationId === "string" && conversationId.trim().length > 0)
+  );
+  const defaultSkillIds = dedupeStrings(rootEntries.flatMap((project) => project.default_skill_ids));
+  const hasConversationConflict = conversationIds.length > 1;
+  const rootAgentEntry: ProjectManifestEntry = {
+    id: ROOT_AGENT_CANONICAL_ID,
+    name: ROOT_AGENT_DISPLAY_NAME,
+    icon: ROOT_AGENT_ICON,
+    conversation_id: primaryEntry.conversation_id ?? (conversationIds.length === 1 ? conversationIds[0]! : null),
+    default_skill_ids: defaultSkillIds,
+  };
+
+  let nextProjects: ProjectManifestEntry[];
+  if (hasConversationConflict) {
+    summary.warnings.push(`Conflicting root agent conversation ids preserved for manual review: ${conversationIds.join(", ")}`);
+    const preservedLegacyEntries = rootEntries
+      .filter((project) => project.id !== ROOT_AGENT_CANONICAL_ID)
+      .map((project) => ({
+        ...project,
+        name: ROOT_AGENT_DISPLAY_NAME,
+        icon: ROOT_AGENT_ICON,
+      }));
+    nextProjects = [rootAgentEntry, ...preservedLegacyEntries, ...nonRootEntries];
+  } else {
+    nextProjects = [rootAgentEntry, ...nonRootEntries];
+  }
+
+  return JSON.stringify(projects) === JSON.stringify(nextProjects)
+    ? { projects, changed: false }
+    : { projects: nextProjects, changed: true };
+}
+
+async function ensureRootAgentFolderCompatibility(
+  memoryRoot: string,
+  dryRun: boolean,
+  summary: MemoryInitSummary
+): Promise<void> {
+  const canonicalRelativePath = `documents/${ROOT_AGENT_CANONICAL_ID}`;
+  const canonicalPath = resolveMemoryPath(memoryRoot, canonicalRelativePath);
+
+  for (const legacyId of ROOT_AGENT_LEGACY_IDS) {
+    const legacyRelativePath = `documents/${legacyId}`;
+    const legacyPath = resolveMemoryPath(memoryRoot, legacyRelativePath);
+    const legacyExists = await pathExists(legacyPath);
+    if (!legacyExists) {
+      continue;
     }
 
-    changed = true;
-    return false;
-  });
+    const canonicalExists = await pathExists(canonicalPath);
+    if (!canonicalExists) {
+      if (dryRun) {
+        summary.created.push(canonicalRelativePath);
+      } else {
+        await cp(legacyPath, canonicalPath, { recursive: true, force: false, errorOnExist: false });
+        summary.created.push(canonicalRelativePath);
+      }
+      summary.warnings.push(`Copied legacy root agent folder ${legacyRelativePath} to ${canonicalRelativePath}; legacy folder preserved for compatibility`);
+      continue;
+    }
 
-  return changed ? { projects: nextProjects, changed } : { projects, changed: false };
+    const foldersMatch = await directoriesHaveSameFileContents(legacyPath, canonicalPath);
+    if (!foldersMatch) {
+      summary.warnings.push(`Preserved divergent root agent folders for manual review: ${legacyRelativePath} and ${canonicalRelativePath}`);
+    }
+  }
+}
+
+async function directoriesHaveSameFileContents(leftRoot: string, rightRoot: string): Promise<boolean> {
+  const [leftFiles, rightFiles] = await Promise.all([
+    listRelativeFiles(leftRoot),
+    listRelativeFiles(rightRoot),
+  ]);
+
+  if (leftFiles.length !== rightFiles.length) {
+    return false;
+  }
+
+  for (let index = 0; index < leftFiles.length; index += 1) {
+    const relativePath = leftFiles[index]!;
+    if (relativePath !== rightFiles[index]) {
+      return false;
+    }
+
+    const [leftContent, rightContent] = await Promise.all([
+      readFile(path.join(leftRoot, relativePath)),
+      readFile(path.join(rightRoot, relativePath)),
+    ]);
+    if (!leftContent.equals(rightContent)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+async function listRelativeFiles(root: string): Promise<string[]> {
+  const files: string[] = [];
+
+  async function visit(directory: string, relativeDirectory = ""): Promise<void> {
+    const entries = await readdir(directory, { withFileTypes: true });
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      if (entry.name.startsWith(".")) {
+        continue;
+      }
+      const relativePath = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
+      const absolutePath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        await visit(absolutePath, relativePath);
+        continue;
+      }
+      if (entry.isFile()) {
+        files.push(relativePath);
+      }
+    }
+  }
+
+  await visit(root);
+  return files.sort((left, right) => left.localeCompare(right));
 }
 
 function dedupeStrings(values: string[]): string[] {

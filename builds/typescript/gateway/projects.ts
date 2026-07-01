@@ -1,10 +1,19 @@
 import path from "node:path";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 
 import { commitMemoryChange } from "../git.js";
 import { isProtectedProjectId, scaffoldProjectFiles } from "../memory/init.js";
 import { resolveMemoryPath, toMemoryRelativePath } from "../memory/paths.js";
+import {
+  ROOT_AGENT_CANONICAL_ID,
+  ROOT_AGENT_DISPLAY_NAME,
+  ROOT_AGENT_ICON,
+  ROOT_AGENT_LEGACY_IDS,
+  ROOT_AGENT_TEMPLATE_ID,
+  canonicalizeRootAgentProjectId,
+  isRootAgentProjectId,
+} from "../memory/root-agent.js";
 
 export type GatewayProject = {
   id: string;
@@ -29,11 +38,10 @@ type ProjectFileListEnvelope = {
 
 const PROJECTS_MANIFEST_RELATIVE_PATH = "documents/projects.json";
 const DEFAULT_PROJECT_ICON = "folder";
-const ROOT_AGENT_PROJECT_ID = "braindrive-plus-one";
 const ROOT_AGENT_PROJECT: GatewayProject = {
-  id: ROOT_AGENT_PROJECT_ID,
-  name: "Your Agent",
-  icon: "sparkles",
+  id: ROOT_AGENT_CANONICAL_ID,
+  name: ROOT_AGENT_DISPLAY_NAME,
+  icon: ROOT_AGENT_ICON,
   conversation_id: null,
   default_skill_ids: [],
 };
@@ -97,6 +105,10 @@ export class GatewayProjectService {
   }
 
   async renameProject(projectId: string, name: string): Promise<void> {
+    if (isProtectedProjectId(projectId)) {
+      throw new ProtectedProjectError(projectId);
+    }
+
     const projectName = name.trim();
     if (projectName.length === 0) {
       throw new Error("Project name is required");
@@ -107,9 +119,6 @@ export class GatewayProjectService {
     if (index === -1) {
       throw new Error("Project not found");
     }
-    if (isProtectedProjectId(projects[index]?.id ?? projectId)) {
-      throw new ProtectedProjectError(projectId);
-    }
 
     projects[index] = {
       ...projects[index],
@@ -119,13 +128,14 @@ export class GatewayProjectService {
   }
 
   async deleteProject(projectId: string): Promise<boolean> {
+    if (isProtectedProjectId(projectId)) {
+      throw new ProtectedProjectError(projectId);
+    }
+
     const projects = await this.readProjects();
     const index = projects.findIndex((project) => project.id === projectId);
     if (index === -1) {
       return false;
-    }
-    if (isProtectedProjectId(projects[index]?.id ?? projectId)) {
-      throw new ProtectedProjectError(projectId);
     }
 
     const nextProjects = projects.filter((project) => project.id !== projectId);
@@ -134,23 +144,25 @@ export class GatewayProjectService {
   }
 
   async listProjectFiles(projectId: string): Promise<ProjectFileListEnvelope | null> {
-    const project = await this.getProject(projectId);
+    const effectiveProjectId = canonicalizeRootAgentProjectId(projectId);
+    const project = await this.getProject(effectiveProjectId);
     if (!project) {
       return null;
     }
 
-    const root = this.projectRootPath(projectId);
+    const root = this.projectRootPath(effectiveProjectId);
     if (!existsSync(root)) {
       return { files: [] };
     }
 
-    const files = await this.listProjectFilesRecursive(projectId, root);
+    const files = await this.listProjectFilesRecursive(effectiveProjectId, root);
 
     return { files };
   }
 
   async readProjectFile(projectId: string, requestedPath: string): Promise<string | null> {
-    const project = await this.getProject(projectId);
+    const effectiveProjectId = canonicalizeRootAgentProjectId(projectId);
+    const project = await this.getProject(effectiveProjectId);
     if (!project) {
       return null;
     }
@@ -164,7 +176,8 @@ export class GatewayProjectService {
   }
 
   async writeProjectFile(projectId: string, requestedPath: string, content: string): Promise<boolean> {
-    const project = await this.getProject(projectId);
+    const effectiveProjectId = canonicalizeRootAgentProjectId(projectId);
+    const project = await this.getProject(effectiveProjectId);
     if (!project) {
       return false;
     }
@@ -182,8 +195,9 @@ export class GatewayProjectService {
   }
 
   async attachConversation(projectId: string, conversationId: string): Promise<void> {
+    const effectiveProjectId = canonicalizeRootAgentProjectId(projectId);
     const projects = await this.readProjects();
-    const index = projects.findIndex((project) => project.id === projectId);
+    const index = projects.findIndex((project) => project.id === effectiveProjectId);
     if (index === -1) {
       return;
     }
@@ -196,8 +210,9 @@ export class GatewayProjectService {
   }
 
   async detachConversation(projectId: string): Promise<boolean> {
+    const effectiveProjectId = canonicalizeRootAgentProjectId(projectId);
     const projects = await this.readProjects();
-    const index = projects.findIndex((project) => project.id === projectId);
+    const index = projects.findIndex((project) => project.id === effectiveProjectId);
     if (index === -1) {
       return false;
     }
@@ -211,7 +226,7 @@ export class GatewayProjectService {
   }
 
   async getProjectSkills(projectId: string): Promise<string[] | null> {
-    const project = await this.getProject(projectId);
+    const project = await this.getProject(canonicalizeRootAgentProjectId(projectId));
     if (!project) {
       return null;
     }
@@ -219,8 +234,9 @@ export class GatewayProjectService {
   }
 
   async setProjectSkills(projectId: string, skillIds: string[]): Promise<boolean> {
+    const effectiveProjectId = canonicalizeRootAgentProjectId(projectId);
     const projects = await this.readProjects();
-    const index = projects.findIndex((project) => project.id === projectId);
+    const index = projects.findIndex((project) => project.id === effectiveProjectId);
     if (index === -1) {
       return false;
     }
@@ -234,12 +250,13 @@ export class GatewayProjectService {
   }
 
   async getProject(projectId: string): Promise<GatewayProject | null> {
+    const effectiveProjectId = canonicalizeRootAgentProjectId(projectId);
     const projects = await this.readProjects();
-    return projects.find((project) => project.id === projectId) ?? null;
+    return projects.find((project) => project.id === effectiveProjectId) ?? null;
   }
 
   private projectRootPath(projectId: string): string {
-    return resolveMemoryPath(this.memoryRoot, `documents/${projectId}`);
+    return resolveMemoryPath(this.memoryRoot, `documents/${canonicalizeRootAgentProjectId(projectId)}`);
   }
 
   private resolveProjectScopedPath(projectId: string, requestedPath: string): string | null {
@@ -249,17 +266,27 @@ export class GatewayProjectService {
     }
 
     const normalized = trimmed.replace(/\\/g, "/");
-    let relativePath: string;
-    if (normalized.startsWith(`documents/${projectId}/`)) {
-      relativePath = normalized;
-    } else if (normalized.startsWith(`${projectId}/`)) {
-      relativePath = `documents/${normalized}`;
-    } else {
+    const effectiveProjectId = canonicalizeRootAgentProjectId(projectId);
+    const acceptedProjectIds = isRootAgentProjectId(projectId)
+      ? [ROOT_AGENT_CANONICAL_ID, ...ROOT_AGENT_LEGACY_IDS]
+      : [projectId];
+    let relativePath: string | null = null;
+    for (const acceptedProjectId of acceptedProjectIds) {
+      if (normalized.startsWith(`documents/${acceptedProjectId}/`)) {
+        relativePath = `documents/${effectiveProjectId}/${normalized.slice(`documents/${acceptedProjectId}/`.length)}`;
+        break;
+      }
+      if (normalized.startsWith(`${acceptedProjectId}/`)) {
+        relativePath = `documents/${effectiveProjectId}/${normalized.slice(`${acceptedProjectId}/`.length)}`;
+        break;
+      }
+    }
+    if (relativePath === null) {
       return null;
     }
 
     const absolutePath = resolveMemoryPath(this.memoryRoot, relativePath);
-    const absoluteProjectRoot = this.projectRootPath(projectId);
+    const absoluteProjectRoot = this.projectRootPath(effectiveProjectId);
 
     if (
       absolutePath === absoluteProjectRoot ||
@@ -298,14 +325,15 @@ export class GatewayProjectService {
   }
 
   private async ensureRootAgentProject(projects: GatewayProject[]): Promise<GatewayProject[]> {
-    const rootAgent = projects.find((project) => project.id === ROOT_AGENT_PROJECT_ID);
-    if (rootAgent) {
-      return rootAgent === projects[0]
-        ? projects
-        : [
-            rootAgent,
-            ...projects.filter((project) => project.id !== ROOT_AGENT_PROJECT_ID),
-          ];
+    const rootAgentEntries = projects.filter((project) => isRootAgentProjectId(project.id));
+    if (rootAgentEntries.length > 0) {
+      const nextProjects = normalizeRootAgentProjects(projects);
+      if (JSON.stringify(nextProjects) !== JSON.stringify(projects)) {
+        await this.writeProjects(nextProjects);
+      }
+      await this.ensureRootAgentFolderCompatibility();
+      await this.ensureRootAgentScaffold();
+      return nextProjects;
     }
 
     const nextProjects = [
@@ -313,12 +341,27 @@ export class GatewayProjectService {
       ...projects,
     ];
     await this.writeProjects(nextProjects);
+    await this.ensureRootAgentScaffold();
+    return nextProjects;
+  }
+
+  private async ensureRootAgentScaffold(): Promise<void> {
     await scaffoldProjectFiles(this.rootDir, this.memoryRoot, ROOT_AGENT_PROJECT.id, ROOT_AGENT_PROJECT.name, {
-      templateId: "your-agent",
+      templateId: ROOT_AGENT_TEMPLATE_ID,
       force: false,
       dryRun: false,
     });
-    return nextProjects;
+  }
+
+  private async ensureRootAgentFolderCompatibility(): Promise<void> {
+    const canonicalPath = this.projectRootPath(ROOT_AGENT_CANONICAL_ID);
+    for (const legacyId of ROOT_AGENT_LEGACY_IDS) {
+      const legacyPath = resolveMemoryPath(this.memoryRoot, `documents/${legacyId}`);
+      if (!existsSync(legacyPath) || existsSync(canonicalPath)) {
+        continue;
+      }
+      await cp(legacyPath, canonicalPath, { recursive: true, force: false, errorOnExist: false });
+    }
   }
 
   private async ensureManifest(): Promise<void> {
@@ -353,6 +396,45 @@ export class GatewayProjectService {
     await visit(root);
     return files.sort((left, right) => left.name.localeCompare(right.name));
   }
+}
+
+function normalizeRootAgentProjects(projects: GatewayProject[]): GatewayProject[] {
+  const rootEntries = projects.filter((project) => isRootAgentProjectId(project.id));
+  if (rootEntries.length === 0) {
+    return projects;
+  }
+
+  const nonRootEntries = projects.filter((project) => !isRootAgentProjectId(project.id));
+  const canonicalEntry = rootEntries.find((project) => project.id === ROOT_AGENT_CANONICAL_ID);
+  const primaryEntry = canonicalEntry ?? rootEntries[0]!;
+  const conversationIds = dedupeStrings(
+    rootEntries
+      .map((project) => project.conversation_id)
+      .filter((conversationId): conversationId is string => typeof conversationId === "string" && conversationId.trim().length > 0)
+  );
+  const rootAgent: GatewayProject = {
+    id: ROOT_AGENT_CANONICAL_ID,
+    name: ROOT_AGENT_DISPLAY_NAME,
+    icon: ROOT_AGENT_ICON,
+    conversation_id: primaryEntry.conversation_id ?? (conversationIds.length === 1 ? conversationIds[0]! : null),
+    default_skill_ids: dedupeStrings(rootEntries.flatMap((project) => project.default_skill_ids)),
+  };
+
+  if (conversationIds.length <= 1) {
+    return [rootAgent, ...nonRootEntries];
+  }
+
+  return [
+    rootAgent,
+    ...rootEntries
+      .filter((project) => project.id !== ROOT_AGENT_CANONICAL_ID)
+      .map((project) => ({
+        ...project,
+        name: ROOT_AGENT_DISPLAY_NAME,
+        icon: ROOT_AGENT_ICON,
+      })),
+    ...nonRootEntries,
+  ];
 }
 
 function parseProjectRecord(value: unknown): GatewayProject | null {

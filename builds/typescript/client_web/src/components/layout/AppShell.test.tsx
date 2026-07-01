@@ -10,7 +10,7 @@ const selectProjectMock = vi.fn();
 
 const projects: Project[] = [
   {
-    id: "braindrive-plus-one",
+    id: "your-agent",
     name: "Your Agent",
     icon: "sparkles",
     conversationId: "conv-home",

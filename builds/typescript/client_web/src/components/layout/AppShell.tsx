@@ -11,6 +11,7 @@ import ChatPanel from "@/components/chat/ChatPanel";
 import DocumentView from "@/components/document/DocumentView";
 import SettingsModal from "@/components/settings/SettingsModal";
 import { useProjects } from "@/hooks/useProjects";
+import { ROOT_AGENT_PROJECT_ID, isRootAgentProjectId } from "@/lib/rootAgent";
 import type { ProjectFile } from "@/types/ui";
 
 import Sidebar from "./Sidebar";
@@ -226,7 +227,7 @@ export default function AppShell({
   function handleConversationComplete() {
     refreshProjects();
 
-    if (!selectedProjectId || selectedProjectId === "braindrive-plus-one") {
+    if (!selectedProjectId || isRootAgentProjectId(selectedProjectId)) {
       return;
     }
 
@@ -293,7 +294,7 @@ export default function AppShell({
             <button
               type="button"
               aria-label="Go to BrainDrive home"
-              onClick={() => selectProject("braindrive-plus-one")}
+              onClick={() => selectProject(ROOT_AGENT_PROJECT_ID)}
               className="cursor-pointer bg-transparent p-0"
             >
               <img src="/braindrive-logo.svg" alt="BrainDrive" className="h-5 w-auto" />

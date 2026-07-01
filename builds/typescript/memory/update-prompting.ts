@@ -14,6 +14,7 @@ import {
   type BrainDriveMemoryFileRole,
 } from "./brain-drive-layout.js";
 import { applyAlphaDraft3Transition } from "./alpha-draft3-transition.js";
+import { ROOT_AGENT_LEGACY_IDS } from "./root-agent.js";
 
 export type StarterPackManifestFileKind =
   | "agent_prompt"
@@ -453,7 +454,7 @@ export async function generateStarterPackManifest(
     if (existsSync(projectTemplatesDir)) {
       const entries = await readdir(projectTemplatesDir, { withFileTypes: true });
       for (const entry of entries
-        .filter((item) => item.isDirectory() && item.name !== "braindrive-plus-one")
+        .filter((item) => item.isDirectory() && !ROOT_AGENT_LEGACY_IDS.includes(item.name as typeof ROOT_AGENT_LEGACY_IDS[number]))
         .sort((left, right) => left.name.localeCompare(right.name))) {
         for (const projectFile of projectTemplateFilesFor(entry.name)) {
           await addManifestFile(files, starterPackDir, {
