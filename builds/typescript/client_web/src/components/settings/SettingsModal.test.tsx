@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 
 import type {
   GatewayMemoryBackupRestoreRequest,
+  GatewayMemoryBackupRunRequest,
   GatewayMemoryBackupSettingsUpdateRequest,
   GatewayModelCatalog,
   GatewaySettings
@@ -42,7 +43,9 @@ const updateMemoryBackupSettingsMock = vi.fn<
   (payload: GatewayMemoryBackupSettingsUpdateRequest) => Promise<GatewaySettings>
 >();
 const runMemoryBackupNowMock = vi.fn<
-  () => Promise<{ result: { result: "success" | "failed" | "noop"; message?: string }; settings: GatewaySettings }>
+  (
+    payload?: GatewayMemoryBackupRunRequest
+  ) => Promise<{ result: { result: "success" | "failed" | "noop" | "conflict"; message?: string }; settings: GatewaySettings }>
 >();
 const restoreMemoryBackupMock = vi.fn<
   (payload?: GatewayMemoryBackupRestoreRequest) => Promise<{ result: { commit: string }; settings: GatewaySettings }>
@@ -64,7 +67,7 @@ vi.mock("@/api/gateway-adapter", () => ({
   updateProviderCredential: () => updateProviderCredentialMock(),
   updateMemoryBackupSettings: (payload: GatewayMemoryBackupSettingsUpdateRequest) =>
     updateMemoryBackupSettingsMock(payload),
-  runMemoryBackupNow: () => runMemoryBackupNowMock(),
+  runMemoryBackupNow: (payload?: GatewayMemoryBackupRunRequest) => runMemoryBackupNowMock(payload),
   restoreMemoryBackup: (payload?: GatewayMemoryBackupRestoreRequest) => restoreMemoryBackupMock(payload),
   getProviderModels: (providerProfile?: string) => getProviderModelsMock(providerProfile),
   downloadLibraryExport: () => downloadLibraryExportMock(),
@@ -461,6 +464,34 @@ describe("SettingsModal", () => {
 
     await waitFor(() => {
       expect(runMemoryBackupNowMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("offers a simple backup source choice when the GitHub repo already has a backup", async () => {
+    const user = userEvent.setup();
+    const settingsWithBackupConflict: GatewaySettings = {
+      ...settingsWithBackup,
+      memory_backup: {
+        ...settingsWithBackup.memory_backup!,
+        last_result: "failed",
+        last_error:
+          "This backup repository already contains a BrainDrive backup. Choose whether to restore it or use this BrainDrive as the backup source.",
+      },
+    };
+    getSettingsMock.mockResolvedValueOnce(settingsWithBackupConflict);
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+
+    await waitFor(() => {
+      expect(getSettingsMock).toHaveBeenCalledTimes(1);
+    });
+
+    await user.click(screen.getAllByRole("button", { name: "Backup" })[0]!);
+    expect(screen.getAllByText("Choose what to do").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Backup needs attention")).not.toBeInTheDocument();
+    await user.click(screen.getAllByRole("button", { name: "Back Up This BrainDrive" })[0]!);
+
+    await waitFor(() => {
+      expect(runMemoryBackupNowMock).toHaveBeenCalledWith({ on_remote_conflict: "replace_remote" });
     });
   });
 

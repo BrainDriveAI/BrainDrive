@@ -68,6 +68,7 @@ import type {
   GatewayMemoryBackupFrequency,
   GatewayMemoryBackupRestoreRequest,
   GatewayMemoryBackupRestoreResult,
+  GatewayMemoryBackupRunRequest,
   GatewayMemoryBackupRunResult,
   GatewayMemoryBackupSettingsUpdateRequest,
   GatewayModelCatalog,
@@ -283,8 +284,10 @@ export default function SettingsModal({
     return updated;
   }
 
-  async function triggerMemoryBackupNow(): Promise<GatewayMemoryBackupRunResult> {
-    const updated = await runMemoryBackupNow();
+  async function triggerMemoryBackupNow(
+    payload: GatewayMemoryBackupRunRequest = {}
+  ): Promise<GatewayMemoryBackupRunResult> {
+    const updated = await runMemoryBackupNow(payload);
     setSettings(updated.settings);
     setSettingsError(null);
     return updated.result;
@@ -597,7 +600,7 @@ function TabContent({
   onSaveMemoryBackupSettings: (
     payload: GatewayMemoryBackupSettingsUpdateRequest
   ) => Promise<GatewaySettings>;
-  onRunMemoryBackupNow: () => Promise<GatewayMemoryBackupRunResult>;
+  onRunMemoryBackupNow: (payload?: GatewayMemoryBackupRunRequest) => Promise<GatewayMemoryBackupRunResult>;
   onRestoreMemoryBackup: (
     payload?: GatewayMemoryBackupRestoreRequest
   ) => Promise<GatewayMemoryBackupRestoreResult>;
@@ -1120,7 +1123,7 @@ function MemoryBackupSection({
   onSaveMemoryBackupSettings: (
     payload: GatewayMemoryBackupSettingsUpdateRequest
   ) => Promise<GatewaySettings>;
-  onRunMemoryBackupNow: () => Promise<GatewayMemoryBackupRunResult>;
+  onRunMemoryBackupNow: (payload?: GatewayMemoryBackupRunRequest) => Promise<GatewayMemoryBackupRunResult>;
   onRestoreMemoryBackup: (
     payload?: GatewayMemoryBackupRestoreRequest
   ) => Promise<GatewayMemoryBackupRestoreResult>;
@@ -1179,6 +1182,56 @@ function MemoryBackupSection({
     { value: "daily", label: "Every day" },
     { value: "manual", label: "Manual" },
   ];
+  const hasBackupConflict =
+    backupSettings?.last_error?.includes("already contains a BrainDrive backup") ?? false;
+
+  function handleRunBackupNow(payload: GatewayMemoryBackupRunRequest = {}): void {
+    setIsSavingNow(true);
+    setSaveNowError(null);
+    setSaveNowMessage(null);
+    void onRunMemoryBackupNow(payload)
+      .then((result) => {
+        if (result.result === "conflict") {
+          setSaveNowMessage(null);
+          return;
+        }
+        const summary =
+          result.result === "failed"
+              ? result.message ?? "Backup failed."
+              : result.result === "noop"
+                ? result.message ?? "Already up to date — nothing new to back up."
+                : "Backup saved successfully.";
+        setSaveNowMessage(summary);
+      })
+      .catch((error) => {
+        setSaveNowError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        setIsSavingNow(false);
+      });
+  }
+
+  function handleRestoreFromBackup(): void {
+    const confirmed = window.confirm(
+      "This will replace all your current data with the backup. API keys will need to be re-entered. Continue?"
+    );
+    if (!confirmed) {
+      return;
+    }
+    setIsRestoring(true);
+    setRestoreError(null);
+    setRestoreMessage(null);
+    void onRestoreMemoryBackup()
+      .then(() => {
+        setRestoreMessage("Restored from backup successfully.");
+      })
+      .catch((error) => {
+        setRestoreError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        setIsRestoring(false);
+      });
+  }
 
   return (
     <div className="space-y-6">
@@ -1302,7 +1355,35 @@ function MemoryBackupSection({
         </div>
       </div>
 
-      {backupSettings?.repository_url && backupSettings?.token_configured ? (
+      {hasBackupConflict ? (
+        <div className="rounded-lg border border-bd-amber bg-bd-bg-tertiary p-4">
+          <div className="text-sm font-medium text-bd-text-heading">Choose what to do</div>
+          <p className="mt-1 text-xs text-bd-text-muted">
+            We found a BrainDrive backup in this GitHub repo. Pick which copy should be kept.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={isSavingNow || !backupSettings}
+              onClick={() => handleRunBackupNow({ on_remote_conflict: "replace_remote" })}
+              className="rounded-lg bg-bd-amber px-3 py-2 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSavingNow ? "Backing up..." : "Back Up This BrainDrive"}
+            </button>
+            <button
+              type="button"
+              disabled={isRestoring || !backupSettings}
+              onClick={handleRestoreFromBackup}
+              className="rounded-lg border border-bd-border px-3 py-2 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isRestoring ? "Restoring..." : "Restore GitHub Backup"}
+            </button>
+          </div>
+          <p className="mt-3 text-xs text-bd-text-muted">
+            Backing up this BrainDrive updates GitHub with what is here now. Restoring uses the GitHub copy on this BrainDrive.
+          </p>
+        </div>
+      ) : backupSettings?.repository_url && backupSettings?.token_configured ? (
         <div className={[
           "rounded-lg border p-3 text-sm",
           lastResult === "failed"
@@ -1319,10 +1400,10 @@ function MemoryBackupSection({
             ) : null}
             <span className="font-medium text-bd-text-primary">
               {lastResult === "success"
-                ? "Connected and backing up"
+                ? "Backups are on"
                 : lastResult === "failed"
-                  ? "Connected — last backup failed"
-                  : "Connected — waiting for first backup"}
+                  ? "Backup needs attention"
+                  : "Ready to back up"}
             </span>
           </div>
           <div className="mt-2 flex items-center justify-between gap-3 text-xs text-bd-text-muted">
@@ -1369,34 +1450,16 @@ function MemoryBackupSection({
         >
           {isSavingSettings ? "Saving..." : "Save Settings"}
         </button>
-        <button
-          type="button"
-          disabled={isSavingNow || !backupSettings}
-          onClick={() => {
-            setIsSavingNow(true);
-            setSaveNowError(null);
-            setSaveNowMessage(null);
-            void onRunMemoryBackupNow()
-              .then((result) => {
-                const summary =
-                  result.result === "failed"
-                    ? result.message ?? "Backup failed."
-                    : result.result === "noop"
-                      ? result.message ?? "Already up to date — nothing new to back up."
-                      : "Backup saved successfully.";
-                setSaveNowMessage(summary);
-              })
-              .catch((error) => {
-                setSaveNowError(error instanceof Error ? error.message : String(error));
-              })
-              .finally(() => {
-                setIsSavingNow(false);
-              });
-          }}
-          className="rounded-lg border border-bd-border px-3 py-2 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {isSavingNow ? "Backing up..." : "Back Up Now"}
-        </button>
+        {!hasBackupConflict && (
+          <button
+            type="button"
+            disabled={isSavingNow || !backupSettings}
+            onClick={() => handleRunBackupNow()}
+            className="rounded-lg border border-bd-border px-3 py-2 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isSavingNow ? "Backing up..." : "Back Up Now"}
+          </button>
+        )}
       </div>
 
       {settingsActionError && (
@@ -1414,59 +1477,51 @@ function MemoryBackupSection({
           {saveNowError}
         </div>
       )}
-      {saveNowMessage && (
+      {saveNowMessage && !hasBackupConflict && (
         <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-sm text-bd-text-secondary">
           {saveNowMessage}
         </div>
       )}
+      {hasBackupConflict && restoreError && (
+        <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
+          {restoreError}
+        </div>
+      )}
+      {hasBackupConflict && restoreMessage && (
+        <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-sm text-bd-text-secondary">
+          {restoreMessage}
+        </div>
+      )}
 
-      <div className="rounded-lg border border-bd-border p-4">
-        <div className="text-sm font-medium text-bd-text-heading">Restore</div>
-        <p className="mt-1 text-xs text-bd-text-muted">
-          Replace your current BrainDrive with a previous backup. Your API keys will need to be re-entered after restoring.
-          {!backupSettings?.repository_url && !backupSettings?.token_configured && (
-            <> GitHub tokens can&apos;t be transferred between machines — create a new one in step 2 above, enter your backup repo URL and token in step 3, save, then click the &quot;Restore from Backup&quot; button below.</>
+      {!hasBackupConflict && (
+        <div className="rounded-lg border border-bd-border p-4">
+          <div className="text-sm font-medium text-bd-text-heading">Restore</div>
+          <p className="mt-1 text-xs text-bd-text-muted">
+            Replace your current BrainDrive with a previous backup. Your API keys will need to be re-entered after restoring.
+            {!backupSettings?.repository_url && !backupSettings?.token_configured && (
+              <> GitHub tokens can&apos;t be transferred between machines — create a new one in step 2 above, enter your backup repo URL and token in step 3, save, then click the &quot;Restore from Backup&quot; button below.</>
+            )}
+          </p>
+          <button
+            type="button"
+            disabled={isRestoring || !backupSettings}
+            onClick={handleRestoreFromBackup}
+            className="mt-3 rounded-lg border border-bd-border px-3 py-2 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isRestoring ? "Restoring..." : "Restore from Backup"}
+          </button>
+          {restoreError && (
+            <div className="mt-3 rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
+              {restoreError}
+            </div>
           )}
-        </p>
-        <button
-          type="button"
-          disabled={isRestoring || !backupSettings}
-          onClick={() => {
-            const confirmed = window.confirm(
-              "This will replace all your current data with the backup. API keys will need to be re-entered. Continue?"
-            );
-            if (!confirmed) {
-              return;
-            }
-            setIsRestoring(true);
-            setRestoreError(null);
-            setRestoreMessage(null);
-            void onRestoreMemoryBackup()
-              .then(() => {
-                setRestoreMessage(`Restored from backup successfully.`);
-              })
-              .catch((error) => {
-                setRestoreError(error instanceof Error ? error.message : String(error));
-              })
-              .finally(() => {
-                setIsRestoring(false);
-              });
-          }}
-          className="mt-3 rounded-lg border border-bd-border px-3 py-2 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {isRestoring ? "Restoring..." : "Restore from Backup"}
-        </button>
-        {restoreError && (
-          <div className="mt-3 rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
-            {restoreError}
-          </div>
-        )}
-        {restoreMessage && (
-          <div className="mt-3 rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-sm text-bd-text-secondary">
-            {restoreMessage}
-          </div>
-        )}
-      </div>
+          {restoreMessage && (
+            <div className="mt-3 rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-sm text-bd-text-secondary">
+              {restoreMessage}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

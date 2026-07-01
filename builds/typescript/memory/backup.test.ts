@@ -10,6 +10,7 @@ const {
   gitCommitAllMock,
   configureBackupRemoteMock,
   pushBackupBranchMock,
+  isRemoteBackupConflictErrorMock,
   resolveMemoryBackupTokenMock,
   sanitizeMemoryBackupErrorMock,
   cloneBackupBranchMock,
@@ -21,7 +22,12 @@ const {
   gitStatusPorcelainMock: vi.fn<(memoryRoot: string) => Promise<string>>(async () => ""),
   gitCommitAllMock: vi.fn<(memoryRoot: string, message: string) => Promise<void>>(async () => {}),
   configureBackupRemoteMock: vi.fn<(memoryRoot: string, repositoryUrl: string) => Promise<void>>(async () => {}),
-  pushBackupBranchMock: vi.fn<(memoryRoot: string, token: string) => Promise<void>>(async () => {}),
+  pushBackupBranchMock: vi.fn<
+    (memoryRoot: string, token: string, options?: { forceWithLeaseFromRemote?: boolean }) => Promise<void>
+  >(async () => {}),
+  isRemoteBackupConflictErrorMock: vi.fn<(error: unknown) => boolean>((error: unknown) =>
+    error instanceof Error && error.message.includes("fetch first")
+  ),
   resolveMemoryBackupTokenMock: vi.fn<(secretRef: string) => Promise<string>>(async () => "token-value"),
   sanitizeMemoryBackupErrorMock: vi.fn<(error: unknown) => string>((error: unknown) =>
     error instanceof Error ? error.message : "Memory backup operation failed."
@@ -43,6 +49,7 @@ vi.mock("./backup-git.js", () => ({
   gitCommitAll: gitCommitAllMock,
   configureBackupRemote: configureBackupRemoteMock,
   pushBackupBranch: pushBackupBranchMock,
+  isRemoteBackupConflictError: isRemoteBackupConflictErrorMock,
   resolveMemoryBackupToken: resolveMemoryBackupTokenMock,
   sanitizeMemoryBackupError: sanitizeMemoryBackupErrorMock,
   cloneBackupBranch: cloneBackupBranchMock,
@@ -79,6 +86,9 @@ describe("memory backup engine", () => {
     gitCommitAllMock.mockResolvedValue(undefined);
     configureBackupRemoteMock.mockResolvedValue(undefined);
     pushBackupBranchMock.mockResolvedValue(undefined);
+    isRemoteBackupConflictErrorMock.mockImplementation((error: unknown) =>
+      error instanceof Error && error.message.includes("fetch first")
+    );
     resolveMemoryBackupTokenMock.mockResolvedValue("token-value");
     sanitizeMemoryBackupErrorMock.mockImplementation((error: unknown) =>
       error instanceof Error ? error.message : "Memory backup operation failed."
@@ -131,6 +141,35 @@ describe("memory backup engine", () => {
     expect(result.result).toBe("noop");
     expect(gitCommitAllMock).not.toHaveBeenCalled();
     expect(pushBackupBranchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns a conflict when the remote backup branch already has unrelated work", async () => {
+    pushBackupBranchMock.mockRejectedValue(
+      new Error("! [rejected] HEAD -> braindrive-memory-backup (fetch first)")
+    );
+
+    const result = await runMemoryBackup("/tmp/memory", withBackupPreferences());
+
+    expect(result.result).toBe("conflict");
+    expect(result.resolution_required).toBe("restore_or_replace_remote");
+    expect(result.message).toContain("already contains a BrainDrive backup");
+    expect(pushBackupBranchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("replaces the remote backup branch only when explicitly requested", async () => {
+    pushBackupBranchMock
+      .mockRejectedValueOnce(new Error("! [rejected] HEAD -> braindrive-memory-backup (fetch first)"))
+      .mockResolvedValueOnce(undefined);
+
+    const result = await runMemoryBackup("/tmp/memory", withBackupPreferences(), {
+      onRemoteConflict: "replace_remote",
+    });
+
+    expect(result.result).toBe("noop");
+    expect(pushBackupBranchMock).toHaveBeenNthCalledWith(1, "/tmp/memory", "token-value");
+    expect(pushBackupBranchMock).toHaveBeenNthCalledWith(2, "/tmp/memory", "token-value", {
+      forceWithLeaseFromRemote: true,
+    });
   });
 
   it("redacts sensitive push failures through sanitized messages", async () => {

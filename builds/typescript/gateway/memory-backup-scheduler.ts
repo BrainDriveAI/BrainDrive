@@ -1,7 +1,11 @@
 import { loadPreferences, savePreferences } from "../config.js";
 import type { MemoryBackupFrequency, Preferences } from "../contracts.js";
 import { auditLog } from "../logger.js";
-import { runMemoryBackup, type MemoryBackupRunResult } from "../memory/backup.js";
+import {
+  runMemoryBackup,
+  type MemoryBackupRemoteConflictResolution,
+  type MemoryBackupRunResult,
+} from "../memory/backup.js";
 import { gitStatusPorcelain } from "../memory/backup-git.js";
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -21,7 +25,11 @@ export type MemoryBackupSchedulerOptions = {
   memoryRoot: string;
   loadPreferencesFn?: (memoryRoot: string) => Promise<Preferences>;
   savePreferencesFn?: (memoryRoot: string, preferences: Preferences) => Promise<void>;
-  runMemoryBackupFn?: (memoryRoot: string, preferences: Preferences) => Promise<MemoryBackupRunResult>;
+  runMemoryBackupFn?: (
+    memoryRoot: string,
+    preferences: Preferences,
+    options?: { onRemoteConflict?: MemoryBackupRemoteConflictResolution }
+  ) => Promise<MemoryBackupRunResult>;
   isMemoryDirtyFn?: (memoryRoot: string) => Promise<boolean>;
   isMigrationInProgress?: () => boolean;
   nowFn?: () => Date;
@@ -35,7 +43,8 @@ export class MemoryBackupScheduler {
   private readonly savePreferencesFn: (memoryRoot: string, preferences: Preferences) => Promise<void>;
   private readonly runMemoryBackupFn: (
     memoryRoot: string,
-    preferences: Preferences
+    preferences: Preferences,
+    options?: { onRemoteConflict?: MemoryBackupRemoteConflictResolution }
   ) => Promise<MemoryBackupRunResult>;
   private readonly isMemoryDirtyFn: (memoryRoot: string) => Promise<boolean>;
   private readonly isMigrationInProgress: () => boolean;
@@ -72,8 +81,10 @@ export class MemoryBackupScheduler {
     this.applySchedule(preferences);
   }
 
-  async triggerManualBackup(): Promise<MemoryBackupSchedulerRunOutcome> {
-    const run = await this.runWithLock("manual");
+  async triggerManualBackup(
+    options: { onRemoteConflict?: MemoryBackupRemoteConflictResolution } = {}
+  ): Promise<MemoryBackupSchedulerRunOutcome> {
+    const run = await this.runWithLock("manual", options);
     if (run) {
       return run;
     }
@@ -212,12 +223,15 @@ export class MemoryBackupScheduler {
     this.applySchedule(refreshed);
   }
 
-  private async runWithLock(source: MemoryBackupSchedulerRunSource): Promise<MemoryBackupSchedulerRunOutcome | null> {
+  private async runWithLock(
+    source: MemoryBackupSchedulerRunSource,
+    options: { onRemoteConflict?: MemoryBackupRemoteConflictResolution } = {}
+  ): Promise<MemoryBackupSchedulerRunOutcome | null> {
     if (this.inFlightRun) {
       return this.inFlightRun;
     }
 
-    const runPromise = this.executeRun(source).finally(() => {
+    const runPromise = this.executeRun(source, options).finally(() => {
       if (this.inFlightRun === runPromise) {
         this.inFlightRun = null;
       }
@@ -227,7 +241,10 @@ export class MemoryBackupScheduler {
     return runPromise;
   }
 
-  private async executeRun(source: MemoryBackupSchedulerRunSource): Promise<MemoryBackupSchedulerRunOutcome | null> {
+  private async executeRun(
+    source: MemoryBackupSchedulerRunSource,
+    options: { onRemoteConflict?: MemoryBackupRemoteConflictResolution } = {}
+  ): Promise<MemoryBackupSchedulerRunOutcome | null> {
     if (source !== "manual" && this.isMigrationInProgress()) {
       return null;
     }
@@ -248,7 +265,9 @@ export class MemoryBackupScheduler {
       return null;
     }
 
-    const result = await this.runMemoryBackupFn(this.memoryRoot, preferences);
+    const result = await this.runMemoryBackupFn(this.memoryRoot, preferences, {
+      onRemoteConflict: options.onRemoteConflict,
+    });
     const nextPreferences = await this.persistRunResult(result);
 
     return {
@@ -268,8 +287,8 @@ export class MemoryBackupScheduler {
       ...latestBackup,
       last_attempt_at: result.attempted_at,
       ...(result.saved_at ? { last_save_at: result.saved_at } : {}),
-      last_result: result.result === "failed" ? ("failed" as const) : ("success" as const),
-      last_error: result.result === "failed" ? result.message ?? "Backup failed" : null,
+      last_result: result.result === "success" || result.result === "noop" ? ("success" as const) : ("failed" as const),
+      last_error: result.result === "success" || result.result === "noop" ? null : result.message ?? "Backup failed",
     };
 
     const nextPreferences: Preferences = {

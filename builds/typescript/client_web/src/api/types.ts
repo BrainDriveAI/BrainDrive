@@ -163,8 +163,13 @@ export type GatewayMemoryBackupSettingsUpdateRequest = {
 export type GatewayMemoryBackupRunResult = {
   attempted_at: string;
   saved_at?: string;
-  result: "success" | "failed" | "noop";
+  result: "success" | "failed" | "noop" | "conflict";
   message?: string;
+  resolution_required?: "restore_or_replace_remote";
+};
+
+export type GatewayMemoryBackupRunRequest = {
+  on_remote_conflict?: "fail" | "replace_remote";
 };
 
 export type GatewayMemoryBackupRestoreRequest = {

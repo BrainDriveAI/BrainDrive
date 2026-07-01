@@ -10,7 +10,11 @@ let mockRuntimeConfig: RuntimeConfig;
 let mockPreferences: Preferences;
 const { runMemoryBackupMock, restoreMemoryBackupMock, createMemoryBackupSchedulerMock, commitMemoryChangeMock } = vi.hoisted(() => ({
   runMemoryBackupMock: vi.fn<
-    (memoryRoot: string, preferences: Preferences) => Promise<MemoryBackupRunResult>
+    (
+      memoryRoot: string,
+      preferences: Preferences,
+      options?: { onRemoteConflict?: "fail" | "replace_remote" }
+    ) => Promise<MemoryBackupRunResult>
   >(
     async (_memoryRoot: string, _preferences: Preferences) => ({
       attempted_at: "2026-04-07T12:00:00.000Z",
@@ -35,8 +39,10 @@ const { runMemoryBackupMock, restoreMemoryBackupMock, createMemoryBackupSchedule
     initialize: vi.fn(async () => {}),
     reconfigure: vi.fn(async () => {}),
     close: vi.fn(() => {}),
-    triggerManualBackup: vi.fn(async () => {
-      const result = await runMemoryBackupMock(options.memoryRoot, mockPreferences);
+    triggerManualBackup: vi.fn(async (runOptions: { onRemoteConflict?: "fail" | "replace_remote" } = {}) => {
+      const result = await runMemoryBackupMock(options.memoryRoot, mockPreferences, {
+        onRemoteConflict: runOptions.onRemoteConflict,
+      });
       const failureMessage =
         "message" in result && typeof result.message === "string" ? result.message : undefined;
       const existingBackup = mockPreferences.memory_backup;
@@ -47,8 +53,8 @@ const { runMemoryBackupMock, restoreMemoryBackupMock, createMemoryBackupSchedule
             ...existingBackup,
             last_attempt_at: result.attempted_at,
             ...(result.saved_at ? { last_save_at: result.saved_at } : {}),
-            last_result: result.result === "failed" ? "failed" : "success",
-            last_error: result.result === "failed" ? failureMessage ?? "Backup failed" : null,
+            last_result: result.result === "success" || result.result === "noop" ? "success" : "failed",
+            last_error: result.result === "success" || result.result === "noop" ? null : failureMessage ?? "Backup failed",
           },
         };
       }
@@ -1078,6 +1084,32 @@ describe.sequential("gateway auth route integration", () => {
     expect(body.settings.memory_backup?.last_save_at).toBe("2026-04-07T12:00:01.000Z");
     expect(body.settings.memory_backup?.last_error).toBeNull();
     expect(runMemoryBackupMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes explicit remote replacement choice to manual memory backup save", async () => {
+    context = await createTestServer({ authMode: "local-owner" });
+    mockPreferences = {
+      ...mockPreferences,
+      memory_backup: {
+        repository_url: "https://github.com/BrainDriveAI/braindrive-memory.git",
+        frequency: "manual",
+        token_secret_ref: "backup/git/token",
+      },
+    };
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/settings/memory-backup/save",
+      headers: localOwnerAdminHeaders(),
+      payload: { on_remote_conflict: "replace_remote" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(runMemoryBackupMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ memory_backup: expect.any(Object) }),
+      { onRemoteConflict: "replace_remote" }
+    );
   });
 
   it("restores memory backup and returns restore summary", async () => {
