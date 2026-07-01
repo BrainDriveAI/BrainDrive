@@ -13,7 +13,7 @@ import {
   resolveAdapterConfigForPreferences,
   resolveEffectiveAdapterConfig,
 } from "../adapters/index.js";
-import type { ModelAdapter, ProviderModel } from "../adapters/base.js";
+import type { ProviderModel } from "../adapters/base.js";
 import { authorize, authorizeApprovalDecision } from "../auth/authorize.js";
 import { authMiddleware } from "../auth/middleware.js";
 import {
@@ -62,13 +62,6 @@ import { exportMemory } from "../memory/export.js";
 import { createPromptAuditRecorder } from "../memory/prompt-audit-store.js";
 import { restoreMemoryBackup } from "../memory/backup-restore.js";
 import { importMigrationArchive } from "../memory/migration.js";
-import {
-  applyMemoryUpdatePlan,
-  generateMemoryUpdatePlan,
-  getMemoryUpdateStatus,
-  readMemoryUpdateReport,
-  runAutomaticMemoryUpdate,
-} from "../memory/update-prompting.js";
 import {
   createSupportBundle,
   listSupportBundles,
@@ -463,39 +456,6 @@ export async function buildServer(rootDir = process.cwd()) {
         })
       : null;
   let migrationInProgress = false;
-  const memoryUpdateAutoEnabled = readBooleanEnv(process.env.PAA_MEMORY_AUTO_UPDATE_ENABLED, true);
-  if (memoryUpdateAutoEnabled) {
-    migrationInProgress = true;
-    try {
-      const memoryUpdateAdapter = createMemoryUpdateAdapter(
-        runtimeConfig,
-        adapterConfig,
-        preferences,
-        startupAdapterConfig,
-        startupResolvedProviderCredential?.apiKey
-      );
-      const memoryUpdateResult = await runAutomaticMemoryUpdate(rootDir, runtimeConfig.memory_root, appVersion, {
-        adapter: memoryUpdateAdapter,
-      });
-      if (memoryUpdateResult?.applied_paths.includes("AGENT.md")) {
-        systemPrompt = await readBootstrapPrompt(runtimeConfig.memory_root);
-      }
-      if (memoryUpdateResult) {
-        auditLog("memory_update.startup_completed", {
-          migration_id: memoryUpdateResult.migration_id,
-          status: memoryUpdateResult.status,
-          applied_count: memoryUpdateResult.applied_paths.length,
-          deferred_count: memoryUpdateResult.deferred_paths.length,
-        });
-      }
-    } catch (error) {
-      auditLog("memory_update.startup_failed", {
-        message: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      migrationInProgress = false;
-    }
-  }
   const memoryBackupScheduler = createMemoryBackupScheduler({
     memoryRoot: runtimeConfig.memory_root,
     isMigrationInProgress: () => migrationInProgress,
@@ -700,10 +660,6 @@ export async function buildServer(rootDir = process.cwd()) {
     }
 
     if (requestPath.startsWith("/migration")) {
-      return;
-    }
-
-    if (requestPath.startsWith("/updates/memory")) {
       return;
     }
 
@@ -1083,76 +1039,8 @@ export async function buildServer(rootDir = process.cwd()) {
       export: true,
       import: true,
       migration: true,
-      memory_updates: true,
     },
   }));
-
-  app.get("/updates/memory/status", async (request) => {
-    authorize(request.authContext, "administration");
-    authorize(request.authContext, "memory_access");
-    return getMemoryUpdateStatus(rootDir, runtimeConfig.memory_root, appVersion);
-  });
-
-  app.post("/updates/memory/plan", async (request) => {
-    authorize(request.authContext, "administration");
-    authorize(request.authContext, "memory_access");
-    const currentPreferences = await loadLivePreferences();
-    const selectedAdapterConfig = resolveAdapterConfigForPreferences(adapterConfig, currentPreferences);
-    let resolvedCredential: Awaited<ReturnType<typeof resolveProviderCredentialForStartup>> | undefined;
-    try {
-      resolvedCredential = await resolveProviderCredentialForStartup(
-        runtimeConfig.provider_adapter,
-        selectedAdapterConfig,
-        currentPreferences
-      );
-    } catch {
-      resolvedCredential = undefined;
-    }
-    const memoryUpdateAdapter = createMemoryUpdateAdapter(
-      runtimeConfig,
-      adapterConfig,
-      currentPreferences,
-      selectedAdapterConfig,
-      resolvedCredential?.apiKey
-    );
-    return generateMemoryUpdatePlan(rootDir, runtimeConfig.memory_root, appVersion, {
-      adapter: memoryUpdateAdapter,
-    });
-  });
-
-  app.post("/updates/memory/apply", async (request, reply) => {
-    authorize(request.authContext, "administration");
-    authorize(request.authContext, "memory_access");
-
-    if (migrationInProgress) {
-      reply.code(409).send({ error: "migration_in_progress" });
-      return;
-    }
-
-    migrationInProgress = true;
-    try {
-      let result = await applyMemoryUpdatePlan(rootDir, runtimeConfig.memory_root, appVersion);
-      if (result.applied_paths.includes("AGENT.md")) {
-        systemPrompt = await readBootstrapPrompt(runtimeConfig.memory_root);
-      }
-      reply.code(201).send(result);
-    } finally {
-      migrationInProgress = false;
-    }
-  });
-
-  app.get("/updates/memory/reports/:migrationId", async (request, reply) => {
-    authorize(request.authContext, "administration");
-    authorize(request.authContext, "memory_access");
-    const params = request.params as { migrationId: string };
-    const report = await readMemoryUpdateReport(runtimeConfig.memory_root, params.migrationId);
-    if (!report) {
-      reply.code(404).send({ error: "Report not found" });
-      return;
-    }
-    reply.header("content-type", "text/markdown; charset=utf-8");
-    reply.send(report);
-  });
 
   app.get("/session", async (request) => ({
     mode: isManaged ? "managed" : "local",
@@ -3021,31 +2909,6 @@ function resolveAdapterProfile(
     api_key_env: adapterConfig.api_key_env,
     provider_id: adapterConfig.provider_id,
   };
-}
-
-function createMemoryUpdateAdapter(
-  runtimeConfig: RuntimeConfig,
-  adapterConfig: AdapterConfig,
-  preferences: Preferences,
-  selectedAdapterConfig: AdapterConfig,
-  apiKey?: string
-): ModelAdapter | undefined {
-  const envApiKey = process.env[selectedAdapterConfig.api_key_env]?.trim();
-  const runtimeApiKey = apiKey?.trim() || envApiKey || undefined;
-  if (!runtimeApiKey) {
-    return undefined;
-  }
-
-  try {
-    return createModelAdapter(runtimeConfig.provider_adapter, adapterConfig, preferences, {
-      apiKey: runtimeApiKey,
-    });
-  } catch (error) {
-    auditLog("memory_update.adapter_unavailable", {
-      message: error instanceof Error ? error.message : String(error),
-    });
-    return undefined;
-  }
 }
 
 function sanitizeCredentialResolutionError(error: unknown): string {
