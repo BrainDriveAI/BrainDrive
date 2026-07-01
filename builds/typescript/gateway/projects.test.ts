@@ -47,21 +47,88 @@ describe("GatewayProjectService projects", () => {
       const listed = await projects.listProjects();
 
       expect(listed.projects[0]).toMatchObject({
-        id: "braindrive-plus-one",
+        id: "your-agent",
         name: "Your Agent",
         icon: "sparkles",
       });
       expect(listed.projects.map((project) => project.id)).toEqual([
-        "braindrive-plus-one",
+        "your-agent",
         "finance",
       ]);
-      await expect(readFile(path.join(memoryRoot, "documents", "braindrive-plus-one", "AGENT.md"), "utf8"))
+      await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "AGENT.md"), "utf8"))
         .resolves.toContain("# Your Agent - Agent Context");
       const manifest = JSON.parse(await readFile(path.join(memoryRoot, "documents", "projects.json"), "utf8")) as Array<{ id: string }>;
       expect(manifest.map((project) => project.id)).toEqual([
-        "braindrive-plus-one",
+        "your-agent",
         "finance",
       ]);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("migrates a legacy protected root agent manifest entry", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "gateway-project-root-agent-legacy-repair-"));
+    const memoryRoot = path.join(tempRoot, "memory");
+    const rootDir = path.resolve(".");
+
+    try {
+      await mkdir(path.join(memoryRoot, "documents", "braindrive-plus-one"), { recursive: true });
+      await writeFile(
+        path.join(memoryRoot, "documents", "projects.json"),
+        JSON.stringify([
+          {
+            id: "braindrive-plus-one",
+            name: "Your Agent",
+            icon: "sparkles",
+            conversation_id: "conversation-legacy",
+            default_skill_ids: ["interview"],
+          },
+        ]),
+        "utf8"
+      );
+      await writeFile(path.join(memoryRoot, "documents", "braindrive-plus-one", "AGENT.md"), "# Legacy Agent\n", "utf8");
+      const projects = new GatewayProjectService(memoryRoot, { rootDir });
+
+      const listed = await projects.listProjects();
+
+      expect(listed.projects).toHaveLength(1);
+      expect(listed.projects[0]).toMatchObject({
+        id: "your-agent",
+        name: "Your Agent",
+        conversation_id: "conversation-legacy",
+        default_skill_ids: ["interview"],
+      });
+      await expect(projects.readProjectFile("braindrive-plus-one", "documents/braindrive-plus-one/AGENT.md"))
+        .resolves.toBe("# Legacy Agent\n");
+      await expect(projects.readProjectFile("your-agent", "documents/your-agent/AGENT.md"))
+        .resolves.toBe("# Legacy Agent\n");
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("protects canonical and legacy root agent ids from mutation", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "gateway-project-root-agent-protected-"));
+    const memoryRoot = path.join(tempRoot, "memory");
+    const rootDir = path.resolve(".");
+
+    try {
+      const projects = new GatewayProjectService(memoryRoot, { rootDir });
+      await projects.listProjects();
+
+      await expect(projects.renameProject("your-agent", "Renamed")).rejects.toMatchObject({
+        code: "project_protected",
+      });
+      await expect(projects.renameProject("braindrive-plus-one", "Renamed")).rejects.toMatchObject({
+        code: "project_protected",
+      });
+      await expect(projects.deleteProject("your-agent")).rejects.toMatchObject({
+        code: "project_protected",
+      });
+      await expect(projects.deleteProject("braindrive-plus-one")).rejects.toMatchObject({
+        code: "project_protected",
+      });
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }

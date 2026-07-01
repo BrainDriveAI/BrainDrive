@@ -6,6 +6,18 @@ import { describe, expect, it } from "vitest";
 
 import { initializeMemoryLayout, scaffoldProjectFiles } from "./init.js";
 
+type TestProjectManifestEntry = {
+  id: string;
+  name: string;
+  icon: string;
+  conversation_id: string | null;
+  default_skill_ids: string[];
+};
+
+async function readProjectsManifest(memoryRoot: string): Promise<TestProjectManifestEntry[]> {
+  return JSON.parse(await readFile(path.join(memoryRoot, "documents", "projects.json"), "utf8")) as TestProjectManifestEntry[];
+}
+
 describe("memory init project scaffolding", () => {
   it("scaffolds Draft 3 life-area layouts without legacy app or source folders", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "memory-init-index-test-"));
@@ -19,25 +31,31 @@ describe("memory init project scaffolding", () => {
 
       await expect(readFile(path.join(memoryRoot, "me", "profile.md"), "utf8"))
         .resolves.toContain("# Your Profile");
-      const projectsManifest = JSON.parse(await readFile(path.join(memoryRoot, "documents", "projects.json"), "utf8")) as Array<{ id: string; name: string }>;
+      const projectsManifest = await readProjectsManifest(memoryRoot);
       expect(projectsManifest[0]).toMatchObject({
-        id: "braindrive-plus-one",
+        id: "your-agent",
         name: "Your Agent",
       });
       expect(projectsManifest.map((project) => project.id)).toEqual([
-        "braindrive-plus-one",
+        "your-agent",
         "finance",
         "fitness",
         "career",
         "relationships",
         "new-project",
       ]);
-      await expect(readFile(path.join(memoryRoot, "documents", "braindrive-plus-one", "AGENT.md"), "utf8"))
+      await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "AGENT.md"), "utf8"))
         .resolves.toContain("# Your Agent - Agent Context");
-      await expect(readFile(path.join(memoryRoot, "documents", "braindrive-plus-one", "spec.md"), "utf8"))
-        .resolves.toContain("# Your Agent Spec");
-      await expect(readFile(path.join(memoryRoot, "documents", "braindrive-plus-one", "plan.md"), "utf8"))
-        .resolves.toContain("# Your Agent Plan");
+      await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "spec.md"), "utf8"))
+        .rejects.toThrow();
+      await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "run-interview.md"), "utf8"))
+        .rejects.toThrow();
+      await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "plan.md"), "utf8"))
+        .rejects.toThrow();
+      await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "run-planning.md"), "utf8"))
+        .rejects.toThrow();
+      await expect(readFile(path.join(memoryRoot, "documents", "braindrive-plus-one", "AGENT.md"), "utf8"))
+        .rejects.toThrow();
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "index.md"), "utf8"))
         .rejects.toThrow();
       await expect(readFile(path.join(memoryRoot, "documents", "career", "index.md"), "utf8"))
@@ -96,16 +114,6 @@ describe("memory init project scaffolding", () => {
         .rejects.toThrow();
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "budget", "statements", "README.md"), "utf8"))
         .rejects.toThrow();
-      await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "AGENT.md"), "utf8"))
-        .rejects.toThrow();
-      await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "spec.md"), "utf8"))
-        .rejects.toThrow();
-      await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "run-interview.md"), "utf8"))
-        .rejects.toThrow();
-      await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "plan.md"), "utf8"))
-        .rejects.toThrow();
-      await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "run-planning.md"), "utf8"))
-        .rejects.toThrow();
       await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "index.md"), "utf8"))
         .rejects.toThrow();
       await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "AGENT-user.md"), "utf8"))
@@ -142,7 +150,51 @@ describe("memory init project scaffolding", () => {
     }
   });
 
-  it("removes the unused legacy Your Agent project entry when the protected root agent exists", async () => {
+  it("migrates a legacy-only root agent manifest while preserving state and files", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "memory-init-root-agent-legacy-test-"));
+    const rootDir = path.join(tempRoot, "repo");
+    const memoryRoot = path.join(tempRoot, "memory");
+
+    try {
+      await mkdir(path.join(memoryRoot, "documents", "braindrive-plus-one"), { recursive: true });
+      await writeFile(
+        path.join(memoryRoot, "documents", "projects.json"),
+        `${JSON.stringify([
+          {
+            id: "braindrive-plus-one",
+            name: "Your Agent",
+            icon: "sparkles",
+            conversation_id: "conversation-legacy",
+            default_skill_ids: ["interview"],
+          },
+        ], null, 2)}\n`,
+        "utf8"
+      );
+      await writeFile(path.join(memoryRoot, "documents", "braindrive-plus-one", "AGENT.md"), "# Legacy Agent\n", "utf8");
+
+      await initializeMemoryLayout(rootDir, memoryRoot, {
+        seedStarterSkills: false,
+      });
+
+      const projectsManifest = await readProjectsManifest(memoryRoot);
+      expect(projectsManifest).toHaveLength(1);
+      expect(projectsManifest[0]).toMatchObject({
+        id: "your-agent",
+        name: "Your Agent",
+        icon: "sparkles",
+        conversation_id: "conversation-legacy",
+        default_skill_ids: ["interview"],
+      });
+      await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "AGENT.md"), "utf8"))
+        .resolves.toBe("# Legacy Agent\n");
+      await expect(readFile(path.join(memoryRoot, "documents", "braindrive-plus-one", "AGENT.md"), "utf8"))
+        .resolves.toBe("# Legacy Agent\n");
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("removes an unused legacy root agent project entry when the canonical root agent exists", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "memory-init-your-agent-cleanup-test-"));
     const rootDir = path.join(tempRoot, "repo");
     const memoryRoot = path.join(tempRoot, "memory");
@@ -175,8 +227,8 @@ describe("memory init project scaffolding", () => {
         seedStarterSkills: false,
       });
 
-      const projectsManifest = JSON.parse(await readFile(path.join(memoryRoot, "documents", "projects.json"), "utf8")) as Array<{ id: string }>;
-      expect(projectsManifest.map((project) => project.id)).toEqual(["braindrive-plus-one"]);
+      const projectsManifest = await readProjectsManifest(memoryRoot);
+      expect(projectsManifest.map((project) => project.id)).toEqual(["your-agent"]);
       await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "AGENT.md"), "utf8"))
         .resolves.toBe("# Preserved\n");
     } finally {
@@ -184,7 +236,7 @@ describe("memory init project scaffolding", () => {
     }
   });
 
-  it("keeps a Your Agent project entry when it has conversation state", async () => {
+  it("preserves root agent conversation state when duplicate root agent entries exist", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "memory-init-your-agent-preserve-test-"));
     const rootDir = path.join(tempRoot, "repo");
     const memoryRoot = path.join(tempRoot, "memory");
@@ -216,8 +268,91 @@ describe("memory init project scaffolding", () => {
         seedStarterSkills: false,
       });
 
-      const projectsManifest = JSON.parse(await readFile(path.join(memoryRoot, "documents", "projects.json"), "utf8")) as Array<{ id: string }>;
-      expect(projectsManifest.map((project) => project.id)).toEqual(["braindrive-plus-one", "your-agent"]);
+      const projectsManifest = await readProjectsManifest(memoryRoot);
+      expect(projectsManifest.map((project) => project.id)).toEqual(["your-agent"]);
+      expect(projectsManifest[0]?.conversation_id).toBe("conversation-1");
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves conflicting duplicate root agent entries for manual review", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "memory-init-your-agent-conflict-test-"));
+    const rootDir = path.join(tempRoot, "repo");
+    const memoryRoot = path.join(tempRoot, "memory");
+
+    try {
+      await mkdir(path.join(memoryRoot, "documents"), { recursive: true });
+      await writeFile(
+        path.join(memoryRoot, "documents", "projects.json"),
+        `${JSON.stringify([
+          {
+            id: "braindrive-plus-one",
+            name: "Your Agent",
+            icon: "sparkles",
+            conversation_id: "conversation-legacy",
+            default_skill_ids: ["interview"],
+          },
+          {
+            id: "your-agent",
+            name: "Your Agent",
+            icon: "sparkles",
+            conversation_id: "conversation-canonical",
+            default_skill_ids: ["plan"],
+          },
+        ], null, 2)}\n`,
+        "utf8"
+      );
+
+      const summary = await initializeMemoryLayout(rootDir, memoryRoot, {
+        seedStarterSkills: false,
+      });
+
+      const projectsManifest = await readProjectsManifest(memoryRoot);
+      expect(projectsManifest.map((project) => project.id)).toEqual(["your-agent", "braindrive-plus-one"]);
+      expect(projectsManifest[0]?.conversation_id).toBe("conversation-canonical");
+      expect(projectsManifest[1]?.conversation_id).toBe("conversation-legacy");
+      expect(summary.warnings.some((warning) => warning.includes("Conflicting root agent conversation ids"))).toBe(true);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves divergent root agent folders for manual review", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "memory-init-your-agent-folder-conflict-test-"));
+    const rootDir = path.join(tempRoot, "repo");
+    const memoryRoot = path.join(tempRoot, "memory");
+
+    try {
+      await mkdir(path.join(memoryRoot, "documents", "braindrive-plus-one"), { recursive: true });
+      await mkdir(path.join(memoryRoot, "documents", "your-agent"), { recursive: true });
+      await writeFile(
+        path.join(memoryRoot, "documents", "projects.json"),
+        `${JSON.stringify([
+          {
+            id: "braindrive-plus-one",
+            name: "Your Agent",
+            icon: "sparkles",
+            conversation_id: null,
+            default_skill_ids: [],
+          },
+        ], null, 2)}\n`,
+        "utf8"
+      );
+      await writeFile(path.join(memoryRoot, "documents", "braindrive-plus-one", "AGENT.md"), "# Legacy Agent\n", "utf8");
+      await writeFile(path.join(memoryRoot, "documents", "your-agent", "AGENT.md"), "# Canonical Agent\n", "utf8");
+
+      const summary = await initializeMemoryLayout(rootDir, memoryRoot, {
+        seedStarterSkills: false,
+      });
+
+      const projectsManifest = await readProjectsManifest(memoryRoot);
+      expect(projectsManifest.map((project) => project.id)).toEqual(["your-agent"]);
+      await expect(readFile(path.join(memoryRoot, "documents", "braindrive-plus-one", "AGENT.md"), "utf8"))
+        .resolves.toBe("# Legacy Agent\n");
+      await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "AGENT.md"), "utf8"))
+        .resolves.toBe("# Canonical Agent\n");
+      expect(summary.warnings.some((warning) => warning.includes("Preserved divergent root agent folders"))).toBe(true);
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
