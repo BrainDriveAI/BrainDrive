@@ -14,6 +14,7 @@ import {
   type GatewayCredentialUpdateResponse,
   type GatewayMemoryBackupRestoreRequest,
   type GatewayMemoryBackupRestoreResponse,
+  type GatewayMemoryBackupRunRequest,
   type GatewayMemoryBackupRunResponse,
   type GatewayMemoryBackupSettingsUpdateRequest,
   type GatewayMigrationImportResult,
@@ -619,11 +620,13 @@ export async function updateMemoryBackupSettings(
   return (await response.json()) as GatewaySettings;
 }
 
-export async function runMemoryBackupNow(): Promise<GatewayMemoryBackupRunResponse> {
+export async function runMemoryBackupNow(
+  payload: GatewayMemoryBackupRunRequest = {}
+): Promise<GatewayMemoryBackupRunResponse> {
   const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/settings/memory-backup/save`, {
     method: "POST",
     headers: withLocalOwnerHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify({}),
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {

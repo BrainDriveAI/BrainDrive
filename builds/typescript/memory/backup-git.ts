@@ -44,10 +44,30 @@ export async function configureBackupRemote(memoryRoot: string, repositoryUrl: s
   await runGit(["remote", "add", MEMORY_BACKUP_REMOTE_ALIAS, repositoryUrl], memoryRoot);
 }
 
-export async function pushBackupBranch(memoryRoot: string, token: string): Promise<void> {
+export type PushBackupBranchOptions = {
+  forceWithLeaseFromRemote?: boolean;
+};
+
+export async function pushBackupBranch(
+  memoryRoot: string,
+  token: string,
+  options: PushBackupBranchOptions = {}
+): Promise<void> {
   await withGitAskPass(token, async (askPassEnv) => {
+    const args = ["push", MEMORY_BACKUP_REMOTE_ALIAS, `HEAD:${MEMORY_BACKUP_BRANCH}`];
+    if (options.forceWithLeaseFromRemote) {
+      const remoteHead = await readRemoteBackupBranchHead(memoryRoot, askPassEnv);
+      if (!remoteHead) {
+        throw new Error("Backup branch is not available in the configured repository.");
+      }
+      args.splice(
+        1,
+        0,
+        `--force-with-lease=refs/heads/${MEMORY_BACKUP_BRANCH}:${remoteHead}`
+      );
+    }
     await runGit(
-      ["push", MEMORY_BACKUP_REMOTE_ALIAS, `HEAD:${MEMORY_BACKUP_BRANCH}`],
+      args,
       memoryRoot,
       { env: askPassEnv }
     );
@@ -114,6 +134,9 @@ export async function resolveMemoryBackupToken(secretRef: string): Promise<strin
 export function sanitizeMemoryBackupError(error: unknown): string {
   const message = error instanceof Error ? error.message.toLowerCase() : "";
 
+  if (isRemoteBackupConflictError(error)) {
+    return "This backup repository already contains a BrainDrive backup. Choose whether to restore it or use this BrainDrive as the backup source.";
+  }
   if (message.includes("authentication failed") || message.includes("could not read username")) {
     return "Authentication failed for the backup repository. Verify repository access and PAT scope.";
   }
@@ -131,6 +154,31 @@ export function sanitizeMemoryBackupError(error: unknown): string {
   }
 
   return "Memory backup operation failed.";
+}
+
+export function isRemoteBackupConflictError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  return (
+    message.includes("non-fast-forward") ||
+    message.includes("(fetch first)") ||
+    message.includes("remote contains work that you do not have locally")
+  );
+}
+
+async function readRemoteBackupBranchHead(
+  memoryRoot: string,
+  env: NodeJS.ProcessEnv
+): Promise<string | null> {
+  const result = await runGit(
+    ["ls-remote", "--heads", MEMORY_BACKUP_REMOTE_ALIAS, MEMORY_BACKUP_BRANCH],
+    memoryRoot,
+    { env }
+  );
+  const firstLine = result.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  return firstLine?.split(/\s+/)[0] ?? null;
 }
 
 async function withGitAskPass(

@@ -211,6 +211,12 @@ const settingsMemoryBackupUpdateSchema = z
     }
   });
 
+const settingsMemoryBackupSaveSchema = z
+  .object({
+    on_remote_conflict: z.enum(["fail", "replace_remote"]).optional(),
+  })
+  .strict();
+
 const settingsMemoryBackupRestoreSchema = z
   .object({
     target_commit: z.string().trim().min(1).optional(),
@@ -1672,13 +1678,21 @@ export async function buildServer(rootDir = process.cwd()) {
 
   app.post("/settings/memory-backup/save", async (request, reply) => {
     authorize(request.authContext, "administration");
+    const parsed = settingsMemoryBackupSaveSchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      sendInvalidRequest(reply, "/settings/memory-backup/save", parsed.error.issues.length);
+      return;
+    }
+
     const currentPreferences = await loadLivePreferences();
     if (!currentPreferences.memory_backup) {
       sendInvalidRequest(reply, "/settings/memory-backup/save", 1);
       return;
     }
 
-    const { result, preferences: nextPreferences } = await memoryBackupScheduler.triggerManualBackup();
+    const { result, preferences: nextPreferences } = await memoryBackupScheduler.triggerManualBackup({
+      onRemoteConflict: parsed.data.on_remote_conflict,
+    });
     auditLog("settings.memory_backup_save", {
       actor_id: request.authContext.actorId,
       result: result.result,

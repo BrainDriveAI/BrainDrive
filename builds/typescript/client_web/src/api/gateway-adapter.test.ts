@@ -376,6 +376,50 @@ describe("gateway-adapter onboarding settings", () => {
     );
   });
 
+  it("passes remote conflict replacement choice to manual memory backup save", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          result: {
+            attempted_at: "2026-04-07T12:00:00.000Z",
+            saved_at: "2026-04-07T12:00:01.000Z",
+            result: "success",
+          },
+          settings: {
+            default_model: "openai/gpt-4o-mini",
+            approval_mode: "ask-on-write",
+            active_provider_profile: "openrouter",
+            default_provider_profile: "openrouter",
+            available_models: ["openai/gpt-4o-mini"],
+            provider_profiles: [],
+            memory_backup: {
+              repository_url: "https://github.com/BrainDriveAI/braindrive-memory.git",
+              frequency: "manual",
+              token_configured: true,
+              last_result: "success",
+              last_error: null,
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await runMemoryBackupNow({ on_remote_conflict: "replace_remote" });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/settings/memory-backup/save",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ on_remote_conflict: "replace_remote" }),
+      })
+    );
+  });
+
   it("triggers memory backup restore", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(
