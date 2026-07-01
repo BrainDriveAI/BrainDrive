@@ -18,7 +18,6 @@ import {
   type GatewayMemoryBackupRunResponse,
   type GatewayMemoryBackupSettingsUpdateRequest,
   type GatewayMigrationImportResult,
-  type GatewayMemoryUpdateStatus,
   type GatewayModelCatalog,
   type GatewayOnboardingStatus,
   type GatewaySkillBinding,
@@ -650,33 +649,6 @@ export async function restoreMemoryBackup(
   }
 
   return (await response.json()) as GatewayMemoryBackupRestoreResponse;
-}
-
-export async function getMemoryUpdateStatus(): Promise<GatewayMemoryUpdateStatus> {
-  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/updates/memory/status`, {
-    headers: withLocalOwnerHeaders(),
-  });
-
-  if (!response.ok) {
-    throw await toGatewayError(response);
-  }
-
-  return (await response.json()) as GatewayMemoryUpdateStatus;
-}
-
-export async function getMemoryUpdateReport(migrationId: string): Promise<string> {
-  const response = await authenticatedFetch(
-    `${GATEWAY_BASE_URL}/updates/memory/reports/${encodeURIComponent(migrationId)}`,
-    {
-      headers: withLocalOwnerHeaders(),
-    }
-  );
-
-  if (!response.ok) {
-    throw await toGatewayError(response);
-  }
-
-  return response.text();
 }
 
 export async function getOwnerProfile(): Promise<string | null> {
