@@ -1,5 +1,5 @@
 import path from "node:path";
-import { cp, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 
 import { bootstrapSkillsFromStarterPack, MemorySkillStore } from "./skills.js";
 import { resolveMemoryPath, toMemoryRelativePath } from "./paths.js";
@@ -56,6 +56,7 @@ const TODO_RELATIVE_PATH = "me/todo.md";
 const CONVERSATIONS_INDEX_RELATIVE_PATH = "conversations/index.json";
 const PROJECTS_MANIFEST_RELATIVE_PATH = "documents/projects.json";
 const PROJECTS_SEEDED_MARKER_RELATIVE_PATH = "preferences/projects-seeded-v1.json";
+const ROOT_AGENT_IDENTITY_MIGRATION_RELATIVE_PATH = "system/migrations/your-agent-identity-cleanup";
 
 const PROJECT_TEMPLATE_FILES = ["AGENT.md", "spec.md", "run-interview.md", "plan.md", "run-planning.md"] as const;
 const JOURNAL_PROJECT_TEMPLATE_FILES = ["run-journal.md", "journal/AGENT.md", "journal/journal.md"] as const;
@@ -768,15 +769,204 @@ async function ensureRootAgentFolderCompatibility(
         await cp(legacyPath, canonicalPath, { recursive: true, force: false, errorOnExist: false });
         summary.created.push(canonicalRelativePath);
       }
-      summary.warnings.push(`Copied legacy root agent folder ${legacyRelativePath} to ${canonicalRelativePath}; legacy folder preserved for compatibility`);
+      summary.warnings.push(`Copied legacy root agent folder ${legacyRelativePath} to ${canonicalRelativePath}`);
+      await archiveLegacyRootAgentFolder(
+        memoryRoot,
+        legacyRelativePath,
+        legacyPath,
+        canonicalRelativePath,
+        canonicalPath,
+        "archived legacy root-agent folder after creating canonical folder",
+        dryRun,
+        summary
+      );
       continue;
     }
 
     const foldersMatch = await directoriesHaveSameFileContents(legacyPath, canonicalPath);
-    if (!foldersMatch) {
-      summary.warnings.push(`Preserved divergent root agent folders for manual review: ${legacyRelativePath} and ${canonicalRelativePath}`);
+    await archiveLegacyRootAgentFolder(
+      memoryRoot,
+      legacyRelativePath,
+      legacyPath,
+      canonicalRelativePath,
+      canonicalPath,
+      foldersMatch
+        ? "archived duplicate legacy root-agent folder"
+        : "archived divergent legacy root-agent folder for manual review",
+      dryRun,
+      summary
+    );
+  }
+}
+
+type RootAgentFolderComparison = {
+  legacy_files: string[];
+  canonical_files: string[];
+  identical_files: string[];
+  divergent_files: string[];
+  legacy_only_files: string[];
+  canonical_only_files: string[];
+};
+
+async function archiveLegacyRootAgentFolder(
+  memoryRoot: string,
+  legacyRelativePath: string,
+  legacyPath: string,
+  canonicalRelativePath: string,
+  canonicalPath: string,
+  reason: string,
+  dryRun: boolean,
+  summary: MemoryInitSummary
+): Promise<void> {
+  const comparison = await compareRootAgentFolders(legacyPath, canonicalPath);
+  const legacyId = path.basename(legacyRelativePath);
+  const runId = `${new Date().toISOString().replace(/[:.]/g, "-")}-${legacyId}`;
+  const migrationRelativePath = `${ROOT_AGENT_IDENTITY_MIGRATION_RELATIVE_PATH}/${runId}`;
+  const archiveRelativePath = `${migrationRelativePath}/${legacyId}`;
+  const reportMarkdownRelativePath = `${migrationRelativePath}/report.md`;
+  const reportJsonRelativePath = `${migrationRelativePath}/report.json`;
+
+  if (dryRun) {
+    summary.warnings.push(`Would archive legacy root agent folder ${legacyRelativePath} to ${archiveRelativePath}: ${reason}`);
+    summary.created.push(archiveRelativePath);
+    summary.created.push(reportMarkdownRelativePath);
+    summary.created.push(reportJsonRelativePath);
+    return;
+  }
+
+  const archivePath = resolveMemoryPath(memoryRoot, archiveRelativePath);
+  await mkdir(path.dirname(archivePath), { recursive: true });
+  await cp(legacyPath, archivePath, { recursive: true, force: false, errorOnExist: true });
+
+  const report = rootAgentMigrationReport({
+    action: reason,
+    archive_relative_path: archiveRelativePath,
+    canonical_relative_path: canonicalRelativePath,
+    comparison,
+    dry_run: false,
+    legacy_relative_path: legacyRelativePath,
+  });
+  await writeFile(resolveMemoryPath(memoryRoot, reportMarkdownRelativePath), report.markdown, "utf8");
+  await writeFile(resolveMemoryPath(memoryRoot, reportJsonRelativePath), `${JSON.stringify(report.json, null, 2)}\n`, "utf8");
+  await rm(legacyPath, { recursive: true, force: true });
+
+  summary.created.push(archiveRelativePath);
+  summary.created.push(reportMarkdownRelativePath);
+  summary.created.push(reportJsonRelativePath);
+  summary.updated.push(legacyRelativePath);
+  summary.warnings.push(`Archived legacy root agent folder ${legacyRelativePath} to ${archiveRelativePath}: ${reason}`);
+}
+
+async function compareRootAgentFolders(legacyPath: string, canonicalPath: string): Promise<RootAgentFolderComparison> {
+  const [legacyFiles, canonicalFiles] = await Promise.all([
+    listRelativeFilesIfExists(legacyPath),
+    listRelativeFilesIfExists(canonicalPath),
+  ]);
+  const canonicalFileSet = new Set(canonicalFiles);
+  const legacyFileSet = new Set(legacyFiles);
+  const identicalFiles: string[] = [];
+  const divergentFiles: string[] = [];
+  const legacyOnlyFiles: string[] = [];
+
+  for (const legacyFile of legacyFiles) {
+    if (!canonicalFileSet.has(legacyFile)) {
+      legacyOnlyFiles.push(legacyFile);
+      continue;
+    }
+
+    const [legacyContent, canonicalContent] = await Promise.all([
+      readFile(path.join(legacyPath, legacyFile)),
+      readFile(path.join(canonicalPath, legacyFile)),
+    ]);
+    if (legacyContent.equals(canonicalContent)) {
+      identicalFiles.push(legacyFile);
+    } else {
+      divergentFiles.push(legacyFile);
     }
   }
+
+  const canonicalOnlyFiles = canonicalFiles.filter((canonicalFile) => !legacyFileSet.has(canonicalFile));
+
+  return {
+    legacy_files: legacyFiles,
+    canonical_files: canonicalFiles,
+    identical_files: identicalFiles,
+    divergent_files: divergentFiles,
+    legacy_only_files: legacyOnlyFiles,
+    canonical_only_files: canonicalOnlyFiles,
+  };
+}
+
+async function listRelativeFilesIfExists(root: string): Promise<string[]> {
+  if (!(await pathExists(root))) {
+    return [];
+  }
+  return listRelativeFiles(root);
+}
+
+function rootAgentMigrationReport(input: {
+  action: string;
+  archive_relative_path: string;
+  canonical_relative_path: string;
+  comparison: RootAgentFolderComparison;
+  dry_run: boolean;
+  legacy_relative_path: string;
+}): {
+  markdown: string;
+  json: Record<string, unknown>;
+} {
+  const generatedAt = new Date().toISOString();
+  const json = {
+    generated_at: generatedAt,
+    dry_run: input.dry_run,
+    action: input.action,
+    legacy_relative_path: input.legacy_relative_path,
+    canonical_relative_path: input.canonical_relative_path,
+    archive_relative_path: input.archive_relative_path,
+    files_archived: input.comparison.legacy_files,
+    files_identical: input.comparison.identical_files,
+    files_divergent: input.comparison.divergent_files,
+    files_unique_to_legacy: input.comparison.legacy_only_files,
+    files_unique_to_canonical: input.comparison.canonical_only_files,
+  };
+  const markdown = [
+    "# Your Agent Identity Cleanup Migration",
+    "",
+    `**Generated at:** ${generatedAt}`,
+    `**Dry run:** ${input.dry_run}`,
+    `**Action:** ${input.action}`,
+    "",
+    "## Paths",
+    "",
+    `- Legacy: \`${input.legacy_relative_path}\``,
+    `- Canonical: \`${input.canonical_relative_path}\``,
+    `- Archive: \`${input.archive_relative_path}\``,
+    "",
+    "## File Summary",
+    "",
+    `- Files archived: ${input.comparison.legacy_files.length}`,
+    `- Identical files: ${input.comparison.identical_files.length}`,
+    `- Divergent files: ${input.comparison.divergent_files.length}`,
+    `- Files unique to legacy: ${input.comparison.legacy_only_files.length}`,
+    `- Files unique to canonical: ${input.comparison.canonical_only_files.length}`,
+    "",
+    "## Archived Files",
+    "",
+    ...markdownList(input.comparison.legacy_files),
+    "",
+    "## Manual Review",
+    "",
+    "The legacy root-agent folder was removed from active `documents/` after being archived here. Review this archive before deleting it from exported memory.",
+    "",
+  ].join("\n");
+  return { markdown, json };
+}
+
+function markdownList(values: string[]): string[] {
+  if (values.length === 0) {
+    return ["- None"];
+  }
+  return values.map((value) => `- \`${value}\``);
 }
 
 async function directoriesHaveSameFileContents(leftRoot: string, rightRoot: string): Promise<boolean> {

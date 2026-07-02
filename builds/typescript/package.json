@@ -22,6 +22,8 @@
     "dev:cli": "tsx client/repl.ts",
     "dev:web": "npm --prefix client_web run dev",
     "memory:init": "tsx scripts/memory-init.ts",
+    "identity:check": "node scripts/identity-cleanup-check.mjs",
+    "identity:check:desktop-runtime": "node scripts/identity-cleanup-check.mjs --include-generated-runtime",
     "smoke:upload": "tsx scripts/upload-smoke.ts",
     "secrets": "tsx secrets/cli.ts",
     "start": "node dist/main.js",
