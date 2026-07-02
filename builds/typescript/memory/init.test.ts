@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -16,6 +16,20 @@ type TestProjectManifestEntry = {
 
 async function readProjectsManifest(memoryRoot: string): Promise<TestProjectManifestEntry[]> {
   return JSON.parse(await readFile(path.join(memoryRoot, "documents", "projects.json"), "utf8")) as TestProjectManifestEntry[];
+}
+
+async function readLatestRootAgentMigrationReport(memoryRoot: string): Promise<string> {
+  const migrationsRoot = path.join(memoryRoot, "system", "migrations", "your-agent-identity-cleanup");
+  const entries = await readdir(migrationsRoot, { withFileTypes: true });
+  const run = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort()
+    .at(-1);
+  if (!run) {
+    throw new Error("Expected Your Agent identity cleanup migration report");
+  }
+  return readFile(path.join(migrationsRoot, run, "report.md"), "utf8");
 }
 
 describe("memory init project scaffolding", () => {
@@ -188,7 +202,11 @@ describe("memory init project scaffolding", () => {
       await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "AGENT.md"), "utf8"))
         .resolves.toBe("# Legacy Agent\n");
       await expect(readFile(path.join(memoryRoot, "documents", "braindrive-plus-one", "AGENT.md"), "utf8"))
-        .resolves.toBe("# Legacy Agent\n");
+        .rejects.toThrow();
+      await expect(readLatestRootAgentMigrationReport(memoryRoot))
+        .resolves.toContain("archived legacy root-agent folder after creating canonical folder");
+      await expect(readLatestRootAgentMigrationReport(memoryRoot))
+        .resolves.toContain("documents/braindrive-plus-one");
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
@@ -318,7 +336,7 @@ describe("memory init project scaffolding", () => {
     }
   });
 
-  it("preserves divergent root agent folders for manual review", async () => {
+  it("archives divergent root agent folders for manual review", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "memory-init-your-agent-folder-conflict-test-"));
     const rootDir = path.join(tempRoot, "repo");
     const memoryRoot = path.join(tempRoot, "memory");
@@ -349,10 +367,95 @@ describe("memory init project scaffolding", () => {
       const projectsManifest = await readProjectsManifest(memoryRoot);
       expect(projectsManifest.map((project) => project.id)).toEqual(["your-agent"]);
       await expect(readFile(path.join(memoryRoot, "documents", "braindrive-plus-one", "AGENT.md"), "utf8"))
+        .rejects.toThrow();
+      await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "AGENT.md"), "utf8"))
+        .resolves.toBe("# Canonical Agent\n");
+      expect(summary.warnings.some((warning) => warning.includes("Archived legacy root agent folder"))).toBe(true);
+      await expect(readLatestRootAgentMigrationReport(memoryRoot))
+        .resolves.toContain("archived divergent legacy root-agent folder for manual review");
+      await expect(readLatestRootAgentMigrationReport(memoryRoot))
+        .resolves.toContain("AGENT.md");
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("archives identical legacy root agent folders from active documents", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "memory-init-your-agent-identical-folder-test-"));
+    const rootDir = path.join(tempRoot, "repo");
+    const memoryRoot = path.join(tempRoot, "memory");
+
+    try {
+      await mkdir(path.join(memoryRoot, "documents", "braindrive-plus-one"), { recursive: true });
+      await mkdir(path.join(memoryRoot, "documents", "your-agent"), { recursive: true });
+      await writeFile(
+        path.join(memoryRoot, "documents", "projects.json"),
+        `${JSON.stringify([
+          {
+            id: "your-agent",
+            name: "Your Agent",
+            icon: "sparkles",
+            conversation_id: null,
+            default_skill_ids: [],
+          },
+        ], null, 2)}\n`,
+        "utf8"
+      );
+      await writeFile(path.join(memoryRoot, "documents", "braindrive-plus-one", "AGENT.md"), "# Same Agent\n", "utf8");
+      await writeFile(path.join(memoryRoot, "documents", "your-agent", "AGENT.md"), "# Same Agent\n", "utf8");
+
+      const summary = await initializeMemoryLayout(rootDir, memoryRoot, {
+        seedStarterSkills: false,
+      });
+
+      await expect(readFile(path.join(memoryRoot, "documents", "braindrive-plus-one", "AGENT.md"), "utf8"))
+        .rejects.toThrow();
+      await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "AGENT.md"), "utf8"))
+        .resolves.toBe("# Same Agent\n");
+      expect(summary.warnings.some((warning) => warning.includes("archived duplicate legacy root-agent folder"))).toBe(true);
+      await expect(readLatestRootAgentMigrationReport(memoryRoot))
+        .resolves.toContain("archived duplicate legacy root-agent folder");
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("reports root agent folder archive actions during dry run without moving files", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "memory-init-your-agent-dry-run-folder-test-"));
+    const rootDir = path.join(tempRoot, "repo");
+    const memoryRoot = path.join(tempRoot, "memory");
+
+    try {
+      await mkdir(path.join(memoryRoot, "documents", "braindrive-plus-one"), { recursive: true });
+      await mkdir(path.join(memoryRoot, "documents", "your-agent"), { recursive: true });
+      await writeFile(
+        path.join(memoryRoot, "documents", "projects.json"),
+        `${JSON.stringify([
+          {
+            id: "your-agent",
+            name: "Your Agent",
+            icon: "sparkles",
+            conversation_id: null,
+            default_skill_ids: [],
+          },
+        ], null, 2)}\n`,
+        "utf8"
+      );
+      await writeFile(path.join(memoryRoot, "documents", "braindrive-plus-one", "AGENT.md"), "# Legacy Agent\n", "utf8");
+      await writeFile(path.join(memoryRoot, "documents", "your-agent", "AGENT.md"), "# Canonical Agent\n", "utf8");
+
+      const summary = await initializeMemoryLayout(rootDir, memoryRoot, {
+        dryRun: true,
+        seedStarterSkills: false,
+      });
+
+      await expect(readFile(path.join(memoryRoot, "documents", "braindrive-plus-one", "AGENT.md"), "utf8"))
         .resolves.toBe("# Legacy Agent\n");
       await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "AGENT.md"), "utf8"))
         .resolves.toBe("# Canonical Agent\n");
-      expect(summary.warnings.some((warning) => warning.includes("Preserved divergent root agent folders"))).toBe(true);
+      await expect(readFile(path.join(memoryRoot, "system", "migrations", "your-agent-identity-cleanup", "report.md"), "utf8"))
+        .rejects.toThrow();
+      expect(summary.warnings.some((warning) => warning.includes("Would archive legacy root agent folder"))).toBe(true);
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
