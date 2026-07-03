@@ -53,8 +53,17 @@ async function editTool(context: ToolContext, input: Record<string, unknown>): P
     const absolutePath = resolveToolPath(context, targetPath);
     const original = await readFile(absolutePath, "utf8");
 
-    if (!original.includes(find)) {
+    if (find.length === 0) {
+      throw new ToolExecutionFailure("invalid_input", "Edit target must not be empty");
+    }
+
+    const matchCount = countOccurrences(original, find);
+    if (matchCount === 0) {
       throw new ToolExecutionFailure("invalid_input", "Edit target not found");
+    }
+
+    if (matchCount > 1) {
+      throw new ToolExecutionFailure("invalid_input", `Edit target appears ${matchCount} times; add surrounding context`);
     }
 
     const updated = original.replace(find, replace);
@@ -68,6 +77,20 @@ async function editTool(context: ToolContext, input: Record<string, unknown>): P
     return { path: absolutePath, updated: true };
   } catch (error) {
     throw toToolFailure(error);
+  }
+}
+
+function countOccurrences(value: string, search: string): number {
+  let count = 0;
+  let index = 0;
+
+  while (true) {
+    const found = value.indexOf(search, index);
+    if (found === -1) {
+      return count;
+    }
+    count += 1;
+    index = found + search.length;
   }
 }
 

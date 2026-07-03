@@ -88,20 +88,24 @@ describe("memory init project scaffolding", () => {
         .resolves.toContain("# Relationships Planning");
       await expect(readFile(path.join(memoryRoot, "documents", "relationships", "run-journal.md"), "utf8"))
         .resolves.toContain("# Relationships Journal");
+      await expect(readFile(path.join(memoryRoot, "documents", "relationships", "journal.md"), "utf8"))
+        .resolves.toContain("# Your Relationships Journal");
       await expect(readFile(path.join(memoryRoot, "documents", "relationships", "journal", "AGENT.md"), "utf8"))
-        .resolves.toContain("# Relationships Journal - Agent Context");
+        .rejects.toThrow();
       await expect(readFile(path.join(memoryRoot, "documents", "relationships", "journal", "journal.md"), "utf8"))
-        .resolves.toContain("# Your Journal");
+        .rejects.toThrow();
       await expect(readFile(path.join(memoryRoot, "documents", "fitness", "run-interview.md"), "utf8"))
         .resolves.toContain("# Fitness Interview");
       await expect(readFile(path.join(memoryRoot, "documents", "fitness", "run-planning.md"), "utf8"))
         .resolves.toContain("# Fitness Planning");
       await expect(readFile(path.join(memoryRoot, "documents", "fitness", "run-journal.md"), "utf8"))
         .resolves.toContain("# Fitness Journal");
+      await expect(readFile(path.join(memoryRoot, "documents", "fitness", "journal.md"), "utf8"))
+        .resolves.toContain("# Your Fitness Journal");
       await expect(readFile(path.join(memoryRoot, "documents", "fitness", "journal", "AGENT.md"), "utf8"))
-        .resolves.toContain("# Fitness Journal - Agent Context");
+        .rejects.toThrow();
       await expect(readFile(path.join(memoryRoot, "documents", "fitness", "journal", "journal.md"), "utf8"))
-        .resolves.toContain("# Your Journal");
+        .rejects.toThrow();
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "run-journal.md"), "utf8"))
         .rejects.toThrow();
       await expect(readFile(path.join(memoryRoot, "documents", "career", "run-journal.md"), "utf8"))

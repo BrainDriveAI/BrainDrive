@@ -243,7 +243,7 @@ export default function Sidebar({
                     <>
                       <SidebarFileSection
                         label="Plan"
-                        items={[projectModel.goals, projectModel.plan].filter(Boolean) as SidebarFileItem[]}
+                        items={[projectModel.goals, projectModel.plan, projectModel.journal].filter(Boolean) as SidebarFileItem[]}
                         onFileClick={onFileClick}
                         onClose={onClose}
                       />

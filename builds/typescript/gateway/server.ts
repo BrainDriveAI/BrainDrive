@@ -356,7 +356,6 @@ export async function buildServer(rootDir = process.cwd()) {
     livePreferencesCache = nextPreferences;
   };
   let authState = await ensureAuthState(runtimeConfig.memory_root, { mode: runtimeConfig.auth_mode });
-  let systemPrompt = await readBootstrapPrompt(runtimeConfig.memory_root);
   auditLog("startup.phase", { phase: "secrets" });
   const startupAdapterConfig = resolveAdapterConfigForPreferences(adapterConfig, preferences);
   let startupResolvedProviderCredential: Awaited<ReturnType<typeof resolveProviderCredentialForStartup>> | undefined;
@@ -697,6 +696,7 @@ export async function buildServer(rootDir = process.cwd()) {
     }
     const conversationSkillIds = conversations.getConversationSkills(conversationId) ?? [];
     const projectSkillIds = projectId ? (await projects.getProjectSkills(projectId)) ?? [] : [];
+    const systemPrompt = await readBootstrapPrompt(runtimeConfig.memory_root);
     const promptWithSkills = await skills.composePromptWithSkills(systemPrompt, [...projectSkillIds, ...conversationSkillIds]);
 
     auditLog("skills.apply", {
@@ -1163,7 +1163,6 @@ export async function buildServer(rootDir = process.cwd()) {
     const overlayPath = path.join(runtimeConfig.memory_root, "AGENT-user.md");
     await writeFile(overlayPath, parsed.data.overlay_content, "utf8");
     await commitMemoryChange(runtimeConfig.memory_root, "Update global agent overlay via UI").catch(() => {});
-    systemPrompt = await readBootstrapPrompt(runtimeConfig.memory_root);
     return { ok: true };
   });
 

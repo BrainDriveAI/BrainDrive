@@ -63,6 +63,10 @@ export function sidebarFileLabel(file: ProjectFile, projectId: string): string {
     return "Your Plan";
   }
 
+  if (relativePath === "journal.md") {
+    return "Your Journal";
+  }
+
   if (fileName === "AGENT.md") {
     return "Agent Instructions";
   }

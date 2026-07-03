@@ -18,6 +18,7 @@ export type SidebarFileItem = {
 export type ProjectSidebarModel = {
   goals: SidebarFileItem | null;
   plan: SidebarFileItem | null;
+  journal: SidebarFileItem | null;
   files: SidebarFileItem[];
   advanced: SidebarFileItem[];
 };
@@ -26,11 +27,12 @@ export function buildProjectSidebarModel(projectId: string, files: ProjectFile[]
   const items = files.map((file) => toFileItem(file, projectId));
   const goals = items.find((item) => item.canonicalPath === "spec.md") ?? null;
   const plan = items.find((item) => item.canonicalPath === "plan.md") ?? null;
+  const journal = items.find((item) => item.canonicalPath === "journal.md") ?? null;
   const advanced: SidebarFileItem[] = [];
   const visibleFiles: SidebarFileItem[] = [];
 
   for (const item of items) {
-    if (item === goals || item === plan) {
+    if (item === goals || item === plan || item === journal) {
       continue;
     }
 
@@ -45,6 +47,7 @@ export function buildProjectSidebarModel(projectId: string, files: ProjectFile[]
   return {
     goals,
     plan,
+    journal,
     files: sortItems(visibleFiles),
     advanced: sortItems(advanced),
   };
@@ -80,6 +83,10 @@ function sortItems(items: SidebarFileItem[]): SidebarFileItem[] {
 function isProjectAdvancedFile(relativePath: string): boolean {
   const fileName = relativePath.split("/").pop() ?? relativePath;
 
+  if (/^journal\/(?:AGENT|journal)\.md$/i.test(relativePath)) {
+    return true;
+  }
+
   if (relativePath.includes("/")) {
     return fileName === "README.md" || fileName === "README-user.md" || isManagedInstructionFile(fileName) || /-user\.md$/i.test(fileName);
   }
@@ -94,7 +101,7 @@ function isManagedInstructionFile(fileName: string): boolean {
   if (/-rules\.md$/i.test(fileName)) {
     return true;
   }
-  return /^(create|compare|run-interview|run-planning|generate-report)\.md$/i.test(fileName);
+  return /^(create|compare|run-interview|run-planning|run-journal|generate-report)\.md$/i.test(fileName);
 }
 
 function overlayPathForManagedFile(pathValue: string): string | undefined {

@@ -52,6 +52,14 @@
     "fitness",
     "relationships"
   ],
+  "page_journal_project_ids": [
+    "fitness",
+    "relationships"
+  ],
+  "page_journal_project_template_files": [
+    "run-journal.md",
+    "journal.md"
+  ],
   "default_page_project_ids": [
     "finance",
     "fitness",
@@ -75,7 +83,9 @@
     "spec.md",
     "run-interview.md",
     "plan.md",
-    "run-planning.md"
+    "run-planning.md",
+    "run-journal.md",
+    "journal.md"
   ],
   "fitness_project_generated_directories": []
 }
