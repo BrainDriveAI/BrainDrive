@@ -6,10 +6,10 @@
 
 This is the **mandatory write protocol** for `journal.md` — not conversational guidance. Any time you write, correct, or repair the journal, follow it. (The page `AGENT.md` routes every journal write/correction/recovery through this file so these rules always apply.)
 
-`journal.md` is append-only owner history. On every write:
+`journal.md` is insert-only owner history, **newest entry first**. On every write:
 
-- Preserve all existing owner content. Add a new entry by appending it at the very END of `journal.md`, after the last existing entry — never insert it between entries and never replace an existing entry with it. Targeted-edit only the one entry a correction names.
-- **How to append:** the file ends with an `<!-- APPEND MARKER: ... -->` line. Append by replacing that single marker line with your new entry followed by the marker line again — never retype or replace any existing entry to append. If the marker is missing (the owner may edit it away), add your entry after the last entry and restore the marker as the final line.
+- Preserve all existing owner content. Add a new entry at the TOP of the history — directly below the header's insertion line, above the most recent existing entry — never between older entries and never replacing an existing entry. Targeted-edit only the one entry a correction names.
+- **How to insert:** below the intro paragraph the file has a single `<!-- New entries go directly below this line ... -->` comment line. Insert by replacing that one line with the same line, a blank line, and your new entry. Your find text must be **that comment line alone — nothing above or below it**: the content directly under it is the owner's newest entry, and a match that reaches into it will destroy its heading. Your replacement ends after your new entry — the existing first entry stays exactly where it is, untouched, with its own `##` heading. Never retype or replace any existing entry to insert. If the exact comment line is absent (the owner may edit or alter it), restore the exact line from the default template directly above the first dated entry heading, with your new entry between them; if the file has no dated entries, restore it as the last line of the header. If it appears more than once, the topmost is the anchor — remove the extras in the same edit.
 - Anchor every edit on text that appears **exactly once** in the file. Lines like `- Status: captured` recur in every entry — an edit anchored on one will land in the wrong entry. When editing an entry, include the target entry's dated heading in what you match.
 - Never overwrite, whole-file rewrite, truncate, or silently discard owner content. Before any edit, confirm the text you are replacing is only the entry you mean to change. After any write or edit, re-read the file once and confirm the result is clean — every prior entry intact exactly once, no duplicated or orphaned fragments; if your edit left one, repair only the fragment you just created. This check is internal: never narrate file status to the owner ("journal's clean," "all entries intact," "nothing duplicated") — the owner hears what you captured, not your bookkeeping.
 - Use today's date from system context for entry dates and recovery filenames; if no date is available in your context, ask the owner — never guess one. The entry heading's date is always **today** — the date of the conversation, not the date of the event being described; the event's own day ("walked Tuesday") belongs in the entry text.
@@ -17,19 +17,19 @@ This is the **mandatory write protocol** for `journal.md` — not conversational
 
 Before writing, check the state of `journal.md` and recover deterministically:
 
-- **Missing** → recreate it from the default template below, then append.
-- **Empty** → treat it as valid; append the first entry.
-- **Malformed but readable** → preserve the existing content, append the new valid entry, and flag it: in the same message where you tell the owner what you captured, add one line that some earlier notes are in a rough format and you can tidy them whenever they like. Do not rewrite the old content, do not tidy without being asked, and do not make the cleanup a project.
+- **Missing** → recreate it from the default template below, then add the entry below the insertion line.
+- **Empty (or header-only)** → treat it as valid: restore any missing header or insertion line from the default template, then add the first entry.
+- **Malformed but readable** → preserve the existing content, insert the new valid entry at the top of the history, and flag it: in the same message where you tell the owner what you captured, add one line that some earlier notes are in a rough format and you can tidy them whenever they like. Do not rewrite the old content, do not tidy without being asked, and do not make the cleanup a project.
 - **Unreadable or corrupt** → do not overwrite or touch the original file. Leave it untouched, write the new entry to a recovery file named `journal.recovered-YYYY-MM-DD.md` (add a `-2`, `-3`, … suffix if one already exists for today), and tell the owner what happened so they can recover the original.
 
-Default template — use this exact header when recreating a missing `journal.md`, then append the entry:
+Default template — use this exact header when recreating a missing `journal.md`, then add the entry below the insertion line:
 
 ~~~md
 # Your Relationships Journal
 
 *Your follow-up history for Relationships — what's happened since your plan was written, the wins, the blockers, and what you want to do next. BrainDrive keeps this current with you. You can add to it or edit it anytime, and it's never required.*
 
-<!-- APPEND MARKER: new entries go directly above this line — keep this line last. -->
+<!-- New entries go directly below this line, newest first, using the standard journal entry format from run-journal.md. Keep this line in place. -->
 ~~~
 
 ## What This Procedure Accomplishes
@@ -74,7 +74,7 @@ When the owner asks to log something or gives a follow-up note as an entry, writ
 
 ### Writing an entry
 
-Append a dated entry to `documents/relationships/journal.md` (following the Preservation Rule above):
+Insert a dated entry at the top of the history in `documents/relationships/journal.md` (following the Preservation Rule above):
 
 ```md
 ## YYYY-MM-DD - Short Entry Title
@@ -115,7 +115,7 @@ Review history for recurring situations, boundary patterns, communication blocke
 
 ## Close-Out
 
-Done when: every journal-worthy update the owner shared is captured in `journal.md` (append-only history preserved) and the owner was told what you recorded — if nothing journal-worthy surfaced, nothing was written (a view-only or advice-only session may rightly write nothing); any owner correction or removal was applied as asked; any parent change was owner-approved, concise, and recorded in the journal; and the owner knows what happened and the next useful step. Then return to Relationships scope.
+Done when: every journal-worthy update the owner shared is captured in `journal.md` (insert-only history preserved, newest first) and the owner was told what you recorded — if nothing journal-worthy surfaced, nothing was written (a view-only or advice-only session may rightly write nothing); any owner correction or removal was applied as asked; any parent change was owner-approved, concise, and recorded in the journal; and the owner knows what happened and the next useful step. Then return to Relationships scope.
 
 ## What This Procedure Is Not
 
