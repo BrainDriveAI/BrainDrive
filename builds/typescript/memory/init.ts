@@ -59,7 +59,7 @@ const PROJECTS_SEEDED_MARKER_RELATIVE_PATH = "preferences/projects-seeded-v1.jso
 const ROOT_AGENT_IDENTITY_MIGRATION_RELATIVE_PATH = "system/migrations/your-agent-identity-cleanup";
 
 const PROJECT_TEMPLATE_FILES = ["AGENT.md", "spec.md", "run-interview.md", "plan.md", "run-planning.md"] as const;
-const JOURNAL_PROJECT_TEMPLATE_FILES = ["run-journal.md", "journal/AGENT.md", "journal/journal.md"] as const;
+const JOURNAL_PROJECT_TEMPLATE_FILES = ["run-journal.md", "journal.md"] as const;
 const PAGE_JOURNAL_PROJECT_IDS = new Set(["fitness", "relationships"]);
 const PROJECTS_SEED_RELATIVE_PATH = "projects/projects.seed.json";
 const PROJECT_TEMPLATES_ROOT_RELATIVE_PATH = "projects/templates";
@@ -1079,7 +1079,7 @@ function fallbackRootAgentPrompt(): string {
     "For explicit user commands to read/list/write/edit/delete files, execute the matching tool directly rather than asking for an extra confirmation message.",
     "For mutating actions, perform only the explicitly requested changes and avoid extra cleanup or deletion steps unless the user requested them.",
     "When writes are needed, request approval through the contract-visible approval flow before any mutating tool executes.",
-    "When asked to create a project folder, produce AGENT.md, spec.md, run-interview.md, plan.md, and run-planning.md inside that folder unless the user asks for a smaller subset.",
+    "When asked to create a project folder, produce AGENT.md, spec.md, run-interview.md, plan.md, run-planning.md, and page-specific journal files when those templates exist unless the user asks for a smaller subset.",
     "Read index.md in the current project folder only when it exists. It is an optional document map, not a default project file.",
     "For project discovery requests, prefer project_list and report projects from documents scope only.",
     "If the user asks to remember something for this chat, keep it in conversational context for this session without requiring file storage.",
@@ -1301,7 +1301,7 @@ function fallbackProjectTemplateContent(projectName: string, fileName: string): 
       "",
       "## Preservation Rule",
       "",
-      "Before writing, correcting, or recovering `journal/journal.md`, read the existing file when it is readable. Never replace the whole file. Append new entries or targeted-edit only the intended entry. If the file is unreadable or corrupt, create a timestamped recovery file and do not overwrite the original.",
+      "Before writing, correcting, or recovering `journal.md`, read the existing file when it is readable. Never replace the whole file. Append new entries or targeted-edit only the intended entry. If the file is unreadable or corrupt, create a timestamped recovery file and do not overwrite the original.",
       "",
       "## What This Procedure Accomplishes",
       "",
@@ -1315,7 +1315,7 @@ function fallbackProjectTemplateContent(projectName: string, fileName: string): 
       "",
       "## Method",
       "",
-      "Read `me/profile.md`, `spec.md`, `plan.md`, and `journal/journal.md` before acting. Append owner-provided history to `journal/journal.md` using a dated Markdown entry. Ask a concise clarification question before editing when the target entry is ambiguous. Treat pattern reflections as hypotheses and ask before updating `spec.md`, `plan.md`, or `me/profile.md`.",
+      "Read `me/profile.md`, `spec.md`, `plan.md`, and `journal.md` before acting. Append owner-provided history to `journal.md` using a dated Markdown entry. Ask a concise clarification question before editing when the target entry is ambiguous. Treat pattern reflections as hypotheses and ask before updating `spec.md`, `plan.md`, or `me/profile.md`.",
       "",
       "## Done Criteria",
       "",
@@ -1328,28 +1328,7 @@ function fallbackProjectTemplateContent(projectName: string, fileName: string): 
     ].join("\n");
   }
 
-  if (fileName === "journal/AGENT.md") {
-    return [
-      `# ${projectName} Journal - Agent Context`,
-      "",
-      "*Instructions for the owner's project journal folder.*",
-      "",
-      "This folder stores owner-provided follow-up history for the project after `spec.md` and `plan.md` exist.",
-      "",
-      "## Preservation Rule",
-      "",
-      "Before writing, correcting, or recovering `journal.md`, read the existing file when it is readable. Never replace the whole file. Append new entries or targeted-edit only the intended entry. If `journal.md` is unreadable or corrupt, create a timestamped recovery file and do not overwrite the original.",
-      "",
-      "## Boundaries",
-      "",
-      "- `journal.md` is owner state and historical evidence.",
-      "- `spec.md` and `plan.md` remain the current truth and change only with owner approval.",
-      "- Stable cross-project facts go to `me/profile.md` only with owner confirmation.",
-      "",
-    ].join("\n");
-  }
-
-  if (fileName === "journal/journal.md") {
+  if (fileName === "journal.md") {
     return [
       "# Your Journal",
       "",

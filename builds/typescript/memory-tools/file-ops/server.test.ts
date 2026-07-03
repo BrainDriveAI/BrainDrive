@@ -126,6 +126,83 @@ describe("file ops memory_delete", () => {
   });
 });
 
+describe("file ops memory_edit", () => {
+  it("edits a uniquely matching target", async () => {
+    const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-file-ops-edit-"));
+    const editTool = fileOpsTools().find((tool) => tool.name === "memory_edit");
+
+    try {
+      await mkdir(path.join(memoryRoot, "documents", "fitness"), { recursive: true });
+      await writeFile(path.join(memoryRoot, "documents", "fitness", "journal.md"), "before\n- Status: captured\n", "utf8");
+      await ensureGitReady(memoryRoot);
+
+      await editTool?.execute(toolContext(memoryRoot), {
+        path: "documents/fitness/journal.md",
+        find: "- Status: captured",
+        replace: "- Status: corrected",
+      });
+
+      await expect(readFile(path.join(memoryRoot, "documents", "fitness", "journal.md"), "utf8"))
+        .resolves.toBe("before\n- Status: corrected\n");
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects ambiguous targets without changing the file", async () => {
+    const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-file-ops-edit-ambiguous-"));
+    const editTool = fileOpsTools().find((tool) => tool.name === "memory_edit");
+
+    try {
+      await mkdir(path.join(memoryRoot, "documents", "fitness"), { recursive: true });
+      const original = [
+        "## 2026-07-01",
+        "- Status: captured",
+        "",
+        "## 2026-07-02",
+        "- Status: captured",
+        "",
+      ].join("\n");
+      const filePath = path.join(memoryRoot, "documents", "fitness", "journal.md");
+      await writeFile(filePath, original, "utf8");
+
+      await expect(editTool?.execute(toolContext(memoryRoot), {
+        path: "documents/fitness/journal.md",
+        find: "- Status: captured",
+        replace: "- Status: corrected",
+      })).rejects.toMatchObject({
+        code: "invalid_input",
+        message: "Edit target appears 2 times; add surrounding context",
+      });
+
+      await expect(readFile(filePath, "utf8")).resolves.toBe(original);
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects empty edit targets", async () => {
+    const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-file-ops-edit-empty-"));
+    const editTool = fileOpsTools().find((tool) => tool.name === "memory_edit");
+
+    try {
+      await mkdir(path.join(memoryRoot, "documents", "fitness"), { recursive: true });
+      await writeFile(path.join(memoryRoot, "documents", "fitness", "journal.md"), "# Journal\n", "utf8");
+
+      await expect(editTool?.execute(toolContext(memoryRoot), {
+        path: "documents/fitness/journal.md",
+        find: "",
+        replace: "unexpected",
+      })).rejects.toMatchObject({
+        code: "invalid_input",
+        message: "Edit target must not be empty",
+      });
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("file ops memory_search", () => {
   it("excludes diagnostics audit files from model-facing search results", async () => {
     const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-file-ops-search-diagnostics-"));

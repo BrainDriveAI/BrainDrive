@@ -76,6 +76,10 @@ const PROCEDURE_FILES = [
 
 const JOURNAL_PROJECT_FILES = [
   "run-journal.md",
+  "journal.md",
+] as const;
+
+const STALE_JOURNAL_PROJECT_PATHS = [
   "journal/AGENT.md",
   "journal/journal.md",
 ] as const;
@@ -338,19 +342,20 @@ export async function lintDraft3MemoryStarterPack(starterPackRoot: string): Prom
         }
       }
 
+      for (const file of STALE_JOURNAL_PROJECT_PATHS) {
+        if (existsSync(path.join(projectRoot, file))) {
+          errors.push(`Stale nested journal template file must be removed: ${projectId}/${file}`);
+        }
+      }
+
       const journalProcedure = await readOptional(path.join(projectRoot, "run-journal.md"));
       if (journalProcedure !== null && !/^## Preservation Rule\s*$/m.test(journalProcedure)) {
         errors.push(`Procedure is missing Preservation Rule: ${projectId}/run-journal.md`);
       }
 
-      const journalAgent = await readOptional(path.join(projectRoot, "journal", "AGENT.md"));
-      if (journalAgent !== null && !/^## Preservation Rule\s*$/m.test(journalAgent)) {
-        errors.push(`Journal AGENT.md is missing Preservation Rule: ${projectId}/journal/AGENT.md`);
-      }
-
-      const journalState = await readOptional(path.join(projectRoot, "journal", "journal.md"));
-      if (journalState !== null && !journalState.includes("# Your Journal")) {
-        errors.push(`Journal state template must be owner-facing: ${projectId}/journal/journal.md`);
+      const journalState = await readOptional(path.join(projectRoot, "journal.md"));
+      if (journalState !== null && !/^# Your(?: .+)? Journal\s*$/m.test(journalState)) {
+        errors.push(`Journal state template must be owner-facing: ${projectId}/journal.md`);
       }
     }
 

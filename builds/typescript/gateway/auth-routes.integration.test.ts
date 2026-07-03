@@ -799,7 +799,60 @@ describe.sequential("gateway auth route integration", () => {
 
     expect(updateResponse.statusCode).toBe(200);
     await expect(readFile(path.join(memoryRoot, "AGENT-user.md"), "utf8")).resolves.toBe("Use concise answers.\n");
-    expect(readBootstrapPromptConfigMock).toHaveBeenCalledWith(memoryRoot);
+    expect(readBootstrapPromptConfigMock).not.toHaveBeenCalled();
+  });
+
+  it("uses the request-time bootstrap prompt for message model requests", async () => {
+    vi.mocked(readBootstrapPromptConfigMock).mockResolvedValueOnce("Today's date is 2026-06-30.\n");
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: {
+        base_url: "https://provider.example/v1",
+        model: "test-model",
+        api_key_env: "TEST_API_KEY",
+        provider_id: "test-provider",
+      },
+    });
+
+    vi.mocked(readBootstrapPromptConfigMock).mockReset();
+    vi.mocked(readBootstrapPromptConfigMock).mockResolvedValue("Today's date is 2026-07-03.\n");
+
+    let providerRequestBody: { messages?: Array<{ role: string; content?: string }> } | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        providerRequestBody = JSON.parse(String(init?.body)) as typeof providerRequestBody;
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              const encoder = new TextEncoder();
+              controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"Done."}}]}\n\n'));
+              controller.enqueue(encoder.encode('data: {"choices":[{"finish_reason":"stop","delta":{}}]}\n\n'));
+              controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+              controller.close();
+            },
+          }),
+          { status: 200, headers: { "content-type": "text/event-stream" } }
+        );
+      })
+    );
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/message",
+      headers: localOwnerAdminHeaders(),
+      payload: {
+        content: "What is today's date?",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(readBootstrapPromptConfigMock).toHaveBeenCalledWith(path.join(context.tempRoot, "memory"));
+    expect(providerRequestBody?.messages?.[0]).toMatchObject({
+      role: "system",
+      content: expect.stringContaining("Today's date is 2026-07-03."),
+    });
+    expect(providerRequestBody?.messages?.[0]?.content).not.toContain("2026-06-30");
   });
 
   it("requires onboarding when active provider credential is unset", async () => {
