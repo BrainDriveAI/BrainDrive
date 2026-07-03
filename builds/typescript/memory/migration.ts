@@ -21,6 +21,12 @@ const MIGRATION_MEMORY_DIR = "memory";
 const MIGRATION_SECRETS_DIR = "secrets";
 const MIGRATION_VAULT_FILE = "vault.json";
 const MIGRATION_MASTER_KEY_FILE = "master-key.json";
+const MIGRATION_ARCHIVE_EXCLUDES = [
+  `./${MIGRATION_MEMORY_DIR}/.git`,
+  `./${MIGRATION_MEMORY_DIR}/.git/*`,
+  `./${MIGRATION_MEMORY_DIR}/exports/*.tar.gz`,
+  `./${MIGRATION_MEMORY_DIR}/system/updates/backups/*.tar.gz`,
+];
 
 type MigrationManifest = {
   schema_version: 1;
@@ -110,7 +116,7 @@ export async function exportMigrationArchive(
     );
 
     await mkdir(path.dirname(destination), { recursive: true });
-    await createTarArchive(payloadRoot, destination);
+    await createTarArchive(payloadRoot, destination, MIGRATION_ARCHIVE_EXCLUDES);
     await setPrivateFileMode(destination);
 
     const result: MigrationExportResult = {
@@ -151,9 +157,9 @@ export async function importMigrationArchive(
     await extractTarArchive(archivePath, extractedRoot);
 
     const layout = await resolveImportLayout(extractedRoot);
-    await cp(layout.memoryRoot, stagedMemoryRoot, { recursive: true, force: true });
+    await copyDirectoryContents(layout.memoryRoot, stagedMemoryRoot, { skipGit: true });
     await mkdir(options.memoryRoot, { recursive: true });
-    await cp(options.memoryRoot, rollbackMemoryRoot, { recursive: true, force: true });
+    await copyDirectoryContents(options.memoryRoot, rollbackMemoryRoot, { skipGit: true });
 
     await mkdir(rollbackSecretsRoot, { recursive: true });
     const rollbackVault = await snapshotSecretFile(
@@ -267,19 +273,40 @@ async function replaceDirectoryContents(destinationRoot: string, sourceRoot: str
   await mkdir(destinationRoot, { recursive: true });
   const existingEntries = await readdir(destinationRoot, { withFileTypes: true });
   await Promise.all(
-    existingEntries.map((entry) =>
-      rm(path.join(destinationRoot, entry.name), { recursive: true, force: true })
-    )
+    existingEntries
+      .filter((entry) => entry.name !== ".git")
+      .map((entry) => rm(path.join(destinationRoot, entry.name), { recursive: true, force: true }))
   );
 
   const sourceEntries = await readdir(sourceRoot, { withFileTypes: true });
   await Promise.all(
-    sourceEntries.map((entry) =>
-      cp(path.join(sourceRoot, entry.name), path.join(destinationRoot, entry.name), {
-        recursive: true,
-        force: true,
-      })
-    )
+    sourceEntries
+      .filter((entry) => entry.name !== ".git")
+      .map((entry) =>
+        cp(path.join(sourceRoot, entry.name), path.join(destinationRoot, entry.name), {
+          recursive: true,
+          force: true,
+        })
+      )
+  );
+}
+
+async function copyDirectoryContents(
+  sourceRoot: string,
+  destinationRoot: string,
+  options: { skipGit?: boolean } = {}
+): Promise<void> {
+  await mkdir(destinationRoot, { recursive: true });
+  const sourceEntries = await readdir(sourceRoot, { withFileTypes: true });
+  await Promise.all(
+    sourceEntries
+      .filter((entry) => !options.skipGit || entry.name !== ".git")
+      .map((entry) =>
+        cp(path.join(sourceRoot, entry.name), path.join(destinationRoot, entry.name), {
+          recursive: true,
+          force: true,
+        })
+      )
   );
 }
 
@@ -368,9 +395,17 @@ async function isDirectory(targetPath: string): Promise<boolean> {
   }
 }
 
-async function createTarArchive(sourceRoot: string, destinationPath: string): Promise<void> {
+async function createTarArchive(
+  sourceRoot: string,
+  destinationPath: string,
+  excludePatterns: string[] = []
+): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    const child = spawn("tar", ["-czf", destinationPath, "."], { cwd: sourceRoot });
+    const child = spawn(
+      "tar",
+      [...excludePatterns.map((pattern) => `--exclude=${pattern}`), "-czf", destinationPath, "."],
+      { cwd: sourceRoot }
+    );
     let stderr = "";
 
     child.stderr.on("data", (chunk) => {

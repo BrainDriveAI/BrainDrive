@@ -1,5 +1,5 @@
 import path from "node:path";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -113,6 +113,45 @@ describe("memory migration archive", () => {
     }
   });
 
+  it("preserves the target git repository during import", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "paa-migration-git-preserve-test-"));
+    const sourceMemory = path.join(tempRoot, "source-memory");
+    const targetMemory = path.join(tempRoot, "target-memory");
+    const targetSecrets = path.join(tempRoot, "target-secrets");
+    const targetSecretsPaths = {
+      homeDir: targetSecrets,
+      vaultPath: path.join(targetSecrets, "vault.json"),
+      keyPath: path.join(targetSecrets, "master-key.json"),
+    };
+    const protectedObjectDir = path.join(targetMemory, ".git", "objects", "1f");
+
+    try {
+      await writeFixtureMemory(sourceMemory, "source-model");
+      await writeFixtureMemory(targetMemory, "target-model");
+      await mkdir(protectedObjectDir, { recursive: true });
+      await writeFile(path.join(protectedObjectDir, "539fb90d1ed07a267a221557d2e0f9e60a5bc7"), "git object\n", "utf8");
+      await chmod(protectedObjectDir, 0o555);
+
+      const exported = await exportMigrationArchive(sourceMemory);
+      const imported = await importMigrationArchive(exported.archive_path, {
+        memoryRoot: targetMemory,
+        secretsPaths: targetSecretsPaths,
+      });
+
+      expect(imported.source_format).toBe("migration-v1");
+      expect(imported.restored.memory).toBe(true);
+      await expect(
+        readFile(path.join(protectedObjectDir, "539fb90d1ed07a267a221557d2e0f9e60a5bc7"), "utf8")
+      ).resolves.toContain("git object");
+
+      const importedPreferences = await readFile(path.join(targetMemory, "preferences", "default.json"), "utf8");
+      expect(importedPreferences).toContain("source-model");
+    } finally {
+      await chmod(protectedObjectDir, 0o755).catch(() => {});
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("excludes generated archives and git internals from memory archives", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "paa-migration-exclude-test-"));
     const sourceMemory = path.join(tempRoot, "source-memory");
@@ -139,6 +178,38 @@ describe("memory migration archive", () => {
       expect(entries.some((entry) => entry.startsWith("./.git"))).toBe(false);
       expect(entries.some((entry) => entry.startsWith("./exports/") && entry.endsWith(".tar.gz"))).toBe(false);
       expect(entries.some((entry) => entry.startsWith("./system/updates/backups/") && entry.endsWith(".tar.gz"))).toBe(false);
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("excludes generated archives and git internals from migration archives", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "paa-migration-archive-exclude-test-"));
+    const sourceMemory = path.join(tempRoot, "source-memory");
+
+    try {
+      await writeFixtureMemory(sourceMemory, "source-model");
+      await mkdir(path.join(sourceMemory, ".git", "objects"), { recursive: true });
+      await mkdir(path.join(sourceMemory, "exports"), { recursive: true });
+      await mkdir(path.join(sourceMemory, "system", "updates", "backups"), { recursive: true });
+      await writeFile(path.join(sourceMemory, ".git", "objects", "large-pack"), "git internals\n", "utf8");
+      await writeFile(path.join(sourceMemory, "exports", "old-export.tar.gz"), "old export\n", "utf8");
+      await writeFile(path.join(sourceMemory, "system", "updates", "backups", "old-backup.tar.gz"), "old backup\n", "utf8");
+
+      const exported = await exportMigrationArchive(sourceMemory);
+
+      const { stdout } = await execFileAsync("tar", ["-tzf", exported.archive_path]);
+      const entries = stdout
+        .split("\n")
+        .map((entry) => entry.replace(/\r$/, ""))
+        .filter(Boolean);
+
+      expect(entries).toContain("./memory/documents/projects.json");
+      expect(entries.some((entry) => entry.startsWith("./memory/.git"))).toBe(false);
+      expect(entries.some((entry) => entry.startsWith("./memory/exports/") && entry.endsWith(".tar.gz"))).toBe(false);
+      expect(
+        entries.some((entry) => entry.startsWith("./memory/system/updates/backups/") && entry.endsWith(".tar.gz"))
+      ).toBe(false);
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }
