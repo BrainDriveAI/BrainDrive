@@ -107,10 +107,28 @@ describe("memory init project scaffolding", () => {
       await expect(readFile(path.join(memoryRoot, "documents", "fitness", "journal", "journal.md"), "utf8"))
         .rejects.toThrow();
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "run-journal.md"), "utf8"))
+        .resolves.toContain("# Finance Journal");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "journal.md"), "utf8"))
+        .resolves.toContain("# Your Finance Journal");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "journal", "AGENT.md"), "utf8"))
+        .rejects.toThrow();
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "journal", "journal.md"), "utf8"))
         .rejects.toThrow();
       await expect(readFile(path.join(memoryRoot, "documents", "career", "run-journal.md"), "utf8"))
+        .resolves.toContain("# Career Journal");
+      await expect(readFile(path.join(memoryRoot, "documents", "career", "journal.md"), "utf8"))
+        .resolves.toContain("# Your Career Journal");
+      await expect(readFile(path.join(memoryRoot, "documents", "career", "journal", "AGENT.md"), "utf8"))
+        .rejects.toThrow();
+      await expect(readFile(path.join(memoryRoot, "documents", "career", "journal", "journal.md"), "utf8"))
         .rejects.toThrow();
       await expect(readFile(path.join(memoryRoot, "documents", "new-project", "run-journal.md"), "utf8"))
+        .resolves.toContain("# New Project Journal");
+      await expect(readFile(path.join(memoryRoot, "documents", "new-project", "journal.md"), "utf8"))
+        .resolves.toContain("# Your New Project Journal");
+      await expect(readFile(path.join(memoryRoot, "documents", "new-project", "journal", "AGENT.md"), "utf8"))
+        .rejects.toThrow();
+      await expect(readFile(path.join(memoryRoot, "documents", "new-project", "journal", "journal.md"), "utf8"))
         .rejects.toThrow();
       await expect(readFile(path.join(memoryRoot, "documents", "finance", "AGENT-user.md"), "utf8"))
         .rejects.toThrow();
@@ -136,6 +154,29 @@ describe("memory init project scaffolding", () => {
         .rejects.toThrow();
       await expect(readFile(path.join(memoryRoot, "documents", "your-agent", "AGENT-user.md"), "utf8"))
         .rejects.toThrow();
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("uses D288-compatible fallback journal templates when starter pack files are unavailable", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "memory-init-journal-fallback-test-"));
+    const rootDir = path.join(tempRoot, "repo");
+    const memoryRoot = path.join(tempRoot, "memory");
+
+    try {
+      await scaffoldProjectFiles(rootDir, memoryRoot, "finance", "Finance");
+
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "run-journal.md"), "utf8"))
+        .resolves.toContain("Insert new entries directly below the journal insertion anchor, newest first");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "run-journal.md"), "utf8"))
+        .resolves.not.toContain("Append new entries");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "journal.md"), "utf8"))
+        .resolves.toContain("# Your Finance Journal");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "journal.md"), "utf8"))
+        .resolves.toContain("<!-- New entries go directly below this line, newest first, using the standard journal entry format from run-journal.md. Keep this line in place. -->");
+      await expect(readFile(path.join(memoryRoot, "documents", "finance", "journal.md"), "utf8"))
+        .resolves.not.toContain("No entries yet.");
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }

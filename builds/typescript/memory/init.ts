@@ -60,7 +60,7 @@ const ROOT_AGENT_IDENTITY_MIGRATION_RELATIVE_PATH = "system/migrations/your-agen
 
 const PROJECT_TEMPLATE_FILES = ["AGENT.md", "spec.md", "run-interview.md", "plan.md", "run-planning.md"] as const;
 const JOURNAL_PROJECT_TEMPLATE_FILES = ["run-journal.md", "journal.md"] as const;
-const PAGE_JOURNAL_PROJECT_IDS = new Set(["fitness", "relationships"]);
+const PAGE_JOURNAL_PROJECT_IDS = new Set(["finance", "fitness", "career", "relationships", "new-project"]);
 const PROJECTS_SEED_RELATIVE_PATH = "projects/projects.seed.json";
 const PROJECT_TEMPLATES_ROOT_RELATIVE_PATH = "projects/templates";
 
@@ -1301,7 +1301,7 @@ function fallbackProjectTemplateContent(projectName: string, fileName: string): 
       "",
       "## Preservation Rule",
       "",
-      "Before writing, correcting, or recovering `journal.md`, read the existing file when it is readable. Never replace the whole file. Append new entries or targeted-edit only the intended entry. If the file is unreadable or corrupt, create a timestamped recovery file and do not overwrite the original.",
+      "Before writing, correcting, or recovering `journal.md`, read the existing file when it is readable. Never replace the whole file. Insert new entries directly below the journal insertion anchor, newest first, or targeted-edit only the intended entry. If the file is unreadable or corrupt, create a timestamped recovery file and do not overwrite the original.",
       "",
       "## What This Procedure Accomplishes",
       "",
@@ -1315,7 +1315,7 @@ function fallbackProjectTemplateContent(projectName: string, fileName: string): 
       "",
       "## Method",
       "",
-      "Read `me/profile.md`, `spec.md`, `plan.md`, and `journal.md` before acting. Append owner-provided history to `journal.md` using a dated Markdown entry. Ask a concise clarification question before editing when the target entry is ambiguous. Treat pattern reflections as hypotheses and ask before updating `spec.md`, `plan.md`, or `me/profile.md`.",
+      "Read `me/profile.md`, `spec.md`, `plan.md`, and `journal.md` before acting. Insert owner-provided history below the journal insertion anchor using a dated Markdown entry, keeping newest entries first. Ask a concise clarification question before editing when the target entry is ambiguous. Treat pattern reflections as hypotheses and ask before updating `spec.md`, `plan.md`, or `me/profile.md`.",
       "",
       "## Done Criteria",
       "",
@@ -1330,9 +1330,11 @@ function fallbackProjectTemplateContent(projectName: string, fileName: string): 
 
   if (fileName === "journal.md") {
     return [
-      "# Your Journal",
+      `# Your ${projectName} Journal`,
       "",
-      "No entries yet.",
+      `*Your follow-up history for ${projectName} - what's happened since your plan was written, the wins, the blockers, and what you want to do next. BrainDrive keeps this current with you. You can add to it or edit it anytime, and it's never required.*`,
+      "",
+      "<!-- New entries go directly below this line, newest first, using the standard journal entry format from run-journal.md. Keep this line in place. -->",
       "",
     ].join("\n");
   }

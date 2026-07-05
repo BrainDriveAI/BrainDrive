@@ -53,8 +53,11 @@
     "relationships"
   ],
   "page_journal_project_ids": [
+    "finance",
     "fitness",
-    "relationships"
+    "career",
+    "relationships",
+    "new-project"
   ],
   "page_journal_project_template_files": [
     "run-journal.md",
