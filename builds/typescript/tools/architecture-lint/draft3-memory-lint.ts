@@ -30,8 +30,11 @@ const DEFAULT_PAGE_PROJECT_IDS = [
 ] as const;
 
 const PAGE_JOURNAL_PROJECT_IDS = [
+  "finance",
   "fitness",
+  "career",
   "relationships",
+  "new-project",
 ] as const;
 
 const REQUIRED_PROJECT_FILES = [
