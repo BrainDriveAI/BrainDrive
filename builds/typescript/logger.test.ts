@@ -40,6 +40,8 @@ describe("logger audit file sink", () => {
     auditLog("secret.resolve", {
       token: "abc123",
       api_key: "raw-value",
+      apiKey: "sk-camelcasekey123456",
+      raw_key: "sk-rawkeyvalue123456",
       message: "Bearer sk-abc1234567890 should be redacted",
     });
 
@@ -50,8 +52,12 @@ describe("logger audit file sink", () => {
     expect(stored).toContain("\"event\":\"secret.resolve\"");
     expect(stored).toContain("\"token\":\"[REDACTED]\"");
     expect(stored).toContain("\"api_key\":\"[REDACTED]\"");
+    expect(stored).toContain("\"apiKey\":\"[REDACTED]\"");
+    expect(stored).toContain("\"raw_key\":\"[REDACTED]\"");
     expect(stored).toContain("Bearer [REDACTED]");
     expect(stored).not.toContain("sk-abc1234567890");
+    expect(stored).not.toContain("sk-camelcasekey123456");
+    expect(stored).not.toContain("sk-rawkeyvalue123456");
   });
 
   it("rotates jsonl files when the size cap is reached", async () => {

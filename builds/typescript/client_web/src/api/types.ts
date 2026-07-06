@@ -141,6 +141,22 @@ export type GatewayProviderProfile = {
   credential_ref: string | null;
 };
 
+export type GatewayBrainDriveModelsKeyState = {
+  status:
+    | "provisioned"
+    | "ready"
+    | "checkout_pending"
+    | "zero_balance"
+    | "repair_required"
+    | "provision_failed"
+    | "vault_write_failed";
+  checkout_pending: boolean;
+  masked_key?: string;
+  expires_unfunded_at?: string;
+  last_attempt_at?: string;
+  last_error?: string | null;
+};
+
 export type GatewayMemoryBackupFrequency = "manual" | "after_changes" | "hourly" | "daily";
 
 export type GatewayMemoryBackupSettings = {
@@ -202,7 +218,28 @@ export type GatewaySettings = {
   default_provider_profile: string | null;
   available_models: string[];
   provider_profiles: GatewayProviderProfile[];
+  braindrive_models_key: GatewayBrainDriveModelsKeyState | null;
   memory_backup: GatewayMemoryBackupSettings | null;
+};
+
+export type GatewayCreditsPurchaseStatus =
+  | "activating"
+  | "ready"
+  | "zero_balance"
+  | "repair_required"
+  | "unavailable";
+
+export type GatewayCreditsStatus = {
+  remaining_usd: number;
+  total_purchased_usd?: number;
+  total_spent_usd?: number;
+  key_valid?: boolean;
+  purchase_status?: GatewayCreditsPurchaseStatus;
+};
+
+export type GatewayCreditsCheckoutResponse = {
+  checkout_url: string;
+  purchase_status?: GatewayCreditsPurchaseStatus;
 };
 
 export type GatewayOnboardingProvider = {
