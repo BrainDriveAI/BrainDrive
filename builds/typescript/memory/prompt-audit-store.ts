@@ -300,6 +300,7 @@ function clampInt(value: number, min: number, max: number): number {
 
 function isSensitiveKey(key: string): boolean {
   const normalized = key.trim().toLowerCase();
+  const compact = normalized.replace(/[-_]/g, "");
   if (normalized.endsWith("_ref") || normalized.endsWith("_id")) {
     return false;
   }
@@ -309,9 +310,13 @@ function isSensitiveKey(key: string): boolean {
     normalized === "cookie" ||
     normalized === "set-cookie" ||
     normalized === "api_key" ||
+    compact === "apikey" ||
+    normalized === "raw_key" ||
+    compact === "rawkey" ||
     normalized === "token" ||
     normalized === "password" ||
     normalized === "secret" ||
+    normalized === "provisioning_secret" ||
     normalized === "secret_value" ||
     normalized === "key_b64" ||
     normalized === "ciphertext" ||
@@ -319,8 +324,10 @@ function isSensitiveKey(key: string): boolean {
     normalized === "tag" ||
     normalized === "private_key" ||
     normalized.endsWith("_api_key") ||
+    compact.endsWith("apikey") ||
     normalized.endsWith("_token") ||
     normalized.endsWith("_password") ||
+    normalized.endsWith("_secret") ||
     normalized.endsWith("_private_key")
   );
 }

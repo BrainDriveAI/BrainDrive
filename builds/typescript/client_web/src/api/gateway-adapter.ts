@@ -12,6 +12,8 @@ import {
   type ContextWindowWarning,
   type GatewayCredentialUpdateRequest,
   type GatewayCredentialUpdateResponse,
+  type GatewayCreditsCheckoutResponse,
+  type GatewayCreditsStatus,
   type GatewayMemoryBackupRestoreRequest,
   type GatewayMemoryBackupRestoreResponse,
   type GatewayMemoryBackupRunRequest,
@@ -872,6 +874,35 @@ export async function importLibraryArchive(file: Blob): Promise<GatewayMigration
   }
 
   return (await response.json()) as GatewayMigrationImportResult;
+}
+
+export async function getCreditsStatus(): Promise<GatewayCreditsStatus> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/credits/status`, {
+    headers: withLocalOwnerHeaders(),
+  });
+
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+
+  return (await response.json()) as GatewayCreditsStatus;
+}
+
+export async function createCreditsCheckout(input: {
+  amount: number;
+  email: string;
+}): Promise<GatewayCreditsCheckoutResponse> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/credits/checkout`, {
+    method: "POST",
+    headers: withLocalOwnerHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+
+  return (await response.json()) as GatewayCreditsCheckoutResponse;
 }
 
 function extractExportFilename(contentDisposition: string | null): string {

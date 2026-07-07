@@ -127,6 +127,9 @@ import {
   loadPreferences as loadPreferencesConfigMock,
   readBootstrapPrompt as readBootstrapPromptConfigMock,
 } from "../config.js";
+import { initializeMasterKey, loadMasterKey } from "../secrets/key-provider.js";
+import { resolveSecretsPaths } from "../secrets/paths.js";
+import { getVaultSecret, upsertVaultSecret } from "../secrets/vault.js";
 
 type TestServerContext = {
   app: Awaited<ReturnType<typeof buildServer>>["app"];
@@ -336,6 +339,49 @@ function localOwnerAdminHeaders(): Record<string, string> {
       administration: true,
     }),
   };
+}
+
+function brainDriveModelsAdapterConfig(): AdapterConfig {
+  return {
+    base_url: "https://my.braindrive.ai/credits/v1",
+    model: "braindrive-models-default",
+    api_key_env: "AI_GATEWAY_API_KEY",
+    provider_id: "braindrive-models",
+    default_provider_profile: "braindrive-models",
+    provider_profiles: {
+      "braindrive-models": {
+        base_url: "https://my.braindrive.ai/credits/v1",
+        model: "braindrive-models-default",
+        api_key_env: "AI_GATEWAY_API_KEY",
+        provider_id: "braindrive-models",
+      },
+      openrouter: {
+        base_url: "https://openrouter.ai/api/v1",
+        model: "z-ai/glm-5.2",
+        api_key_env: "OPENROUTER_API_KEY",
+        provider_id: "openrouter",
+      },
+      ollama: {
+        base_url: "http://host.docker.internal:11434/v1",
+        model: "",
+        api_key_env: "OLLAMA_API_KEY",
+        provider_id: "ollama",
+      },
+    },
+  };
+}
+
+async function readVaultSecret(secretRef: string): Promise<string | undefined> {
+  const paths = resolveSecretsPaths();
+  const masterKey = await loadMasterKey(paths);
+  return getVaultSecret(secretRef, masterKey, paths);
+}
+
+async function writeVaultSecret(secretRef: string, value: string): Promise<void> {
+  const paths = resolveSecretsPaths();
+  await initializeMasterKey({ paths });
+  const masterKey = await loadMasterKey(paths);
+  await upsertVaultSecret(secretRef, value, masterKey, paths);
 }
 
 describe.sequential("gateway auth route integration", () => {
@@ -817,11 +863,12 @@ describe.sequential("gateway auth route integration", () => {
     vi.mocked(readBootstrapPromptConfigMock).mockReset();
     vi.mocked(readBootstrapPromptConfigMock).mockResolvedValue("Today's date is 2026-07-03.\n");
 
-    let providerRequestBody: { messages?: Array<{ role: string; content?: string }> } | null = null;
+    type ProviderRequestBody = { messages?: Array<{ role: string; content?: string }> };
+    let providerRequestBody: ProviderRequestBody | null = null;
     vi.stubGlobal(
       "fetch",
       vi.fn(async (_url: string, init?: RequestInit) => {
-        providerRequestBody = JSON.parse(String(init?.body)) as typeof providerRequestBody;
+        providerRequestBody = JSON.parse(String(init?.body)) as ProviderRequestBody;
         return new Response(
           new ReadableStream({
             start(controller) {
@@ -848,11 +895,13 @@ describe.sequential("gateway auth route integration", () => {
 
     expect(response.statusCode).toBe(200);
     expect(readBootstrapPromptConfigMock).toHaveBeenCalledWith(path.join(context.tempRoot, "memory"));
-    expect(providerRequestBody?.messages?.[0]).toMatchObject({
+    expect(providerRequestBody).not.toBeNull();
+    const capturedProviderRequestBody = providerRequestBody as unknown as ProviderRequestBody;
+    expect(capturedProviderRequestBody.messages?.[0]).toMatchObject({
       role: "system",
       content: expect.stringContaining("Today's date is 2026-07-03."),
     });
-    expect(providerRequestBody?.messages?.[0]?.content).not.toContain("2026-06-30");
+    expect(capturedProviderRequestBody.messages?.[0]?.content).not.toContain("2026-06-30");
   });
 
   it("requires onboarding when active provider credential is unset", async () => {
@@ -971,6 +1020,285 @@ describe.sequential("gateway auth route integration", () => {
 
     expect(response.statusCode).toBe(200);
     expect(mockPreferences.provider_base_urls?.ollama).toBe("http://localhost:11434/v1");
+  });
+
+  it("provisions a BrainDrive Models key only when checkout starts and stores it in the vault", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: brainDriveModelsAdapterConfig(),
+    });
+
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      const requestUrl = String(url);
+      if (requestUrl.endsWith("/credits/key/provision")) {
+        return new Response(
+          JSON.stringify({
+            api_key: "sk-auto-provisioned-key",
+            key_id: "token-auto",
+            key_hash: "hash-auto",
+            status: "active",
+            expires_unfunded_at: "2026-07-07T12:00:00.000Z",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      if (requestUrl.endsWith("/credits/checkout")) {
+        expect(init?.headers).toMatchObject({
+          Authorization: "Bearer sk-auto-provisioned-key",
+        });
+        expect(String(init?.body ?? "")).not.toContain("sk-auto-provisioned-key");
+        return new Response(JSON.stringify({ checkout_url: "https://checkout.stripe.com/c/pay_auto" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/credits/checkout",
+      headers: localOwnerAdminHeaders(),
+      payload: { amount: 5, email: "owner@example.com" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(parseJson<{ checkout_url: string }>(response.body).checkout_url).toBe(
+      "https://checkout.stripe.com/c/pay_auto"
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await expect(readVaultSecret("provider/ai-gateway/api_key")).resolves.toBe("sk-auto-provisioned-key");
+    expect(JSON.stringify(mockPreferences)).not.toContain("sk-auto-provisioned-key");
+    expect(mockPreferences.provider_credentials?.["braindrive-models"]).toMatchObject({
+      mode: "secret_ref",
+      secret_ref: "provider/ai-gateway/api_key",
+    });
+    expect(mockPreferences.braindrive_models_key).toMatchObject({
+      key_id: "token-auto",
+      key_hash: "hash-auto",
+      masked_key: "sk-...-key",
+      status: "provisioned",
+      checkout_pending: true,
+    });
+  });
+
+  it("preserves a valid existing BrainDrive Models vault key during checkout", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: brainDriveModelsAdapterConfig(),
+    });
+    mockPreferences = {
+      ...mockPreferences,
+      provider_credentials: {
+        "braindrive-models": {
+          mode: "secret_ref",
+          secret_ref: "provider/ai-gateway/api_key",
+          required: true,
+        },
+      },
+    };
+    await writeVaultSecret("provider/ai-gateway/api_key", "sk-existing-paid-key");
+
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      const requestUrl = String(url);
+      if (requestUrl.endsWith("/credits/status")) {
+        expect(init?.headers).toMatchObject({ Authorization: "Bearer sk-existing-paid-key" });
+        return new Response(JSON.stringify({ remaining_usd: 8, key_valid: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (requestUrl.endsWith("/credits/checkout")) {
+        expect(init?.headers).toMatchObject({ Authorization: "Bearer sk-existing-paid-key" });
+        return new Response(JSON.stringify({ checkout_url: "https://checkout.stripe.com/c/pay_existing" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (requestUrl.endsWith("/credits/key/provision")) {
+        throw new Error("provision must not be called");
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/credits/checkout",
+      headers: localOwnerAdminHeaders(),
+      payload: { amount: 10, email: "owner@example.com" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await expect(readVaultSecret("provider/ai-gateway/api_key")).resolves.toBe("sk-existing-paid-key");
+  });
+
+  it("preserves an existing zero-balance BrainDrive Models vault key during checkout", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: brainDriveModelsAdapterConfig(),
+    });
+    mockPreferences = {
+      ...mockPreferences,
+      provider_credentials: {
+        "braindrive-models": {
+          mode: "secret_ref",
+          secret_ref: "provider/ai-gateway/api_key",
+          required: true,
+        },
+      },
+    };
+    await writeVaultSecret("provider/ai-gateway/api_key", "sk-existing-zero-balance");
+
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      const requestUrl = String(url);
+      if (requestUrl.endsWith("/credits/status")) {
+        expect(init?.headers).toMatchObject({ Authorization: "Bearer sk-existing-zero-balance" });
+        return new Response(JSON.stringify({ remaining_usd: 0, total_purchased_usd: 0, key_valid: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (requestUrl.endsWith("/credits/checkout")) {
+        expect(init?.headers).toMatchObject({ Authorization: "Bearer sk-existing-zero-balance" });
+        return new Response(JSON.stringify({ checkout_url: "https://checkout.stripe.com/c/pay_zero" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (requestUrl.endsWith("/credits/key/provision")) {
+        throw new Error("provision must not be called for zero-balance key");
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/credits/checkout",
+      headers: localOwnerAdminHeaders(),
+      payload: { amount: 5, email: "owner@example.com" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    await expect(readVaultSecret("provider/ai-gateway/api_key")).resolves.toBe("sk-existing-zero-balance");
+  });
+
+  it("does not silently overwrite an invalid existing BrainDrive Models key", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: brainDriveModelsAdapterConfig(),
+    });
+    mockPreferences = {
+      ...mockPreferences,
+      provider_credentials: {
+        "braindrive-models": {
+          mode: "secret_ref",
+          secret_ref: "provider/ai-gateway/api_key",
+          required: true,
+        },
+      },
+    };
+    await writeVaultSecret("provider/ai-gateway/api_key", "sk-invalid-existing-key");
+
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      const requestUrl = String(url);
+      if (requestUrl.endsWith("/credits/status")) {
+        return new Response(JSON.stringify({ key_valid: false }), { status: 401 });
+      }
+      if (requestUrl.endsWith("/credits/key/provision")) {
+        throw new Error("provision must not be called over an invalid existing key");
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/credits/checkout",
+      headers: localOwnerAdminHeaders(),
+      payload: { amount: 5, email: "owner@example.com" },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(parseJson<{ code: string }>(response.body).code).toBe("braindrive_models_key_repair_required");
+    await expect(readVaultSecret("provider/ai-gateway/api_key")).resolves.toBe("sk-invalid-existing-key");
+  });
+
+  it("does not silently provision over a missing vault key when prior BrainDrive Models metadata exists", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: brainDriveModelsAdapterConfig(),
+    });
+    mockPreferences = {
+      ...mockPreferences,
+      provider_credentials: {
+        "braindrive-models": {
+          mode: "secret_ref",
+          secret_ref: "provider/ai-gateway/api_key",
+          required: true,
+        },
+      },
+      braindrive_models_key: {
+        install_public_id: "install-existing",
+        masked_key: "sk-...-old",
+        status: "provisioned",
+        checkout_pending: false,
+      },
+    };
+
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      if (String(url).endsWith("/credits/key/provision")) {
+        throw new Error("provision must not be called when metadata says a key existed");
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/credits/checkout",
+      headers: localOwnerAdminHeaders(),
+      payload: { amount: 5, email: "owner@example.com" },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(parseJson<{ code: string }>(response.body).code).toBe("braindrive_models_key_repair_required");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps signup and non-BrainDrive provider settings independent when provisioning fails", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: brainDriveModelsAdapterConfig(),
+    });
+    const fetchMock = vi.fn(async () => new Response("unavailable", { status: 503 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const ollamaResponse = await context.app.inject({
+      method: "PUT",
+      url: "/settings",
+      headers: localOwnerAdminHeaders(),
+      payload: {
+        active_provider_profile: "ollama",
+        provider_base_url: {
+          provider_profile: "ollama",
+          base_url: "http://localhost:11434",
+        },
+      },
+    });
+    expect(ollamaResponse.statusCode).toBe(200);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    const checkoutResponse = await context.app.inject({
+      method: "POST",
+      url: "/credits/checkout",
+      headers: localOwnerAdminHeaders(),
+      payload: { amount: 5, email: "owner@example.com" },
+    });
+    expect(checkoutResponse.statusCode).toBe(502);
   });
 
   it("persists memory backup settings and returns a safe payload", async () => {

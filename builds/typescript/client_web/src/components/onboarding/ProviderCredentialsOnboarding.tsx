@@ -92,6 +92,8 @@ export default function ProviderCredentialsOnboarding({
   }
 
   const requiresSecret = Boolean(selectedProvider?.requires_secret);
+  const isBrainDriveModels = selectedProvider?.provider_id.toLowerCase() === "braindrive-models";
+  const showManualKeyInput = requiresSecret && !isBrainDriveModels;
 
   return (
     <FullScreenShell>
@@ -136,7 +138,19 @@ export default function ProviderCredentialsOnboarding({
             </div>
           )}
 
-          {requiresSecret ? (
+          {isBrainDriveModels ? (
+            <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary p-3 text-sm text-bd-text-secondary">
+              <div className="flex items-start gap-2">
+                <KeyRound size={14} className="mt-0.5 shrink-0" />
+                <div>
+                  <div className="font-medium text-bd-text-heading">BrainDrive Models sets up the key during checkout.</div>
+                  <p className="mt-1 text-xs text-bd-text-muted">
+                    Add credits from Settings to install the key in the encrypted vault. Use the emailed key only for repair or another install.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : showManualKeyInput ? (
             <div>
               <label
                 htmlFor="onboarding-api-key"
@@ -198,12 +212,17 @@ export default function ProviderCredentialsOnboarding({
                   return;
                 }
 
-                if (requiresSecret && apiKey.trim().length === 0) {
+                if (showManualKeyInput && apiKey.trim().length === 0) {
                   setFormError("API key is required for this provider profile.");
                   return;
                 }
 
-                const payload: GatewayCredentialUpdateRequest = requiresSecret
+                if (isBrainDriveModels) {
+                  setFormError("Open Settings and add BrainDrive Models credits to finish automatic setup.");
+                  return;
+                }
+
+                const payload: GatewayCredentialUpdateRequest = showManualKeyInput
                   ? {
                       provider_profile: selectedProvider.profile_id,
                       mode: "secret_ref",
@@ -229,7 +248,7 @@ export default function ProviderCredentialsOnboarding({
               className="inline-flex items-center gap-2 rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isSaving ? <LoaderCircle className="animate-spin" size={12} /> : null}
-              {requiresSecret ? "Save and Continue" : "Continue"}
+              {showManualKeyInput ? "Save and Continue" : "Continue"}
             </button>
           </div>
         </div>

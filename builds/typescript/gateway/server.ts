@@ -74,6 +74,10 @@ import { initializeMasterKey, loadMasterKey } from "../secrets/key-provider.js";
 import { resolveSecretsPaths } from "../secrets/paths.js";
 import { getVaultSecret, upsertVaultSecret } from "../secrets/vault.js";
 import { GatewayConversationService } from "./conversations.js";
+import {
+  BrainDriveModelsProvisioningError,
+  ensureBrainDriveModelsCheckoutKey,
+} from "./credits-provisioning.js";
 import { createMemoryBackupScheduler } from "./memory-backup-scheduler.js";
 import { GatewayProjectService, isProjectMetadata, ProtectedProjectError, type GatewayProjectFile } from "./projects.js";
 import { GatewaySkillService } from "./skills.js";
@@ -1055,6 +1059,30 @@ export async function buildServer(rootDir = process.cwd()) {
 
   // Credits API base: use managed gateway when available, otherwise production credits server
   const creditsApiBase = managedApiBase || "https://my.braindrive.ai";
+  const loadGatewayVaultSecret = async (secretRef: string): Promise<string | undefined> => {
+    const paths = resolveSecretsPaths();
+    try {
+      const masterKey = await loadMasterKey(paths);
+      return await getVaultSecret(secretRef, masterKey, paths);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("Master key is not initialized")) {
+        return undefined;
+      }
+      throw error;
+    }
+  };
+  const saveGatewayVaultSecret = async (secretRef: string, plaintext: string): Promise<void> => {
+    const paths = resolveSecretsPaths();
+    let masterKey;
+    try {
+      masterKey = await loadMasterKey(paths);
+    } catch {
+      await initializeMasterKey({ paths });
+      masterKey = await loadMasterKey(paths);
+    }
+    await upsertVaultSecret(secretRef, plaintext, masterKey, paths);
+  };
 
   app.get("/credits/status", async (request, reply) => {
     try {
@@ -1064,22 +1092,58 @@ export async function buildServer(rootDir = process.cwd()) {
         runtimeConfig.provider_adapter, currentAdapterConfig, currentPreferences
       );
       if (!credential?.apiKey) {
-        return { remaining_usd: 0, total_purchased_usd: 0, total_spent_usd: 0 };
+        return { remaining_usd: 0, total_purchased_usd: 0, total_spent_usd: 0, purchase_status: "repair_required" };
       }
       const resp = await fetch(`${creditsApiBase}/credits/status`, {
         headers: { Authorization: `Bearer ${credential.apiKey}` },
       });
       if (!resp.ok) {
         const isAuthError = resp.status === 401 || resp.status === 403;
+        if (isAuthError) {
+          const nextPreferences = {
+            ...currentPreferences,
+            braindrive_models_key: {
+              ...(currentPreferences.braindrive_models_key ?? {}),
+              status: "repair_required" as const,
+              checkout_pending: false,
+              last_attempt_at: new Date().toISOString(),
+              last_error: "invalid_existing_key",
+            },
+          };
+          await saveLivePreferences(nextPreferences);
+        }
         return {
           remaining_usd: 0, total_purchased_usd: 0, total_spent_usd: 0,
           ...(isAuthError && { key_valid: false }),
+          purchase_status: isAuthError ? "repair_required" : "unavailable",
         };
       }
       const data = (await resp.json()) as Record<string, unknown>;
-      return { ...data, key_valid: true };
+      const remainingUsd = numberFromUnknown(data.remaining_usd);
+      const totalPurchasedUsd = numberFromUnknown(data.total_purchased_usd);
+      const hasFundedBalance = remainingUsd > 0 || totalPurchasedUsd > 0;
+      const metadata = currentPreferences.braindrive_models_key;
+      const purchaseStatus = metadata?.checkout_pending && !hasFundedBalance
+        ? "activating"
+        : hasFundedBalance
+          ? "ready"
+          : "zero_balance";
+      const persistedStatus = purchaseStatus === "activating" ? "checkout_pending" : purchaseStatus;
+      if (metadata?.checkout_pending || metadata?.status !== persistedStatus) {
+        await saveLivePreferences({
+          ...currentPreferences,
+          braindrive_models_key: {
+            ...(metadata ?? {}),
+            status: persistedStatus,
+            checkout_pending: purchaseStatus === "activating",
+            last_attempt_at: new Date().toISOString(),
+            last_error: null,
+          },
+        });
+      }
+      return { ...data, key_valid: true, purchase_status: purchaseStatus };
     } catch {
-      return { remaining_usd: 0, total_purchased_usd: 0, total_spent_usd: 0 };
+      return { remaining_usd: 0, total_purchased_usd: 0, total_spent_usd: 0, purchase_status: "unavailable" };
     }
   });
 
@@ -1094,17 +1158,46 @@ export async function buildServer(rootDir = process.cwd()) {
       return;
     }
     try {
+      const checkoutKey = await ensureBrainDriveModelsCheckoutKey({
+        creditsApiBase,
+        preferences: await loadLivePreferences(),
+        loadVaultSecret: loadGatewayVaultSecret,
+        saveVaultSecret: saveGatewayVaultSecret,
+        savePreferences: saveLivePreferences,
+      });
       const resp = await fetch(`${creditsApiBase}/credits/checkout`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${checkoutKey.apiKey}`,
+        },
         body: JSON.stringify({ amount: parsed.data.amount, email: parsed.data.email }),
       });
       if (!resp.ok) {
         reply.code(resp.status).send({ error: "Checkout service unavailable" });
         return;
       }
-      return resp.json();
-    } catch {
+      const data = (await resp.json()) as Record<string, unknown>;
+      return { ...data, purchase_status: "activating" };
+    } catch (error) {
+      if (error instanceof BrainDriveModelsProvisioningError) {
+        auditLog("credits.checkout_key_unavailable", {
+          code: error.code,
+          status: error.status ?? null,
+        });
+        if (error.code === "repair_required") {
+          reply.code(409).send({
+            error: "BrainDrive Models key needs repair before checkout can continue",
+            code: "braindrive_models_key_repair_required",
+          });
+          return;
+        }
+        reply.code(502).send({
+          error: "Checkout service unreachable",
+          code: "braindrive_models_key_provision_failed",
+        });
+        return;
+      }
       reply.code(502).send({ error: "Checkout service unreachable" });
     }
   });
@@ -2680,6 +2773,21 @@ function buildSettingsPayload(
     credential_mode: "plain" | "secret_ref" | "unset";
     credential_ref: string | null;
   }>;
+  braindrive_models_key: {
+    status:
+      | "provisioned"
+      | "ready"
+      | "checkout_pending"
+      | "zero_balance"
+      | "repair_required"
+      | "provision_failed"
+      | "vault_write_failed";
+    checkout_pending: boolean;
+    masked_key?: string;
+    expires_unfunded_at?: string;
+    last_attempt_at?: string;
+    last_error?: string | null;
+  } | null;
   memory_backup: {
     repository_url: string;
     frequency: "manual" | "after_changes" | "hourly" | "daily";
@@ -2728,6 +2836,7 @@ function buildSettingsPayload(
     )
   );
   const memoryBackup = preferences.memory_backup;
+  const brainDriveModelsKey = preferences.braindrive_models_key;
 
   return {
     default_model: effectiveDefaultModel,
@@ -2736,6 +2845,18 @@ function buildSettingsPayload(
     default_provider_profile: adapterConfig.default_provider_profile ?? null,
     available_models: availableModels,
     provider_profiles: providerProfilePayload,
+    braindrive_models_key: brainDriveModelsKey
+      ? {
+          status: brainDriveModelsKey.status ?? "provisioned",
+          checkout_pending: brainDriveModelsKey.checkout_pending ?? false,
+          ...(brainDriveModelsKey.masked_key ? { masked_key: brainDriveModelsKey.masked_key } : {}),
+          ...(brainDriveModelsKey.expires_unfunded_at
+            ? { expires_unfunded_at: brainDriveModelsKey.expires_unfunded_at }
+            : {}),
+          ...(brainDriveModelsKey.last_attempt_at ? { last_attempt_at: brainDriveModelsKey.last_attempt_at } : {}),
+          ...(brainDriveModelsKey.last_error !== undefined ? { last_error: brainDriveModelsKey.last_error } : {}),
+        }
+      : null,
     memory_backup: memoryBackup
       ? {
           repository_url: memoryBackup.repository_url,
@@ -3185,6 +3306,17 @@ async function buildFileSnapshot(
 
 function hashText(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function numberFromUnknown(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
 }
 
 export function createBrainDriveMemorySafetyGuard(
