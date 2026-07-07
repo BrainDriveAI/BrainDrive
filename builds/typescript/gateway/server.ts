@@ -13,7 +13,7 @@ import {
   resolveAdapterConfigForPreferences,
   resolveEffectiveAdapterConfig,
 } from "../adapters/index.js";
-import type { ModelAdapter, ProviderModel } from "../adapters/base.js";
+import type { ProviderModel } from "../adapters/base.js";
 import { authorize, authorizeApprovalDecision } from "../auth/authorize.js";
 import { authMiddleware } from "../auth/middleware.js";
 import {
@@ -63,13 +63,6 @@ import { createPromptAuditRecorder } from "../memory/prompt-audit-store.js";
 import { restoreMemoryBackup } from "../memory/backup-restore.js";
 import { importMigrationArchive } from "../memory/migration.js";
 import {
-  applyMemoryUpdatePlan,
-  generateMemoryUpdatePlan,
-  getMemoryUpdateStatus,
-  readMemoryUpdateReport,
-  runAutomaticMemoryUpdate,
-} from "../memory/update-prompting.js";
-import {
   createSupportBundle,
   listSupportBundles,
   resolveSupportBundleDownloadPath,
@@ -81,6 +74,10 @@ import { initializeMasterKey, loadMasterKey } from "../secrets/key-provider.js";
 import { resolveSecretsPaths } from "../secrets/paths.js";
 import { getVaultSecret, upsertVaultSecret } from "../secrets/vault.js";
 import { GatewayConversationService } from "./conversations.js";
+import {
+  BrainDriveModelsProvisioningError,
+  ensureBrainDriveModelsCheckoutKey,
+} from "./credits-provisioning.js";
 import { createMemoryBackupScheduler } from "./memory-backup-scheduler.js";
 import { GatewayProjectService, isProjectMetadata, ProtectedProjectError, type GatewayProjectFile } from "./projects.js";
 import { GatewaySkillService } from "./skills.js";
@@ -210,6 +207,12 @@ const settingsMemoryBackupUpdateSchema = z
       });
     }
   });
+
+const settingsMemoryBackupSaveSchema = z
+  .object({
+    on_remote_conflict: z.enum(["fail", "replace_remote"]).optional(),
+  })
+  .strict();
 
 const settingsMemoryBackupRestoreSchema = z
   .object({
@@ -357,7 +360,6 @@ export async function buildServer(rootDir = process.cwd()) {
     livePreferencesCache = nextPreferences;
   };
   let authState = await ensureAuthState(runtimeConfig.memory_root, { mode: runtimeConfig.auth_mode });
-  let systemPrompt = await readBootstrapPrompt(runtimeConfig.memory_root);
   auditLog("startup.phase", { phase: "secrets" });
   const startupAdapterConfig = resolveAdapterConfigForPreferences(adapterConfig, preferences);
   let startupResolvedProviderCredential: Awaited<ReturnType<typeof resolveProviderCredentialForStartup>> | undefined;
@@ -457,39 +459,6 @@ export async function buildServer(rootDir = process.cwd()) {
         })
       : null;
   let migrationInProgress = false;
-  const memoryUpdateAutoEnabled = readBooleanEnv(process.env.PAA_MEMORY_AUTO_UPDATE_ENABLED, true);
-  if (memoryUpdateAutoEnabled) {
-    migrationInProgress = true;
-    try {
-      const memoryUpdateAdapter = createMemoryUpdateAdapter(
-        runtimeConfig,
-        adapterConfig,
-        preferences,
-        startupAdapterConfig,
-        startupResolvedProviderCredential?.apiKey
-      );
-      const memoryUpdateResult = await runAutomaticMemoryUpdate(rootDir, runtimeConfig.memory_root, appVersion, {
-        adapter: memoryUpdateAdapter,
-      });
-      if (memoryUpdateResult?.applied_paths.includes("AGENT.md")) {
-        systemPrompt = await readBootstrapPrompt(runtimeConfig.memory_root);
-      }
-      if (memoryUpdateResult) {
-        auditLog("memory_update.startup_completed", {
-          migration_id: memoryUpdateResult.migration_id,
-          status: memoryUpdateResult.status,
-          applied_count: memoryUpdateResult.applied_paths.length,
-          deferred_count: memoryUpdateResult.deferred_paths.length,
-        });
-      }
-    } catch (error) {
-      auditLog("memory_update.startup_failed", {
-        message: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      migrationInProgress = false;
-    }
-  }
   const memoryBackupScheduler = createMemoryBackupScheduler({
     memoryRoot: runtimeConfig.memory_root,
     isMigrationInProgress: () => migrationInProgress,
@@ -697,10 +666,6 @@ export async function buildServer(rootDir = process.cwd()) {
       return;
     }
 
-    if (requestPath.startsWith("/updates/memory")) {
-      return;
-    }
-
     reply.code(423).send({ error: "migration_in_progress" });
   });
 
@@ -735,6 +700,7 @@ export async function buildServer(rootDir = process.cwd()) {
     }
     const conversationSkillIds = conversations.getConversationSkills(conversationId) ?? [];
     const projectSkillIds = projectId ? (await projects.getProjectSkills(projectId)) ?? [] : [];
+    const systemPrompt = await readBootstrapPrompt(runtimeConfig.memory_root);
     const promptWithSkills = await skills.composePromptWithSkills(systemPrompt, [...projectSkillIds, ...conversationSkillIds]);
 
     auditLog("skills.apply", {
@@ -747,7 +713,7 @@ export async function buildServer(rootDir = process.cwd()) {
 
     // Inject project context so the AI knows which project it's operating in.
     // Without this, the AI sees the base prompt but doesn't know which project
-    // files to read — it would read all projects and behave like BD+1.
+    // files to read — it would read all projects and behave like the root agent.
     const projectFiles = projectId ? (await projects.listProjectFiles(projectId))?.files ?? [] : [];
     const projectContext = projectId
       ? buildProjectChatContext(projectId, projectFiles)
@@ -1077,76 +1043,8 @@ export async function buildServer(rootDir = process.cwd()) {
       export: true,
       import: true,
       migration: true,
-      memory_updates: true,
     },
   }));
-
-  app.get("/updates/memory/status", async (request) => {
-    authorize(request.authContext, "administration");
-    authorize(request.authContext, "memory_access");
-    return getMemoryUpdateStatus(rootDir, runtimeConfig.memory_root, appVersion);
-  });
-
-  app.post("/updates/memory/plan", async (request) => {
-    authorize(request.authContext, "administration");
-    authorize(request.authContext, "memory_access");
-    const currentPreferences = await loadLivePreferences();
-    const selectedAdapterConfig = resolveAdapterConfigForPreferences(adapterConfig, currentPreferences);
-    let resolvedCredential: Awaited<ReturnType<typeof resolveProviderCredentialForStartup>> | undefined;
-    try {
-      resolvedCredential = await resolveProviderCredentialForStartup(
-        runtimeConfig.provider_adapter,
-        selectedAdapterConfig,
-        currentPreferences
-      );
-    } catch {
-      resolvedCredential = undefined;
-    }
-    const memoryUpdateAdapter = createMemoryUpdateAdapter(
-      runtimeConfig,
-      adapterConfig,
-      currentPreferences,
-      selectedAdapterConfig,
-      resolvedCredential?.apiKey
-    );
-    return generateMemoryUpdatePlan(rootDir, runtimeConfig.memory_root, appVersion, {
-      adapter: memoryUpdateAdapter,
-    });
-  });
-
-  app.post("/updates/memory/apply", async (request, reply) => {
-    authorize(request.authContext, "administration");
-    authorize(request.authContext, "memory_access");
-
-    if (migrationInProgress) {
-      reply.code(409).send({ error: "migration_in_progress" });
-      return;
-    }
-
-    migrationInProgress = true;
-    try {
-      let result = await applyMemoryUpdatePlan(rootDir, runtimeConfig.memory_root, appVersion);
-      if (result.applied_paths.includes("AGENT.md")) {
-        systemPrompt = await readBootstrapPrompt(runtimeConfig.memory_root);
-      }
-      reply.code(201).send(result);
-    } finally {
-      migrationInProgress = false;
-    }
-  });
-
-  app.get("/updates/memory/reports/:migrationId", async (request, reply) => {
-    authorize(request.authContext, "administration");
-    authorize(request.authContext, "memory_access");
-    const params = request.params as { migrationId: string };
-    const report = await readMemoryUpdateReport(runtimeConfig.memory_root, params.migrationId);
-    if (!report) {
-      reply.code(404).send({ error: "Report not found" });
-      return;
-    }
-    reply.header("content-type", "text/markdown; charset=utf-8");
-    reply.send(report);
-  });
 
   app.get("/session", async (request) => ({
     mode: isManaged ? "managed" : "local",
@@ -1161,6 +1059,30 @@ export async function buildServer(rootDir = process.cwd()) {
 
   // Credits API base: use managed gateway when available, otherwise production credits server
   const creditsApiBase = managedApiBase || "https://my.braindrive.ai";
+  const loadGatewayVaultSecret = async (secretRef: string): Promise<string | undefined> => {
+    const paths = resolveSecretsPaths();
+    try {
+      const masterKey = await loadMasterKey(paths);
+      return await getVaultSecret(secretRef, masterKey, paths);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("Master key is not initialized")) {
+        return undefined;
+      }
+      throw error;
+    }
+  };
+  const saveGatewayVaultSecret = async (secretRef: string, plaintext: string): Promise<void> => {
+    const paths = resolveSecretsPaths();
+    let masterKey;
+    try {
+      masterKey = await loadMasterKey(paths);
+    } catch {
+      await initializeMasterKey({ paths });
+      masterKey = await loadMasterKey(paths);
+    }
+    await upsertVaultSecret(secretRef, plaintext, masterKey, paths);
+  };
 
   app.get("/credits/status", async (request, reply) => {
     try {
@@ -1170,22 +1092,58 @@ export async function buildServer(rootDir = process.cwd()) {
         runtimeConfig.provider_adapter, currentAdapterConfig, currentPreferences
       );
       if (!credential?.apiKey) {
-        return { remaining_usd: 0, total_purchased_usd: 0, total_spent_usd: 0 };
+        return { remaining_usd: 0, total_purchased_usd: 0, total_spent_usd: 0, purchase_status: "repair_required" };
       }
       const resp = await fetch(`${creditsApiBase}/credits/status`, {
         headers: { Authorization: `Bearer ${credential.apiKey}` },
       });
       if (!resp.ok) {
         const isAuthError = resp.status === 401 || resp.status === 403;
+        if (isAuthError) {
+          const nextPreferences = {
+            ...currentPreferences,
+            braindrive_models_key: {
+              ...(currentPreferences.braindrive_models_key ?? {}),
+              status: "repair_required" as const,
+              checkout_pending: false,
+              last_attempt_at: new Date().toISOString(),
+              last_error: "invalid_existing_key",
+            },
+          };
+          await saveLivePreferences(nextPreferences);
+        }
         return {
           remaining_usd: 0, total_purchased_usd: 0, total_spent_usd: 0,
           ...(isAuthError && { key_valid: false }),
+          purchase_status: isAuthError ? "repair_required" : "unavailable",
         };
       }
       const data = (await resp.json()) as Record<string, unknown>;
-      return { ...data, key_valid: true };
+      const remainingUsd = numberFromUnknown(data.remaining_usd);
+      const totalPurchasedUsd = numberFromUnknown(data.total_purchased_usd);
+      const hasFundedBalance = remainingUsd > 0 || totalPurchasedUsd > 0;
+      const metadata = currentPreferences.braindrive_models_key;
+      const purchaseStatus = metadata?.checkout_pending && !hasFundedBalance
+        ? "activating"
+        : hasFundedBalance
+          ? "ready"
+          : "zero_balance";
+      const persistedStatus = purchaseStatus === "activating" ? "checkout_pending" : purchaseStatus;
+      if (metadata?.checkout_pending || metadata?.status !== persistedStatus) {
+        await saveLivePreferences({
+          ...currentPreferences,
+          braindrive_models_key: {
+            ...(metadata ?? {}),
+            status: persistedStatus,
+            checkout_pending: purchaseStatus === "activating",
+            last_attempt_at: new Date().toISOString(),
+            last_error: null,
+          },
+        });
+      }
+      return { ...data, key_valid: true, purchase_status: purchaseStatus };
     } catch {
-      return { remaining_usd: 0, total_purchased_usd: 0, total_spent_usd: 0 };
+      return { remaining_usd: 0, total_purchased_usd: 0, total_spent_usd: 0, purchase_status: "unavailable" };
     }
   });
 
@@ -1200,17 +1158,46 @@ export async function buildServer(rootDir = process.cwd()) {
       return;
     }
     try {
+      const checkoutKey = await ensureBrainDriveModelsCheckoutKey({
+        creditsApiBase,
+        preferences: await loadLivePreferences(),
+        loadVaultSecret: loadGatewayVaultSecret,
+        saveVaultSecret: saveGatewayVaultSecret,
+        savePreferences: saveLivePreferences,
+      });
       const resp = await fetch(`${creditsApiBase}/credits/checkout`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${checkoutKey.apiKey}`,
+        },
         body: JSON.stringify({ amount: parsed.data.amount, email: parsed.data.email }),
       });
       if (!resp.ok) {
         reply.code(resp.status).send({ error: "Checkout service unavailable" });
         return;
       }
-      return resp.json();
-    } catch {
+      const data = (await resp.json()) as Record<string, unknown>;
+      return { ...data, purchase_status: "activating" };
+    } catch (error) {
+      if (error instanceof BrainDriveModelsProvisioningError) {
+        auditLog("credits.checkout_key_unavailable", {
+          code: error.code,
+          status: error.status ?? null,
+        });
+        if (error.code === "repair_required") {
+          reply.code(409).send({
+            error: "BrainDrive Models key needs repair before checkout can continue",
+            code: "braindrive_models_key_repair_required",
+          });
+          return;
+        }
+        reply.code(502).send({
+          error: "Checkout service unreachable",
+          code: "braindrive_models_key_provision_failed",
+        });
+        return;
+      }
       reply.code(502).send({ error: "Checkout service unreachable" });
     }
   });
@@ -1269,7 +1256,6 @@ export async function buildServer(rootDir = process.cwd()) {
     const overlayPath = path.join(runtimeConfig.memory_root, "AGENT-user.md");
     await writeFile(overlayPath, parsed.data.overlay_content, "utf8");
     await commitMemoryChange(runtimeConfig.memory_root, "Update global agent overlay via UI").catch(() => {});
-    systemPrompt = await readBootstrapPrompt(runtimeConfig.memory_root);
     return { ok: true };
   });
 
@@ -1672,13 +1658,21 @@ export async function buildServer(rootDir = process.cwd()) {
 
   app.post("/settings/memory-backup/save", async (request, reply) => {
     authorize(request.authContext, "administration");
+    const parsed = settingsMemoryBackupSaveSchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      sendInvalidRequest(reply, "/settings/memory-backup/save", parsed.error.issues.length);
+      return;
+    }
+
     const currentPreferences = await loadLivePreferences();
     if (!currentPreferences.memory_backup) {
       sendInvalidRequest(reply, "/settings/memory-backup/save", 1);
       return;
     }
 
-    const { result, preferences: nextPreferences } = await memoryBackupScheduler.triggerManualBackup();
+    const { result, preferences: nextPreferences } = await memoryBackupScheduler.triggerManualBackup({
+      onRemoteConflict: parsed.data.on_remote_conflict,
+    });
     auditLog("settings.memory_backup_save", {
       actor_id: request.authContext.actorId,
       result: result.result,
@@ -2779,6 +2773,21 @@ function buildSettingsPayload(
     credential_mode: "plain" | "secret_ref" | "unset";
     credential_ref: string | null;
   }>;
+  braindrive_models_key: {
+    status:
+      | "provisioned"
+      | "ready"
+      | "checkout_pending"
+      | "zero_balance"
+      | "repair_required"
+      | "provision_failed"
+      | "vault_write_failed";
+    checkout_pending: boolean;
+    masked_key?: string;
+    expires_unfunded_at?: string;
+    last_attempt_at?: string;
+    last_error?: string | null;
+  } | null;
   memory_backup: {
     repository_url: string;
     frequency: "manual" | "after_changes" | "hourly" | "daily";
@@ -2827,6 +2836,7 @@ function buildSettingsPayload(
     )
   );
   const memoryBackup = preferences.memory_backup;
+  const brainDriveModelsKey = preferences.braindrive_models_key;
 
   return {
     default_model: effectiveDefaultModel,
@@ -2835,6 +2845,18 @@ function buildSettingsPayload(
     default_provider_profile: adapterConfig.default_provider_profile ?? null,
     available_models: availableModels,
     provider_profiles: providerProfilePayload,
+    braindrive_models_key: brainDriveModelsKey
+      ? {
+          status: brainDriveModelsKey.status ?? "provisioned",
+          checkout_pending: brainDriveModelsKey.checkout_pending ?? false,
+          ...(brainDriveModelsKey.masked_key ? { masked_key: brainDriveModelsKey.masked_key } : {}),
+          ...(brainDriveModelsKey.expires_unfunded_at
+            ? { expires_unfunded_at: brainDriveModelsKey.expires_unfunded_at }
+            : {}),
+          ...(brainDriveModelsKey.last_attempt_at ? { last_attempt_at: brainDriveModelsKey.last_attempt_at } : {}),
+          ...(brainDriveModelsKey.last_error !== undefined ? { last_error: brainDriveModelsKey.last_error } : {}),
+        }
+      : null,
     memory_backup: memoryBackup
       ? {
           repository_url: memoryBackup.repository_url,
@@ -3007,31 +3029,6 @@ function resolveAdapterProfile(
     api_key_env: adapterConfig.api_key_env,
     provider_id: adapterConfig.provider_id,
   };
-}
-
-function createMemoryUpdateAdapter(
-  runtimeConfig: RuntimeConfig,
-  adapterConfig: AdapterConfig,
-  preferences: Preferences,
-  selectedAdapterConfig: AdapterConfig,
-  apiKey?: string
-): ModelAdapter | undefined {
-  const envApiKey = process.env[selectedAdapterConfig.api_key_env]?.trim();
-  const runtimeApiKey = apiKey?.trim() || envApiKey || undefined;
-  if (!runtimeApiKey) {
-    return undefined;
-  }
-
-  try {
-    return createModelAdapter(runtimeConfig.provider_adapter, adapterConfig, preferences, {
-      apiKey: runtimeApiKey,
-    });
-  } catch (error) {
-    auditLog("memory_update.adapter_unavailable", {
-      message: error instanceof Error ? error.message : String(error),
-    });
-    return undefined;
-  }
 }
 
 function sanitizeCredentialResolutionError(error: unknown): string {
@@ -3309,6 +3306,17 @@ async function buildFileSnapshot(
 
 function hashText(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function numberFromUnknown(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
 }
 
 export function createBrainDriveMemorySafetyGuard(

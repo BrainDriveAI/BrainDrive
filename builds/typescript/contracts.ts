@@ -185,9 +185,30 @@ export type Preferences = {
   secret_resolution?: SecretResolutionPreference;
   memory_backup?: MemoryBackupPreference;
   prompt_audit?: PromptAuditPreference;
+  braindrive_models_key?: BrainDriveModelsKeyPreference;
 };
 
 export type PromptAuditDetail = "minimal" | "standard" | "verbose";
+
+export type BrainDriveModelsKeyPreference = {
+  install_public_id?: string;
+  key_id?: string;
+  key_hash?: string;
+  masked_key?: string;
+  status?:
+    | "provisioned"
+    | "ready"
+    | "checkout_pending"
+    | "zero_balance"
+    | "repair_required"
+    | "provision_failed"
+    | "vault_write_failed";
+  checkout_pending?: boolean;
+  provisioned_at?: string;
+  expires_unfunded_at?: string;
+  last_attempt_at?: string;
+  last_error?: string | null;
+};
 
 export type PromptAuditPreference = {
   enabled: boolean;

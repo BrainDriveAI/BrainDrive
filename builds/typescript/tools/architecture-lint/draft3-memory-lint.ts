@@ -3,6 +3,11 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  ROOT_AGENT_CANONICAL_ID,
+  ROOT_AGENT_LEGACY_IDS,
+} from "../../memory/root-agent.js";
+
 export type Draft3MemoryLintResult = {
   ok: boolean;
   errors: string[];
@@ -14,7 +19,6 @@ const ARCHITECTURE_ALIGNED_PROJECTS = [
   "fitness",
   "new-project",
   "relationships",
-  "your-agent",
 ] as const;
 
 const DEFAULT_PAGE_PROJECT_IDS = [
@@ -25,8 +29,23 @@ const DEFAULT_PAGE_PROJECT_IDS = [
   "new-project",
 ] as const;
 
+const PAGE_JOURNAL_PROJECT_IDS = [
+  "finance",
+  "fitness",
+  "career",
+  "relationships",
+  "new-project",
+] as const;
+
 const REQUIRED_PROJECT_FILES = [
   "AGENT.md",
+  "spec.md",
+  "run-interview.md",
+  "plan.md",
+  "run-planning.md",
+] as const;
+
+const ROOT_AGENT_FORBIDDEN_TEMPLATE_FILES = [
   "spec.md",
   "run-interview.md",
   "plan.md",
@@ -56,6 +75,16 @@ const STALE_FITNESS_PATHS = [
 const PROCEDURE_FILES = [
   "run-interview.md",
   "run-planning.md",
+] as const;
+
+const JOURNAL_PROJECT_FILES = [
+  "run-journal.md",
+  "journal.md",
+] as const;
+
+const STALE_JOURNAL_PROJECT_PATHS = [
+  "journal/AGENT.md",
+  "journal/journal.md",
 ] as const;
 
 const OPTIONAL_PROJECT_OVERLAY_FILES = [
@@ -247,8 +276,20 @@ export async function lintDraft3MemoryStarterPack(starterPackRoot: string): Prom
     errors.push("base/AGENT.md must stay model-agnostic");
   }
 
-  if (existsSync(path.join(starterPackRoot, "projects", "templates", "braindrive-plus-one"))) {
-    errors.push("BrainDrive+1 must not be scaffolded as a normal project template");
+  for (const legacyId of ROOT_AGENT_LEGACY_IDS) {
+    if (existsSync(path.join(starterPackRoot, "projects", "templates", legacyId))) {
+      errors.push(`Legacy root agent slug must not be scaffolded as a normal project template: ${legacyId}`);
+    }
+  }
+
+  const rootAgentTemplateRoot = path.join(starterPackRoot, "projects", "templates", ROOT_AGENT_CANONICAL_ID);
+  if (!existsSync(path.join(rootAgentTemplateRoot, "AGENT.md"))) {
+    errors.push(`Missing required root agent template file: ${ROOT_AGENT_CANONICAL_ID}/AGENT.md`);
+  }
+  for (const file of ROOT_AGENT_FORBIDDEN_TEMPLATE_FILES) {
+    if (existsSync(path.join(rootAgentTemplateRoot, file))) {
+      errors.push(`Root agent must not be scaffolded as a normal project template: ${ROOT_AGENT_CANONICAL_ID}/${file}`);
+    }
   }
 
   const projectSeeds = await readOptional(path.join(starterPackRoot, "projects", "projects.seed.json"));
@@ -294,6 +335,30 @@ export async function lintDraft3MemoryStarterPack(starterPackRoot: string): Prom
     for (const file of OPTIONAL_PROJECT_OVERLAY_FILES) {
       if (existsSync(path.join(projectRoot, file))) {
         errors.push(`Owner overlay must not be seeded by starter pack: ${projectId}/${file}`);
+      }
+    }
+
+    if (PAGE_JOURNAL_PROJECT_IDS.includes(projectId as typeof PAGE_JOURNAL_PROJECT_IDS[number])) {
+      for (const file of JOURNAL_PROJECT_FILES) {
+        if (!existsSync(path.join(projectRoot, file))) {
+          errors.push(`Missing required journal template file: ${projectId}/${file}`);
+        }
+      }
+
+      for (const file of STALE_JOURNAL_PROJECT_PATHS) {
+        if (existsSync(path.join(projectRoot, file))) {
+          errors.push(`Stale nested journal template file must be removed: ${projectId}/${file}`);
+        }
+      }
+
+      const journalProcedure = await readOptional(path.join(projectRoot, "run-journal.md"));
+      if (journalProcedure !== null && !/^## Preservation Rule\s*$/m.test(journalProcedure)) {
+        errors.push(`Procedure is missing Preservation Rule: ${projectId}/run-journal.md`);
+      }
+
+      const journalState = await readOptional(path.join(projectRoot, "journal.md"));
+      if (journalState !== null && !/^# Your(?: .+)? Journal\s*$/m.test(journalState)) {
+        errors.push(`Journal state template must be owner-facing: ${projectId}/journal.md`);
       }
     }
 

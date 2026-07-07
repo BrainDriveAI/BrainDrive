@@ -32,8 +32,8 @@ function deferred<T>() {
 
 const defaultProjects: Project[] = [
   {
-    id: "braindrive-plus-one",
-    name: "BrainDrive+1",
+    id: "your-agent",
+    name: "Your Agent",
     icon: "sparkles",
     conversationId: "conv-plus-one",
   },
@@ -89,14 +89,14 @@ describe("useProjects", () => {
     const { result } = renderHook(() => useProjects());
 
     await waitFor(() => {
-      expect(result.current.selectedProjectId).toBe("braindrive-plus-one");
+      expect(result.current.selectedProjectId).toBe("your-agent");
       expect(result.current.isLoadingFiles).toBe(false);
     });
 
     expect(getProjectFilesMock).toHaveBeenCalledTimes(1);
 
     act(() => {
-      result.current.selectProject("braindrive-plus-one");
+      result.current.selectProject("your-agent");
     });
 
     expect(getProjectFilesMock).toHaveBeenCalledTimes(1);
@@ -107,7 +107,7 @@ describe("useProjects", () => {
     const { result } = renderHook(() => useProjects());
 
     await waitFor(() => {
-      expect(result.current.selectedProjectId).toBe("braindrive-plus-one");
+      expect(result.current.selectedProjectId).toBe("your-agent");
     });
 
     listProjectsMock.mockResolvedValue([
@@ -116,12 +116,38 @@ describe("useProjects", () => {
     ]);
 
     await act(async () => {
-      await result.current.clearProjectConversation("braindrive-plus-one");
+      await result.current.clearProjectConversation("your-agent");
     });
 
-    expect(clearProjectConversationMock).toHaveBeenCalledWith("braindrive-plus-one");
+    expect(clearProjectConversationMock).toHaveBeenCalledWith("your-agent");
     await waitFor(() => {
       expect(result.current.activeConversationId).toBeNull();
     });
+  });
+
+  it("normalizes a legacy root agent project payload", async () => {
+    listProjectsMock.mockResolvedValue([
+      {
+        id: "braindrive-plus-one",
+        name: "Your Agent",
+        icon: "sparkles",
+        conversationId: "conv-legacy",
+      },
+      defaultProjects[1]!,
+    ]);
+
+    const { result } = renderHook(() => useProjects());
+
+    await waitFor(() => {
+      expect(result.current.selectedProjectId).toBe("your-agent");
+      expect(result.current.selectedProject?.id).toBe("your-agent");
+    });
+    expect(getProjectFilesMock).toHaveBeenCalledWith("your-agent");
+
+    await act(async () => {
+      await result.current.clearProjectConversation("braindrive-plus-one");
+    });
+
+    expect(clearProjectConversationMock).toHaveBeenCalledWith("your-agent");
   });
 });

@@ -141,6 +141,22 @@ export type GatewayProviderProfile = {
   credential_ref: string | null;
 };
 
+export type GatewayBrainDriveModelsKeyState = {
+  status:
+    | "provisioned"
+    | "ready"
+    | "checkout_pending"
+    | "zero_balance"
+    | "repair_required"
+    | "provision_failed"
+    | "vault_write_failed";
+  checkout_pending: boolean;
+  masked_key?: string;
+  expires_unfunded_at?: string;
+  last_attempt_at?: string;
+  last_error?: string | null;
+};
+
 export type GatewayMemoryBackupFrequency = "manual" | "after_changes" | "hourly" | "daily";
 
 export type GatewayMemoryBackupSettings = {
@@ -163,8 +179,13 @@ export type GatewayMemoryBackupSettingsUpdateRequest = {
 export type GatewayMemoryBackupRunResult = {
   attempted_at: string;
   saved_at?: string;
-  result: "success" | "failed" | "noop";
+  result: "success" | "failed" | "noop" | "conflict";
   message?: string;
+  resolution_required?: "restore_or_replace_remote";
+};
+
+export type GatewayMemoryBackupRunRequest = {
+  on_remote_conflict?: "fail" | "replace_remote";
 };
 
 export type GatewayMemoryBackupRestoreRequest = {
@@ -197,7 +218,28 @@ export type GatewaySettings = {
   default_provider_profile: string | null;
   available_models: string[];
   provider_profiles: GatewayProviderProfile[];
+  braindrive_models_key: GatewayBrainDriveModelsKeyState | null;
   memory_backup: GatewayMemoryBackupSettings | null;
+};
+
+export type GatewayCreditsPurchaseStatus =
+  | "activating"
+  | "ready"
+  | "zero_balance"
+  | "repair_required"
+  | "unavailable";
+
+export type GatewayCreditsStatus = {
+  remaining_usd: number;
+  total_purchased_usd?: number;
+  total_spent_usd?: number;
+  key_valid?: boolean;
+  purchase_status?: GatewayCreditsPurchaseStatus;
+};
+
+export type GatewayCreditsCheckoutResponse = {
+  checkout_url: string;
+  purchase_status?: GatewayCreditsPurchaseStatus;
 };
 
 export type GatewayOnboardingProvider = {
@@ -289,17 +331,6 @@ export type GatewayMigrationImportResult = {
   warnings: string[];
   settings: GatewaySettings;
   logout_required?: boolean;
-};
-
-export type GatewayMemoryUpdateStatus = {
-  current_app_version: string;
-  memory_pack_version: string;
-  target_memory_pack_version: string;
-  pending: boolean;
-  migration_id: string;
-  report_path: string | null;
-  applied_paths: string[];
-  deferred_paths: string[];
 };
 
 export class GatewayError extends Error {

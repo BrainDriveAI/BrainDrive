@@ -85,10 +85,13 @@ describe("Sidebar", () => {
         projectFiles={[
           { name: "spec.md", path: "documents/finance/spec.md" },
           { name: "plan.md", path: "documents/finance/plan.md" },
+          { name: "journal.md", path: "documents/finance/journal.md" },
           { name: "2026-05-capital-one.md", path: "documents/finance/2026-05-capital-one.md" },
           { name: "AGENT.md", path: "finance/AGENT.md" },
+          { name: "journal/journal.md", path: "documents/finance/journal/journal.md" },
           { name: "run-interview.md", path: "finance/run-interview.md" },
-          { name: "run-planning.md", path: "finance/run-planning.md" }
+          { name: "run-planning.md", path: "finance/run-planning.md" },
+          { name: "run-journal.md", path: "finance/run-journal.md" }
         ]}
       />
     );
@@ -96,9 +99,11 @@ describe("Sidebar", () => {
     expect(screen.getByRole("button", { name: "Your Finance" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Your Goals" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Your Plan" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Your Journal" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "2026 05 Capital One" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Show advanced" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Show advanced 3" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Journal" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Journal" })).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText("Search chats...")).not.toBeInTheDocument();
   });
 

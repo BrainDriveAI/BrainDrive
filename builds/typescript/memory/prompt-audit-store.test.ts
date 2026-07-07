@@ -142,6 +142,8 @@ describe("sanitizePromptAuditValue", () => {
     expect(
       sanitizePromptAuditValue({
         api_key: "plain-secret",
+        apiKey: "sk-camelcasekey123456",
+        raw_key: "sk-rawkeyvalue123456",
         nested: {
           token: "secret-token",
           secret_ref: "provider/openrouter/api_key",
@@ -149,6 +151,8 @@ describe("sanitizePromptAuditValue", () => {
       })
     ).toEqual({
       api_key: "[REDACTED]",
+      apiKey: "[REDACTED]",
+      raw_key: "[REDACTED]",
       nested: {
         token: "[REDACTED]",
         secret_ref: "provider/openrouter/api_key",

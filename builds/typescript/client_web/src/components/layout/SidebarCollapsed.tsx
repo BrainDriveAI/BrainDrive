@@ -1,5 +1,6 @@
 import { Bot, ChevronRight, Settings } from "lucide-react";
 
+import { ROOT_AGENT_PROJECT_ID, isRootAgentProjectId } from "@/lib/rootAgent";
 import type { Project } from "@/types/ui";
 
 import { getProjectIcon } from "./project-icons";
@@ -26,7 +27,7 @@ export default function SidebarCollapsed({
         type="button"
         aria-label="Go to BrainDrive home"
         onClick={() => {
-          onSelectProject("braindrive-plus-one");
+          onSelectProject(ROOT_AGENT_PROJECT_ID);
           onToggle();
         }}
         className="cursor-pointer bg-transparent p-0 hover:opacity-80"
@@ -38,12 +39,12 @@ export default function SidebarCollapsed({
         <button
           type="button"
           onClick={() => {
-            onSelectProject("braindrive-plus-one");
+            onSelectProject(ROOT_AGENT_PROJECT_ID);
             onToggle();
           }}
           className={[
             "flex h-8 w-8 cursor-pointer items-center justify-center rounded-full transition-colors duration-200 hover:bg-bd-amber/80 hover:text-bd-bg-primary",
-            selectedProjectId === "braindrive-plus-one"
+            isRootAgentProjectId(selectedProjectId)
               ? "bg-bd-amber text-bd-bg-primary"
               : "bg-bd-bg-tertiary text-bd-text-primary"
           ].join(" ")}
@@ -52,7 +53,7 @@ export default function SidebarCollapsed({
         >
           <Bot size={16} strokeWidth={1.8} />
         </button>
-        {projects.filter((p) => p.id !== "braindrive-plus-one").map((project) => {
+        {projects.filter((project) => !isRootAgentProjectId(project.id)).map((project) => {
           const Icon = getProjectIcon(project.icon);
           const isActive = project.id === selectedProjectId;
 

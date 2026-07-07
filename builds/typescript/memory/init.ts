@@ -1,8 +1,18 @@
 import path from "node:path";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 
 import { bootstrapSkillsFromStarterPack, MemorySkillStore } from "./skills.js";
 import { resolveMemoryPath, toMemoryRelativePath } from "./paths.js";
+import {
+  ROOT_AGENT_CANONICAL_ID,
+  ROOT_AGENT_DISPLAY_NAME,
+  ROOT_AGENT_ICON,
+  ROOT_AGENT_LEGACY_IDS,
+  ROOT_AGENT_TEMPLATE_ID,
+  isRootAgentProjectId,
+  rootAgentProjectSeed,
+  rootAgentTemplateIdForProjectId,
+} from "./root-agent.js";
 
 export type MemoryInitProfile = "local-dev" | "openrouter-secret-ref" | "braindrive-managed-secret-ref";
 
@@ -46,20 +56,20 @@ const TODO_RELATIVE_PATH = "me/todo.md";
 const CONVERSATIONS_INDEX_RELATIVE_PATH = "conversations/index.json";
 const PROJECTS_MANIFEST_RELATIVE_PATH = "documents/projects.json";
 const PROJECTS_SEEDED_MARKER_RELATIVE_PATH = "preferences/projects-seeded-v1.json";
+const ROOT_AGENT_IDENTITY_MIGRATION_RELATIVE_PATH = "system/migrations/your-agent-identity-cleanup";
 
 const PROJECT_TEMPLATE_FILES = ["AGENT.md", "spec.md", "run-interview.md", "plan.md", "run-planning.md"] as const;
-const LIFE_AREA_PROJECT_TEMPLATE_FILES = PROJECT_TEMPLATE_FILES;
-const LIFE_AREA_PROJECT_IDS = new Set(["career", "finance", "fitness", "relationships"]);
+const JOURNAL_PROJECT_TEMPLATE_FILES = ["run-journal.md", "journal.md"] as const;
+const PAGE_JOURNAL_PROJECT_IDS = new Set(["finance", "fitness", "career", "relationships", "new-project"]);
 const PROJECTS_SEED_RELATIVE_PATH = "projects/projects.seed.json";
 const PROJECT_TEMPLATES_ROOT_RELATIVE_PATH = "projects/templates";
 
-const PROTECTED_PROJECT_IDS = new Set(["braindrive-plus-one"]);
-const PROJECT_TEMPLATE_ALIASES: Record<string, string> = {
-  "braindrive-plus-one": "your-agent",
-};
+const PROJECT_TEMPLATE_ALIASES: Record<string, string> = Object.fromEntries(
+  ROOT_AGENT_LEGACY_IDS.map((projectId) => [projectId, ROOT_AGENT_TEMPLATE_ID])
+);
 
 const FALLBACK_PROJECT_SEEDS: Array<{ id: string; name: string; icon: string }> = [
-  { id: "braindrive-plus-one", name: "BrainDrive+1", icon: "sparkles" },
+  rootAgentProjectSeed(),
   { id: "finance", name: "Finance", icon: "dollar-sign" },
   { id: "fitness", name: "Fitness", icon: "dumbbell" },
   { id: "career", name: "Career", icon: "briefcase" },
@@ -142,7 +152,7 @@ const FALLBACK_BRAINDRIVE_MANAGED_SECRET_REF_PREFERENCES = {
 };
 
 export function isProtectedProjectId(projectId: string): boolean {
-  return PROTECTED_PROJECT_IDS.has(projectId.trim().toLowerCase());
+  return isRootAgentProjectId(projectId);
 }
 
 export async function initializeMemoryLayout(
@@ -271,20 +281,19 @@ export async function scaffoldProjectFiles(
   const force = options.force ?? false;
   const dryRun = options.dryRun ?? false;
   const starterPackDir = await resolveStarterPackDir(rootDir);
-  const templateId = await resolveTemplateId(starterPackDir, options.templateId ?? projectId);
+  const effectiveProjectId = isRootAgentProjectId(projectId) ? ROOT_AGENT_CANONICAL_ID : projectId;
+  const requestedTemplateId = options.templateId ?? effectiveProjectId;
+  const templateId = await resolveTemplateId(starterPackDir, requestedTemplateId);
 
-  await ensureDirectory(resolveMemoryPath(absoluteMemoryRoot, `documents/${projectId}`), absoluteMemoryRoot, summary, dryRun);
+  await ensureDirectory(resolveMemoryPath(absoluteMemoryRoot, `documents/${effectiveProjectId}`), absoluteMemoryRoot, summary, dryRun);
 
-  const coreTemplateFiles =
-    LIFE_AREA_PROJECT_IDS.has(projectId) || LIFE_AREA_PROJECT_IDS.has(templateId)
-      ? LIFE_AREA_PROJECT_TEMPLATE_FILES
-      : PROJECT_TEMPLATE_FILES;
-  for (const templateFile of coreTemplateFiles) {
+  const templateFiles = projectTemplateFilesFor(effectiveProjectId, templateId);
+  for (const templateFile of templateFiles) {
     await ensureProjectTemplateFile(
       absoluteMemoryRoot,
       starterPackDir,
       templateId,
-      projectId,
+      effectiveProjectId,
       projectName,
       templateFile,
       force,
@@ -297,6 +306,18 @@ export async function scaffoldProjectFiles(
     template_id: templateId,
     starter_pack_dir: starterPackDir,
   };
+}
+
+function projectTemplateFilesFor(projectId: string, templateId: string): readonly string[] {
+  if (isRootAgentProjectId(projectId) || isRootAgentProjectId(templateId)) {
+    return ["AGENT.md"];
+  }
+
+  const files: string[] = [...PROJECT_TEMPLATE_FILES];
+  if (PAGE_JOURNAL_PROJECT_IDS.has(projectId) || PAGE_JOURNAL_PROJECT_IDS.has(templateId)) {
+    files.push(...JOURNAL_PROJECT_TEMPLATE_FILES);
+  }
+  return files;
 }
 
 async function ensureProjectTemplateFile(
@@ -368,6 +389,12 @@ async function ensureProjectsManifestAndDefaults(
   const shouldAttemptSeed = seedDefaultProjects && (!markerExists || force);
   let manifestChanged = false;
 
+  const initialRootAgentRepair = repairRootAgentProjectEntries(projects, summary);
+  if (initialRootAgentRepair.changed) {
+    projects = initialRootAgentRepair.projects;
+    manifestChanged = true;
+  }
+
   if (shouldAttemptSeed) {
     const defaultProjects = await loadDefaultProjectsSeed(starterPackDir, summary);
     if (projects.length === 0 || force) {
@@ -412,10 +439,20 @@ async function ensureProjectsManifestAndDefaults(
     }
   }
 
-  const legacyCleanup = removeLegacyDuplicateRootAgentProject(projects);
-  if (legacyCleanup.changed) {
-    projects = legacyCleanup.projects;
+  const finalRootAgentRepair = repairRootAgentProjectEntries(projects, summary);
+  if (finalRootAgentRepair.changed) {
+    projects = finalRootAgentRepair.projects;
     manifestChanged = true;
+  }
+
+  await ensureRootAgentFolderCompatibility(memoryRoot, dryRun, summary);
+  if (projects.some((project) => project.id === ROOT_AGENT_CANONICAL_ID)) {
+    await scaffoldProjectFiles(rootDir, memoryRoot, ROOT_AGENT_CANONICAL_ID, ROOT_AGENT_DISPLAY_NAME, {
+      templateId: ROOT_AGENT_TEMPLATE_ID,
+      force: false,
+      dryRun,
+      summary,
+    });
   }
 
   if (manifestChanged || !manifestExisted) {
@@ -532,7 +569,10 @@ async function resolveStarterPackDir(rootDir: string): Promise<string | null> {
 }
 
 async function resolveTemplateId(starterPackDir: string | null, requestedTemplateId: string): Promise<string> {
-  const aliasedTemplateId = PROJECT_TEMPLATE_ALIASES[requestedTemplateId] ?? requestedTemplateId;
+  const normalizedRequestedTemplateId = requestedTemplateId.trim().toLowerCase();
+  const aliasedTemplateId = rootAgentTemplateIdForProjectId(
+    PROJECT_TEMPLATE_ALIASES[normalizedRequestedTemplateId] ?? normalizedRequestedTemplateId
+  );
 
   if (!starterPackDir) {
     return "new-project";
@@ -588,6 +628,10 @@ function parseProjectSeedEntry(value: unknown): { id: string; name: string; icon
   if (!id || !name || !icon) {
     return null;
   }
+  if (isRootAgentProjectId(id)) {
+    return rootAgentProjectSeed();
+  }
+
   return {
     id: id.toLowerCase(),
     name,
@@ -651,32 +695,331 @@ function sortProjects(projects: ProjectManifestEntry[]): ProjectManifestEntry[] 
   return [...projects];
 }
 
-function removeLegacyDuplicateRootAgentProject(projects: ProjectManifestEntry[]): {
+function repairRootAgentProjectEntries(
+  projects: ProjectManifestEntry[],
+  summary: MemoryInitSummary
+): {
   projects: ProjectManifestEntry[];
   changed: boolean;
 } {
-  const hasRootAgent = projects.some((project) => project.id === "braindrive-plus-one");
-  if (!hasRootAgent) {
+  const rootEntries = projects.filter((project) => isRootAgentProjectId(project.id));
+  if (rootEntries.length === 0) {
     return { projects, changed: false };
   }
 
-  let changed = false;
-  const nextProjects = projects.filter((project) => {
-    const isUnusedLegacySeed =
-      project.id === "your-agent" &&
-      project.name === "Your Agent" &&
-      project.icon === "sparkles" &&
-      project.conversation_id === null &&
-      project.default_skill_ids.length === 0;
-    if (!isUnusedLegacySeed) {
-      return true;
+  const nonRootEntries = projects.filter((project) => !isRootAgentProjectId(project.id));
+  const canonicalEntry = rootEntries.find((project) => project.id === ROOT_AGENT_CANONICAL_ID);
+  const primaryEntry = canonicalEntry ?? rootEntries[0]!;
+  const conversationIds = dedupeStrings(
+    rootEntries
+      .map((project) => project.conversation_id)
+      .filter((conversationId): conversationId is string => typeof conversationId === "string" && conversationId.trim().length > 0)
+  );
+  const defaultSkillIds = dedupeStrings(rootEntries.flatMap((project) => project.default_skill_ids));
+  const hasConversationConflict = conversationIds.length > 1;
+  const rootAgentEntry: ProjectManifestEntry = {
+    id: ROOT_AGENT_CANONICAL_ID,
+    name: ROOT_AGENT_DISPLAY_NAME,
+    icon: ROOT_AGENT_ICON,
+    conversation_id: primaryEntry.conversation_id ?? (conversationIds.length === 1 ? conversationIds[0]! : null),
+    default_skill_ids: defaultSkillIds,
+  };
+
+  let nextProjects: ProjectManifestEntry[];
+  if (hasConversationConflict) {
+    summary.warnings.push(`Conflicting root agent conversation ids preserved for manual review: ${conversationIds.join(", ")}`);
+    const preservedLegacyEntries = rootEntries
+      .filter((project) => project.id !== ROOT_AGENT_CANONICAL_ID)
+      .map((project) => ({
+        ...project,
+        name: ROOT_AGENT_DISPLAY_NAME,
+        icon: ROOT_AGENT_ICON,
+      }));
+    nextProjects = [rootAgentEntry, ...preservedLegacyEntries, ...nonRootEntries];
+  } else {
+    nextProjects = [rootAgentEntry, ...nonRootEntries];
+  }
+
+  return JSON.stringify(projects) === JSON.stringify(nextProjects)
+    ? { projects, changed: false }
+    : { projects: nextProjects, changed: true };
+}
+
+async function ensureRootAgentFolderCompatibility(
+  memoryRoot: string,
+  dryRun: boolean,
+  summary: MemoryInitSummary
+): Promise<void> {
+  const canonicalRelativePath = `documents/${ROOT_AGENT_CANONICAL_ID}`;
+  const canonicalPath = resolveMemoryPath(memoryRoot, canonicalRelativePath);
+
+  for (const legacyId of ROOT_AGENT_LEGACY_IDS) {
+    const legacyRelativePath = `documents/${legacyId}`;
+    const legacyPath = resolveMemoryPath(memoryRoot, legacyRelativePath);
+    const legacyExists = await pathExists(legacyPath);
+    if (!legacyExists) {
+      continue;
     }
 
-    changed = true;
-    return false;
-  });
+    const canonicalExists = await pathExists(canonicalPath);
+    if (!canonicalExists) {
+      if (dryRun) {
+        summary.created.push(canonicalRelativePath);
+      } else {
+        await cp(legacyPath, canonicalPath, { recursive: true, force: false, errorOnExist: false });
+        summary.created.push(canonicalRelativePath);
+      }
+      summary.warnings.push(`Copied legacy root agent folder ${legacyRelativePath} to ${canonicalRelativePath}`);
+      await archiveLegacyRootAgentFolder(
+        memoryRoot,
+        legacyRelativePath,
+        legacyPath,
+        canonicalRelativePath,
+        canonicalPath,
+        "archived legacy root-agent folder after creating canonical folder",
+        dryRun,
+        summary
+      );
+      continue;
+    }
 
-  return changed ? { projects: nextProjects, changed } : { projects, changed: false };
+    const foldersMatch = await directoriesHaveSameFileContents(legacyPath, canonicalPath);
+    await archiveLegacyRootAgentFolder(
+      memoryRoot,
+      legacyRelativePath,
+      legacyPath,
+      canonicalRelativePath,
+      canonicalPath,
+      foldersMatch
+        ? "archived duplicate legacy root-agent folder"
+        : "archived divergent legacy root-agent folder for manual review",
+      dryRun,
+      summary
+    );
+  }
+}
+
+type RootAgentFolderComparison = {
+  legacy_files: string[];
+  canonical_files: string[];
+  identical_files: string[];
+  divergent_files: string[];
+  legacy_only_files: string[];
+  canonical_only_files: string[];
+};
+
+async function archiveLegacyRootAgentFolder(
+  memoryRoot: string,
+  legacyRelativePath: string,
+  legacyPath: string,
+  canonicalRelativePath: string,
+  canonicalPath: string,
+  reason: string,
+  dryRun: boolean,
+  summary: MemoryInitSummary
+): Promise<void> {
+  const comparison = await compareRootAgentFolders(legacyPath, canonicalPath);
+  const legacyId = path.basename(legacyRelativePath);
+  const runId = `${new Date().toISOString().replace(/[:.]/g, "-")}-${legacyId}`;
+  const migrationRelativePath = `${ROOT_AGENT_IDENTITY_MIGRATION_RELATIVE_PATH}/${runId}`;
+  const archiveRelativePath = `${migrationRelativePath}/${legacyId}`;
+  const reportMarkdownRelativePath = `${migrationRelativePath}/report.md`;
+  const reportJsonRelativePath = `${migrationRelativePath}/report.json`;
+
+  if (dryRun) {
+    summary.warnings.push(`Would archive legacy root agent folder ${legacyRelativePath} to ${archiveRelativePath}: ${reason}`);
+    summary.created.push(archiveRelativePath);
+    summary.created.push(reportMarkdownRelativePath);
+    summary.created.push(reportJsonRelativePath);
+    return;
+  }
+
+  const archivePath = resolveMemoryPath(memoryRoot, archiveRelativePath);
+  await mkdir(path.dirname(archivePath), { recursive: true });
+  await cp(legacyPath, archivePath, { recursive: true, force: false, errorOnExist: true });
+
+  const report = rootAgentMigrationReport({
+    action: reason,
+    archive_relative_path: archiveRelativePath,
+    canonical_relative_path: canonicalRelativePath,
+    comparison,
+    dry_run: false,
+    legacy_relative_path: legacyRelativePath,
+  });
+  await writeFile(resolveMemoryPath(memoryRoot, reportMarkdownRelativePath), report.markdown, "utf8");
+  await writeFile(resolveMemoryPath(memoryRoot, reportJsonRelativePath), `${JSON.stringify(report.json, null, 2)}\n`, "utf8");
+  await rm(legacyPath, { recursive: true, force: true });
+
+  summary.created.push(archiveRelativePath);
+  summary.created.push(reportMarkdownRelativePath);
+  summary.created.push(reportJsonRelativePath);
+  summary.updated.push(legacyRelativePath);
+  summary.warnings.push(`Archived legacy root agent folder ${legacyRelativePath} to ${archiveRelativePath}: ${reason}`);
+}
+
+async function compareRootAgentFolders(legacyPath: string, canonicalPath: string): Promise<RootAgentFolderComparison> {
+  const [legacyFiles, canonicalFiles] = await Promise.all([
+    listRelativeFilesIfExists(legacyPath),
+    listRelativeFilesIfExists(canonicalPath),
+  ]);
+  const canonicalFileSet = new Set(canonicalFiles);
+  const legacyFileSet = new Set(legacyFiles);
+  const identicalFiles: string[] = [];
+  const divergentFiles: string[] = [];
+  const legacyOnlyFiles: string[] = [];
+
+  for (const legacyFile of legacyFiles) {
+    if (!canonicalFileSet.has(legacyFile)) {
+      legacyOnlyFiles.push(legacyFile);
+      continue;
+    }
+
+    const [legacyContent, canonicalContent] = await Promise.all([
+      readFile(path.join(legacyPath, legacyFile)),
+      readFile(path.join(canonicalPath, legacyFile)),
+    ]);
+    if (legacyContent.equals(canonicalContent)) {
+      identicalFiles.push(legacyFile);
+    } else {
+      divergentFiles.push(legacyFile);
+    }
+  }
+
+  const canonicalOnlyFiles = canonicalFiles.filter((canonicalFile) => !legacyFileSet.has(canonicalFile));
+
+  return {
+    legacy_files: legacyFiles,
+    canonical_files: canonicalFiles,
+    identical_files: identicalFiles,
+    divergent_files: divergentFiles,
+    legacy_only_files: legacyOnlyFiles,
+    canonical_only_files: canonicalOnlyFiles,
+  };
+}
+
+async function listRelativeFilesIfExists(root: string): Promise<string[]> {
+  if (!(await pathExists(root))) {
+    return [];
+  }
+  return listRelativeFiles(root);
+}
+
+function rootAgentMigrationReport(input: {
+  action: string;
+  archive_relative_path: string;
+  canonical_relative_path: string;
+  comparison: RootAgentFolderComparison;
+  dry_run: boolean;
+  legacy_relative_path: string;
+}): {
+  markdown: string;
+  json: Record<string, unknown>;
+} {
+  const generatedAt = new Date().toISOString();
+  const json = {
+    generated_at: generatedAt,
+    dry_run: input.dry_run,
+    action: input.action,
+    legacy_relative_path: input.legacy_relative_path,
+    canonical_relative_path: input.canonical_relative_path,
+    archive_relative_path: input.archive_relative_path,
+    files_archived: input.comparison.legacy_files,
+    files_identical: input.comparison.identical_files,
+    files_divergent: input.comparison.divergent_files,
+    files_unique_to_legacy: input.comparison.legacy_only_files,
+    files_unique_to_canonical: input.comparison.canonical_only_files,
+  };
+  const markdown = [
+    "# Your Agent Identity Cleanup Migration",
+    "",
+    `**Generated at:** ${generatedAt}`,
+    `**Dry run:** ${input.dry_run}`,
+    `**Action:** ${input.action}`,
+    "",
+    "## Paths",
+    "",
+    `- Legacy: \`${input.legacy_relative_path}\``,
+    `- Canonical: \`${input.canonical_relative_path}\``,
+    `- Archive: \`${input.archive_relative_path}\``,
+    "",
+    "## File Summary",
+    "",
+    `- Files archived: ${input.comparison.legacy_files.length}`,
+    `- Identical files: ${input.comparison.identical_files.length}`,
+    `- Divergent files: ${input.comparison.divergent_files.length}`,
+    `- Files unique to legacy: ${input.comparison.legacy_only_files.length}`,
+    `- Files unique to canonical: ${input.comparison.canonical_only_files.length}`,
+    "",
+    "## Archived Files",
+    "",
+    ...markdownList(input.comparison.legacy_files),
+    "",
+    "## Manual Review",
+    "",
+    "The legacy root-agent folder was removed from active `documents/` after being archived here. Review this archive before deleting it from exported memory.",
+    "",
+  ].join("\n");
+  return { markdown, json };
+}
+
+function markdownList(values: string[]): string[] {
+  if (values.length === 0) {
+    return ["- None"];
+  }
+  return values.map((value) => `- \`${value}\``);
+}
+
+async function directoriesHaveSameFileContents(leftRoot: string, rightRoot: string): Promise<boolean> {
+  const [leftFiles, rightFiles] = await Promise.all([
+    listRelativeFiles(leftRoot),
+    listRelativeFiles(rightRoot),
+  ]);
+
+  if (leftFiles.length !== rightFiles.length) {
+    return false;
+  }
+
+  for (let index = 0; index < leftFiles.length; index += 1) {
+    const relativePath = leftFiles[index]!;
+    if (relativePath !== rightFiles[index]) {
+      return false;
+    }
+
+    const [leftContent, rightContent] = await Promise.all([
+      readFile(path.join(leftRoot, relativePath)),
+      readFile(path.join(rightRoot, relativePath)),
+    ]);
+    if (!leftContent.equals(rightContent)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+async function listRelativeFiles(root: string): Promise<string[]> {
+  const files: string[] = [];
+
+  async function visit(directory: string, relativeDirectory = ""): Promise<void> {
+    const entries = await readdir(directory, { withFileTypes: true });
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      if (entry.name.startsWith(".")) {
+        continue;
+      }
+      const relativePath = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
+      const absolutePath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        await visit(absolutePath, relativePath);
+        continue;
+      }
+      if (entry.isFile()) {
+        files.push(relativePath);
+      }
+    }
+  }
+
+  await visit(root);
+  return files.sort((left, right) => left.localeCompare(right));
 }
 
 function dedupeStrings(values: string[]): string[] {
@@ -736,7 +1079,7 @@ function fallbackRootAgentPrompt(): string {
     "For explicit user commands to read/list/write/edit/delete files, execute the matching tool directly rather than asking for an extra confirmation message.",
     "For mutating actions, perform only the explicitly requested changes and avoid extra cleanup or deletion steps unless the user requested them.",
     "When writes are needed, request approval through the contract-visible approval flow before any mutating tool executes.",
-    "When asked to create a project folder, produce AGENT.md, spec.md, run-interview.md, plan.md, and run-planning.md inside that folder unless the user asks for a smaller subset.",
+    "When asked to create a project folder, produce AGENT.md, spec.md, run-interview.md, plan.md, run-planning.md, and page-specific journal files when those templates exist unless the user asks for a smaller subset.",
     "Read index.md in the current project folder only when it exists. It is an optional document map, not a default project file.",
     "For project discovery requests, prefer project_list and report projects from documents scope only.",
     "If the user asks to remember something for this chat, keep it in conversational context for this session without requiring file storage.",
@@ -946,6 +1289,52 @@ function fallbackProjectTemplateContent(projectName: string, fileName: string): 
       "## What This Procedure Is Not",
       "",
       "It is not a substitute for qualified professional support when the project requires it.",
+      "",
+    ].join("\n");
+  }
+
+  if (fileName === "run-journal.md") {
+    return [
+      `# ${projectName} Journal`,
+      "",
+      "*Procedure for follow-up sessions after `spec.md` and `plan.md` exist.*",
+      "",
+      "## Preservation Rule",
+      "",
+      "Before writing, correcting, or recovering `journal.md`, read the existing file when it is readable. Never replace the whole file. Insert new entries directly below the journal insertion anchor, newest first, or targeted-edit only the intended entry. If the file is unreadable or corrupt, create a timestamped recovery file and do not overwrite the original.",
+      "",
+      "## What This Procedure Accomplishes",
+      "",
+      "Capture owner-provided follow-up history, review progress, surface patterns as hypotheses, and keep the project spec or plan current only when the owner approves a change.",
+      "",
+      "## When to Run",
+      "",
+      "- The owner returns after the project plan exists.",
+      "- The owner shares progress, blockers, wins, changes, or follow-up context.",
+      "- The owner asks what has been logged or asks to correct a prior journal entry.",
+      "",
+      "## Method",
+      "",
+      "Read `me/profile.md`, `spec.md`, `plan.md`, and `journal.md` before acting. Insert owner-provided history below the journal insertion anchor using a dated Markdown entry, keeping newest entries first. Ask a concise clarification question before editing when the target entry is ambiguous. Treat pattern reflections as hypotheses and ask before updating `spec.md`, `plan.md`, or `me/profile.md`.",
+      "",
+      "## Done Criteria",
+      "",
+      "The journal entry or correction is saved safely, parent artifacts change only with owner approval, and the owner is told what changed and where.",
+      "",
+      "## What This Procedure Is Not",
+      "",
+      "It is not a tracker, dashboard, passive ingestion system, or replacement for the project spec and plan.",
+      "",
+    ].join("\n");
+  }
+
+  if (fileName === "journal.md") {
+    return [
+      `# Your ${projectName} Journal`,
+      "",
+      `*Your follow-up history for ${projectName} - what's happened since your plan was written, the wins, the blockers, and what you want to do next. BrainDrive keeps this current with you. You can add to it or edit it anytime, and it's never required.*`,
+      "",
+      "<!-- New entries go directly below this line, newest first, using the standard journal entry format from run-journal.md. Keep this line in place. -->",
       "",
     ].join("\n");
   }

@@ -1,0 +1,5 @@
+# Your Career Journal
+
+*Your follow-up history for Career — what's happened since your plan was written, the wins, the blockers, and what you want to do next. BrainDrive keeps this current with you. You can add to it or edit it anytime, and it's never required.*
+
+<!-- New entries go directly below this line, newest first, using the standard journal entry format from run-journal.md. Keep this line in place. -->

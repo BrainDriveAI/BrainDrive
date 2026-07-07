@@ -1,11 +1,17 @@
 import type { ProjectFile } from "@/types/ui";
+import {
+  ROOT_AGENT_DISPLAY_NAME,
+  ROOT_AGENT_PROJECT_ID,
+  ROOT_AGENT_SHORT_LABEL,
+  isRootAgentProjectId,
+} from "@/lib/rootAgent";
 
 const PROJECT_LABELS: Record<string, string> = {
   finance: "Your Finance",
   fitness: "Your Fitness",
   career: "Your Career",
   relationships: "Your Relationships",
-  "braindrive-plus-one": "Your Agent",
+  [ROOT_AGENT_PROJECT_ID]: ROOT_AGENT_DISPLAY_NAME,
 };
 
 const PROJECT_SHORT_LABELS: Record<string, string> = {
@@ -13,7 +19,7 @@ const PROJECT_SHORT_LABELS: Record<string, string> = {
   fitness: "Fitness",
   career: "Career",
   relationships: "Relationships",
-  "braindrive-plus-one": "Agent",
+  [ROOT_AGENT_PROJECT_ID]: ROOT_AGENT_SHORT_LABEL,
 };
 
 export function projectDisplayLabel(projectId: string, projectName: string): string {
@@ -31,8 +37,8 @@ export function rootProjectDisplayLabel(projectId: string, projectName: string):
   const normalizedId = projectId.trim().toLowerCase();
   const normalizedName = projectName.trim().toLowerCase();
 
-  if (normalizedId === "braindrive-plus-one") {
-    return "Your Agent";
+  if (isRootAgentProjectId(normalizedId)) {
+    return ROOT_AGENT_DISPLAY_NAME;
   }
 
   return PROJECT_SHORT_LABELS[normalizedId] ?? PROJECT_SHORT_LABELS[normalizedName] ?? titleCase(projectName);
@@ -55,6 +61,10 @@ export function sidebarFileLabel(file: ProjectFile, projectId: string): string {
 
   if (relativePath === "plan.md") {
     return "Your Plan";
+  }
+
+  if (relativePath === "journal.md") {
+    return "Your Journal";
   }
 
   if (fileName === "AGENT.md") {

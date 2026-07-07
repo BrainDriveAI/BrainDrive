@@ -1,3 +1,5 @@
+import { ROOT_AGENT_PROJECT_ID, canonicalizeRootAgentProjectId } from "@/lib/rootAgent";
+
 type ProjectIntro = {
   heading: string;
   description: string;
@@ -6,7 +8,7 @@ type ProjectIntro = {
 };
 
 const PROJECT_INTROS: Record<string, ProjectIntro> = {
-  "braindrive-plus-one": {
+  [ROOT_AGENT_PROJECT_ID]: {
     heading: "Welcome to BrainDrive",
     description:
       "Pick something on your mind right now — a goal, a problem, a decision — and let's make progress on it in the next five minutes.",
@@ -62,7 +64,7 @@ type EmptyStateProps = {
 };
 
 export default function EmptyState({ projectId, onSuggestionClick }: EmptyStateProps) {
-  const intro = (projectId && PROJECT_INTROS[projectId]) || DEFAULT_INTRO;
+  const intro = (projectId && PROJECT_INTROS[canonicalizeRootAgentProjectId(projectId)]) || DEFAULT_INTRO;
 
   return (
     <div

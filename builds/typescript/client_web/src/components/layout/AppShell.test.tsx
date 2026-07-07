@@ -10,8 +10,8 @@ const selectProjectMock = vi.fn();
 
 const projects: Project[] = [
   {
-    id: "braindrive-plus-one",
-    name: "BrainDrive+1",
+    id: "your-agent",
+    name: "Your Agent",
     icon: "sparkles",
     conversationId: "conv-home",
   },
@@ -31,12 +31,6 @@ const initialProjectFiles: ProjectFile[] = [
 ];
 
 vi.mock("@/api/gateway-adapter", () => ({
-  getMemoryUpdateReport: vi.fn(),
-  getMemoryUpdateStatus: vi.fn(async () => ({
-    migration_id: "none",
-    report_path: null,
-    deferred_paths: [],
-  })),
   getOnboardingStatus: vi.fn(async () => ({
     onboarding_required: false,
     active_provider_profile: null,
@@ -124,6 +118,15 @@ describe("AppShell project file refresh", () => {
     });
     expect(screen.getByTestId("selected-project")).toHaveTextContent("finance");
     expect(selectProjectMock).not.toHaveBeenCalled();
+  });
+
+  it("ignores stale legacy memory update notice state", () => {
+    window.localStorage.setItem("braindrive.memoryUpdateReportSeen.starter-pack-26.4.20", "1");
+
+    render(<AppShell />);
+
+    expect(screen.queryByText("BrainDrive is up to date.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Dismiss memory update notice" })).not.toBeInTheDocument();
   });
 
 });

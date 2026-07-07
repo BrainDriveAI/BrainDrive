@@ -1,6 +1,13 @@
 # BrainDrive
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) [![Status: Beta](https://img.shields.io/badge/Status-Beta-orange.svg)](https://community.braindrive.ai)
+
+> [!NOTE]
+> **BrainDrive is currently in beta.** We ship improvements near-daily — check the
+> [releases page](https://github.com/BrainDriveAI/BrainDrive/releases) for the version
+> you're running and what's changed. If something breaks or feels off, tell us in
+> [Issues](https://github.com/BrainDriveAI/BrainDrive/issues) or on the
+> [community forum](https://community.braindrive.ai).
 
 BrainDrive is a personal AI system that helps you define, set, and reach your goals. Self-hosted and MIT licensed.
 
@@ -62,7 +69,7 @@ irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/boo
 
 ## How It Works
 
-1. **Land on BrainDrive+1** — your primary AI assistant. It knows everything across all your projects and helps you get started.
+1. **Land on Your Agent** — your primary AI assistant. It knows everything across all your projects and helps you get started.
 2. **Explore life areas** — Career, Relationships, Fitness, Finance are ready to go. Create new projects for anything else.
 3. **Interview** — your AI asks the right questions to understand your situation, goals, and what success looks like.
 4. **Spec** — it organizes what it learned into a clear, structured document — your goals, context, and success criteria.

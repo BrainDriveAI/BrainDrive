@@ -12,12 +12,14 @@ import {
   type ContextWindowWarning,
   type GatewayCredentialUpdateRequest,
   type GatewayCredentialUpdateResponse,
+  type GatewayCreditsCheckoutResponse,
+  type GatewayCreditsStatus,
   type GatewayMemoryBackupRestoreRequest,
   type GatewayMemoryBackupRestoreResponse,
+  type GatewayMemoryBackupRunRequest,
   type GatewayMemoryBackupRunResponse,
   type GatewayMemoryBackupSettingsUpdateRequest,
   type GatewayMigrationImportResult,
-  type GatewayMemoryUpdateStatus,
   type GatewayModelCatalog,
   type GatewayOnboardingStatus,
   type GatewaySkillBinding,
@@ -619,11 +621,13 @@ export async function updateMemoryBackupSettings(
   return (await response.json()) as GatewaySettings;
 }
 
-export async function runMemoryBackupNow(): Promise<GatewayMemoryBackupRunResponse> {
+export async function runMemoryBackupNow(
+  payload: GatewayMemoryBackupRunRequest = {}
+): Promise<GatewayMemoryBackupRunResponse> {
   const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/settings/memory-backup/save`, {
     method: "POST",
     headers: withLocalOwnerHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify({}),
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
@@ -647,33 +651,6 @@ export async function restoreMemoryBackup(
   }
 
   return (await response.json()) as GatewayMemoryBackupRestoreResponse;
-}
-
-export async function getMemoryUpdateStatus(): Promise<GatewayMemoryUpdateStatus> {
-  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/updates/memory/status`, {
-    headers: withLocalOwnerHeaders(),
-  });
-
-  if (!response.ok) {
-    throw await toGatewayError(response);
-  }
-
-  return (await response.json()) as GatewayMemoryUpdateStatus;
-}
-
-export async function getMemoryUpdateReport(migrationId: string): Promise<string> {
-  const response = await authenticatedFetch(
-    `${GATEWAY_BASE_URL}/updates/memory/reports/${encodeURIComponent(migrationId)}`,
-    {
-      headers: withLocalOwnerHeaders(),
-    }
-  );
-
-  if (!response.ok) {
-    throw await toGatewayError(response);
-  }
-
-  return response.text();
 }
 
 export async function getOwnerProfile(): Promise<string | null> {
@@ -897,6 +874,35 @@ export async function importLibraryArchive(file: Blob): Promise<GatewayMigration
   }
 
   return (await response.json()) as GatewayMigrationImportResult;
+}
+
+export async function getCreditsStatus(): Promise<GatewayCreditsStatus> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/credits/status`, {
+    headers: withLocalOwnerHeaders(),
+  });
+
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+
+  return (await response.json()) as GatewayCreditsStatus;
+}
+
+export async function createCreditsCheckout(input: {
+  amount: number;
+  email: string;
+}): Promise<GatewayCreditsCheckoutResponse> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/credits/checkout`, {
+    method: "POST",
+    headers: withLocalOwnerHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+
+  return (await response.json()) as GatewayCreditsCheckoutResponse;
 }
 
 function extractExportFilename(contentDisposition: string | null): string {

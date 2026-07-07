@@ -38,6 +38,19 @@ Mark each step as one of: owner action, owner decision, data-gathering, or Fitne
 
 Report what changed, update `plan.md`, update page metadata or rollup summaries only as brief summaries, and return to Fitness scope.
 
+If this is the first completed Fitness plan, land the handoff in **Handing Off To Your Journal** below. Never turn the journal into mandatory daily logging.
+
 ## What This Procedure Is Not
 
 It is not a medical treatment plan, crash diet, generic workout template, required journal/tracker workflow, or substitute for qualified health or coaching support.
+
+## Handing Off To Your Journal
+
+When **Your Goals** (`spec.md`) and **Your Plan** (`plan.md`) are written and the owner has confirmed the plan, close the alignment session by handing the owner into the journal loop:
+
+- Tell the owner the next step is to start executing the plan and to come back and tell you how it goes — the wins, the blockers, what changed.
+- You keep **Your Journal** as the record of those conversations; the owner can read or edit it anytime, but they never have to write it themselves — the conversation is where updates happen.
+- Make sure `documents/fitness/journal.md` exists; if it does not, create it from the default template (the Preservation Rule in `run-journal.md` covers this).
+- Do not require a journal entry now, and do not ask the owner to log on a schedule. The journal is owner-driven follow-up — available, never mandatory.
+
+This handoff fires once, when the first plan is written. From then on, the journal follow-up procedure (`run-journal.md`) owns the follow-up sessions.

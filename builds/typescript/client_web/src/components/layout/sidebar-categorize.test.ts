@@ -38,6 +38,8 @@ describe("sidebar labels", () => {
     expect(rootProjectDisplayLabel("new-project", "Your New Project")).toBe("Your New Project");
     expect(sidebarFileLabel({ name: "spec.md", path: "documents/finance/spec.md" }, "finance")).toBe("Your Goals");
     expect(sidebarFileLabel({ name: "plan.md", path: "documents/finance/plan.md" }, "finance")).toBe("Your Plan");
+    expect(sidebarFileLabel({ name: "journal.md", path: "documents/finance/journal.md" }, "finance")).toBe("Your Journal");
+    expect(sidebarFileLabel({ name: "run-journal.md", path: "documents/finance/run-journal.md" }, "finance")).toBe("Journal");
     expect(sidebarFileLabel({ name: "2026-05-capital-one.md", path: "documents/finance/2026-05-capital-one.md" }, "finance")).toBe("2026 05 Capital One");
     expect(sidebarFileLabel({ name: "garden.md", path: "documents/home/garden/garden.md" }, "home")).toBe("Garden");
   });
@@ -49,6 +51,7 @@ describe("sidebar categorization", () => {
 
     expect(model.goals?.label).toBe("Your Goals");
     expect(model.plan?.label).toBe("Your Plan");
+    expect(model.journal).toBeNull();
     expect(model.files.map((item) => item.canonicalPath)).toEqual([
       "2026-05-capital-one.md",
       "archive/retired-budget/budget.md",
@@ -78,5 +81,27 @@ describe("sidebar categorization", () => {
     expect(model.advanced.find((item) => item.canonicalPath === "garden/compare.md")?.overlayPath).toBe(
       "documents/home/garden/compare-user.md"
     );
+  });
+
+  it("groups flat journal state with plan files and keeps journal procedures advanced", () => {
+    const model = buildProjectSidebarModel("fitness", [
+      { name: "spec.md", path: "documents/fitness/spec.md" },
+      { name: "plan.md", path: "documents/fitness/plan.md" },
+      { name: "journal.md", path: "documents/fitness/journal.md" },
+      { name: "run-journal.md", path: "documents/fitness/run-journal.md" },
+      { name: "journal/journal.md", path: "documents/fitness/journal/journal.md" },
+      { name: "journal/AGENT.md", path: "documents/fitness/journal/AGENT.md" },
+      { name: "2026-07-note.md", path: "documents/fitness/2026-07-note.md" },
+    ]);
+
+    expect(model.goals?.label).toBe("Your Goals");
+    expect(model.plan?.label).toBe("Your Plan");
+    expect(model.journal?.label).toBe("Your Journal");
+    expect(model.files.map((item) => item.canonicalPath)).toEqual(["2026-07-note.md"]);
+    expect(model.advanced.map((item) => [item.canonicalPath, item.label])).toEqual([
+      ["journal/AGENT.md", "Agent Instructions"],
+      ["journal/journal.md", "Journal"],
+      ["run-journal.md", "Journal"],
+    ]);
   });
 });

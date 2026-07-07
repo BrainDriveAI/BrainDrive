@@ -22,6 +22,8 @@
     "dev:cli": "tsx client/repl.ts",
     "dev:web": "npm --prefix client_web run dev",
     "memory:init": "tsx scripts/memory-init.ts",
+    "identity:check": "node scripts/identity-cleanup-check.mjs",
+    "identity:check:desktop-runtime": "node scripts/identity-cleanup-check.mjs --include-generated-runtime",
     "smoke:upload": "tsx scripts/upload-smoke.ts",
     "secrets": "tsx secrets/cli.ts",
     "start": "node dist/main.js",
@@ -48,14 +50,14 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "fastify": "^5.8.5",
+    "fastify": "^5.10.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.11.3",
-    "@types/node": "^25.9.1",
-    "tsx": "^4.22.4",
+    "@tauri-apps/cli": "^2.11.4",
+    "@types/node": "^26.1.0",
+    "tsx": "^4.23.0",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.10"
   }
 }

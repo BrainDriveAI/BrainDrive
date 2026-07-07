@@ -28,7 +28,7 @@ import MarkdownContent from "@/components/markdown/MarkdownContent";
 import { openTrustedBillingUrl } from "@/utils/billing-url";
 import { openExternalUrl } from "@/utils/external-url";
 
-import { authenticatedFetch, getSession, logout } from "@/api/auth-adapter";
+import { getSession, logout } from "@/api/auth-adapter";
 import {
   applyBrowserAccessFirewallRule,
   getBrowserAccessStatus,
@@ -41,8 +41,10 @@ import {
   deleteProviderModel,
   downloadLibraryExport,
   importLibraryArchive,
+  createCreditsCheckout,
   getRootAgent,
   getOwnerProfile,
+  getCreditsStatus,
   getProviderModels,
   getSettings as getGatewaySettings,
   restoreMemoryBackup as restoreGatewayMemoryBackup,
@@ -65,9 +67,11 @@ import { isTauriRuntime } from "@/api/runtime-api-base";
 import { resetGatewayChatRuntime } from "@/api/useGatewayChat";
 import type {
   GatewayCredentialUpdateRequest,
+  GatewayCreditsStatus,
   GatewayMemoryBackupFrequency,
   GatewayMemoryBackupRestoreRequest,
   GatewayMemoryBackupRestoreResult,
+  GatewayMemoryBackupRunRequest,
   GatewayMemoryBackupRunResult,
   GatewayMemoryBackupSettingsUpdateRequest,
   GatewayModelCatalog,
@@ -283,8 +287,10 @@ export default function SettingsModal({
     return updated;
   }
 
-  async function triggerMemoryBackupNow(): Promise<GatewayMemoryBackupRunResult> {
-    const updated = await runMemoryBackupNow();
+  async function triggerMemoryBackupNow(
+    payload: GatewayMemoryBackupRunRequest = {}
+  ): Promise<GatewayMemoryBackupRunResult> {
+    const updated = await runMemoryBackupNow(payload);
     setSettings(updated.settings);
     setSettingsError(null);
     return updated.result;
@@ -597,7 +603,7 @@ function TabContent({
   onSaveMemoryBackupSettings: (
     payload: GatewayMemoryBackupSettingsUpdateRequest
   ) => Promise<GatewaySettings>;
-  onRunMemoryBackupNow: () => Promise<GatewayMemoryBackupRunResult>;
+  onRunMemoryBackupNow: (payload?: GatewayMemoryBackupRunRequest) => Promise<GatewayMemoryBackupRunResult>;
   onRestoreMemoryBackup: (
     payload?: GatewayMemoryBackupRestoreRequest
   ) => Promise<GatewayMemoryBackupRestoreResult>;
@@ -1120,7 +1126,7 @@ function MemoryBackupSection({
   onSaveMemoryBackupSettings: (
     payload: GatewayMemoryBackupSettingsUpdateRequest
   ) => Promise<GatewaySettings>;
-  onRunMemoryBackupNow: () => Promise<GatewayMemoryBackupRunResult>;
+  onRunMemoryBackupNow: (payload?: GatewayMemoryBackupRunRequest) => Promise<GatewayMemoryBackupRunResult>;
   onRestoreMemoryBackup: (
     payload?: GatewayMemoryBackupRestoreRequest
   ) => Promise<GatewayMemoryBackupRestoreResult>;
@@ -1179,6 +1185,56 @@ function MemoryBackupSection({
     { value: "daily", label: "Every day" },
     { value: "manual", label: "Manual" },
   ];
+  const hasBackupConflict =
+    backupSettings?.last_error?.includes("already contains a BrainDrive backup") ?? false;
+
+  function handleRunBackupNow(payload: GatewayMemoryBackupRunRequest = {}): void {
+    setIsSavingNow(true);
+    setSaveNowError(null);
+    setSaveNowMessage(null);
+    void onRunMemoryBackupNow(payload)
+      .then((result) => {
+        if (result.result === "conflict") {
+          setSaveNowMessage(null);
+          return;
+        }
+        const summary =
+          result.result === "failed"
+              ? result.message ?? "Backup failed."
+              : result.result === "noop"
+                ? result.message ?? "Already up to date — nothing new to back up."
+                : "Backup saved successfully.";
+        setSaveNowMessage(summary);
+      })
+      .catch((error) => {
+        setSaveNowError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        setIsSavingNow(false);
+      });
+  }
+
+  function handleRestoreFromBackup(): void {
+    const confirmed = window.confirm(
+      "This will replace all your current data with the backup. API keys will need to be re-entered. Continue?"
+    );
+    if (!confirmed) {
+      return;
+    }
+    setIsRestoring(true);
+    setRestoreError(null);
+    setRestoreMessage(null);
+    void onRestoreMemoryBackup()
+      .then(() => {
+        setRestoreMessage("Restored from backup successfully.");
+      })
+      .catch((error) => {
+        setRestoreError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        setIsRestoring(false);
+      });
+  }
 
   return (
     <div className="space-y-6">
@@ -1302,7 +1358,35 @@ function MemoryBackupSection({
         </div>
       </div>
 
-      {backupSettings?.repository_url && backupSettings?.token_configured ? (
+      {hasBackupConflict ? (
+        <div className="rounded-lg border border-bd-amber bg-bd-bg-tertiary p-4">
+          <div className="text-sm font-medium text-bd-text-heading">Choose what to do</div>
+          <p className="mt-1 text-xs text-bd-text-muted">
+            We found a BrainDrive backup in this GitHub repo. Pick which copy should be kept.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={isSavingNow || !backupSettings}
+              onClick={() => handleRunBackupNow({ on_remote_conflict: "replace_remote" })}
+              className="rounded-lg bg-bd-amber px-3 py-2 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSavingNow ? "Backing up..." : "Back Up This BrainDrive"}
+            </button>
+            <button
+              type="button"
+              disabled={isRestoring || !backupSettings}
+              onClick={handleRestoreFromBackup}
+              className="rounded-lg border border-bd-border px-3 py-2 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isRestoring ? "Restoring..." : "Restore GitHub Backup"}
+            </button>
+          </div>
+          <p className="mt-3 text-xs text-bd-text-muted">
+            Backing up this BrainDrive updates GitHub with what is here now. Restoring uses the GitHub copy on this BrainDrive.
+          </p>
+        </div>
+      ) : backupSettings?.repository_url && backupSettings?.token_configured ? (
         <div className={[
           "rounded-lg border p-3 text-sm",
           lastResult === "failed"
@@ -1319,10 +1403,10 @@ function MemoryBackupSection({
             ) : null}
             <span className="font-medium text-bd-text-primary">
               {lastResult === "success"
-                ? "Connected and backing up"
+                ? "Backups are on"
                 : lastResult === "failed"
-                  ? "Connected — last backup failed"
-                  : "Connected — waiting for first backup"}
+                  ? "Backup needs attention"
+                  : "Ready to back up"}
             </span>
           </div>
           <div className="mt-2 flex items-center justify-between gap-3 text-xs text-bd-text-muted">
@@ -1369,34 +1453,16 @@ function MemoryBackupSection({
         >
           {isSavingSettings ? "Saving..." : "Save Settings"}
         </button>
-        <button
-          type="button"
-          disabled={isSavingNow || !backupSettings}
-          onClick={() => {
-            setIsSavingNow(true);
-            setSaveNowError(null);
-            setSaveNowMessage(null);
-            void onRunMemoryBackupNow()
-              .then((result) => {
-                const summary =
-                  result.result === "failed"
-                    ? result.message ?? "Backup failed."
-                    : result.result === "noop"
-                      ? result.message ?? "Already up to date — nothing new to back up."
-                      : "Backup saved successfully.";
-                setSaveNowMessage(summary);
-              })
-              .catch((error) => {
-                setSaveNowError(error instanceof Error ? error.message : String(error));
-              })
-              .finally(() => {
-                setIsSavingNow(false);
-              });
-          }}
-          className="rounded-lg border border-bd-border px-3 py-2 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {isSavingNow ? "Backing up..." : "Back Up Now"}
-        </button>
+        {!hasBackupConflict && (
+          <button
+            type="button"
+            disabled={isSavingNow || !backupSettings}
+            onClick={() => handleRunBackupNow()}
+            className="rounded-lg border border-bd-border px-3 py-2 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isSavingNow ? "Backing up..." : "Back Up Now"}
+          </button>
+        )}
       </div>
 
       {settingsActionError && (
@@ -1414,59 +1480,51 @@ function MemoryBackupSection({
           {saveNowError}
         </div>
       )}
-      {saveNowMessage && (
+      {saveNowMessage && !hasBackupConflict && (
         <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-sm text-bd-text-secondary">
           {saveNowMessage}
         </div>
       )}
+      {hasBackupConflict && restoreError && (
+        <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
+          {restoreError}
+        </div>
+      )}
+      {hasBackupConflict && restoreMessage && (
+        <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-sm text-bd-text-secondary">
+          {restoreMessage}
+        </div>
+      )}
 
-      <div className="rounded-lg border border-bd-border p-4">
-        <div className="text-sm font-medium text-bd-text-heading">Restore</div>
-        <p className="mt-1 text-xs text-bd-text-muted">
-          Replace your current BrainDrive with a previous backup. Your API keys will need to be re-entered after restoring.
-          {!backupSettings?.repository_url && !backupSettings?.token_configured && (
-            <> GitHub tokens can&apos;t be transferred between machines — create a new one in step 2 above, enter your backup repo URL and token in step 3, save, then click the &quot;Restore from Backup&quot; button below.</>
+      {!hasBackupConflict && (
+        <div className="rounded-lg border border-bd-border p-4">
+          <div className="text-sm font-medium text-bd-text-heading">Restore</div>
+          <p className="mt-1 text-xs text-bd-text-muted">
+            Replace your current BrainDrive with a previous backup. Your API keys will need to be re-entered after restoring.
+            {!backupSettings?.repository_url && !backupSettings?.token_configured && (
+              <> GitHub tokens can&apos;t be transferred between machines — create a new one in step 2 above, enter your backup repo URL and token in step 3, save, then click the &quot;Restore from Backup&quot; button below.</>
+            )}
+          </p>
+          <button
+            type="button"
+            disabled={isRestoring || !backupSettings}
+            onClick={handleRestoreFromBackup}
+            className="mt-3 rounded-lg border border-bd-border px-3 py-2 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isRestoring ? "Restoring..." : "Restore from Backup"}
+          </button>
+          {restoreError && (
+            <div className="mt-3 rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
+              {restoreError}
+            </div>
           )}
-        </p>
-        <button
-          type="button"
-          disabled={isRestoring || !backupSettings}
-          onClick={() => {
-            const confirmed = window.confirm(
-              "This will replace all your current data with the backup. API keys will need to be re-entered. Continue?"
-            );
-            if (!confirmed) {
-              return;
-            }
-            setIsRestoring(true);
-            setRestoreError(null);
-            setRestoreMessage(null);
-            void onRestoreMemoryBackup()
-              .then(() => {
-                setRestoreMessage(`Restored from backup successfully.`);
-              })
-              .catch((error) => {
-                setRestoreError(error instanceof Error ? error.message : String(error));
-              })
-              .finally(() => {
-                setIsRestoring(false);
-              });
-          }}
-          className="mt-3 rounded-lg border border-bd-border px-3 py-2 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-hover disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {isRestoring ? "Restoring..." : "Restore from Backup"}
-        </button>
-        {restoreError && (
-          <div className="mt-3 rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
-            {restoreError}
-          </div>
-        )}
-        {restoreMessage && (
-          <div className="mt-3 rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-sm text-bd-text-secondary">
-            {restoreMessage}
-          </div>
-        )}
-      </div>
+          {restoreMessage && (
+            <div className="mt-3 rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-sm text-bd-text-secondary">
+              {restoreMessage}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1485,12 +1543,12 @@ function BrainDriveDefaultSection({
   const [apiKey, setApiKey] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [keySaved, setKeySaved] = useState(false);
-  const [showUpdateKey, setShowUpdateKey] = useState(false);
-  const [balance, setBalance] = useState<{ remaining_usd: number; key_valid?: boolean } | null>(null);
+  const [showRepairKey, setShowRepairKey] = useState(false);
+  const [balance, setBalance] = useState<GatewayCreditsStatus | null>(null);
   const [keyInvalid, setKeyInvalid] = useState(false);
   const [purchaseLoading, setPurchaseLoading] = useState<number | null>(null);
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
+  const [purchaseState, setPurchaseState] = useState<"idle" | "activating" | "ready" | "zero_balance" | "repair_required">("idle");
   const [billingEmail, setBillingEmail] = useState(() => localStorage.getItem("bd_billing_email") ?? "");
   const [isEditingEmail, setIsEditingEmail] = useState(false);
 
@@ -1507,36 +1565,108 @@ function BrainDriveDefaultSection({
     (p) => p.id === (settings?.active_provider_profile ?? settings?.default_provider_profile)
   );
   const isFirstTime = activeProfile?.credential_mode === "unset";
+  const keyState = settings?.braindrive_models_key ?? null;
+  const hasConfiguredKey = !isFirstTime || purchaseState === "activating" || purchaseState === "ready" || Boolean(keyState);
+  const isActivating = purchaseState === "activating" || Boolean(keyState?.checkout_pending);
+  const isReady = purchaseState === "ready" || (balance?.remaining_usd ?? 0) > 0;
+  const isZeroBalance =
+    purchaseState === "zero_balance" ||
+    (!isActivating && hasConfiguredKey && !keyInvalid && (balance?.remaining_usd ?? 0) <= 0);
+
+  async function refreshCreditsStatus(): Promise<GatewayCreditsStatus | null> {
+    try {
+      const nextBalance = await getCreditsStatus();
+      setBalance(nextBalance);
+      const needsRepair = nextBalance.key_valid === false || nextBalance.purchase_status === "repair_required";
+      setKeyInvalid(needsRepair);
+      if (needsRepair) {
+        setPurchaseState("repair_required");
+        return nextBalance;
+      }
+      if (nextBalance.purchase_status === "activating") {
+        setPurchaseState("activating");
+      } else if ((nextBalance.remaining_usd ?? 0) > 0 || nextBalance.purchase_status === "ready") {
+        setPurchaseState("ready");
+      } else if (nextBalance.purchase_status === "zero_balance") {
+        setPurchaseState("zero_balance");
+      }
+      return nextBalance;
+    } catch {
+      return null;
+    }
+  }
 
   useEffect(() => {
-    if (isFirstTime) return;
-    authenticatedFetch("/api/credits/status")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => { if (data) { setBalance(data); setKeyInvalid(data.key_valid === false); } })
-      .catch(() => {});
-  }, [isFirstTime, keySaved]);
+    if (!hasConfiguredKey) {
+      return;
+    }
+    void refreshCreditsStatus();
+  }, [hasConfiguredKey]);
+
+  useEffect(() => {
+    if (!isActivating) {
+      return;
+    }
+    const intervalId = window.setInterval(() => {
+      void refreshCreditsStatus();
+    }, 3000);
+    return () => window.clearInterval(intervalId);
+  }, [isActivating]);
 
   async function handlePurchase(amount: number) {
     if (!billingEmail || !billingEmail.includes("@")) return;
     setPurchaseError(null);
     setPurchaseLoading(amount);
     try {
-      const resp = await authenticatedFetch("/api/credits/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount, email: billingEmail }),
-      });
-      const data = await resp.json();
-      if (data.checkout_url) {
-        if (!openTrustedBillingUrl(data.checkout_url)) {
-          setPurchaseError("Received an unexpected checkout link. Please try again.");
-        }
+      const data = await createCreditsCheckout({ amount, email: billingEmail });
+      setPurchaseState(data.purchase_status === "activating" ? "activating" : "idle");
+      if (!openTrustedBillingUrl(data.checkout_url)) {
+        setPurchaseError("Received an unexpected checkout link. Please try again.");
       }
-    } catch {
-      setPurchaseError("Failed to open checkout. Please try again.");
+      void refreshCreditsStatus();
+    } catch (error) {
+      const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
+      if (code === "braindrive_models_key_repair_required") {
+        setKeyInvalid(true);
+        setShowRepairKey(true);
+        setPurchaseState("repair_required");
+        setPurchaseError("BrainDrive Models needs the key from your purchase email, or a migration from the original computer, before checkout can continue.");
+      } else {
+        setPurchaseError("Failed to open checkout. Please try again.");
+      }
     } finally {
       setPurchaseLoading(null);
     }
+  }
+
+  function handleSaveRepairKey() {
+    if (!activeProfile) {
+      return;
+    }
+    const trimmed = apiKey.trim();
+    if (!/^sk-[A-Za-z0-9_-]{8,}$/.test(trimmed)) {
+      setSaveError("That doesn't look like a BrainDrive Models key. Copy the full key from your purchase email.");
+      return;
+    }
+    setIsSaving(true);
+    setSaveError(null);
+    void onSaveCredential({
+      provider_profile: activeProfile.id,
+      mode: "secret_ref",
+      api_key: trimmed,
+      secret_ref: activeProfile.credential_ref ?? undefined,
+      required: true,
+      set_active_provider: true,
+    })
+      .then(() => {
+        setApiKey("");
+        setShowRepairKey(false);
+        setKeyInvalid(false);
+        setPurchaseState("idle");
+        void refreshCreditsStatus();
+      })
+      .catch((err) => { setSaveError(err instanceof Error ? err.message : String(err)); })
+      .finally(() => { setIsSaving(false); });
   }
 
   if (isLoadingSettings) {
@@ -1546,125 +1676,6 @@ function BrainDriveDefaultSection({
     return (
       <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-4 py-3 text-sm text-bd-text-primary">
         {settingsError}
-      </div>
-    );
-  }
-
-  if (isFirstTime && !keySaved) {
-    return (
-      <div className="space-y-6">
-        <div>
-          <h3 className="font-heading text-base font-semibold text-bd-text-heading">
-            Managed by BrainDrive
-          </h3>
-          <p className="mt-1 text-sm text-bd-text-muted">
-            We pick the best AI model for you — just add BrainDrive Models Credits and go.
-          </p>
-        </div>
-
-        <div className="space-y-4">
-          {/* Step 1 */}
-          <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary p-4">
-            <div className="flex items-start gap-3">
-              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-bd-bg-secondary text-xs font-bold text-bd-text-muted">1</div>
-              <div className="flex-1">
-                <div className="text-sm font-medium text-bd-text-heading">Purchase BrainDrive Models Credits</div>
-                <p className="mt-1 text-xs text-bd-text-muted">Add BrainDrive Models Credits to start chatting.</p>
-                {emailSaved && !isEditingEmail ? (
-                  <div className="mt-3 flex items-center gap-2">
-                    <span className="text-sm text-bd-text-primary">{billingEmail}</span>
-                    <button type="button" onClick={() => setIsEditingEmail(true)} className="text-xs text-bd-text-muted transition-colors hover:text-bd-text-secondary hover:underline">Change email</button>
-                  </div>
-                ) : (
-                  <input
-                    type="email"
-                    value={billingEmail}
-                    onChange={(e) => handleEmailChange(e.target.value)}
-                    placeholder="Email — we'll send your receipt here"
-                    className="mt-3 h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
-                  />
-                )}
-                <div className="mt-2 flex gap-2">
-                  {[5, 10, 25].map((amt) => (
-                    <button key={amt} type="button" disabled={purchaseLoading !== null || !billingEmail.includes("@")} onClick={() => handlePurchase(amt)} className="flex-1 rounded-lg border border-bd-amber px-3 py-2.5 text-sm font-medium text-bd-amber transition-colors hover:bg-bd-amber hover:text-bd-bg-primary disabled:opacity-60">
-                      {purchaseLoading === amt ? "..." : `$${amt}`}
-                    </button>
-                  ))}
-                </div>
-                {purchaseError && (
-                  <div className="mt-2 flex items-center gap-1.5 text-xs text-red-400">
-                    <AlertCircle size={12} />
-                    {purchaseError}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Step 2 */}
-          <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary p-4">
-            <div className="flex items-start gap-3">
-              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-bd-bg-secondary text-xs font-bold text-bd-text-muted">2</div>
-              <div className="flex-1">
-                <div className="text-sm font-medium text-bd-text-heading">Enter your BrainDrive API key</div>
-                <p className="mt-1 text-xs text-bd-text-muted">Paste the API key from your purchase confirmation.</p>
-                <div className="mt-3 space-y-2">
-                  <input
-                    type="password" autoComplete="new-password"
-                    value={apiKey}
-                    onChange={(e) => { setApiKey(e.target.value); setSaveError(null); }}
-                    placeholder="Paste your BrainDrive API key"
-                    className="h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
-                  />
-                  {saveError && (
-                    <div className="flex items-center gap-1.5 text-xs text-red-400">
-                      <AlertCircle size={12} />
-                      {saveError}
-                    </div>
-                  )}
-                  <button
-                    type="button"
-                    disabled={isSaving || apiKey.trim().length === 0}
-                    onClick={() => {
-                      const trimmed = apiKey.trim();
-                      if (!/^sk-[A-Za-z0-9_-]{8,}$/.test(trimmed)) {
-                        setSaveError("That doesn't look like a BrainDrive API key. Please copy the full key from your purchase confirmation email and paste it here.");
-                        return;
-                      }
-                      setIsSaving(true);
-                      setSaveError(null);
-                      void onSaveCredential({
-                        provider_profile: activeProfile!.id,
-                        mode: "secret_ref",
-                        api_key: trimmed,
-                        secret_ref: activeProfile!.credential_ref ?? undefined,
-                        required: true,
-                        set_active_provider: true,
-                      })
-                        .then(() => { setApiKey(""); setKeySaved(true); })
-                        .catch((err) => { setSaveError(err instanceof Error ? err.message : String(err)); })
-                        .finally(() => { setIsSaving(false); });
-                    }}
-                    className="rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {isSaving ? "Saving..." : "Save API Key"}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Step 3 */}
-          <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary p-4">
-            <div className="flex items-start gap-3">
-              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-bd-bg-secondary text-xs font-bold text-bd-text-muted">3</div>
-              <div className="flex-1">
-                <div className="text-sm font-medium text-bd-text-heading">Start chatting</div>
-                <p className="mt-1 text-xs text-bd-text-muted">Your BrainDrive Models Credits balance will update here in real time and you can add additional BrainDrive Models Credits at anytime.</p>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
     );
   }
@@ -1681,15 +1692,36 @@ function BrainDriveDefaultSection({
       </div>
 
       <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary p-4 space-y-4">
-        <div>
-          <div className="text-2xl font-semibold text-bd-text-primary">${balance ? balance.remaining_usd.toFixed(2) : "..."}</div>
-          <div className="text-xs text-bd-text-muted">remaining</div>
-          {keyInvalid && (
-            <div className="mt-2 flex items-center gap-1.5 text-xs text-red-400">
-              <AlertCircle size={12} />
-              Your API key isn't working. Check your purchase confirmation email for the correct key and update it below.
+        <div className="rounded-lg border border-bd-border bg-bd-bg-secondary/70 p-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-2xl font-semibold text-bd-text-primary">
+                {hasConfiguredKey ? `$${(balance?.remaining_usd ?? 0).toFixed(2)}` : "$0.00"}
+              </div>
+              <div className="text-xs text-bd-text-muted">BrainDrive Models credits remaining</div>
             </div>
-          )}
+            <div className={[
+              "rounded-full border px-2.5 py-1 text-[11px] font-medium",
+              keyInvalid
+                ? "border-bd-danger-border bg-bd-danger-bg text-bd-text-primary"
+                : isReady
+                  ? "border-bd-success-border bg-bd-success-bg text-bd-text-primary"
+                  : "border-bd-border bg-bd-bg-tertiary text-bd-text-secondary"
+            ].join(" ")}>
+              {keyInvalid ? "Repair needed" : isActivating ? "Activating" : isReady ? "Ready" : isZeroBalance ? "No credits yet" : "Ready to buy"}
+            </div>
+          </div>
+          <p className="mt-3 text-xs leading-5 text-bd-text-muted">
+            {keyInvalid
+              ? "Use the key from your BrainDrive Models purchase email, or migrate BrainDrive from the original computer."
+              : isActivating
+                ? "Checkout is open. After Stripe confirms payment, credits activate here automatically."
+                : isReady
+                  ? "BrainDrive Models is ready on this computer."
+                  : isZeroBalance
+                    ? "A BrainDrive Models key is installed here, but it has no spendable credits yet."
+                    : "BrainDrive will install a key in the encrypted vault when checkout starts. The key will also be emailed to you as a backup."}
+          </p>
         </div>
 
         <div>
@@ -1704,10 +1736,13 @@ function BrainDriveDefaultSection({
               type="email"
               value={billingEmail}
               onChange={(e) => handleEmailChange(e.target.value)}
-              placeholder="Email — we'll send your receipt here"
+              placeholder="Email for receipt and key backup"
               className="mb-2 h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
             />
           )}
+          <p className="mb-2 text-xs text-bd-text-muted">
+            No copy/paste needed. BrainDrive uses the encrypted vault key for checkout and emails the key as your backup.
+          </p>
           <div className="flex gap-2">
             {[5, 10, 25].map((amt) => (
               <button
@@ -1717,7 +1752,7 @@ function BrainDriveDefaultSection({
                 onClick={() => handlePurchase(amt)}
                 className="flex-1 rounded-lg border border-bd-amber px-3 py-2.5 text-sm font-medium text-bd-amber transition-colors hover:bg-bd-amber hover:text-bd-bg-primary disabled:opacity-60"
               >
-                {purchaseLoading === amt ? "..." : `$${amt}`}
+                {purchaseLoading === amt ? "Opening..." : `$${amt}`}
               </button>
             ))}
           </div>
@@ -1729,13 +1764,23 @@ function BrainDriveDefaultSection({
           )}
         </div>
 
-        {showUpdateKey ? (
+        <div className="rounded-lg border border-bd-border bg-bd-bg-secondary/60 p-3 text-xs leading-5 text-bd-text-muted">
+          Moving computers? Use Migrate to move your BrainDrive and its encrypted keys. Backups restore your library, but they do not carry API keys.
+        </div>
+
+        {showRepairKey ? (
           <div className="border-t border-bd-border pt-3 space-y-2">
+            <div>
+              <div className="text-sm font-medium text-bd-text-heading">Repair with emailed key</div>
+              <p className="mt-1 text-xs text-bd-text-muted">
+                Paste the BrainDrive Models key from your purchase email. This is for repair or using the same key on another install.
+              </p>
+            </div>
             <input
               type="password" autoComplete="new-password"
               value={apiKey}
               onChange={(e) => { setApiKey(e.target.value); setSaveError(null); }}
-              placeholder="Enter new key to replace existing"
+              placeholder="Paste your emailed BrainDrive Models key"
               className="h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
             />
             {saveError && (
@@ -1748,41 +1793,14 @@ function BrainDriveDefaultSection({
               <button
                 type="button"
                 disabled={isSaving || apiKey.trim().length === 0}
-                onClick={() => {
-                  const trimmed = apiKey.trim();
-                  if (!/^sk-[A-Za-z0-9_-]{8,}$/.test(trimmed)) {
-                    setSaveError("That doesn't look like a BrainDrive API key. Please copy the full key from your purchase confirmation email and paste it here.");
-                    return;
-                  }
-                  setIsSaving(true);
-                  setSaveError(null);
-                  void onSaveCredential({
-                    provider_profile: activeProfile!.id,
-                    mode: "secret_ref",
-                    api_key: trimmed,
-                    secret_ref: activeProfile!.credential_ref ?? undefined,
-                    required: true,
-                    set_active_provider: true,
-                  })
-                    .then(() => {
-                      setApiKey("");
-                      setShowUpdateKey(false);
-                      setKeyInvalid(false);
-                      authenticatedFetch("/api/credits/status")
-                        .then((r) => (r.ok ? r.json() : null))
-                        .then((data) => { if (data) { setBalance(data); setKeyInvalid(data.key_valid === false); } })
-                        .catch(() => {});
-                    })
-                    .catch((err) => { setSaveError(err instanceof Error ? err.message : String(err)); })
-                    .finally(() => { setIsSaving(false); });
-                }}
+                onClick={handleSaveRepairKey}
                 className="rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isSaving ? "Saving..." : "Save API Key"}
+                {isSaving ? "Saving..." : "Save Key"}
               </button>
               <button
                 type="button"
-                onClick={() => { setShowUpdateKey(false); setApiKey(""); setSaveError(null); }}
+                onClick={() => { setShowRepairKey(false); setApiKey(""); setSaveError(null); }}
                 className="rounded-lg border border-bd-border px-3 py-1.5 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover"
               >
                 Cancel
@@ -1792,10 +1810,10 @@ function BrainDriveDefaultSection({
         ) : (
           <button
             type="button"
-            onClick={() => setShowUpdateKey(true)}
+            onClick={() => setShowRepairKey(true)}
             className="text-xs text-bd-text-muted transition-colors hover:text-bd-text-secondary hover:underline"
           >
-            Change API key
+            Advanced: repair with emailed key
           </button>
         )}
       </div>

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { getSession } from "@/api/auth-adapter";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { ROOT_AGENT_PROJECT_ID, isRootAgentProjectId } from "@/lib/rootAgent";
 import type { Project, ProjectFile, UserProfile } from "@/types/ui";
 
 import ProfileMenu from "./ProfileMenu";
@@ -163,8 +164,8 @@ export default function Sidebar({
     );
   }
 
-  const isBdPlusOne = selectedProjectId === "braindrive-plus-one";
-  const isProjectView = selectedProject !== null && !isBdPlusOne;
+  const isRootAgentSelected = isRootAgentProjectId(selectedProjectId);
+  const isProjectView = selectedProject !== null && !isRootAgentSelected;
   const projectModel = selectedProject ? buildProjectSidebarModel(selectedProject.id, projectFiles) : null;
   const selectedProjectLabel = selectedProject
     ? projectDisplayLabel(selectedProject.id, selectedProject.name)
@@ -176,7 +177,7 @@ export default function Sidebar({
         <button
           type="button"
           aria-label="Go to BrainDrive home"
-          onClick={() => onSelectProject("braindrive-plus-one")}
+          onClick={() => onSelectProject(ROOT_AGENT_PROJECT_ID)}
           className="cursor-pointer bg-transparent p-0 hover:opacity-80"
         >
           <img src="/braindrive-logo.svg" alt="BrainDrive" className="h-7 w-auto" />
@@ -242,7 +243,7 @@ export default function Sidebar({
                     <>
                       <SidebarFileSection
                         label="Plan"
-                        items={[projectModel.goals, projectModel.plan].filter(Boolean) as SidebarFileItem[]}
+                        items={[projectModel.goals, projectModel.plan, projectModel.journal].filter(Boolean) as SidebarFileItem[]}
                         onFileClick={onFileClick}
                         onClose={onClose}
                       />
@@ -279,7 +280,7 @@ export default function Sidebar({
               <div
                 className={[
                   "group relative flex w-full items-center gap-3 rounded-xl py-2 pl-4 pr-3 text-left transition-all duration-200 hover:bg-bd-bg-hover",
-                  isBdPlusOne &&
+                  isRootAgentSelected &&
                     "border-l-2 border-bd-amber bg-bd-bg-tertiary pl-[14px]"
                 ]
                   .filter(Boolean)
@@ -288,7 +289,7 @@ export default function Sidebar({
                 <button
                   type="button"
                   onClick={() => {
-                    onSelectProject("braindrive-plus-one");
+                    onSelectProject(ROOT_AGENT_PROJECT_ID);
                     onClose?.();
                   }}
                   className="flex min-w-0 flex-1 items-center gap-3"
@@ -298,7 +299,7 @@ export default function Sidebar({
                 </button>
               </div>
 
-              {projects.filter((p) => p.id !== "braindrive-plus-one").map((project) => {
+              {projects.filter((project) => !isRootAgentProjectId(project.id)).map((project) => {
                 const Icon = getProjectIcon(project.icon);
                 const isActive = project.id === selectedProjectId;
                 const isMenuOpen = menuOpenForProject === project.id;

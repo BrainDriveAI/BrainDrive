@@ -4,16 +4,20 @@ import {
   configureBackupRemote,
   gitCommitAll,
   gitStatusPorcelain,
+  isRemoteBackupConflictError,
   pushBackupBranch,
   resolveMemoryBackupToken,
   sanitizeMemoryBackupError,
 } from "./backup-git.js";
 
+export type MemoryBackupRemoteConflictResolution = "fail" | "replace_remote";
+
 export type MemoryBackupRunResult = {
   attempted_at: string;
   saved_at?: string;
-  result: "success" | "failed" | "noop";
+  result: "success" | "failed" | "noop" | "conflict";
   message?: string;
+  resolution_required?: "restore_or_replace_remote";
 };
 
 type BackupConfig = {
@@ -21,9 +25,14 @@ type BackupConfig = {
   tokenSecretRef: string;
 };
 
+type MemoryBackupRunOptions = {
+  onRemoteConflict?: MemoryBackupRemoteConflictResolution;
+};
+
 export async function runMemoryBackup(
   memoryRoot: string,
-  preferences: Preferences
+  preferences: Preferences,
+  options: MemoryBackupRunOptions = {}
 ): Promise<MemoryBackupRunResult> {
   const attemptedAt = new Date().toISOString();
 
@@ -40,7 +49,16 @@ export async function runMemoryBackup(
     }
 
     await configureBackupRemote(memoryRoot, config.repositoryUrl);
-    await pushBackupBranch(memoryRoot, token);
+    const pushResult = await pushMemoryBackupBranch(memoryRoot, token, options.onRemoteConflict);
+    if (pushResult === "conflict") {
+      return {
+        attempted_at: attemptedAt,
+        result: "conflict",
+        resolution_required: "restore_or_replace_remote",
+        message:
+          "This backup repository already contains a BrainDrive backup. Choose whether to restore it or use this BrainDrive as the backup source.",
+      };
+    }
 
     const savedAt = new Date().toISOString();
     if (hasLocalChanges) {
@@ -63,6 +81,26 @@ export async function runMemoryBackup(
       result: "failed",
       message: sanitizeMemoryBackupError(error),
     };
+  }
+}
+
+async function pushMemoryBackupBranch(
+  memoryRoot: string,
+  token: string,
+  onRemoteConflict: MemoryBackupRemoteConflictResolution = "fail"
+): Promise<"pushed" | "conflict"> {
+  try {
+    await pushBackupBranch(memoryRoot, token);
+    return "pushed";
+  } catch (error) {
+    if (!isRemoteBackupConflictError(error)) {
+      throw error;
+    }
+    if (onRemoteConflict !== "replace_remote") {
+      return "conflict";
+    }
+    await pushBackupBranch(memoryRoot, token, { forceWithLeaseFromRemote: true });
+    return "pushed";
   }
 }
 

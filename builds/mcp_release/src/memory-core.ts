@@ -6,6 +6,9 @@ import { ownerPermissions, type PermissionSet } from "./request-context.js";
 
 const reservedMemoryRoots = new Set([".git"]);
 const expectedProjectFiles = ["AGENT.md", "index.md", "spec.md", "plan.md"];
+const projectsManifestRelativePath = "documents/projects.json";
+const rootAgentCanonicalId = "your-agent";
+const rootAgentLegacyIds = new Set(["braindrive-plus-one"]);
 
 export type ToolFailureCode =
   | "not_found"
@@ -50,6 +53,11 @@ export type ProjectEntry = {
   path: string;
   status: ProjectStatus;
   files_present: string[];
+};
+
+type ManifestProjectEntry = {
+  id: string;
+  name: string;
 };
 
 export async function ensureMemoryLayout(memoryRoot: string): Promise<void> {
@@ -384,6 +392,17 @@ export async function exportMemory(memoryRoot: string): Promise<{ archive_path: 
 export async function listProjects(memoryRoot: string): Promise<{ root: string; projects: ProjectEntry[] }> {
   await ensureMemoryLayout(memoryRoot);
   const documentsRoot = resolveMemoryPath(memoryRoot, "documents");
+  const manifestProjects = await readProjectsManifest(memoryRoot);
+  if (manifestProjects !== null) {
+    const projects = await Promise.all(
+      manifestProjects.map((project) => projectEntryForId(documentsRoot, project.id))
+    );
+    return {
+      root: documentsRoot,
+      projects,
+    };
+  }
+
   const entries = await readdir(documentsRoot, { withFileTypes: true }).catch(() => []);
   const projects: ProjectEntry[] = [];
 
@@ -392,26 +411,77 @@ export async function listProjects(memoryRoot: string): Promise<{ root: string; 
       continue;
     }
 
-    const projectPath = path.join(documentsRoot, entry.name);
-    const files = await readdir(projectPath, { withFileTypes: true }).catch(() => []);
-    const filesPresent = files
-      .filter((file) => file.isFile() && expectedProjectFiles.includes(file.name))
-      .map((file) => file.name)
-      .sort();
-
-    const status = computeProjectStatus(filesPresent.length);
-    projects.push({
-      name: entry.name,
-      path: projectPath,
-      status,
-      files_present: filesPresent,
-    });
+    projects.push(await projectEntryForId(documentsRoot, entry.name));
   }
 
   projects.sort((left, right) => left.name.localeCompare(right.name));
   return {
     root: documentsRoot,
     projects,
+  };
+}
+
+async function readProjectsManifest(memoryRoot: string): Promise<ManifestProjectEntry[] | null> {
+  const manifestPath = resolveMemoryPath(memoryRoot, projectsManifestRelativePath);
+  try {
+    const raw = await readFile(manifestPath, "utf8");
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return null;
+    }
+
+    const byId = new Map<string, ManifestProjectEntry>();
+    for (const project of parsed) {
+      const entry = parseManifestProject(project);
+      if (!entry || byId.has(entry.id)) {
+        continue;
+      }
+      byId.set(entry.id, entry);
+    }
+    return [...byId.values()];
+  } catch {
+    return null;
+  }
+}
+
+function parseManifestProject(value: unknown): ManifestProjectEntry | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const rawId = typeof record.id === "string" ? record.id.trim().toLowerCase() : "";
+  const rawName = typeof record.name === "string" ? record.name.trim() : "";
+  if (!rawId) {
+    return null;
+  }
+
+  const id = canonicalProjectId(rawId);
+  return {
+    id,
+    name: rawName || id,
+  };
+}
+
+function canonicalProjectId(projectId: string): string {
+  return rootAgentLegacyIds.has(projectId) || projectId === rootAgentCanonicalId
+    ? rootAgentCanonicalId
+    : projectId;
+}
+
+async function projectEntryForId(documentsRoot: string, projectId: string): Promise<ProjectEntry> {
+  const projectPath = path.join(documentsRoot, projectId);
+  const files = await readdir(projectPath, { withFileTypes: true }).catch(() => []);
+  const filesPresent = files
+    .filter((file) => file.isFile() && expectedProjectFiles.includes(file.name))
+    .map((file) => file.name)
+    .sort();
+
+  return {
+    name: projectId,
+    path: projectPath,
+    status: computeProjectStatus(filesPresent.length),
+    files_present: filesPresent,
   };
 }
 

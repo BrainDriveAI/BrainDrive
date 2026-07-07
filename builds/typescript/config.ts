@@ -195,6 +195,31 @@ const promptAuditPreferenceSchema = z
   })
   .strict();
 
+const brainDriveModelsKeyPreferenceSchema = z
+  .object({
+    install_public_id: z.string().trim().min(1).optional(),
+    key_id: z.string().trim().min(1).optional(),
+    key_hash: z.string().trim().min(1).optional(),
+    masked_key: z.string().trim().min(1).optional(),
+    status: z
+      .enum([
+        "provisioned",
+        "ready",
+        "checkout_pending",
+        "zero_balance",
+        "repair_required",
+        "provision_failed",
+        "vault_write_failed",
+      ])
+      .optional(),
+    checkout_pending: z.boolean().optional(),
+    provisioned_at: z.string().datetime({ offset: true }).optional(),
+    expires_unfunded_at: z.string().datetime({ offset: true }).optional(),
+    last_attempt_at: z.string().datetime({ offset: true }).optional(),
+    last_error: z.string().optional().nullable(),
+  })
+  .strict();
+
 const PREFERENCE_TOP_LEVEL_KEYS = new Set([
   "default_model",
   "approval_mode",
@@ -205,6 +230,7 @@ const PREFERENCE_TOP_LEVEL_KEYS = new Set([
   "secret_resolution",
   "memory_backup",
   "prompt_audit",
+  "braindrive_models_key",
 ]);
 
 const preferencesSchema = z
@@ -218,6 +244,7 @@ const preferencesSchema = z
     secret_resolution: secretResolutionSchema.optional(),
     memory_backup: memoryBackupPreferenceSchema.optional(),
     prompt_audit: promptAuditPreferenceSchema.optional(),
+    braindrive_models_key: brainDriveModelsKeyPreferenceSchema.optional(),
   })
   .strip()
   .superRefine((value, context) => {

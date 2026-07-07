@@ -8,6 +8,11 @@ import {
   getProjectFiles,
   listProjects
 } from "@/api/gateway-adapter";
+import {
+  ROOT_AGENT_PROJECT_ID,
+  canonicalizeRootAgentProjectId,
+  normalizeRootAgentProjects,
+} from "@/lib/rootAgent";
 import type { Project, ProjectFile } from "@/types/ui";
 
 function toError(error: unknown): Error {
@@ -68,7 +73,7 @@ export function useProjects(): {
 
     void (async () => {
       try {
-        const nextProjects = await listProjects();
+        const nextProjects = normalizeRootAgentProjects(await listProjects());
 
         if (projectsRequestIdRef.current !== requestId) {
           return;
@@ -105,20 +110,21 @@ export function useProjects(): {
       selectedProjectId === null &&
       !hasAutoSelectedRef.current
     ) {
-      const bdPlusOne = projects.find((p) => p.id === "braindrive-plus-one");
-      if (bdPlusOne) {
+      const rootAgent = projects.find((project) => project.id === ROOT_AGENT_PROJECT_ID);
+      if (rootAgent) {
         hasAutoSelectedRef.current = true;
-        selectProject(bdPlusOne.id);
+        selectProject(rootAgent.id);
       }
     }
   }, [projects, selectedProjectId]);
 
   function selectProject(id: string) {
-    if (id === selectedProjectId) {
+    const effectiveProjectId = canonicalizeRootAgentProjectId(id);
+    if (effectiveProjectId === selectedProjectId) {
       return;
     }
 
-    setSelectedProjectId(id);
+    setSelectedProjectId(effectiveProjectId);
     setProjectFiles([]);
     setIsLoadingFiles(true);
     setFilesError(null);
@@ -128,7 +134,7 @@ export function useProjects(): {
 
     void (async () => {
       try {
-        const nextFiles = await getProjectFiles(id);
+        const nextFiles = await getProjectFiles(effectiveProjectId);
 
         if (filesRequestIdRef.current !== requestId) {
           return;
@@ -180,7 +186,7 @@ export function useProjects(): {
   }
 
   function deselectProject() {
-    selectProject("braindrive-plus-one");
+    selectProject(ROOT_AGENT_PROJECT_ID);
   }
 
   async function addProject(name: string) {
@@ -205,10 +211,11 @@ export function useProjects(): {
   }
 
   async function clearProjectConversation(id: string) {
-    await apiClearProjectConversation(id);
+    const effectiveProjectId = canonicalizeRootAgentProjectId(id);
+    await apiClearProjectConversation(effectiveProjectId);
     setProjects((current) =>
       current.map((project) =>
-        project.id === id ? { ...project, conversationId: null } : project
+        project.id === effectiveProjectId ? { ...project, conversationId: null } : project
       )
     );
     refreshProjects();
