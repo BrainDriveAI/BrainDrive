@@ -1,3 +1,66 @@
+## [26.07.07] - 2026-07-07
+
+### Added
+- Starter pack baseline interview and planning flows are now integrated into the dev branch for validation across project templates, chat context, and upload retry behavior. (`#148`)
+- Added the 26.06.23 release notes covering the first dev-to-main release set. (`#163`)
+- Added design-token and dark-mode contrast guidance for contributors building the web client. (`#164`)
+- Added Your Journal templates and follow-up journaling guidance for Fitness and Relationships pages. (`#210`)
+- Added runtime support for page journals, including sidebar access to Your Journal and safer memory edits. (`#213`)
+- Added journaling templates for Finance, Career, and New Project pages. (`#217`)
+- Enabled Your Journal for Finance, Career, and New Project pages on fresh provisioned workspaces. (`#218`)
+- Added README beta status messaging so developers can understand release cadence and support channels. (`#222`)
+- Added automatic BrainDrive Models key provisioning so owners can buy credits without manually configuring an API key. (`#223`)
+
+### Changed
+- Starter project templates now follow the locked memory architecture with seeded owner context and stale default structures removed. (`#145`)
+- The starter pack now emphasizes owner-facing interview, specification, and planning flows with Finance and Your Agent configured as primary surfaces. (`#146`)
+- Career, Fitness, Relationships, and New Project starter templates now better reflect their surface specs with clearer context, routing, and success criteria. (`#147`)
+- Scheduled Dependabot version updates now target the dev integration branch for validation before release. (`#150`)
+- Dependabot configuration on main now sends future scheduled version updates to the dev integration branch. (`#151`)
+- Client web dependencies were updated to newer non-major versions, bringing UI library, routing, testing, and build-tool improvements. (`#160`)
+- OpenRouter now defaults to GLM 5.2 for direct provider setup and starter-pack fallback configuration. (`#162`)
+- Updated the 26.06.23 release notes to include the design-token and dark-mode contrast documentation changes. (`#165`)
+- Updated runtime and web client package metadata to version 26.6.23. (`#169`)
+- Release packaging now supports same-day patch versions using the YY.M.D.N format. (`#173`)
+- Starter project templates now use generic, owner-facing instructions without obsolete child-app or persona-specific language. (`#174`)
+- New OpenRouter users now start with Claude Haiku 4.5 as the default model while existing saved model choices are preserved. (`#176`)
+- Updated package metadata to publish the 26.6.24 release version. (`#179`)
+- Improved starter-pack interviews with owner-neutral templates, playback confirmation before writing, profile suggestions, and stronger fitness baseline requirements. (`#181`)
+- Direct OpenRouter users now start with GLM 5.2 as the default model. (`#182`)
+- Updated MCP release development tooling to use Node 26 type definitions. (`#190`)
+- Updated TypeScript dependencies with newer Fastify and Tauri CLI versions, including AppImage packaging fixes. (`#191`)
+- Updated TypeScript Node definitions to stay current with Node 26 compatibility. (`#192`)
+- Updated web client dependencies for newer icons, build improvements, and test stability fixes. (`#193`)
+- Updated the web AI chat React SDK to the latest major version for improved chat stability and provider compatibility. (`#194`)
+- Updated application and desktop release metadata to version 26.6.30. (`#201`)
+- Renamed the root agent display from BrainDrive+1 to Your Agent across default project metadata and onboarding text. (`#203`)
+- Made Your Agent the canonical root-agent identity while preserving legacy compatibility for existing memory layouts. (`#207`)
+- Changed journal entries to appear newest-first at the top of each page journal. (`#214`)
+- Improved journal conversations so responses feel more person-first, less repetitive, and better aligned with next steps. (`#215`)
+- Updated client web dependencies to newer non-major versions for improved compatibility and maintenance. (`#219`)
+- Updated MCP release development dependencies to newer non-major versions for improved tooling reliability. (`#220`)
+- Updated TypeScript build dependencies to improve server performance, module loading reliability, and test tooling stability. (`#221`)
+
+### Fixed
+- Development dependencies for the MCP release build were updated with bug fixes for test running and TypeScript execution. (`#158`)
+- TypeScript build tooling dependencies were updated with fixes for Tauri, test execution, and TypeScript script running. (`#159`)
+- Starter pack advisor replies now point owners to sidebar product labels instead of exposing internal filenames. (`#161`)
+- Patched vulnerable transitive JavaScript dependencies across runtime, web client, and MCP release packages. (`#167`)
+- New and repaired workspaces now start on the protected Your Agent project. (`#175`)
+- Starter-pack interviews now more reliably produce goals and plans, and Finance can start from rough estimates without waiting for exact numbers. (`#184`)
+- Improved GitHub backup conflict recovery with clearer choices to back up this BrainDrive or restore the remote backup. (`#205`)
+- Improved starter-pack guidance so write transitions acknowledge owner input and finance experiences avoid regulated advisor language. (`#206`)
+- Completed Your Agent identity cleanup so legacy BrainDrive+1 references no longer appear as active projects. (`#209`)
+- Fixed migration imports so memory Git history is preserved and protected Git files no longer break import or rollback. (`#211`)
+- Fixed first-interview journal handoffs so users are told about Your Journal without being sent to stale or empty journal paths. (`#212`)
+
+### Removed
+- Removed unintended new-conversation actions from the chat panel. (`#171`)
+- Retired the legacy Finance Budgetting app so Finance now behaves as a parent planning surface without budget-specific workflows or upload routing. (`#180`)
+- Removed runtime prompt behavior that competed with starter-pack interview flows and retired child-app handling. (`#183`)
+- Removed automatic runtime snapshot writes so starter goals and plans are only updated through the intended assistant workflow. (`#185`)
+- Removed the legacy memory update flow, including startup reconciliation, update APIs, and the old in-app update notice. (`#208`)
+
 ## [26.06.30] - 2026-06-30
 
 ### Added
