@@ -2349,6 +2349,26 @@ function ModelSection({
               </div>
             </div>
 
+            {modelCatalogError && (
+              <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-xs text-bd-text-secondary">
+                <div className="flex items-start gap-1.5">
+                  <AlertCircle size={12} className="mt-0.5 shrink-0 text-bd-danger" />
+                  <div>
+                    {isOllama ? (
+                      <>
+                        Couldn&apos;t reach Ollama at {activeProfile?.base_url ?? "the configured URL"}. If Ollama runs
+                        on this computer, set the Server URL above to{" "}
+                        <span className="font-medium text-bd-text-primary">http://127.0.0.1:11434/v1</span>. If
+                        BrainDrive runs in Docker, use http://host.docker.internal:11434/v1.
+                      </>
+                    ) : (
+                      <>Couldn&apos;t load the model catalog: {modelCatalogError}</>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             <button
               type="button"
               onClick={() => setIsCatalogOpen((open) => !open)}
@@ -2474,25 +2494,6 @@ function ModelSection({
                 {deleteError && (
                   <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
                     {deleteError}
-                  </div>
-                )}
-                {modelCatalogError && (
-                  <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-xs text-bd-text-secondary">
-                    <div className="flex items-start gap-1.5">
-                      <AlertCircle size={12} className="mt-0.5 shrink-0 text-bd-danger" />
-                      <div>
-                        {isOllama ? (
-                          <>
-                            Couldn&apos;t reach Ollama at {activeProfile?.base_url ?? "the configured URL"}. If Ollama runs
-                            on this computer, set the Server URL above to{" "}
-                            <span className="font-medium text-bd-text-primary">http://127.0.0.1:11434/v1</span>. If
-                            BrainDrive runs in Docker, use http://host.docker.internal:11434/v1.
-                          </>
-                        ) : (
-                          <>Couldn&apos;t load the model catalog: {modelCatalogError}</>
-                        )}
-                      </div>
-                    </div>
                   </div>
                 )}
 
