@@ -284,7 +284,7 @@ describe("SettingsModal", () => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    await user.click(screen.getAllByRole("button", { name: "Model Providers" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "AI Models" })[0]!);
     await user.click(screen.getAllByRole("button", { name: /Ollama/i })[0]!);
 
     await waitFor(() => {
@@ -393,7 +393,7 @@ describe("SettingsModal", () => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    await user.click(screen.getAllByRole("button", { name: "Model Providers" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "AI Models" })[0]!);
 
     expect((await screen.findAllByText("BrainDrive Models")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Recommended").length).toBeGreaterThan(0);
@@ -419,7 +419,7 @@ describe("SettingsModal", () => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    await user.click(screen.getAllByRole("button", { name: "Model Providers" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "AI Models" })[0]!);
     await user.type(await screen.findByLabelText("Email for your receipt"), "owner@example.com");
     await user.click(screen.getAllByRole("button", { name: "$5" })[0]!);
     await user.click(screen.getAllByRole("button", { name: /Continue to checkout/i })[0]!);
@@ -450,9 +450,6 @@ describe("SettingsModal", () => {
 
     expect((await screen.findAllByText("$12.00")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("credits remaining").length).toBeGreaterThan(0);
-
-    const user = userEvent.setup();
-    await user.click(screen.getAllByRole("button", { name: /Manage credits/i })[0]!);
     expect((await screen.findAllByRole("button", { name: "Add credits" })).length).toBeGreaterThan(0);
   });
 
@@ -479,7 +476,7 @@ describe("SettingsModal", () => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    await user.click(screen.getAllByRole("button", { name: "Model Providers" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "AI Models" })[0]!);
     expect((await screen.findAllByText(/use its key on this computer/i)).length).toBeGreaterThan(0);
     await user.type(
       screen.getAllByPlaceholderText("Paste your emailed BrainDrive Models key")[0]!,
@@ -501,7 +498,7 @@ describe("SettingsModal", () => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    await user.click(screen.getAllByRole("button", { name: "Model Providers" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "AI Models" })[0]!);
     await user.click((await screen.findAllByRole("button", { name: /Restore from backup key/i }))[0]!);
 
     expect(screen.getAllByText(/Use the Migrate tab instead/i).length).toBeGreaterThan(0);
@@ -517,7 +514,7 @@ describe("SettingsModal", () => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    await user.click(screen.getAllByRole("button", { name: "Model Providers" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "AI Models" })[0]!);
     expect(screen.getAllByText("OpenRouter").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Ollama").length).toBeGreaterThan(0);
     await user.click(screen.getAllByRole("button", { name: /Ollama/i })[0]!);

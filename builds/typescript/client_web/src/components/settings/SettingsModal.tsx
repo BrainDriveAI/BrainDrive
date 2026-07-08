@@ -95,16 +95,15 @@ type SettingsModalProps = {
   onClose: () => void;
 };
 
-type SettingsTab = "provider" | "model" | "profile" | "your-agent" | "account" | "export" | "memory-backup" | "browser-access";
+type SettingsTab = "provider" | "profile" | "your-agent" | "account" | "export" | "memory-backup" | "browser-access";
 
 type TabDef = { id: SettingsTab; label: string; icon: typeof Key; managedOnly?: boolean; localOnly?: boolean; desktopOnly?: boolean };
 
 // Managed hosting shows: Account, Your Profile, Your Agent, Export (D93).
-// Local shows: Default Model, Model Providers, Your Profile, Your Agent, Browser Access, Memory Backup, Export.
+// Local shows: AI Models, Your Profile, Your Agent, Browser Access, Memory Backup, Export.
 const allTabs: TabDef[] = [
   { id: "account", label: "Account", icon: UserCog, managedOnly: true },
-  { id: "model", label: "AI Model", icon: Cpu, localOnly: true },
-  { id: "provider", label: "Model Providers", icon: Key, localOnly: true },
+  { id: "provider", label: "AI Models", icon: Cpu, localOnly: true },
   { id: "profile", label: "Your Profile", icon: User },
   { id: "your-agent", label: "Your Agent", icon: Bot },
   { id: "browser-access", label: "Browser Access", icon: Network, localOnly: true, desktopOnly: true },
@@ -128,7 +127,7 @@ export default function SettingsModal({
     if (tab.desktopOnly && !isTauriRuntime()) return false;
     return true;
   });
-  const [activeTab, setActiveTab] = useState<SettingsTab>(mode === "managed" ? "account" : "model");
+  const [activeTab, setActiveTab] = useState<SettingsTab>(mode === "managed" ? "account" : "provider");
   const [settings, setSettings] = useState<GatewaySettings | null>(null);
   const [isLoadingSettings, setIsLoadingSettings] = useState(mode === "local");
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -429,8 +428,7 @@ export default function SettingsModal({
               installLocation={installLocation}
               appVersion={appVersion}
               onRefreshCatalog={() => setCatalogRefreshKey((k) => k + 1)}
-              onNavigateToTab={setActiveTab}
-            />
+              />
           </div>
         </div>
       </div>
@@ -499,7 +497,6 @@ export default function SettingsModal({
             installMode={installMode}
             installLocation={installLocation}
             appVersion={appVersion}
-            onNavigateToTab={setActiveTab}
           />
         </div>
       </div>
@@ -588,7 +585,6 @@ function TabContent({
   installLocation,
   appVersion,
   onRefreshCatalog,
-  onNavigateToTab,
 }: {
   tab: SettingsTab;
   mode: "local" | "managed";
@@ -620,19 +616,11 @@ function TabContent({
   installLocation: "local" | "managed" | "unknown";
   appVersion: string;
   onRefreshCatalog: () => void;
-  onNavigateToTab: (tab: SettingsTab) => void;
 }) {
-  const activeProfile = settings?.provider_profiles.find(
-    (p) => p.id === (settings?.active_provider_profile ?? settings?.default_provider_profile)
-  );
-  const isBrainDriveActive = activeProfile?.provider_id?.toLowerCase() === "braindrive-models";
-
   switch (tab) {
-    case "model":
-      return isBrainDriveActive ? (
-        <BrainDriveDefaultSection isLoadingSettings={isLoadingSettings} settingsError={settingsError} onNavigateToTab={onNavigateToTab} />
-      ) : (
-        <ModelSection
+    case "provider":
+      return (
+        <ProviderSection
           mode={mode}
           settings={settings}
           isLoadingSettings={isLoadingSettings}
@@ -641,18 +629,8 @@ function TabContent({
           isLoadingModelCatalog={isLoadingModelCatalog}
           modelCatalogError={modelCatalogError}
           onSaveSettings={onSaveSettings}
-          onRefreshCatalog={onRefreshCatalog}
-        />
-      );
-    case "provider":
-      return (
-        <ProviderSection
-          mode={mode}
-          settings={settings}
-          isLoadingSettings={isLoadingSettings}
-          settingsError={settingsError}
-          onSaveSettings={onSaveSettings}
           onSaveCredential={onSaveCredential}
+          onRefreshCatalog={onRefreshCatalog}
         />
       );
     case "memory-backup":
@@ -1532,73 +1510,6 @@ function MemoryBackupSection({
 
 const CREDIT_AMOUNTS = [5, 10, 25];
 
-function BrainDriveDefaultSection({
-  isLoadingSettings,
-  settingsError,
-  onNavigateToTab,
-}: {
-  isLoadingSettings: boolean;
-  settingsError: string | null;
-  onNavigateToTab: (tab: SettingsTab) => void;
-}) {
-  const [credits, setCredits] = useState<GatewayCreditsStatus | null>(null);
-
-  useEffect(() => {
-    getCreditsStatus().then(setCredits).catch(() => {});
-  }, []);
-
-  if (isLoadingSettings) {
-    return <div className="py-8 text-center text-sm text-bd-text-muted">Loading...</div>;
-  }
-  if (settingsError) {
-    return (
-      <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-4 py-3 text-sm text-bd-text-primary">
-        {settingsError}
-      </div>
-    );
-  }
-
-  const needsAttention = credits?.key_valid === false || credits?.purchase_status === "repair_required";
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h3 className="font-heading text-base font-semibold text-bd-text-heading">
-          AI Model
-        </h3>
-        <p className="mt-1 text-sm text-bd-text-muted">
-          BrainDrive Models picks the best AI model for you and keeps it up to date &mdash; nothing to manage.
-        </p>
-      </div>
-
-      <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <div className="text-2xl font-semibold text-bd-text-primary">
-              {credits ? `$${credits.remaining_usd.toFixed(2)}` : "\u2014"}
-            </div>
-            <div className="text-xs text-bd-text-muted">credits remaining</div>
-          </div>
-          <button
-            type="button"
-            onClick={() => onNavigateToTab("provider")}
-            className="flex items-center gap-1 text-sm font-medium text-bd-amber transition-colors hover:text-bd-amber-hover"
-          >
-            Manage credits
-            <span aria-hidden="true">&rarr;</span>
-          </button>
-        </div>
-        {needsAttention && (
-          <div className="mt-3 flex items-center gap-1.5 text-xs text-red-400">
-            <AlertCircle size={12} />
-            BrainDrive Models needs attention &mdash; open Model Providers to fix it.
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function BrainDriveModelsPanel({
   profile,
   keyState,
@@ -1924,8 +1835,16 @@ function ProviderSection({
   settingsError,
   onSaveSettings,
   onSaveCredential,
+  modelCatalog,
+  isLoadingModelCatalog,
+  modelCatalogError,
+  onRefreshCatalog,
 }: {
   mode: "local" | "managed";
+  modelCatalog: GatewayModelCatalog | null;
+  isLoadingModelCatalog: boolean;
+  modelCatalogError: string | null;
+  onRefreshCatalog: () => void;
 } & SettingsDataProps) {
   const [selectedProfile, setSelectedProfile] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -1965,7 +1884,7 @@ function ProviderSection({
       <div className="space-y-6">
         <div>
           <h3 className="font-heading text-base font-semibold text-bd-text-heading">
-            Model Providers
+            AI Models
           </h3>
           <p className="mt-1 text-sm text-bd-text-muted">
             Your AI model access is included with your subscription.
@@ -1991,7 +1910,7 @@ function ProviderSection({
   if (isLoadingSettings) {
     return (
       <div className="space-y-3">
-        <h3 className="font-heading text-base font-semibold text-bd-text-heading">Model Providers</h3>
+        <h3 className="font-heading text-base font-semibold text-bd-text-heading">AI Models</h3>
         <p className="text-sm text-bd-text-muted">Loading provider settings...</p>
       </div>
     );
@@ -2000,7 +1919,7 @@ function ProviderSection({
   if (settingsError) {
     return (
       <div className="space-y-3">
-        <h3 className="font-heading text-base font-semibold text-bd-text-heading">Model Providers</h3>
+        <h3 className="font-heading text-base font-semibold text-bd-text-heading">AI Models</h3>
         <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2.5 text-sm text-bd-text-primary">
           {settingsError}
         </div>
@@ -2022,7 +1941,7 @@ function ProviderSection({
     <div className="space-y-6">
       <div>
         <h3 className="font-heading text-base font-semibold text-bd-text-heading">
-          Model Providers
+          AI Models
         </h3>
         <p className="mt-1 text-sm text-bd-text-muted">
           Choose how BrainDrive connects to AI models.
@@ -2272,6 +2191,22 @@ function ProviderSection({
                               )}
                             </div>
                           )}
+                          {profile.id === (settings.active_provider_profile ?? settings.default_provider_profile) && (
+                            <div className="mt-4 border-t border-bd-border pt-3">
+                              <ModelSection
+                                mode={mode}
+                                settings={settings}
+                                isLoadingSettings={isLoadingSettings}
+                                settingsError={settingsError}
+                                modelCatalog={modelCatalog}
+                                isLoadingModelCatalog={isLoadingModelCatalog}
+                                modelCatalogError={modelCatalogError}
+                                onSaveSettings={onSaveSettings}
+                                onRefreshCatalog={onRefreshCatalog}
+                                embedded
+                              />
+                            </div>
+                          )}
                         </>
                       )}
                     </div>
@@ -2302,6 +2237,7 @@ function ModelSection({
   modelCatalogError,
   onSaveSettings,
   onRefreshCatalog,
+  embedded = false,
 }: {
   mode: "local" | "managed";
   settings: GatewaySettings | null;
@@ -2314,6 +2250,7 @@ function ModelSection({
     patch: SettingsPatch
   ) => Promise<GatewaySettings>;
   onRefreshCatalog: () => void;
+  embedded?: boolean;
 }) {
   const managedModels = [
     { name: "Claude Haiku 4.5", provider: "Anthropic" },
@@ -2373,11 +2310,15 @@ function ModelSection({
   }, [allCatalogModels, catalogQuery]);
 
   return (
-    <div className="space-y-6">
+    <div className={embedded ? "space-y-3" : "space-y-6"}>
       <div>
-        <h3 className="font-heading text-base font-semibold text-bd-text-heading">
-          Default Model
-        </h3>
+        {embedded ? (
+          <div className="text-sm font-medium text-bd-text-secondary">Default Model</div>
+        ) : (
+          <h3 className="font-heading text-base font-semibold text-bd-text-heading">
+            Default Model
+          </h3>
+        )}
         <p className="mt-1 text-sm text-bd-text-muted">
           {isOllama
             ? "Choose from the models installed on your computer."
