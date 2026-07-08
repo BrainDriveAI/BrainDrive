@@ -66,6 +66,7 @@ import {
 import { isTauriRuntime } from "@/api/runtime-api-base";
 import { resetGatewayChatRuntime } from "@/api/useGatewayChat";
 import type {
+  GatewayBrainDriveModelsKeyState,
   GatewayCredentialUpdateRequest,
   GatewayCreditsStatus,
   GatewayMemoryBackupFrequency,
@@ -77,6 +78,7 @@ import type {
   GatewayModelCatalog,
   GatewayModelCatalogEntry,
   GatewayMigrationImportResult,
+  GatewayProviderProfile,
   GatewaySettings,
 } from "@/api/types";
 import type { UserProfile } from "@/types/ui";
@@ -628,7 +630,7 @@ function TabContent({
   switch (tab) {
     case "model":
       return isBrainDriveActive ? (
-        <BrainDriveDefaultSection settings={settings} isLoadingSettings={isLoadingSettings} settingsError={settingsError} onSaveCredential={onSaveCredential} />
+        <BrainDriveDefaultSection isLoadingSettings={isLoadingSettings} settingsError={settingsError} onNavigateToTab={onNavigateToTab} />
       ) : (
         <ModelSection
           mode={mode}
@@ -651,7 +653,6 @@ function TabContent({
           settingsError={settingsError}
           onSaveSettings={onSaveSettings}
           onSaveCredential={onSaveCredential}
-          onNavigateToTab={onNavigateToTab}
         />
       );
     case "memory-backup":
@@ -1529,17 +1530,85 @@ function MemoryBackupSection({
   );
 }
 
+const CREDIT_AMOUNTS = [5, 10, 25];
+
 function BrainDriveDefaultSection({
-  settings,
   isLoadingSettings,
   settingsError,
-  onSaveCredential,
+  onNavigateToTab,
 }: {
-  settings: GatewaySettings | null;
   isLoadingSettings: boolean;
   settingsError: string | null;
+  onNavigateToTab: (tab: SettingsTab) => void;
+}) {
+  const [credits, setCredits] = useState<GatewayCreditsStatus | null>(null);
+
+  useEffect(() => {
+    getCreditsStatus().then(setCredits).catch(() => {});
+  }, []);
+
+  if (isLoadingSettings) {
+    return <div className="py-8 text-center text-sm text-bd-text-muted">Loading...</div>;
+  }
+  if (settingsError) {
+    return (
+      <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-4 py-3 text-sm text-bd-text-primary">
+        {settingsError}
+      </div>
+    );
+  }
+
+  const needsAttention = credits?.key_valid === false || credits?.purchase_status === "repair_required";
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="font-heading text-base font-semibold text-bd-text-heading">
+          AI Model
+        </h3>
+        <p className="mt-1 text-sm text-bd-text-muted">
+          BrainDrive Models picks the best AI model for you and keeps it up to date &mdash; nothing to manage.
+        </p>
+      </div>
+
+      <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-2xl font-semibold text-bd-text-primary">
+              {credits ? `$${credits.remaining_usd.toFixed(2)}` : "\u2014"}
+            </div>
+            <div className="text-xs text-bd-text-muted">credits remaining</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigateToTab("provider")}
+            className="flex items-center gap-1 text-sm font-medium text-bd-amber transition-colors hover:text-bd-amber-hover"
+          >
+            Manage credits
+            <span aria-hidden="true">&rarr;</span>
+          </button>
+        </div>
+        {needsAttention && (
+          <div className="mt-3 flex items-center gap-1.5 text-xs text-red-400">
+            <AlertCircle size={12} />
+            BrainDrive Models needs attention &mdash; open Model Providers to fix it.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function BrainDriveModelsPanel({
+  profile,
+  keyState,
+  onSaveCredential,
+}: {
+  profile: GatewayProviderProfile;
+  keyState: GatewayBrainDriveModelsKeyState | null;
   onSaveCredential: (patch: GatewayCredentialUpdateRequest) => Promise<void>;
 }) {
+  const user = useSettingsUser();
   const [apiKey, setApiKey] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -1551,6 +1620,15 @@ function BrainDriveDefaultSection({
   const [purchaseState, setPurchaseState] = useState<"idle" | "activating" | "ready" | "zero_balance" | "repair_required">("idle");
   const [billingEmail, setBillingEmail] = useState(() => localStorage.getItem("bd_billing_email") ?? "");
   const [isEditingEmail, setIsEditingEmail] = useState(false);
+  const [selectedAmount, setSelectedAmount] = useState<number>(CREDIT_AMOUNTS[0]!);
+  const [showTopUp, setShowTopUp] = useState(false);
+
+  useEffect(() => {
+    if (!billingEmail && user.email && user.email.includes("@") && user.email !== DEFAULT_USER.email) {
+      setBillingEmail(user.email);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user.email]);
 
   function handleEmailChange(value: string) {
     setBillingEmail(value);
@@ -1561,17 +1639,10 @@ function BrainDriveDefaultSection({
 
   const emailSaved = Boolean(billingEmail && localStorage.getItem("bd_billing_email") === billingEmail);
 
-  const activeProfile = settings?.provider_profiles.find(
-    (p) => p.id === (settings?.active_provider_profile ?? settings?.default_provider_profile)
-  );
-  const isFirstTime = activeProfile?.credential_mode === "unset";
-  const keyState = settings?.braindrive_models_key ?? null;
+  const isFirstTime = profile.credential_mode === "unset";
   const hasConfiguredKey = !isFirstTime || purchaseState === "activating" || purchaseState === "ready" || Boolean(keyState);
   const isActivating = purchaseState === "activating" || Boolean(keyState?.checkout_pending);
   const isReady = purchaseState === "ready" || (balance?.remaining_usd ?? 0) > 0;
-  const isZeroBalance =
-    purchaseState === "zero_balance" ||
-    (!isActivating && hasConfiguredKey && !keyInvalid && (balance?.remaining_usd ?? 0) <= 0);
 
   async function refreshCreditsStatus(): Promise<GatewayCreditsStatus | null> {
     try {
@@ -1640,9 +1711,6 @@ function BrainDriveDefaultSection({
   }
 
   function handleSaveRepairKey() {
-    if (!activeProfile) {
-      return;
-    }
     const trimmed = apiKey.trim();
     if (!/^sk-[A-Za-z0-9_-]{8,}$/.test(trimmed)) {
       setSaveError("That doesn't look like a BrainDrive Models key. Copy the full key from your purchase email.");
@@ -1651,10 +1719,10 @@ function BrainDriveDefaultSection({
     setIsSaving(true);
     setSaveError(null);
     void onSaveCredential({
-      provider_profile: activeProfile.id,
+      provider_profile: profile.id,
       mode: "secret_ref",
       api_key: trimmed,
-      secret_ref: activeProfile.credential_ref ?? undefined,
+      secret_ref: profile.credential_ref ?? undefined,
       required: true,
       set_active_provider: true,
     })
@@ -1669,143 +1737,172 @@ function BrainDriveDefaultSection({
       .finally(() => { setIsSaving(false); });
   }
 
-  if (isLoadingSettings) {
-    return <div className="py-8 text-center text-sm text-bd-text-muted">Loading...</div>;
-  }
-  if (settingsError) {
-    return (
-      <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-4 py-3 text-sm text-bd-text-primary">
-        {settingsError}
+  const emailValid = billingEmail.includes("@");
+  const isOpeningCheckout = purchaseLoading !== null;
+
+  const repairKeyForm = (
+    <div className="space-y-2">
+      <p className="text-xs leading-5 text-bd-text-muted">
+        Paste the backup key from your purchase email. Moving computers? Use the Migrate tab instead &mdash; it carries your keys; backups don&apos;t.
+      </p>
+      <input
+        type="password" autoComplete="new-password"
+        value={apiKey}
+        onChange={(e) => { setApiKey(e.target.value); setSaveError(null); }}
+        placeholder="Paste your emailed BrainDrive Models key"
+        className="h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+      />
+      {saveError && (
+        <div className="flex items-center gap-1.5 text-xs text-red-400">
+          <AlertCircle size={12} />
+          {saveError}
+        </div>
+      )}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          disabled={isSaving || apiKey.trim().length === 0}
+          onClick={handleSaveRepairKey}
+          className="rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {isSaving ? "Saving..." : "Save Key"}
+        </button>
+        {!keyInvalid && (
+          <button
+            type="button"
+            onClick={() => { setShowRepairKey(false); setApiKey(""); setSaveError(null); }}
+            className="rounded-lg border border-bd-border px-3 py-1.5 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover"
+          >
+            Cancel
+          </button>
+        )}
       </div>
-    );
-  }
+    </div>
+  );
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h3 className="font-heading text-base font-semibold text-bd-text-heading">
-          Managed by BrainDrive
-        </h3>
-        <p className="mt-1 text-sm text-bd-text-muted">
-          We pick the best AI model for you — just add BrainDrive Models Credits and go.
-        </p>
-      </div>
-
-      <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary p-4 space-y-4">
-        <div className="rounded-lg border border-bd-border bg-bd-bg-secondary/70 p-3">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <div className="text-2xl font-semibold text-bd-text-primary">
-                {hasConfiguredKey ? `$${(balance?.remaining_usd ?? 0).toFixed(2)}` : "$0.00"}
-              </div>
-              <div className="text-xs text-bd-text-muted">BrainDrive Models credits remaining</div>
-            </div>
-            <div className={[
-              "rounded-full border px-2.5 py-1 text-[11px] font-medium",
-              keyInvalid
-                ? "border-bd-danger-border bg-bd-danger-bg text-bd-text-primary"
-                : isReady
-                  ? "border-bd-success-border bg-bd-success-bg text-bd-text-primary"
-                  : "border-bd-border bg-bd-bg-tertiary text-bd-text-secondary"
-            ].join(" ")}>
-              {keyInvalid ? "Repair needed" : isActivating ? "Activating" : isReady ? "Ready" : isZeroBalance ? "No credits yet" : "Ready to buy"}
-            </div>
+    <div className="space-y-3 pt-1">
+      {keyInvalid ? (
+        <div className="space-y-2">
+          <div className="flex items-start gap-1.5 text-xs leading-5 text-red-400">
+            <AlertCircle size={12} className="mt-1 shrink-0" />
+            BrainDrive Models can&apos;t use its key on this computer. Restore it with the backup key from your purchase email.
           </div>
-          <p className="mt-3 text-xs leading-5 text-bd-text-muted">
-            {keyInvalid
-              ? "Use the key from your BrainDrive Models purchase email, or migrate BrainDrive from the original computer."
-              : isActivating
-                ? "Checkout is open. After Stripe confirms payment, credits activate here automatically."
-                : isReady
-                  ? "BrainDrive Models is ready on this computer."
-                  : isZeroBalance
-                    ? "A BrainDrive Models key is installed here, but it has no spendable credits yet."
-                    : "BrainDrive will install a key in the encrypted vault when checkout starts. The key will also be emailed to you as a backup."}
-          </p>
+          {repairKeyForm}
         </div>
-
-        <div>
-          <div className="mb-2 text-xs font-medium text-bd-text-secondary">Add BrainDrive Models Credits</div>
-          {emailSaved && !isEditingEmail ? (
-            <div className="mb-2 flex items-center gap-2">
-              <span className="text-sm text-bd-text-primary">{billingEmail}</span>
-              <button type="button" onClick={() => setIsEditingEmail(true)} className="text-xs text-bd-text-muted transition-colors hover:text-bd-text-secondary hover:underline">Change email</button>
+      ) : isActivating ? (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-sm text-bd-text-secondary">
+            <LoaderCircle size={16} className="animate-spin text-bd-amber" />
+            Waiting for checkout to finish &mdash; your credits will appear here automatically.
+          </div>
+          <button
+            type="button"
+            onClick={() => setPurchaseState("idle")}
+            className="text-xs text-bd-text-muted transition-colors hover:text-bd-text-secondary hover:underline"
+          >
+            Closed checkout without paying? Start over
+          </button>
+        </div>
+      ) : isReady && !showTopUp ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-baseline gap-2">
+            <span className="text-xl font-semibold text-bd-text-primary">${(balance?.remaining_usd ?? 0).toFixed(2)}</span>
+            <span className="text-xs text-bd-text-muted">credits remaining</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowTopUp(true)}
+            className="rounded-lg border border-bd-amber px-3 py-1.5 text-xs font-medium text-bd-amber transition-colors hover:bg-bd-amber hover:text-bd-bg-primary"
+          >
+            Add credits
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {hasConfiguredKey && (
+            <div className="flex items-baseline gap-2">
+              <span className="text-xl font-semibold text-bd-text-primary">${(balance?.remaining_usd ?? 0).toFixed(2)}</span>
+              <span className="text-xs text-bd-text-muted">credits remaining</span>
             </div>
-          ) : (
-            <input
-              type="email"
-              value={billingEmail}
-              onChange={(e) => handleEmailChange(e.target.value)}
-              placeholder="Email for receipt and key backup"
-              className="mb-2 h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
-            />
           )}
-          <p className="mb-2 text-xs text-bd-text-muted">
-            No copy/paste needed. BrainDrive uses the encrypted vault key for checkout and emails the key as your backup.
+          <p className="text-xs leading-5 text-bd-text-muted">
+            We set everything up automatically &mdash; nothing to configure. Your receipt goes to your email.
           </p>
-          <div className="flex gap-2">
-            {[5, 10, 25].map((amt) => (
+          <div>
+            <label htmlFor="bd-models-billing-email" className="mb-1.5 block text-xs font-medium text-bd-text-secondary">
+              Email for your receipt
+            </label>
+            {emailSaved && !isEditingEmail ? (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-bd-text-primary">{billingEmail}</span>
+                <button type="button" onClick={() => setIsEditingEmail(true)} className="text-xs text-bd-text-muted transition-colors hover:text-bd-text-secondary hover:underline">Change email</button>
+              </div>
+            ) : (
+              <input
+                id="bd-models-billing-email"
+                type="email"
+                value={billingEmail}
+                onChange={(e) => handleEmailChange(e.target.value)}
+                placeholder="you@example.com"
+                className="h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+              />
+            )}
+          </div>
+          <div className="flex gap-2" role="group" aria-label="Credit amount">
+            {CREDIT_AMOUNTS.map((amt) => (
               <button
                 key={amt}
                 type="button"
-                disabled={purchaseLoading !== null || !billingEmail.includes("@")}
-                onClick={() => handlePurchase(amt)}
-                className="flex-1 rounded-lg border border-bd-amber px-3 py-2.5 text-sm font-medium text-bd-amber transition-colors hover:bg-bd-amber hover:text-bd-bg-primary disabled:opacity-60"
+                aria-pressed={selectedAmount === amt}
+                onClick={() => setSelectedAmount(amt)}
+                className={[
+                  "flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
+                  selectedAmount === amt
+                    ? "border-bd-amber bg-bd-amber/10 text-bd-amber"
+                    : "border-bd-border text-bd-text-secondary hover:border-bd-amber/50 hover:text-bd-text-primary"
+                ].join(" ")}
               >
-                {purchaseLoading === amt ? "Opening..." : `$${amt}`}
+                ${amt}
               </button>
             ))}
           </div>
+          <button
+            type="button"
+            disabled={!emailValid || isOpeningCheckout}
+            onClick={() => handlePurchase(selectedAmount)}
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-bd-amber px-3 py-2.5 text-sm font-semibold text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isOpeningCheckout ? "Opening checkout..." : (
+              <>
+                Continue to checkout
+                <ExternalLink size={14} strokeWidth={2} />
+              </>
+            )}
+          </button>
+          {isReady && showTopUp && (
+            <button
+              type="button"
+              onClick={() => setShowTopUp(false)}
+              className="text-xs text-bd-text-muted transition-colors hover:text-bd-text-secondary hover:underline"
+            >
+              Cancel
+            </button>
+          )}
           {purchaseError && (
-            <div className="mt-2 flex items-center gap-1.5 text-xs text-red-400">
+            <div className="flex items-center gap-1.5 text-xs text-red-400">
               <AlertCircle size={12} />
               {purchaseError}
             </div>
           )}
         </div>
+      )}
 
-        <div className="rounded-lg border border-bd-border bg-bd-bg-secondary/60 p-3 text-xs leading-5 text-bd-text-muted">
-          Moving computers? Use Migrate to move your BrainDrive and its encrypted keys. Backups restore your library, but they do not carry API keys.
-        </div>
-
-        {showRepairKey ? (
-          <div className="border-t border-bd-border pt-3 space-y-2">
-            <div>
-              <div className="text-sm font-medium text-bd-text-heading">Repair with emailed key</div>
-              <p className="mt-1 text-xs text-bd-text-muted">
-                Paste the BrainDrive Models key from your purchase email. This is for repair or using the same key on another install.
-              </p>
-            </div>
-            <input
-              type="password" autoComplete="new-password"
-              value={apiKey}
-              onChange={(e) => { setApiKey(e.target.value); setSaveError(null); }}
-              placeholder="Paste your emailed BrainDrive Models key"
-              className="h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
-            />
-            {saveError && (
-              <div className="flex items-center gap-1.5 text-xs text-red-400">
-                <AlertCircle size={12} />
-                {saveError}
-              </div>
-            )}
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                disabled={isSaving || apiKey.trim().length === 0}
-                onClick={handleSaveRepairKey}
-                className="rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isSaving ? "Saving..." : "Save Key"}
-              </button>
-              <button
-                type="button"
-                onClick={() => { setShowRepairKey(false); setApiKey(""); setSaveError(null); }}
-                className="rounded-lg border border-bd-border px-3 py-1.5 text-xs text-bd-text-secondary transition-colors hover:bg-bd-bg-hover"
-              >
-                Cancel
-              </button>
-            </div>
+      {!keyInvalid && (
+        showRepairKey ? (
+          <div className="border-t border-bd-border pt-3">
+            <div className="mb-2 text-sm font-medium text-bd-text-heading">Restore from backup key</div>
+            {repairKeyForm}
           </div>
         ) : (
           <button
@@ -1813,14 +1910,13 @@ function BrainDriveDefaultSection({
             onClick={() => setShowRepairKey(true)}
             className="text-xs text-bd-text-muted transition-colors hover:text-bd-text-secondary hover:underline"
           >
-            Advanced: repair with emailed key
+            Having trouble? Restore from backup key
           </button>
-        )}
-      </div>
+        )
+      )}
     </div>
   );
 }
-
 function ProviderSection({
   mode,
   settings,
@@ -1828,10 +1924,8 @@ function ProviderSection({
   settingsError,
   onSaveSettings,
   onSaveCredential,
-  onNavigateToTab,
 }: {
   mode: "local" | "managed";
-  onNavigateToTab: (tab: SettingsTab) => void;
 } & SettingsDataProps) {
   const [selectedProfile, setSelectedProfile] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -1918,6 +2012,12 @@ function ProviderSection({
     return null;
   }
 
+  const orderedProfiles = [...settings.provider_profiles].sort(
+    (a, b) =>
+      Number(b.provider_id?.toLowerCase() === "braindrive-models") -
+      Number(a.provider_id?.toLowerCase() === "braindrive-models")
+  );
+
   return (
     <div className="space-y-6">
       <div>
@@ -1932,7 +2032,7 @@ function ProviderSection({
       <div className="space-y-4">
         <div>
           <div className="space-y-2">
-            {settings.provider_profiles.map((profile) => {
+            {orderedProfiles.map((profile) => {
               const isSelected = selectedProfile === profile.id;
               const isOllama = profile.provider_id?.toLowerCase() === "ollama";
               const isBrainDriveModels = profile.provider_id?.toLowerCase() === "braindrive-models";
@@ -1973,15 +2073,22 @@ function ProviderSection({
                       {isSelected && <div className="h-2 w-2 rounded-full bg-bd-amber" />}
                     </div>
                     <div>
-                      <div className={[
-                        "text-sm font-medium",
-                        isSelected ? "text-bd-text-primary" : "text-bd-text-secondary"
-                      ].join(" ")}>
-                        {isBrainDriveModels ? "BrainDrive" : isOllama ? "Ollama" : "OpenRouter"}
+                      <div className="flex items-center gap-2">
+                        <div className={[
+                          "text-sm font-medium",
+                          isSelected ? "text-bd-text-primary" : "text-bd-text-secondary"
+                        ].join(" ")}>
+                          {isBrainDriveModels ? "BrainDrive Models" : isOllama ? "Ollama" : "OpenRouter"}
+                        </div>
+                        {isBrainDriveModels && (
+                          <span className="rounded-full border border-bd-amber/40 bg-bd-amber/10 px-2 py-0.5 text-[10px] font-medium text-bd-amber">
+                            Recommended
+                          </span>
+                        )}
                       </div>
                       <div className="text-xs text-bd-text-muted">
                         {isBrainDriveModels
-                          ? <>We pick the best AI model for you — just add BrainDrive Models Credits and go</>
+                          ? <>We pick the best AI model for you — add credits and go</>
                           : isOllama
                           ? <>Runs on your computer, free — <a href="https://ollama.com" target="_blank" rel="noopener noreferrer" className="text-bd-text-muted hover:text-bd-text-secondary hover:underline" onClick={(e) => e.stopPropagation()}>ollama.com</a></>
                           : <>Cloud-based, requires API key — <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="text-bd-text-muted hover:text-bd-text-secondary hover:underline" onClick={(e) => e.stopPropagation()}>openrouter.ai/keys</a></>}
@@ -1994,14 +2101,11 @@ function ProviderSection({
                       "border border-t-0 border-bd-amber bg-bd-bg-tertiary px-4 pb-3 pt-2 rounded-b-lg"
                     ].join(" ")}>
                       {isBrainDriveModels ? (
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); onNavigateToTab("model"); }}
-                          className="flex items-center gap-1 text-sm font-medium text-bd-amber transition-colors hover:text-bd-amber-hover"
-                        >
-                          Add BrainDrive Models Credits
-                          <span aria-hidden="true">&rarr;</span>
-                        </button>
+                        <BrainDriveModelsPanel
+                          profile={profile}
+                          keyState={settings.braindrive_models_key ?? null}
+                          onSaveCredential={onSaveCredential}
+                        />
                       ) : (
                         <>
                           {isOllama && (
