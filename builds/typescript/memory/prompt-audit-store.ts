@@ -30,6 +30,7 @@ export type PromptAuditEventName =
   | "prompt_audit.provider_request"
   | "prompt_audit.provider_response"
   | "prompt_audit.model_response"
+  | "prompt_audit.empty_completion_retry"
   | "prompt_audit.tool_call"
   | "prompt_audit.tool_result"
   | "prompt_audit.trace_completed"

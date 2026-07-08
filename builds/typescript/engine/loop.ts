@@ -14,6 +14,8 @@ import { ApprovalStore } from "./approval-store.js";
 import { classifyProviderError } from "./errors.js";
 import { ToolExecutor } from "./tool-executor.js";
 
+const EMPTY_COMPLETION_MAX_RETRIES = 1;
+
 type LoopOptions = {
   memoryRoot: string;
   approvalMode?: ApprovalMode;
@@ -61,90 +63,140 @@ export async function* runAgentLoop(
 
     let completion;
     let streamedAssistantText = false;
-    const modelCall: ModelCallAuditContext = {
+    let modelCall: ModelCallAuditContext = {
       model_call_id: crypto.randomUUID(),
       model_call_index: iteration,
     };
-    try {
-      const tools = toolExecutor.listTools(auth);
-      await options.promptAudit?.recorder.append(
-        "prompt_audit.model_request",
-        {
-          adapter_name: options.promptAudit.adapterName,
-          provider_profile: options.promptAudit.providerProfile ?? null,
-          selected_model: options.promptAudit.model ?? null,
-          metadata: request.metadata,
-          messages,
-          tools: tools.map((tool) => serializeToolDefinitionForAudit(tool)),
-        },
-        modelCall
-      );
-      if (adapter.completeStream) {
-        for await (const chunk of adapter.completeStream(
+    let responseAudited = false;
+    const tools = toolExecutor.listTools(auth);
+    let emptyCompletionRetries = 0;
+
+    while (true) {
+      completion = undefined;
+      streamedAssistantText = false;
+      responseAudited = false;
+      modelCall = {
+        model_call_id: crypto.randomUUID(),
+        model_call_index: iteration,
+      };
+
+      try {
+        await options.promptAudit?.recorder.append(
+          "prompt_audit.model_request",
           {
-            messages,
+            adapter_name: options.promptAudit.adapterName,
+            provider_profile: options.promptAudit.providerProfile ?? null,
+            selected_model: options.promptAudit.model ?? null,
             metadata: request.metadata,
+            messages,
+            tools: tools.map((tool) => serializeToolDefinitionForAudit(tool)),
           },
-          tools,
-          options.promptAudit
-            ? {
-                promptAudit: {
-                  recorder: options.promptAudit.recorder,
-                  modelCall,
-                },
+          modelCall
+        );
+        if (adapter.completeStream) {
+          for await (const chunk of adapter.completeStream(
+            {
+              messages,
+              metadata: request.metadata,
+            },
+            tools,
+            options.promptAudit
+              ? {
+                  promptAudit: {
+                    recorder: options.promptAudit.recorder,
+                    modelCall,
+                  },
+                }
+              : undefined
+          )) {
+            if (chunk.type === "text-delta") {
+              if (chunk.delta.trim().length > 0) {
+                streamedAssistantText = true;
               }
-            : undefined
-        )) {
-          if (chunk.type === "text-delta") {
-            streamedAssistantText = true;
-            yield {
-              type: "text-delta",
-              delta: chunk.delta,
-            };
-            continue;
+              yield {
+                type: "text-delta",
+                delta: chunk.delta,
+              };
+              continue;
+            }
+
+            completion = chunk.response;
           }
 
-          completion = chunk.response;
+          if (!completion) {
+            completion = {
+              assistantText: "",
+              toolCalls: [],
+              finishReason: "completed",
+            };
+          }
+        } else {
+          completion = await adapter.complete(
+            {
+              messages,
+              metadata: request.metadata,
+            },
+            tools,
+            options.promptAudit
+              ? {
+                  promptAudit: {
+                    recorder: options.promptAudit.recorder,
+                    modelCall,
+                  },
+                }
+              : undefined
+          );
+        }
+      } catch (error) {
+        await options.promptAudit?.recorder.append(
+          "prompt_audit.error",
+          {
+            stage: "engine_model_call",
+            message: error instanceof Error ? error.message : "Unknown provider error",
+          },
+          modelCall
+        );
+        auditLog("provider.error", {
+          message: error instanceof Error ? error.message : "Unknown provider error",
+        });
+        yield classifyError(error);
+        return;
+      }
+
+      if (isEmptyCompletion(completion) && (!adapter.completeStream || !streamedAssistantText)) {
+        await appendModelResponseAudit(options, completion, modelCall);
+        responseAudited = true;
+
+        if (emptyCompletionRetries < EMPTY_COMPLETION_MAX_RETRIES) {
+          await appendEmptyCompletionRetryAudit(
+            options,
+            completion,
+            modelCall,
+            emptyCompletionRetries + 1,
+            false,
+            streamedAssistantText
+          );
+          emptyCompletionRetries += 1;
+          continue;
         }
 
-        if (!completion) {
-          completion = {
-            assistantText: "",
-            toolCalls: [],
-            finishReason: "completed",
-          };
-        }
-      } else {
-        completion = await adapter.complete(
-          {
-            messages,
-            metadata: request.metadata,
-          },
-          tools,
-          options.promptAudit
-            ? {
-                promptAudit: {
-                  recorder: options.promptAudit.recorder,
-                  modelCall,
-                },
-              }
-            : undefined
+        await appendEmptyCompletionRetryAudit(
+          options,
+          completion,
+          modelCall,
+          emptyCompletionRetries + 1,
+          true,
+          streamedAssistantText
         );
+        yield {
+          type: "error",
+          code: "provider_error",
+          message: "The model provider returned no usable response after retrying. Retry the request or try another model/provider if this continues.",
+        };
+        return;
       }
-    } catch (error) {
-      await options.promptAudit?.recorder.append(
-        "prompt_audit.error",
-        {
-          stage: "engine_model_call",
-          message: error instanceof Error ? error.message : "Unknown provider error",
-        },
-        modelCall
-      );
-      auditLog("provider.error", {
-        message: error instanceof Error ? error.message : "Unknown provider error",
-      });
-      yield classifyError(error);
-      return;
+
+      break;
     }
 
     if (completion.assistantText.length > 0 || completion.toolCalls.length > 0) {
@@ -170,17 +222,9 @@ export async function* runAgentLoop(
       };
     }
 
-    await options.promptAudit?.recorder.append(
-      "prompt_audit.model_response",
-      {
-        assistant_text: completion.assistantText,
-        tool_calls: completion.toolCalls,
-        finish_reason: completion.finishReason,
-        usage: completion.usage ?? null,
-        cost: completion.cost ?? { status: "unavailable" },
-      },
-      modelCall
-    );
+    if (!responseAudited) {
+      await appendModelResponseAudit(options, completion, modelCall);
+    }
 
     if (completion.toolCalls.length === 0) {
       yield {
@@ -438,6 +482,65 @@ function serializeToolDefinitionForAudit(tool: ToolDefinition): Record<string, u
     readOnly: tool.readOnly,
     inputSchema: tool.inputSchema,
   };
+}
+
+function isEmptyCompletion(completion: {
+  assistantText: string;
+  toolCalls: unknown[];
+}): boolean {
+  return completion.assistantText.trim().length === 0 && completion.toolCalls.length === 0;
+}
+
+async function appendModelResponseAudit(
+  options: LoopOptions,
+  completion: {
+    assistantText: string;
+    toolCalls: unknown[];
+    finishReason: string;
+    usage?: unknown;
+    cost?: unknown;
+  },
+  modelCall: ModelCallAuditContext
+): Promise<void> {
+  await options.promptAudit?.recorder.append(
+    "prompt_audit.model_response",
+    {
+      assistant_text: completion.assistantText,
+      tool_calls: completion.toolCalls,
+      finish_reason: completion.finishReason,
+      usage: completion.usage ?? null,
+      cost: completion.cost ?? { status: "unavailable" },
+    },
+    modelCall
+  );
+}
+
+async function appendEmptyCompletionRetryAudit(
+  options: LoopOptions,
+  completion: {
+    finishReason: string;
+    usage?: unknown;
+    cost?: unknown;
+  },
+  modelCall: ModelCallAuditContext,
+  attempt: number,
+  retryExhausted: boolean,
+  streamedAssistantText: boolean
+): Promise<void> {
+  await options.promptAudit?.recorder.append(
+    "prompt_audit.empty_completion_retry",
+    {
+      reason: "empty_completion",
+      attempt,
+      max_retries: EMPTY_COMPLETION_MAX_RETRIES,
+      retry_exhausted: retryExhausted,
+      finish_reason: completion.finishReason,
+      streamed_assistant_text: streamedAssistantText,
+      usage: completion.usage ?? null,
+      cost: completion.cost ?? { status: "unavailable" },
+    },
+    modelCall
+  );
 }
 
 async function* toolResultEvents(result: ToolExecutionResult, toolCallId: string): AsyncGenerator<StreamEvent> {
