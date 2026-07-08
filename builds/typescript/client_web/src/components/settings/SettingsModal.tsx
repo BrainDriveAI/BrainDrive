@@ -1654,7 +1654,7 @@ function BrainDriveModelsPanel({
   const repairKeyForm = (
     <div className="space-y-2">
       <p className="text-xs leading-5 text-bd-text-muted">
-        Paste the backup key from your purchase email. Moving computers? Use the Migrate tab instead &mdash; it carries your keys; backups don&apos;t.
+        Paste the key from your purchase email &mdash; from an earlier purchase, a reinstall, or another computer. Moving computers? Use the Migrate tab instead &mdash; it carries your keys; backups don&apos;t.
       </p>
       <input
         type="password" autoComplete="new-password"
@@ -1737,9 +1737,6 @@ function BrainDriveModelsPanel({
               <span className="text-xs text-bd-text-muted">credits remaining</span>
             </div>
           )}
-          <p className="text-xs leading-5 text-bd-text-muted">
-            We set everything up automatically &mdash; nothing to configure. Your receipt goes to your email.
-          </p>
           <div>
             <label htmlFor="bd-models-billing-email" className="mb-1.5 block text-xs font-medium text-bd-text-secondary">
               Email for your receipt
@@ -1812,7 +1809,7 @@ function BrainDriveModelsPanel({
       {!keyInvalid && (
         showRepairKey ? (
           <div className="border-t border-bd-border pt-3">
-            <div className="mb-2 text-sm font-medium text-bd-text-heading">Restore from backup key</div>
+            <div className="mb-2 text-sm font-medium text-bd-text-heading">Use an existing key</div>
             {repairKeyForm}
           </div>
         ) : (
@@ -1821,7 +1818,7 @@ function BrainDriveModelsPanel({
             onClick={() => setShowRepairKey(true)}
             className="text-xs text-bd-text-muted transition-colors hover:text-bd-text-secondary hover:underline"
           >
-            Having trouble? Restore from backup key
+            Already have a key? Use it here
           </button>
         )
       )}
@@ -2373,7 +2370,7 @@ function ModelSection({
                   className="h-10 w-full rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
                 />
 
-                <div className="max-h-72 space-y-1 overflow-y-auto rounded-lg border border-bd-border bg-bd-bg-tertiary p-2">
+                <div className="max-h-72 space-y-1 overflow-y-auto overflow-x-hidden rounded-lg border border-bd-border bg-bd-bg-tertiary p-2">
                   {isLoadingModelCatalog ? (
                     <p className="px-3 py-2 text-sm text-bd-text-muted">Loading models...</p>
                   ) : filteredCatalogModels.length === 0 ? (
@@ -2410,7 +2407,7 @@ function ModelSection({
                               setIsSaving(false);
                             });
                         }}
-                        className="flex-1 px-3 py-2 text-left"
+                        className="min-w-0 flex-1 px-3 py-2 text-left"
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className="truncate text-sm text-bd-text-primary">{model.id}</span>
@@ -2480,8 +2477,22 @@ function ModelSection({
                   </div>
                 )}
                 {modelCatalogError && (
-                  <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-xs text-bd-text-muted">
-                    {modelCatalogError}
+                  <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-xs text-bd-text-secondary">
+                    <div className="flex items-start gap-1.5">
+                      <AlertCircle size={12} className="mt-0.5 shrink-0 text-bd-danger" />
+                      <div>
+                        {isOllama ? (
+                          <>
+                            Couldn&apos;t reach Ollama at {activeProfile?.base_url ?? "the configured URL"}. If Ollama runs
+                            on this computer, set the Server URL above to{" "}
+                            <span className="font-medium text-bd-text-primary">http://127.0.0.1:11434/v1</span>. If
+                            BrainDrive runs in Docker, use http://host.docker.internal:11434/v1.
+                          </>
+                        ) : (
+                          <>Couldn&apos;t load the model catalog: {modelCatalogError}</>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 )}
 

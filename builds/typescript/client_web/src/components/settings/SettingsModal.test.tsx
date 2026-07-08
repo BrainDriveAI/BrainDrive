@@ -499,7 +499,7 @@ describe("SettingsModal", () => {
     });
 
     await user.click(screen.getAllByRole("button", { name: "AI Models" })[0]!);
-    await user.click((await screen.findAllByRole("button", { name: /Restore from backup key/i }))[0]!);
+    await user.click((await screen.findAllByRole("button", { name: /Already have a key/i }))[0]!);
 
     expect(screen.getAllByText(/Use the Migrate tab instead/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/it carries your keys; backups don/i).length).toBeGreaterThan(0);
