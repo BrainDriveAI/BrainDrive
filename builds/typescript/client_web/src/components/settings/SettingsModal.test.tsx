@@ -284,7 +284,7 @@ describe("SettingsModal", () => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    await user.click(screen.getAllByRole("button", { name: "Model Providers" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "AI Models" })[0]!);
     await user.click(screen.getAllByRole("button", { name: /Ollama/i })[0]!);
 
     await waitFor(() => {
@@ -384,7 +384,8 @@ describe("SettingsModal", () => {
     });
   });
 
-  it("does not show API-key paste as the default BrainDrive Models purchase step", async () => {
+  it("offers inline checkout in Model Providers without API-key paste as the default purchase step", async () => {
+    const user = userEvent.setup();
     getSettingsMock.mockResolvedValueOnce(brainDriveModelsSettings);
     render(<SettingsModal mode="local" onClose={() => {}} />);
 
@@ -392,8 +393,11 @@ describe("SettingsModal", () => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    expect(screen.getAllByText("Add BrainDrive Models Credits").length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/No copy\/paste needed/i).length).toBeGreaterThan(0);
+    await user.click(screen.getAllByRole("button", { name: "AI Models" })[0]!);
+
+    expect((await screen.findAllByText("BrainDrive Models")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Recommended").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: /Continue to checkout/i }).length).toBeGreaterThan(0);
     expect(screen.queryByText("Enter your BrainDrive API key")).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/Paste your emailed BrainDrive Models key/i)).not.toBeInTheDocument();
   });
@@ -415,16 +419,17 @@ describe("SettingsModal", () => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    await user.type(screen.getAllByPlaceholderText("Email for receipt and key backup")[0]!, "owner@example.com");
+    await user.click(screen.getAllByRole("button", { name: "AI Models" })[0]!);
+    await user.type(await screen.findByLabelText("Email for your receipt"), "owner@example.com");
     await user.click(screen.getAllByRole("button", { name: "$5" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: /Continue to checkout/i })[0]!);
 
     await waitFor(() => {
       expect(createCreditsCheckoutMock).toHaveBeenCalledWith({ amount: 5, email: expect.stringContaining("owner@") });
     });
     expect(JSON.stringify(createCreditsCheckoutMock.mock.calls)).not.toContain("sk-");
     expect(openSpy).toHaveBeenCalledWith("https://checkout.stripe.com/c/pay_test", "_blank", "noopener,noreferrer");
-    expect((await screen.findAllByText("Activating")).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/After Stripe confirms payment/i).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/Waiting for checkout to finish/i)).length).toBeGreaterThan(0);
     openSpy.mockRestore();
   });
 
@@ -444,8 +449,8 @@ describe("SettingsModal", () => {
     });
 
     expect((await screen.findAllByText("$12.00")).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Ready").length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/BrainDrive Models is ready on this computer/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("credits remaining").length).toBeGreaterThan(0);
+    expect((await screen.findAllByRole("button", { name: "Add credits" })).length).toBeGreaterThan(0);
   });
 
   it("supports the repair path with a pasted emailed key", async () => {
@@ -471,8 +476,8 @@ describe("SettingsModal", () => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    expect((await screen.findAllByText("Repair needed")).length).toBeGreaterThan(0);
-    await user.click(screen.getAllByRole("button", { name: /repair with emailed key/i })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "AI Models" })[0]!);
+    expect((await screen.findAllByText(/use its key on this computer/i)).length).toBeGreaterThan(0);
     await user.type(
       screen.getAllByPlaceholderText("Paste your emailed BrainDrive Models key")[0]!,
       "sk-repairkey123456789"
@@ -485,6 +490,7 @@ describe("SettingsModal", () => {
   });
 
   it("explains that migration carries secrets and backups do not", async () => {
+    const user = userEvent.setup();
     getSettingsMock.mockResolvedValueOnce(brainDriveModelsSettings);
     render(<SettingsModal mode="local" onClose={() => {}} />);
 
@@ -492,8 +498,11 @@ describe("SettingsModal", () => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    expect(screen.getAllByText(/Use Migrate to move your BrainDrive and its encrypted keys/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Backups restore your library, but they do not carry API keys/i).length).toBeGreaterThan(0);
+    await user.click(screen.getAllByRole("button", { name: "AI Models" })[0]!);
+    await user.click((await screen.findAllByRole("button", { name: /Already have a key/i }))[0]!);
+
+    expect(screen.getAllByText(/Use the Migrate tab instead/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/it carries your keys; backups don/i).length).toBeGreaterThan(0);
   });
 
   it("keeps direct OpenRouter and Ollama selectable independently of BrainDrive Models credits", async () => {
@@ -505,7 +514,7 @@ describe("SettingsModal", () => {
       expect(getSettingsMock).toHaveBeenCalledTimes(1);
     });
 
-    await user.click(screen.getAllByRole("button", { name: "Model Providers" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "AI Models" })[0]!);
     expect(screen.getAllByText("OpenRouter").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Ollama").length).toBeGreaterThan(0);
     await user.click(screen.getAllByRole("button", { name: /Ollama/i })[0]!);
