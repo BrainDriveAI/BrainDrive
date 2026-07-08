@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import type {
@@ -6,7 +6,8 @@ import type {
   GatewayMemoryBackupRunRequest,
   GatewayMemoryBackupSettingsUpdateRequest,
   GatewayModelCatalog,
-  GatewaySettings
+  GatewaySettings,
+  Session
 } from "@/api/types";
 
 import SettingsModal from "./SettingsModal";
@@ -56,6 +57,8 @@ const getBrowserAccessStatusMock = vi.fn<() => Promise<BrowserAccessStatus>>();
 const updateBrowserAccessSettingsMock = vi.fn();
 const restartBrowserAccessMock = vi.fn();
 const applyBrowserAccessFirewallRuleMock = vi.fn();
+const getSessionMock = vi.fn<() => Promise<Session>>();
+const logoutMock = vi.fn<() => Promise<void>>();
 const getRootAgentMock = vi.fn<
   () => Promise<{ managedContent: string; overlayContent: string | null }>
 >();
@@ -78,6 +81,11 @@ vi.mock("@/api/gateway-adapter", () => ({
   importLibraryArchive: (file: Blob) => importLibraryArchiveMock(file),
   getRootAgent: () => getRootAgentMock(),
   updateRootAgentOverlay: (content: string) => updateRootAgentOverlayMock(content),
+}));
+
+vi.mock("@/api/auth-adapter", () => ({
+  getSession: () => getSessionMock(),
+  logout: () => logoutMock(),
 }));
 
 vi.mock("@/api/desktop-browser-access", () => ({
@@ -195,6 +203,19 @@ const browserAccessStatus: BrowserAccessStatus = {
   accountInitialized: true,
 };
 
+function localSession(email: string): Session {
+  return {
+    mode: "local",
+    user: {
+      id: "owner",
+      name: "Local Owner",
+      initials: "LO",
+      email,
+      role: "owner",
+    },
+  };
+}
+
 describe("SettingsModal", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -213,6 +234,8 @@ describe("SettingsModal", () => {
     updateBrowserAccessSettingsMock.mockReset();
     restartBrowserAccessMock.mockReset();
     applyBrowserAccessFirewallRuleMock.mockReset();
+    getSessionMock.mockReset();
+    logoutMock.mockReset();
     getRootAgentMock.mockReset();
     updateRootAgentOverlayMock.mockReset();
     getSettingsMock.mockResolvedValue(baseSettings);
@@ -267,6 +290,8 @@ describe("SettingsModal", () => {
       message: "Opened macOS System Settings. In Network > Firewall, allow incoming connections for BrainDrive if prompted.",
       command: "open -b com.apple.systempreferences",
     });
+    getSessionMock.mockResolvedValue(localSession("owner@local.braindrive"));
+    logoutMock.mockResolvedValue();
     delete window.__TAURI_INTERNALS__;
   });
 
@@ -402,6 +427,54 @@ describe("SettingsModal", () => {
     expect(screen.queryByPlaceholderText(/Paste your emailed BrainDrive Models key/i)).not.toBeInTheDocument();
   });
 
+  it.each(["davidwaring@local.paa", "owner@local.braindrive"])(
+    "does not prefill synthetic session email %s for BrainDrive Models checkout",
+    async (sessionEmail) => {
+      const user = userEvent.setup();
+      getSessionMock.mockResolvedValueOnce(localSession(sessionEmail));
+      getSettingsMock.mockResolvedValueOnce(brainDriveModelsSettings);
+      render(<SettingsModal mode="local" onClose={() => {}} />);
+
+      await waitFor(() => {
+        expect(getSettingsMock).toHaveBeenCalledTimes(1);
+      });
+
+      await user.click(screen.getAllByRole("button", { name: "AI Models" })[0]!);
+      const emailInput = await screen.findByLabelText("Email for your receipt");
+
+      await waitFor(() => {
+        expect(getSessionMock).toHaveBeenCalled();
+      });
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(emailInput).toHaveValue("");
+      expect(screen.getAllByRole("button", { name: /Continue to checkout/i })[0]).toBeDisabled();
+      expect(createCreditsCheckoutMock).not.toHaveBeenCalled();
+    }
+  );
+
+  it("clears stale synthetic saved billing email and keeps checkout disabled", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("bd_billing_email", "owner@local.paa");
+    getSettingsMock.mockResolvedValueOnce(brainDriveModelsSettings);
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+
+    await waitFor(() => {
+      expect(getSettingsMock).toHaveBeenCalledTimes(1);
+    });
+
+    await user.click(screen.getAllByRole("button", { name: "AI Models" })[0]!);
+    const emailInput = await screen.findByLabelText("Email for your receipt");
+
+    expect(emailInput).toHaveValue("");
+    expect(screen.getAllByRole("button", { name: /Continue to checkout/i })[0]).toBeDisabled();
+    expect(localStorage.getItem("bd_billing_email")).toBeNull();
+    expect(createCreditsCheckoutMock).not.toHaveBeenCalled();
+  });
+
   it("shows activating after checkout starts and keeps the raw key out of browser payloads", async () => {
     const user = userEvent.setup();
     const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
@@ -420,12 +493,16 @@ describe("SettingsModal", () => {
     });
 
     await user.click(screen.getAllByRole("button", { name: "AI Models" })[0]!);
-    await user.type(await screen.findByLabelText("Email for your receipt"), "owner@example.com");
+    const emailInput = await screen.findByLabelText("Email for your receipt");
+    fireEvent.change(emailInput, { target: { value: "owner@example.com" } });
+    await waitFor(() => {
+      expect(emailInput).toHaveValue("owner@example.com");
+    });
     await user.click(screen.getAllByRole("button", { name: "$5" })[0]!);
     await user.click(screen.getAllByRole("button", { name: /Continue to checkout/i })[0]!);
 
     await waitFor(() => {
-      expect(createCreditsCheckoutMock).toHaveBeenCalledWith({ amount: 5, email: expect.stringContaining("owner@") });
+      expect(createCreditsCheckoutMock).toHaveBeenCalledWith({ amount: 5, email: "owner@example.com" });
     });
     expect(JSON.stringify(createCreditsCheckoutMock.mock.calls)).not.toContain("sk-");
     expect(openSpy).toHaveBeenCalledWith("https://checkout.stripe.com/c/pay_test", "_blank", "noopener,noreferrer");
