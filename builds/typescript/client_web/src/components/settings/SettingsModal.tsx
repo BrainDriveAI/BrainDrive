@@ -510,6 +510,26 @@ const DEFAULT_USER: UserProfile = {
   email: "owner@local.braindrive"
 };
 
+const SYNTHETIC_LOCAL_EMAIL_DOMAINS = ["@local.paa", "@local.braindrive"];
+
+function normalizeBillingEmail(email: string): string {
+  return email.trim();
+}
+
+function isSyntheticLocalEmail(email: string): boolean {
+  const normalized = normalizeBillingEmail(email).toLowerCase();
+  return SYNTHETIC_LOCAL_EMAIL_DOMAINS.some((domain) => normalized.endsWith(domain));
+}
+
+function getSavedBillingEmail(): string {
+  const savedEmail = localStorage.getItem("bd_billing_email") ?? "";
+  if (savedEmail && isSyntheticLocalEmail(savedEmail)) {
+    localStorage.removeItem("bd_billing_email");
+    return "";
+  }
+  return savedEmail;
+}
+
 function useSettingsUser(): UserProfile {
   const [user, setUser] = useState<UserProfile>(DEFAULT_USER);
 
@@ -1529,26 +1549,34 @@ function BrainDriveModelsPanel({
   const [purchaseLoading, setPurchaseLoading] = useState<number | null>(null);
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
   const [purchaseState, setPurchaseState] = useState<"idle" | "activating" | "ready" | "zero_balance" | "repair_required">("idle");
-  const [billingEmail, setBillingEmail] = useState(() => localStorage.getItem("bd_billing_email") ?? "");
+  const [billingEmail, setBillingEmail] = useState(() => getSavedBillingEmail());
   const [isEditingEmail, setIsEditingEmail] = useState(false);
   const [selectedAmount, setSelectedAmount] = useState<number>(CREDIT_AMOUNTS[0]!);
   const [showTopUp, setShowTopUp] = useState(false);
 
   useEffect(() => {
-    if (!billingEmail && user.email && user.email.includes("@") && user.email !== DEFAULT_USER.email) {
-      setBillingEmail(user.email);
+    if (!billingEmail && user.email && user.email.includes("@") && !isSyntheticLocalEmail(user.email)) {
+      setBillingEmail(normalizeBillingEmail(user.email));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.email]);
 
   function handleEmailChange(value: string) {
     setBillingEmail(value);
-    if (value.includes("@")) {
-      localStorage.setItem("bd_billing_email", value);
+    const normalized = normalizeBillingEmail(value);
+    if (normalized.includes("@") && !isSyntheticLocalEmail(normalized)) {
+      localStorage.setItem("bd_billing_email", normalized);
+    } else if (isSyntheticLocalEmail(normalized) && localStorage.getItem("bd_billing_email") === normalized) {
+      localStorage.removeItem("bd_billing_email");
     }
   }
 
-  const emailSaved = Boolean(billingEmail && localStorage.getItem("bd_billing_email") === billingEmail);
+  const normalizedBillingEmail = normalizeBillingEmail(billingEmail);
+  const emailSaved = Boolean(
+    normalizedBillingEmail &&
+    !isSyntheticLocalEmail(normalizedBillingEmail) &&
+    localStorage.getItem("bd_billing_email") === normalizedBillingEmail
+  );
 
   const isFirstTime = profile.credential_mode === "unset";
   const hasConfiguredKey = !isFirstTime || purchaseState === "activating" || purchaseState === "ready" || Boolean(keyState);
@@ -1596,11 +1624,11 @@ function BrainDriveModelsPanel({
   }, [isActivating]);
 
   async function handlePurchase(amount: number) {
-    if (!billingEmail || !billingEmail.includes("@")) return;
+    if (!normalizedBillingEmail || !normalizedBillingEmail.includes("@") || isSyntheticLocalEmail(normalizedBillingEmail)) return;
     setPurchaseError(null);
     setPurchaseLoading(amount);
     try {
-      const data = await createCreditsCheckout({ amount, email: billingEmail });
+      const data = await createCreditsCheckout({ amount, email: normalizedBillingEmail });
       setPurchaseState(data.purchase_status === "activating" ? "activating" : "idle");
       if (!openTrustedBillingUrl(data.checkout_url)) {
         setPurchaseError("Received an unexpected checkout link. Please try again.");
@@ -1648,7 +1676,7 @@ function BrainDriveModelsPanel({
       .finally(() => { setIsSaving(false); });
   }
 
-  const emailValid = billingEmail.includes("@");
+  const emailValid = normalizedBillingEmail.includes("@") && !isSyntheticLocalEmail(normalizedBillingEmail);
   const isOpeningCheckout = purchaseLoading !== null;
 
   const repairKeyForm = (
