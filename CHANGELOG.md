@@ -1,6 +1,20 @@
 ## [26.07.08] - 2026-07-08
 
 ### Added
+- No user-facing additions this week.
+
+### Changed
+- Updated the application package and desktop release metadata for version 26.7.8. (`#231`)
+
+### Fixed
+- Prevented checkout from using synthetic local identity emails as receipt emails. (`#233`)
+
+### Removed
+- No user-facing removals this week.
+
+## [26.07.08] - 2026-07-08
+
+### Added
 - Fitness and Relationships pages now include a Your Journal workspace with starter templates and guided journal routines. (`#204`)
 
 ### Changed
