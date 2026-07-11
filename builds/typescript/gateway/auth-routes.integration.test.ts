@@ -1022,6 +1022,49 @@ describe.sequential("gateway auth route integration", () => {
     expect(mockPreferences.provider_base_urls?.ollama).toBe("http://localhost:11434/v1");
   });
 
+  it.each(["davidwaring@local.paa", "owner@local.braindrive"])(
+    "rejects synthetic checkout email %s before upstream checkout",
+    async (email) => {
+      context = await createTestServer({
+        authMode: "local-owner",
+        adapterConfig: brainDriveModelsAdapterConfig(),
+      });
+      const fetchMock = vi.fn(async (url: string | URL) => {
+        const requestUrl = String(url);
+        if (requestUrl.endsWith("/credits/key/provision")) {
+          return new Response(
+            JSON.stringify({
+              api_key: "sk-should-not-provision",
+              key_id: "token-should-not-provision",
+              key_hash: "hash-should-not-provision",
+              status: "active",
+            }),
+            { status: 200, headers: { "content-type": "application/json" } }
+          );
+        }
+        if (requestUrl.endsWith("/credits/checkout")) {
+          return new Response(JSON.stringify({ checkout_url: "https://checkout.stripe.com/c/pay_synthetic" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return new Response("not found", { status: 404 });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const response = await context.app.inject({
+        method: "POST",
+        url: "/credits/checkout",
+        headers: localOwnerAdminHeaders(),
+        payload: { amount: 5, email },
+      });
+
+      expect(response.statusCode).toBeGreaterThanOrEqual(400);
+      expect(response.statusCode).toBeLessThan(500);
+      expect(fetchMock).not.toHaveBeenCalled();
+    }
+  );
+
   it("provisions a BrainDrive Models key only when checkout starts and stores it in the vault", async () => {
     context = await createTestServer({
       authMode: "local-owner",
@@ -1045,6 +1088,10 @@ describe.sequential("gateway auth route integration", () => {
       if (requestUrl.endsWith("/credits/checkout")) {
         expect(init?.headers).toMatchObject({
           Authorization: "Bearer sk-auto-provisioned-key",
+        });
+        expect(JSON.parse(String(init?.body ?? "{}"))).toEqual({
+          amount: 5,
+          email: "owner@example.com",
         });
         expect(String(init?.body ?? "")).not.toContain("sk-auto-provisioned-key");
         return new Response(JSON.stringify({ checkout_url: "https://checkout.stripe.com/c/pay_auto" }), {

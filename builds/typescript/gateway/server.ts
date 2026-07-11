@@ -258,6 +258,12 @@ const MANAGED_PROXY_ROUTES = new Set([
 ]);
 
 const DEFAULT_MEMORY_BACKUP_TOKEN_SECRET_REF = "backup/git/token";
+const SYNTHETIC_LOCAL_EMAIL_SUFFIXES = ["@local.paa", "@local.braindrive"];
+
+function isSyntheticLocalEmail(email: string): boolean {
+  const normalizedEmail = email.trim().toLowerCase();
+  return SYNTHETIC_LOCAL_EMAIL_SUFFIXES.some((suffix) => normalizedEmail.endsWith(suffix));
+}
 
 export async function buildServer(rootDir = process.cwd()) {
   const isManaged = process.env.BD_DEPLOYMENT_MODE === "managed";
@@ -1155,6 +1161,10 @@ export async function buildServer(rootDir = process.cwd()) {
     const parsed = bodySchema.safeParse(request.body);
     if (!parsed.success) {
       reply.code(400).send({ error: "Invalid request: amount must be >= 1 and a valid email is required" });
+      return;
+    }
+    if (isSyntheticLocalEmail(parsed.data.email)) {
+      reply.code(400).send({ error: "Invalid request: a deliverable checkout email is required" });
       return;
     }
     try {
