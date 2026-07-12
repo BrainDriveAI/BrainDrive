@@ -1,3 +1,17 @@
+## [26.7.12] - 2026-07-12
+
+### Added
+- No user-facing additions this week.
+
+### Changed
+- No user-facing changes this week.
+
+### Fixed
+- Synthetic local identity emails are now blocked from checkout before receipt delivery or key provisioning. (`#239`)
+
+### Removed
+- No user-facing removals this week.
+
 ## [26.07.08] - 2026-07-08
 
 ### Added
