@@ -1,3 +1,19 @@
+## [26.7.14] - 2026-07-14
+
+### Added
+- No user-facing additions this week.
+
+### Changed
+- Updated the changelog for release 26.7.8 with package metadata and synthetic local email checkout mitigation details. (`#235`)
+- Updated package and desktop version metadata to 26.7.8.1. (`#237`)
+- Prepared the approved changelog and package metadata for release 26.7.12. (`#241`)
+
+### Fixed
+- Prevented synthetic local identity email addresses from being used for checkout receipts and key provisioning. (`#239`)
+
+### Removed
+- No user-facing removals this week.
+
 ## [26.7.12] - 2026-07-12
 
 ### Added

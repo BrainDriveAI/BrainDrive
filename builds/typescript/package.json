@@ -1,6 +1,6 @@
 {
   "name": "braindrive",
-  "version": "26.7.12",
+  "version": "26.7.14",
   "description": "BrainDrive core runtime: gateway, engine, auth, memory, and web client",
   "private": true,
   "type": "module",
@@ -55,9 +55,9 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",
-    "@types/node": "^26.1.0",
-    "tsx": "^4.23.0",
-    "typescript": "^6.0.3",
+    "@types/node": "^26.1.1",
+    "tsx": "^4.23.1",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   }
 }
