@@ -160,6 +160,14 @@ export default function TailscaleAccessSection() {
       }
 
       if (!isCurrentRequest(generation)) return;
+      if (actionStatus) {
+        setStatus(actionStatus);
+        if (shouldHoldActionStatus(actionStatus)) {
+          setLocalError(actionStatusMessage(actionStatus));
+          return;
+        }
+      }
+
       const refreshed = await getTailscaleAccessStatus();
       if (!isCurrentRequest(generation)) return;
       setStatus(refreshed);
@@ -519,6 +527,19 @@ function readinessGuidance(state: TailscaleReadinessState): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function shouldHoldActionStatus(status: TailscaleAccessStatus): boolean {
+  return Boolean(
+    status.errorCode ||
+      status.state === "needsAttention" ||
+      status.state === "needsSetup" ||
+      status.state === "conflict"
+  );
+}
+
+function actionStatusMessage(status: TailscaleAccessStatus): string {
+  return status.detail ? `${status.message} ${status.detail}` : status.message;
 }
 
 function formatCode(value: string): string {

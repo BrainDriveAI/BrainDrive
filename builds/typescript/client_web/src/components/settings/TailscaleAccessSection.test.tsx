@@ -149,6 +149,26 @@ describe("TailscaleAccessSection", () => {
     expect(screen.getByRole("heading", { name: /Remote Access — Running/i })).toHaveFocus();
   });
 
+  it("keeps an actionable failed enable result instead of hiding it behind a fresh ready check", async () => {
+    const ready = makeStatus("ready");
+    const attention = makeStatus("needsAttention", {
+      message: "Private access could not be verified safely.",
+      detail: "Check Tailscale configuration before retrying.",
+      errorCode: "ambiguousOutcome",
+    });
+    getStatusMock.mockResolvedValueOnce(ready).mockResolvedValueOnce(ready);
+    enableMock.mockResolvedValueOnce(attention);
+    const user = userEvent.setup();
+    render(<TailscaleAccessSection />);
+
+    await user.click(await screen.findByRole("button", { name: "Enable Remote Access" }));
+
+    expect(screen.getByRole("heading", { name: /Needs attention/i })).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(/could not be verified safely/i);
+    expect(screen.getAllByText(/Check Tailscale configuration before retrying/i).length).toBeGreaterThan(0);
+    expect(getStatusMock).toHaveBeenCalledTimes(1);
+  });
+
   it("opens a validated consent URL only on click, then refreshes", async () => {
     const setup = makeStatus("needsSetup", {
       readiness: { ...makeStatus("needsSetup").readiness, state: "consentRequired" },
