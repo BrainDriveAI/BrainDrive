@@ -495,7 +495,7 @@ impl TailscaleRunner for SystemTailscaleRunner {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        configure_hidden_process(&mut process);
+        configure_tailscale_process(&mut process);
         let mut child = process.spawn().map_err(map_spawn_error)?;
         let stdout = child.stdout.take().ok_or(RunnerError::Io)?;
         let stderr = child.stderr.take().ok_or(RunnerError::Io)?;
@@ -538,6 +538,12 @@ impl TailscaleRunner for SystemTailscaleRunner {
             stderr: stderr.bytes,
         })
     }
+}
+
+fn configure_tailscale_process(command: &mut Command) {
+    configure_hidden_process(command);
+    #[cfg(target_os = "macos")]
+    command.env("TERM", "dumb");
 }
 
 #[cfg(windows)]
@@ -1662,6 +1668,16 @@ mod tests {
             strings(TailscaleCommand::Disable.args()),
             ["serve", "--yes", "--https=443", "off"]
         );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_tailscale_commands_force_cli_mode() {
+        let mut command = Command::new("tailscale");
+        configure_tailscale_process(&mut command);
+        assert!(command
+            .get_envs()
+            .any(|(name, value)| name == "TERM" && value == Some(std::ffi::OsStr::new("dumb"))));
     }
 
     #[test]
