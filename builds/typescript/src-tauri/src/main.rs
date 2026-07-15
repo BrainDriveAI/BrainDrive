@@ -1,5 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+pub mod tailscale_access;
+pub mod tailscale_runtime;
+
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 #[cfg(windows)]
@@ -13,6 +16,19 @@ use std::{
     sync::{Arc, Mutex},
     thread,
     time::{Duration, Instant},
+};
+use tailscale_access::{
+    current_supported_platform, discover_tailscale, load_state as load_tailscale_state,
+    save_state_atomic as save_tailscale_state, state_path as tailscale_state_path, CapturedOutput,
+    CommandExitCategory, DiagnosticEvent, DiscoveryError, RunLimits, RunnerError, StateErrorCode,
+    StateLoad, SystemTailscaleRunner, TailscaleAccessConfig, TailscaleAccessStatus,
+    TailscaleCommand, TailscaleCommandKind, TailscaleErrorCode, TailscaleRunner,
+    MANAGED_LOOPBACK_PORT_END, MANAGED_LOOPBACK_PORT_START,
+};
+use tailscale_runtime::{
+    not_started_status as tailscale_not_started_status, perform as perform_tailscale_operation,
+    shutdown as shutdown_tailscale_runtime, DeploymentMode, LifecycleAction,
+    TailscaleRuntimeBackend,
 };
 use tauri::{path::BaseDirectory, Manager, State};
 use uuid::Uuid;
@@ -96,6 +112,8 @@ struct RuntimeStartup {
     status: RuntimeStatus,
     children: Vec<Child>,
     bridge_child: Option<Child>,
+    tailnet_bridge_child: Option<Child>,
+    tailscale_status: TailscaleAccessStatus,
     context: RuntimeContext,
 }
 
@@ -111,8 +129,97 @@ struct RuntimeContext {
     log_root: PathBuf,
 }
 
+struct DesktopTailscaleBackend<'a> {
+    context: &'a RuntimeContext,
+    bridge_child: &'a mut Option<Child>,
+    mutation_evidence: Option<(TailscaleCommandKind, CommandExitCategory)>,
+}
+
+impl TailscaleRuntimeBackend for DesktopTailscaleBackend<'_> {
+    fn deployment_mode(&self) -> DeploymentMode {
+        DeploymentMode::Local
+    }
+
+    fn owner_initialized(&mut self) -> Result<bool, TailscaleErrorCode> {
+        gateway_account_initialized(self.context).map_err(|_| TailscaleErrorCode::Internal)
+    }
+
+    fn load_state(&mut self) -> Result<StateLoad, StateErrorCode> {
+        load_tailscale_state(&tailscale_state_path(&self.context.config_root))
+    }
+
+    fn save_state(&mut self, state: &TailscaleAccessConfig) -> Result<(), StateErrorCode> {
+        save_tailscale_state(&tailscale_state_path(&self.context.config_root), state)
+    }
+
+    fn run_command(
+        &mut self,
+        command: &TailscaleCommand,
+        limits: RunLimits,
+    ) -> Result<CapturedOutput, RunnerError> {
+        let platform = current_supported_platform().ok_or(RunnerError::ExecutableMissing)?;
+        let executable = discover_tailscale(platform).map_err(|error| match error {
+            DiscoveryError::Missing => RunnerError::ExecutableMissing,
+            DiscoveryError::PermissionDenied => RunnerError::PermissionDenied,
+        })?;
+        let result = SystemTailscaleRunner.run(&executable, command, limits);
+        if command.is_mutating() {
+            let category = match &result {
+                Ok(output) if output.exit_code == Some(0) => CommandExitCategory::Success,
+                Ok(_) | Err(RunnerError::Timeout) => CommandExitCategory::Ambiguous,
+                Err(RunnerError::OutputTooLarge) => CommandExitCategory::OutputTooLarge,
+                Err(_) => CommandExitCategory::SpawnFailure,
+            };
+            self.mutation_evidence = Some((command.kind(), category));
+        }
+        result
+    }
+
+    fn bridge_healthy(&mut self, port: u16) -> bool {
+        let child_running = self
+            .bridge_child
+            .as_mut()
+            .is_some_and(|child| child.try_wait().ok().flatten().is_none());
+        child_running && http_health_ok(port, "/healthz")
+    }
+
+    fn start_bridge(&mut self, preferred_port: Option<u16>) -> Result<u16, TailscaleErrorCode> {
+        stop_child(self.bridge_child);
+        let port = select_tailnet_bridge_port(preferred_port)
+            .ok_or(TailscaleErrorCode::BridgeUnavailable)?;
+        let mut child = spawn_tailnet_bridge(self.context, port)
+            .map_err(|_| TailscaleErrorCode::BridgeUnavailable)?;
+        if let Err(error) =
+            wait_for_health(port, "/healthz", "tailscale-access", &self.context.log_root)
+        {
+            let _ = child.kill();
+            let _ = child.wait();
+            append_supervisor_log(
+                &self.context.log_root,
+                &format!("tailscale access bridge health failure: {error}"),
+            );
+            return Err(TailscaleErrorCode::BridgeUnavailable);
+        }
+        *self.bridge_child = Some(child);
+        Ok(port)
+    }
+
+    fn stop_bridge(&mut self) {
+        stop_child(self.bridge_child);
+    }
+
+    fn record_diagnostic(&mut self, event: &DiagnosticEvent) {
+        append_supervisor_log(&self.context.log_root, &event.to_json_line());
+    }
+
+    fn mutation_evidence(&self) -> Option<(TailscaleCommandKind, CommandExitCategory)> {
+        self.mutation_evidence
+    }
+}
+
 struct RuntimeManager {
     inner: Mutex<RuntimeInner>,
+    tailscale_operations: Mutex<()>,
 }
 
 struct LaunchState {
@@ -129,6 +236,9 @@ struct RuntimeInner {
     status: RuntimeStatus,
     children: Vec<Child>,
     bridge_child: Option<Child>,
+    tailnet_bridge_child: Option<Child>,
+    tailscale_status: TailscaleAccessStatus,
+    tailscale_operation: Option<String>,
     context: Option<RuntimeContext>,
 }
 
@@ -147,8 +257,12 @@ impl RuntimeManager {
                 },
                 children: Vec::new(),
                 bridge_child: None,
+                tailnet_bridge_child: None,
+                tailscale_status: tailscale_not_started_status(),
+                tailscale_operation: None,
                 context: None,
             }),
+            tailscale_operations: Mutex::new(()),
         }
     }
 
@@ -161,6 +275,10 @@ impl RuntimeManager {
     }
 
     fn start(&self, app: &tauri::AppHandle) -> Result<RuntimeStatus, String> {
+        let _tailscale_operation = self
+            .tailscale_operations
+            .lock()
+            .map_err(|_| "tailscale operation lock poisoned")?;
         let mut inner = self.inner.lock().map_err(|_| "runtime lock poisoned")?;
         if inner.status.state == "ready" || inner.status.state == "starting" {
             return Ok(inner.status.clone());
@@ -176,6 +294,8 @@ impl RuntimeManager {
                 inner.status = startup.status;
                 inner.children = startup.children;
                 inner.bridge_child = startup.bridge_child;
+                inner.tailnet_bridge_child = startup.tailnet_bridge_child;
+                inner.tailscale_status = startup.tailscale_status;
                 inner.context = Some(startup.context);
                 Ok(inner.status.clone())
             }
@@ -187,7 +307,23 @@ impl RuntimeManager {
     }
 
     fn stop(&self) {
+        let Ok(_tailscale_operation) = self.tailscale_operations.lock() else {
+            return;
+        };
         if let Ok(mut inner) = self.inner.lock() {
+            if let Some(context) = inner.context.clone() {
+                let operation_id = Uuid::new_v4().to_string();
+                let mut backend = DesktopTailscaleBackend {
+                    context: &context,
+                    bridge_child: &mut inner.tailnet_bridge_child,
+                    mutation_evidence: None,
+                };
+                shutdown_tailscale_runtime(&mut backend, &operation_id);
+            } else if let Some(child) = &mut inner.tailnet_bridge_child {
+                let _ = child.kill();
+                let _ = child.wait();
+                inner.tailnet_bridge_child = None;
+            }
             if let Some(child) = &mut inner.bridge_child {
                 let _ = child.kill();
                 let _ = child.wait();
@@ -206,6 +342,32 @@ impl RuntimeManager {
                 inner.status.browser_access.urls.clear();
             }
         }
+    }
+
+    fn tailscale_access(&self, action: LifecycleAction) -> TailscaleAccessStatus {
+        let Ok(_tailscale_operation) = self.tailscale_operations.lock() else {
+            return tailscale_not_started_status();
+        };
+        let mut inner = match self.inner.lock() {
+            Ok(inner) => inner,
+            Err(_) => return tailscale_not_started_status(),
+        };
+        let Some(context) = inner.context.clone() else {
+            return inner.tailscale_status.clone();
+        };
+        let operation_id = Uuid::new_v4().to_string();
+        inner.tailscale_operation = Some(operation_id.clone());
+        let status = {
+            let mut backend = DesktopTailscaleBackend {
+                context: &context,
+                bridge_child: &mut inner.tailnet_bridge_child,
+                mutation_evidence: None,
+            };
+            perform_tailscale_operation(&mut backend, action, &operation_id)
+        };
+        inner.tailscale_status = status.clone();
+        inner.tailscale_operation = None;
+        status
     }
 
     fn browser_access_status(&self, app: &tauri::AppHandle) -> BrowserAccessStatus {
@@ -438,6 +600,26 @@ fn get_browser_access_status(
 }
 
 #[tauri::command]
+fn get_tailscale_access_status(runtime: State<Arc<RuntimeManager>>) -> TailscaleAccessStatus {
+    runtime.tailscale_access(LifecycleAction::Status)
+}
+
+#[tauri::command]
+fn enable_tailscale_access(runtime: State<Arc<RuntimeManager>>) -> TailscaleAccessStatus {
+    runtime.tailscale_access(LifecycleAction::Enable)
+}
+
+#[tauri::command]
+fn retry_tailscale_access(runtime: State<Arc<RuntimeManager>>) -> TailscaleAccessStatus {
+    runtime.tailscale_access(LifecycleAction::Retry)
+}
+
+#[tauri::command]
+fn disable_tailscale_access(runtime: State<Arc<RuntimeManager>>) -> TailscaleAccessStatus {
+    runtime.tailscale_access(LifecycleAction::Disable)
+}
+
+#[tauri::command]
 fn update_browser_access_settings(
     app: tauri::AppHandle,
     runtime: State<Arc<RuntimeManager>>,
@@ -520,6 +702,10 @@ fn main() {
         .manage(launch_state.clone())
         .invoke_handler(tauri::generate_handler![
             get_runtime_status,
+            get_tailscale_access_status,
+            enable_tailscale_access,
+            retry_tailscale_access,
+            disable_tailscale_access,
             get_browser_access_status,
             update_browser_access_settings,
             restart_browser_access,
@@ -660,16 +846,16 @@ fn start_runtime(app: &tauri::AppHandle) -> Result<RuntimeStartup, String> {
     wait_for_health(project_port, "/healthz", "mcp-project", &paths.log_root)?;
 
     append_supervisor_log(&paths.log_root, "spawning gateway");
-    children.push(spawn_gateway(
-        &node,
-        &runtime_roots.typescript_root,
-        &paths,
-        gateway_port,
-        &gateway_base_url,
-        &desktop_api_token,
-        &browser_access_settings.transport_secret,
-        &mcp_servers_file,
-    )?);
+    children.push(spawn_gateway(GatewayLaunch {
+        node: &node,
+        typescript_root: &runtime_roots.typescript_root,
+        paths: &paths,
+        port: gateway_port,
+        gateway_base_url: &gateway_base_url,
+        desktop_api_token: &desktop_api_token,
+        internal_transport_token: &browser_access_settings.transport_secret,
+        mcp_servers_file: &mcp_servers_file,
+    })?);
     wait_for_health(gateway_port, "/health", "gateway", &paths.log_root)?;
 
     let context = RuntimeContext {
@@ -685,6 +871,19 @@ fn start_runtime(app: &tauri::AppHandle) -> Result<RuntimeStartup, String> {
 
     let (browser_access_status, bridge_child) =
         reconcile_browser_access_process(&context, browser_access_settings, None)?;
+    let mut tailnet_bridge_child = None;
+    let tailscale_status = {
+        let mut backend = DesktopTailscaleBackend {
+            context: &context,
+            bridge_child: &mut tailnet_bridge_child,
+            mutation_evidence: None,
+        };
+        perform_tailscale_operation(
+            &mut backend,
+            LifecycleAction::Startup,
+            &Uuid::new_v4().to_string(),
+        )
+    };
 
     let status = RuntimeStatus {
         state: "ready".to_string(),
@@ -707,6 +906,8 @@ fn start_runtime(app: &tauri::AppHandle) -> Result<RuntimeStartup, String> {
         status,
         children,
         bridge_child,
+        tailnet_bridge_child,
+        tailscale_status,
         context,
     })
 }
@@ -935,6 +1136,62 @@ fn spawn_bridge(
     spawn_logged(command, &context.log_root, "browser-access")
 }
 
+fn select_tailnet_bridge_port(preferred_port: Option<u16>) -> Option<u16> {
+    if let Some(port) = preferred_port
+        .filter(|port| (MANAGED_LOOPBACK_PORT_START..=MANAGED_LOOPBACK_PORT_END).contains(port))
+    {
+        if port_is_available("127.0.0.1", port) {
+            return Some(port);
+        }
+    }
+    (MANAGED_LOOPBACK_PORT_START..=MANAGED_LOOPBACK_PORT_END)
+        .find(|port| Some(*port) != preferred_port && port_is_available("127.0.0.1", *port))
+}
+
+fn spawn_tailnet_bridge(context: &RuntimeContext, port: u16) -> Result<Child, String> {
+    let script = PathBuf::from("dist").join("desktop").join("bridge.js");
+    let script_path = context.typescript_root.join(&script);
+    if !script_path.exists() {
+        return Err(format!(
+            "Desktop bridge build was not found at {}",
+            script_path.display()
+        ));
+    }
+    if !context.web_root.exists() {
+        return Err(format!(
+            "Desktop bridge web assets were not found at {}",
+            context.web_root.display()
+        ));
+    }
+
+    let mut command = Command::new(&context.node);
+    command
+        .arg(script)
+        .current_dir(&context.typescript_root)
+        .env("BRAINDRIVE_BROWSER_BRIDGE_HOST", "127.0.0.1")
+        .env("BRAINDRIVE_BROWSER_BRIDGE_PORT", port.to_string())
+        .env("BRAINDRIVE_BROWSER_BRIDGE_WEB_ROOT", &context.web_root)
+        .env(
+            "BRAINDRIVE_BROWSER_BRIDGE_GATEWAY_URL",
+            &context.gateway_base_url,
+        )
+        .env(
+            "BRAINDRIVE_INTERNAL_TRANSPORT_TOKEN",
+            &context.internal_transport_token,
+        )
+        .env("BRAINDRIVE_BROWSER_BRIDGE_MODE", "tailnet")
+        .env("BRAINDRIVE_BROWSER_BRIDGE_EXTERNAL_PROTO", "https");
+    spawn_logged(command, &context.log_root, "tailscale-access")
+}
+
+fn stop_child(child: &mut Option<Child>) {
+    if let Some(child) = child {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    *child = None;
+}
+
 fn browser_access_urls(settings: &BrowserAccessSettings, port: u16) -> Vec<String> {
     let mut urls = vec![format!("http://127.0.0.1:{port}")];
     if matches!(
@@ -1131,46 +1388,48 @@ fn spawn_mcp(
     spawn_logged(command, &paths.log_root, &format!("mcp-{kind}"))
 }
 
-fn spawn_gateway(
-    node: &Path,
-    typescript_root: &Path,
-    paths: &RuntimePaths,
+struct GatewayLaunch<'a> {
+    node: &'a Path,
+    typescript_root: &'a Path,
+    paths: &'a RuntimePaths,
     port: u16,
-    gateway_base_url: &str,
-    desktop_api_token: &str,
-    internal_transport_token: &str,
-    mcp_servers_file: &Path,
-) -> Result<Child, String> {
+    gateway_base_url: &'a str,
+    desktop_api_token: &'a str,
+    internal_transport_token: &'a str,
+    mcp_servers_file: &'a Path,
+}
+
+fn spawn_gateway(launch: GatewayLaunch<'_>) -> Result<Child, String> {
     let script = PathBuf::from("dist").join("gateway").join("server.js");
-    let script_path = typescript_root.join(&script);
+    let script_path = launch.typescript_root.join(&script);
     if !script_path.exists() {
         return Err(format!(
             "Gateway build was not found at {}",
             script_path.display()
         ));
     }
-    let mut command = Command::new(node);
+    let mut command = Command::new(launch.node);
     command
         .arg(script)
-        .current_dir(typescript_root)
+        .current_dir(launch.typescript_root)
         .env("NODE_ENV", "production")
         .env("BRAINDRIVE_INSTALL_MODE", "local")
         .env("BRAINDRIVE_BIND_ADDRESS", "127.0.0.1")
-        .env("BRAINDRIVE_PORT", port.to_string())
+        .env("BRAINDRIVE_PORT", launch.port.to_string())
         .env("BRAINDRIVE_TRUST_PROXY", "false")
-        .env("BRAINDRIVE_CLIENT_GATEWAY_URL", gateway_base_url)
-        .env("BRAINDRIVE_DESKTOP_API_TOKEN", desktop_api_token)
+        .env("BRAINDRIVE_CLIENT_GATEWAY_URL", launch.gateway_base_url)
+        .env("BRAINDRIVE_DESKTOP_API_TOKEN", launch.desktop_api_token)
         .env(
             "BRAINDRIVE_INTERNAL_TRANSPORT_TOKEN",
-            internal_transport_token,
+            launch.internal_transport_token,
         )
-        .env("PAA_MEMORY_ROOT", &paths.memory_root)
-        .env("PAA_SECRETS_HOME", &paths.secrets_root)
+        .env("PAA_MEMORY_ROOT", &launch.paths.memory_root)
+        .env("PAA_SECRETS_HOME", &launch.paths.secrets_root)
         .env("PAA_SECRETS_MASTER_KEY_ID", "owner-master-v1")
         .env("PAA_AUTH_ALLOW_FIRST_SIGNUP_ANY_IP", "false")
-        .env("MCP_SERVERS_FILE", mcp_servers_file)
+        .env("MCP_SERVERS_FILE", launch.mcp_servers_file)
         .env("OLLAMA_BASE_URL", "http://127.0.0.1:11434/v1");
-    spawn_logged(command, &paths.log_root, "gateway")
+    spawn_logged(command, &launch.paths.log_root, "gateway")
 }
 
 fn spawn_logged(mut command: Command, log_root: &Path, name: &str) -> Result<Child, String> {

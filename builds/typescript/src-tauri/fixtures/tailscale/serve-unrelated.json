@@ -1,0 +1,26 @@
+{
+  "TCP": {
+    "443": {
+      "HTTPS": true
+    },
+    "8443": {
+      "HTTPS": true
+    }
+  },
+  "Web": {
+    "brain-host.example-tailnet.ts.net:443": {
+      "Handlers": {
+        "/other": {
+          "Proxy": "http://127.0.0.1:19001"
+        }
+      }
+    },
+    "brain-host.example-tailnet.ts.net:8443": {
+      "Handlers": {
+        "/": {
+          "Proxy": "http://127.0.0.1:19002"
+        }
+      }
+    }
+  }
+}

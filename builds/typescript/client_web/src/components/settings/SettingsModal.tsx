@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 
 import MarkdownContent from "@/components/markdown/MarkdownContent";
+import TailscaleAccessSection from "@/components/settings/TailscaleAccessSection";
 import { openTrustedBillingUrl } from "@/utils/billing-url";
 import { openExternalUrl } from "@/utils/external-url";
 
@@ -95,17 +96,18 @@ type SettingsModalProps = {
   onClose: () => void;
 };
 
-type SettingsTab = "provider" | "profile" | "your-agent" | "account" | "export" | "memory-backup" | "browser-access";
+type SettingsTab = "provider" | "profile" | "your-agent" | "account" | "export" | "memory-backup" | "browser-access" | "remote-access";
 
 type TabDef = { id: SettingsTab; label: string; icon: typeof Key; managedOnly?: boolean; localOnly?: boolean; desktopOnly?: boolean };
 
 // Managed hosting shows: Account, Your Profile, Your Agent, Export (D93).
-// Local shows: AI Models, Your Profile, Your Agent, Browser Access, Memory Backup, Export.
+// Local shows: AI Models, Your Profile, Your Agent, Remote Access, Browser Access, Memory Backup, Export.
 const allTabs: TabDef[] = [
   { id: "account", label: "Account", icon: UserCog, managedOnly: true },
   { id: "provider", label: "AI Models", icon: Cpu, localOnly: true },
   { id: "profile", label: "Your Profile", icon: User },
   { id: "your-agent", label: "Your Agent", icon: Bot },
+  { id: "remote-access", label: "Remote Access", icon: ShieldCheck, localOnly: true, desktopOnly: true },
   { id: "browser-access", label: "Browser Access", icon: Network, localOnly: true, desktopOnly: true },
   { id: "memory-backup", label: "Backup", icon: Save, localOnly: true },
   { id: "export", label: "Migrate", icon: Download },
@@ -667,6 +669,8 @@ function TabContent({
       );
     case "browser-access":
       return <BrowserAccessSection />;
+    case "remote-access":
+      return <TailscaleAccessSection />;
     case "profile":
       return <ProfileSection />;
     case "your-agent":

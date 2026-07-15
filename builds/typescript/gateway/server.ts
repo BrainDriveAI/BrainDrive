@@ -2561,7 +2561,29 @@ function rateLimitKeyForRequest(
   request: { ip: string; headers: Record<string, unknown> },
   internalTransportToken: string
 ): string {
+  const browserClientId = browserClientIdForRequest(request.headers, internalTransportToken);
+  if (browserClientId) {
+    return browserClientId;
+  }
+
   return clientIpForRequest(request, internalTransportToken);
+}
+
+function browserClientIdForRequest(
+  headers: Record<string, unknown>,
+  internalTransportToken: string
+): string | undefined {
+  // This identifier partitions auth rate limits only; it is never an account or authorization identity.
+  if (!isBrowserAccessRequest(headers, internalTransportToken)) {
+    return undefined;
+  }
+
+  const value = headers["x-braindrive-browser-client-id"];
+  if (typeof value !== "string" || !/^tailnet:[0-9a-f]{64}$/.test(value)) {
+    return undefined;
+  }
+
+  return value;
 }
 
 function firstHeaderValue(value: unknown): string | undefined {

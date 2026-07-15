@@ -1,0 +1,19 @@
+{
+  "TCP": {
+    "443": {
+      "HTTPS": true
+    }
+  },
+  "Web": {
+    "brain-host.example-tailnet.ts.net:443": {
+      "Handlers": {
+        "/": {
+          "Proxy": "http://127.0.0.1:19004"
+        }
+      }
+    }
+  },
+  "AllowFunnel": {
+    "brain-host.example-tailnet.ts.net:443": true
+  }
+}

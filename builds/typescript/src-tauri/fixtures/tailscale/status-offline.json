@@ -1,0 +1,8 @@
+{
+  "Version": "1.98.8-t1241b225b-g0520dfda5",
+  "BackendState": "Running",
+  "Self": {
+    "Online": false,
+    "DNSName": "brain-host.example-tailnet.ts.net."
+  }
+}

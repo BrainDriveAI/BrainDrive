@@ -145,6 +145,10 @@ Setup and validation instructions:
 1. Operator notes: [`installer/docker/README.md`](installer/docker/README.md)
 2. Step-by-step local test flow: [`docs/onboarding/getting-started-testing-openrouter-docker.md`](docs/onboarding/getting-started-testing-openrouter-docker.md)
 
+## Desktop Remote Access
+
+BrainDrive Desktop can expose the normal BrainDrive sign-in experience to your own trusted devices through a private Tailscale network. See the [Tailscale Remote Access guide](docs/tailscale-remote-access.md) for supported systems, setup, security boundaries, troubleshooting, and safe disable instructions.
+
 ## Operator Quick Usage
 
 Support bundle script:
