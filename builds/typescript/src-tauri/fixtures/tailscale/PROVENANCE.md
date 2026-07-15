@@ -33,9 +33,11 @@ documented JSON fields. They were not produced by changing the connected
 Windows host into those states. Their names deliberately omit the native
 Windows capture prefix.
 
-The `service-config-*` files use the official `serve get-config --all` schema
-version `0.0.1` documented by current Tailscale source/issues. They are
-contract fixtures, not live service declarations from this host.
+`service-config-empty.json` is the live empty
+`tailscale serve get-config --all` result from this host. The remaining
+`service-config-*` files use the official schema version `0.0.1` documented by
+current Tailscale source/issues. They are contract fixtures, not live service
+declarations from this host.
 
 ## Platform-neutral and macOS obligation
 

@@ -392,11 +392,13 @@ impl TailscaleCommand {
             Self::Enable(mapping) => vec![
                 "serve".into(),
                 "--bg".into(),
+                "--yes".into(),
                 format!("--https={MANAGED_HTTPS_PORT}").into(),
                 mapping.target().into(),
             ],
             Self::Disable => vec![
                 "serve".into(),
+                "--yes".into(),
                 format!("--https={MANAGED_HTTPS_PORT}").into(),
                 "off".into(),
             ],
@@ -913,12 +915,13 @@ pub fn parse_service_config_json(raw: &[u8]) -> Result<ServiceConfigSummary, Tai
         .filter(|version| !version.is_empty())
         .ok_or(TailscaleErrorCode::MalformedOutput)?
         .to_string();
-    let services = object
-        .get("services")
-        .and_then(Value::as_object)
-        .ok_or(TailscaleErrorCode::MalformedOutput)?;
+    let services = match object.get("services") {
+        None | Some(Value::Null) => None,
+        Some(Value::Object(services)) => Some(services),
+        Some(_) => return Err(TailscaleErrorCode::MalformedOutput),
+    };
     let mut managed_port_in_use = false;
-    for service in services.values() {
+    for service in services.into_iter().flat_map(|services| services.values()) {
         let service = service
             .as_object()
             .ok_or(TailscaleErrorCode::MalformedOutput)?;
@@ -937,7 +940,7 @@ pub fn parse_service_config_json(raw: &[u8]) -> Result<ServiceConfigSummary, Tai
     }
     Ok(ServiceConfigSummary {
         schema_version,
-        service_count: services.len(),
+        service_count: services.map_or(0, |services| services.len()),
         managed_port_in_use,
     })
 }
@@ -1647,11 +1650,17 @@ mod tests {
         );
         assert_eq!(
             strings(TailscaleCommand::Enable(mapping).args()),
-            ["serve", "--bg", "--https=443", "http://127.0.0.1:18108"]
+            [
+                "serve",
+                "--bg",
+                "--yes",
+                "--https=443",
+                "http://127.0.0.1:18108"
+            ]
         );
         assert_eq!(
             strings(TailscaleCommand::Disable.args()),
-            ["serve", "--https=443", "off"]
+            ["serve", "--yes", "--https=443", "off"]
         );
     }
 

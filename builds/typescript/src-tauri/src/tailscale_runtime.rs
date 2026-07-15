@@ -324,6 +324,7 @@ fn enable<B: TailscaleRuntimeBackend>(
             || (after_ownership == ServeOwnership::OwnedDrifted
                 && after.serve.selected_mapping.is_none())
         {
+            let (error_code, message, detail) = enable_failure_feedback(&command_result);
             let reported_ownership = if desired {
                 after_ownership
             } else if after.serve.selected_mapping.is_some() {
@@ -342,9 +343,9 @@ fn enable<B: TailscaleRuntimeBackend>(
                 after.readiness,
                 reported_ownership,
                 bridge_state,
-                Some(TailscaleErrorCode::AmbiguousOutcome),
-                "Private access could not be verified safely.",
-                "Check Tailscale configuration before retrying.",
+                Some(error_code),
+                message,
+                detail,
             );
         }
         return conflict_or_attention(desired, after.readiness, after_ownership);
@@ -610,6 +611,48 @@ fn setup_url_from_output(output: &CapturedOutput) -> Option<String> {
                 .flatten()
                 .map(|url| url.as_str().to_string())
         })
+}
+
+fn enable_failure_feedback(
+    command_result: &Result<CapturedOutput, RunnerError>,
+) -> (TailscaleErrorCode, &'static str, &'static str) {
+    match command_result {
+        Err(RunnerError::Timeout) => (
+            TailscaleErrorCode::CommandTimeout,
+            "Tailscale HTTPS Serve setup did not finish.",
+            "Open Tailscale admin DNS settings and enable HTTPS Certificates, or approve the Serve setup prompt, then retry. No private access mapping was verified.",
+        ),
+        Err(RunnerError::OutputTooLarge) => (
+            TailscaleErrorCode::OutputTooLarge,
+            "Tailscale returned too much output while enabling private access.",
+            "Check Tailscale, then retry.",
+        ),
+        Err(RunnerError::ExecutableMissing) => (
+            TailscaleErrorCode::NotInstalled,
+            "Tailscale could not be found while enabling private access.",
+            "Open or reinstall Tailscale, then retry.",
+        ),
+        Err(RunnerError::PermissionDenied) => (
+            TailscaleErrorCode::PermissionDenied,
+            "BrainDrive could not run Tailscale with the required permissions.",
+            "Check Tailscale permissions, then retry.",
+        ),
+        Err(RunnerError::Io) => (
+            TailscaleErrorCode::DaemonUnavailable,
+            "Tailscale was unavailable while enabling private access.",
+            "Open or restart Tailscale, then retry.",
+        ),
+        Ok(output) if output.exit_code != Some(0) => (
+            TailscaleErrorCode::CommandFailed,
+            "Tailscale did not enable private access.",
+            "Check Tailscale, then retry.",
+        ),
+        _ => (
+            TailscaleErrorCode::AmbiguousOutcome,
+            "Private access could not be verified safely.",
+            "Check Tailscale configuration before retrying.",
+        ),
+    }
 }
 
 fn running_status(state: &TailscaleAccessConfig, inspection: Inspection) -> TailscaleAccessStatus {
@@ -1372,6 +1415,8 @@ mod tests {
         );
         assert_eq!(status.state, TailscaleAccessState::NeedsAttention);
         assert_eq!(status.bridge_state, TailnetBridgeState::Stopped);
+        assert_eq!(status.error_code, Some(TailscaleErrorCode::CommandTimeout));
+        assert!(status.message.contains("HTTPS Serve setup did not finish"));
         assert!(matches!(
             timeout_without_effect.state,
             Ok(StateLoad::Missing)
