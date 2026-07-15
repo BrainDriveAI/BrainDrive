@@ -1,0 +1,5 @@
+1.98.8
+  tailscale commit: 1241b225bc798707d02db3570992625d3a16594f
+  long version: 1.98.8-t1241b225b-g0520dfda5
+  other commit: 0520dfda5d034816c38a15a8661160eb9a6d5ac4
+  go version: go1.26.3 (tailscale/go e877d97384)

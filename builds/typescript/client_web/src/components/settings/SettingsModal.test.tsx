@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+import type { TailscaleAccessStatus } from "@/api/desktop-tailscale-access";
+
 import type {
   GatewayMemoryBackupRestoreRequest,
   GatewayMemoryBackupRunRequest,
@@ -57,6 +59,10 @@ const getBrowserAccessStatusMock = vi.fn<() => Promise<BrowserAccessStatus>>();
 const updateBrowserAccessSettingsMock = vi.fn();
 const restartBrowserAccessMock = vi.fn();
 const applyBrowserAccessFirewallRuleMock = vi.fn();
+const getTailscaleAccessStatusMock = vi.fn<() => Promise<TailscaleAccessStatus>>();
+const enableTailscaleAccessMock = vi.fn<() => Promise<TailscaleAccessStatus>>();
+const retryTailscaleAccessMock = vi.fn<() => Promise<TailscaleAccessStatus>>();
+const disableTailscaleAccessMock = vi.fn<() => Promise<TailscaleAccessStatus>>();
 const getSessionMock = vi.fn<() => Promise<Session>>();
 const logoutMock = vi.fn<() => Promise<void>>();
 const getRootAgentMock = vi.fn<
@@ -93,6 +99,13 @@ vi.mock("@/api/desktop-browser-access", () => ({
   updateBrowserAccessSettings: (settings: unknown) => updateBrowserAccessSettingsMock(settings),
   restartBrowserAccess: () => restartBrowserAccessMock(),
   applyBrowserAccessFirewallRule: (enabled: boolean) => applyBrowserAccessFirewallRuleMock(enabled),
+}));
+
+vi.mock("@/api/desktop-tailscale-access", () => ({
+  getTailscaleAccessStatus: () => getTailscaleAccessStatusMock(),
+  enableTailscaleAccess: () => enableTailscaleAccessMock(),
+  retryTailscaleAccess: () => retryTailscaleAccessMock(),
+  disableTailscaleAccess: () => disableTailscaleAccessMock(),
 }));
 
 const baseSettings: GatewaySettings = {
@@ -203,6 +216,29 @@ const browserAccessStatus: BrowserAccessStatus = {
   accountInitialized: true,
 };
 
+const tailscaleAccessStatus: TailscaleAccessStatus = {
+  state: "ready",
+  desiredEnabled: false,
+  readiness: {
+    state: "ready",
+    installedVersion: { major: 1, minor: 98, patch: 8 },
+    minimumSupportedVersion: { major: 1, minor: 98, patch: 8 },
+    backendState: "Running",
+    online: true,
+    dnsNameAvailable: true,
+    errorCode: null,
+  },
+  ownership: "absent",
+  bridgeState: "stopped",
+  accessUrl: null,
+  setupUrl: null,
+  availableActions: ["enable", "checkAgain"],
+  message: "Tailscale is ready for private BrainDrive access.",
+  detail: null,
+  errorCode: null,
+  checkedAtUnixMs: 1,
+};
+
 function localSession(email: string): Session {
   return {
     mode: "local",
@@ -234,6 +270,10 @@ describe("SettingsModal", () => {
     updateBrowserAccessSettingsMock.mockReset();
     restartBrowserAccessMock.mockReset();
     applyBrowserAccessFirewallRuleMock.mockReset();
+    getTailscaleAccessStatusMock.mockReset();
+    enableTailscaleAccessMock.mockReset();
+    retryTailscaleAccessMock.mockReset();
+    disableTailscaleAccessMock.mockReset();
     getSessionMock.mockReset();
     logoutMock.mockReset();
     getRootAgentMock.mockReset();
@@ -290,6 +330,10 @@ describe("SettingsModal", () => {
       message: "Opened macOS System Settings. In Network > Firewall, allow incoming connections for BrainDrive if prompted.",
       command: "open -b com.apple.systempreferences",
     });
+    getTailscaleAccessStatusMock.mockResolvedValue(tailscaleAccessStatus);
+    enableTailscaleAccessMock.mockResolvedValue(tailscaleAccessStatus);
+    retryTailscaleAccessMock.mockResolvedValue(tailscaleAccessStatus);
+    disableTailscaleAccessMock.mockResolvedValue(tailscaleAccessStatus);
     getSessionMock.mockResolvedValue(localSession("owner@local.braindrive"));
     logoutMock.mockResolvedValue();
     delete window.__TAURI_INTERNALS__;
@@ -620,6 +664,32 @@ describe("SettingsModal", () => {
     const migrateIndex = tabLabels.indexOf("Migrate");
     expect(migrateIndex).toBeGreaterThanOrEqual(0);
     expect(backupIndex).toBeGreaterThanOrEqual(0);
+  });
+
+  it("shows Remote Access only in the local desktop app", async () => {
+    const { unmount } = render(<SettingsModal mode="local" onClose={() => {}} />);
+    await waitFor(() => expect(getSettingsMock).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: "Remote Access" })).not.toBeInTheDocument();
+    unmount();
+
+    window.__TAURI_INTERNALS__ = {};
+    const desktop = render(<SettingsModal mode="local" onClose={() => {}} />);
+    expect(screen.getAllByRole("button", { name: "Remote Access" })).toHaveLength(2);
+    desktop.rerender(<SettingsModal mode="managed" onClose={() => {}} />);
+    expect(screen.queryByRole("button", { name: "Remote Access" })).not.toBeInTheDocument();
+  });
+
+  it("opens the desktop Remote Access tab without changing Browser Access", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+
+    await user.click(screen.getAllByRole("button", { name: "Remote Access" })[0]!);
+    await waitFor(() => expect(getTailscaleAccessStatusMock).toHaveBeenCalled());
+
+    expect(screen.getAllByText("Powered by Tailscale").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Browser Access" })).toHaveLength(2);
+    expect(getBrowserAccessStatusMock).not.toHaveBeenCalled();
   });
 
   it("renders platform-specific Browser Access firewall guidance in the desktop app", async () => {

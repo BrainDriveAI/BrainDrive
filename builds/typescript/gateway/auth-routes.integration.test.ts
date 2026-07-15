@@ -546,6 +546,200 @@ describe.sequential("gateway auth route integration", () => {
     expect(response.statusCode).toBe(401);
   });
 
+  it("keeps tailnet identity transport-only and issues secure refresh cookies for trusted HTTPS", async () => {
+    context = await createTestServer({ internalTransportToken: "bridge-transport-token" });
+    const transportHeaders = {
+      "x-braindrive-internal-transport-token": "bridge-transport-token",
+    };
+    const tailnetHeaders = {
+      ...transportHeaders,
+      "x-braindrive-browser-access": "1",
+      "x-braindrive-browser-client-id": `tailnet:${"a".repeat(64)}`,
+      "x-forwarded-proto": "https",
+    };
+
+    const signupResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/signup",
+      headers: transportHeaders,
+      payload: {
+        identifier: "owner",
+        password: "password123",
+      },
+    });
+    expect(signupResponse.statusCode).toBe(201);
+
+    const protectedResponse = await context.app.inject({
+      method: "GET",
+      url: "/settings",
+      headers: tailnetHeaders,
+    });
+    expect(protectedResponse.statusCode).toBe(401);
+
+    const loginResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/login",
+      headers: tailnetHeaders,
+      payload: {
+        identifier: "owner",
+        password: "password123",
+      },
+    });
+    expect(loginResponse.statusCode).toBe(200);
+    const loginCookie = String(loginResponse.headers["set-cookie"] ?? "");
+    expect(loginCookie).toContain("Secure");
+    expect(loginCookie).toContain("HttpOnly");
+    expect(loginCookie).toContain("SameSite=Strict");
+
+    const refreshResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/refresh",
+      headers: {
+        ...tailnetHeaders,
+        cookie: loginCookie.split(";", 1)[0],
+      },
+      payload: {},
+    });
+    expect(refreshResponse.statusCode).toBe(200);
+    expect(String(refreshResponse.headers["set-cookie"] ?? "")).toContain("Secure");
+
+    const lanLoginResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/login",
+      headers: {
+        ...transportHeaders,
+        "x-braindrive-browser-access": "1",
+        "x-braindrive-browser-client-ip": "192.168.1.50",
+        "x-forwarded-proto": "http",
+      },
+      payload: {
+        identifier: "owner",
+        password: "password123",
+      },
+    });
+    expect(lanLoginResponse.statusCode).toBe(200);
+    const lanCookie = String(lanLoginResponse.headers["set-cookie"] ?? "");
+    expect(lanCookie).toContain("HttpOnly");
+    expect(lanCookie).toContain("SameSite=Strict");
+    expect(lanCookie).not.toContain("Secure");
+  });
+
+  it("trusts a strict browser client ID only with the internal token and browser marker", async () => {
+    context = await createTestServer({ internalTransportToken: "bridge-transport-token" });
+    const internalHeaders = {
+      "x-braindrive-internal-transport-token": "bridge-transport-token",
+    };
+    const aliceClientId = `tailnet:${"a".repeat(64)}`;
+    const bobClientId = `tailnet:${"b".repeat(64)}`;
+
+    const signupResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/signup",
+      headers: internalHeaders,
+      payload: {
+        identifier: "owner",
+        password: "password123",
+      },
+    });
+    expect(signupResponse.statusCode).toBe(201);
+
+    const attemptLogin = (headers: Record<string, string | string[]>) =>
+      context!.app.inject({
+        method: "POST",
+        url: "/auth/login",
+        headers,
+        payload: {
+          identifier: "owner",
+          password: "incorrect-password",
+        },
+      });
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      expect((await attemptLogin({ ...internalHeaders, "x-braindrive-browser-client-id": aliceClientId })).statusCode)
+        .toBe(401);
+      expect((await attemptLogin({ ...internalHeaders, "x-braindrive-browser-client-id": bobClientId })).statusCode)
+        .toBe(401);
+    }
+    expect(
+      (await attemptLogin({ ...internalHeaders, "x-braindrive-browser-client-id": aliceClientId })).statusCode
+    ).toBe(429);
+
+    const trustedHeaders = {
+      ...internalHeaders,
+      "x-braindrive-browser-access": "1",
+    };
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      expect((await attemptLogin({ ...trustedHeaders, "x-braindrive-browser-client-id": aliceClientId })).statusCode)
+        .toBe(401);
+      expect((await attemptLogin({ ...trustedHeaders, "x-braindrive-browser-client-id": bobClientId })).statusCode)
+        .toBe(401);
+    }
+    expect(
+      (await attemptLogin({ ...trustedHeaders, "x-braindrive-browser-client-id": aliceClientId })).statusCode
+    ).toBe(429);
+
+    expect(
+      (
+        await attemptLogin({
+          ...trustedHeaders,
+          "x-braindrive-browser-client-id": `tailnet:${"A".repeat(64)}`,
+        })
+      ).statusCode
+    ).toBe(429);
+    expect(
+      (
+        await attemptLogin({
+          ...trustedHeaders,
+          "x-braindrive-browser-client-id": [bobClientId],
+        })
+      ).statusCode
+    ).toBe(429);
+  });
+
+  it("does not trust a directly spoofed browser client ID without an internal token", async () => {
+    context = await createTestServer();
+
+    const signupResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/signup",
+      payload: {
+        identifier: "owner",
+        password: "password123",
+      },
+    });
+    expect(signupResponse.statusCode).toBe(201);
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const response = await context.app.inject({
+        method: "POST",
+        url: "/auth/login",
+        headers: {
+          "x-braindrive-browser-access": "1",
+          "x-braindrive-browser-client-id": `tailnet:${(attempt % 2 === 0 ? "a" : "b").repeat(64)}`,
+        },
+        payload: {
+          identifier: "owner",
+          password: "incorrect-password",
+        },
+      });
+      expect(response.statusCode).toBe(401);
+    }
+
+    const rateLimitedResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/login",
+      headers: {
+        "x-braindrive-browser-access": "1",
+        "x-braindrive-browser-client-id": `tailnet:${"c".repeat(64)}`,
+      },
+      payload: {
+        identifier: "owner",
+        password: "incorrect-password",
+      },
+    });
+    expect(rateLimitedResponse.statusCode).toBe(429);
+  });
+
   it("blocks first signup through browser access transport without a pairing or bootstrap token", async () => {
     context = await createTestServer({ internalTransportToken: "bridge-transport-token" });
 
@@ -556,6 +750,8 @@ describe.sequential("gateway auth route integration", () => {
         "x-braindrive-internal-transport-token": "bridge-transport-token",
         "x-braindrive-browser-access": "1",
         "x-braindrive-browser-client-ip": "192.168.1.50",
+        "x-braindrive-browser-client-id": `tailnet:${"a".repeat(64)}`,
+        "x-forwarded-proto": "https",
       },
       payload: {
         identifier: "owner",

@@ -1,0 +1,20 @@
+{
+  "Services": {
+    "svc:example": {
+      "TCP": {
+        "443": {
+          "HTTPS": true
+        }
+      },
+      "Web": {
+        "example-service.example-tailnet.ts.net:443": {
+          "Handlers": {
+            "/": {
+              "Proxy": "http://127.0.0.1:19003"
+            }
+          }
+        }
+      }
+    }
+  }
+}
