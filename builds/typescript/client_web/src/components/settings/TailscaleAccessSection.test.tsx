@@ -103,12 +103,12 @@ describe("TailscaleAccessSection", () => {
 
   it.each([
     ["off", "Off", "Enable Remote Access"],
-    ["needsSetup", "Needs setup", "Retry"],
+    ["needsSetup", "Needs setup", "Try again"],
     ["ready", "Ready to enable", "Enable Remote Access"],
     ["starting", "Starting", "Starting…"],
     ["running", "Running", "Open Remote Access"],
-    ["conflict", "Conflict", "Retry"],
-    ["needsAttention", "Needs attention", "Retry"],
+    ["conflict", "Conflict", "Try again"],
+    ["needsAttention", "Needs attention", "Try again"],
   ] as const)("renders %s with one state-derived primary action", async (state, label, primary) => {
     await renderState(makeStatus(state));
 
@@ -123,10 +123,10 @@ describe("TailscaleAccessSection", () => {
     await renderState(makeStatus("ready"));
 
     expect(screen.getByText(/separately installed and owned/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/private tailnet/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/BrainDrive login is still required/i)).toBeInTheDocument();
-    expect(screen.getByText(/host computer must stay awake, online, connected to Tailscale, and running BrainDrive/i)).toBeInTheDocument();
-    expect(screen.getByText(/does not create a public link or cross-user sharing/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/private Tailscale network/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/still need your BrainDrive sign-in/i)).toBeInTheDocument();
+    expect(screen.getByText(/computer must stay awake, online, connected to Tailscale, and running BrainDrive/i)).toBeInTheDocument();
+    expect(screen.getByText(/never creates a public link/i)).toBeInTheDocument();
   });
 
   it("enables once, suppresses duplicate clicks, refreshes, and restores focus", async () => {
@@ -193,7 +193,7 @@ describe("TailscaleAccessSection", () => {
       availableActions: ["completeSetup", "retry"],
     }));
 
-    expect(screen.getByTestId("remote-access-primary-action")).toHaveAccessibleName("Retry");
+    expect(screen.getByTestId("remote-access-primary-action")).toHaveAccessibleName("Try again");
     expect(screen.getByText(/setup address was not safe to open/i)).toBeInTheDocument();
     expect(openExternalUrlMock).not.toHaveBeenCalled();
   });
@@ -250,9 +250,9 @@ describe("TailscaleAccessSection", () => {
     const user = userEvent.setup();
     render(<TailscaleAccessSection />);
 
-    await user.click(await screen.findByRole("button", { name: "Retry" }));
+    await user.click(await screen.findByRole("button", { name: "Try again" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Desktop command failed");
-    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await user.click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(retryMock).toHaveBeenCalledTimes(2));
   });
 
@@ -269,6 +269,28 @@ describe("TailscaleAccessSection", () => {
     expect(enable).toHaveFocus();
     await user.keyboard("{Enter}");
     await waitFor(() => expect(enableMock).toHaveBeenCalledTimes(1));
+  });
+
+  it("shows a setup checklist with the active step derived from readiness", async () => {
+    await renderState(
+      makeStatus("needsSetup", {
+        readiness: { ...makeStatus("needsSetup").readiness, state: "offline" },
+      })
+    );
+
+    expect(screen.getByText("Set up Remote Access")).toBeInTheDocument();
+    expect(screen.getByText("Install Tailscale on this computer")).toBeInTheDocument();
+    expect(screen.getByText("Open Tailscale, sign in, and connect")).toBeInTheDocument();
+    expect(screen.getByText("Turn on Remote Access")).toBeInTheDocument();
+    expect(screen.getByText(/turned off or disconnected/i)).toBeInTheDocument();
+  });
+
+  it("shows phone setup steps and a QR code while running", async () => {
+    await renderState(makeStatus("running"));
+
+    expect(screen.getByText("Set up your phone")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /QR code/i })).toBeInTheDocument();
+    expect(screen.getByText(/same account you use on this computer/i)).toBeInTheDocument();
   });
 
   it("hides conflict cleanup when the mapping is not exact-owned", async () => {

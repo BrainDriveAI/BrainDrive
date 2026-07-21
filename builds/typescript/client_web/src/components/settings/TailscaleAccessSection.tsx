@@ -1,7 +1,8 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Check,
+  Circle,
   Copy,
   ExternalLink,
   LoaderCircle,
@@ -9,7 +10,9 @@ import {
   Power,
   RefreshCw,
   ShieldCheck,
+  Smartphone,
 } from "lucide-react";
+import { renderSVG } from "uqr";
 
 import {
   disableTailscaleAccess,
@@ -38,7 +41,7 @@ const STATE_LABELS: Record<TailscaleAccessState, string> = {
 
 const ACTION_LABELS: Record<TailscaleAccessAction, string> = {
   enable: "Enable Remote Access",
-  retry: "Retry",
+  retry: "Try again",
   disable: "Turn off",
   checkAgain: "Check again",
   completeSetup: "Complete Tailscale setup",
@@ -256,6 +259,7 @@ export default function TailscaleAccessSection() {
   }
 
   const accessUrl = validatedAccessUrl(status?.accessUrl ?? null);
+  const qrSvg = useMemo(() => (accessUrl ? renderSVG(accessUrl) : null), [accessUrl]);
   const setupUrl = validatedSetupUrl(status?.setupUrl ?? null);
   const invalidRunningUrl = status?.state === "running" && !accessUrl;
   const effectiveState: TailscaleAccessState | null = invalidRunningUrl ? "needsAttention" : status?.state ?? null;
@@ -280,7 +284,10 @@ export default function TailscaleAccessSection() {
           </span>
         </div>
         <p className="mt-2 text-sm leading-5 text-bd-text-secondary">
-          Reach this BrainDrive from your own trusted devices on your private tailnet.
+          Use BrainDrive from your phone or another computer you trust — anywhere, over your own private connection.
+        </p>
+        <p className="mt-1 text-xs leading-4 text-bd-text-muted">
+          For devices on your home Wi-Fi only, Browser Access works without Tailscale.
         </p>
       </div>
 
@@ -336,8 +343,29 @@ export default function TailscaleAccessSection() {
 
       {status && setupGuidance && status.state === "needsSetup" ? (
         <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary/40 p-4">
-          <h4 className="text-sm font-medium text-bd-text-heading">What to do next</h4>
-          <p className="mt-1 text-sm leading-5 text-bd-text-secondary">{setupGuidance}</p>
+          <h4 className="text-sm font-medium text-bd-text-heading">Set up Remote Access</h4>
+          <ol className="mt-3 space-y-2">
+            {setupChecklist(status.readiness.state).map((step) => (
+              <li key={step.label} className="flex items-start gap-2 text-sm leading-5">
+                <SetupStepIcon state={step.state} />
+                <span
+                  className={
+                    step.state === "active"
+                      ? "font-medium text-bd-text-heading"
+                      : step.state === "done"
+                        ? "text-bd-text-secondary"
+                        : "text-bd-text-muted"
+                  }
+                >
+                  {step.label}
+                </span>
+              </li>
+            ))}
+          </ol>
+          <p className="mt-3 text-sm leading-5 text-bd-text-secondary">{setupGuidance}</p>
+          <p className="mt-2 text-xs leading-4 text-bd-text-muted">
+            Once Remote Access is running, you&apos;ll get an address and a code to set up your phone.
+          </p>
           {status.setupUrl && !setupUrl ? (
             <p className="mt-2 text-xs leading-4 text-bd-danger">The setup address was not safe to open. Use the Tailscale app, then retry.</p>
           ) : null}
@@ -345,16 +373,28 @@ export default function TailscaleAccessSection() {
       ) : null}
 
       {status?.state === "conflict" ? (
-        <div className="rounded-lg border border-bd-danger/30 bg-bd-danger/10 p-4 text-sm leading-5 text-bd-text-primary">
-          BrainDrive found an existing Tailscale configuration and will not overwrite or reset it. Local BrainDrive and Browser Access remain unchanged.
+        <div className="space-y-2 rounded-lg border border-bd-amber/40 bg-bd-amber/10 p-4 text-sm leading-5 text-bd-text-primary">
+          <p>
+            Tailscale on this computer already has sharing settings that BrainDrive didn&apos;t create — usually left over
+            from an earlier BrainDrive install. BrainDrive won&apos;t change them without you.
+          </p>
+          <p>
+            If you don&apos;t use Tailscale sharing for anything else, it&apos;s safe to clear them: open Terminal, run{" "}
+            <code className="rounded bg-bd-bg-secondary px-1.5 py-0.5 font-mono text-xs">tailscale serve reset</code>, then
+            choose Try again.
+          </p>
+          <p>Your local BrainDrive and Browser Access are unaffected.</p>
         </div>
       ) : null}
 
       {status?.state === "running" && accessUrl ? (
         <div className="rounded-lg border border-bd-border p-4">
           <label htmlFor={addressId} className="text-sm font-medium text-bd-text-heading">
-            Private Remote Access address
+            Your BrainDrive address
           </label>
+          <p className="mt-1 text-xs leading-4 text-bd-text-secondary">
+            Works on your signed-in devices — never a public link.
+          </p>
           <div className="mt-2 flex min-w-0 flex-col gap-2 sm:flex-row">
             <input
               id={addressId}
@@ -373,6 +413,33 @@ export default function TailscaleAccessSection() {
               Copy
             </button>
           </div>
+        </div>
+      ) : null}
+
+      {status?.state === "running" && accessUrl ? (
+        <div className="rounded-lg border border-bd-border p-4">
+          <div className="flex items-center gap-2">
+            <Smartphone className="shrink-0 text-bd-text-secondary" size={16} strokeWidth={1.5} />
+            <h4 className="text-sm font-medium text-bd-text-heading">Set up your phone</h4>
+          </div>
+          <div className="mt-3 flex flex-col items-start gap-4 sm:flex-row">
+            <ol className="min-w-0 flex-1 list-decimal space-y-2 pl-4 text-sm leading-5 text-bd-text-primary">
+              <li>Install the Tailscale app on your phone (App Store or Google Play).</li>
+              <li>Sign in to Tailscale with the same account you use on this computer.</li>
+              <li>Scan this code with your phone&apos;s camera to open BrainDrive.</li>
+            </ol>
+            {qrSvg ? (
+              <div
+                role="img"
+                aria-label="QR code for your BrainDrive address"
+                className="h-32 w-32 shrink-0 self-center rounded-lg bg-white p-2 [&>svg]:h-full [&>svg]:w-full"
+                dangerouslySetInnerHTML={{ __html: qrSvg }}
+              />
+            ) : null}
+          </div>
+          <p className="mt-3 text-xs leading-4 text-bd-text-secondary">
+            Your phone will still ask for your BrainDrive sign-in — access stays yours.
+          </p>
         </div>
       ) : null}
 
@@ -423,7 +490,10 @@ export default function TailscaleAccessSection() {
             </button>
           ) : null}
 
-          {status?.availableActions.includes("checkAgain") && primaryAction !== "checkAgain" && effectiveState !== "starting" ? (
+          {status?.availableActions.includes("checkAgain") &&
+          !status.availableActions.includes("retry") &&
+          primaryAction !== "checkAgain" &&
+          effectiveState !== "starting" ? (
             <button type="button" onClick={() => void handleCheckAgain()} disabled={isBusy} className={secondaryButtonClasses}>
               <RefreshCw size={15} strokeWidth={1.5} />
               Check again
@@ -446,10 +516,10 @@ export default function TailscaleAccessSection() {
         </div>
         <div className="flex items-start gap-2">
           <LockKeyhole className="mt-0.5 shrink-0" size={16} strokeWidth={1.5} />
-          <p>Access is for your trusted owner devices on your private tailnet. BrainDrive login is still required.</p>
+          <p>Only trusted devices on your private Tailscale network can connect — and they still need your BrainDrive sign-in.</p>
         </div>
-        <p>The host computer must stay awake, online, connected to Tailscale, and running BrainDrive.</p>
-        <p>This does not create a public link or cross-user sharing.</p>
+        <p>This computer must stay awake, online, connected to Tailscale, and running BrainDrive for your other devices to reach it.</p>
+        <p>This never creates a public link. Only your signed-in devices can connect.</p>
       </div>
 
       {status ? (
@@ -512,17 +582,41 @@ function validatedSetupUrl(value: string | null): string | null {
 
 function readinessGuidance(state: TailscaleReadinessState): string {
   const guidance: Record<TailscaleReadinessState, string> = {
-    missing: "Install Tailscale separately from its official app or website, sign in, then retry here.",
-    permissionDenied: "Open Tailscale and check that your account can manage private access, then retry.",
-    unsupportedVersion: "Update the separately installed Tailscale app, then retry.",
-    daemonUnavailable: "Open or restart the Tailscale app, then retry.",
-    signedOut: "Open Tailscale and sign in to your own tailnet, then retry.",
-    offline: "Reconnect this computer to Tailscale, then retry.",
-    missingDns: "Wait for Tailscale to assign this computer a private DNS name, then retry.",
-    consentRequired: "Complete Tailscale's setup or consent step in the page supplied by Tailscale, then retry.",
-    ready: "Tailscale is ready. Check again to continue.",
+    missing: "Install the Tailscale app on this computer from tailscale.com and sign in, then choose Try again.",
+    permissionDenied: "Open the Tailscale app and check that your account is allowed to share devices, then choose Try again.",
+    unsupportedVersion: "Your Tailscale app needs an update. Update it, then choose Try again.",
+    daemonUnavailable: "The Tailscale app isn't running. Open it — look for it in your menu bar — then choose Try again.",
+    signedOut: "Open the Tailscale app and sign in, then choose Try again.",
+    offline: "Tailscale is turned off or disconnected. Open the Tailscale app and turn the connection on, then choose Try again.",
+    missingDns: "Tailscale is still giving this computer its private address. Wait a moment, then choose Try again.",
+    consentRequired: "Tailscale needs one more approval from you. Finish the step it opens, then choose Try again.",
+    ready: "Tailscale is ready — turn on Remote Access to continue.",
   };
   return guidance[state];
+}
+
+type SetupStepState = "done" | "active" | "pending";
+
+function setupChecklist(readiness: TailscaleReadinessState): { label: string; state: SetupStepState }[] {
+  const installed = readiness !== "missing";
+  const connected =
+    installed &&
+    !["daemonUnavailable", "signedOut", "offline", "unsupportedVersion", "permissionDenied"].includes(readiness);
+  return [
+    { label: "Install Tailscale on this computer", state: installed ? "done" : "active" },
+    { label: "Open Tailscale, sign in, and connect", state: !installed ? "pending" : connected ? "done" : "active" },
+    { label: "Turn on Remote Access", state: installed && connected ? "active" : "pending" },
+  ];
+}
+
+function SetupStepIcon({ state }: { state: SetupStepState }) {
+  if (state === "done") {
+    return <Check aria-hidden="true" className="mt-0.5 shrink-0 text-bd-success" size={16} strokeWidth={2} />;
+  }
+  if (state === "active") {
+    return <Circle aria-hidden="true" className="mt-0.5 shrink-0 text-bd-amber" size={16} strokeWidth={2} />;
+  }
+  return <Circle aria-hidden="true" className="mt-0.5 shrink-0 text-bd-text-muted" size={16} strokeWidth={1.5} />;
 }
 
 function errorMessage(error: unknown): string {

@@ -760,7 +760,7 @@ function BrowserAccessSection() {
       enabled &&
       networkScope === "privateNetwork" &&
       status?.networkScope !== "privateNetwork" &&
-      !window.confirm("Private-network Browser Access can be reached by other devices on your local network. Continue?")
+      !window.confirm("Devices on your home Wi-Fi will be able to open BrainDrive in a browser. They'll still need your BrainDrive sign-in. Continue?")
     ) {
       return;
     }
@@ -831,11 +831,11 @@ function BrowserAccessSection() {
   const isBusy = isLoading || isSaving || isRestarting || isApplyingFirewall;
   const canApplyFirewall = status?.networkScope === "privateNetwork" && status.enabled;
   const currentPort = status?.port ?? status?.requestedPort ?? Number(port);
-  const currentScopeLabel = status?.networkScope === "privateNetwork" ? "Private network" : "This computer";
+  const currentScopeLabel = status?.networkScope === "privateNetwork" ? "Home network" : "This computer";
   const statusPanelHint =
     status?.firewallHint ||
     (status?.networkScope === "privateNetwork"
-      ? "Private-network access may require an operating system firewall rule."
+      ? "Your operating system may ask for a firewall OK before other devices can connect."
       : "Access is limited to browsers on this computer.");
 
   return (
@@ -843,7 +843,10 @@ function BrowserAccessSection() {
       <div>
         <h3 className="text-lg font-semibold text-bd-text-heading">Browser Access</h3>
         <p className="mt-1 text-sm leading-5 text-bd-text-secondary">
-          Let browsers on this computer or your private network connect to BrainDrive through a local browser bridge.
+          Open BrainDrive in a web browser — on this computer, or from other devices on your home Wi-Fi.
+        </p>
+        <p className="mt-1 text-xs leading-4 text-bd-text-muted">
+          To use BrainDrive away from home, use Remote Access instead.
         </p>
       </div>
 
@@ -899,7 +902,7 @@ function BrowserAccessSection() {
         <label className="flex items-center justify-between gap-4">
           <span>
             <span className="block text-sm font-medium text-bd-text-heading">Enable Browser Access</span>
-            <span className="block text-xs text-bd-text-secondary">Runs only when needed.</span>
+            <span className="block text-xs text-bd-text-secondary">Nothing is shared until you turn this on.</span>
           </span>
           <button
             type="button"
@@ -925,8 +928,8 @@ function BrowserAccessSection() {
           <span className="block text-sm font-medium text-bd-text-heading">Network Scope</span>
           <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
             {[
-              { id: "thisComputer" as const, label: "This computer", description: "Only browsers on this computer." },
-              { id: "privateNetwork" as const, label: "Private network", description: "Devices on your LAN." },
+              { id: "thisComputer" as const, label: "This computer", description: "Only web browsers on this computer." },
+              { id: "privateNetwork" as const, label: "Home network", description: "Other devices on your home Wi-Fi, like your phone or tablet." },
             ].map((option) => (
               <button
                 key={option.id}
@@ -957,20 +960,26 @@ function BrowserAccessSection() {
           </div>
         </div>
 
-        <label className="block">
-          <span className="text-sm font-medium text-bd-text-heading">Port</span>
-          <input
-            type="number"
-            min={BROWSER_ACCESS_DEFAULT_PORT}
-            max={BROWSER_ACCESS_MAX_PORT}
-            value={port}
-            onChange={(event) => setPort(event.target.value)}
-            className="mt-1 h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
-          />
-          <span className="mt-1 block text-xs text-bd-text-secondary">
-            Default {BROWSER_ACCESS_DEFAULT_PORT}; fallback range {BROWSER_ACCESS_DEFAULT_PORT}-{BROWSER_ACCESS_MAX_PORT}.
-          </span>
-        </label>
+        <details className="rounded-lg border border-bd-border px-3 py-2.5">
+          <summary className="cursor-pointer text-sm font-medium text-bd-text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bd-amber/60">
+            Advanced
+          </summary>
+          <label className="mt-3 block">
+            <span className="text-sm font-medium text-bd-text-heading">Port</span>
+            <input
+              type="number"
+              min={BROWSER_ACCESS_DEFAULT_PORT}
+              max={BROWSER_ACCESS_MAX_PORT}
+              value={port}
+              onChange={(event) => setPort(event.target.value)}
+              className="mt-1 h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+            />
+            <span className="mt-1 block text-xs text-bd-text-secondary">
+              BrainDrive uses port {BROWSER_ACCESS_DEFAULT_PORT}. If it&apos;s busy, the next open port (up to{" "}
+              {BROWSER_ACCESS_MAX_PORT}) is chosen automatically.
+            </span>
+          </label>
+        </details>
 
         <div className="flex flex-wrap gap-2">
           <button
@@ -1010,7 +1019,7 @@ function BrowserAccessSection() {
           <div className="mt-3 space-y-2">
             {status.urls.map((url, index) => {
               const label = browserAccessUrlLabel(url, index);
-              const isPrivateNetwork = label === "Private network";
+              const isPrivateNetwork = label === "Home network";
 
               return (
                 <div key={url} className="flex min-w-0 items-center gap-3 rounded-lg border border-bd-border bg-bd-bg-secondary/80 px-3 py-2.5">
@@ -1110,7 +1119,7 @@ function browserAccessUrlLabel(url: string, index: number): string {
   if (index === 0 || url.includes("127.0.0.1") || url.includes("localhost")) {
     return "This computer";
   }
-  return "Private network";
+  return "Home network";
 }
 
 function MemoryBackupSection({

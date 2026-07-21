@@ -704,7 +704,7 @@ describe("SettingsModal", () => {
     });
     expect(screen.getAllByText("macOS may ask you to allow incoming connections for BrainDrive.").length).toBeGreaterThan(0);
     expect(screen.queryByText("Private-network access may require a Windows Firewall rule.")).not.toBeInTheDocument();
-    expect(screen.getAllByText("Only browsers on this computer.").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Only web browsers on this computer.").length).toBeGreaterThan(0);
   });
 
   it("shows the macOS firewall handoff result from Browser Access", async () => {
