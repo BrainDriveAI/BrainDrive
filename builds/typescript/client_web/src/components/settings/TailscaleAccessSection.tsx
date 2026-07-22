@@ -240,10 +240,16 @@ export default function TailscaleAccessSection() {
   const primaryAction = status ? selectPrimaryAction(status, effectiveState, setupUrl) : null;
   const isBusy = busyAction !== null;
   const setupReadiness = status?.readiness.state ?? null;
+  // Treat needsAttention as a setup problem ONLY for the fresh-install shape:
+  // nothing enabled, no owned config, and an unmet Tailscale prerequisite.
+  // Genuine runtime failures (desiredEnabled, drifted ownership) keep their
+  // warning presentation and the backend's own message.
   const isSetupProblem = Boolean(
     status &&
+      setupReadiness !== "ready" &&
       (status.state === "needsSetup" ||
-        ((status.state === "needsAttention" || status.state === "off") && setupReadiness !== "ready"))
+        status.state === "off" ||
+        (status.state === "needsAttention" && !status.desiredEnabled && status.ownership === "absent"))
   );
   const stateLabel = effectiveState
     ? effectiveState === "needsAttention" && !invalidRunningUrl && isSetupProblem
@@ -279,75 +285,79 @@ export default function TailscaleAccessSection() {
             Checking Remote Access status…
           </div>
         ) : status && stateLabel ? (
-          <div role="status" aria-live="polite" aria-atomic="true">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="flex min-w-0 items-start gap-3">
-                {isSetupProblem && !invalidRunningUrl ? null : <StateIcon state={effectiveState!} />}
-                <div className="min-w-0">
-                  <h4
-                    ref={stateHeadingRef}
-                    tabIndex={-1}
-                    className="font-heading text-base font-semibold text-bd-text-heading outline-none"
-                  >
-                    Remote Access — {stateLabel}
-                  </h4>
-                  {invalidRunningUrl ? (
-                    <p className="mt-1 text-sm leading-5 text-bd-text-primary">
-                      BrainDrive did not receive a safe Tailscale address. Check again before using Remote Access.
-                    </p>
-                  ) : isSetupProblem && setupGuidance ? (
-                    <p className="mt-1 text-sm leading-5 text-bd-text-secondary">
-                      <GuidanceText text={setupGuidance} />
-                    </p>
-                  ) : (
-                    <p className="mt-1 text-sm leading-5 text-bd-text-primary">{status.message}</p>
-                  )}
+          <>
+            {/* Live region covers only the state heading and short messages so
+                assistive tech never re-announces the whole checklist. */}
+            <div role="status" aria-live="polite">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex min-w-0 items-start gap-3">
+                  {isSetupProblem && !invalidRunningUrl ? null : <StateIcon state={effectiveState!} />}
+                  <div className="min-w-0">
+                    <h4
+                      ref={stateHeadingRef}
+                      tabIndex={-1}
+                      className="font-heading text-base font-semibold text-bd-text-heading outline-none"
+                    >
+                      Remote Access — {stateLabel}
+                    </h4>
+                    {invalidRunningUrl ? (
+                      <p className="mt-1 text-sm leading-5 text-bd-text-primary">
+                        BrainDrive did not receive a safe Tailscale address. Check again before using Remote Access.
+                      </p>
+                    ) : isSetupProblem && setupGuidance ? (
+                      <p className="mt-1 text-sm leading-5 text-bd-text-secondary">
+                        <GuidanceText text={setupGuidance} />
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-sm leading-5 text-bd-text-primary">{status.message}</p>
+                    )}
+                  </div>
                 </div>
+                {isBusy ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-bd-steel/50 px-2.5 py-1 text-xs text-bd-text-secondary">
+                    <LoaderCircle className="animate-spin" size={13} strokeWidth={1.5} />
+                    Working…
+                  </span>
+                ) : null}
               </div>
-              {isSetupProblem && setupGuidance && !invalidRunningUrl ? (
-                <div className="mt-4">
-                  <ol className="space-y-2">
-                    {setupChecklist(status.readiness.state).map((step, index) => (
-                      <li key={step.label} className="flex items-start gap-2.5 text-sm leading-5">
-                        <SetupStepIcon state={step.state} number={index + 1} />
-                        <span
-                          className={
-                            step.state === "active"
-                              ? "font-medium text-bd-text-heading"
-                              : step.state === "done"
-                                ? "text-bd-text-secondary"
-                                : "text-bd-text-muted"
-                          }
-                        >
-                          {step.label}
-                        </span>
-                      </li>
-                    ))}
-                  </ol>
-                  <p className="mt-3 text-xs leading-4 text-bd-text-muted">
-                    Once Remote Access is running, you&apos;ll get an address and a code to set up your phone.
-                  </p>
-                  {status.setupUrl && !setupUrl ? (
-                    <p className="mt-2 text-xs leading-4 text-bd-danger">
-                      The setup address was not safe to open. Use the Tailscale app, then retry.
-                    </p>
-                  ) : null}
-                </div>
-              ) : null}
-              {isBusy ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-bd-steel/50 px-2.5 py-1 text-xs text-bd-text-secondary">
-                  <LoaderCircle className="animate-spin" size={13} strokeWidth={1.5} />
-                  Working…
-                </span>
+              {localMessage ? (
+                <p className="mt-3 flex items-start gap-2 text-sm text-bd-success">
+                  <Check className="mt-0.5 shrink-0" size={15} strokeWidth={1.5} />
+                  {localMessage}
+                </p>
               ) : null}
             </div>
-            {localMessage ? (
-              <p className="mt-3 flex items-start gap-2 text-sm text-bd-success">
-                <Check className="mt-0.5 shrink-0" size={15} strokeWidth={1.5} />
-                {localMessage}
-              </p>
+            {isSetupProblem && setupGuidance && !invalidRunningUrl ? (
+              <div className="mt-4">
+                <ol className="space-y-2">
+                  {setupChecklist(status.readiness.state).map((step, index) => (
+                    <li key={step.label} className="flex items-start gap-2.5 text-sm leading-5">
+                      <SetupStepIcon state={step.state} number={index + 1} />
+                      <span
+                        className={
+                          step.state === "active"
+                            ? "font-medium text-bd-text-heading"
+                            : step.state === "done"
+                              ? "text-bd-text-secondary"
+                              : "text-bd-text-muted"
+                        }
+                      >
+                        {step.label}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+                <p className="mt-3 text-xs leading-4 text-bd-text-muted">
+                  Once Remote Access is running, you&apos;ll get an address and a code to set up your phone.
+                </p>
+                {status.setupUrl && !setupUrl ? (
+                  <p className="mt-2 text-xs leading-4 text-bd-danger">
+                    The setup address was not safe to open. Use the Tailscale app, then retry.
+                  </p>
+                ) : null}
+              </div>
             ) : null}
-          </div>
+          </>
         ) : null}
       </div>
 
@@ -361,13 +371,14 @@ export default function TailscaleAccessSection() {
       {status?.state === "conflict" ? (
         <div className="space-y-2 rounded-lg border border-bd-amber/40 bg-bd-amber/10 p-4 text-sm leading-5 text-bd-text-primary">
           <p>
-            Tailscale on this computer already has sharing settings that BrainDrive didn&apos;t create — usually left over
-            from an earlier BrainDrive install. BrainDrive won&apos;t change them without you.
+            Tailscale on this computer already has sharing settings that BrainDrive didn&apos;t create, so BrainDrive
+            won&apos;t change them.
           </p>
           <p>
-            If you don&apos;t use Tailscale sharing for anything else, it&apos;s safe to clear them: open Terminal, run{" "}
+            If you set them up for something else, leave them in place. If you&apos;re sure nothing else on this computer
+            uses Tailscale sharing, you can clear them: open Terminal, run{" "}
             <code className="rounded bg-bd-bg-secondary px-1.5 py-0.5 font-mono text-xs">tailscale serve reset</code>, then
-            choose Try again.
+            push Try again. Not sure? Check Technical details below before clearing.
           </p>
           <p>Your local BrainDrive and Browser Access are unaffected.</p>
         </div>
@@ -383,7 +394,7 @@ export default function TailscaleAccessSection() {
             <ol className="min-w-0 flex-1 list-decimal space-y-2 pl-4 text-sm leading-5 text-bd-text-primary">
               <li>Install the Tailscale app on your phone (App Store or Google Play).</li>
               <li>Sign in to Tailscale with the same account you use on this computer.</li>
-              <li>Scan this code with your phone&apos;s camera to open BrainDrive.</li>
+              <li>Scan this code with your camera.</li>
               <li>Add the link to your bookmarks.</li>
             </ol>
             {qrSvg ? (
@@ -579,12 +590,26 @@ type SetupStepState = "done" | "active" | "pending";
 function setupChecklist(readiness: TailscaleReadinessState): { label: string; state: SetupStepState }[] {
   // daemonUnavailable counts as not-installed until the backend can distinguish
   // a stopped Tailscale app from an absent one (probe reports commandFailed for both).
-  const ready = !["missing", "daemonUnavailable", "signedOut", "offline", "unsupportedVersion", "permissionDenied"].includes(
-    readiness
-  );
+  const firstStepByReadiness: Partial<Record<TailscaleReadinessState, string>> = {
+    missing: "Install Tailscale on this computer and sign in",
+    daemonUnavailable: "Install Tailscale on this computer and sign in",
+    unsupportedVersion: "Update the Tailscale app on this computer",
+    signedOut: "Open Tailscale and sign in",
+    offline: "Open Tailscale and turn its connection on",
+    permissionDenied: "Check that your Tailscale account can share devices",
+  };
+  const firstLabel = firstStepByReadiness[readiness];
+  const ready = firstLabel === undefined;
+  const secondLabel =
+    readiness === "consentRequired"
+      ? "Finish the Tailscale approval, then push Try again"
+      : "Come back and push the Try again button";
   return [
-    { label: "Install Tailscale on this computer and sign in", state: ready ? "done" : "active" },
-    { label: "Come back and push the Try again button", state: ready ? "active" : "pending" },
+    {
+      label: firstLabel ?? "Install Tailscale on this computer and sign in",
+      state: ready ? "done" : "active",
+    },
+    { label: secondLabel, state: ready ? "active" : "pending" },
   ];
 }
 

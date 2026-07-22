@@ -277,7 +277,7 @@ describe("TailscaleAccessSection", () => {
       })
     );
 
-    expect(screen.getByText("Install Tailscale on this computer and sign in")).toBeInTheDocument();
+    expect(screen.getByText("Open Tailscale and turn its connection on")).toBeInTheDocument();
     expect(screen.getByText("Come back and push the Try again button")).toBeInTheDocument();
     expect(screen.getByText(/turned off or disconnected/i)).toBeInTheDocument();
     expect(screen.queryByText("needsSetup message")).not.toBeInTheDocument();
@@ -298,6 +298,33 @@ describe("TailscaleAccessSection", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /tailscale\.com — opens the free Tailscale download/i }));
     expect(openExternalUrlMock).toHaveBeenCalledWith("https://tailscale.com/download");
+  });
+
+  it("keeps genuine needsAttention presentation when Remote Access was enabled", async () => {
+    await renderState(
+      makeStatus("needsAttention", {
+        desiredEnabled: true,
+        ownership: "ownedDrifted",
+        readiness: { ...makeStatus("needsAttention").readiness, state: "daemonUnavailable" },
+        message: "Private access stopped unexpectedly.",
+        errorCode: "commandFailed",
+      })
+    );
+
+    expect(screen.getByRole("heading", { name: "Remote Access — Needs attention" })).toBeInTheDocument();
+    expect(screen.getByText("Private access stopped unexpectedly.")).toBeInTheDocument();
+    expect(screen.queryByText("Come back and push the Try again button")).not.toBeInTheDocument();
+  });
+
+  it("shows a readiness-specific first step when Tailscale is signed out", async () => {
+    await renderState(
+      makeStatus("needsSetup", {
+        readiness: { ...makeStatus("needsSetup").readiness, state: "signedOut" },
+      })
+    );
+
+    expect(screen.getByText("Open Tailscale and sign in")).toBeInTheDocument();
+    expect(screen.queryByText("Install Tailscale on this computer and sign in")).not.toBeInTheDocument();
   });
 
   it("shows phone setup steps and a QR code while running", async () => {
