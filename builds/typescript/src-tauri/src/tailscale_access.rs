@@ -38,7 +38,10 @@ pub const MANAGED_HTTPS_PORT: u16 = 443;
 pub const MANAGED_PATH: &str = "/";
 pub const MANAGED_LOOPBACK_PORT_START: u16 = 18108;
 pub const MANAGED_LOOPBACK_PORT_END: u16 = 18127;
-pub const STATE_SCHEMA_VERSION: u32 = 1;
+// V2 adds a third valid shape: desired off with exact mapping evidence retained
+// for deferred cleanup. Loading remains dual-version; every new write is V2.
+const LEGACY_STATE_SCHEMA_VERSION: u32 = 1;
+pub const STATE_SCHEMA_VERSION: u32 = 2;
 pub const MAX_CAPTURE_BYTES: usize = 256 * 1024;
 pub const MAX_JSON_BYTES: usize = 256 * 1024;
 pub const MAX_STATE_BYTES: usize = 16 * 1024;
@@ -118,6 +121,15 @@ pub enum TailnetBridgeState {
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub enum TailscaleCleanupState {
+    Complete,
+    NotNeeded,
+    Deferred,
+    Failed,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum TailscaleAccessAction {
     Enable,
     Retry,
@@ -146,6 +158,8 @@ pub struct TailscaleAccessStatus {
     pub readiness: TailscaleReadiness,
     pub ownership: ServeOwnership,
     pub bridge_state: TailnetBridgeState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cleanup_state: Option<TailscaleCleanupState>,
     pub access_url: Option<String>,
     pub setup_url: Option<String>,
     pub available_actions: Vec<TailscaleAccessAction>,
@@ -1274,8 +1288,19 @@ pub struct TailscaleAccessConfig {
     pub mapping_fingerprint: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyTailscaleAccessConfigV1 {
+    schema_version: u32,
+    desired_enabled: bool,
+    managed_https_port: u16,
+    managed_path: String,
+    managed_target: Option<String>,
+    mapping_fingerprint: Option<String>,
+}
+
 impl TailscaleAccessConfig {
-    pub fn disabled() -> Self {
+    pub fn disabled_clean() -> Self {
         Self {
             schema_version: STATE_SCHEMA_VERSION,
             desired_enabled: false,
@@ -1283,6 +1308,18 @@ impl TailscaleAccessConfig {
             managed_path: MANAGED_PATH.to_string(),
             managed_target: None,
             mapping_fingerprint: None,
+        }
+    }
+
+    pub fn disabled_pending(mapping: &ManagedMapping) -> Self {
+        let canonical = mapping.canonical();
+        Self {
+            schema_version: STATE_SCHEMA_VERSION,
+            desired_enabled: false,
+            managed_https_port: MANAGED_HTTPS_PORT,
+            managed_path: MANAGED_PATH.to_string(),
+            managed_target: Some(mapping.target()),
+            mapping_fingerprint: Some(canonical.fingerprint()),
         }
     }
 
@@ -1311,7 +1348,7 @@ impl TailscaleAccessConfig {
             self.mapping_fingerprint.as_deref(),
         ) {
             (false, None, None) => Ok(()),
-            (true, Some(target), Some(fingerprint))
+            (_, Some(target), Some(fingerprint))
                 if managed_target_port(target).is_some() && valid_fingerprint(fingerprint) =>
             {
                 Ok(())
@@ -1325,6 +1362,56 @@ impl TailscaleAccessConfig {
             .as_deref()
             .and_then(managed_target_port)
             .and_then(|port| ManagedMapping::new(port).ok())
+    }
+
+    pub fn cleanup_pending(&self) -> bool {
+        !self.desired_enabled
+            && self.managed_mapping().is_some()
+            && self
+                .mapping_fingerprint
+                .as_deref()
+                .is_some_and(valid_fingerprint)
+    }
+
+    pub fn quarantined_port(&self) -> Option<u16> {
+        if self.cleanup_pending() {
+            self.managed_mapping()
+                .map(|mapping| mapping.loopback_port())
+        } else {
+            None
+        }
+    }
+}
+
+impl LegacyTailscaleAccessConfigV1 {
+    fn migrate(self) -> Result<TailscaleAccessConfig, StateErrorCode> {
+        if self.schema_version != LEGACY_STATE_SCHEMA_VERSION {
+            return Err(StateErrorCode::UnknownVersion);
+        }
+        if self.managed_https_port != MANAGED_HTTPS_PORT || self.managed_path != MANAGED_PATH {
+            return Err(StateErrorCode::StaleOwnership);
+        }
+        match (
+            self.desired_enabled,
+            self.managed_target.as_deref(),
+            self.mapping_fingerprint.as_deref(),
+        ) {
+            (false, None, None) => {}
+            (true, Some(target), Some(fingerprint))
+                if managed_target_port(target).is_some() && valid_fingerprint(fingerprint) => {}
+            _ => return Err(StateErrorCode::StaleOwnership),
+        }
+
+        let migrated = TailscaleAccessConfig {
+            schema_version: STATE_SCHEMA_VERSION,
+            desired_enabled: self.desired_enabled,
+            managed_https_port: self.managed_https_port,
+            managed_path: self.managed_path,
+            managed_target: self.managed_target,
+            mapping_fingerprint: self.mapping_fingerprint,
+        };
+        migrated.validate()?;
+        Ok(migrated)
     }
 }
 
@@ -1369,11 +1456,17 @@ pub fn load_state(path: &Path) -> Result<StateLoad, StateErrorCode> {
         .get("schemaVersion")
         .and_then(Value::as_u64)
         .ok_or(StateErrorCode::Malformed)?;
-    if schema_version != u64::from(STATE_SCHEMA_VERSION) {
-        return Err(StateErrorCode::UnknownVersion);
-    }
-    let state: TailscaleAccessConfig =
-        serde_json::from_value(value).map_err(|_| StateErrorCode::Malformed)?;
+    let state = match schema_version {
+        version if version == u64::from(LEGACY_STATE_SCHEMA_VERSION) => {
+            let legacy: LegacyTailscaleAccessConfigV1 =
+                serde_json::from_value(value).map_err(|_| StateErrorCode::Malformed)?;
+            legacy.migrate()?
+        }
+        version if version == u64::from(STATE_SCHEMA_VERSION) => {
+            serde_json::from_value(value).map_err(|_| StateErrorCode::Malformed)?
+        }
+        _ => return Err(StateErrorCode::UnknownVersion),
+    };
     state.validate()?;
     Ok(StateLoad::Loaded(state))
 }
@@ -1471,6 +1564,38 @@ pub enum DiagnosticAction {
     SaveState,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BridgeCutoffOutcome {
+    NotNeeded,
+    Confirmed,
+    Failed,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TailscaleCleanupReason {
+    MappingRemoved,
+    MappingAbsent,
+    InspectionUnavailable,
+    OwnershipNotExact,
+    CommandFailed,
+    ReadbackUnavailable,
+    PreservationMismatch,
+    PersistenceFailed,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TailscaleOwnershipDecision {
+    FreshExact,
+    Absent,
+    Unowned,
+    Drifted,
+    Ambiguous,
+    InspectionUnavailable,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiagnosticEvent {
@@ -1485,6 +1610,18 @@ pub struct DiagnosticEvent {
     pub error_code: Option<TailscaleErrorCode>,
     pub external_change: Option<bool>,
     pub post_state: Option<TailscaleAccessState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bridge_cutoff: Option<BridgeCutoffOutcome>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cleanup_state: Option<TailscaleCleanupState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cleanup_reason: Option<TailscaleCleanupReason>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ownership_decision: Option<TailscaleOwnershipDecision>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state_persisted: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quarantine_active: Option<bool>,
     pub decision: Option<String>,
     pub corrective_action: Option<String>,
 }
@@ -1503,6 +1640,12 @@ impl DiagnosticEvent {
             error_code: None,
             external_change: None,
             post_state: None,
+            bridge_cutoff: None,
+            cleanup_state: None,
+            cleanup_reason: None,
+            ownership_decision: None,
+            state_persisted: None,
+            quarantine_active: None,
             decision: None,
             corrective_action: None,
         }
@@ -1984,6 +2127,16 @@ mod tests {
         fs::write(&path, b"{not-json").unwrap();
         assert_eq!(load_state(&path), Err(StateErrorCode::Malformed));
 
+        let missing_required_field = serde_json::json!({
+            "schemaVersion": STATE_SCHEMA_VERSION,
+            "desiredEnabled": false,
+            "managedHttpsPort": MANAGED_HTTPS_PORT,
+            "managedTarget": null,
+            "mappingFingerprint": null
+        });
+        fs::write(&path, serde_json::to_vec(&missing_required_field).unwrap()).unwrap();
+        assert_eq!(load_state(&path), Err(StateErrorCode::Malformed));
+
         let mut stale = valid;
         stale.managed_target = Some("http://127.0.0.1:19000".to_string());
         fs::write(&path, serde_json::to_vec(&stale).unwrap()).unwrap();
@@ -1992,15 +2145,182 @@ mod tests {
     }
 
     #[test]
+    fn state_v1_records_migrate_to_v2_and_subsequent_writes_are_v2() {
+        let root = test_directory("state-v1-migration");
+        let path = state_path(&root);
+        let mapping = ManagedMapping::new(18108).unwrap();
+        let enabled = TailscaleAccessConfig::enabled(&mapping);
+
+        let mut legacy_enabled = serde_json::to_value(&enabled).unwrap();
+        legacy_enabled["schemaVersion"] = Value::from(1);
+        fs::write(&path, serde_json::to_vec(&legacy_enabled).unwrap()).unwrap();
+        let migrated_enabled = match load_state(&path).unwrap() {
+            StateLoad::Loaded(state) => state,
+            StateLoad::Missing => panic!("legacy enabled state should load"),
+        };
+        assert_eq!(migrated_enabled.schema_version, STATE_SCHEMA_VERSION);
+        assert!(migrated_enabled.desired_enabled);
+        assert_eq!(migrated_enabled.managed_mapping(), Some(mapping.clone()));
+        assert!(!migrated_enabled.cleanup_pending());
+
+        save_state_atomic(&path, &migrated_enabled).unwrap();
+        let saved: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved["schemaVersion"], Value::from(STATE_SCHEMA_VERSION));
+
+        let legacy_disabled = serde_json::json!({
+            "schemaVersion": 1,
+            "desiredEnabled": false,
+            "managedHttpsPort": MANAGED_HTTPS_PORT,
+            "managedPath": MANAGED_PATH,
+            "managedTarget": null,
+            "mappingFingerprint": null
+        });
+        fs::write(&path, serde_json::to_vec(&legacy_disabled).unwrap()).unwrap();
+        assert_eq!(
+            load_state(&path),
+            Ok(StateLoad::Loaded(TailscaleAccessConfig::disabled_clean()))
+        );
+
+        let invalid_legacy_pending = serde_json::json!({
+            "schemaVersion": 1,
+            "desiredEnabled": false,
+            "managedHttpsPort": MANAGED_HTTPS_PORT,
+            "managedPath": MANAGED_PATH,
+            "managedTarget": enabled.managed_target,
+            "mappingFingerprint": enabled.mapping_fingerprint
+        });
+        fs::write(&path, serde_json::to_vec(&invalid_legacy_pending).unwrap()).unwrap();
+        assert_eq!(load_state(&path), Err(StateErrorCode::StaleOwnership));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn state_v2_accepts_clean_enabled_and_pending_cleanup_shapes() {
+        let root = test_directory("state-v2-shapes");
+        let path = state_path(&root);
+        let mapping = ManagedMapping::new(18109).unwrap();
+        let clean = TailscaleAccessConfig::disabled_clean();
+        let enabled = TailscaleAccessConfig::enabled(&mapping);
+        let pending = TailscaleAccessConfig::disabled_pending(&mapping);
+
+        assert_eq!(clean.validate(), Ok(()));
+        assert_eq!(enabled.validate(), Ok(()));
+        assert_eq!(pending.validate(), Ok(()));
+        assert!(!clean.cleanup_pending());
+        assert!(!enabled.cleanup_pending());
+        assert!(pending.cleanup_pending());
+        assert_eq!(pending.managed_mapping(), Some(mapping));
+        assert_eq!(pending.quarantined_port(), Some(18109));
+
+        for state in [&clean, &enabled, &pending] {
+            save_state_atomic(&path, state).unwrap();
+            assert_eq!(load_state(&path), Ok(StateLoad::Loaded(state.clone())));
+        }
+
+        let mut legacy_write = enabled.clone();
+        legacy_write.schema_version = LEGACY_STATE_SCHEMA_VERSION;
+        assert_eq!(
+            save_state_atomic(&path, &legacy_write),
+            Err(StateErrorCode::UnknownVersion)
+        );
+
+        let mut mismatched = pending.clone();
+        mismatched.mapping_fingerprint = None;
+        assert_eq!(mismatched.validate(), Err(StateErrorCode::StaleOwnership));
+
+        let mut wrong_https_port = pending.clone();
+        wrong_https_port.managed_https_port = 8443;
+        assert_eq!(
+            wrong_https_port.validate(),
+            Err(StateErrorCode::StaleOwnership)
+        );
+
+        let mut wrong_path = pending.clone();
+        wrong_path.managed_path = "/braindrive".to_string();
+        assert_eq!(wrong_path.validate(), Err(StateErrorCode::StaleOwnership));
+
+        let mut invalid_target = pending.clone();
+        invalid_target.managed_target = Some("http://127.0.0.1:19000".to_string());
+        assert_eq!(
+            invalid_target.validate(),
+            Err(StateErrorCode::StaleOwnership)
+        );
+
+        let mut non_loopback_target = pending.clone();
+        non_loopback_target.managed_target = Some("http://192.168.1.5:18109".to_string());
+        assert_eq!(
+            non_loopback_target.validate(),
+            Err(StateErrorCode::StaleOwnership)
+        );
+
+        let mut invalid_fingerprint = pending;
+        invalid_fingerprint.mapping_fingerprint = Some("not-a-fingerprint".to_string());
+        assert_eq!(
+            invalid_fingerprint.validate(),
+            Err(StateErrorCode::StaleOwnership)
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cleanup_status_serializes_every_value_and_omits_unrelated_state() {
+        let mut status = TailscaleAccessStatus {
+            state: TailscaleAccessState::Off,
+            desired_enabled: false,
+            readiness: TailscaleReadiness {
+                state: TailscaleReadinessState::Ready,
+                installed_version: Some(MINIMUM_SUPPORTED_VERSION),
+                minimum_supported_version: MINIMUM_SUPPORTED_VERSION,
+                backend_state: Some("Running".to_string()),
+                online: Some(true),
+                dns_name_available: true,
+                error_code: None,
+            },
+            ownership: ServeOwnership::Absent,
+            bridge_state: TailnetBridgeState::Stopped,
+            cleanup_state: None,
+            access_url: None,
+            setup_url: None,
+            available_actions: vec![TailscaleAccessAction::CheckAgain],
+            message: "Private access is off.".to_string(),
+            detail: None,
+            error_code: None,
+            checked_at_unix_ms: 1,
+        };
+
+        let unrelated = serde_json::to_value(&status).unwrap();
+        assert!(unrelated.get("cleanupState").is_none());
+        let decoded: TailscaleAccessStatus = serde_json::from_value(unrelated.clone()).unwrap();
+        assert_eq!(decoded.cleanup_state, None);
+        let mut explicit_null = unrelated;
+        explicit_null["cleanupState"] = Value::Null;
+        let decoded: TailscaleAccessStatus = serde_json::from_value(explicit_null).unwrap();
+        assert_eq!(decoded.cleanup_state, None);
+
+        for (cleanup_state, expected) in [
+            (TailscaleCleanupState::Complete, "complete"),
+            (TailscaleCleanupState::NotNeeded, "notNeeded"),
+            (TailscaleCleanupState::Deferred, "deferred"),
+            (TailscaleCleanupState::Failed, "failed"),
+        ] {
+            status.cleanup_state = Some(cleanup_state);
+            let value = serde_json::to_value(&status).unwrap();
+            assert_eq!(value["cleanupState"], Value::from(expected));
+        }
+    }
+
+    #[test]
     fn state_writes_replace_atomically_use_restrictive_permissions_and_hold_no_secrets() {
         let root = test_directory("state-save");
         let path = state_path(&root);
         let enabled = TailscaleAccessConfig::enabled(&ManagedMapping::new(18108).unwrap());
         save_state_atomic(&path, &enabled).unwrap();
-        save_state_atomic(&path, &TailscaleAccessConfig::disabled()).unwrap();
+        save_state_atomic(&path, &TailscaleAccessConfig::disabled_clean()).unwrap();
 
         let raw = fs::read_to_string(&path).unwrap();
         assert!(raw.ends_with('\n'));
+        assert!(raw.contains("\"schemaVersion\": 2"));
         for prohibited in [
             "transportToken",
             "authKey",
@@ -2031,7 +2351,7 @@ mod tests {
         fs::write(&not_directory, b"file").unwrap();
         let path = not_directory.join("tailscale-access.json");
         assert_eq!(
-            save_state_atomic(&path, &TailscaleAccessConfig::disabled()),
+            save_state_atomic(&path, &TailscaleAccessConfig::disabled_clean()),
             Err(StateErrorCode::Io)
         );
         fs::remove_dir_all(root).unwrap();
@@ -2094,10 +2414,34 @@ mod tests {
         event.command_kind = Some(TailscaleCommandKind::Enable);
         event.exit_category = Some(CommandExitCategory::Ambiguous);
         event.error_code = Some(TailscaleErrorCode::AmbiguousOutcome);
+        event.bridge_cutoff = Some(BridgeCutoffOutcome::Confirmed);
+        event.cleanup_state = Some(TailscaleCleanupState::Deferred);
+        event.cleanup_reason = Some(TailscaleCleanupReason::InspectionUnavailable);
+        event.ownership_decision = Some(TailscaleOwnershipDecision::InspectionUnavailable);
+        event.state_persisted = Some(true);
+        event.quarantine_active = Some(true);
+        event.corrective_action = Some(
+            sanitize_external_detail(
+                "http://127.0.0.1:18108 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            )
+            .to_string(),
+        );
         let line = event.to_json_line();
         assert!(!line.contains("alice@example.com"));
         assert!(!line.contains("canary"));
         assert!(!line.contains("mappingFingerprint"));
+        assert!(!line.contains("http://127.0.0.1:18108"));
+        assert!(!line.contains("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+        let value: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(value["bridgeCutoff"], Value::from("confirmed"));
+        assert_eq!(value["cleanupState"], Value::from("deferred"));
+        assert_eq!(value["cleanupReason"], Value::from("inspectionUnavailable"));
+        assert_eq!(
+            value["ownershipDecision"],
+            Value::from("inspectionUnavailable")
+        );
+        assert_eq!(value["statePersisted"], Value::from(true));
+        assert_eq!(value["quarantineActive"], Value::from(true));
 
         let detail = "login alice@example.com token=canary tskey-auth-secret \
                       https://login.tailscale.com/path?token=secret \

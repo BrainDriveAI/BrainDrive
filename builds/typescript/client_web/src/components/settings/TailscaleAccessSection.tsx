@@ -19,6 +19,7 @@ import {
   getTailscaleAccessStatus,
   retryTailscaleAccess,
   type TailscaleAccessAction,
+  type TailscaleCleanupState,
   type TailscaleAccessState,
   type TailscaleAccessStatus,
   type TailscaleReadinessState,
@@ -52,6 +53,7 @@ type BusyAction = TailscaleAccessAction | null;
 export default function TailscaleAccessSection() {
   const titleId = useId();
   const addressId = useId();
+  const cleanupTitleId = useId();
   const [status, setStatus] = useState<TailscaleAccessStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
@@ -165,6 +167,10 @@ export default function TailscaleAccessSection() {
       if (!isCurrentRequest(generation)) return;
       if (actionStatus) {
         setStatus(actionStatus);
+        if (actionStatus.state === "off") {
+          setLocalMessage("Remote Access is off.");
+          return;
+        }
         if (shouldHoldActionStatus(actionStatus)) {
           setLocalError(actionStatusMessage(actionStatus));
           return;
@@ -248,7 +254,6 @@ export default function TailscaleAccessSection() {
     status &&
       setupReadiness !== "ready" &&
       (status.state === "needsSetup" ||
-        status.state === "off" ||
         (status.state === "needsAttention" && !status.desiredEnabled && status.ownership === "absent"))
   );
   const stateLabel = effectiveState
@@ -257,9 +262,28 @@ export default function TailscaleAccessSection() {
       : STATE_LABELS[effectiveState]
     : null;
   const setupGuidance = status ? readinessGuidance(status.readiness.state) : null;
+  const cleanup =
+    status?.state === "off" && status.cleanupState
+      ? cleanupPresentation(status.cleanupState)
+      : null;
+  const cleanupPending =
+    status?.state === "off" &&
+    Boolean(status.cleanupState) &&
+    status.availableActions.includes("disable");
+  const cutoffMayBeActive = Boolean(
+    status &&
+      (status.desiredEnabled ||
+        status.bridgeState !== "stopped" ||
+        status.state === "running" ||
+        status.state === "starting" ||
+        status.state === "conflict" ||
+        status.state === "needsAttention")
+  );
   const canTurnOff = Boolean(
-    status?.availableActions.includes("disable") &&
-      (status.state !== "conflict" || status.ownership === "ownedExact")
+    status?.availableActions.includes("disable") && !cleanupPending && cutoffMayBeActive
+  );
+  const canRetryCleanup = Boolean(
+    cleanupPending && status?.availableActions.includes("disable")
   );
 
   return (
@@ -303,6 +327,10 @@ export default function TailscaleAccessSection() {
                     {invalidRunningUrl ? (
                       <p className="mt-1 text-sm leading-5 text-bd-text-primary">
                         BrainDrive did not receive a safe Tailscale address. Check again before using Remote Access.
+                      </p>
+                    ) : effectiveState === "off" ? (
+                      <p className="mt-1 text-sm leading-5 text-bd-text-primary">
+                        BrainDrive is no longer available through Remote Access.
                       </p>
                     ) : isSetupProblem && setupGuidance ? (
                       <p className="mt-1 text-sm leading-5 text-bd-text-secondary">
@@ -368,19 +396,61 @@ export default function TailscaleAccessSection() {
         </div>
       ) : null}
 
+      {cleanup ? (
+        <div
+          role="status"
+          aria-live="polite"
+          aria-labelledby={cleanupTitleId}
+          className={[
+            "rounded-lg border p-4 text-sm leading-5",
+            cleanup.tone === "success"
+              ? "border-bd-success/35 bg-bd-success/10 text-bd-text-primary"
+              : "border-bd-amber/40 bg-bd-amber/10 text-bd-text-primary",
+          ].join(" ")}
+        >
+          <div className="flex items-start gap-2">
+            {cleanup.tone === "success" ? (
+              <Check className="mt-0.5 shrink-0 text-bd-success" size={16} strokeWidth={1.5} />
+            ) : (
+              <AlertTriangle className="mt-0.5 shrink-0 text-bd-amber" size={16} strokeWidth={1.5} />
+            )}
+            <div>
+              <h4 id={cleanupTitleId} className="font-medium text-bd-text-heading">
+                {cleanup.label}
+              </h4>
+              <p className="mt-1">{cleanup.description}</p>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {status?.state === "conflict" ? (
-        <div className="space-y-2 rounded-lg border border-bd-amber/40 bg-bd-amber/10 p-4 text-sm leading-5 text-bd-text-primary">
+        <div
+          role={localError ? undefined : "alert"}
+          className="space-y-2 rounded-lg border border-bd-amber/40 bg-bd-amber/10 p-4 text-sm leading-5 text-bd-text-primary"
+        >
           <p>
             Tailscale on this computer already has sharing settings that BrainDrive didn&apos;t create, so BrainDrive
             won&apos;t change them.
           </p>
           <p>
-            If you set them up for something else, leave them in place. If you&apos;re sure nothing else on this computer
-            uses Tailscale sharing, you can clear them: open Terminal, run{" "}
-            <code className="rounded bg-bd-bg-secondary px-1.5 py-0.5 font-mono text-xs">tailscale serve reset</code>, then
-            push Try again. Not sure? Check Technical details below before clearing.
+            Remote Access may still be available. Choose Turn off to stop BrainDrive&apos;s Remote Access bridge;
+            BrainDrive won&apos;t change settings it cannot verify.
           </p>
           <p>Your local BrainDrive and Browser Access are unaffected.</p>
+        </div>
+      ) : null}
+
+      {effectiveState === "needsAttention" && !isSetupProblem && status?.state !== "conflict" ? (
+        <div
+          role={localError ? undefined : "alert"}
+          className="space-y-2 rounded-lg border border-bd-danger/30 bg-bd-danger/10 p-4 text-sm leading-5 text-bd-text-primary"
+        >
+          <p className="font-medium text-bd-text-heading">Remote Access may still be available.</p>
+          <p>
+            BrainDrive could not confirm the cutoff. Use Turn off if it is available, or Check again after reviewing
+            Tailscale.
+          </p>
         </div>
       ) : null}
 
@@ -455,9 +525,13 @@ export default function TailscaleAccessSection() {
             <button
               type="button"
               data-testid="remote-access-primary-action"
-              onClick={() => void runBackendAction(primaryAction)}
+              onClick={() =>
+                void (primaryAction === "checkAgain"
+                  ? handleCheckAgain()
+                  : runBackendAction(primaryAction))
+              }
               disabled={isBusy}
-              className={primaryButtonClasses}
+              className={primaryAction === "disable" ? dangerButtonClasses : primaryButtonClasses}
             >
               {primaryActionIcon(primaryAction)}
               {ACTION_LABELS[primaryAction]}
@@ -476,7 +550,6 @@ export default function TailscaleAccessSection() {
           ) : null}
 
           {status?.availableActions.includes("checkAgain") &&
-          !status.availableActions.includes("retry") &&
           primaryAction !== "checkAgain" &&
           effectiveState !== "starting" ? (
             <button type="button" onClick={() => void handleCheckAgain()} disabled={isBusy} className={secondaryButtonClasses}>
@@ -489,6 +562,18 @@ export default function TailscaleAccessSection() {
             <button type="button" onClick={() => void runBackendAction("disable")} disabled={isBusy} className={dangerButtonClasses}>
               <Power size={15} strokeWidth={1.5} />
               Turn off
+            </button>
+          ) : null}
+
+          {canRetryCleanup ? (
+            <button
+              type="button"
+              onClick={() => void runBackendAction("disable")}
+              disabled={isBusy}
+              className={secondaryButtonClasses}
+            >
+              <RefreshCw size={15} strokeWidth={1.5} />
+              Try cleanup again
             </button>
           ) : null}
         </div>
@@ -521,6 +606,7 @@ export default function TailscaleAccessSection() {
             <dt>Readiness</dt><dd className="text-bd-text-primary">{formatCode(status.readiness.state)}</dd>
             <dt>Ownership</dt><dd className="text-bd-text-primary">{formatCode(status.ownership)}</dd>
             <dt>Bridge</dt><dd className="text-bd-text-primary">{formatCode(status.bridgeState)}</dd>
+            {status.cleanupState ? <><dt>Cleanup</dt><dd className="text-bd-text-primary">{formatCode(status.cleanupState)}</dd></> : null}
             {status.errorCode ? <><dt>Error</dt><dd className="text-bd-text-primary">{formatCode(status.errorCode)}</dd></> : null}
           </dl>
           {status.detail ? <p className="mt-3 break-words text-xs leading-5 text-bd-text-primary">{status.detail}</p> : null}
@@ -538,6 +624,9 @@ function selectPrimaryAction(
   const has = (action: TailscaleAccessAction) => status.availableActions.includes(action);
   if (effectiveState === "starting") return null;
   if (effectiveState === "running") return null;
+  if ((effectiveState === "conflict" || effectiveState === "needsAttention") && has("disable")) {
+    return "disable";
+  }
   if (effectiveState === "ready" || effectiveState === "off") {
     if (has("enable")) return "enable";
   }
@@ -662,12 +751,49 @@ function errorMessage(error: unknown): string {
 }
 
 function shouldHoldActionStatus(status: TailscaleAccessStatus): boolean {
+  if (status.state === "off") return false;
   return Boolean(
     status.errorCode ||
       status.state === "needsAttention" ||
       status.state === "needsSetup" ||
       status.state === "conflict"
   );
+}
+
+function cleanupPresentation(state: TailscaleCleanupState): {
+  label: string;
+  description: string;
+  tone: "success" | "attention";
+} {
+  const presentations: Record<
+    TailscaleCleanupState,
+    { label: string; description: string; tone: "success" | "attention" }
+  > = {
+    complete: {
+      label: "Cleanup complete",
+      description:
+        "BrainDrive removed its Remote Access mapping and preserved your other Tailscale settings.",
+      tone: "success",
+    },
+    notNeeded: {
+      label: "No cleanup needed",
+      description: "No BrainDrive Remote Access mapping remained to clean up.",
+      tone: "success",
+    },
+    deferred: {
+      label: "Cleanup deferred",
+      description:
+        "BrainDrive access is stopped. Cleanup was deferred because ownership or the result could not be verified; no broader Tailscale cleanup was attempted.",
+      tone: "attention",
+    },
+    failed: {
+      label: "Cleanup needs attention",
+      description:
+        "BrainDrive access is stopped. Targeted cleanup did not complete, and BrainDrive did not alter your other Tailscale settings.",
+      tone: "attention",
+    },
+  };
+  return presentations[state];
 }
 
 function actionStatusMessage(status: TailscaleAccessStatus): string {

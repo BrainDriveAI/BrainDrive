@@ -123,6 +123,43 @@ describe("TailscaleAccessSection", () => {
     if (state === "starting") expect(primaryActions[0]).toBeDisabled();
   });
 
+  it.each([
+    ["complete", "Cleanup complete", /removed its Remote Access mapping/i, false],
+    ["notNeeded", "No cleanup needed", /No BrainDrive Remote Access mapping remained/i, false],
+    ["deferred", "Cleanup deferred", /access is stopped.*cleanup was deferred/i, true],
+    ["failed", "Cleanup needs attention", /access is stopped.*targeted cleanup did not complete/i, true],
+  ] as const)(
+    "renders confirmed Off with %s cleanup as secondary status",
+    async (cleanupState, cleanupLabel, cleanupCopy, hasCleanupRetry) => {
+      await renderState(
+        makeStatus("off", {
+          cleanupState,
+          message: "Backend cleanup message",
+          detail: "Structured backend detail",
+          availableActions: hasCleanupRetry ? ["disable", "checkAgain"] : ["enable", "checkAgain"],
+        })
+      );
+
+      expect(screen.getByRole("heading", { name: "Remote Access — Off" })).toBeInTheDocument();
+      expect(screen.getByText(/BrainDrive is no longer available through Remote Access/i)).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: cleanupLabel })).toBeInTheDocument();
+      expect(screen.getByText(cleanupCopy)).toBeInTheDocument();
+      if (hasCleanupRetry) {
+        expect(screen.getByRole("button", { name: "Try cleanup again" })).toBeEnabled();
+      } else {
+        expect(screen.queryByRole("button", { name: "Try cleanup again" })).not.toBeInTheDocument();
+      }
+    }
+  );
+
+  it("renders clean Off without inventing a cleanup result", async () => {
+    await renderState(makeStatus("off", { cleanupState: null }));
+
+    expect(screen.getByRole("heading", { name: "Remote Access — Off" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Enable Remote Access" })).toBeEnabled();
+    expect(screen.queryByText(/Cleanup (complete|deferred|needs attention)/i)).not.toBeInTheDocument();
+  });
+
   it("shows the private-use, ownership, login, and host-availability disclosures", async () => {
     await renderState(makeStatus("ready"));
 
@@ -336,22 +373,114 @@ describe("TailscaleAccessSection", () => {
     expect(screen.getByText("Using another computer instead?")).toBeInTheDocument();
   });
 
-  it("hides conflict cleanup when the mapping is not exact-owned", async () => {
-    await renderState(makeStatus("conflict", {
-      desiredEnabled: true,
-      ownership: "ownedDrifted",
-      availableActions: ["retry", "checkAgain", "disable"],
-    }));
-    expect(screen.queryByRole("button", { name: "Turn off" })).not.toBeInTheDocument();
+  it.each(["ownedExact", "ownedDrifted", "occupiedUnowned", "ambiguous"] as const)(
+    "keeps Turn off visible for %s conflict without manual command guidance",
+    async (ownership) => {
+      await renderState(
+        makeStatus("conflict", {
+          desiredEnabled: true,
+          ownership,
+          bridgeState: "running",
+          availableActions: ["retry", "checkAgain", "disable"],
+        })
+      );
+
+      expect(screen.getByRole("button", { name: "Turn off" })).toBeEnabled();
+      expect(screen.getByText(/Remote Access may still be available/i)).toBeInTheDocument();
+      expect(screen.getByText(/won't change settings it cannot verify/i)).toBeInTheDocument();
+      expect(document.querySelector("code")).toBeNull();
+    }
+  );
+
+  it("does not claim Off when cutoff is unconfirmed and keeps the safe cutoff action", async () => {
+    await renderState(
+      makeStatus("needsAttention", {
+        desiredEnabled: false,
+        ownership: "ambiguous",
+        bridgeState: "failed",
+        cleanupState: "deferred",
+        availableActions: ["disable", "checkAgain"],
+        message: "BrainDrive could not confirm that Remote Access is off.",
+        detail: "The local bridge may still be running.",
+        errorCode: "bridgeUnavailable",
+      })
+    );
+
+    expect(screen.getByRole("heading", { name: "Remote Access — Needs attention" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Remote Access — Off" })).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(/Remote Access may still be available/i);
+    expect(screen.getByRole("button", { name: "Turn off" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Check again" })).toBeEnabled();
   });
 
-  it("keeps Turn off visible for an exact-owned conflict when the backend supplies disable", async () => {
-    await renderState(makeStatus("conflict", {
-      desiredEnabled: true,
-      ownership: "ownedExact",
-      availableActions: ["retry", "checkAgain", "disable"],
-    }));
-    expect(screen.getByRole("button", { name: "Turn off" })).toBeEnabled();
+  it("retries pending cleanup exactly once through disable and keeps confirmed Off on success", async () => {
+    const deferred = makeStatus("off", {
+      cleanupState: "deferred",
+      availableActions: ["disable", "checkAgain"],
+    });
+    const complete = makeStatus("off", {
+      cleanupState: "complete",
+      availableActions: ["enable", "checkAgain"],
+    });
+    getStatusMock.mockResolvedValueOnce(deferred);
+    disableMock.mockResolvedValueOnce(complete);
+    const user = userEvent.setup();
+    render(<TailscaleAccessSection />);
+
+    await user.click(await screen.findByRole("button", { name: "Try cleanup again" }));
+
+    await screen.findByRole("heading", { name: "Cleanup complete" });
+    expect(screen.getByRole("heading", { name: "Remote Access — Off" })).toBeInTheDocument();
+    expect(disableMock).toHaveBeenCalledTimes(1);
+    expect(getStatusMock).toHaveBeenCalledTimes(1);
+    expect(enableMock).not.toHaveBeenCalled();
+    expect(retryMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps confirmed Off when cleanup retry returns a failed cleanup result", async () => {
+    const deferred = makeStatus("off", {
+      cleanupState: "deferred",
+      availableActions: ["disable", "checkAgain"],
+    });
+    const failed = makeStatus("off", {
+      cleanupState: "failed",
+      availableActions: ["disable", "checkAgain"],
+      errorCode: "commandFailed",
+    });
+    getStatusMock.mockResolvedValueOnce(deferred);
+    disableMock.mockResolvedValueOnce(failed);
+    const user = userEvent.setup();
+    render(<TailscaleAccessSection />);
+
+    await user.click(await screen.findByRole("button", { name: "Try cleanup again" }));
+
+    await screen.findByRole("heading", { name: "Cleanup needs attention" });
+    expect(screen.getByRole("heading", { name: "Remote Access — Off" })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(disableMock).toHaveBeenCalledTimes(1);
+    expect(getStatusMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps Check again read-only", async () => {
+    const deferred = makeStatus("off", {
+      cleanupState: "deferred",
+      availableActions: ["disable", "checkAgain"],
+    });
+    const notNeeded = makeStatus("off", {
+      cleanupState: "notNeeded",
+      availableActions: ["enable", "checkAgain"],
+    });
+    getStatusMock.mockResolvedValueOnce(deferred).mockResolvedValueOnce(notNeeded);
+    const user = userEvent.setup();
+    render(<TailscaleAccessSection />);
+
+    await user.click(await screen.findByRole("button", { name: "Check again" }));
+
+    await screen.findByRole("heading", { name: "No cleanup needed" });
+    expect(getStatusMock).toHaveBeenCalledTimes(2);
+    expect(disableMock).not.toHaveBeenCalled();
+    expect(enableMock).not.toHaveBeenCalled();
+    expect(retryMock).not.toHaveBeenCalled();
   });
 
   it("polls Starting at a bounded cadence and clears polling on unmount", async () => {
