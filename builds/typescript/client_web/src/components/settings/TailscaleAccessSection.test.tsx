@@ -106,16 +106,20 @@ describe("TailscaleAccessSection", () => {
     ["needsSetup", "Needs setup", "Try again"],
     ["ready", "Ready to enable", "Enable Remote Access"],
     ["starting", "Starting", "Starting…"],
-    ["running", "Running", "Open Remote Access"],
+    ["running", "Running", null],
     ["conflict", "Conflict", "Try again"],
     ["needsAttention", "Needs attention", "Try again"],
-  ] as const)("renders %s with one state-derived primary action", async (state, label, primary) => {
+  ] as const)("renders %s with at most one state-derived primary action", async (state, label, primary) => {
     await renderState(makeStatus(state));
 
     expect(screen.getByRole("heading", { name: `Remote Access — ${label}` })).toBeInTheDocument();
     const primaryActions = screen.queryAllByTestId("remote-access-primary-action");
-    expect(primaryActions).toHaveLength(1);
-    expect(primaryActions[0]).toHaveAccessibleName(primary);
+    if (primary === null) {
+      expect(primaryActions).toHaveLength(0);
+    } else {
+      expect(primaryActions).toHaveLength(1);
+      expect(primaryActions[0]).toHaveAccessibleName(primary);
+    }
     if (state === "starting") expect(primaryActions[0]).toBeDisabled();
   });
 
@@ -198,10 +202,10 @@ describe("TailscaleAccessSection", () => {
     expect(openExternalUrlMock).not.toHaveBeenCalled();
   });
 
-  it("copies, opens, refreshes, and turns off a validated running URL", async () => {
+  it("copies and turns off a validated running URL", async () => {
     const running = makeStatus("running");
     const off = makeStatus("off");
-    getStatusMock.mockResolvedValueOnce(running).mockResolvedValueOnce(running).mockResolvedValueOnce(off);
+    getStatusMock.mockResolvedValueOnce(running).mockResolvedValueOnce(off);
     disableMock.mockResolvedValueOnce(off);
     const user = userEvent.setup();
     const writeTextMock = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
@@ -209,8 +213,6 @@ describe("TailscaleAccessSection", () => {
 
     await user.click(await screen.findByRole("button", { name: "Copy Remote Access address" }));
     expect(writeTextMock).toHaveBeenCalledWith(running.accessUrl);
-    await user.click(screen.getByRole("button", { name: "Open Remote Access" }));
-    expect(openExternalUrlMock).toHaveBeenCalledWith(running.accessUrl);
     await user.click(screen.getByRole("button", { name: "Turn off" }));
     await waitFor(() => expect(disableMock).toHaveBeenCalledTimes(1));
   });
@@ -226,18 +228,15 @@ describe("TailscaleAccessSection", () => {
     }
   );
 
-  it("reports command, clipboard, and external-open failures without changing backend state", async () => {
+  it("reports clipboard failures without changing backend state", async () => {
     const running = makeStatus("running");
     getStatusMock.mockResolvedValue(running);
-    openExternalUrlMock.mockResolvedValue(false);
     const user = userEvent.setup();
     vi.spyOn(navigator.clipboard, "writeText").mockRejectedValueOnce(new Error("denied"));
     render(<TailscaleAccessSection />);
 
     await user.click(await screen.findByRole("button", { name: "Copy Remote Access address" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/could not copy/i);
-    await user.click(screen.getByRole("button", { name: "Open Remote Access" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(/could not open/i);
     expect(enableMock).not.toHaveBeenCalled();
     expect(retryMock).not.toHaveBeenCalled();
     expect(disableMock).not.toHaveBeenCalled();
@@ -278,19 +277,36 @@ describe("TailscaleAccessSection", () => {
       })
     );
 
-    expect(screen.getByText("Set up Remote Access")).toBeInTheDocument();
-    expect(screen.getByText("Install Tailscale on this computer")).toBeInTheDocument();
-    expect(screen.getByText("Open Tailscale, sign in, and connect")).toBeInTheDocument();
-    expect(screen.getByText("Turn on Remote Access")).toBeInTheDocument();
+    expect(screen.getByText("Install Tailscale on this computer and sign in")).toBeInTheDocument();
+    expect(screen.getByText("Come back and push the Try again button")).toBeInTheDocument();
     expect(screen.getByText(/turned off or disconnected/i)).toBeInTheDocument();
+    expect(screen.queryByText("needsSetup message")).not.toBeInTheDocument();
+  });
+
+  it("shows the setup checklist for a not-ready needsAttention state (fresh install)", async () => {
+    await renderState(
+      makeStatus("needsAttention", {
+        readiness: { ...makeStatus("needsAttention").readiness, state: "daemonUnavailable" },
+        errorCode: "commandFailed",
+      })
+    );
+
+    expect(screen.getByRole("heading", { name: "Remote Access — Needs setup" })).toBeInTheDocument();
+    expect(screen.getByText("Install Tailscale on this computer and sign in")).toBeInTheDocument();
+    expect(screen.getByText(/isn't running — or isn't installed yet/i)).toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /tailscale\.com — opens the free Tailscale download/i }));
+    expect(openExternalUrlMock).toHaveBeenCalledWith("https://tailscale.com/download");
   });
 
   it("shows phone setup steps and a QR code while running", async () => {
     await renderState(makeStatus("running"));
 
-    expect(screen.getByText("Set up your phone")).toBeInTheDocument();
+    expect(screen.getByText("Use BrainDrive on your phone")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: /QR code/i })).toBeInTheDocument();
     expect(screen.getByText(/same account you use on this computer/i)).toBeInTheDocument();
+    expect(screen.getByText("Using another computer instead?")).toBeInTheDocument();
   });
 
   it("hides conflict cleanup when the mapping is not exact-owned", async () => {
