@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "services": {
+    "svc:example": {
+      "endpoints": {
+        "tcp:443": "http://127.0.0.1:19003"
+      },
+      "advertised": false
+    }
+  }
+}

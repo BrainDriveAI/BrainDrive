@@ -14,6 +14,7 @@ import {
   RotateCcw,
   Save,
   ShieldCheck,
+  Smartphone,
   User,
   UserCog,
   X,
@@ -25,8 +26,10 @@ import {
 } from "lucide-react";
 
 import MarkdownContent from "@/components/markdown/MarkdownContent";
+import TailscaleAccessSection from "@/components/settings/TailscaleAccessSection";
 import { openTrustedBillingUrl } from "@/utils/billing-url";
 import { openExternalUrl } from "@/utils/external-url";
+import { renderSVG } from "uqr";
 
 import { getSession, logout } from "@/api/auth-adapter";
 import {
@@ -95,17 +98,18 @@ type SettingsModalProps = {
   onClose: () => void;
 };
 
-type SettingsTab = "provider" | "profile" | "your-agent" | "account" | "export" | "memory-backup" | "browser-access";
+type SettingsTab = "provider" | "profile" | "your-agent" | "account" | "export" | "memory-backup" | "browser-access" | "remote-access";
 
 type TabDef = { id: SettingsTab; label: string; icon: typeof Key; managedOnly?: boolean; localOnly?: boolean; desktopOnly?: boolean };
 
 // Managed hosting shows: Account, Your Profile, Your Agent, Export (D93).
-// Local shows: AI Models, Your Profile, Your Agent, Browser Access, Memory Backup, Export.
+// Local shows: AI Models, Your Profile, Your Agent, Remote Access, Browser Access, Memory Backup, Export.
 const allTabs: TabDef[] = [
   { id: "account", label: "Account", icon: UserCog, managedOnly: true },
   { id: "provider", label: "AI Models", icon: Cpu, localOnly: true },
   { id: "profile", label: "Your Profile", icon: User },
   { id: "your-agent", label: "Your Agent", icon: Bot },
+  { id: "remote-access", label: "Remote Access", icon: ShieldCheck, localOnly: true, desktopOnly: true },
   { id: "browser-access", label: "Browser Access", icon: Network, localOnly: true, desktopOnly: true },
   { id: "memory-backup", label: "Backup", icon: Save, localOnly: true },
   { id: "export", label: "Migrate", icon: Download },
@@ -667,6 +671,8 @@ function TabContent({
       );
     case "browser-access":
       return <BrowserAccessSection />;
+    case "remote-access":
+      return <TailscaleAccessSection />;
     case "profile":
       return <ProfileSection />;
     case "your-agent":
@@ -692,6 +698,7 @@ function TabContent({
 }
 
 function BrowserAccessSection() {
+  const scopeGroupId = useId();
   const [status, setStatus] = useState<BrowserAccessStatus | null>(null);
   const [enabled, setEnabled] = useState(false);
   const [networkScope, setNetworkScope] = useState<BrowserAccessNetworkScope>("thisComputer");
@@ -703,6 +710,7 @@ function BrowserAccessSection() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
+  const [pendingScopeConfirm, setPendingScopeConfirm] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -744,6 +752,104 @@ function BrowserAccessSection() {
     setPort(String(nextStatus.requestedPort || nextStatus.port || BROWSER_ACCESS_DEFAULT_PORT));
   }
 
+  function revertToStatus() {
+    setEnabled(status?.enabled ?? false);
+    setNetworkScope(status?.networkScope ?? "thisComputer");
+  }
+
+  async function applySettings(
+    nextEnabled: boolean,
+    nextScope?: BrowserAccessNetworkScope,
+    portOverride?: number
+  ) {
+    const scopeToUse = nextScope ?? networkScope;
+    // Everyday controls (toggle, scope) submit the persisted port; only
+    // Advanced -> Save passes the validated draft via portOverride.
+    const portToUse = portOverride ?? status?.requestedPort ?? status?.port ?? BROWSER_ACCESS_DEFAULT_PORT;
+
+    setIsSaving(true);
+    setActionError(null);
+    setActionMessage(null);
+    try {
+      const nextStatus = await updateBrowserAccessSettings({
+        enabled: nextEnabled,
+        networkScope: scopeToUse,
+        port: portToUse,
+      });
+      applyBrowserStatus(nextStatus);
+      if (nextStatus.state === "failed" || nextStatus.lastError) {
+        setActionError(nextStatus.lastError || "Browser Access could not start. Try Restart in Advanced.");
+      } else {
+        setActionMessage(
+          nextStatus.state === "running"
+            ? "Browser Access is running."
+            : nextStatus.enabled
+              ? "Browser Access settings saved."
+              : "Browser Access is off."
+        );
+      }
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+      // The backend saves config before starting the bridge, so a rejection
+      // does not mean nothing changed — trust a fresh status over cached state.
+      try {
+        const fresh = await getBrowserAccessStatus();
+        applyBrowserStatus(fresh);
+      } catch {
+        revertToStatus();
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  // Confirmation is keyed to the exposure transition: about to serve the home
+  // network when it is not already being served. A stored-but-disabled scope
+  // never bypasses this gate.
+  function wouldNewlyExpose(nextEnabled: boolean, scope: BrowserAccessNetworkScope): boolean {
+    return (
+      nextEnabled &&
+      scope === "privateNetwork" &&
+      !(status?.enabled && status?.networkScope === "privateNetwork" && status?.state === "running")
+    );
+  }
+
+  async function handleToggle() {
+    if (isBusy) return;
+    const nextEnabled = !enabled;
+    if (nextEnabled && wouldNewlyExpose(true, networkScope)) {
+      setPendingScopeConfirm(true);
+      return;
+    }
+    setPendingScopeConfirm(false);
+    setEnabled(nextEnabled);
+    await applySettings(nextEnabled);
+  }
+
+  async function handleScopeChange(nextScope: BrowserAccessNetworkScope) {
+    if (isBusy || nextScope === networkScope) return;
+    if (wouldNewlyExpose(enabled, nextScope)) {
+      // Keep the committed selection until the owner approves.
+      setPendingScopeConfirm(true);
+      return;
+    }
+    setPendingScopeConfirm(false);
+    setNetworkScope(nextScope);
+    await applySettings(enabled, nextScope);
+  }
+
+  async function handleConfirmWidening() {
+    setPendingScopeConfirm(false);
+    setEnabled(true);
+    setNetworkScope("privateNetwork");
+    await applySettings(true, "privateNetwork");
+  }
+
+  function handleCancelWidening() {
+    setPendingScopeConfirm(false);
+    revertToStatus();
+  }
+
   async function handleSave() {
     const parsedPort = Number(port);
     if (!Number.isInteger(parsedPort) || parsedPort < BROWSER_ACCESS_DEFAULT_PORT || parsedPort > BROWSER_ACCESS_MAX_PORT) {
@@ -751,32 +857,11 @@ function BrowserAccessSection() {
       setActionMessage(null);
       return;
     }
-
-    if (
-      enabled &&
-      networkScope === "privateNetwork" &&
-      status?.networkScope !== "privateNetwork" &&
-      !window.confirm("Private-network Browser Access can be reached by other devices on your local network. Continue?")
-    ) {
+    if (wouldNewlyExpose(enabled, networkScope)) {
+      setPendingScopeConfirm(true);
       return;
     }
-
-    setIsSaving(true);
-    setActionError(null);
-    setActionMessage(null);
-    try {
-      const nextStatus = await updateBrowserAccessSettings({
-        enabled,
-        networkScope,
-        port: parsedPort,
-      });
-      applyBrowserStatus(nextStatus);
-      setActionMessage(nextStatus.state === "running" ? "Browser Access is running." : "Browser Access settings saved.");
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsSaving(false);
-    }
+    await applySettings(enabled, undefined, parsedPort);
   }
 
   async function handleRestart() {
@@ -824,14 +909,19 @@ function BrowserAccessSection() {
   }
 
   const primaryUrl = status?.urls[0] ?? null;
+  const expectedLanPort = status?.port ?? status?.requestedPort ?? null;
+  const lanUrl =
+    status?.urls.map((url) => validatedLanBrowserUrl(url, expectedLanPort)).find((url): url is string => url !== null) ??
+    null;
+  const lanQrSvg = useMemo(() => (lanUrl ? renderSVG(lanUrl) : null), [lanUrl]);
   const isBusy = isLoading || isSaving || isRestarting || isApplyingFirewall;
   const canApplyFirewall = status?.networkScope === "privateNetwork" && status.enabled;
   const currentPort = status?.port ?? status?.requestedPort ?? Number(port);
-  const currentScopeLabel = status?.networkScope === "privateNetwork" ? "Private network" : "This computer";
+  const currentScopeLabel = status?.networkScope === "privateNetwork" ? "Home network" : "This computer";
   const statusPanelHint =
     status?.firewallHint ||
     (status?.networkScope === "privateNetwork"
-      ? "Private-network access may require an operating system firewall rule."
+      ? "Your operating system may ask for a firewall OK before other devices can connect."
       : "Access is limited to browsers on this computer.");
 
   return (
@@ -839,70 +929,70 @@ function BrowserAccessSection() {
       <div>
         <h3 className="text-lg font-semibold text-bd-text-heading">Browser Access</h3>
         <p className="mt-1 text-sm leading-5 text-bd-text-secondary">
-          Let browsers on this computer or your private network connect to BrainDrive through a local browser bridge.
+          Open BrainDrive in a web browser — on this computer, or from other devices on your home Wi-Fi.
+        </p>
+        <p className="mt-1 text-xs leading-4 text-bd-text-muted">
+          To use BrainDrive away from home, use Remote Access instead.
         </p>
       </div>
 
       {isLoading ? (
-        <div className="flex items-center gap-2 rounded-lg bg-bd-bg-tertiary px-3 py-2.5 text-sm text-bd-text-muted">
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex items-center gap-2 rounded-lg bg-bd-bg-tertiary px-3 py-2.5 text-sm text-bd-text-muted"
+        >
           <LoaderCircle size={16} strokeWidth={1.5} className="animate-spin" />
           Loading Browser Access status...
         </div>
       ) : null}
 
-      {status ? (
-        <div className="rounded-lg border border-bd-border bg-bd-bg-secondary/60 p-4 shadow-[0_0_24px_rgba(50,93,135,0.08)]">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2">
-              <span className={browserAccessStateClasses(status.state)} />
-              <span className="text-sm font-medium text-bd-text-heading">
-                {formatBrowserAccessState(status.state)}
-              </span>
-            </div>
-            <span className="rounded-full border border-bd-steel/50 bg-bd-steel/35 px-2.5 py-1 text-[11px] font-medium text-bd-text-primary">
-              Local bridge
-            </span>
+      {status?.lastError ? (
+        <div role="alert" className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2.5 text-sm text-bd-text-primary">
+          <p>{status.lastError}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={handleRestart}
+              disabled={isBusy}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-bd-border bg-bd-bg-secondary px-3 py-2 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-hover hover:text-bd-text-primary disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <RotateCcw size={14} strokeWidth={1.5} />
+              Restart
+            </button>
+            {canApplyFirewall ? (
+              <button
+                type="button"
+                onClick={handleApplyFirewall}
+                disabled={isBusy}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-bd-border bg-bd-bg-secondary px-3 py-2 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-hover hover:text-bd-text-primary disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <ShieldCheck size={14} strokeWidth={1.5} />
+                Firewall
+              </button>
+            ) : null}
           </div>
-
-          <div className="mt-4 divide-y divide-bd-border/80">
-            <div className="flex items-center gap-3 pb-3 text-sm">
-              <Network size={16} strokeWidth={1.5} className="shrink-0 text-bd-text-secondary" />
-              <span className="w-16 shrink-0 text-bd-text-secondary">Scope:</span>
-              <span className="min-w-0 flex-1 text-bd-text-heading">{currentScopeLabel}</span>
-            </div>
-            <div className="flex items-center gap-3 py-3 text-sm">
-              <Cpu size={16} strokeWidth={1.5} className="shrink-0 text-bd-text-secondary" />
-              <span className="w-16 shrink-0 text-bd-text-secondary">Port:</span>
-              <span className="min-w-0 flex-1 font-mono text-bd-text-heading">
-                {currentPort || BROWSER_ACCESS_DEFAULT_PORT}
-              </span>
-            </div>
-            <div className="flex items-start gap-3 pt-3 text-xs leading-4 text-bd-text-secondary">
-              <ShieldCheck size={16} strokeWidth={1.5} className="mt-0.5 shrink-0" />
-              <p>{statusPanelHint}</p>
-            </div>
-          </div>
-
-          {status.lastError ? (
-            <div className="mt-3 rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
-              {status.lastError}
-            </div>
-          ) : null}
         </div>
       ) : null}
 
-      <div className="space-y-4 rounded-lg border border-bd-border p-4">
+      <div aria-busy={isBusy} className="space-y-4 rounded-lg border border-bd-border p-4">
         <label className="flex items-center justify-between gap-4">
           <span>
             <span className="block text-sm font-medium text-bd-text-heading">Enable Browser Access</span>
-            <span className="block text-xs text-bd-text-secondary">Runs only when needed.</span>
+            {status && !isLoading ? (
+              <span className="mt-1 flex items-center gap-1.5 text-xs text-bd-text-secondary">
+                <span className={browserAccessStateClasses(status.state)} />
+                {formatBrowserAccessState(status.state)}
+              </span>
+            ) : null}
           </span>
           <button
             type="button"
             role="switch"
             aria-checked={enabled}
             aria-label="Enable Browser Access"
-            onClick={() => setEnabled((current) => !current)}
+            disabled={isBusy}
+            onClick={() => void handleToggle()}
             className={[
               "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bd-amber/60",
               enabled ? "border-bd-amber bg-bd-amber" : "border-bd-border bg-bd-bg-tertiary"
@@ -918,16 +1008,19 @@ function BrowserAccessSection() {
         </label>
 
         <div>
-          <span className="block text-sm font-medium text-bd-text-heading">Network Scope</span>
-          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <span id={scopeGroupId} className="block text-sm font-medium text-bd-text-heading">Network Scope</span>
+          <div role="radiogroup" aria-labelledby={scopeGroupId} className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
             {[
-              { id: "thisComputer" as const, label: "This computer", description: "Only browsers on this computer." },
-              { id: "privateNetwork" as const, label: "Private network", description: "Devices on your LAN." },
+              { id: "thisComputer" as const, label: "This computer", description: "Only web browsers on this computer." },
+              { id: "privateNetwork" as const, label: "Home network", description: "This computer, plus other devices on your home Wi-Fi like your phone or tablet." },
             ].map((option) => (
               <button
                 key={option.id}
                 type="button"
-                onClick={() => setNetworkScope(option.id)}
+                role="radio"
+                aria-checked={networkScope === option.id}
+                disabled={isBusy}
+                onClick={() => void handleScopeChange(option.id)}
                 className={[
                   "rounded-lg border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bd-amber/60",
                   networkScope === option.id
@@ -951,130 +1044,217 @@ function BrowserAccessSection() {
               </button>
             ))}
           </div>
+          {pendingScopeConfirm ? (
+            <div className="mt-3 rounded-lg border border-bd-amber/40 bg-bd-amber/10 p-3">
+              <p className="text-sm leading-5 text-bd-text-primary">
+                Devices on your home Wi-Fi will be able to open BrainDrive in a browser. They&apos;ll still need your
+                BrainDrive sign-in.
+              </p>
+              <div className="mt-2.5 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleConfirmWidening()}
+                  disabled={isBusy}
+                  className="rounded-lg bg-bd-amber px-3 py-2 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Turn on Home network
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCancelWidening}
+                  disabled={isBusy}
+                  className="rounded-lg border border-bd-border bg-bd-bg-secondary px-3 py-2 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-hover hover:text-bd-text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
 
-        <label className="block">
-          <span className="text-sm font-medium text-bd-text-heading">Port</span>
-          <input
-            type="number"
-            min={BROWSER_ACCESS_DEFAULT_PORT}
-            max={BROWSER_ACCESS_MAX_PORT}
-            value={port}
-            onChange={(event) => setPort(event.target.value)}
-            className="mt-1 h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
-          />
-          <span className="mt-1 block text-xs text-bd-text-secondary">
-            Default {BROWSER_ACCESS_DEFAULT_PORT}; fallback range {BROWSER_ACCESS_DEFAULT_PORT}-{BROWSER_ACCESS_MAX_PORT}.
-          </span>
-        </label>
-
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={isBusy}
-            className="rounded-lg bg-bd-amber px-3 py-2 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            Save
-          </button>
-          <button
-            type="button"
-            onClick={handleRestart}
-            disabled={isBusy}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-bd-border bg-bd-bg-secondary px-3 py-2 text-xs font-medium text-bd-text-secondary transition-colors hover:border-bd-amber/60 hover:bg-bd-bg-hover hover:text-bd-text-primary disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <RotateCcw size={14} strokeWidth={1.5} />
-            Restart
-          </button>
-          {canApplyFirewall ? (
+        <details className="rounded-lg border border-bd-border px-3 py-2.5">
+          <summary className="cursor-pointer text-sm font-medium text-bd-text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bd-amber/60">
+            Advanced
+          </summary>
+          <label className="mt-3 block">
+            <span className="text-sm font-medium text-bd-text-heading">Port</span>
+            <input
+              type="number"
+              min={BROWSER_ACCESS_DEFAULT_PORT}
+              max={BROWSER_ACCESS_MAX_PORT}
+              value={port}
+              onChange={(event) => setPort(event.target.value)}
+              className="mt-1 h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
+            />
+            <span className="mt-1 block text-xs text-bd-text-secondary">
+              BrainDrive uses port {BROWSER_ACCESS_DEFAULT_PORT}. If it&apos;s busy, the next open port (up to{" "}
+              {BROWSER_ACCESS_MAX_PORT}) is chosen automatically.
+            </span>
+          </label>
+          <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={handleApplyFirewall}
+              onClick={handleSave}
+              disabled={isBusy}
+              className="rounded-lg bg-bd-amber px-3 py-2 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Save
+            </button>
+            <button
+              type="button"
+              onClick={handleRestart}
               disabled={isBusy}
               className="inline-flex items-center gap-1.5 rounded-lg border border-bd-border bg-bd-bg-secondary px-3 py-2 text-xs font-medium text-bd-text-secondary transition-colors hover:border-bd-amber/60 hover:bg-bd-bg-hover hover:text-bd-text-primary disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <ShieldCheck size={14} strokeWidth={1.5} />
-              Firewall
+              <RotateCcw size={14} strokeWidth={1.5} />
+              Restart
             </button>
-          ) : null}
-        </div>
+            {canApplyFirewall ? (
+              <button
+                type="button"
+                onClick={handleApplyFirewall}
+                disabled={isBusy}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-bd-border bg-bd-bg-secondary px-3 py-2 text-xs font-medium text-bd-text-secondary transition-colors hover:border-bd-amber/60 hover:bg-bd-bg-hover hover:text-bd-text-primary disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <ShieldCheck size={14} strokeWidth={1.5} />
+                Firewall
+              </button>
+            ) : null}
+          </div>
+        </details>
       </div>
 
       {status?.urls.length ? (
         <div className="rounded-lg border border-bd-border bg-bd-bg-secondary/50 p-4">
-          <h4 className="text-sm font-medium text-bd-text-heading">Addresses</h4>
-          <div className="mt-3 space-y-2">
-            {status.urls.map((url, index) => {
-              const label = browserAccessUrlLabel(url, index);
-              const isPrivateNetwork = label === "Private network";
-
-              return (
-                <div key={url} className="flex min-w-0 items-center gap-3 rounded-lg border border-bd-border bg-bd-bg-secondary/80 px-3 py-2.5">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center text-bd-text-secondary">
-                    {isPrivateNetwork ? (
-                      <Network size={18} strokeWidth={1.5} />
-                    ) : (
-                      <Cpu size={18} strokeWidth={1.5} />
-                    )}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <span className="block text-xs font-medium text-bd-text-heading">{label}</span>
-                    <span className="mt-1 block truncate font-mono text-xs text-bd-text-secondary">{url}</span>
-                  </div>
-                  <div className="flex shrink-0 gap-2">
-                    <button
-                      type="button"
-                      aria-label={`Copy ${url}`}
-                      title="Copy address"
-                      onClick={() => handleCopy(url)}
-                      className="flex h-8 w-8 items-center justify-center rounded-md border border-bd-steel/60 text-bd-text-secondary transition-colors hover:border-bd-amber/70 hover:bg-bd-bg-hover hover:text-bd-text-heading"
-                    >
-                      <Copy size={15} strokeWidth={1.5} />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`Open ${url}`}
-                      title="Open address"
-                      onClick={() => openExternalUrl(url)}
-                      className="flex h-8 w-8 items-center justify-center rounded-md border border-bd-steel/60 text-bd-text-secondary transition-colors hover:border-bd-amber/70 hover:bg-bd-bg-hover hover:text-bd-text-heading"
-                    >
-                      <ExternalLink size={15} strokeWidth={1.5} />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          <h4 className="text-sm font-medium text-bd-text-heading">Use BrainDrive in your browser</h4>
           {primaryUrl ? (
             <button
               type="button"
               onClick={() => openExternalUrl(primaryUrl)}
-              className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-bd-amber/70 px-3 py-1.5 text-xs font-medium text-bd-amber transition-colors hover:bg-bd-amber hover:text-bd-bg-primary"
+              className="mt-3 inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-bd-border bg-bd-bg-secondary px-3 py-1.5 text-sm font-medium text-bd-text-secondary transition-colors hover:border-bd-amber/60 hover:bg-bd-bg-hover hover:text-bd-text-primary"
             >
               <ExternalLink size={14} strokeWidth={1.5} />
-              Open primary address
+              Open on this computer
             </button>
+          ) : null}
+
+          {lanUrl ? (
+            <div className="mt-4 border-t border-bd-border/80 pt-4">
+              <div className="flex items-center gap-2">
+                <Smartphone className="shrink-0 text-bd-text-secondary" size={16} strokeWidth={1.5} />
+                <h5 className="text-sm font-medium text-bd-text-heading">On your phone or tablet</h5>
+              </div>
+              <div className="mt-3 flex flex-col items-start gap-5 sm:flex-row">
+                <ol className="min-w-0 flex-1 list-decimal space-y-2 pl-4 text-sm leading-5 text-bd-text-primary">
+                  <li>Make sure it&apos;s on the same Wi-Fi as this computer.</li>
+                  <li>Scan this code with your camera.</li>
+                  <li>Add the link to your bookmarks.</li>
+                </ol>
+                {lanQrSvg ? (
+                  <div
+                    role="img"
+                    aria-label="QR code for your home network BrainDrive address"
+                    className="h-40 w-40 shrink-0 self-center rounded-lg bg-white p-2 [&>svg]:h-full [&>svg]:w-full"
+                    dangerouslySetInnerHTML={{ __html: lanQrSvg }}
+                  />
+                ) : null}
+              </div>
+              <div className="mt-4 border-t border-bd-border/80 pt-4">
+                <div className="flex items-center gap-2">
+                  <Network className="shrink-0 text-bd-text-secondary" size={16} strokeWidth={1.5} />
+                  <h5 className="text-sm font-medium text-bd-text-heading">Any device on your network with a browser</h5>
+                </div>
+                <p className="mt-2 text-sm leading-5 text-bd-text-secondary">
+                  Open the browser and go to this address:
+                </p>
+                <div className="mt-2 flex min-w-0 flex-col gap-2 sm:flex-row">
+                  <input
+                    readOnly
+                    aria-label="Your home network BrainDrive address"
+                    value={lanUrl}
+                    className="h-10 min-w-0 flex-1 rounded-lg border border-bd-border bg-bd-bg-secondary px-3 font-mono text-xs text-bd-text-primary outline-none focus:border-bd-amber"
+                  />
+                  <button
+                    type="button"
+                    aria-label={`Copy ${lanUrl}`}
+                    onClick={() => handleCopy(lanUrl)}
+                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-bd-border bg-bd-bg-secondary px-3 py-2 text-sm font-medium text-bd-text-secondary transition-colors hover:border-bd-amber/60 hover:bg-bd-bg-hover hover:text-bd-text-primary"
+                  >
+                    <Copy size={15} strokeWidth={1.5} />
+                    Copy
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {lanUrl ? (
+            <p className="mt-3 text-xs leading-4 text-bd-text-secondary">
+              Other devices still need your BrainDrive sign-in — access stays yours.
+            </p>
           ) : null}
         </div>
       ) : null}
 
+      {status ? (
+        <details className="rounded-lg border border-bd-border px-4 py-3 text-sm text-bd-text-secondary">
+          <summary className="cursor-pointer font-medium text-bd-text-heading focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bd-amber/60">
+            Technical details
+          </summary>
+          <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-xs">
+            <dt>State</dt>
+            <dd className="flex items-center gap-2 text-bd-text-primary">
+              <span className={browserAccessStateClasses(status.state)} />
+              {formatBrowserAccessState(status.state)}
+            </dd>
+            <dt>Scope</dt>
+            <dd className="text-bd-text-primary">{currentScopeLabel}</dd>
+            <dt>Port</dt>
+            <dd className="font-mono text-bd-text-primary">{currentPort || BROWSER_ACCESS_DEFAULT_PORT}</dd>
+          </dl>
+          <p className="mt-3 text-xs leading-4">{statusPanelHint}</p>
+        </details>
+      ) : null}
+
       {copyMessage ? (
-        <div className="rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-sm text-bd-text-secondary">
+        <div role="status" aria-live="polite" className="rounded-lg border border-bd-border bg-bd-bg-tertiary px-3 py-2 text-sm text-bd-text-secondary">
           {copyMessage}
         </div>
       ) : null}
       {actionMessage ? (
-        <div className="rounded-lg border border-bd-success-border bg-bd-success-bg px-3 py-2 text-sm text-bd-text-primary">
+        <div role="status" aria-live="polite" className="rounded-lg border border-bd-success-border bg-bd-success-bg px-3 py-2 text-sm text-bd-text-primary">
           {actionMessage}
         </div>
       ) : null}
       {actionError ? (
-        <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
+        <div role="alert" className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2 text-sm text-bd-text-primary">
           {actionError}
         </div>
       ) : null}
     </section>
   );
+}
+
+// The desktop shell constructs LAN URLs from a private IPv4 and u16 port, but
+// validate at the client boundary anyway: the QR, copy, and open actions must
+// never point anywhere except a private-network address on the expected port.
+function validatedLanBrowserUrl(value: string, expectedPort: number | null): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "http:" || parsed.username || parsed.password) return null;
+  const host = parsed.hostname;
+  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return null;
+  const octets = host.split(".").map(Number);
+  if (octets.some((octet) => octet > 255)) return null;
+  const [a, b] = octets;
+  const isPrivate = a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+  if (!isPrivate) return null;
+  if (expectedPort !== null && parsed.port !== String(expectedPort)) return null;
+  return value;
 }
 
 function formatBrowserAccessState(state: string): string {
@@ -1100,13 +1280,6 @@ function browserAccessStateClasses(state: string): string {
         ? "bg-bd-danger"
         : "bg-bd-text-muted";
   return `h-2.5 w-2.5 rounded-full ${color}`;
-}
-
-function browserAccessUrlLabel(url: string, index: number): string {
-  if (index === 0 || url.includes("127.0.0.1") || url.includes("localhost")) {
-    return "This computer";
-  }
-  return "Private network";
 }
 
 function MemoryBackupSection({

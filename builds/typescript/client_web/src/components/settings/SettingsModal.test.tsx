@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+import type { TailscaleAccessStatus } from "@/api/desktop-tailscale-access";
+
 import type {
   GatewayMemoryBackupRestoreRequest,
   GatewayMemoryBackupRunRequest,
@@ -57,6 +59,10 @@ const getBrowserAccessStatusMock = vi.fn<() => Promise<BrowserAccessStatus>>();
 const updateBrowserAccessSettingsMock = vi.fn();
 const restartBrowserAccessMock = vi.fn();
 const applyBrowserAccessFirewallRuleMock = vi.fn();
+const getTailscaleAccessStatusMock = vi.fn<() => Promise<TailscaleAccessStatus>>();
+const enableTailscaleAccessMock = vi.fn<() => Promise<TailscaleAccessStatus>>();
+const retryTailscaleAccessMock = vi.fn<() => Promise<TailscaleAccessStatus>>();
+const disableTailscaleAccessMock = vi.fn<() => Promise<TailscaleAccessStatus>>();
 const getSessionMock = vi.fn<() => Promise<Session>>();
 const logoutMock = vi.fn<() => Promise<void>>();
 const getRootAgentMock = vi.fn<
@@ -93,6 +99,13 @@ vi.mock("@/api/desktop-browser-access", () => ({
   updateBrowserAccessSettings: (settings: unknown) => updateBrowserAccessSettingsMock(settings),
   restartBrowserAccess: () => restartBrowserAccessMock(),
   applyBrowserAccessFirewallRule: (enabled: boolean) => applyBrowserAccessFirewallRuleMock(enabled),
+}));
+
+vi.mock("@/api/desktop-tailscale-access", () => ({
+  getTailscaleAccessStatus: () => getTailscaleAccessStatusMock(),
+  enableTailscaleAccess: () => enableTailscaleAccessMock(),
+  retryTailscaleAccess: () => retryTailscaleAccessMock(),
+  disableTailscaleAccess: () => disableTailscaleAccessMock(),
 }));
 
 const baseSettings: GatewaySettings = {
@@ -203,6 +216,29 @@ const browserAccessStatus: BrowserAccessStatus = {
   accountInitialized: true,
 };
 
+const tailscaleAccessStatus: TailscaleAccessStatus = {
+  state: "ready",
+  desiredEnabled: false,
+  readiness: {
+    state: "ready",
+    installedVersion: { major: 1, minor: 98, patch: 8 },
+    minimumSupportedVersion: { major: 1, minor: 98, patch: 8 },
+    backendState: "Running",
+    online: true,
+    dnsNameAvailable: true,
+    errorCode: null,
+  },
+  ownership: "absent",
+  bridgeState: "stopped",
+  accessUrl: null,
+  setupUrl: null,
+  availableActions: ["enable", "checkAgain"],
+  message: "Tailscale is ready for private BrainDrive access.",
+  detail: null,
+  errorCode: null,
+  checkedAtUnixMs: 1,
+};
+
 function localSession(email: string): Session {
   return {
     mode: "local",
@@ -234,6 +270,10 @@ describe("SettingsModal", () => {
     updateBrowserAccessSettingsMock.mockReset();
     restartBrowserAccessMock.mockReset();
     applyBrowserAccessFirewallRuleMock.mockReset();
+    getTailscaleAccessStatusMock.mockReset();
+    enableTailscaleAccessMock.mockReset();
+    retryTailscaleAccessMock.mockReset();
+    disableTailscaleAccessMock.mockReset();
     getSessionMock.mockReset();
     logoutMock.mockReset();
     getRootAgentMock.mockReset();
@@ -290,6 +330,10 @@ describe("SettingsModal", () => {
       message: "Opened macOS System Settings. In Network > Firewall, allow incoming connections for BrainDrive if prompted.",
       command: "open -b com.apple.systempreferences",
     });
+    getTailscaleAccessStatusMock.mockResolvedValue(tailscaleAccessStatus);
+    enableTailscaleAccessMock.mockResolvedValue(tailscaleAccessStatus);
+    retryTailscaleAccessMock.mockResolvedValue(tailscaleAccessStatus);
+    disableTailscaleAccessMock.mockResolvedValue(tailscaleAccessStatus);
     getSessionMock.mockResolvedValue(localSession("owner@local.braindrive"));
     logoutMock.mockResolvedValue();
     delete window.__TAURI_INTERNALS__;
@@ -622,6 +666,32 @@ describe("SettingsModal", () => {
     expect(backupIndex).toBeGreaterThanOrEqual(0);
   });
 
+  it("shows Remote Access only in the local desktop app", async () => {
+    const { unmount } = render(<SettingsModal mode="local" onClose={() => {}} />);
+    await waitFor(() => expect(getSettingsMock).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: "Remote Access" })).not.toBeInTheDocument();
+    unmount();
+
+    window.__TAURI_INTERNALS__ = {};
+    const desktop = render(<SettingsModal mode="local" onClose={() => {}} />);
+    expect(screen.getAllByRole("button", { name: "Remote Access" })).toHaveLength(2);
+    desktop.rerender(<SettingsModal mode="managed" onClose={() => {}} />);
+    expect(screen.queryByRole("button", { name: "Remote Access" })).not.toBeInTheDocument();
+  });
+
+  it("opens the desktop Remote Access tab without changing Browser Access", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+
+    await user.click(screen.getAllByRole("button", { name: "Remote Access" })[0]!);
+    await waitFor(() => expect(getTailscaleAccessStatusMock).toHaveBeenCalled());
+
+    expect(screen.getAllByText("Powered by Tailscale").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Browser Access" })).toHaveLength(2);
+    expect(getBrowserAccessStatusMock).not.toHaveBeenCalled();
+  });
+
   it("renders platform-specific Browser Access firewall guidance in the desktop app", async () => {
     const user = userEvent.setup();
     window.__TAURI_INTERNALS__ = {};
@@ -634,7 +704,7 @@ describe("SettingsModal", () => {
     });
     expect(screen.getAllByText("macOS may ask you to allow incoming connections for BrainDrive.").length).toBeGreaterThan(0);
     expect(screen.queryByText("Private-network access may require a Windows Firewall rule.")).not.toBeInTheDocument();
-    expect(screen.getAllByText("Only browsers on this computer.").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Only web browsers on this computer.").length).toBeGreaterThan(0);
   });
 
   it("shows the macOS firewall handoff result from Browser Access", async () => {
@@ -655,6 +725,166 @@ describe("SettingsModal", () => {
     expect(
       screen.getAllByText("Opened macOS System Settings. In Network > Firewall, allow incoming connections for BrainDrive if prompted.").length
     ).toBeGreaterThan(0);
+  });
+
+  it("requires widening confirmation when enabling with a stored Home network scope", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    getBrowserAccessStatusMock.mockResolvedValue({
+      ...browserAccessStatus,
+      enabled: false,
+      state: "stopped",
+      urls: [],
+    });
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+    await user.click(screen.getAllByRole("button", { name: "Browser Access" })[0]!);
+    const toggle = (await screen.findAllByRole("switch", { name: "Enable Browser Access" }))[0]!;
+
+    await user.click(toggle);
+
+    expect(await screen.findByText(/will be able to open BrainDrive in a browser/i)).toBeInTheDocument();
+    expect(updateBrowserAccessSettingsMock).not.toHaveBeenCalled();
+
+    await user.click(screen.getAllByRole("button", { name: "Turn on Home network" })[0]!);
+    await waitFor(() => expect(updateBrowserAccessSettingsMock).toHaveBeenCalledTimes(1));
+    expect(updateBrowserAccessSettingsMock).toHaveBeenCalledWith({
+      enabled: true,
+      networkScope: "privateNetwork",
+      port: 18088,
+    });
+  });
+
+  it("keeps the committed scope until Home network is confirmed, and cancel dismisses", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    getBrowserAccessStatusMock.mockResolvedValue({
+      ...browserAccessStatus,
+      networkScope: "thisComputer",
+      urls: ["http://127.0.0.1:18088"],
+    });
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+    await user.click(screen.getAllByRole("button", { name: "Browser Access" })[0]!);
+    const homeNetwork = (await screen.findAllByRole("radio", { name: /Home network/ }))[0]!;
+
+    await user.click(homeNetwork);
+
+    expect(await screen.findByText(/will be able to open BrainDrive in a browser/i)).toBeInTheDocument();
+    expect(homeNetwork).toHaveAttribute("aria-checked", "false");
+    expect(updateBrowserAccessSettingsMock).not.toHaveBeenCalled();
+
+    await user.click(screen.getAllByRole("button", { name: "Cancel" })[0]!);
+    expect(screen.queryByText(/will be able to open BrainDrive in a browser/i)).not.toBeInTheDocument();
+    expect(updateBrowserAccessSettingsMock).not.toHaveBeenCalled();
+  });
+
+  it("submits the persisted port for toggle changes, not the unsaved Advanced draft", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    getBrowserAccessStatusMock.mockResolvedValue({
+      ...browserAccessStatus,
+      enabled: false,
+      state: "stopped",
+      networkScope: "thisComputer",
+      requestedPort: 18090,
+      port: 18090,
+      urls: [],
+    });
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+    await user.click(screen.getAllByRole("button", { name: "Browser Access" })[0]!);
+    const toggle = (await screen.findAllByRole("switch", { name: "Enable Browser Access" }))[0]!;
+
+    const portInput = screen.getAllByRole("spinbutton")[0]!;
+    await user.clear(portInput);
+    await user.type(portInput, "18095");
+    await user.click(toggle);
+
+    await waitFor(() => expect(updateBrowserAccessSettingsMock).toHaveBeenCalledTimes(1));
+    expect(updateBrowserAccessSettingsMock).toHaveBeenCalledWith({
+      enabled: true,
+      networkScope: "thisComputer",
+      port: 18090,
+    });
+  });
+
+  it("reports a failed apply as an error even when the setting persisted", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    getBrowserAccessStatusMock.mockResolvedValue({
+      ...browserAccessStatus,
+      enabled: false,
+      state: "stopped",
+      networkScope: "thisComputer",
+      urls: [],
+    });
+    updateBrowserAccessSettingsMock.mockResolvedValue({
+      ...browserAccessStatus,
+      enabled: true,
+      state: "failed",
+      networkScope: "thisComputer",
+      urls: [],
+      lastError: "Port 18088 is already in use.",
+    });
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+    await user.click(screen.getAllByRole("button", { name: "Browser Access" })[0]!);
+    const toggle = (await screen.findAllByRole("switch", { name: "Enable Browser Access" }))[0]!;
+
+    await user.click(toggle);
+
+    expect((await screen.findAllByText("Port 18088 is already in use.")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Browser Access is running.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Browser Access settings saved.")).not.toBeInTheDocument();
+  });
+
+  it("refreshes status from the backend when an apply is rejected", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    const initial = {
+      ...browserAccessStatus,
+      enabled: false,
+      state: "stopped" as const,
+      networkScope: "thisComputer" as const,
+      urls: [],
+    };
+    const refreshed = {
+      ...initial,
+      enabled: true,
+      state: "failed" as const,
+      lastError: "bridge spawn failed",
+    };
+    let statusCalls = 0;
+    getBrowserAccessStatusMock.mockImplementation(() => Promise.resolve(++statusCalls <= 2 ? initial : refreshed));
+    updateBrowserAccessSettingsMock.mockRejectedValue(new Error("bridge spawn failed"));
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+    await user.click(screen.getAllByRole("button", { name: "Browser Access" })[0]!);
+    const toggle = (await screen.findAllByRole("switch", { name: "Enable Browser Access" }))[0]!;
+
+    await user.click(toggle);
+
+    await waitFor(() => expect(getBrowserAccessStatusMock).toHaveBeenCalledTimes(3));
+    expect((await screen.findAllByText(/bridge spawn failed/)).length).toBeGreaterThan(0);
+  });
+
+  it("does not render a QR for a non-private LAN address", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    getBrowserAccessStatusMock.mockResolvedValue({
+      ...browserAccessStatus,
+      urls: ["http://127.0.0.1:18088", "http://8.8.8.8:18088"],
+    });
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+    await user.click(screen.getAllByRole("button", { name: "Browser Access" })[0]!);
+    (await screen.findAllByRole("switch", { name: "Enable Browser Access" }))[0]!;
+
+    expect(screen.queryAllByRole("img", { name: /QR code/i })).toHaveLength(0);
+  });
+
+  it("renders a QR for a valid private LAN address on the expected port", async () => {
+    const user = userEvent.setup();
+    window.__TAURI_INTERNALS__ = {};
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+    await user.click(screen.getAllByRole("button", { name: "Browser Access" })[0]!);
+
+    expect((await screen.findAllByRole("img", { name: /QR code/i })).length).toBeGreaterThan(0);
   });
 
   it("edits the owner global agent overlay from the Your Agent tab", async () => {
