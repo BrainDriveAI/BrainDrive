@@ -1,6 +1,6 @@
 {
   "name": "braindrive",
-  "version": "26.7.14",
+  "version": "26.7.22",
   "description": "BrainDrive core runtime: gateway, engine, auth, memory, and web client",
   "private": true,
   "type": "module",

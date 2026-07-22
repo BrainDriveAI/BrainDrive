@@ -1,3 +1,18 @@
+## [26.7.22] - 2026-07-22
+
+### Added
+- Added private Tailscale remote access for securely using BrainDrive Desktop from trusted devices. (`#251`)
+
+### Changed
+- Updated client web dependencies with compatibility, security, accessibility, and build-tool improvements. (`#253`)
+- Simplified Remote and Browser Access setup while making Remote Access shutdown safer and easier to recover. (`#254`)
+
+### Fixed
+- Fixed Tailscale detection on macOS so Remote Access can correctly check readiness and configuration. (`#252`)
+
+### Removed
+- No user-facing removals this week.
+
 ## [26.7.14] - 2026-07-14
 
 ### Added
