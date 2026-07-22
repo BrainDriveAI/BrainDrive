@@ -51,13 +51,15 @@ An unauthenticated device can load the sign-in surface but cannot read owner dat
 
 | Status | Meaning | Usual next action |
 | --- | --- | --- |
-| **Off** | BrainDrive Remote Access is disabled. | **Enable Remote Access** |
+| **Off** | BrainDrive verified that the BrainDrive Remote Access path is cut. Tailscale cleanup may still be pending and is shown separately. | **Enable Remote Access** when cleanup is clear, or **Try cleanup again** when cleanup is deferred/failed. |
 | **Needs setup** | Tailscale is missing, signed out, offline, too old, unavailable, or waiting for HTTPS consent. | Follow the guidance, then **Check again** or **Complete Tailscale setup**. |
 | **Ready to enable** | Tailscale and the selected Serve listener are ready. | **Enable Remote Access** |
 | **Starting** | BrainDrive is starting and verifying the private bridge and Serve mapping. | Wait; the panel checks again automatically. |
 | **Running** | The localhost bridge and exact BrainDrive-owned Serve mapping were verified live. | **Copy**, **Open Remote Access**, **Check again**, or **Turn off** |
-| **Conflict** | Existing or changed Tailscale configuration cannot safely be adopted or overwritten. | Preserve it, inspect the conflict, and retry only after it is resolved. |
-| **Needs attention** | A command, bridge, status read, saved ownership record, or cleanup could not be verified safely. | Read **Technical details**, correct the reported condition, then **Retry** or **Check again**. |
+| **Conflict** | Existing or changed Tailscale configuration cannot safely be adopted or overwritten. | If access may still be active, select **Turn off** to cut the BrainDrive bridge. BrainDrive leaves unverified Tailscale configuration unchanged. |
+| **Needs attention** | A command, bridge, status read, saved ownership record, or cutoff could not be verified safely. | Select **Turn off** when available, then use **Check again** or the separate cleanup action. |
+
+When **Off** includes **Cleanup deferred** or **Cleanup needs attention**, BrainDrive has confirmed the BrainDrive access path is cut but has not proved that its old Tailscale mapping was removed. The saved mapping port remains reserved so BrainDrive will not reuse it. Use **Try cleanup again** after Tailscale is available. BrainDrive retries only the exact mapping it previously recorded as owned.
 
 The displayed address is authoritative only while the panel reports **Running**. A saved or copied address does not prove that the host is currently reachable.
 
@@ -72,11 +74,12 @@ The displayed address is authoritative only while the panel reports **Running**.
 
 1. Open **Settings > Remote Access** in BrainDrive Desktop.
 2. Select **Turn off**.
-3. Wait for **Off**. BrainDrive rereads live Serve state before reporting success.
+3. Wait for **Off**. This confirms that BrainDrive stopped its local Remote Access bridge or verified that the selected mapping is absent.
+4. Check the separate cleanup result. **Cleanup complete** or **No cleanup needed** means no recorded BrainDrive mapping remains. **Cleanup deferred** or **Cleanup needs attention** means Remote Access is off, but exact Tailscale cleanup should be retried later.
 
 BrainDrive removes only the exact, unchanged mapping recorded as BrainDrive-owned. Unrelated Serve listeners, paths, Services, Funnel settings, tailnet policy, Browser Access settings, providers, credits, and memory are not changed.
 
-If the panel reports **Conflict** or **Needs attention**, do not run `tailscale serve reset`. A global reset can remove unrelated configuration. Preserve the current state and use the troubleshooting steps below.
+If the panel reports **Conflict** or **Needs attention**, use **Turn off** when it is available. BrainDrive attempts the local cutoff even when it cannot inspect or safely own the Tailscale mapping. Do not globally reset Tailscale Serve; that can remove unrelated configuration.
 
 ## Troubleshooting
 
@@ -92,11 +95,11 @@ If the panel reports **Conflict** or **Needs attention**, do not run `tailscale 
 | **Offline** | Restore network access and reconnect Tailscale on the host. |
 | **Missing DNS** | Wait for Tailscale to assign the host a private DNS name. Check Tailscale DNS settings if the condition persists. |
 | **Consent required** | Use **Complete Tailscale setup**, approve HTTPS for the tailnet in Tailscale, return to BrainDrive, and select **Retry**. |
-| **Conflict** or **stale ownership** | Do not reset or overwrite Serve configuration. If another listener uses HTTPS port 443 or the recorded mapping changed, restore the expected state or ask the person who manages that configuration for help. |
+| **Conflict** or **stale ownership** | Select **Turn off** to stop the BrainDrive bridge. BrainDrive will not reset or overwrite the Serve mapping. After cutoff, resolve the ownership conflict or ask the person who manages that configuration for help. |
 | **Bridge unavailable** | Keep BrainDrive running, select **Retry**, and check whether local security software is blocking BrainDrive child processes. |
 | **Command timeout**, **command failed**, malformed output, or output too large | Update/restart Tailscale and select **Retry**. If it repeats, collect the safe support information below. |
 | **Persistence** | BrainDrive could not save its local ownership record. Do not manually change the Serve mapping; check available disk space and local app-data permissions, then retry. |
-| **Ambiguous outcome** or cleanup warning | Access might still be configured. Do not assume it is on or off, and do not reset Serve. Preserve the state and escalate with sanitized evidence. |
+| **Ambiguous outcome** or cleanup warning | Read the primary status separately from cleanup. **Off** means the BrainDrive access path was cut; a cleanup warning means the old Tailscale mapping may remain but points at a stopped/reserved local bridge port. Use **Try cleanup again** and do not reset Serve. If the primary status is **Needs attention**, cutoff was not confirmed; select **Turn off** again or escalate with sanitized evidence. |
 | **Internal** or the desktop runtime has not started | Keep the local app open, restart BrainDrive Desktop, and select **Check again**. If it repeats, collect the safe support information below. |
 | The address works on the host but not the second device | Confirm the second device is online in the same tailnet and allowed by the tailnet access policy. A host-local **Open Remote Access** result is not remote proof. |
 | The address stopped working | Wake the host, restore its network and Tailscale connection, start BrainDrive Desktop, then select **Check again**. |
@@ -117,9 +120,9 @@ Review and redact logs before sharing them. Never share raw Tailscale status or 
 
 ## Downgrade or remove BrainDrive
 
-Turn off Remote Access and verify **Off** before downgrading or uninstalling BrainDrive. Older BrainDrive versions do not know how to remove this feature's persistent Serve mapping.
+Turn off Remote Access and verify **Off** plus **Cleanup complete** or **No cleanup needed** before downgrading or uninstalling BrainDrive. Do not downgrade while cleanup is deferred or failed: older BrainDrive versions do not understand the v2 pending-cleanup record or know how to retry its exact persistent Serve mapping.
 
-If BrainDrive cannot start, do not use `tailscale serve reset`. Ask for support and verify the exact live mapping before any listener-scoped removal. An old, missing, or malformed BrainDrive state file is intentionally not enough authority to delete Tailscale configuration.
+If BrainDrive cannot start, do not globally reset Tailscale Serve. Ask for support and verify the exact live mapping before any listener-scoped removal. An old, missing, or malformed BrainDrive state file is intentionally not enough authority to delete Tailscale configuration.
 
 ## Security boundaries
 

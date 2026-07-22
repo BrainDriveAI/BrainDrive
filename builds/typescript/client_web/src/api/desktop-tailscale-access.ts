@@ -51,6 +51,8 @@ export type ServeOwnership =
 
 export type TailnetBridgeState = "stopped" | "starting" | "running" | "failed";
 
+export type TailscaleCleanupState = "complete" | "notNeeded" | "deferred" | "failed";
+
 export type TailscaleAccessAction =
   | "enable"
   | "retry"
@@ -80,6 +82,7 @@ export type TailscaleAccessStatus = {
   readiness: TailscaleReadiness;
   ownership: ServeOwnership;
   bridgeState: TailnetBridgeState;
+  cleanupState?: TailscaleCleanupState | null;
   accessUrl: string | null;
   setupUrl: string | null;
   availableActions: TailscaleAccessAction[];

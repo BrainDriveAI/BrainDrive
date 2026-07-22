@@ -176,16 +176,20 @@ impl TailscaleRuntimeBackend for DesktopTailscaleBackend<'_> {
     }
 
     fn bridge_healthy(&mut self, port: u16) -> bool {
-        let child_running = self
-            .bridge_child
-            .as_mut()
-            .is_some_and(|child| child.try_wait().ok().flatten().is_none());
-        child_running && http_health_ok(port, "/healthz")
+        child_is_running(self.bridge_child) && http_health_ok(port, "/healthz")
     }
 
-    fn start_bridge(&mut self, preferred_port: Option<u16>) -> Result<u16, TailscaleErrorCode> {
-        stop_child(self.bridge_child);
-        let port = select_tailnet_bridge_port(preferred_port)
+    fn bridge_running(&mut self) -> bool {
+        child_is_running(self.bridge_child)
+    }
+
+    fn start_bridge(
+        &mut self,
+        preferred_port: Option<u16>,
+        quarantined_port: Option<u16>,
+    ) -> Result<u16, TailscaleErrorCode> {
+        stop_child_checked(self.bridge_child).map_err(|_| TailscaleErrorCode::BridgeUnavailable)?;
+        let port = select_tailnet_bridge_port(preferred_port, quarantined_port)
             .ok_or(TailscaleErrorCode::BridgeUnavailable)?;
         let mut child = spawn_tailnet_bridge(self.context, port)
             .map_err(|_| TailscaleErrorCode::BridgeUnavailable)?;
@@ -204,8 +208,8 @@ impl TailscaleRuntimeBackend for DesktopTailscaleBackend<'_> {
         Ok(port)
     }
 
-    fn stop_bridge(&mut self) {
-        stop_child(self.bridge_child);
+    fn stop_bridge(&mut self) -> Result<(), TailscaleErrorCode> {
+        stop_child_checked(self.bridge_child).map_err(|_| TailscaleErrorCode::BridgeUnavailable)
     }
 
     fn record_diagnostic(&mut self, event: &DiagnosticEvent) {
@@ -1136,16 +1140,31 @@ fn spawn_bridge(
     spawn_logged(command, &context.log_root, "browser-access")
 }
 
-fn select_tailnet_bridge_port(preferred_port: Option<u16>) -> Option<u16> {
+fn select_tailnet_bridge_port(
+    preferred_port: Option<u16>,
+    quarantined_port: Option<u16>,
+) -> Option<u16> {
+    select_tailnet_bridge_port_with(preferred_port, quarantined_port, |port| {
+        port_is_available("127.0.0.1", port)
+    })
+}
+
+fn select_tailnet_bridge_port_with(
+    preferred_port: Option<u16>,
+    quarantined_port: Option<u16>,
+    mut is_available: impl FnMut(u16) -> bool,
+) -> Option<u16> {
     if let Some(port) = preferred_port
         .filter(|port| (MANAGED_LOOPBACK_PORT_START..=MANAGED_LOOPBACK_PORT_END).contains(port))
+        .filter(|port| Some(*port) != quarantined_port)
     {
-        if port_is_available("127.0.0.1", port) {
+        if is_available(port) {
             return Some(port);
         }
     }
-    (MANAGED_LOOPBACK_PORT_START..=MANAGED_LOOPBACK_PORT_END)
-        .find(|port| Some(*port) != preferred_port && port_is_available("127.0.0.1", *port))
+    (MANAGED_LOOPBACK_PORT_START..=MANAGED_LOOPBACK_PORT_END).find(|port| {
+        Some(*port) != preferred_port && Some(*port) != quarantined_port && is_available(*port)
+    })
 }
 
 fn spawn_tailnet_bridge(context: &RuntimeContext, port: u16) -> Result<Child, String> {
@@ -1184,12 +1203,46 @@ fn spawn_tailnet_bridge(context: &RuntimeContext, port: u16) -> Result<Child, St
     spawn_logged(command, &context.log_root, "tailscale-access")
 }
 
-fn stop_child(child: &mut Option<Child>) {
-    if let Some(child) = child {
-        let _ = child.kill();
-        let _ = child.wait();
+fn child_is_running(child: &mut Option<Child>) -> bool {
+    let Some(process) = child.as_mut() else {
+        return false;
+    };
+    match process.try_wait() {
+        Ok(None) | Err(_) => true,
+        Ok(Some(_)) => {
+            *child = None;
+            false
+        }
     }
-    *child = None;
+}
+
+fn stop_child_checked(child: &mut Option<Child>) -> Result<(), String> {
+    let Some(mut process) = child.take() else {
+        return Ok(());
+    };
+    match process.try_wait() {
+        Ok(Some(_)) => return Ok(()),
+        Ok(None) => {}
+        Err(error) => {
+            *child = Some(process);
+            return Err(format!("could not inspect child process: {error}"));
+        }
+    }
+    if let Err(error) = process.kill() {
+        if process.try_wait().is_ok_and(|status| status.is_some()) {
+            return Ok(());
+        }
+        *child = Some(process);
+        return Err(format!("could not stop child process: {error}"));
+    }
+    if let Err(error) = process.wait() {
+        if process.try_wait().is_ok_and(|status| status.is_some()) {
+            return Ok(());
+        }
+        *child = Some(process);
+        return Err(format!("could not wait for child process: {error}"));
+    }
+    Ok(())
 }
 
 fn browser_access_urls(settings: &BrowserAccessSettings, port: u16) -> Vec<String> {
@@ -1888,4 +1941,59 @@ fn append_supervisor_log_from_app(app: &tauri::AppHandle, message: &str) {
 
 fn display_error(error: impl std::fmt::Display) -> String {
     error.to_string()
+}
+
+#[cfg(test)]
+mod tailscale_bridge_tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn tailnet_port_allocator_prefers_requested_available_port() {
+        let preferred = MANAGED_LOOPBACK_PORT_START + 3;
+        assert_eq!(
+            select_tailnet_bridge_port_with(Some(preferred), None, |_| true),
+            Some(preferred)
+        );
+    }
+
+    #[test]
+    fn tailnet_port_allocator_falls_back_and_excludes_quarantined_port() {
+        let preferred = MANAGED_LOOPBACK_PORT_START;
+        let quarantined = preferred + 1;
+        let available = BTreeSet::from([quarantined, quarantined + 1]);
+        assert_eq!(
+            select_tailnet_bridge_port_with(Some(preferred), Some(quarantined), |port| {
+                available.contains(&port)
+            }),
+            Some(quarantined + 1)
+        );
+    }
+
+    #[test]
+    fn tailnet_port_allocator_never_reuses_quarantine_and_reports_exhaustion() {
+        let quarantined = MANAGED_LOOPBACK_PORT_START;
+        assert_eq!(
+            select_tailnet_bridge_port_with(None, Some(quarantined), |port| port == quarantined),
+            None
+        );
+        assert_eq!(select_tailnet_bridge_port_with(None, None, |_| false), None);
+    }
+
+    #[test]
+    fn checked_bridge_stop_accepts_absent_and_already_exited_children() {
+        let mut absent = None;
+        assert_eq!(stop_child_checked(&mut absent), Ok(()));
+
+        let mut process = Command::new(std::env::current_exe().unwrap())
+            .arg("--list")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        process.wait().unwrap();
+        let mut exited = Some(process);
+        assert_eq!(stop_child_checked(&mut exited), Ok(()));
+        assert!(exited.is_none());
+    }
 }

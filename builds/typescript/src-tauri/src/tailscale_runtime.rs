@@ -2,11 +2,12 @@ use crate::tailscale_access::{
     access_url_from_dns_name, classify_ownership, classify_status, parse_consent_url,
     parse_serve_status_json, parse_service_config_json, parse_status_json,
     readiness_from_runner_error, service_config_fingerprint, unrelated_serve_fingerprint,
-    CapturedOutput, CommandExitCategory, DiagnosticAction, DiagnosticEvent, ManagedMapping,
-    RunLimits, RunnerError, SemanticVersion, ServeConfigView, ServeOwnership, StateErrorCode,
-    StateLoad, TailnetBridgeState, TailscaleAccessAction, TailscaleAccessConfig,
-    TailscaleAccessState, TailscaleAccessStatus, TailscaleCommand, TailscaleCommandKind,
-    TailscaleErrorCode, TailscaleReadiness, TailscaleReadinessState, MINIMUM_SUPPORTED_VERSION,
+    BridgeCutoffOutcome, CapturedOutput, CommandExitCategory, DiagnosticAction, DiagnosticEvent,
+    ManagedMapping, RunLimits, RunnerError, SemanticVersion, ServeConfigView, ServeOwnership,
+    StateErrorCode, StateLoad, TailnetBridgeState, TailscaleAccessAction, TailscaleAccessConfig,
+    TailscaleAccessState, TailscaleAccessStatus, TailscaleCleanupReason, TailscaleCleanupState,
+    TailscaleCommand, TailscaleCommandKind, TailscaleErrorCode, TailscaleOwnershipDecision,
+    TailscaleReadiness, TailscaleReadinessState, MINIMUM_SUPPORTED_VERSION,
 };
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -36,8 +37,13 @@ pub trait TailscaleRuntimeBackend {
         limits: RunLimits,
     ) -> Result<CapturedOutput, RunnerError>;
     fn bridge_healthy(&mut self, port: u16) -> bool;
-    fn start_bridge(&mut self, preferred_port: Option<u16>) -> Result<u16, TailscaleErrorCode>;
-    fn stop_bridge(&mut self);
+    fn bridge_running(&mut self) -> bool;
+    fn start_bridge(
+        &mut self,
+        preferred_port: Option<u16>,
+        quarantined_port: Option<u16>,
+    ) -> Result<u16, TailscaleErrorCode>;
+    fn stop_bridge(&mut self) -> Result<(), TailscaleErrorCode>;
     fn record_diagnostic(&mut self, event: &DiagnosticEvent);
     fn mutation_evidence(&self) -> Option<(TailscaleCommandKind, CommandExitCategory)> {
         None
@@ -57,6 +63,16 @@ struct InspectionFailure {
     error_code: TailscaleErrorCode,
 }
 
+#[derive(Default)]
+struct OperationEvidence {
+    bridge_cutoff: Option<BridgeCutoffOutcome>,
+    cleanup_reason: Option<TailscaleCleanupReason>,
+    ownership_decision: Option<TailscaleOwnershipDecision>,
+    state_persisted: Option<bool>,
+    quarantine_active: Option<bool>,
+    external_change: Option<bool>,
+}
+
 pub fn perform<B: TailscaleRuntimeBackend>(
     backend: &mut B,
     action: LifecycleAction,
@@ -66,6 +82,7 @@ pub fn perform<B: TailscaleRuntimeBackend>(
     let prior = cached_state(&state_load);
     let mut event = DiagnosticEvent::new(operation_id, diagnostic_action(action));
     event.prior_state = Some(prior);
+    let mut evidence = OperationEvidence::default();
 
     let status = if backend.deployment_mode() != DeploymentMode::Local {
         unavailable_status(
@@ -79,8 +96,8 @@ pub fn perform<B: TailscaleRuntimeBackend>(
             LifecycleAction::Enable | LifecycleAction::Retry => {
                 enable(backend, state_load, action == LifecycleAction::Retry)
             }
-            LifecycleAction::Disable => disable(backend, state_load),
-            LifecycleAction::Startup => startup(backend, state_load),
+            LifecycleAction::Disable => disable(backend, state_load, &mut evidence),
+            LifecycleAction::Startup => startup(backend, state_load, &mut evidence),
         }
     };
 
@@ -89,20 +106,48 @@ pub fn perform<B: TailscaleRuntimeBackend>(
     event.ownership = Some(status.ownership);
     event.post_state = Some(status.state);
     event.error_code = status.error_code;
+    event.bridge_cutoff = evidence.bridge_cutoff;
+    event.cleanup_state = status.cleanup_state;
+    event.cleanup_reason = evidence
+        .cleanup_reason
+        .or_else(|| cleanup_reason_for(&status));
+    event.ownership_decision = evidence
+        .ownership_decision
+        .or_else(|| ownership_decision_for(&status));
+    event.state_persisted = evidence.state_persisted.or_else(|| match action {
+        LifecycleAction::Enable | LifecycleAction::Retry => {
+            Some(status.error_code != Some(TailscaleErrorCode::Persistence))
+        }
+        _ => None,
+    });
+    event.quarantine_active = evidence.quarantine_active.or_else(|| {
+        status.cleanup_state.map(|cleanup| {
+            matches!(
+                cleanup,
+                TailscaleCleanupState::Deferred | TailscaleCleanupState::Failed
+            )
+        })
+    });
+    event.external_change = evidence.external_change;
     if let Some((command_kind, exit_category)) = backend.mutation_evidence() {
         event.command_kind = Some(command_kind);
         event.exit_category = Some(exit_category);
-        event.external_change = Some(match action {
-            LifecycleAction::Enable | LifecycleAction::Retry | LifecycleAction::Startup => {
-                status.state == TailscaleAccessState::Running
-                    || status.bridge_state == TailnetBridgeState::Running
-            }
-            LifecycleAction::Disable => {
-                status.state == TailscaleAccessState::Off
-                    || status.ownership == ServeOwnership::Absent
-            }
-            LifecycleAction::Status => false,
-        });
+        if event.external_change.is_none() {
+            event.external_change = match action {
+                LifecycleAction::Enable | LifecycleAction::Retry | LifecycleAction::Startup => {
+                    Some(
+                        status.state == TailscaleAccessState::Running
+                            || status.bridge_state == TailnetBridgeState::Running,
+                    )
+                }
+                LifecycleAction::Disable => match status.cleanup_state {
+                    Some(TailscaleCleanupState::Complete) => Some(true),
+                    Some(TailscaleCleanupState::Deferred) => None,
+                    _ => Some(false),
+                },
+                LifecycleAction::Status => Some(false),
+            };
+        }
     }
     event.decision = Some(decision_for(&status).to_string());
     event.corrective_action = status.detail.clone();
@@ -119,9 +164,14 @@ pub fn not_started_status() -> TailscaleAccessStatus {
 }
 
 pub fn shutdown<B: TailscaleRuntimeBackend>(backend: &mut B, operation_id: &str) {
-    backend.stop_bridge();
+    let bridge_cutoff = if backend.stop_bridge().is_ok() {
+        BridgeCutoffOutcome::Confirmed
+    } else {
+        BridgeCutoffOutcome::Failed
+    };
     let mut event = DiagnosticEvent::new(operation_id, DiagnosticAction::Shutdown);
     event.external_change = Some(false);
+    event.bridge_cutoff = Some(bridge_cutoff);
     event.decision = Some("tailnet_bridge_stopped_mapping_preserved".to_string());
     backend.record_diagnostic(&event);
 }
@@ -133,12 +183,44 @@ fn status<B: TailscaleRuntimeBackend>(
     let state = match state_load {
         Ok(StateLoad::Missing) => None,
         Ok(StateLoad::Loaded(state)) => Some(state),
-        Err(error) => return state_error_status(error),
+        Err(error) => {
+            return invalid_state_cutoff_status(error, !backend.bridge_running(), false);
+        }
     };
     let desired = state.as_ref().is_some_and(|state| state.desired_enabled);
+    let bridge_running = backend.bridge_running();
     let inspection = match inspect(backend) {
         Ok(inspection) => inspection,
-        Err(failure) => return inspection_failure_status(desired, failure),
+        Err(failure) => {
+            if state
+                .as_ref()
+                .is_some_and(TailscaleAccessConfig::cleanup_pending)
+            {
+                return cleanup_result_status(
+                    !bridge_running,
+                    false,
+                    failure.readiness,
+                    ServeOwnership::Ambiguous,
+                    TailscaleCleanupState::Deferred,
+                    Some(failure.error_code),
+                    true,
+                    "Remote Access is off, but Tailscale cleanup could not be checked.",
+                    "Open Tailscale, then check again or retry cleanup.",
+                );
+            }
+            if desired && bridge_running {
+                return attention_status(
+                    true,
+                    failure.readiness,
+                    ServeOwnership::Ambiguous,
+                    TailnetBridgeState::Running,
+                    Some(failure.error_code),
+                    "BrainDrive could not verify the active Tailscale access path.",
+                    "Turn off Remote Access or check Tailscale, then try again.",
+                );
+            }
+            return inspection_failure_status(desired, failure);
+        }
     };
     let expected = state
         .as_ref()
@@ -167,9 +249,48 @@ fn status<B: TailscaleRuntimeBackend>(
         return conflict_or_attention(true, inspection.readiness, ownership);
     }
 
-    if ownership != ServeOwnership::Absent {
-        return conflict_or_attention(false, inspection.readiness, ownership);
+    if state
+        .as_ref()
+        .is_some_and(TailscaleAccessConfig::cleanup_pending)
+    {
+        let mapping_absent = selected_mapping_absent(&inspection);
+        let cleanup_state = if mapping_absent {
+            TailscaleCleanupState::NotNeeded
+        } else {
+            TailscaleCleanupState::Deferred
+        };
+        return cleanup_result_status(
+            !bridge_running,
+            mapping_absent,
+            inspection.readiness,
+            ownership,
+            cleanup_state,
+            (!mapping_absent).then_some(TailscaleErrorCode::Conflict),
+            true,
+            if mapping_absent {
+                "Remote Access is off and no BrainDrive mapping remains."
+            } else {
+                "Remote Access is off; Tailscale cleanup is still pending."
+            },
+            if mapping_absent {
+                "Turn on Remote Access or finish clearing the saved cleanup record."
+            } else {
+                "BrainDrive left other Tailscale settings unchanged. Check again or retry cleanup."
+            },
+        );
     }
+
+    if bridge_running {
+        return cutoff_unconfirmed_status(
+            inspection.readiness,
+            ownership,
+            None,
+            Some(TailscaleErrorCode::BridgeUnavailable),
+            "The Remote Access bridge may still be running.",
+            "Turn off Remote Access to stop the local bridge.",
+        );
+    }
+
     let state_code = if state.is_none() {
         TailscaleAccessState::Ready
     } else {
@@ -179,7 +300,7 @@ fn status<B: TailscaleRuntimeBackend>(
         state_code,
         false,
         inspection.readiness,
-        ServeOwnership::Absent,
+        ownership,
         TailnetBridgeState::Stopped,
         None,
         None,
@@ -205,12 +326,12 @@ fn enable<B: TailscaleRuntimeBackend>(
             "Create the local BrainDrive owner account before enabling private access.",
         );
     }
-    let state = match state_load {
+    let mut state = match state_load {
         Ok(StateLoad::Missing) => None,
         Ok(StateLoad::Loaded(state)) => Some(state),
         Err(error) => return state_error_status(error),
     };
-    let desired = state.as_ref().is_some_and(|state| state.desired_enabled);
+    let mut desired = state.as_ref().is_some_and(|state| state.desired_enabled);
     let before = match inspect(backend) {
         Ok(inspection) => inspection,
         Err(failure) => return inspection_failure_status(desired, failure),
@@ -218,7 +339,33 @@ fn enable<B: TailscaleRuntimeBackend>(
     let expected = state
         .as_ref()
         .and_then(|state| state.mapping_fingerprint.as_deref());
-    let ownership = effective_ownership(&before, expected);
+    let mut ownership = effective_ownership(&before, expected);
+
+    if state
+        .as_ref()
+        .is_some_and(TailscaleAccessConfig::cleanup_pending)
+    {
+        if !selected_mapping_absent(&before) {
+            return cleanup_result_status(
+                !backend.bridge_running(),
+                false,
+                before.readiness,
+                ownership,
+                TailscaleCleanupState::Deferred,
+                Some(TailscaleErrorCode::Conflict),
+                true,
+                "Remote Access remains off while Tailscale cleanup is pending.",
+                "Finish cleanup before turning Remote Access on again.",
+            );
+        }
+        let clean = TailscaleAccessConfig::disabled_clean();
+        if backend.save_state(&clean).is_err() {
+            return persistence_status(false, before.readiness, ownership);
+        }
+        state = Some(clean);
+        desired = false;
+        ownership = effective_ownership(&before, None);
+    }
 
     if ownership == ServeOwnership::OwnedExact {
         let mapping = state
@@ -227,7 +374,13 @@ fn enable<B: TailscaleRuntimeBackend>(
         let Some(mapping) = mapping else {
             return state_error_status(StateErrorCode::StaleOwnership);
         };
-        if let Err(code) = ensure_bridge(backend, Some(mapping.loopback_port())) {
+        if let Err(code) = ensure_bridge(
+            backend,
+            Some(mapping.loopback_port()),
+            state
+                .as_ref()
+                .and_then(TailscaleAccessConfig::quarantined_port),
+        ) {
             return bridge_error_status(true, before.readiness, ownership, code);
         }
         return running_status(state.as_ref().unwrap(), before);
@@ -249,14 +402,17 @@ fn enable<B: TailscaleRuntimeBackend>(
         .as_ref()
         .and_then(TailscaleAccessConfig::managed_mapping)
         .map(|mapping| mapping.loopback_port());
-    let bridge_port = match ensure_bridge(backend, preferred) {
+    let quarantined = state
+        .as_ref()
+        .and_then(TailscaleAccessConfig::quarantined_port);
+    let bridge_port = match ensure_bridge(backend, preferred, quarantined) {
         Ok(port) => port,
         Err(code) => return bridge_error_status(desired, before.readiness, ownership, code),
     };
     let mapping = match ManagedMapping::new(bridge_port) {
         Ok(mapping) => mapping,
         Err(code) => {
-            backend.stop_bridge();
+            let _ = backend.stop_bridge();
             return bridge_error_status(desired, before.readiness, ownership, code);
         }
     };
@@ -264,7 +420,7 @@ fn enable<B: TailscaleRuntimeBackend>(
         match unrelated_serve_fingerprint(&before.serve_raw, &mapping.canonical()) {
             Ok(fingerprint) => fingerprint,
             Err(code) => {
-                backend.stop_bridge();
+                let _ = backend.stop_bridge();
                 return attention_status(
                     desired,
                     before.readiness,
@@ -279,7 +435,7 @@ fn enable<B: TailscaleRuntimeBackend>(
     let before_service_fingerprint = match service_config_fingerprint(&before.service_raw) {
         Ok(fingerprint) => fingerprint,
         Err(code) => {
-            backend.stop_bridge();
+            let _ = backend.stop_bridge();
             return attention_status(
                 desired,
                 before.readiness,
@@ -301,7 +457,7 @@ fn enable<B: TailscaleRuntimeBackend>(
         Ok(inspection) => inspection,
         Err(failure) => {
             if setup_url.is_some() {
-                backend.stop_bridge();
+                let _ = backend.stop_bridge();
                 return setup_status(failure.readiness, setup_url);
             }
             return inspection_failure_status(true, failure);
@@ -316,7 +472,7 @@ fn enable<B: TailscaleRuntimeBackend>(
     );
     if after_ownership != ServeOwnership::OwnedExact || !unchanged {
         if let Some(url) = setup_url {
-            backend.stop_bridge();
+            let _ = backend.stop_bridge();
             return setup_status(after.readiness, Some(url));
         }
         if command_result.is_err()
@@ -335,7 +491,7 @@ fn enable<B: TailscaleRuntimeBackend>(
             let bridge_state = if after_ownership == ServeOwnership::OwnedExact {
                 TailnetBridgeState::Running
             } else {
-                backend.stop_bridge();
+                let _ = backend.stop_bridge();
                 TailnetBridgeState::Stopped
             };
             return attention_status(
@@ -374,102 +530,322 @@ fn enable<B: TailscaleRuntimeBackend>(
 fn disable<B: TailscaleRuntimeBackend>(
     backend: &mut B,
     state_load: Result<StateLoad, StateErrorCode>,
+    evidence: &mut OperationEvidence,
 ) -> TailscaleAccessStatus {
     let state = match state_load {
         Ok(StateLoad::Missing) => None,
         Ok(StateLoad::Loaded(state)) => Some(state),
-        Err(error) => return state_error_status(error),
-    };
-    let desired = state.as_ref().is_some_and(|state| state.desired_enabled);
-    let before = match inspect(backend) {
-        Ok(inspection) => inspection,
-        Err(failure) => return inspection_failure_status(desired, failure),
-    };
-    let expected = state
-        .as_ref()
-        .and_then(|state| state.mapping_fingerprint.as_deref());
-    let ownership = effective_ownership(&before, expected);
-
-    if ownership == ServeOwnership::Absent
-        || (desired
-            && ownership == ServeOwnership::OwnedDrifted
-            && before.serve.selected_mapping.is_none()
-            && !before.serve.selected_conflict
-            && !before.serve.funnel_present)
-    {
-        if backend
-            .save_state(&TailscaleAccessConfig::disabled())
-            .is_err()
-        {
-            return persistence_status(false, before.readiness, ownership);
+        Err(error) => {
+            let bridge_stopped = backend.stop_bridge().is_ok();
+            evidence.bridge_cutoff = Some(if bridge_stopped {
+                BridgeCutoffOutcome::Confirmed
+            } else {
+                BridgeCutoffOutcome::Failed
+            });
+            evidence.cleanup_reason = Some(TailscaleCleanupReason::PersistenceFailed);
+            evidence.ownership_decision = Some(TailscaleOwnershipDecision::Ambiguous);
+            evidence.state_persisted = Some(false);
+            evidence.quarantine_active = Some(true);
+            evidence.external_change = Some(false);
+            return invalid_state_cutoff_status(error, bridge_stopped, true);
         }
-        backend.stop_bridge();
-        return off_status(before.readiness);
-    }
-    if !desired || ownership != ServeOwnership::OwnedExact {
-        return conflict_or_attention(desired, before.readiness, ownership);
-    }
+    };
+    let prior_desired = state.as_ref().is_some_and(|state| state.desired_enabled);
     let mapping = state
         .as_ref()
-        .and_then(TailscaleAccessConfig::managed_mapping)
-        .expect("validated enabled state has a managed mapping");
+        .and_then(TailscaleAccessConfig::managed_mapping);
+    let Some(mapping) = mapping else {
+        let bridge_stopped = backend.stop_bridge().is_ok();
+        evidence.bridge_cutoff = Some(if bridge_stopped {
+            BridgeCutoffOutcome::Confirmed
+        } else {
+            BridgeCutoffOutcome::Failed
+        });
+        evidence.cleanup_reason = Some(TailscaleCleanupReason::MappingAbsent);
+        evidence.ownership_decision = Some(TailscaleOwnershipDecision::Absent);
+        evidence.quarantine_active = Some(false);
+        evidence.external_change = Some(false);
+        return cleanup_result_status(
+            bridge_stopped,
+            false,
+            default_readiness(),
+            ServeOwnership::Absent,
+            TailscaleCleanupState::NotNeeded,
+            None,
+            false,
+            "Remote Access is off.",
+            "No BrainDrive Tailscale mapping needed cleanup.",
+        );
+    };
+    let off_state = TailscaleAccessConfig::disabled_pending(&mapping);
+    if backend.save_state(&off_state).is_err() {
+        let bridge_stopped = backend.stop_bridge().is_ok();
+        evidence.bridge_cutoff = Some(if bridge_stopped {
+            BridgeCutoffOutcome::Confirmed
+        } else {
+            BridgeCutoffOutcome::Failed
+        });
+        evidence.cleanup_reason = Some(TailscaleCleanupReason::PersistenceFailed);
+        evidence.ownership_decision = Some(TailscaleOwnershipDecision::Ambiguous);
+        evidence.state_persisted = Some(false);
+        evidence.quarantine_active = Some(true);
+        evidence.external_change = Some(false);
+        return persistence_before_cleanup_status(prior_desired, bridge_stopped, true);
+    }
+    evidence.state_persisted = Some(true);
+    evidence.quarantine_active = Some(true);
+
+    let bridge_stopped = backend.stop_bridge().is_ok();
+    evidence.bridge_cutoff = Some(if bridge_stopped {
+        BridgeCutoffOutcome::Confirmed
+    } else {
+        BridgeCutoffOutcome::Failed
+    });
+
+    let before = match inspect(backend) {
+        Ok(inspection) => inspection,
+        Err(failure) => {
+            evidence.cleanup_reason = Some(TailscaleCleanupReason::InspectionUnavailable);
+            evidence.ownership_decision = Some(TailscaleOwnershipDecision::InspectionUnavailable);
+            evidence.external_change = Some(false);
+            return cleanup_result_status(
+                bridge_stopped,
+                false,
+                failure.readiness,
+                ServeOwnership::Ambiguous,
+                TailscaleCleanupState::Deferred,
+                Some(failure.error_code),
+                true,
+                "Remote Access is off, but Tailscale cleanup was deferred.",
+                "Open Tailscale, then check again or retry cleanup.",
+            );
+        }
+    };
+    let expected_fingerprint = mapping.canonical().fingerprint();
+    let ownership = effective_ownership(&before, Some(&expected_fingerprint));
+    evidence.ownership_decision = Some(ownership_decision(ownership, &before));
+
+    if selected_mapping_absent(&before) {
+        evidence.cleanup_reason = Some(TailscaleCleanupReason::MappingAbsent);
+        evidence.external_change = Some(false);
+        let saved_clean = backend
+            .save_state(&TailscaleAccessConfig::disabled_clean())
+            .is_ok();
+        evidence.state_persisted = Some(saved_clean);
+        evidence.quarantine_active = Some(!saved_clean);
+        return cleanup_result_status(
+            bridge_stopped,
+            true,
+            before.readiness,
+            ServeOwnership::Absent,
+            TailscaleCleanupState::NotNeeded,
+            (!saved_clean).then_some(TailscaleErrorCode::Persistence),
+            !saved_clean,
+            "Remote Access is off and no BrainDrive mapping remains.",
+            if saved_clean {
+                "No Tailscale cleanup was needed."
+            } else {
+                "The mapping is absent, but BrainDrive could not clear its saved cleanup record."
+            },
+        );
+    }
+    if ownership != ServeOwnership::OwnedExact {
+        evidence.cleanup_reason = Some(TailscaleCleanupReason::OwnershipNotExact);
+        evidence.external_change = Some(false);
+        return cleanup_result_status(
+            bridge_stopped,
+            false,
+            before.readiness,
+            ownership,
+            TailscaleCleanupState::Deferred,
+            Some(TailscaleErrorCode::Conflict),
+            true,
+            "Remote Access is off; Tailscale cleanup is still pending.",
+            "BrainDrive did not change a mapping it could not prove it owns.",
+        );
+    }
     let before_serve = match unrelated_serve_fingerprint(&before.serve_raw, &mapping.canonical()) {
         Ok(value) => value,
-        Err(code) => return comparison_failure(true, before.readiness, ownership, code),
+        Err(code) => {
+            evidence.cleanup_reason = Some(TailscaleCleanupReason::PreservationMismatch);
+            evidence.external_change = Some(false);
+            return cleanup_result_status(
+                bridge_stopped,
+                false,
+                before.readiness,
+                ownership,
+                TailscaleCleanupState::Deferred,
+                Some(code),
+                true,
+                "Remote Access is off, but Tailscale cleanup was deferred.",
+                "BrainDrive could not compare unrelated Tailscale settings safely.",
+            );
+        }
     };
     let before_service = match service_config_fingerprint(&before.service_raw) {
         Ok(value) => value,
-        Err(code) => return comparison_failure(true, before.readiness, ownership, code),
+        Err(code) => {
+            evidence.cleanup_reason = Some(TailscaleCleanupReason::PreservationMismatch);
+            evidence.external_change = Some(false);
+            return cleanup_result_status(
+                bridge_stopped,
+                false,
+                before.readiness,
+                ownership,
+                TailscaleCleanupState::Deferred,
+                Some(code),
+                true,
+                "Remote Access is off, but Tailscale cleanup was deferred.",
+                "BrainDrive could not compare unrelated Tailscale settings safely.",
+            );
+        }
     };
 
-    let _command_result = backend.run_command(&TailscaleCommand::Disable, RunLimits::default());
+    let command_result = backend.run_command(&TailscaleCommand::Disable, RunLimits::default());
     let after = match inspect(backend) {
         Ok(inspection) => inspection,
-        Err(failure) => return inspection_failure_status(true, failure),
+        Err(failure) => {
+            evidence.cleanup_reason = Some(TailscaleCleanupReason::ReadbackUnavailable);
+            evidence.external_change = None;
+            return cleanup_result_status(
+                bridge_stopped,
+                false,
+                failure.readiness,
+                ServeOwnership::Ambiguous,
+                TailscaleCleanupState::Deferred,
+                Some(failure.error_code),
+                true,
+                "Remote Access is off, but Tailscale cleanup could not be verified.",
+                "Check Tailscale, then retry cleanup.",
+            );
+        }
     };
-    let after_ownership = effective_ownership(&after, Some(&mapping.canonical().fingerprint()));
+    let after_ownership = effective_ownership(&after, Some(&expected_fingerprint));
     let unchanged = preservation_matches(&before_serve, &before_service, &after, &mapping);
-    if after.serve.selected_mapping.is_some()
-        || after.serve.selected_conflict
-        || !matches!(after_ownership, ServeOwnership::OwnedDrifted)
-        || !unchanged
-    {
-        return attention_status(
+    let mapping_absent = selected_mapping_absent(&after);
+    if mapping_absent && unchanged {
+        evidence.cleanup_reason = Some(TailscaleCleanupReason::MappingRemoved);
+        evidence.external_change = Some(true);
+        evidence.ownership_decision = Some(TailscaleOwnershipDecision::Absent);
+        let saved_clean = backend
+            .save_state(&TailscaleAccessConfig::disabled_clean())
+            .is_ok();
+        evidence.state_persisted = Some(saved_clean);
+        evidence.quarantine_active = Some(!saved_clean);
+        return cleanup_result_status(
+            bridge_stopped,
             true,
             after.readiness,
-            after_ownership,
-            TailnetBridgeState::Running,
-            Some(TailscaleErrorCode::AmbiguousOutcome),
-            "BrainDrive could not verify that private access was removed safely.",
-            "Inspect Tailscale before trying again.",
+            ServeOwnership::Absent,
+            TailscaleCleanupState::Complete,
+            (!saved_clean).then_some(TailscaleErrorCode::Persistence),
+            !saved_clean,
+            "Remote Access is off and Tailscale cleanup is complete.",
+            if saved_clean {
+                "BrainDrive removed only its exact Tailscale mapping."
+            } else {
+                "The mapping is gone, but BrainDrive could not clear its saved cleanup record."
+            },
         );
     }
-    if backend
-        .save_state(&TailscaleAccessConfig::disabled())
-        .is_err()
-    {
-        backend.stop_bridge();
-        return persistence_status(false, after.readiness, ServeOwnership::Absent);
-    }
-    backend.stop_bridge();
-    off_status(after.readiness)
+
+    let (cleanup_state, error_code, cleanup_reason) = if !unchanged {
+        (
+            TailscaleCleanupState::Deferred,
+            TailscaleErrorCode::AmbiguousOutcome,
+            TailscaleCleanupReason::PreservationMismatch,
+        )
+    } else {
+        cleanup_failure_feedback(&command_result)
+    };
+    evidence.cleanup_reason = Some(cleanup_reason);
+    evidence.external_change = Some(mapping_absent);
+    cleanup_result_status(
+        bridge_stopped,
+        mapping_absent,
+        after.readiness,
+        after_ownership,
+        cleanup_state,
+        Some(error_code),
+        true,
+        "Remote Access is off, but Tailscale cleanup is incomplete.",
+        "BrainDrive kept the saved ownership evidence so cleanup can be retried safely.",
+    )
 }
 
 fn startup<B: TailscaleRuntimeBackend>(
     backend: &mut B,
     state_load: Result<StateLoad, StateErrorCode>,
+    evidence: &mut OperationEvidence,
 ) -> TailscaleAccessStatus {
     let state = match state_load {
         Ok(StateLoad::Missing) => {
-            backend.stop_bridge();
-            return off_status(default_readiness());
+            let bridge_stopped = backend.stop_bridge().is_ok();
+            evidence.bridge_cutoff = Some(if bridge_stopped {
+                BridgeCutoffOutcome::Confirmed
+            } else {
+                BridgeCutoffOutcome::Failed
+            });
+            evidence.cleanup_reason = Some(TailscaleCleanupReason::MappingAbsent);
+            evidence.ownership_decision = Some(TailscaleOwnershipDecision::Absent);
+            evidence.external_change = Some(false);
+            return cleanup_result_status(
+                bridge_stopped,
+                false,
+                default_readiness(),
+                ServeOwnership::Absent,
+                TailscaleCleanupState::NotNeeded,
+                None,
+                false,
+                "Remote Access is off.",
+                "No saved BrainDrive Tailscale mapping needs cleanup.",
+            );
         }
         Ok(StateLoad::Loaded(state)) => state,
-        Err(error) => return state_error_status(error),
+        Err(error) => {
+            let bridge_stopped = backend.stop_bridge().is_ok();
+            evidence.bridge_cutoff = Some(if bridge_stopped {
+                BridgeCutoffOutcome::Confirmed
+            } else {
+                BridgeCutoffOutcome::Failed
+            });
+            evidence.cleanup_reason = Some(TailscaleCleanupReason::PersistenceFailed);
+            evidence.ownership_decision = Some(TailscaleOwnershipDecision::Ambiguous);
+            evidence.state_persisted = Some(false);
+            evidence.quarantine_active = Some(true);
+            evidence.external_change = Some(false);
+            return invalid_state_cutoff_status(error, bridge_stopped, true);
+        }
     };
     if !state.desired_enabled {
-        backend.stop_bridge();
-        return off_status(default_readiness());
+        let bridge_stopped = backend.stop_bridge().is_ok();
+        evidence.bridge_cutoff = Some(if bridge_stopped {
+            BridgeCutoffOutcome::Confirmed
+        } else {
+            BridgeCutoffOutcome::Failed
+        });
+        evidence.state_persisted = Some(true);
+        evidence.quarantine_active = Some(state.cleanup_pending());
+        evidence.external_change = Some(false);
+        if state.cleanup_pending() {
+            let status = status(backend, Ok(StateLoad::Loaded(state)));
+            evidence.cleanup_reason = cleanup_reason_for(&status);
+            evidence.ownership_decision = ownership_decision_for(&status);
+            return status;
+        }
+        evidence.cleanup_reason = Some(TailscaleCleanupReason::MappingAbsent);
+        evidence.ownership_decision = Some(TailscaleOwnershipDecision::Absent);
+        return cleanup_result_status(
+            bridge_stopped,
+            false,
+            default_readiness(),
+            ServeOwnership::Absent,
+            TailscaleCleanupState::NotNeeded,
+            None,
+            false,
+            "Remote Access is off.",
+            "No BrainDrive Tailscale mapping needs cleanup.",
+        );
     }
     if !owner_is_initialized(backend) {
         return unavailable_status(
@@ -568,17 +944,18 @@ fn owner_is_initialized<B: TailscaleRuntimeBackend>(backend: &mut B) -> bool {
 fn ensure_bridge<B: TailscaleRuntimeBackend>(
     backend: &mut B,
     preferred: Option<u16>,
+    quarantined: Option<u16>,
 ) -> Result<u16, TailscaleErrorCode> {
     if let Some(port) = preferred {
         if backend.bridge_healthy(port) {
             return Ok(port);
         }
     }
-    let port = backend.start_bridge(preferred)?;
+    let port = backend.start_bridge(preferred, quarantined)?;
     if backend.bridge_healthy(port) {
         Ok(port)
     } else {
-        backend.stop_bridge();
+        let _ = backend.stop_bridge();
         Err(TailscaleErrorCode::BridgeUnavailable)
     }
 }
@@ -600,6 +977,103 @@ fn preservation_matches(
     unrelated_serve_fingerprint(&after.serve_raw, &mapping.canonical())
         .is_ok_and(|value| value == before_serve)
         && service_config_fingerprint(&after.service_raw).is_ok_and(|value| value == before_service)
+}
+
+fn selected_mapping_absent(inspection: &Inspection) -> bool {
+    inspection.serve.selected_mapping.is_none()
+        && !inspection.serve.selected_conflict
+        && !inspection.serve.funnel_present
+}
+
+fn ownership_decision(
+    ownership: ServeOwnership,
+    inspection: &Inspection,
+) -> TailscaleOwnershipDecision {
+    if selected_mapping_absent(inspection) {
+        return TailscaleOwnershipDecision::Absent;
+    }
+    match ownership {
+        ServeOwnership::OwnedExact => TailscaleOwnershipDecision::FreshExact,
+        ServeOwnership::Absent => TailscaleOwnershipDecision::Absent,
+        ServeOwnership::OccupiedUnowned => TailscaleOwnershipDecision::Unowned,
+        ServeOwnership::OwnedDrifted => TailscaleOwnershipDecision::Drifted,
+        ServeOwnership::Ambiguous => TailscaleOwnershipDecision::Ambiguous,
+    }
+}
+
+fn cleanup_failure_feedback(
+    command_result: &Result<CapturedOutput, RunnerError>,
+) -> (
+    TailscaleCleanupState,
+    TailscaleErrorCode,
+    TailscaleCleanupReason,
+) {
+    match command_result {
+        Err(RunnerError::Timeout) => (
+            TailscaleCleanupState::Deferred,
+            TailscaleErrorCode::CommandTimeout,
+            TailscaleCleanupReason::ReadbackUnavailable,
+        ),
+        Err(RunnerError::OutputTooLarge) => (
+            TailscaleCleanupState::Failed,
+            TailscaleErrorCode::OutputTooLarge,
+            TailscaleCleanupReason::CommandFailed,
+        ),
+        Err(RunnerError::ExecutableMissing) => (
+            TailscaleCleanupState::Failed,
+            TailscaleErrorCode::NotInstalled,
+            TailscaleCleanupReason::CommandFailed,
+        ),
+        Err(RunnerError::PermissionDenied) => (
+            TailscaleCleanupState::Failed,
+            TailscaleErrorCode::PermissionDenied,
+            TailscaleCleanupReason::CommandFailed,
+        ),
+        Err(RunnerError::Io) => (
+            TailscaleCleanupState::Failed,
+            TailscaleErrorCode::DaemonUnavailable,
+            TailscaleCleanupReason::CommandFailed,
+        ),
+        Ok(output) if output.exit_code != Some(0) => (
+            TailscaleCleanupState::Failed,
+            TailscaleErrorCode::CommandFailed,
+            TailscaleCleanupReason::CommandFailed,
+        ),
+        Ok(_) => (
+            TailscaleCleanupState::Deferred,
+            TailscaleErrorCode::AmbiguousOutcome,
+            TailscaleCleanupReason::ReadbackUnavailable,
+        ),
+    }
+}
+
+fn cleanup_reason_for(status: &TailscaleAccessStatus) -> Option<TailscaleCleanupReason> {
+    match status.cleanup_state? {
+        TailscaleCleanupState::Complete => Some(TailscaleCleanupReason::MappingRemoved),
+        TailscaleCleanupState::NotNeeded => Some(TailscaleCleanupReason::MappingAbsent),
+        TailscaleCleanupState::Deferred => Some(match status.error_code {
+            Some(TailscaleErrorCode::Conflict) => TailscaleCleanupReason::OwnershipNotExact,
+            Some(TailscaleErrorCode::Persistence) => TailscaleCleanupReason::PersistenceFailed,
+            Some(TailscaleErrorCode::AmbiguousOutcome) => {
+                TailscaleCleanupReason::ReadbackUnavailable
+            }
+            _ => TailscaleCleanupReason::InspectionUnavailable,
+        }),
+        TailscaleCleanupState::Failed => Some(TailscaleCleanupReason::CommandFailed),
+    }
+}
+
+fn ownership_decision_for(status: &TailscaleAccessStatus) -> Option<TailscaleOwnershipDecision> {
+    if status.cleanup_state.is_some() && status.readiness.state != TailscaleReadinessState::Ready {
+        return Some(TailscaleOwnershipDecision::InspectionUnavailable);
+    }
+    Some(match status.ownership {
+        ServeOwnership::OwnedExact => TailscaleOwnershipDecision::FreshExact,
+        ServeOwnership::Absent => TailscaleOwnershipDecision::Absent,
+        ServeOwnership::OccupiedUnowned => TailscaleOwnershipDecision::Unowned,
+        ServeOwnership::OwnedDrifted => TailscaleOwnershipDecision::Drifted,
+        ServeOwnership::Ambiguous => TailscaleOwnershipDecision::Ambiguous,
+    })
 }
 
 fn setup_url_from_output(output: &CapturedOutput) -> Option<String> {
@@ -675,23 +1149,173 @@ fn running_status(state: &TailscaleAccessConfig, inspection: Inspection) -> Tail
     .with_desired(state.desired_enabled)
 }
 
-fn off_status(readiness: TailscaleReadiness) -> TailscaleAccessStatus {
-    base_status(
-        TailscaleAccessState::Off,
-        false,
-        readiness,
-        ServeOwnership::Absent,
-        TailnetBridgeState::Stopped,
-        None,
-        None,
+#[allow(clippy::too_many_arguments)]
+fn cleanup_result_status(
+    bridge_stopped: bool,
+    mapping_absent: bool,
+    readiness: TailscaleReadiness,
+    ownership: ServeOwnership,
+    cleanup_state: TailscaleCleanupState,
+    error_code: Option<TailscaleErrorCode>,
+    cleanup_pending: bool,
+    message: &str,
+    detail: &str,
+) -> TailscaleAccessStatus {
+    let cutoff_confirmed = bridge_stopped || mapping_absent;
+    if !cutoff_confirmed {
+        return cutoff_unconfirmed_status(
+            readiness,
+            ownership,
+            Some(cleanup_state),
+            error_code.or(Some(TailscaleErrorCode::BridgeUnavailable)),
+            "BrainDrive could not confirm that Remote Access is off.",
+            "The local bridge may still be running. Try turning off Remote Access again.",
+        );
+    }
+
+    let bridge_state = if bridge_stopped {
+        TailnetBridgeState::Stopped
+    } else {
+        TailnetBridgeState::Failed
+    };
+    let mut actions = if cleanup_pending {
+        vec![
+            TailscaleAccessAction::Disable,
+            TailscaleAccessAction::CheckAgain,
+        ]
+    } else {
         vec![
             TailscaleAccessAction::Enable,
             TailscaleAccessAction::CheckAgain,
+        ]
+    };
+    if cleanup_state == TailscaleCleanupState::NotNeeded && cleanup_pending {
+        actions.insert(0, TailscaleAccessAction::Enable);
+    }
+    let mut status = base_status(
+        TailscaleAccessState::Off,
+        false,
+        readiness,
+        ownership,
+        bridge_state,
+        None,
+        None,
+        actions,
+        message,
+        Some(detail),
+        error_code.or_else(|| (!bridge_stopped).then_some(TailscaleErrorCode::BridgeUnavailable)),
+    );
+    status.cleanup_state = Some(cleanup_state);
+    status
+}
+
+fn cutoff_unconfirmed_status(
+    readiness: TailscaleReadiness,
+    ownership: ServeOwnership,
+    cleanup_state: Option<TailscaleCleanupState>,
+    error_code: Option<TailscaleErrorCode>,
+    message: &str,
+    detail: &str,
+) -> TailscaleAccessStatus {
+    let state = if matches!(
+        ownership,
+        ServeOwnership::OccupiedUnowned | ServeOwnership::OwnedDrifted
+    ) {
+        TailscaleAccessState::Conflict
+    } else {
+        TailscaleAccessState::NeedsAttention
+    };
+    let mut status = base_status(
+        state,
+        false,
+        readiness,
+        ownership,
+        TailnetBridgeState::Failed,
+        None,
+        None,
+        vec![
+            TailscaleAccessAction::Disable,
+            TailscaleAccessAction::CheckAgain,
         ],
-        "Private Tailscale access is off.",
-        None,
-        None,
-    )
+        message,
+        Some(detail),
+        error_code.or(Some(TailscaleErrorCode::BridgeUnavailable)),
+    );
+    status.cleanup_state = cleanup_state;
+    status
+}
+
+fn invalid_state_cutoff_status(
+    error: StateErrorCode,
+    bridge_stopped: bool,
+    from_cutoff_action: bool,
+) -> TailscaleAccessStatus {
+    let code = match error {
+        StateErrorCode::StaleOwnership => TailscaleErrorCode::StaleOwnership,
+        _ => TailscaleErrorCode::Persistence,
+    };
+    if from_cutoff_action && bridge_stopped {
+        return cleanup_result_status(
+            true,
+            false,
+            default_readiness(),
+            ServeOwnership::Ambiguous,
+            TailscaleCleanupState::Deferred,
+            Some(code),
+            true,
+            "Remote Access is off, but saved Tailscale cleanup state is invalid.",
+            "BrainDrive stopped its local bridge and did not change Tailscale configuration.",
+        );
+    }
+    let mut status = cutoff_unconfirmed_status(
+        default_readiness(),
+        ServeOwnership::Ambiguous,
+        from_cutoff_action.then_some(TailscaleCleanupState::Deferred),
+        Some(code),
+        "BrainDrive cannot verify its saved Tailscale ownership state.",
+        if bridge_stopped {
+            "The local bridge is stopped, but saved cleanup state needs attention."
+        } else {
+            "The local bridge may still be running. Try turning off Remote Access again."
+        },
+    );
+    if bridge_stopped {
+        status.bridge_state = TailnetBridgeState::Stopped;
+    }
+    status
+}
+
+fn persistence_before_cleanup_status(
+    prior_desired: bool,
+    bridge_stopped: bool,
+    cleanup_pending: bool,
+) -> TailscaleAccessStatus {
+    let cleanup_state = if cleanup_pending {
+        TailscaleCleanupState::Deferred
+    } else {
+        TailscaleCleanupState::NotNeeded
+    };
+    let mut status = cutoff_unconfirmed_status(
+        default_readiness(),
+        if cleanup_pending {
+            ServeOwnership::Ambiguous
+        } else {
+            ServeOwnership::Absent
+        },
+        Some(cleanup_state),
+        Some(TailscaleErrorCode::Persistence),
+        "BrainDrive stopped the local access path but could not save the off setting.",
+        if bridge_stopped {
+            "Remote Access is stopped for this session, but it may return after restart until desktop storage is fixed."
+        } else {
+            "The off setting was not saved and the local bridge may still be running."
+        },
+    );
+    status.desired_enabled = prior_desired;
+    if bridge_stopped {
+        status.bridge_state = TailnetBridgeState::Stopped;
+    }
+    status
 }
 
 fn setup_status(
@@ -796,23 +1420,6 @@ fn bridge_error_status(
     )
 }
 
-fn comparison_failure(
-    desired: bool,
-    readiness: TailscaleReadiness,
-    ownership: ServeOwnership,
-    code: TailscaleErrorCode,
-) -> TailscaleAccessStatus {
-    attention_status(
-        desired,
-        readiness,
-        ownership,
-        TailnetBridgeState::Running,
-        Some(code),
-        "Tailscale configuration could not be compared safely.",
-        "No mapping was changed.",
-    )
-}
-
 fn persistence_status(
     desired: bool,
     readiness: TailscaleReadiness,
@@ -901,6 +1508,7 @@ fn base_status(
         readiness,
         ownership,
         bridge_state,
+        cleanup_state: None,
         access_url,
         setup_url,
         available_actions,
@@ -1006,6 +1614,8 @@ mod tests {
         Absent,
         Exact(u16),
         Unowned,
+        Ambiguous,
+        Funnel(u16),
     }
 
     struct FakeBackend {
@@ -1014,19 +1624,29 @@ mod tests {
         state: Result<StateLoad, StateErrorCode>,
         live: LiveServe,
         calls: Vec<TailscaleCommandKind>,
+        trace: Vec<&'static str>,
         bridge_port: Option<u16>,
         bridge_health: bool,
         start_error: Option<TailscaleErrorCode>,
+        stop_error: Option<TailscaleErrorCode>,
         persistence_fails: bool,
+        fail_save_on_attempt: Option<usize>,
+        save_attempts: usize,
         mutate_on_enable: bool,
         mutate_on_disable: bool,
         enable_error: Option<RunnerError>,
         disable_error: Option<RunnerError>,
+        disable_exit_code: Option<i32>,
+        inspection_error: Option<RunnerError>,
+        fail_readback_after_disable: bool,
+        malformed_serve: bool,
         change_unrelated_on_enable: bool,
+        change_unrelated_on_disable: bool,
         unrelated_changed: bool,
         consent: bool,
         browser_access_sentinel: String,
         diagnostics: Vec<DiagnosticEvent>,
+        mutation_evidence: Option<(TailscaleCommandKind, CommandExitCategory)>,
     }
 
     impl Default for FakeBackend {
@@ -1037,19 +1657,29 @@ mod tests {
                 state: Ok(StateLoad::Missing),
                 live: LiveServe::Absent,
                 calls: Vec::new(),
+                trace: Vec::new(),
                 bridge_port: None,
                 bridge_health: true,
                 start_error: None,
+                stop_error: None,
                 persistence_fails: false,
+                fail_save_on_attempt: None,
+                save_attempts: 0,
                 mutate_on_enable: true,
                 mutate_on_disable: true,
                 enable_error: None,
                 disable_error: None,
+                disable_exit_code: None,
+                inspection_error: None,
+                fail_readback_after_disable: false,
+                malformed_serve: false,
                 change_unrelated_on_enable: false,
+                change_unrelated_on_disable: false,
                 unrelated_changed: false,
                 consent: false,
                 browser_access_sentinel: "browser-access-running".to_string(),
                 diagnostics: Vec::new(),
+                mutation_evidence: None,
             }
         }
     }
@@ -1064,11 +1694,20 @@ mod tests {
         }
 
         fn load_state(&mut self) -> Result<StateLoad, StateErrorCode> {
+            self.trace.push("load_state");
             self.state.clone()
         }
 
         fn save_state(&mut self, state: &TailscaleAccessConfig) -> Result<(), StateErrorCode> {
-            if self.persistence_fails {
+            self.save_attempts += 1;
+            self.trace.push(if state.desired_enabled {
+                "save_enabled"
+            } else if state.cleanup_pending() {
+                "save_pending"
+            } else {
+                "save_clean"
+            });
+            if self.persistence_fails || self.fail_save_on_attempt == Some(self.save_attempts) {
                 return Err(StateErrorCode::Io);
             }
             self.state = Ok(StateLoad::Loaded(state.clone()));
@@ -1081,10 +1720,34 @@ mod tests {
             _limits: RunLimits,
         ) -> Result<CapturedOutput, RunnerError> {
             self.calls.push(command.kind());
+            self.trace.push(match command.kind() {
+                TailscaleCommandKind::Version => "read_version",
+                TailscaleCommandKind::Status => "read_status",
+                TailscaleCommandKind::ServeStatus => "read_serve",
+                TailscaleCommandKind::ServeConfig => "read_config",
+                TailscaleCommandKind::Enable => "enable_mapping",
+                TailscaleCommandKind::Disable => "disable_mapping",
+            });
+            if !command.is_mutating()
+                && (self.inspection_error.is_some()
+                    || (self.fail_readback_after_disable
+                        && self
+                            .mutation_evidence
+                            .is_some_and(|(kind, _)| kind == TailscaleCommandKind::Disable)))
+            {
+                return Err(self.inspection_error.unwrap_or(RunnerError::Io));
+            }
             let output = match command {
                 TailscaleCommand::Version => success(b"1.98.8\n"),
                 TailscaleCommand::StatusJson => success(READY_STATUS.as_bytes()),
-                TailscaleCommand::ServeStatusJson => success(self.serve_json().as_bytes()),
+                TailscaleCommand::ServeStatusJson => {
+                    let serve = if self.malformed_serve {
+                        "{not-json".to_string()
+                    } else {
+                        self.serve_json()
+                    };
+                    success(serve.as_bytes())
+                }
                 TailscaleCommand::ServeGetConfigAll => success(if self.unrelated_changed {
                     CHANGED_SERVICE_CONFIG.as_bytes()
                 } else {
@@ -1116,12 +1779,39 @@ mod tests {
                     if self.mutate_on_disable {
                         self.live = LiveServe::Absent;
                     }
+                    if self.change_unrelated_on_disable {
+                        self.unrelated_changed = true;
+                    }
                     if let Some(error) = self.disable_error {
+                        self.mutation_evidence = Some((
+                            TailscaleCommandKind::Disable,
+                            if error == RunnerError::Timeout {
+                                CommandExitCategory::Ambiguous
+                            } else {
+                                CommandExitCategory::SpawnFailure
+                            },
+                        ));
                         return Err(error);
                     }
-                    success(b"")
+                    let output = CapturedOutput {
+                        exit_code: Some(self.disable_exit_code.unwrap_or(0)),
+                        stdout: Vec::new(),
+                        stderr: Vec::new(),
+                    };
+                    self.mutation_evidence = Some((
+                        TailscaleCommandKind::Disable,
+                        if output.exit_code == Some(0) {
+                            CommandExitCategory::Success
+                        } else {
+                            CommandExitCategory::Ambiguous
+                        },
+                    ));
+                    output
                 }
             };
+            if command.is_mutating() && self.mutation_evidence.is_none() {
+                self.mutation_evidence = Some((command.kind(), CommandExitCategory::Success));
+            }
             Ok(output)
         }
 
@@ -1129,21 +1819,44 @@ mod tests {
             self.bridge_health && self.bridge_port == Some(port)
         }
 
-        fn start_bridge(&mut self, preferred_port: Option<u16>) -> Result<u16, TailscaleErrorCode> {
+        fn bridge_running(&mut self) -> bool {
+            self.bridge_port.is_some()
+        }
+
+        fn start_bridge(
+            &mut self,
+            preferred_port: Option<u16>,
+            quarantined_port: Option<u16>,
+        ) -> Result<u16, TailscaleErrorCode> {
             if let Some(error) = self.start_error {
                 return Err(error);
             }
-            let port = preferred_port.unwrap_or(MANAGED_LOOPBACK_PORT_START);
+            self.trace.push("start_bridge");
+            let preferred = preferred_port.unwrap_or(MANAGED_LOOPBACK_PORT_START);
+            let port = if Some(preferred) == quarantined_port {
+                preferred + 1
+            } else {
+                preferred
+            };
             self.bridge_port = Some(port);
             Ok(port)
         }
 
-        fn stop_bridge(&mut self) {
+        fn stop_bridge(&mut self) -> Result<(), TailscaleErrorCode> {
+            self.trace.push("stop_bridge");
+            if let Some(error) = self.stop_error {
+                return Err(error);
+            }
             self.bridge_port = None;
+            Ok(())
         }
 
         fn record_diagnostic(&mut self, event: &DiagnosticEvent) {
             self.diagnostics.push(event.clone());
+        }
+
+        fn mutation_evidence(&self) -> Option<(TailscaleCommandKind, CommandExitCategory)> {
+            self.mutation_evidence
         }
     }
 
@@ -1155,6 +1868,12 @@ mod tests {
                     r#"{{"TCP":{{"443":{{"HTTPS":true}}}},"Web":{{"brain-host.example-tailnet.ts.net:443":{{"Handlers":{{"/":{{"Proxy":"http://127.0.0.1:{port}"}}}}}}}}}}"#
                 ),
                 LiveServe::Unowned => r#"{"TCP":{"443":{"HTTPS":true}},"Web":{"brain-host.example-tailnet.ts.net:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:19000"}}}}}"#.to_string(),
+                LiveServe::Ambiguous => {
+                    include_str!("../fixtures/tailscale/serve-ambiguous.json").to_string()
+                }
+                LiveServe::Funnel(port) => format!(
+                    r#"{{"TCP":{{"443":{{"HTTPS":true}}}},"Web":{{"brain-host.example-tailnet.ts.net:443":{{"Handlers":{{"/":{{"Proxy":"http://127.0.0.1:{port}"}}}}}}}},"AllowFunnel":{{"brain-host.example-tailnet.ts.net:443":true}}}}"#
+                ),
             }
         }
     }
@@ -1300,8 +2019,11 @@ mod tests {
             ..FakeBackend::default()
         };
         let status = perform(&mut stale, LifecycleAction::Startup, "stale-test");
-        assert_eq!(status.state, TailscaleAccessState::NeedsAttention);
+        assert_eq!(status.state, TailscaleAccessState::Off);
+        assert_eq!(status.cleanup_state, Some(TailscaleCleanupState::Deferred));
+        assert_eq!(status.bridge_state, TailnetBridgeState::Stopped);
         assert!(stale.calls.is_empty());
+        assert_eq!(stale.trace, vec!["load_state", "stop_bridge"]);
     }
 
     #[test]
@@ -1315,6 +2037,7 @@ mod tests {
         };
         let status = perform(&mut backend, LifecycleAction::Disable, "disable-test");
         assert_eq!(status.state, TailscaleAccessState::Off);
+        assert_eq!(status.cleanup_state, Some(TailscaleCleanupState::Complete));
         assert_eq!(
             backend
                 .calls
@@ -1325,17 +2048,62 @@ mod tests {
         );
         assert!(backend.bridge_port.is_none());
         assert_eq!(backend.browser_access_sentinel, "browser-access-running");
+        assert_eq!(
+            backend.trace,
+            vec![
+                "load_state",
+                "save_pending",
+                "stop_bridge",
+                "read_version",
+                "read_status",
+                "read_serve",
+                "read_config",
+                "disable_mapping",
+                "read_version",
+                "read_status",
+                "read_serve",
+                "read_config",
+                "save_clean",
+            ]
+        );
+        let diagnostic = backend.diagnostics.last().unwrap();
+        assert_eq!(
+            diagnostic.bridge_cutoff,
+            Some(BridgeCutoffOutcome::Confirmed)
+        );
+        assert_eq!(
+            diagnostic.cleanup_state,
+            Some(TailscaleCleanupState::Complete)
+        );
+        assert_eq!(
+            diagnostic.cleanup_reason,
+            Some(TailscaleCleanupReason::MappingRemoved)
+        );
+        assert_eq!(diagnostic.state_persisted, Some(true));
+        assert_eq!(diagnostic.quarantine_active, Some(false));
+        assert_eq!(diagnostic.external_change, Some(true));
+        assert_eq!(diagnostic.command_kind, Some(TailscaleCommandKind::Disable));
+        assert_eq!(diagnostic.exit_category, Some(CommandExitCategory::Success));
 
         let mut drifted = FakeBackend {
             state: Ok(StateLoad::Loaded(enabled_state(
                 MANAGED_LOOPBACK_PORT_START,
             ))),
             live: LiveServe::Unowned,
+            bridge_port: Some(MANAGED_LOOPBACK_PORT_START),
             ..FakeBackend::default()
         };
         let status = perform(&mut drifted, LifecycleAction::Disable, "drifted-test");
-        assert_eq!(status.state, TailscaleAccessState::Conflict);
+        assert_eq!(status.state, TailscaleAccessState::Off);
+        assert_eq!(status.cleanup_state, Some(TailscaleCleanupState::Deferred));
+        assert_eq!(status.bridge_state, TailnetBridgeState::Stopped);
         assert!(!drifted.calls.contains(&TailscaleCommandKind::Disable));
+        assert!(drifted.bridge_port.is_none());
+        let Ok(StateLoad::Loaded(saved)) = &drifted.state else {
+            panic!("pending state should be retained")
+        };
+        assert!(saved.cleanup_pending());
+        assert_eq!(drifted.browser_access_sentinel, "browser-access-running");
 
         let mapping = ManagedMapping::new(MANAGED_LOOPBACK_PORT_START).unwrap();
         let mut timeout_with_effect = FakeBackend {
@@ -1351,6 +2119,7 @@ mod tests {
             "disable-timeout-test",
         );
         assert_eq!(status.state, TailscaleAccessState::Off);
+        assert_eq!(status.cleanup_state, Some(TailscaleCleanupState::Complete));
     }
 
     #[test]
@@ -1436,9 +2205,482 @@ mod tests {
     }
 
     #[test]
+    fn tailscale_access_disable_is_off_deferred_when_inspection_is_unavailable() {
+        let mapping = ManagedMapping::new(MANAGED_LOOPBACK_PORT_START).unwrap();
+        let mut backend = FakeBackend {
+            state: Ok(StateLoad::Loaded(TailscaleAccessConfig::enabled(&mapping))),
+            live: LiveServe::Exact(mapping.loopback_port()),
+            bridge_port: Some(mapping.loopback_port()),
+            inspection_error: Some(RunnerError::Io),
+            ..FakeBackend::default()
+        };
+
+        let status = perform(
+            &mut backend,
+            LifecycleAction::Disable,
+            "inspect-unavailable",
+        );
+
+        assert_eq!(status.state, TailscaleAccessState::Off);
+        assert_eq!(status.bridge_state, TailnetBridgeState::Stopped);
+        assert_eq!(status.cleanup_state, Some(TailscaleCleanupState::Deferred));
+        assert!(!backend.calls.contains(&TailscaleCommandKind::Disable));
+        assert_eq!(
+            &backend.trace[..3],
+            &["load_state", "save_pending", "stop_bridge"]
+        );
+        let Ok(StateLoad::Loaded(saved)) = &backend.state else {
+            panic!("pending cleanup evidence should be retained")
+        };
+        assert!(saved.cleanup_pending());
+        let diagnostic = backend.diagnostics.last().unwrap();
+        assert_eq!(
+            diagnostic.bridge_cutoff,
+            Some(BridgeCutoffOutcome::Confirmed)
+        );
+        assert_eq!(
+            diagnostic.cleanup_reason,
+            Some(TailscaleCleanupReason::InspectionUnavailable)
+        );
+        assert_eq!(diagnostic.external_change, Some(false));
+        assert_eq!(diagnostic.quarantine_active, Some(true));
+    }
+
+    #[test]
+    fn tailscale_access_disable_handles_bridge_and_persistence_failures_truthfully() {
+        let mapping = ManagedMapping::new(MANAGED_LOOPBACK_PORT_START).unwrap();
+        let mut stop_failed_but_removed = FakeBackend {
+            state: Ok(StateLoad::Loaded(TailscaleAccessConfig::enabled(&mapping))),
+            live: LiveServe::Exact(mapping.loopback_port()),
+            bridge_port: Some(mapping.loopback_port()),
+            stop_error: Some(TailscaleErrorCode::BridgeUnavailable),
+            ..FakeBackend::default()
+        };
+        let status = perform(
+            &mut stop_failed_but_removed,
+            LifecycleAction::Disable,
+            "stop-failed-removed",
+        );
+        assert_eq!(status.state, TailscaleAccessState::Off);
+        assert_eq!(status.bridge_state, TailnetBridgeState::Failed);
+        assert_eq!(status.cleanup_state, Some(TailscaleCleanupState::Complete));
+        assert!(matches!(stop_failed_but_removed.live, LiveServe::Absent));
+        assert_eq!(
+            stop_failed_but_removed
+                .diagnostics
+                .last()
+                .unwrap()
+                .bridge_cutoff,
+            Some(BridgeCutoffOutcome::Failed)
+        );
+
+        let mut stop_failed_and_not_exact = FakeBackend {
+            state: Ok(StateLoad::Loaded(TailscaleAccessConfig::enabled(&mapping))),
+            live: LiveServe::Unowned,
+            bridge_port: Some(mapping.loopback_port()),
+            stop_error: Some(TailscaleErrorCode::BridgeUnavailable),
+            ..FakeBackend::default()
+        };
+        let status = perform(
+            &mut stop_failed_and_not_exact,
+            LifecycleAction::Disable,
+            "stop-failed-unowned",
+        );
+        assert_ne!(status.state, TailscaleAccessState::Off);
+        assert_eq!(status.cleanup_state, Some(TailscaleCleanupState::Deferred));
+        assert!(!stop_failed_and_not_exact
+            .calls
+            .contains(&TailscaleCommandKind::Disable));
+
+        let mut pending_save_failed = FakeBackend {
+            state: Ok(StateLoad::Loaded(TailscaleAccessConfig::enabled(&mapping))),
+            live: LiveServe::Exact(mapping.loopback_port()),
+            bridge_port: Some(mapping.loopback_port()),
+            persistence_fails: true,
+            ..FakeBackend::default()
+        };
+        let status = perform(
+            &mut pending_save_failed,
+            LifecycleAction::Disable,
+            "pending-save-failed",
+        );
+        assert_eq!(status.state, TailscaleAccessState::NeedsAttention);
+        assert_eq!(status.bridge_state, TailnetBridgeState::Stopped);
+        assert_eq!(status.error_code, Some(TailscaleErrorCode::Persistence));
+        assert!(status.desired_enabled);
+        assert!(pending_save_failed.calls.is_empty());
+        assert_eq!(
+            pending_save_failed.trace,
+            vec!["load_state", "save_pending", "stop_bridge"]
+        );
+        assert!(matches!(pending_save_failed.live, LiveServe::Exact(_)));
+        assert_eq!(
+            pending_save_failed
+                .diagnostics
+                .last()
+                .unwrap()
+                .state_persisted,
+            Some(false)
+        );
+
+        let mut final_save_failed = FakeBackend {
+            state: Ok(StateLoad::Loaded(TailscaleAccessConfig::enabled(&mapping))),
+            live: LiveServe::Exact(mapping.loopback_port()),
+            bridge_port: Some(mapping.loopback_port()),
+            fail_save_on_attempt: Some(2),
+            ..FakeBackend::default()
+        };
+        let status = perform(
+            &mut final_save_failed,
+            LifecycleAction::Disable,
+            "final-save-failed",
+        );
+        assert_eq!(status.state, TailscaleAccessState::Off);
+        assert_eq!(status.cleanup_state, Some(TailscaleCleanupState::Complete));
+        assert_eq!(status.error_code, Some(TailscaleErrorCode::Persistence));
+        let Ok(StateLoad::Loaded(saved)) = &final_save_failed.state else {
+            panic!("pending state should remain when clean-state persistence fails")
+        };
+        assert!(saved.cleanup_pending());
+        assert_eq!(
+            final_save_failed
+                .diagnostics
+                .last()
+                .unwrap()
+                .state_persisted,
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn tailscale_access_pending_cleanup_retries_command_failures_and_ambiguous_outcomes() {
+        let mapping = ManagedMapping::new(MANAGED_LOOPBACK_PORT_START).unwrap();
+        let mut timeout = FakeBackend {
+            state: Ok(StateLoad::Loaded(TailscaleAccessConfig::enabled(&mapping))),
+            live: LiveServe::Exact(mapping.loopback_port()),
+            bridge_port: Some(mapping.loopback_port()),
+            mutate_on_disable: false,
+            disable_error: Some(RunnerError::Timeout),
+            ..FakeBackend::default()
+        };
+        let status = perform(&mut timeout, LifecycleAction::Disable, "timeout-no-effect");
+        assert_eq!(status.state, TailscaleAccessState::Off);
+        assert_eq!(status.cleanup_state, Some(TailscaleCleanupState::Deferred));
+        assert_eq!(status.error_code, Some(TailscaleErrorCode::CommandTimeout));
+        let Ok(StateLoad::Loaded(saved)) = &timeout.state else {
+            panic!("pending state should survive timeout")
+        };
+        assert!(saved.cleanup_pending());
+        assert_eq!(
+            timeout.diagnostics.last().unwrap().external_change,
+            Some(false)
+        );
+        assert_eq!(
+            timeout.diagnostics.last().unwrap().exit_category,
+            Some(CommandExitCategory::Ambiguous)
+        );
+
+        timeout.disable_error = None;
+        timeout.mutate_on_disable = true;
+        timeout.mutation_evidence = None;
+        let status = perform(&mut timeout, LifecycleAction::Disable, "timeout-retry");
+        assert_eq!(status.cleanup_state, Some(TailscaleCleanupState::Complete));
+        let Ok(StateLoad::Loaded(saved)) = &timeout.state else {
+            panic!("successful retry should save clean state")
+        };
+        assert!(!saved.cleanup_pending());
+
+        let mut nonzero = FakeBackend {
+            state: Ok(StateLoad::Loaded(TailscaleAccessConfig::enabled(&mapping))),
+            live: LiveServe::Exact(mapping.loopback_port()),
+            mutate_on_disable: false,
+            disable_exit_code: Some(1),
+            ..FakeBackend::default()
+        };
+        let status = perform(&mut nonzero, LifecycleAction::Disable, "nonzero-no-effect");
+        assert_eq!(status.cleanup_state, Some(TailscaleCleanupState::Failed));
+        assert_eq!(status.error_code, Some(TailscaleErrorCode::CommandFailed));
+        let Ok(StateLoad::Loaded(saved)) = &nonzero.state else {
+            panic!("pending state should survive nonzero exit")
+        };
+        assert!(saved.cleanup_pending());
+
+        let mut preservation_mismatch = FakeBackend {
+            state: Ok(StateLoad::Loaded(TailscaleAccessConfig::enabled(&mapping))),
+            live: LiveServe::Exact(mapping.loopback_port()),
+            change_unrelated_on_disable: true,
+            ..FakeBackend::default()
+        };
+        let status = perform(
+            &mut preservation_mismatch,
+            LifecycleAction::Disable,
+            "preservation-mismatch",
+        );
+        assert_eq!(status.state, TailscaleAccessState::Off);
+        assert_eq!(status.cleanup_state, Some(TailscaleCleanupState::Deferred));
+        assert_eq!(
+            status.error_code,
+            Some(TailscaleErrorCode::AmbiguousOutcome)
+        );
+        assert_eq!(
+            preservation_mismatch
+                .diagnostics
+                .last()
+                .unwrap()
+                .cleanup_reason,
+            Some(TailscaleCleanupReason::PreservationMismatch)
+        );
+        assert_eq!(
+            preservation_mismatch
+                .diagnostics
+                .last()
+                .unwrap()
+                .external_change,
+            Some(true)
+        );
+
+        let mut no_readback = FakeBackend {
+            state: Ok(StateLoad::Loaded(TailscaleAccessConfig::enabled(&mapping))),
+            live: LiveServe::Exact(mapping.loopback_port()),
+            fail_readback_after_disable: true,
+            ..FakeBackend::default()
+        };
+        let status = perform(&mut no_readback, LifecycleAction::Disable, "no-readback");
+        assert_eq!(status.cleanup_state, Some(TailscaleCleanupState::Deferred));
+        assert_eq!(
+            no_readback.diagnostics.last().unwrap().external_change,
+            None
+        );
+        let Ok(StateLoad::Loaded(saved)) = &no_readback.state else {
+            panic!("pending state should survive unavailable readback")
+        };
+        assert!(saved.cleanup_pending());
+    }
+
+    #[test]
+    fn tailscale_access_full_lifecycle_recovers_from_deferred_cleanup_to_clean_off() {
+        let mut backend = FakeBackend::default();
+
+        let running = perform(&mut backend, LifecycleAction::Enable, "full-flow-enable");
+        assert_eq!(running.state, TailscaleAccessState::Running);
+        assert_eq!(running.cleanup_state, None);
+        assert!(running.desired_enabled);
+
+        backend.mutate_on_disable = false;
+        backend.disable_error = Some(RunnerError::Timeout);
+        backend.mutation_evidence = None;
+        let deferred = perform(
+            &mut backend,
+            LifecycleAction::Disable,
+            "full-flow-disable-deferred",
+        );
+        assert_eq!(deferred.state, TailscaleAccessState::Off);
+        assert_eq!(deferred.bridge_state, TailnetBridgeState::Stopped);
+        assert_eq!(
+            deferred.cleanup_state,
+            Some(TailscaleCleanupState::Deferred)
+        );
+        assert!(!deferred.desired_enabled);
+        let Ok(StateLoad::Loaded(pending)) = &backend.state else {
+            panic!("deferred cleanup should retain pending state")
+        };
+        assert!(pending.cleanup_pending());
+
+        backend.mutate_on_disable = true;
+        backend.disable_error = None;
+        backend.mutation_evidence = None;
+        let clean = perform(
+            &mut backend,
+            LifecycleAction::Disable,
+            "full-flow-cleanup-retry",
+        );
+        assert_eq!(clean.state, TailscaleAccessState::Off);
+        assert_eq!(clean.cleanup_state, Some(TailscaleCleanupState::Complete));
+        assert!(!clean.desired_enabled);
+        assert!(matches!(backend.live, LiveServe::Absent));
+        let Ok(StateLoad::Loaded(saved)) = &backend.state else {
+            panic!("successful cleanup retry should save clean state")
+        };
+        assert!(!saved.cleanup_pending());
+        assert_eq!(backend.browser_access_sentinel, "browser-access-running");
+        assert_eq!(
+            backend
+                .calls
+                .iter()
+                .filter(|kind| **kind == TailscaleCommandKind::Enable)
+                .count(),
+            1
+        );
+        assert_eq!(
+            backend
+                .calls
+                .iter()
+                .filter(|kind| **kind == TailscaleCommandKind::Disable)
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn tailscale_access_non_exact_and_invalid_cleanup_inputs_never_mutate() {
+        let mapping = ManagedMapping::new(MANAGED_LOOPBACK_PORT_START).unwrap();
+        for (name, live, malformed) in [
+            ("drifted", LiveServe::Unowned, false),
+            ("ambiguous", LiveServe::Ambiguous, false),
+            ("funnel", LiveServe::Funnel(mapping.loopback_port()), false),
+            ("malformed", LiveServe::Exact(mapping.loopback_port()), true),
+        ] {
+            let mut backend = FakeBackend {
+                state: Ok(StateLoad::Loaded(TailscaleAccessConfig::enabled(&mapping))),
+                live,
+                bridge_port: Some(mapping.loopback_port()),
+                malformed_serve: malformed,
+                ..FakeBackend::default()
+            };
+            let status = perform(&mut backend, LifecycleAction::Disable, name);
+            assert_eq!(status.state, TailscaleAccessState::Off, "{name}");
+            assert_eq!(
+                status.cleanup_state,
+                Some(TailscaleCleanupState::Deferred),
+                "{name}"
+            );
+            assert!(
+                !backend.calls.contains(&TailscaleCommandKind::Disable),
+                "{name}"
+            );
+            assert_eq!(backend.browser_access_sentinel, "browser-access-running");
+        }
+
+        for error in [StateErrorCode::UnknownVersion, StateErrorCode::Malformed] {
+            let mut backend = FakeBackend {
+                state: Err(error),
+                live: LiveServe::Exact(mapping.loopback_port()),
+                bridge_port: Some(mapping.loopback_port()),
+                ..FakeBackend::default()
+            };
+            let status = perform(&mut backend, LifecycleAction::Disable, "invalid-state");
+            assert_eq!(status.state, TailscaleAccessState::Off);
+            assert_eq!(status.cleanup_state, Some(TailscaleCleanupState::Deferred));
+            assert!(backend.calls.is_empty());
+            assert!(backend.bridge_port.is_none());
+            assert!(backend.state.is_err());
+        }
+    }
+
+    #[test]
+    fn tailscale_access_pending_startup_status_and_enable_are_fail_safe() {
+        let mapping = ManagedMapping::new(MANAGED_LOOPBACK_PORT_START).unwrap();
+        let pending = TailscaleAccessConfig::disabled_pending(&mapping);
+        let mut startup = FakeBackend {
+            state: Ok(StateLoad::Loaded(pending.clone())),
+            live: LiveServe::Exact(mapping.loopback_port()),
+            bridge_port: Some(mapping.loopback_port()),
+            ..FakeBackend::default()
+        };
+        let status = perform(&mut startup, LifecycleAction::Startup, "pending-startup");
+        assert_eq!(status.state, TailscaleAccessState::Off);
+        assert_eq!(status.cleanup_state, Some(TailscaleCleanupState::Deferred));
+        assert!(startup.bridge_port.is_none());
+        assert!(!startup.calls.contains(&TailscaleCommandKind::Enable));
+        assert!(!startup.calls.contains(&TailscaleCommandKind::Disable));
+
+        let call_count = startup.calls.len();
+        let status = perform(&mut startup, LifecycleAction::Status, "pending-status");
+        assert_eq!(status.state, TailscaleAccessState::Off);
+        assert_eq!(status.cleanup_state, Some(TailscaleCleanupState::Deferred));
+        assert_eq!(
+            startup.calls[call_count..]
+                .iter()
+                .filter(|kind| matches!(
+                    kind,
+                    TailscaleCommandKind::Enable | TailscaleCommandKind::Disable
+                ))
+                .count(),
+            0
+        );
+
+        let trace_count = startup.trace.len();
+        let status = perform(&mut startup, LifecycleAction::Enable, "pending-enable");
+        assert_ne!(status.state, TailscaleAccessState::Running);
+        assert!(!startup.trace[trace_count..].contains(&"start_bridge"));
+        assert!(!startup.calls.contains(&TailscaleCommandKind::Enable));
+
+        let mut cleared_then_enabled = FakeBackend {
+            state: Ok(StateLoad::Loaded(pending)),
+            live: LiveServe::Absent,
+            ..FakeBackend::default()
+        };
+        let status = perform(
+            &mut cleared_then_enabled,
+            LifecycleAction::Enable,
+            "pending-absent-enable",
+        );
+        assert_eq!(status.state, TailscaleAccessState::Running);
+        assert_eq!(
+            cleared_then_enabled
+                .calls
+                .iter()
+                .filter(|kind| **kind == TailscaleCommandKind::Enable)
+                .count(),
+            1
+        );
+        assert!(cleared_then_enabled.trace.contains(&"save_clean"));
+        assert!(cleared_then_enabled.trace.contains(&"start_bridge"));
+    }
+
+    #[test]
+    fn tailscale_access_startup_stops_missing_clean_and_invalid_states_without_reenable() {
+        let port = MANAGED_LOOPBACK_PORT_START;
+        for (name, state) in [
+            ("missing", Ok(StateLoad::Missing)),
+            (
+                "clean",
+                Ok(StateLoad::Loaded(TailscaleAccessConfig::disabled_clean())),
+            ),
+            ("unknown", Err(StateErrorCode::UnknownVersion)),
+        ] {
+            let mut backend = FakeBackend {
+                state,
+                bridge_port: Some(port),
+                ..FakeBackend::default()
+            };
+            let status = perform(&mut backend, LifecycleAction::Startup, name);
+            assert_eq!(status.state, TailscaleAccessState::Off, "{name}");
+            assert!(backend.bridge_port.is_none(), "{name}");
+            assert!(backend.calls.is_empty(), "{name}");
+            assert!(!backend.trace.contains(&"start_bridge"), "{name}");
+        }
+    }
+
+    #[test]
+    fn tailscale_access_disable_clears_pending_when_mapping_is_already_absent() {
+        let mapping = ManagedMapping::new(MANAGED_LOOPBACK_PORT_START).unwrap();
+        let mut backend = FakeBackend {
+            state: Ok(StateLoad::Loaded(TailscaleAccessConfig::disabled_pending(
+                &mapping,
+            ))),
+            live: LiveServe::Absent,
+            bridge_port: Some(mapping.loopback_port()),
+            ..FakeBackend::default()
+        };
+        let status = perform(
+            &mut backend,
+            LifecycleAction::Disable,
+            "pending-already-absent",
+        );
+        assert_eq!(status.state, TailscaleAccessState::Off);
+        assert_eq!(status.cleanup_state, Some(TailscaleCleanupState::NotNeeded));
+        assert!(!backend.calls.contains(&TailscaleCommandKind::Disable));
+        let Ok(StateLoad::Loaded(saved)) = &backend.state else {
+            panic!("verified absence should save clean state")
+        };
+        assert!(!saved.cleanup_pending());
+    }
+
+    #[test]
     fn tailscale_access_repeated_disable_and_shutdown_are_safe() {
         let mut backend = FakeBackend {
-            state: Ok(StateLoad::Loaded(TailscaleAccessConfig::disabled())),
+            state: Ok(StateLoad::Loaded(TailscaleAccessConfig::disabled_clean())),
             bridge_port: Some(MANAGED_LOOPBACK_PORT_START),
             ..FakeBackend::default()
         };
@@ -1488,6 +2730,49 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn tailscale_access_serialized_disable_requests_converge_on_clean_off() {
+        let mapping = ManagedMapping::new(MANAGED_LOOPBACK_PORT_START).unwrap();
+        let backend = Arc::new(Mutex::new(FakeBackend {
+            state: Ok(StateLoad::Loaded(TailscaleAccessConfig::enabled(&mapping))),
+            live: LiveServe::Exact(mapping.loopback_port()),
+            bridge_port: Some(mapping.loopback_port()),
+            ..FakeBackend::default()
+        }));
+        let barrier = Arc::new(Barrier::new(3));
+        let mut handles = Vec::new();
+        for index in 0..2 {
+            let backend = backend.clone();
+            let barrier = barrier.clone();
+            handles.push(thread::spawn(move || {
+                barrier.wait();
+                let mut backend = backend.lock().unwrap();
+                perform(
+                    &mut *backend,
+                    LifecycleAction::Disable,
+                    &format!("concurrent-disable-{index}"),
+                )
+            }));
+        }
+        barrier.wait();
+        for handle in handles {
+            assert_eq!(handle.join().unwrap().state, TailscaleAccessState::Off);
+        }
+        let backend = backend.lock().unwrap();
+        assert_eq!(
+            backend
+                .calls
+                .iter()
+                .filter(|kind| **kind == TailscaleCommandKind::Disable)
+                .count(),
+            1
+        );
+        let Ok(StateLoad::Loaded(saved)) = &backend.state else {
+            panic!("serialized disables should converge on saved clean state")
+        };
+        assert!(!saved.cleanup_pending());
     }
 
     #[test]
