@@ -1,3 +1,17 @@
+## [26.7.23] - 2026-07-23
+
+### Added
+- No user-facing additions this week.
+
+### Changed
+- No user-facing changes this week.
+
+### Fixed
+- No user-facing fixes this week.
+
+### Removed
+- No user-facing removals this week.
+
 ## [26.7.22.1] - 2026-07-22
 
 ### Added
