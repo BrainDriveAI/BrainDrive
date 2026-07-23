@@ -13,7 +13,18 @@ export function createModelAdapter(
   runtimeSecrets?: AdapterRuntimeSecrets
 ): ModelAdapter {
   const resolvedConfig = resolveEffectiveAdapterConfig(adapterConfig, preferences);
+  return createModelAdapterFromResolvedConfig(
+    adapterName,
+    resolvedConfig,
+    runtimeSecrets
+  );
+}
 
+export function createModelAdapterFromResolvedConfig(
+  adapterName: string,
+  resolvedConfig: AdapterConfig,
+  runtimeSecrets?: AdapterRuntimeSecrets
+): ModelAdapter {
   switch (adapterName) {
     case "openai-compatible":
       return new OpenAICompatibleAdapter(resolvedConfig, runtimeSecrets);

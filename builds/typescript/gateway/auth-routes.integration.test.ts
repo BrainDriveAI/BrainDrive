@@ -188,6 +188,7 @@ async function createTestServer(
     install_mode: "local",
     tool_sources: [],
     bind_address: "127.0.0.1",
+    process_guardrails_scope: "all",
     port: 8787,
   };
 

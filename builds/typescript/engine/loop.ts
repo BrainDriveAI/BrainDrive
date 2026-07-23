@@ -12,7 +12,7 @@ import type { ModelCallAuditContext, PromptAuditRecorder } from "../memory/promp
 import { buildToolContext } from "../tools.js";
 import { ApprovalStore } from "./approval-store.js";
 import { classifyProviderError } from "./errors.js";
-import { ToolExecutor } from "./tool-executor.js";
+import type { ToolExecutorLike } from "./tool-executor.js";
 
 const EMPTY_COMPLETION_MAX_RETRIES = 1;
 
@@ -37,7 +37,7 @@ export type ToolExecutionGuard = (
 
 export async function* runAgentLoop(
   adapter: ModelAdapter,
-  toolExecutor: ToolExecutor,
+  toolExecutor: ToolExecutorLike,
   approvalStore: ApprovalStore,
   request: GatewayEngineRequest,
   auth: AuthContext,
@@ -390,6 +390,40 @@ export async function* runAgentLoop(
         continue;
       }
 
+      const toolContext = buildToolContext(
+        options.memoryRoot,
+        auth,
+        request.metadata.correlation_id
+      );
+      const preflightResult = await toolExecutor.preflight?.(
+        auth,
+        toolContext,
+        toolCall.name,
+        toolCall.input
+      );
+      if (preflightResult) {
+        auditLog("tool.preflight", {
+          tool: toolCall.name,
+          correlation_id: request.metadata.correlation_id,
+          status: preflightResult.status,
+        });
+        yield* toolResultEvents(preflightResult, toolCall.id);
+        await options.promptAudit?.recorder.append("prompt_audit.tool_result", {
+          tool_call_id: toolCall.id,
+          status: preflightResult.status,
+          output: preflightResult.output,
+        }, modelCall);
+        messages.push({
+          role: "tool",
+          tool_call_id: toolCall.id,
+          content: JSON.stringify({
+            status: preflightResult.status,
+            output: preflightResult.output,
+          }),
+        });
+        continue;
+      }
+
       if (tool.requiresApproval && options.approvalMode !== "auto-approve") {
         const requestId = crypto.randomUUID();
         yield {
@@ -440,7 +474,7 @@ export async function* runAgentLoop(
 
       const result = await toolExecutor.execute(
         auth,
-        buildToolContext(options.memoryRoot, auth, request.metadata.correlation_id),
+        toolContext,
         toolCall.name,
         toolCall.input
       );

@@ -1,3 +1,7 @@
+import type { ProcessGuardrailScope } from "./engine/process-guardrails/contracts.js";
+
+export type { ProcessGuardrailScope } from "./engine/process-guardrails/contracts.js";
+
 export type RuntimeConfig = {
   memory_root: string;
   provider_adapter: string;
@@ -6,6 +10,11 @@ export type RuntimeConfig = {
   install_mode: InstallMode;
   tool_sources: string[];
   bind_address: string;
+  process_guardrails_scope: ProcessGuardrailScope;
+  process_guardrails_configured_scope?:
+    | "missing"
+    | "empty"
+    | ProcessGuardrailScope;
   safety_iteration_limit?: number;
   port?: number;
 };

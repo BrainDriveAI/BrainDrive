@@ -21,3 +21,7 @@ Compose services:
 3. mcp-project
 4. paa-runtime
 5. paa-web
+
+Process guardrail runtime, diagnostics, recovery, rollback, and evaluation
+procedures are documented in
+[`docs/process-guardrails.md`](../../docs/process-guardrails.md).

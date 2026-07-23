@@ -5,7 +5,7 @@ import type { ModelAdapter, ModelResponse, ModelStreamChunk } from "../adapters/
 import type { PromptAuditRecorder } from "../memory/prompt-audit-store.js";
 import { ApprovalStore } from "./approval-store.js";
 import { runAgentLoop } from "./loop.js";
-import { ToolExecutor } from "./tool-executor.js";
+import { ToolExecutor, type ToolExecutorLike } from "./tool-executor.js";
 
 const ownerAuth: AuthContext = {
   actorId: "owner",
@@ -30,6 +30,106 @@ const request: GatewayEngineRequest = {
 };
 
 describe("runAgentLoop", () => {
+  it("accepts the minimal ToolExecutorLike seam without changing unguarded behavior", async () => {
+    const concrete = new ToolExecutor([]);
+    const executor: ToolExecutorLike = {
+      listTools: (auth) => concrete.listTools(auth),
+      getTool: (name) => concrete.getTool(name),
+      execute: (auth, context, name, input) =>
+        concrete.execute(auth, context, name, input),
+    };
+    const adapter = sequenceAdapter([{
+      assistantText: "Normal answer through executor seam.",
+      finishReason: "completed",
+      toolCalls: [],
+    }]);
+
+    const events = await collectEvents(adapter, { executor });
+
+    expect(events.map((event) => event.type)).toEqual(["text-delta", "done"]);
+  });
+
+  it("runs executor preflight before normal approval and never executes a denied mutation", async () => {
+    let modelCalls = 0;
+    let preflightCalls = 0;
+    let executeCalls = 0;
+    const tool = {
+      name: "memory_write",
+      description: "Write memory",
+      requiresApproval: true,
+      readOnly: false,
+      inputSchema: { type: "object" },
+      execute: async () => ({}),
+    };
+    const executor: ToolExecutorLike = {
+      listTools: () => [tool],
+      getTool: () => tool,
+      preflight: async () => {
+        preflightCalls += 1;
+        return null;
+      },
+      execute: async () => {
+        executeCalls += 1;
+        return { status: "ok", output: {} };
+      },
+    };
+    const adapter: ModelAdapter = {
+      async complete() {
+        modelCalls += 1;
+        return modelCalls === 1
+          ? {
+              assistantText: "",
+              finishReason: "tool_calls",
+              toolCalls: [{
+                id: "write-1",
+                name: "memory_write",
+                input: { path: "documents/career/spec.md", content: "candidate" },
+              }],
+            }
+          : {
+              assistantText: "The write was not approved.",
+              finishReason: "completed",
+              toolCalls: [],
+            };
+      },
+    };
+    const approvals = new ApprovalStore();
+    const generator = runAgentLoop(
+      adapter,
+      executor,
+      approvals,
+      request,
+      ownerAuth,
+      { memoryRoot: "/tmp/brain", safetyIterationLimit: 3 }
+    );
+
+    expect((await generator.next()).value).toMatchObject({ type: "tool-call" });
+    const approvalRequest = (await generator.next()).value;
+    expect(approvalRequest).toMatchObject({ type: "approval-request" });
+    expect(preflightCalls).toBe(1);
+    if (!approvalRequest || approvalRequest.type !== "approval-request") {
+      throw new Error("Expected approval request");
+    }
+    const approvalResultPromise = generator.next();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(approvals.resolve(approvalRequest.request_id, "denied")).not.toBeNull();
+    expect((await approvalResultPromise).value).toMatchObject({
+      type: "approval-result",
+      decision: "denied",
+    });
+
+    const remaining: StreamEvent[] = [];
+    for await (const event of generator) {
+      remaining.push(event);
+    }
+    expect(remaining.map((event) => event.type)).toEqual([
+      "tool-result",
+      "text-delta",
+      "done",
+    ]);
+    expect(executeCalls).toBe(0);
+  });
+
   it("retries an empty non-streaming completion before emitting done", async () => {
     const adapter = sequenceAdapter([
       emptyCompletion(),
@@ -529,7 +629,7 @@ describe("runAgentLoop", () => {
 async function collectEvents(
   adapter: ModelAdapter,
   options: {
-    executor?: ToolExecutor;
+    executor?: ToolExecutorLike;
     promptAudit?: {
       recorder: PromptAuditRecorder;
       adapterName: string;

@@ -204,6 +204,31 @@ describe("file ops memory_edit", () => {
 });
 
 describe("file ops memory_search", () => {
+  it.each([
+    ["memory_read", { path: "diagnostics/process-guardrails/state/run.json" }],
+    ["memory_list", { path: "diagnostics/process-guardrails" }],
+    ["memory_search", { path: "diagnostics/process-guardrails", query: "run-1" }],
+  ])("denies %s access to process guardrail diagnostics", async (toolName, input) => {
+    const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-file-ops-process-guardrails-"));
+    const tool = fileOpsTools().find((candidate) => candidate.name === toolName);
+
+    try {
+      await mkdir(path.join(memoryRoot, "diagnostics", "process-guardrails", "state"), { recursive: true });
+      await writeFile(
+        path.join(memoryRoot, "diagnostics", "process-guardrails", "state", "run.json"),
+        JSON.stringify({ run_id: "run-1" }),
+        "utf8"
+      );
+
+      await expect(tool?.execute(toolContext(memoryRoot), input)).rejects.toMatchObject({
+        code: "reserved_path",
+        message: "Path targets protected process diagnostics",
+      });
+    } finally {
+      await rm(memoryRoot, { recursive: true, force: true });
+    }
+  });
+
   it("excludes diagnostics audit files from model-facing search results", async () => {
     const memoryRoot = await mkdtemp(path.join(tmpdir(), "bd-file-ops-search-diagnostics-"));
     const searchTool = fileOpsTools().find((tool) => tool.name === "memory_search");

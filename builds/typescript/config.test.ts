@@ -4,8 +4,139 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { loadPreferences, readBootstrapPrompt, savePreferences } from "./config.js";
+import {
+  ProcessGuardrailScopeConfigError,
+  loadPreferences,
+  loadRuntimeConfig,
+  readBootstrapPrompt,
+  savePreferences,
+} from "./config.js";
 import type { Preferences } from "./contracts.js";
+
+describe("process guardrail runtime configuration", () => {
+  let tempRoot: string | null = null;
+  let previousScope: string | undefined;
+  let stdoutSpy: ReturnType<typeof vi.spyOn> | null = null;
+
+  beforeEach(async () => {
+    tempRoot = await mkdtemp(path.join(os.tmpdir(), "braindrive-runtime-config-"));
+    previousScope = process.env.BRAINDRIVE_PROCESS_GUARDRAILS_SCOPE;
+    stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    await writeFile(
+      path.join(tempRoot, "config.json"),
+      `${JSON.stringify({
+        memory_root: "memory",
+        provider_adapter: "openai-compatible",
+        auth_mode: "local-owner",
+        tool_sources: [],
+      })}\n`,
+      "utf8"
+    );
+  });
+
+  afterEach(async () => {
+    stdoutSpy?.mockRestore();
+    if (previousScope === undefined) {
+      delete process.env.BRAINDRIVE_PROCESS_GUARDRAILS_SCOPE;
+    } else {
+      process.env.BRAINDRIVE_PROCESS_GUARDRAILS_SCOPE = previousScope;
+    }
+    if (tempRoot) {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ["missing", undefined, "missing", "all"],
+    ["empty", "", "empty", "all"],
+    ["whitespace", "   \t", "empty", "all"],
+    ["none", "none", "none", "none"],
+    ["local", "local", "local", "local"],
+    ["cloud", "cloud", "cloud", "cloud"],
+    ["all", "all", "all", "all"],
+    ["trimmed mixed case", "  ClOuD  ", "cloud", "cloud"],
+  ])("resolves %s scope input", async (
+    _label,
+    configuredScope,
+    expectedConfiguredScope,
+    expectedScope
+  ) => {
+    if (!tempRoot) {
+      throw new Error("Missing temp root");
+    }
+
+    if (configuredScope === undefined) {
+      delete process.env.BRAINDRIVE_PROCESS_GUARDRAILS_SCOPE;
+    } else {
+      process.env.BRAINDRIVE_PROCESS_GUARDRAILS_SCOPE = configuredScope;
+    }
+
+    const loaded = await loadRuntimeConfig(tempRoot);
+
+    expect(loaded.process_guardrails_scope).toBe(expectedScope);
+    expect(loaded.process_guardrails_configured_scope).toBe(
+      expectedConfiguredScope
+    );
+  });
+
+  it("rejects an invalid non-empty scope without echoing its value", async () => {
+    if (!tempRoot) {
+      throw new Error("Missing temp root");
+    }
+
+    process.env.BRAINDRIVE_PROCESS_GUARDRAILS_SCOPE = "https://example.invalid/?token=do-not-log";
+
+    await expect(loadRuntimeConfig(tempRoot)).rejects.toMatchObject({
+      name: "ProcessGuardrailScopeConfigError",
+      code: "invalid_process_guardrail_scope",
+    });
+    await expect(loadRuntimeConfig(tempRoot)).rejects.toThrow(
+      "BRAINDRIVE_PROCESS_GUARDRAILS_SCOPE must be one of: none, local, cloud, all"
+    );
+
+    try {
+      await loadRuntimeConfig(tempRoot);
+    } catch (error) {
+      expect(error).toBeInstanceOf(ProcessGuardrailScopeConfigError);
+      expect((error as Error).message).not.toContain("do-not-log");
+    }
+  });
+
+  it.each([
+    ["missing", undefined, "missing", "all"],
+    ["empty", "  ", "empty", "all"],
+    ["configured", " ClOuD ", "cloud", "cloud"],
+  ])(
+    "emits sanitized configured and resolved diagnostics for %s input",
+    async (_label, configuredScope, expectedConfiguredScope, expectedResolvedScope) => {
+      if (!tempRoot || !stdoutSpy) {
+        throw new Error("Missing test setup");
+      }
+
+      if (configuredScope === undefined) {
+        delete process.env.BRAINDRIVE_PROCESS_GUARDRAILS_SCOPE;
+      } else {
+        process.env.BRAINDRIVE_PROCESS_GUARDRAILS_SCOPE = configuredScope;
+      }
+
+      await loadRuntimeConfig(tempRoot);
+
+      const payloads = (stdoutSpy.mock.calls as unknown[][])
+        .map((call): string => typeof call[0] === "string" ? call[0].trim() : "")
+        .filter((value) => value.length > 0)
+        .map((value) => JSON.parse(value) as {
+          event: string;
+          details: Record<string, unknown>;
+        });
+      const diagnostic = payloads.find((payload) => payload.event === "process_guardrails.config");
+
+      expect(diagnostic?.details).toEqual({
+        configured_scope: expectedConfiguredScope,
+        resolved_scope: expectedResolvedScope,
+      });
+    }
+  );
+});
 
 describe("preferences compatibility", () => {
   let tempRoot: string | null = null;

@@ -11,6 +11,10 @@ import type {
 } from "./contracts.js";
 import { initializeMemoryLayout } from "./memory/init.js";
 import { auditLog } from "./logger.js";
+import {
+  PROCESS_GUARDRAIL_SCOPES,
+  type ProcessGuardrailScope,
+} from "./engine/process-guardrails/contracts.js";
 
 const runtimeConfigSchema = z.object({
   memory_root: z.string().min(1),
@@ -279,6 +283,13 @@ export async function loadRuntimeConfig(rootDir: string): Promise<RuntimeConfig>
       : parsed.auth_mode;
   const bindAddressOverride = process.env.BRAINDRIVE_BIND_ADDRESS?.trim();
   const portOverride = parsePositivePort(process.env.BRAINDRIVE_PORT);
+  const configuredProcessGuardrailScope = process.env.BRAINDRIVE_PROCESS_GUARDRAILS_SCOPE;
+  const resolvedProcessGuardrailScope = parseProcessGuardrailScope(configuredProcessGuardrailScope);
+
+  auditLog("process_guardrails.config", {
+    configured_scope: describeConfiguredProcessGuardrailScope(configuredProcessGuardrailScope),
+    resolved_scope: resolvedProcessGuardrailScope,
+  });
 
   return {
     ...parsed,
@@ -287,8 +298,43 @@ export async function loadRuntimeConfig(rootDir: string): Promise<RuntimeConfig>
     install_mode: resolvedInstallMode,
     memory_root: path.resolve(rootDir, resolvedMemoryRoot),
     bind_address: bindAddressOverride && bindAddressOverride.length > 0 ? bindAddressOverride : parsed.bind_address ?? "127.0.0.1",
+    process_guardrails_scope: resolvedProcessGuardrailScope,
+    process_guardrails_configured_scope:
+      describeConfiguredProcessGuardrailScope(configuredProcessGuardrailScope),
     port: portOverride ?? parsed.port ?? 8787,
   };
+}
+
+export class ProcessGuardrailScopeConfigError extends Error {
+  readonly code = "invalid_process_guardrail_scope";
+
+  constructor() {
+    super("BRAINDRIVE_PROCESS_GUARDRAILS_SCOPE must be one of: none, local, cloud, all");
+    this.name = "ProcessGuardrailScopeConfigError";
+  }
+}
+
+export function parseProcessGuardrailScope(
+  configuredScope: string | undefined
+): ProcessGuardrailScope {
+  const normalized = configuredScope?.trim().toLowerCase();
+  if (!normalized) {
+    return "all";
+  }
+  if ((PROCESS_GUARDRAIL_SCOPES as readonly string[]).includes(normalized)) {
+    return normalized as ProcessGuardrailScope;
+  }
+  throw new ProcessGuardrailScopeConfigError();
+}
+
+function describeConfiguredProcessGuardrailScope(
+  configuredScope: string | undefined
+): ProcessGuardrailScope | "missing" | "empty" {
+  if (configuredScope === undefined) {
+    return "missing";
+  }
+  const normalized = configuredScope.trim().toLowerCase();
+  return normalized.length === 0 ? "empty" : normalized as ProcessGuardrailScope;
 }
 
 export async function ensureSystemAppConfig(

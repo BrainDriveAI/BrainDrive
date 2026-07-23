@@ -10,6 +10,7 @@ import { z } from "zod";
 import { createGatewayAdapter } from "../adapters/gateway.js";
 import {
   createModelAdapter,
+  createModelAdapterFromResolvedConfig,
   resolveAdapterConfigForPreferences,
   resolveEffectiveAdapterConfig,
 } from "../adapters/index.js";
@@ -47,10 +48,20 @@ import type {
   GatewayEngineRequest,
   InstallLocation,
   Preferences,
-  RuntimeConfig
+  RuntimeConfig,
+  StreamEvent,
 } from "../contracts.js";
 import { runAgentLoop, type ToolExecutionGuard } from "../engine/loop.js";
 import { classifyProviderError } from "../engine/errors.js";
+import { decideProcessGuardrailActivation } from "../engine/process-guardrails/activation.js";
+import {
+  ProcessGuardrailController,
+  type ProcessGuardrailOwnerOverride,
+} from "../engine/process-guardrails/controller.js";
+import {
+  PROCESS_GUARDRAIL_PROCESS_KIND,
+  isTerminalProcessGuardrailOutcome,
+} from "../engine/process-guardrails/state-machine.js";
 import { formatSseEvent } from "../engine/stream.js";
 import { ToolExecutor } from "../engine/tool-executor.js";
 import { commitMemoryChange, ensureGitReady } from "../git.js";
@@ -60,6 +71,8 @@ import type { ConversationRepository } from "../memory/conversation-repository.j
 import { MarkdownConversationStore } from "../memory/conversation-store-markdown.js";
 import { exportMemory } from "../memory/export.js";
 import { createPromptAuditRecorder } from "../memory/prompt-audit-store.js";
+import { ProcessGuardrailStateStore } from "../memory/process-guardrail-state-store.js";
+import { ProcessGuardrailTraceStore } from "../memory/process-guardrail-trace-store.js";
 import { restoreMemoryBackup } from "../memory/backup-restore.js";
 import { importMigrationArchive } from "../memory/migration.js";
 import {
@@ -79,6 +92,14 @@ import {
   ensureBrainDriveModelsCheckoutKey,
 } from "./credits-provisioning.js";
 import { createMemoryBackupScheduler } from "./memory-backup-scheduler.js";
+import {
+  GatewayProcessGuardrailStageRuntime,
+  ProcessOwnerOverrideToolExecutor,
+  ProcessStartToolExecutor,
+  createProcessGuardrailArtifactInspector,
+  isProcessControlName,
+  parseProcessControlResult,
+} from "./process-guardrails.js";
 import { GatewayProjectService, isProjectMetadata, ProtectedProjectError, type GatewayProjectFile } from "./projects.js";
 import { GatewaySkillService } from "./skills.js";
 import { prepareContextWindow, type PreparedContextWindow } from "./context-window.js";
@@ -445,6 +466,8 @@ export async function buildServer(rootDir = process.cwd()) {
   });
   const approvalStore = new ApprovalStore();
   const toolExecutor = new ToolExecutor(tools);
+  const processGuardrailStateStore = new ProcessGuardrailStateStore(runtimeConfig.memory_root);
+  const processGuardrailTraceStore = new ProcessGuardrailTraceStore(runtimeConfig.memory_root);
   const conversations = new GatewayConversationService(createConversationRepository(runtimeConfig));
   const projects = new GatewayProjectService(runtimeConfig.memory_root, { rootDir });
   const skills = new GatewaySkillService(runtimeConfig.memory_root);
@@ -813,6 +836,59 @@ export async function buildServer(rootDir = process.cwd()) {
     let traceStatus: "started" | "completed" | "error" = "started";
     const pendingToolCalls = new Map<string, { name: string; input: Record<string, unknown> }>();
 
+    const forwardEvent = (event: StreamEvent): void => {
+      if (event.type === "tool-call") {
+        pendingToolCalls.set(event.id, {
+          name: event.name,
+          input: event.input,
+        });
+      }
+
+      if (event.type === "text-delta") {
+        assistantBuffer += event.delta;
+      }
+
+      if (event.type === "error") {
+        traceStatus = "error";
+      }
+
+      if (event.type === "done") {
+        traceStatus = "completed";
+      }
+
+      if (event.type === "tool-result") {
+        const toolCall = pendingToolCalls.get(event.id);
+        pendingToolCalls.delete(event.id);
+
+        if (assistantBuffer.trim().length > 0) {
+          conversations.appendAssistantMessage(
+            conversationId,
+            currentAssistantMessageId,
+            assistantBuffer
+          );
+          lastPersistedAssistantMessageId = currentAssistantMessageId;
+          assistantBuffer = "";
+          currentAssistantMessageId = crypto.randomUUID();
+        }
+
+        conversations.appendToolMessage(
+          conversationId,
+          event.id,
+          JSON.stringify({
+            status: event.status,
+            output: event.output,
+          }),
+          toolCall
+        );
+      }
+
+      const outgoingEvent = gatewayAdapter.toClientStreamEvent(event, {
+        conversationId,
+        messageId: lastPersistedAssistantMessageId ?? currentAssistantMessageId,
+      });
+      reply.raw.write(formatSseEvent(outgoingEvent));
+    };
+
     try {
       const liveAdapterConfig = resolveEffectiveAdapterConfig(adapterConfig, livePreferences);
       const liveProviderCredential = await resolveProviderCredentialForStartup(
@@ -828,79 +904,291 @@ export async function buildServer(rootDir = process.cwd()) {
           secret_ref: liveProviderCredential.secretRef,
         });
       }
-      const modelAdapter = createModelAdapter(runtimeConfig.provider_adapter, adapterConfig, livePreferences, {
-        apiKey: liveProviderCredential?.apiKey,
+      const modelAdapter = createModelAdapterFromResolvedConfig(
+        runtimeConfig.provider_adapter,
+        liveAdapterConfig,
+        { apiKey: liveProviderCredential?.apiKey }
+      );
+      const toolExecutionGuard = createBrainDriveMemorySafetyGuard(
+        projectId,
+        conversations.detail(conversationId)
+      );
+      const promptAudit = promptAuditRecorder
+        ? {
+            recorder: promptAuditRecorder,
+            adapterName: runtimeConfig.provider_adapter,
+            providerProfile:
+              livePreferences.active_provider_profile ??
+              adapterConfig.default_provider_profile,
+            model: liveAdapterConfig.model,
+          }
+        : undefined;
+      const loopOptions = {
+        memoryRoot: runtimeConfig.memory_root,
+        approvalMode: livePreferences.approval_mode,
+        safetyIterationLimit: runtimeConfig.safety_iteration_limit,
+        toolExecutionGuard,
+        ...(promptAudit ? { promptAudit } : {}),
+      };
+
+      const page = projectId
+        ? {
+            id: projectId,
+            files: projectFiles.map((file) => file.name),
+          }
+        : null;
+      let activation = decideProcessGuardrailActivation({
+        scope: runtimeConfig.process_guardrails_scope,
+        providerId: liveAdapterConfig.provider_id,
+        page,
+        processStartRequested: false,
+        resumableStateEligible: false,
+      });
+      const processTuple = projectId
+        ? {
+            conversationId,
+            pageId: projectId,
+            processKind: PROCESS_GUARDRAIL_PROCESS_KIND,
+          }
+        : null;
+      let resumableStateNeedsOwnerOverride = false;
+      if (activation.exposeProcessStart && processTuple) {
+        const saved = await processGuardrailStateStore.load(processTuple);
+        const resumableStateEligible =
+          saved.status !== "missing" &&
+          (
+            saved.status !== "ok" ||
+            !isTerminalProcessGuardrailOutcome(saved.state.outcome)
+          );
+        resumableStateNeedsOwnerOverride =
+          saved.status === "ok" &&
+          (
+            saved.state.outcome === "paused_recoverable" ||
+            saved.state.outcome === "needs_owner_action"
+          );
+        if (resumableStateEligible) {
+          activation = decideProcessGuardrailActivation({
+            scope: runtimeConfig.process_guardrails_scope,
+            providerId: liveAdapterConfig.provider_id,
+            page,
+            processStartRequested: false,
+            resumableStateEligible: true,
+          });
+        }
+      }
+      auditLog("process_guardrails.activation", {
+        ...activation.diagnostic,
+        conversation_id: conversationId,
+        correlation_id: correlationId,
       });
 
-      for await (const event of runAgentLoop(
-        modelAdapter,
-        toolExecutor,
-        approvalStore,
-        engineRequest,
-        request.authContext,
-        {
+      let processStartRequested = false;
+      if (activation.exposeProcessStart && !activation.enterGuardrails) {
+        const startExecutor = new ProcessStartToolExecutor(toolExecutor);
+        const processControlCalls = new Set<string>();
+        let deferredDone: Extract<StreamEvent, { type: "done" }> | null = null;
+        for await (const event of runAgentLoop(
+          modelAdapter,
+          startExecutor,
+          approvalStore,
+          engineRequest,
+          request.authContext,
+          loopOptions
+        )) {
+          if (event.type === "tool-call" && isProcessControlName(event.name)) {
+            processControlCalls.add(event.id);
+            continue;
+          }
+          if (event.type === "tool-result" && processControlCalls.has(event.id)) {
+            const control = parseProcessControlResult(event.output);
+            if (
+              event.status === "ok" &&
+              control?.control === "process_start"
+            ) {
+              processStartRequested = true;
+              break;
+            }
+            continue;
+          }
+          if (event.type === "done") {
+            deferredDone = event;
+            continue;
+          }
+          forwardEvent(event);
+        }
+        if (!processStartRequested && deferredDone) {
+          forwardEvent(deferredDone);
+        }
+      }
+
+      if (processStartRequested) {
+        activation = decideProcessGuardrailActivation({
+          scope: runtimeConfig.process_guardrails_scope,
+          providerId: liveAdapterConfig.provider_id,
+          page,
+          processStartRequested: true,
+          resumableStateEligible: false,
+        });
+        auditLog("process_guardrails.activation", {
+          ...activation.diagnostic,
+          conversation_id: conversationId,
+          correlation_id: correlationId,
+        });
+      }
+
+      let ownerOverride: Exclude<
+        ProcessGuardrailOwnerOverride,
+        { category: "ambiguous" }
+      > | undefined;
+      let ownerOverrideTurnConsumedRequest = false;
+      if (
+        activation.enterGuardrails &&
+        processTuple &&
+        resumableStateNeedsOwnerOverride
+      ) {
+        const overrideExecutor = new ProcessOwnerOverrideToolExecutor();
+        const overrideControlCalls = new Set<string>();
+        let deferredDone: Extract<StreamEvent, { type: "done" }> | null = null;
+        for await (const event of runAgentLoop(
+          modelAdapter,
+          overrideExecutor,
+          approvalStore,
+          engineRequest,
+          request.authContext,
+          loopOptions
+        )) {
+          if (
+            event.type === "tool-call" &&
+            event.name === "process_owner_override"
+          ) {
+            overrideControlCalls.add(event.id);
+            continue;
+          }
+          if (
+            event.type === "tool-result" &&
+            overrideControlCalls.has(event.id)
+          ) {
+            const control = parseProcessControlResult(event.output);
+            if (
+              event.status === "ok" &&
+              control?.control === "process_owner_override"
+            ) {
+              ownerOverride = control.value;
+              break;
+            }
+            continue;
+          }
+          if (event.type === "done") {
+            deferredDone = event;
+            continue;
+          }
+          if (event.type === "error") {
+            ownerOverrideTurnConsumedRequest = true;
+          }
+          forwardEvent(event);
+        }
+        if (!ownerOverride) {
+          ownerOverrideTurnConsumedRequest = true;
+          if (deferredDone) {
+            forwardEvent(deferredDone);
+          }
+        }
+      }
+
+      if (
+        activation.enterGuardrails &&
+        processTuple &&
+        !ownerOverrideTurnConsumedRequest
+      ) {
+        const runtime = new GatewayProcessGuardrailStageRuntime({
           memoryRoot: runtimeConfig.memory_root,
+          pageId: processTuple.pageId,
+          conversationId,
+          correlationId,
+          safetyContext: systemPrompt,
+          tokenBudget: contextWindow.usage.budgetTokens,
+          modelAdapter,
+          baseToolExecutor: toolExecutor,
+          approvalStore,
+          auth: request.authContext,
           approvalMode: livePreferences.approval_mode,
           safetyIterationLimit: runtimeConfig.safety_iteration_limit,
-          toolExecutionGuard: createBrainDriveMemorySafetyGuard(projectId, conversations.detail(conversationId)),
-          ...(promptAuditRecorder
+          toolExecutionGuard,
+          ...(promptAudit ? { promptAudit } : {}),
+          onEvent: forwardEvent,
+        });
+        const controller = new ProcessGuardrailController(
+          processGuardrailStateStore,
+          processGuardrailTraceStore,
+          runtime,
+          createProcessGuardrailArtifactInspector(
+            runtimeConfig.memory_root,
+            processTuple.pageId
+          )
+        );
+        const providerId = liveAdapterConfig.provider_id as
+          | "ollama"
+          | "braindrive-models"
+          | "openrouter";
+        const controllerResult = await controller.run({
+          tuple: processTuple,
+          correlationId,
+          ownerDirection: {
+            messageIds: [currentUserMessage.id],
+            content: currentUserMessage.content,
+          },
+          ...(processStartRequested
             ? {
-                promptAudit: {
-                  recorder: promptAuditRecorder,
-                  adapterName: runtimeConfig.provider_adapter,
-                  providerProfile: livePreferences.active_provider_profile ?? adapterConfig.default_provider_profile,
-                  model: liveAdapterConfig.model,
+                start: {
+                  runId: crypto.randomUUID(),
+                  providerId,
+                  providerClass: activation.providerClass as "local" | "cloud",
+                  modelId: liveAdapterConfig.model,
+                  configuredScope:
+                    runtimeConfig.process_guardrails_configured_scope ??
+                    runtimeConfig.process_guardrails_scope,
+                  resolvedScope: runtimeConfig.process_guardrails_scope,
                 },
               }
             : {}),
-        }
-      )) {
-        if (event.type === "tool-call") {
-          pendingToolCalls.set(event.id, {
-            name: event.name,
-            input: event.input,
+          ...(ownerOverride ? { override: ownerOverride } : {}),
+          autoChain: false,
+        });
+        auditLog("process_guardrails.request_completed", {
+          conversation_id: conversationId,
+          correlation_id: correlationId,
+          run_id: controllerResult.state?.run_id ?? null,
+          outcome: controllerResult.outcome,
+          reason: controllerResult.reason,
+          state_revision: controllerResult.state?.revision ?? null,
+          diagnostic_health:
+            controllerResult.state?.diagnostic_health.status ?? null,
+        });
+        if (runtime.deferredError) {
+          forwardEvent(runtime.deferredError);
+        } else {
+          forwardEvent({
+            type: "text-delta",
+            delta: controllerResult.message,
+          });
+          forwardEvent({
+            type: "done",
+            conversation_id: conversationId,
+            message_id: currentAssistantMessageId,
+            finish_reason: "completed",
           });
         }
-
-        if (event.type === "text-delta") {
-          assistantBuffer += event.delta;
+      } else if (!activation.exposeProcessStart) {
+        for await (const event of runAgentLoop(
+          modelAdapter,
+          toolExecutor,
+          approvalStore,
+          engineRequest,
+          request.authContext,
+          loopOptions
+        )) {
+          forwardEvent(event);
         }
-
-        if (event.type === "error") {
-          traceStatus = "error";
-        }
-
-        if (event.type === "done") {
-          traceStatus = "completed";
-        }
-
-        if (event.type === "tool-result") {
-          const toolCall = pendingToolCalls.get(event.id);
-          pendingToolCalls.delete(event.id);
-
-          if (assistantBuffer.trim().length > 0) {
-            conversations.appendAssistantMessage(conversationId, currentAssistantMessageId, assistantBuffer);
-            lastPersistedAssistantMessageId = currentAssistantMessageId;
-            assistantBuffer = "";
-            currentAssistantMessageId = crypto.randomUUID();
-          }
-
-          conversations.appendToolMessage(
-            conversationId,
-            event.id,
-            JSON.stringify({
-              status: event.status,
-              output: event.output,
-            }),
-            toolCall
-          );
-        }
-
-        const outgoingEvent = gatewayAdapter.toClientStreamEvent(event, {
-          conversationId,
-          messageId: lastPersistedAssistantMessageId ?? currentAssistantMessageId,
-        });
-        reply.raw.write(formatSseEvent(outgoingEvent));
       }
 
       if (assistantBuffer.trim().length > 0) {

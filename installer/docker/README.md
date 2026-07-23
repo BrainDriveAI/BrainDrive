@@ -111,6 +111,26 @@ If file watching is unreliable (WSL/network mounts), enable polling in `.env`:
 - `BRAINDRIVE_DEV_CHOKIDAR_POLLING=true`
 - `BRAINDRIVE_DEV_WATCHPACK_POLLING=true`
 
+## Process guardrail scope
+
+`BRAINDRIVE_PROCESS_GUARDRAILS_SCOPE` accepts `none`, `local`, `cloud`, and `all`.
+Values are trimmed and case-insensitive. A missing or empty value defaults to `all`;
+an invalid non-empty value stops runtime configuration loading with an error.
+
+- `none`: no provider is eligible.
+- `local`: only Ollama is eligible.
+- `cloud`: BrainDrive Models and OpenRouter are eligible.
+- `all`: Ollama, BrainDrive Models, and OpenRouter are eligible.
+
+Set the value in `.env`, then restart the selected Docker mode so the app process
+reloads its environment. Setting `none` is a non-destructive rollback: it affects
+only future guardrail entry and does not delete or rewrite owner artifacts,
+conversations, process state, or diagnostics.
+
+For the provider matrix, server/desktop reload behavior, diagnostic paths and
+retention, recovery actions, and deterministic browser verification, see
+[`docs/process-guardrails.md`](../../docs/process-guardrails.md).
+
 ## Files
 - `compose.prod.yml`: production stack (app + edge, TLS via Caddy).
 - `compose.local.yml`: local stack (HTTP on `${BRAINDRIVE_LOCAL_BIND_HOST:-127.0.0.1}:8080`; set `0.0.0.0` for LAN access).

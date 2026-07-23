@@ -3,7 +3,24 @@ import { authorizeToolUse, canUseTool } from "../auth/authorize.js";
 import { auditLog } from "../logger.js";
 import { toToolFailure } from "../tool-error.js";
 
-export class ToolExecutor {
+export interface ToolExecutorLike {
+  listTools(auth: AuthContext): ToolDefinition[];
+  getTool(name: string): ToolDefinition | undefined;
+  preflight?(
+    auth: AuthContext,
+    context: ToolContext,
+    name: string,
+    input: Record<string, unknown>
+  ): Promise<ToolExecutionResult | null>;
+  execute(
+    auth: AuthContext,
+    context: ToolContext,
+    name: string,
+    input: Record<string, unknown>
+  ): Promise<ToolExecutionResult>;
+}
+
+export class ToolExecutor implements ToolExecutorLike {
   private readonly registry = new Map<string, ToolDefinition>();
 
   constructor(tools: ToolDefinition[]) {

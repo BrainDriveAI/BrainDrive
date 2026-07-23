@@ -226,7 +226,14 @@ async function searchTool(context: ToolContext, input: Record<string, unknown>):
 
 function resolveToolPath(context: ToolContext, requestedPath: string): string {
   try {
-    return resolveMemoryPath(context.memoryRoot, requestedPath);
+    const resolved = resolveMemoryPath(context.memoryRoot, requestedPath);
+    if (isProcessGuardrailDiagnosticsPath(context.memoryRoot, resolved)) {
+      throw new ToolExecutionFailure(
+        "reserved_path",
+        "Path targets protected process diagnostics"
+      );
+    }
+    return resolved;
   } catch (error) {
     throw mapPathResolutionFailure(error);
   }
@@ -275,6 +282,17 @@ function isConversationsPath(memoryRoot: string, absolutePath: string): boolean 
   const normalizedRelative = relativePath.replace(/\\/g, "/");
   const firstSegment = normalizedRelative.split("/")[0] ?? "";
   return firstSegment === "conversations";
+}
+
+function isProcessGuardrailDiagnosticsPath(
+  memoryRoot: string,
+  absolutePath: string
+): boolean {
+  const relativePath = toMemoryRelativePath(memoryRoot, absolutePath).replace(/\\/g, "/");
+  return (
+    relativePath === "diagnostics/process-guardrails" ||
+    relativePath.startsWith("diagnostics/process-guardrails/")
+  );
 }
 
 function isHiddenFromModelBrowsing(memoryRoot: string, absolutePath: string): boolean {
