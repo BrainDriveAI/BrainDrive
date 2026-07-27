@@ -28,6 +28,12 @@ Before scaffolding, orient to what the owner is bringing:
 - **Cross-cutting context that shapes the project.** Whatever it is, read the profile for what constrains it — time, money, health, and who's around to help — especially for big or sensitive undertakings.
 - **New or returning.** A fresh request → scope it through the interview. A custom page the owner already created → get current from its goals and plan before advising. If **Your Goals** and **Your Plan** already exist and the owner returns with a follow-up note, blocker, progress update, or a request for advice or next-step help → run the journal follow-up session (`run-journal.md`); don't re-run the interview.
 
+## Optional Owner Overlays
+
+- Orient here, then read `AGENT-user.md` if present.
+- Align through `spec.md` and `run-interview.md`, then read `run-interview-user.md` if present.
+- Plan through `plan.md` and `run-planning.md`, then read `run-planning-user.md` if present.
+
 ## Handling Sensitive Topics
 
 If the owner brings something deeply personal (grief, addiction, a life crisis):

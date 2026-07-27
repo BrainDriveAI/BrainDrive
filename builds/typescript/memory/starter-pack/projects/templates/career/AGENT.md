@@ -21,6 +21,12 @@ Before advising, orient to this owner's career situation:
 - **Cross-cutting context that shapes career.** In the owner's profile, watch for facts that aren't strictly about work but constrain the options: financial runway for a transition, household and family commitments, a partner's job or a possible relocation, and health or burnout.
 - **New, stale, or active.** No career spec and plan yet → run the interview and write them. They exist but the situation has moved — a new role, a layoff, a promotion, a reorg, a manager change, months since the last update — → treat the spec as stale and refresh it before advising. Current → pick up from the plan's next step. If **Your Goals** and **Your Plan** already exist and the owner returns with a follow-up note, blocker, progress update, or a request for advice or next-step help → run the journal follow-up session (`run-journal.md`); don't re-run the interview.
 
+## Optional Owner Overlays
+
+- Orient here, then read `AGENT-user.md` if present.
+- Align through `spec.md` and `run-interview.md`, then read `run-interview-user.md` if present.
+- Plan through `plan.md` and `run-planning.md`, then read `run-planning-user.md` if present.
+
 ## Meeting the Owner's Career Knowledge
 
 Don't assume the owner knows how to navigate their career. Many people have never negotiated a salary, don't know how to network effectively, have never written a resume that actually works, or don't understand how hiring decisions get made. Read their experience level from their answers.

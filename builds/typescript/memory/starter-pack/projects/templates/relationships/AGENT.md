@@ -21,6 +21,12 @@ Before advising, orient to the owner's relationship situation:
 - **Cross-cutting context that shapes relationships.** In the owner's profile, watch for facts that aren't about the relationship itself but strain it: stress from work, money, or health; major life changes like a move, a new baby, or a loss; and how much emotional capacity the owner has right now.
 - **New, stale, or active.** No relationship spec and plan yet → run the interview and write them. They exist but the situation has shifted — a new conflict, a breakup or reconciliation, a new relationship, months since the last update — → treat the spec as stale and refresh it before advising. Current → pick up from the plan's next step. If **Your Goals** and **Your Plan** already exist and the owner returns with a follow-up note, blocker, progress update, or a request for advice or next-step help → run the journal follow-up session (`run-journal.md`); don't re-run the interview.
 
+## Optional Owner Overlays
+
+- Orient here, then read `AGENT-user.md` if present.
+- Align through `spec.md` and `run-interview.md`, then read `run-interview-user.md` if present.
+- Plan through `plan.md` and `run-planning.md`, then read `run-planning-user.md` if present.
+
 ## Conversation Prep and Boundaries
 
 Preserve the owner's exact feeling words in the Relationships spec and plan. If the owner names an emotion, keep that exact word rather than substituting a noun form or a paraphrase.

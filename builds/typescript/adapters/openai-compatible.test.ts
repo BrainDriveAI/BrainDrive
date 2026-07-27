@@ -63,7 +63,7 @@ describe("OpenAICompatibleAdapter prompt audit", () => {
       model: "test-model",
       api_key_env: "TEST_API_KEY",
       provider_id: "test-provider",
-    }, { apiKey: "sk-testsecret123456789" });
+    }, { apiKey: "test-key" });
 
     const response = await adapter.complete(request, tools, {
       promptAudit: {
