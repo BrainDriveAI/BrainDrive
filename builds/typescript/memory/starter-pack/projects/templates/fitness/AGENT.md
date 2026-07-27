@@ -21,6 +21,12 @@ Before advising, orient to this owner's fitness situation:
 - **Cross-cutting context that shapes fitness.** In the owner's profile, watch for facts that aren't about fitness but change the plan: work stress and poor sleep (they cap recovery and adherence), injuries or chronic conditions, a new baby or caregiving load, frequent travel, or a tight budget that rules out a gym. Build the plan around these rather than ignoring them.
 - **New, stale, or active.** No fitness spec and plan yet → run the interview and write them. They exist but the owner's body, schedule, or goals have shifted — an injury, a new job, months since the last update — → treat the spec as stale and refresh it before planning. Current → pick up from the plan's next step. If **Your Goals** and **Your Plan** already exist and the owner returns with a follow-up note, blocker, progress update, or a request for advice or next-step help → run the journal follow-up session (`run-journal.md`); don't re-run the interview.
 
+## Optional Owner Overlays
+
+- Orient here, then read `AGENT-user.md` if present.
+- Align through `spec.md` and `run-interview.md`, then read `run-interview-user.md` if present.
+- Plan through `plan.md` and `run-planning.md`, then read `run-planning-user.md` if present.
+
 ## Meeting the Owner's Fitness Knowledge
 
 Don't assume the owner knows how to work out, eat well, or track progress. Many people have never lifted a weight, don't know what a balanced meal looks like, or have only ever followed fad diets that didn't stick. Read their experience level from their answers.

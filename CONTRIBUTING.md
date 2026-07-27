@@ -26,6 +26,22 @@ We welcome pull requests for bug fixes, improvements, documentation, and new fea
 
 For larger changes (new components, architectural modifications, protocol changes), please open an issue first to discuss the approach.
 
+## Secret Scanning
+
+Run the pinned, redacted scanner against current repository content and
+reachable Git history:
+
+```bash
+tools/security/scan-secrets.sh --current
+tools/security/scan-secrets.sh --history
+```
+
+Use `tools/security/scan-secrets.sh --self-test` to verify canary detection,
+redaction, checksum/version enforcement, deleted-history coverage, and
+shallow-clone rejection. See [Repository Security](docs/repository-security.md)
+for finding triage and evidence rules. Never paste a matched value into an
+issue, pull request, or log.
+
 ## Local Development
 
 The fastest way to run BrainDrive locally:
