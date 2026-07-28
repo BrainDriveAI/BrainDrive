@@ -1182,11 +1182,11 @@ export async function buildServer(rootDir = process.cwd()) {
   };
 
   const saveEntitlementOperation = async (
-    preferences: Preferences,
     operation: EntitlementOperation,
     status: "pending" | "completed" | "partial_success",
     lastError: string | null = null
   ): Promise<Preferences> => {
+    const preferences = await loadLivePreferences();
     const nextPreferences: Preferences = {
       ...preferences,
       braindrive_models_entitlement: {
@@ -1258,7 +1258,7 @@ export async function buildServer(rootDir = process.cwd()) {
       };
       const balance = await loadEntitlementBalance(existingKey.trim());
       if (!balance) {
-        await saveEntitlementOperation(preferences, operation, "partial_success", "balance_refresh_unavailable");
+        await saveEntitlementOperation(operation, "partial_success", "balance_refresh_unavailable");
         return {
           ok: true,
           statusCode: 200,
@@ -1270,7 +1270,7 @@ export async function buildServer(rootDir = process.cwd()) {
           },
         };
       }
-      await saveEntitlementOperation(preferences, operation, "completed");
+      await saveEntitlementOperation(operation, "completed");
       return {
         ok: true,
         statusCode: 200,
@@ -1338,7 +1338,7 @@ export async function buildServer(rootDir = process.cwd()) {
       return { ok: false, statusCode: 503, code: "campaign_unavailable", message: "Email credit service is unavailable" };
     }
     if (operation.status === "pending") {
-      await saveEntitlementOperation(readiness.preferences, operation, "pending");
+      await saveEntitlementOperation(operation, "pending");
       return {
         ok: true,
         statusCode: 202,
@@ -1351,10 +1351,10 @@ export async function buildServer(rootDir = process.cwd()) {
       };
     }
 
-    const completedPreferences = await saveEntitlementOperation(readiness.preferences, operation, "completed");
+    await saveEntitlementOperation(operation, "completed");
     const balance = await loadEntitlementBalance(readiness.apiKey);
     if (!balance) {
-      await saveEntitlementOperation(completedPreferences, operation, "partial_success", "balance_refresh_unavailable");
+      await saveEntitlementOperation(operation, "partial_success", "balance_refresh_unavailable");
       return {
         ok: true,
         statusCode: 200,
@@ -1411,7 +1411,13 @@ export async function buildServer(rootDir = process.cwd()) {
     }
 
     const initialPreferences = await loadLivePreferences();
-    if (initialPreferences.braindrive_models_entitlement?.operation_id) {
+    const savedOperation = initialPreferences.braindrive_models_entitlement;
+    const hasUnfinishedOperation = Boolean(
+      savedOperation?.operation_id
+      && savedOperation.status !== "completed"
+      && savedOperation.status !== "partial_success"
+    );
+    if (hasUnfinishedOperation) {
       const refreshed = await refreshEntitlementOperation(initialPreferences);
       if (!refreshed.ok) {
         entitlementError(reply, refreshed.statusCode, refreshed.code, refreshed.message);
@@ -1494,7 +1500,7 @@ export async function buildServer(rootDir = process.cwd()) {
       return;
     }
     if (operation.status === "pending") {
-      await saveEntitlementOperation(readiness.preferences, operation, "pending");
+      await saveEntitlementOperation(operation, "pending");
       reply.code(202).send({
         state: "pending",
         operation_id: operation.operationId,
@@ -1504,10 +1510,10 @@ export async function buildServer(rootDir = process.cwd()) {
       return;
     }
 
-    const completedPreferences = await saveEntitlementOperation(readiness.preferences, operation, "completed");
+    await saveEntitlementOperation(operation, "completed");
     const balance = await loadEntitlementBalance(readiness.apiKey);
     if (!balance) {
-      await saveEntitlementOperation(completedPreferences, operation, "partial_success", "balance_refresh_unavailable");
+      await saveEntitlementOperation(operation, "partial_success", "balance_refresh_unavailable");
       reply.send({
         state: "partial_success",
         operation_id: operation.operationId,

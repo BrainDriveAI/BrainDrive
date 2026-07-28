@@ -106,6 +106,11 @@ describe("ensureBrainDriveModelsClaimKey", () => {
       status: "ready",
       checkout_pending: false,
     });
+    expect(savedPreferences.at(-1)?.provider_credentials?.["braindrive-models"]).toEqual({
+      mode: "secret_ref",
+      secret_ref: "provider/ai-gateway/api_key",
+      required: true,
+    });
   });
 
   it("stores a provisioned key in the vault before saving safe claim metadata", async () => {

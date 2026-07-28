@@ -1777,6 +1777,8 @@ function BrainDriveModelsPanel({
   function applyClaimResult(result: GatewayEmailCreditResult) {
     setClaimResult(result);
     setClaimNeedsRepair(false);
+    setKeyInvalid(false);
+    setShowRepairKey(false);
     if (result.balance) {
       setBalance(result.balance);
       setPurchaseState(result.balance.purchase_status === "ready" ? "ready" : "zero_balance");
@@ -1852,7 +1854,7 @@ function BrainDriveModelsPanel({
       setClaimMessage("Enter a valid email address.");
       return;
     }
-    if (claimLoading || claimResult?.state === "pending" || claimResult?.state === "completed" || claimResult?.state === "partial_success") {
+    if (claimLoading || claimResult?.state === "pending") {
       return;
     }
     const requestId = ++claimRequestId.current;
@@ -2072,13 +2074,17 @@ function BrainDriveModelsPanel({
               disabled={
                 claimLoading ||
                 !isDeliverableEmail(normalizeBillingEmail(claimEmail)) ||
-                claimResult?.state === "pending" ||
-                claimResult?.state === "completed" ||
-                claimResult?.state === "partial_success"
+                claimResult?.state === "pending"
               }
               className="h-10 shrink-0 rounded-lg bg-bd-amber px-4 text-sm font-semibold text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {claimLoading ? "Checking..." : claimResult?.state === "pending" ? "Reconciling..." : "Apply credit"}
+              {claimLoading
+                ? "Checking..."
+                : claimResult?.state === "pending"
+                  ? "Reconciling..."
+                  : claimResult?.state === "completed" || claimResult?.state === "partial_success"
+                    ? "Check for another credit"
+                    : "Apply credit"}
             </button>
           </form>
           <div aria-live="polite" aria-atomic="true" role="status" className="text-xs leading-5 text-bd-text-secondary">

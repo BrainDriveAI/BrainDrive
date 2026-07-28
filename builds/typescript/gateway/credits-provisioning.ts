@@ -109,14 +109,17 @@ async function ensureBrainDriveModelsKey(input: {
       );
     }
 
-    const nextPreferences = withBrainDriveModelsMetadata(input.preferences, {
-      install_public_id: installPublicId,
-      masked_key: maskApiKey(trimmedKey),
-      status: input.purpose === "checkout" ? "checkout_pending" : "ready",
-      checkout_pending: input.purpose === "checkout",
-      last_attempt_at: now().toISOString(),
-      last_error: null,
-    });
+    const nextPreferences = withBrainDriveModelsMetadata(
+      withBrainDriveModelsCredential(input.preferences, secretRef),
+      {
+        install_public_id: installPublicId,
+        masked_key: maskApiKey(trimmedKey),
+        status: input.purpose === "checkout" ? "checkout_pending" : "ready",
+        checkout_pending: input.purpose === "checkout",
+        last_attempt_at: now().toISOString(),
+        last_error: null,
+      }
+    );
     await input.savePreferences(nextPreferences);
     return {
       apiKey: trimmedKey,
@@ -187,17 +190,7 @@ async function ensureBrainDriveModelsKey(input: {
   }
 
   const nextPreferences = withBrainDriveModelsMetadata(
-    {
-      ...input.preferences,
-      provider_credentials: {
-        ...(input.preferences.provider_credentials ?? {}),
-        [BRAINDRIVE_MODELS_PROVIDER_ID]: {
-          mode: "secret_ref",
-          secret_ref: secretRef,
-          required: true,
-        } satisfies ProviderCredentialPreference,
-      },
-    },
+    withBrainDriveModelsCredential(input.preferences, secretRef),
     {
       ...baseMetadata,
       status: "provisioned",
@@ -213,6 +206,23 @@ async function ensureBrainDriveModelsKey(input: {
     secretRef,
     installPublicId,
     provisioned: true,
+  };
+}
+
+function withBrainDriveModelsCredential(
+  preferences: Preferences,
+  secretRef: string
+): Preferences {
+  return {
+    ...preferences,
+    provider_credentials: {
+      ...(preferences.provider_credentials ?? {}),
+      [BRAINDRIVE_MODELS_PROVIDER_ID]: {
+        mode: "secret_ref",
+        secret_ref: secretRef,
+        required: true,
+      } satisfies ProviderCredentialPreference,
+    },
   };
 }
 

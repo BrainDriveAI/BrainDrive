@@ -1691,7 +1691,7 @@ describe.sequential("gateway auth route integration", () => {
       if (requestUrl.endsWith("/credits/entitlements/operations/operation-persisted")) {
         expect(init?.headers).toMatchObject({ Authorization: "Bearer sk-operation-persisted" });
         return new Response(
-          JSON.stringify({ operation_id: "operation-persisted", status: "completed", applied_cents: 1000 }),
+          JSON.stringify({ operation_id: "operation-persisted", status: "pending" }),
           { status: 200, headers: { "content-type": "application/json" } }
         );
       }
@@ -1707,7 +1707,7 @@ describe.sequential("gateway auth route integration", () => {
       url: "/credits/entitlements/status?operation_id=operation-attacker",
       headers: localOwnerAdminHeaders(),
     });
-    expect(refreshResponse.statusCode).toBe(200);
+    expect(refreshResponse.statusCode).toBe(202);
     expect(parseJson<{ operation_id: string }>(refreshResponse.body).operation_id).toBe("operation-persisted");
 
     const duplicateResponse = await context.app.inject({
@@ -1716,8 +1716,89 @@ describe.sequential("gateway auth route integration", () => {
       headers: localOwnerAdminHeaders(),
       payload: { email: "other@example.com" },
     });
-    expect(duplicateResponse.statusCode).toBe(200);
+    expect(duplicateResponse.statusCode).toBe(202);
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/credits/entitlements/claim"))).toBe(false);
+  });
+
+  it("starts a new explicit claim after a completed operation and repairs a missing provider mapping", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: brainDriveModelsAdapterConfig(),
+    });
+    mockPreferences = {
+      ...mockPreferences,
+      provider_credentials: undefined,
+      braindrive_models_key: {
+        install_public_id: "install-retest",
+        masked_key: "sk-...test",
+        status: "ready",
+        checkout_pending: false,
+      },
+      braindrive_models_entitlement: {
+        operation_id: "operation-first",
+        status: "completed",
+        applied_cents: 100,
+      },
+    };
+    await writeVaultSecret("provider/ai-gateway/api_key", "sk-existing-retest-key");
+    let statusCalls = 0;
+    let claimCalls = 0;
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      const requestUrl = String(url);
+      if (requestUrl.endsWith("/credits/status")) {
+        statusCalls += 1;
+        return new Response(
+          JSON.stringify({
+            remaining_usd: statusCalls === 1 ? 1 : 2,
+            total_purchased_usd: statusCalls === 1 ? 1 : 2,
+            total_spent_usd: 0,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      if (requestUrl.endsWith("/credits/entitlements/claim")) {
+        claimCalls += 1;
+        expect(init?.headers).toMatchObject({
+          Authorization: "Bearer sk-existing-retest-key",
+        });
+        return new Response(
+          JSON.stringify({
+            operation_id: "operation-retest",
+            status: "completed",
+            applied_cents: 100,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      if (requestUrl.includes("/credits/entitlements/operations/")) {
+        throw new Error("a completed operation must not block an explicit retest");
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/credits/entitlements/claim",
+      headers: localOwnerAdminHeaders(),
+      payload: { email: "recipient@example.com" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(claimCalls).toBe(1);
+    expect(parseJson<{ operation_id: string }>(response.body).operation_id).toBe(
+      "operation-retest"
+    );
+    expect(mockPreferences.provider_credentials?.["braindrive-models"]).toEqual({
+      mode: "secret_ref",
+      secret_ref: "provider/ai-gateway/api_key",
+      required: true,
+    });
+    expect(mockPreferences.braindrive_models_entitlement).toMatchObject({
+      operation_id: "operation-retest",
+      status: "completed",
+      applied_cents: 100,
+    });
   });
 
   it("returns durable partial success when completion is proven but balance refresh fails", async () => {

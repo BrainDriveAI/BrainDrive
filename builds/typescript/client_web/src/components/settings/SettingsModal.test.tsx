@@ -563,7 +563,36 @@ describe("SettingsModal", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("$10.00 applied.");
     expect(screen.getByRole("status")).toHaveTextContent("Credit applied; balance refresh unavailable.");
     expect(screen.getByRole("button", { name: "Refresh this claim" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Apply credit" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Check for another credit" })).toBeEnabled();
+  });
+
+  it("allows an explicit second check after a completed claim", async () => {
+    const user = userEvent.setup();
+    getSettingsMock.mockResolvedValueOnce(brainDriveModelsSettings);
+    getEmailCreditCapabilityMock.mockResolvedValueOnce({ available: true, version: "1" });
+    claimEmailCreditMock
+      .mockResolvedValueOnce({
+        state: "completed",
+        operation_id: "operation-first",
+        applied_cents: 100,
+        balance: { remaining_usd: 1, purchase_status: "ready" },
+      })
+      .mockResolvedValueOnce({
+        state: "completed",
+        operation_id: "operation-retest",
+        applied_cents: 100,
+        balance: { remaining_usd: 2, purchase_status: "ready" },
+      });
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+    await user.click((await screen.findAllByRole("button", { name: "AI Models" }))[0]!);
+    await user.type(await screen.findByLabelText("Email"), "recipient@example.com");
+    await user.click(screen.getByRole("button", { name: "Apply credit" }));
+    await user.click(await screen.findByRole("button", { name: "Check for another credit" }));
+
+    await waitFor(() => expect(claimEmailCreditMock).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "$1.00 applied. Authoritative balance: $2.00."
+    );
   });
 
   it.each([
