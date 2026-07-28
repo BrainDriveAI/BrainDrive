@@ -7,10 +7,11 @@ export const BRAINDRIVE_MODELS_SECRET_REF = "provider/ai-gateway/api_key";
 
 type FetchLike = typeof fetch;
 
-export type BrainDriveModelsCheckoutKeyResult = {
+export type BrainDriveModelsKeyReadinessResult = {
   apiKey: string;
   preferences: Preferences;
   secretRef: string;
+  installPublicId: string;
   provisioned: boolean;
 };
 
@@ -39,10 +40,42 @@ export async function ensureBrainDriveModelsCheckoutKey(input: {
   loadVaultSecret: (secretRef: string) => Promise<string | undefined>;
   saveVaultSecret: (secretRef: string, plaintext: string) => Promise<void>;
   savePreferences: (preferences: Preferences) => Promise<void>;
-}): Promise<BrainDriveModelsCheckoutKeyResult> {
+}): Promise<BrainDriveModelsKeyReadinessResult> {
+  return ensureBrainDriveModelsKey({
+    ...input,
+    purpose: "checkout",
+  });
+}
+
+export async function ensureBrainDriveModelsClaimKey(input: {
+  creditsApiBase: string;
+  preferences: Preferences;
+  fetchImpl?: FetchLike;
+  now?: () => Date;
+  loadVaultSecret: (secretRef: string) => Promise<string | undefined>;
+  saveVaultSecret: (secretRef: string, plaintext: string) => Promise<void>;
+  savePreferences: (preferences: Preferences) => Promise<void>;
+}): Promise<BrainDriveModelsKeyReadinessResult> {
+  return ensureBrainDriveModelsKey({
+    ...input,
+    purpose: "claim",
+  });
+}
+
+async function ensureBrainDriveModelsKey(input: {
+  purpose: "checkout" | "claim";
+  creditsApiBase: string;
+  preferences: Preferences;
+  fetchImpl?: FetchLike;
+  now?: () => Date;
+  loadVaultSecret: (secretRef: string) => Promise<string | undefined>;
+  saveVaultSecret: (secretRef: string, plaintext: string) => Promise<void>;
+  savePreferences: (preferences: Preferences) => Promise<void>;
+}): Promise<BrainDriveModelsKeyReadinessResult> {
   const fetchImpl = input.fetchImpl ?? fetch;
   const now = input.now ?? (() => new Date());
   const secretRef = resolveBrainDriveModelsSecretRef(input.preferences);
+  const installPublicId = resolveInstallPublicId(input.preferences);
   const existingKey = await input.loadVaultSecret(secretRef);
 
   if (existingKey && existingKey.trim().length > 0) {
@@ -76,18 +109,23 @@ export async function ensureBrainDriveModelsCheckoutKey(input: {
       );
     }
 
-    const nextPreferences = withBrainDriveModelsMetadata(input.preferences, {
-      masked_key: maskApiKey(trimmedKey),
-      status: "checkout_pending",
-      checkout_pending: true,
-      last_attempt_at: now().toISOString(),
-      last_error: null,
-    });
+    const nextPreferences = withBrainDriveModelsMetadata(
+      withBrainDriveModelsCredential(input.preferences, secretRef),
+      {
+        install_public_id: installPublicId,
+        masked_key: maskApiKey(trimmedKey),
+        status: input.purpose === "checkout" ? "checkout_pending" : "ready",
+        checkout_pending: input.purpose === "checkout",
+        last_attempt_at: now().toISOString(),
+        last_error: null,
+      }
+    );
     await input.savePreferences(nextPreferences);
     return {
       apiKey: trimmedKey,
       preferences: nextPreferences,
       secretRef,
+      installPublicId,
       provisioned: false,
     };
   }
@@ -107,7 +145,6 @@ export async function ensureBrainDriveModelsCheckoutKey(input: {
     );
   }
 
-  const installPublicId = resolveInstallPublicId(input.preferences);
   const provisionResp = await fetchImpl(`${input.creditsApiBase}/credits/key/provision`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -153,21 +190,11 @@ export async function ensureBrainDriveModelsCheckoutKey(input: {
   }
 
   const nextPreferences = withBrainDriveModelsMetadata(
-    {
-      ...input.preferences,
-      provider_credentials: {
-        ...(input.preferences.provider_credentials ?? {}),
-        [BRAINDRIVE_MODELS_PROVIDER_ID]: {
-          mode: "secret_ref",
-          secret_ref: secretRef,
-          required: true,
-        } satisfies ProviderCredentialPreference,
-      },
-    },
+    withBrainDriveModelsCredential(input.preferences, secretRef),
     {
       ...baseMetadata,
       status: "provisioned",
-      checkout_pending: true,
+      checkout_pending: input.purpose === "checkout",
       last_error: null,
     }
   );
@@ -177,11 +204,29 @@ export async function ensureBrainDriveModelsCheckoutKey(input: {
     apiKey: provisioned.api_key,
     preferences: nextPreferences,
     secretRef,
+    installPublicId,
     provisioned: true,
   };
 }
 
-function resolveBrainDriveModelsSecretRef(preferences: Preferences): string {
+function withBrainDriveModelsCredential(
+  preferences: Preferences,
+  secretRef: string
+): Preferences {
+  return {
+    ...preferences,
+    provider_credentials: {
+      ...(preferences.provider_credentials ?? {}),
+      [BRAINDRIVE_MODELS_PROVIDER_ID]: {
+        mode: "secret_ref",
+        secret_ref: secretRef,
+        required: true,
+      } satisfies ProviderCredentialPreference,
+    },
+  };
+}
+
+export function resolveBrainDriveModelsSecretRef(preferences: Preferences): string {
   const credential = preferences.provider_credentials?.[BRAINDRIVE_MODELS_PROVIDER_ID];
   if (credential?.mode === "secret_ref" && credential.secret_ref.trim().length > 0) {
     return credential.secret_ref.trim();

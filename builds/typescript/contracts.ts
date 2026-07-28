@@ -186,6 +186,7 @@ export type Preferences = {
   memory_backup?: MemoryBackupPreference;
   prompt_audit?: PromptAuditPreference;
   braindrive_models_key?: BrainDriveModelsKeyPreference;
+  braindrive_models_entitlement?: BrainDriveModelsEntitlementPreference;
 };
 
 export type PromptAuditDetail = "minimal" | "standard" | "verbose";
@@ -206,6 +207,14 @@ export type BrainDriveModelsKeyPreference = {
   checkout_pending?: boolean;
   provisioned_at?: string;
   expires_unfunded_at?: string;
+  last_attempt_at?: string;
+  last_error?: string | null;
+};
+
+export type BrainDriveModelsEntitlementPreference = {
+  operation_id?: string;
+  status?: "pending" | "completed" | "partial_success";
+  applied_cents?: number;
   last_attempt_at?: string;
   last_error?: string | null;
 };

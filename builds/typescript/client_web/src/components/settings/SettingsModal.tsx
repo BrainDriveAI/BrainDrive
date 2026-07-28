@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   Bot,
   ChevronDown,
@@ -45,9 +45,12 @@ import {
   downloadLibraryExport,
   importLibraryArchive,
   createCreditsCheckout,
+  claimEmailCredit,
+  getEmailCreditCapability,
   getRootAgent,
   getOwnerProfile,
   getCreditsStatus,
+  refreshEmailCreditStatus,
   getProviderModels,
   getSettings as getGatewaySettings,
   restoreMemoryBackup as restoreGatewayMemoryBackup,
@@ -72,6 +75,7 @@ import type {
   GatewayBrainDriveModelsKeyState,
   GatewayCredentialUpdateRequest,
   GatewayCreditsStatus,
+  GatewayEmailCreditResult,
   GatewayMemoryBackupFrequency,
   GatewayMemoryBackupRestoreRequest,
   GatewayMemoryBackupRestoreResult,
@@ -523,6 +527,29 @@ function normalizeBillingEmail(email: string): string {
 function isSyntheticLocalEmail(email: string): boolean {
   const normalized = normalizeBillingEmail(email).toLowerCase();
   return SYNTHETIC_LOCAL_EMAIL_DOMAINS.some((domain) => normalized.endsWith(domain));
+}
+
+function isDeliverableEmail(email: string): boolean {
+  return email.length <= 320 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && !isSyntheticLocalEmail(email);
+}
+
+function emailCreditErrorMessage(code: string): string {
+  switch (code) {
+    case "invalid_email":
+      return "Enter a valid email address.";
+    case "key_repair_required":
+      return "BrainDrive Models needs its existing key repaired before credit can be applied.";
+    case "key_preparation_failed":
+      return "BrainDrive Models could not be prepared. Try again.";
+    case "no_available_credit":
+      return "No available email credit was found.";
+    case "throttled":
+      return "Please wait before trying again.";
+    case "campaign_unavailable":
+      return "Available email credit is temporarily unavailable. Try again later.";
+    default:
+      return "Available email credit could not be checked. Try again.";
+  }
 }
 
 function getSavedBillingEmail(): string {
@@ -1726,13 +1753,131 @@ function BrainDriveModelsPanel({
   const [isEditingEmail, setIsEditingEmail] = useState(false);
   const [selectedAmount, setSelectedAmount] = useState<number>(CREDIT_AMOUNTS[0]!);
   const [showTopUp, setShowTopUp] = useState(false);
+  const initialClaimEmail = getSavedBillingEmail();
+  const [emailCreditAvailable, setEmailCreditAvailable] = useState(false);
+  const [claimEmail, setClaimEmail] = useState(() =>
+    initialClaimEmail && !isSyntheticLocalEmail(initialClaimEmail) ? initialClaimEmail : ""
+  );
+  const [claimLoading, setClaimLoading] = useState(false);
+  const [claimResult, setClaimResult] = useState<GatewayEmailCreditResult | null>(null);
+  const [claimMessage, setClaimMessage] = useState<string | null>(null);
+  const [claimNeedsRepair, setClaimNeedsRepair] = useState(false);
+  const claimRequestId = useRef(0);
 
   useEffect(() => {
     if (!billingEmail && user.email && user.email.includes("@") && !isSyntheticLocalEmail(user.email)) {
       setBillingEmail(normalizeBillingEmail(user.email));
     }
+    if (!claimEmail && user.email && user.email.includes("@") && !isSyntheticLocalEmail(user.email)) {
+      setClaimEmail(normalizeBillingEmail(user.email));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.email]);
+
+  function applyClaimResult(result: GatewayEmailCreditResult) {
+    setClaimResult(result);
+    setClaimNeedsRepair(false);
+    setKeyInvalid(false);
+    setShowRepairKey(false);
+    if (result.balance) {
+      setBalance(result.balance);
+      setPurchaseState(result.balance.purchase_status === "ready" ? "ready" : "zero_balance");
+    }
+    if (result.state === "pending") {
+      setClaimMessage("Your email credit is being reconciled. This will refresh the same claim.");
+    } else if (result.state === "partial_success") {
+      setClaimMessage("Credit applied; balance refresh unavailable.");
+    } else {
+      setClaimMessage(null);
+    }
+  }
+
+  async function refreshClaimResult() {
+    const requestId = ++claimRequestId.current;
+    setClaimLoading(true);
+    try {
+      const result = await refreshEmailCreditStatus();
+      if (requestId === claimRequestId.current) {
+        applyClaimResult(result);
+      }
+    } catch (error) {
+      const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
+      if (requestId === claimRequestId.current && code !== "no_claim_operation") {
+        setClaimNeedsRepair(code === "key_repair_required");
+        setClaimMessage(emailCreditErrorMessage(code));
+      }
+    } finally {
+      if (requestId === claimRequestId.current) {
+        setClaimLoading(false);
+      }
+    }
+  }
+
+  useEffect(() => {
+    let active = true;
+    void getEmailCreditCapability()
+      .then((capability) => {
+        if (!active || !capability.available) {
+          return;
+        }
+        setEmailCreditAvailable(true);
+        void refreshClaimResult();
+      })
+      .catch(() => {
+        if (active) {
+          setEmailCreditAvailable(false);
+        }
+      });
+    return () => {
+      active = false;
+      claimRequestId.current += 1;
+    };
+    // Capability is intentionally checked only when this provider panel mounts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (claimResult?.state !== "pending") {
+      return;
+    }
+    const intervalId = window.setInterval(() => {
+      void refreshClaimResult();
+    }, 3000);
+    return () => window.clearInterval(intervalId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [claimResult?.state]);
+
+  async function handleEmailCreditClaim(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const normalizedEmail = normalizeBillingEmail(claimEmail);
+    if (!isDeliverableEmail(normalizedEmail)) {
+      setClaimMessage("Enter a valid email address.");
+      return;
+    }
+    if (claimLoading || claimResult?.state === "pending") {
+      return;
+    }
+    const requestId = ++claimRequestId.current;
+    setClaimLoading(true);
+    setClaimMessage(null);
+    setClaimNeedsRepair(false);
+    try {
+      const result = await claimEmailCredit({ email: normalizedEmail });
+      if (requestId === claimRequestId.current) {
+        applyClaimResult(result);
+      }
+    } catch (error) {
+      const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
+      if (requestId === claimRequestId.current) {
+        setClaimNeedsRepair(code === "key_repair_required");
+        setClaimMessage(emailCreditErrorMessage(code));
+      }
+    } finally {
+      if (requestId === claimRequestId.current) {
+        setClaimLoading(false);
+      }
+    }
+  }
 
   function handleEmailChange(value: string) {
     setBillingEmail(value);
@@ -1894,6 +2039,87 @@ function BrainDriveModelsPanel({
 
   return (
     <div className="space-y-3 pt-1">
+      {emailCreditAvailable && (
+        <section className="space-y-2 rounded-lg border border-bd-border bg-bd-bg-secondary/40 p-3" aria-labelledby="available-email-credit-heading">
+          <div>
+            <h4 id="available-email-credit-heading" className="text-sm font-medium text-bd-text-heading">
+              Available email credit
+            </h4>
+            <p className="mt-1 text-xs leading-5 text-bd-text-muted">
+              Apply any BrainDrive Models credit available for your email to this installation.
+            </p>
+          </div>
+          <form className="flex flex-col gap-2 sm:flex-row sm:items-end" onSubmit={handleEmailCreditClaim}>
+            <div className="min-w-0 flex-1">
+              <label htmlFor="bd-models-credit-email" className="mb-1 block text-xs font-medium text-bd-text-secondary">
+                Email
+              </label>
+              <input
+                id="bd-models-credit-email"
+                type="email"
+                autoComplete="email"
+                maxLength={320}
+                disabled={claimLoading}
+                value={claimEmail}
+                onChange={(event) => {
+                  setClaimEmail(event.target.value);
+                  setClaimMessage(null);
+                }}
+                placeholder="you@example.com"
+                className="h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber disabled:cursor-not-allowed disabled:opacity-60"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={
+                claimLoading ||
+                !isDeliverableEmail(normalizeBillingEmail(claimEmail)) ||
+                claimResult?.state === "pending"
+              }
+              className="h-10 shrink-0 rounded-lg bg-bd-amber px-4 text-sm font-semibold text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {claimLoading
+                ? "Checking..."
+                : claimResult?.state === "pending"
+                  ? "Reconciling..."
+                  : claimResult?.state === "completed" || claimResult?.state === "partial_success"
+                    ? "Check for another credit"
+                    : "Apply credit"}
+            </button>
+          </form>
+          <div aria-live="polite" aria-atomic="true" role="status" className="text-xs leading-5 text-bd-text-secondary">
+            {claimResult?.applied_cents !== undefined && (
+              <p>
+                {claimResult.state === "completed"
+                  ? `$${(claimResult.applied_cents / 100).toFixed(2)} applied. Authoritative balance: $${(claimResult.balance?.remaining_usd ?? 0).toFixed(2)}.`
+                  : claimResult.state === "partial_success"
+                    ? `$${(claimResult.applied_cents / 100).toFixed(2)} applied.`
+                    : null}
+              </p>
+            )}
+            {claimMessage && <p>{claimMessage}</p>}
+          </div>
+          {(claimResult?.state === "pending" || claimResult?.state === "partial_success") && (
+            <button
+              type="button"
+              disabled={claimLoading}
+              onClick={() => void refreshClaimResult()}
+              className="text-xs font-medium text-bd-amber transition-colors hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Refresh this claim
+            </button>
+          )}
+          {claimNeedsRepair && (
+            <button
+              type="button"
+              onClick={() => setShowRepairKey(true)}
+              className="text-xs font-medium text-bd-amber transition-colors hover:underline"
+            >
+              Repair BrainDrive Models key
+            </button>
+          )}
+        </section>
+      )}
       {keyInvalid ? (
         <div className="space-y-2">
           <div className="flex items-start gap-1.5 text-xs leading-5 text-red-400">

@@ -3,9 +3,12 @@ vi.mock("./auth-adapter", () => ({
 }));
 
 import {
+  claimEmailCredit,
+  getEmailCreditCapability,
   getOnboardingStatus,
   getProviderModels,
   importLibraryArchive,
+  refreshEmailCreditStatus,
   restoreMemoryBackup,
   runMemoryBackupNow,
   sendMessage,
@@ -13,6 +16,68 @@ import {
   updateProviderCredential,
   type ChatEvent,
 } from "./gateway-adapter";
+
+describe("gateway-adapter email credit calls", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("loads capability without eligibility input", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ available: true, version: "1" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getEmailCreditCapability()).resolves.toEqual({ available: true, version: "1" });
+    expect(fetchMock).toHaveBeenCalledWith("/api/credits/entitlements/capability", {
+      headers: {},
+    });
+  });
+
+  it("sends only the recipient email when explicitly claiming", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          state: "completed",
+          operation_id: "operation-1",
+          applied_cents: 2500,
+          balance: { remaining_usd: 25 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await claimEmailCredit({ email: "recipient@example.com" });
+    expect(fetchMock).toHaveBeenCalledWith("/api/credits/entitlements/claim", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "recipient@example.com" }),
+    });
+    const serialized = JSON.stringify(fetchMock.mock.calls);
+    expect(serialized).not.toContain("api_key");
+    expect(serialized).not.toContain("Authorization");
+    expect(serialized).not.toContain("operation_id");
+  });
+
+  it("refreshes the gateway-persisted operation without accepting an operation or key", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ state: "pending", operation_id: "operation-safe" }), {
+        status: 202,
+        headers: { "content-type": "application/json" },
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(refreshEmailCreditStatus()).resolves.toMatchObject({ state: "pending" });
+    expect(fetchMock).toHaveBeenCalledWith("/api/credits/entitlements/status", {
+      headers: {},
+    });
+  });
+});
 
 function sseResponse(frames: string, headers?: Record<string, string>): Response {
   return new Response(frames, {
