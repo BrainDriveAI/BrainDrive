@@ -74,3 +74,28 @@ updates:
           - "*"
         update-types:
           - major
+
+  - package-ecosystem: cargo
+    directory: "/builds/typescript/src-tauri"
+    target-branch: dev
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:30"
+      timezone: "America/New_York"
+    labels:
+      - dependencies
+      - chore
+    open-pull-requests-limit: 4
+    groups:
+      cargo-non-major:
+        patterns:
+          - "*"
+        update-types:
+          - patch
+          - minor
+      cargo-major:
+        patterns:
+          - "*"
+        update-types:
+          - major
