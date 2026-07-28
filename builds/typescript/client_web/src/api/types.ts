@@ -242,6 +242,19 @@ export type GatewayCreditsCheckoutResponse = {
   purchase_status?: GatewayCreditsPurchaseStatus;
 };
 
+export type GatewayEmailCreditCapability = {
+  available: boolean;
+  version: string | null;
+};
+
+export type GatewayEmailCreditResult = {
+  state: "pending" | "completed" | "partial_success";
+  operation_id: string;
+  applied_cents?: number;
+  balance?: GatewayCreditsStatus;
+  error_code?: "pending_reconciliation" | "balance_refresh_unavailable";
+};
+
 export type GatewayOnboardingProvider = {
   profile_id: string;
   provider_id: string;

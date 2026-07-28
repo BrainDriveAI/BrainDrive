@@ -14,6 +14,8 @@ import {
   type GatewayCredentialUpdateResponse,
   type GatewayCreditsCheckoutResponse,
   type GatewayCreditsStatus,
+  type GatewayEmailCreditCapability,
+  type GatewayEmailCreditResult,
   type GatewayMemoryBackupRestoreRequest,
   type GatewayMemoryBackupRestoreResponse,
   type GatewayMemoryBackupRunRequest,
@@ -903,6 +905,38 @@ export async function createCreditsCheckout(input: {
   }
 
   return (await response.json()) as GatewayCreditsCheckoutResponse;
+}
+
+export async function getEmailCreditCapability(): Promise<GatewayEmailCreditCapability> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/credits/entitlements/capability`, {
+    headers: withLocalOwnerHeaders(),
+  });
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+  return (await response.json()) as GatewayEmailCreditCapability;
+}
+
+export async function claimEmailCredit(input: { email: string }): Promise<GatewayEmailCreditResult> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/credits/entitlements/claim`, {
+    method: "POST",
+    headers: withLocalOwnerHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ email: input.email }),
+  });
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+  return (await response.json()) as GatewayEmailCreditResult;
+}
+
+export async function refreshEmailCreditStatus(): Promise<GatewayEmailCreditResult> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/credits/entitlements/status`, {
+    headers: withLocalOwnerHeaders(),
+  });
+  if (!response.ok) {
+    throw await toGatewayError(response);
+  }
+  return (await response.json()) as GatewayEmailCreditResult;
 }
 
 function extractExportFilename(contentDisposition: string | null): string {

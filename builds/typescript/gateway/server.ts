@@ -1,10 +1,11 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { createReadStream, existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
+import type { FastifyReply } from "fastify";
 import { z } from "zod";
 
 import { createGatewayAdapter } from "../adapters/gateway.js";
@@ -76,7 +77,9 @@ import { getVaultSecret, upsertVaultSecret } from "../secrets/vault.js";
 import { GatewayConversationService } from "./conversations.js";
 import {
   BrainDriveModelsProvisioningError,
+  ensureBrainDriveModelsClaimKey,
   ensureBrainDriveModelsCheckoutKey,
+  resolveBrainDriveModelsSecretRef,
 } from "./credits-provisioning.js";
 import { createMemoryBackupScheduler } from "./memory-backup-scheduler.js";
 import { GatewayProjectService, isProjectMetadata, ProtectedProjectError, type GatewayProjectFile } from "./projects.js";
@@ -1151,6 +1154,387 @@ export async function buildServer(rootDir = process.cwd()) {
     } catch {
       return { remaining_usd: 0, total_purchased_usd: 0, total_spent_usd: 0, purchase_status: "unavailable" };
     }
+  });
+
+  type EntitlementOperation = {
+    operationId: string;
+    status: "pending" | "completed";
+    appliedCents?: number;
+  };
+
+  const parseEntitlementOperation = (value: unknown): EntitlementOperation | null => {
+    if (!value || typeof value !== "object") {
+      return null;
+    }
+    const record = value as Record<string, unknown>;
+    const operationId = typeof record.operation_id === "string" ? record.operation_id.trim() : "";
+    const status = record.status === "pending" || record.status === "completed" ? record.status : null;
+    const appliedCents =
+      typeof record.applied_cents === "number" &&
+      Number.isSafeInteger(record.applied_cents) &&
+      record.applied_cents >= 0
+        ? record.applied_cents
+        : undefined;
+    if (!operationId || operationId.length > 128 || !status || (status === "completed" && appliedCents === undefined)) {
+      return null;
+    }
+    return { operationId, status, ...(appliedCents !== undefined ? { appliedCents } : {}) };
+  };
+
+  const saveEntitlementOperation = async (
+    preferences: Preferences,
+    operation: EntitlementOperation,
+    status: "pending" | "completed" | "partial_success",
+    lastError: string | null = null
+  ): Promise<Preferences> => {
+    const nextPreferences: Preferences = {
+      ...preferences,
+      braindrive_models_entitlement: {
+        operation_id: operation.operationId,
+        status,
+        ...(operation.appliedCents !== undefined ? { applied_cents: operation.appliedCents } : {}),
+        last_attempt_at: new Date().toISOString(),
+        last_error: lastError,
+      },
+    };
+    await saveLivePreferences(nextPreferences);
+    return nextPreferences;
+  };
+
+  const loadEntitlementBalance = async (apiKey: string): Promise<Record<string, unknown> | null> => {
+    const response = await fetch(`${creditsApiBase}/credits/status`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const data = (await response.json()) as Record<string, unknown>;
+    const remainingUsd = numberFromUnknown(data.remaining_usd);
+    const totalPurchasedUsd = numberFromUnknown(data.total_purchased_usd);
+    const totalSpentUsd = numberFromUnknown(data.total_spent_usd);
+    return {
+      remaining_usd: remainingUsd,
+      total_purchased_usd: totalPurchasedUsd,
+      total_spent_usd: totalSpentUsd,
+      key_valid: true,
+      purchase_status: remainingUsd > 0 || totalPurchasedUsd > 0 ? "ready" : "zero_balance",
+    };
+  };
+
+  const entitlementError = (
+    reply: FastifyReply,
+    status: number,
+    code: string,
+    message: string
+  ) => {
+    reply.code(status).send({ error: message, code });
+  };
+
+  const refreshEntitlementOperation = async (
+    preferences: Preferences
+  ): Promise<
+    | { ok: true; statusCode: 200 | 202; payload: Record<string, unknown> }
+    | { ok: false; statusCode: number; code: string; message: string }
+  > => {
+    const saved = preferences.braindrive_models_entitlement;
+    const operationId = saved?.operation_id?.trim();
+    if (!operationId || operationId.length > 128) {
+      return { ok: false, statusCode: 404, code: "no_claim_operation", message: "No email credit claim is in progress" };
+    }
+
+    if (
+      saved &&
+      (saved.status === "completed" || saved.status === "partial_success") &&
+      saved.applied_cents !== undefined
+    ) {
+      const existingKey = await loadGatewayVaultSecret(resolveBrainDriveModelsSecretRef(preferences));
+      if (!existingKey?.trim()) {
+        return { ok: false, statusCode: 409, code: "key_repair_required", message: "BrainDrive Models key needs repair" };
+      }
+      const operation: EntitlementOperation = {
+        operationId,
+        status: "completed",
+        appliedCents: saved.applied_cents,
+      };
+      const balance = await loadEntitlementBalance(existingKey.trim());
+      if (!balance) {
+        await saveEntitlementOperation(preferences, operation, "partial_success", "balance_refresh_unavailable");
+        return {
+          ok: true,
+          statusCode: 200,
+          payload: {
+            state: "partial_success",
+            operation_id: operationId,
+            applied_cents: saved.applied_cents,
+            error_code: "balance_refresh_unavailable",
+          },
+        };
+      }
+      await saveEntitlementOperation(preferences, operation, "completed");
+      return {
+        ok: true,
+        statusCode: 200,
+        payload: {
+          state: "completed",
+          operation_id: operationId,
+          applied_cents: saved.applied_cents,
+          balance,
+        },
+      };
+    }
+
+    let readiness;
+    try {
+      readiness = await ensureBrainDriveModelsClaimKey({
+        creditsApiBase,
+        preferences,
+        loadVaultSecret: loadGatewayVaultSecret,
+        saveVaultSecret: saveGatewayVaultSecret,
+        savePreferences: saveLivePreferences,
+      });
+    } catch (error) {
+      if (error instanceof BrainDriveModelsProvisioningError && error.code === "repair_required") {
+        return { ok: false, statusCode: 409, code: "key_repair_required", message: "BrainDrive Models key needs repair" };
+      }
+      return { ok: false, statusCode: 502, code: "key_preparation_failed", message: "Unable to prepare BrainDrive Models" };
+    }
+
+    const requestId = randomUUID();
+    const response = await fetch(
+      `${creditsApiBase}/credits/entitlements/operations/${encodeURIComponent(operationId)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${readiness.apiKey}`,
+          "X-Request-ID": requestId,
+          "X-Correlation-ID": requestId,
+        },
+      }
+    );
+    if (response.status === 401 || response.status === 403) {
+      await saveLivePreferences({
+        ...readiness.preferences,
+        braindrive_models_key: {
+          ...(readiness.preferences.braindrive_models_key ?? {}),
+          status: "repair_required",
+          checkout_pending: false,
+          last_attempt_at: new Date().toISOString(),
+          last_error: "invalid_existing_key",
+        },
+      });
+      return { ok: false, statusCode: 409, code: "key_repair_required", message: "BrainDrive Models key needs repair" };
+    }
+    if (!response.ok) {
+      const code = response.status === 429 ? "throttled" : "campaign_unavailable";
+      return {
+        ok: false,
+        statusCode: response.status === 429 ? 429 : 503,
+        code,
+        message: response.status === 429 ? "Please wait before refreshing" : "Email credit service is unavailable",
+      };
+    }
+
+    const operation = parseEntitlementOperation(await response.json());
+    if (!operation || operation.operationId !== operationId) {
+      return { ok: false, statusCode: 503, code: "campaign_unavailable", message: "Email credit service is unavailable" };
+    }
+    if (operation.status === "pending") {
+      await saveEntitlementOperation(readiness.preferences, operation, "pending");
+      return {
+        ok: true,
+        statusCode: 202,
+        payload: {
+          state: "pending",
+          operation_id: operation.operationId,
+          ...(operation.appliedCents !== undefined ? { applied_cents: operation.appliedCents } : {}),
+          error_code: "pending_reconciliation",
+        },
+      };
+    }
+
+    const completedPreferences = await saveEntitlementOperation(readiness.preferences, operation, "completed");
+    const balance = await loadEntitlementBalance(readiness.apiKey);
+    if (!balance) {
+      await saveEntitlementOperation(completedPreferences, operation, "partial_success", "balance_refresh_unavailable");
+      return {
+        ok: true,
+        statusCode: 200,
+        payload: {
+          state: "partial_success",
+          operation_id: operation.operationId,
+          applied_cents: operation.appliedCents,
+          error_code: "balance_refresh_unavailable",
+        },
+      };
+    }
+    return {
+      ok: true,
+      statusCode: 200,
+      payload: {
+        state: "completed",
+        operation_id: operation.operationId,
+        applied_cents: operation.appliedCents,
+        balance,
+      },
+    };
+  };
+
+  app.get("/credits/entitlements/capability", async (_request, reply) => {
+    if (isManaged) {
+      return { available: false, version: null };
+    }
+    try {
+      const response = await fetch(`${creditsApiBase}/credits/entitlements/capability`);
+      if (!response.ok) {
+        return { available: false, version: null };
+      }
+      const data = (await response.json()) as Record<string, unknown>;
+      if (data.available !== true) {
+        return { available: false, version: null };
+      }
+      return { available: true, version: typeof data.version === "string" ? data.version : null };
+    } catch {
+      reply.code(200);
+      return { available: false, version: null };
+    }
+  });
+
+  app.post("/credits/entitlements/claim", async (request, reply) => {
+    const bodySchema = z.object({ email: z.string().trim().email().max(320) }).strict();
+    const parsed = bodySchema.safeParse(request.body);
+    if (!parsed.success || isSyntheticLocalEmail(parsed.success ? parsed.data.email : "")) {
+      entitlementError(reply, 400, "invalid_email", "Enter a valid email address");
+      return;
+    }
+    if (isManaged) {
+      entitlementError(reply, 404, "campaign_unavailable", "Email credit is unavailable");
+      return;
+    }
+
+    const initialPreferences = await loadLivePreferences();
+    if (initialPreferences.braindrive_models_entitlement?.operation_id) {
+      const refreshed = await refreshEntitlementOperation(initialPreferences);
+      if (!refreshed.ok) {
+        entitlementError(reply, refreshed.statusCode, refreshed.code, refreshed.message);
+        return;
+      }
+      reply.code(refreshed.statusCode).send(refreshed.payload);
+      return;
+    }
+
+    let readiness;
+    try {
+      readiness = await ensureBrainDriveModelsClaimKey({
+        creditsApiBase,
+        preferences: initialPreferences,
+        loadVaultSecret: loadGatewayVaultSecret,
+        saveVaultSecret: saveGatewayVaultSecret,
+        savePreferences: saveLivePreferences,
+      });
+    } catch (error) {
+      if (error instanceof BrainDriveModelsProvisioningError) {
+        auditLog("credits.entitlement_key_unavailable", { code: error.code, status: error.status ?? null });
+        if (error.code === "repair_required") {
+          entitlementError(reply, 409, "key_repair_required", "BrainDrive Models key needs repair");
+          return;
+        }
+      }
+      entitlementError(reply, 502, "key_preparation_failed", "Unable to prepare BrainDrive Models");
+      return;
+    }
+
+    const requestId = randomUUID();
+    let response: Response;
+    try {
+      response = await fetch(`${creditsApiBase}/credits/entitlements/claim`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${readiness.apiKey}`,
+          "X-Request-ID": requestId,
+          "X-Correlation-ID": requestId,
+        },
+        body: JSON.stringify({
+          email: parsed.data.email,
+          install_public_id: readiness.installPublicId,
+        }),
+      });
+    } catch {
+      entitlementError(reply, 503, "campaign_unavailable", "Email credit service is unavailable");
+      return;
+    }
+
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        await saveLivePreferences({
+          ...readiness.preferences,
+          braindrive_models_key: {
+            ...(readiness.preferences.braindrive_models_key ?? {}),
+            status: "repair_required",
+            checkout_pending: false,
+            last_attempt_at: new Date().toISOString(),
+            last_error: "invalid_existing_key",
+          },
+        });
+        entitlementError(reply, 409, "key_repair_required", "BrainDrive Models key needs repair");
+      } else if (response.status === 422) {
+        entitlementError(reply, 400, "invalid_email", "Enter a valid email address");
+      } else if (response.status === 404) {
+        entitlementError(reply, 404, "no_available_credit", "No available email credit was found");
+      } else if (response.status === 429) {
+        entitlementError(reply, 429, "throttled", "Please wait before trying again");
+      } else {
+        entitlementError(reply, 503, "campaign_unavailable", "Email credit service is unavailable");
+      }
+      return;
+    }
+
+    const operation = parseEntitlementOperation(await response.json());
+    if (!operation) {
+      entitlementError(reply, 503, "campaign_unavailable", "Email credit service is unavailable");
+      return;
+    }
+    if (operation.status === "pending") {
+      await saveEntitlementOperation(readiness.preferences, operation, "pending");
+      reply.code(202).send({
+        state: "pending",
+        operation_id: operation.operationId,
+        ...(operation.appliedCents !== undefined ? { applied_cents: operation.appliedCents } : {}),
+        error_code: "pending_reconciliation",
+      });
+      return;
+    }
+
+    const completedPreferences = await saveEntitlementOperation(readiness.preferences, operation, "completed");
+    const balance = await loadEntitlementBalance(readiness.apiKey);
+    if (!balance) {
+      await saveEntitlementOperation(completedPreferences, operation, "partial_success", "balance_refresh_unavailable");
+      reply.send({
+        state: "partial_success",
+        operation_id: operation.operationId,
+        applied_cents: operation.appliedCents,
+        error_code: "balance_refresh_unavailable",
+      });
+      return;
+    }
+    reply.send({
+      state: "completed",
+      operation_id: operation.operationId,
+      applied_cents: operation.appliedCents,
+      balance,
+    });
+  });
+
+  app.get("/credits/entitlements/status", async (_request, reply) => {
+    if (isManaged) {
+      entitlementError(reply, 404, "campaign_unavailable", "Email credit is unavailable");
+      return;
+    }
+    const refreshed = await refreshEntitlementOperation(await loadLivePreferences());
+    if (!refreshed.ok) {
+      entitlementError(reply, refreshed.statusCode, refreshed.code, refreshed.message);
+      return;
+    }
+    reply.code(refreshed.statusCode).send(refreshed.payload);
   });
 
   app.post("/credits/checkout", async (request, reply) => {

@@ -37,6 +37,9 @@ const getProviderModelsMock = vi.fn<
 >();
 const getCreditsStatusMock = vi.fn();
 const createCreditsCheckoutMock = vi.fn();
+const getEmailCreditCapabilityMock = vi.fn();
+const claimEmailCreditMock = vi.fn();
+const refreshEmailCreditStatusMock = vi.fn();
 const downloadLibraryExportMock = vi.fn<
   () => Promise<{ fileName: string; blob: Blob }>
 >();
@@ -77,6 +80,9 @@ vi.mock("@/api/gateway-adapter", () => ({
   ) => updateSettingsMock(patch),
   getCreditsStatus: () => getCreditsStatusMock(),
   createCreditsCheckout: (payload: { amount: number; email: string }) => createCreditsCheckoutMock(payload),
+  getEmailCreditCapability: () => getEmailCreditCapabilityMock(),
+  claimEmailCredit: (payload: { email: string }) => claimEmailCreditMock(payload),
+  refreshEmailCreditStatus: () => refreshEmailCreditStatusMock(),
   updateProviderCredential: (payload: unknown) => updateProviderCredentialMock(payload),
   updateMemoryBackupSettings: (payload: GatewayMemoryBackupSettingsUpdateRequest) =>
     updateMemoryBackupSettingsMock(payload),
@@ -260,6 +266,9 @@ describe("SettingsModal", () => {
     getProviderModelsMock.mockReset();
     getCreditsStatusMock.mockReset();
     createCreditsCheckoutMock.mockReset();
+    getEmailCreditCapabilityMock.mockReset();
+    claimEmailCreditMock.mockReset();
+    refreshEmailCreditStatusMock.mockReset();
     downloadLibraryExportMock.mockReset();
     importLibraryArchiveMock.mockReset();
     updateProviderCredentialMock.mockReset();
@@ -307,6 +316,10 @@ describe("SettingsModal", () => {
       checkout_url: "https://checkout.stripe.com/c/pay_test",
       purchase_status: "activating",
     });
+    getEmailCreditCapabilityMock.mockResolvedValue({ available: false, version: null });
+    refreshEmailCreditStatusMock.mockRejectedValue(
+      Object.assign(new Error("No claim"), { code: "no_claim_operation" })
+    );
     downloadLibraryExportMock.mockResolvedValue({
       fileName: "memory-export-123.tar.gz",
       blob: new Blob(["tar-bytes"], { type: "application/gzip" }),
@@ -469,6 +482,175 @@ describe("SettingsModal", () => {
     expect(screen.getAllByRole("button", { name: /Continue to checkout/i }).length).toBeGreaterThan(0);
     expect(screen.queryByText("Enter your BrainDrive API key")).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/Paste your emailed BrainDrive Models key/i)).not.toBeInTheDocument();
+  });
+
+  it("hides Available email credit when capability is off", async () => {
+    const user = userEvent.setup();
+    getSettingsMock.mockResolvedValueOnce(brainDriveModelsSettings);
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+    await user.click((await screen.findAllByRole("button", { name: "AI Models" }))[0]!);
+
+    await waitFor(() => expect(getEmailCreditCapabilityMock).toHaveBeenCalled());
+    expect(screen.queryByRole("heading", { name: "Available email credit" })).not.toBeInTheDocument();
+    expect(claimEmailCreditMock).not.toHaveBeenCalled();
+  });
+
+  it("claims only on explicit form submit and announces the exact applied amount and balance", async () => {
+    const user = userEvent.setup();
+    getSettingsMock.mockResolvedValueOnce(brainDriveModelsSettings);
+    getEmailCreditCapabilityMock.mockResolvedValueOnce({ available: true, version: "1" });
+    claimEmailCreditMock.mockResolvedValueOnce({
+      state: "completed",
+      operation_id: "operation-1",
+      applied_cents: 2500,
+      balance: {
+        remaining_usd: 25,
+        total_purchased_usd: 25,
+        total_spent_usd: 0,
+        purchase_status: "ready",
+      },
+    });
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+    await user.click((await screen.findAllByRole("button", { name: "AI Models" }))[0]!);
+
+    const input = await screen.findByLabelText("Email");
+    fireEvent.change(input, { target: { value: "recipient@example.com" } });
+    fireEvent.paste(input, { clipboardData: { getData: () => "recipient@example.com" } });
+    fireEvent.blur(input);
+    expect(claimEmailCreditMock).not.toHaveBeenCalled();
+
+    await user.type(input, "{enter}");
+    await waitFor(() => {
+      expect(claimEmailCreditMock).toHaveBeenCalledWith({ email: "recipient@example.com" });
+    });
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "$25.00 applied. Authoritative balance: $25.00."
+    );
+    expect(createCreditsCheckoutMock).not.toHaveBeenCalled();
+    expect(updateProviderCredentialMock).not.toHaveBeenCalled();
+  });
+
+  it("does not prefill or submit a synthetic session email for Available email credit", async () => {
+    const user = userEvent.setup();
+    getSessionMock.mockResolvedValueOnce(localSession("owner@local.paa"));
+    getSettingsMock.mockResolvedValueOnce(brainDriveModelsSettings);
+    getEmailCreditCapabilityMock.mockResolvedValueOnce({ available: true, version: "1" });
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+    await user.click((await screen.findAllByRole("button", { name: "AI Models" }))[0]!);
+
+    const input = await screen.findByLabelText("Email");
+    await waitFor(() => expect(getSessionMock).toHaveBeenCalled());
+    expect(input).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Apply credit" })).toBeDisabled();
+    expect(claimEmailCreditMock).not.toHaveBeenCalled();
+  });
+
+  it("shows proven applied credit as partial success with a same-claim refresh action", async () => {
+    const user = userEvent.setup();
+    getSettingsMock.mockResolvedValueOnce(brainDriveModelsSettings);
+    getEmailCreditCapabilityMock.mockResolvedValueOnce({ available: true, version: "1" });
+    claimEmailCreditMock.mockResolvedValueOnce({
+      state: "partial_success",
+      operation_id: "operation-partial",
+      applied_cents: 1000,
+      error_code: "balance_refresh_unavailable",
+    });
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+    await user.click((await screen.findAllByRole("button", { name: "AI Models" }))[0]!);
+    await user.type(await screen.findByLabelText("Email"), "recipient@example.com");
+    await user.click(screen.getByRole("button", { name: "Apply credit" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("$10.00 applied.");
+    expect(screen.getByRole("status")).toHaveTextContent("Credit applied; balance refresh unavailable.");
+    expect(screen.getByRole("button", { name: "Refresh this claim" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Apply credit" })).toBeDisabled();
+  });
+
+  it.each([
+    ["invalid_email", "Enter a valid email address."],
+    ["key_preparation_failed", "BrainDrive Models could not be prepared. Try again."],
+    ["no_available_credit", "No available email credit was found."],
+    ["throttled", "Please wait before trying again."],
+    ["campaign_unavailable", "Available email credit is temporarily unavailable. Try again later."],
+  ])("shows a safe action message for %s", async (code, message) => {
+    const user = userEvent.setup();
+    getSettingsMock.mockResolvedValueOnce(brainDriveModelsSettings);
+    getEmailCreditCapabilityMock.mockResolvedValueOnce({ available: true, version: "1" });
+    claimEmailCreditMock.mockRejectedValueOnce(Object.assign(new Error("upstream detail"), { code }));
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+    await user.click((await screen.findAllByRole("button", { name: "AI Models" }))[0]!);
+    await user.type(await screen.findByLabelText("Email"), "recipient@example.com");
+    await user.click(screen.getByRole("button", { name: "Apply credit" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(message);
+    expect(screen.queryByText("upstream detail")).not.toBeInTheDocument();
+  });
+
+  it("offers the established repair action for a claim key repair error", async () => {
+    const user = userEvent.setup();
+    getSettingsMock.mockResolvedValueOnce(brainDriveModelsSettings);
+    getEmailCreditCapabilityMock.mockResolvedValueOnce({ available: true, version: "1" });
+    claimEmailCreditMock.mockRejectedValueOnce(
+      Object.assign(new Error("hidden"), { code: "key_repair_required" })
+    );
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+    await user.click((await screen.findAllByRole("button", { name: "AI Models" }))[0]!);
+    await user.type(await screen.findByLabelText("Email"), "recipient@example.com");
+    await user.click(screen.getByRole("button", { name: "Apply credit" }));
+
+    expect(await screen.findByRole("button", { name: "Repair BrainDrive Models key" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Repair BrainDrive Models key" }));
+    expect(screen.getByPlaceholderText(/Paste your emailed BrainDrive Models key/i)).toBeInTheDocument();
+  });
+
+  it("reopens a pending claim and refreshes that operation instead of submitting again", async () => {
+    const user = userEvent.setup();
+    getSettingsMock.mockResolvedValueOnce(brainDriveModelsSettings);
+    getEmailCreditCapabilityMock.mockResolvedValueOnce({ available: true, version: "1" });
+    refreshEmailCreditStatusMock
+      .mockResolvedValueOnce({
+        state: "pending",
+        operation_id: "operation-persisted",
+        error_code: "pending_reconciliation",
+      })
+      .mockResolvedValueOnce({
+        state: "completed",
+        operation_id: "operation-persisted",
+        applied_cents: 500,
+        balance: { remaining_usd: 5, purchase_status: "ready" },
+      });
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+    await user.click((await screen.findAllByRole("button", { name: "AI Models" }))[0]!);
+
+    expect(await screen.findByText(/being reconciled/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reconciling..." })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Refresh this claim" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("$5.00 applied. Authoritative balance: $5.00.");
+    expect(claimEmailCreditMock).not.toHaveBeenCalled();
+  });
+
+  it("disables duplicate claim submission while key preparation and claim are active", async () => {
+    const user = userEvent.setup();
+    let resolveClaim!: (value: unknown) => void;
+    claimEmailCreditMock.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        resolveClaim = resolve;
+      })
+    );
+    getSettingsMock.mockResolvedValueOnce(brainDriveModelsSettings);
+    getEmailCreditCapabilityMock.mockResolvedValueOnce({ available: true, version: "1" });
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+    await user.click((await screen.findAllByRole("button", { name: "AI Models" }))[0]!);
+    await user.type(await screen.findByLabelText("Email"), "recipient@example.com");
+    const button = screen.getByRole("button", { name: "Apply credit" });
+    await user.click(button);
+
+    expect(screen.getByRole("button", { name: "Checking..." })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Checking..." }));
+    expect(claimEmailCreditMock).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolveClaim({ state: "pending", operation_id: "operation-1" });
+    });
   });
 
   it.each(["davidwaring@local.paa", "owner@local.braindrive"])(

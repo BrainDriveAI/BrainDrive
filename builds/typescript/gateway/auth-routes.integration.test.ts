@@ -1544,6 +1544,299 @@ describe.sequential("gateway auth route integration", () => {
     expect(checkoutResponse.statusCode).toBe(502);
   });
 
+  it("treats absent and managed hosted entitlement capability as disabled", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: brainDriveModelsAdapterConfig(),
+    });
+    const fetchMock = vi.fn(async () => new Response("not found", { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const localResponse = await context.app.inject({
+      method: "GET",
+      url: "/credits/entitlements/capability",
+      headers: localOwnerAdminHeaders(),
+    });
+    expect(localResponse.statusCode).toBe(200);
+    expect(parseJson(localResponse.body)).toEqual({ available: false, version: null });
+
+    await destroyTestServer(context);
+    context = await createTestServer({
+      authMode: "local-owner",
+      deploymentMode: "managed",
+      adapterConfig: brainDriveModelsAdapterConfig(),
+    });
+    fetchMock.mockClear();
+    const managedResponse = await context.app.inject({
+      method: "GET",
+      url: "/credits/entitlements/capability",
+      headers: localOwnerAdminHeaders(),
+    });
+    expect(parseJson(managedResponse.body)).toEqual({ available: false, version: null });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("vaults and records a claim key before using it as the hosted bearer, then returns only safe exact results", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: brainDriveModelsAdapterConfig(),
+    });
+    const rawKey = "sk-entitlement-vault-first";
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      const requestUrl = String(url);
+      if (requestUrl.endsWith("/credits/key/provision")) {
+        return new Response(
+          JSON.stringify({ api_key: rawKey, key_id: "claim-key", key_hash: "claim-hash" }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      if (requestUrl.endsWith("/credits/entitlements/claim")) {
+        await expect(readVaultSecret("provider/ai-gateway/api_key")).resolves.toBe(rawKey);
+        expect(mockPreferences.braindrive_models_key).toMatchObject({
+          install_public_id: expect.any(String),
+          checkout_pending: false,
+        });
+        expect(init?.headers).toMatchObject({ Authorization: `Bearer ${rawKey}` });
+        expect(JSON.parse(String(init?.body))).toEqual({
+          email: "recipient@example.com",
+          install_public_id: mockPreferences.braindrive_models_key?.install_public_id,
+        });
+        return new Response(
+          JSON.stringify({ operation_id: "operation-1", status: "completed", applied_cents: 2500 }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      if (requestUrl.endsWith("/credits/status")) {
+        expect(init?.headers).toMatchObject({ Authorization: `Bearer ${rawKey}` });
+        return new Response(
+          JSON.stringify({ remaining_usd: 25, total_purchased_usd: 25, total_spent_usd: 0 }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/credits/entitlements/claim",
+      headers: localOwnerAdminHeaders(),
+      payload: { email: "recipient@example.com" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(parseJson(response.body)).toEqual({
+      state: "completed",
+      operation_id: "operation-1",
+      applied_cents: 2500,
+      balance: {
+        remaining_usd: 25,
+        total_purchased_usd: 25,
+        total_spent_usd: 0,
+        key_valid: true,
+        purchase_status: "ready",
+      },
+    });
+    expect(response.body).not.toContain(rawKey);
+    expect(response.body.toLowerCase()).not.toContain("authorization");
+    expect(JSON.stringify(mockPreferences)).not.toContain(rawKey);
+    expect(JSON.stringify(mockPreferences)).not.toContain("recipient@example.com");
+    expect(mockPreferences.braindrive_models_entitlement).toMatchObject({
+      operation_id: "operation-1",
+      status: "completed",
+      applied_cents: 2500,
+    });
+  });
+
+  it("refreshes only the persisted pending operation and a duplicate submit does not create another claim", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: brainDriveModelsAdapterConfig(),
+    });
+    mockPreferences = {
+      ...mockPreferences,
+      provider_credentials: {
+        "braindrive-models": {
+          mode: "secret_ref",
+          secret_ref: "provider/ai-gateway/api_key",
+          required: true,
+        },
+      },
+      braindrive_models_key: {
+        install_public_id: "install-persisted",
+        masked_key: "sk-...sted",
+        status: "ready",
+        checkout_pending: false,
+      },
+      braindrive_models_entitlement: {
+        operation_id: "operation-persisted",
+        status: "pending",
+      },
+    };
+    await writeVaultSecret("provider/ai-gateway/api_key", "sk-operation-persisted");
+    let statusCalls = 0;
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      const requestUrl = String(url);
+      if (requestUrl.endsWith("/credits/status")) {
+        statusCalls += 1;
+        return new Response(
+          JSON.stringify({
+            remaining_usd: statusCalls === 1 ? 0 : 10,
+            total_purchased_usd: statusCalls === 1 ? 0 : 10,
+            total_spent_usd: 0,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      if (requestUrl.endsWith("/credits/entitlements/operations/operation-persisted")) {
+        expect(init?.headers).toMatchObject({ Authorization: "Bearer sk-operation-persisted" });
+        return new Response(
+          JSON.stringify({ operation_id: "operation-persisted", status: "completed", applied_cents: 1000 }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      if (requestUrl.endsWith("/credits/entitlements/claim")) {
+        throw new Error("a persisted operation must never create a second claim");
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const refreshResponse = await context.app.inject({
+      method: "GET",
+      url: "/credits/entitlements/status?operation_id=operation-attacker",
+      headers: localOwnerAdminHeaders(),
+    });
+    expect(refreshResponse.statusCode).toBe(200);
+    expect(parseJson<{ operation_id: string }>(refreshResponse.body).operation_id).toBe("operation-persisted");
+
+    const duplicateResponse = await context.app.inject({
+      method: "POST",
+      url: "/credits/entitlements/claim",
+      headers: localOwnerAdminHeaders(),
+      payload: { email: "other@example.com" },
+    });
+    expect(duplicateResponse.statusCode).toBe(200);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/credits/entitlements/claim"))).toBe(false);
+  });
+
+  it("returns durable partial success when completion is proven but balance refresh fails", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: brainDriveModelsAdapterConfig(),
+    });
+    mockPreferences = {
+      ...mockPreferences,
+      provider_credentials: {
+        "braindrive-models": {
+          mode: "secret_ref",
+          secret_ref: "provider/ai-gateway/api_key",
+          required: true,
+        },
+      },
+      braindrive_models_key: {
+        install_public_id: "install-partial",
+        masked_key: "sk-...tial",
+        status: "ready",
+        checkout_pending: false,
+      },
+    };
+    await writeVaultSecret("provider/ai-gateway/api_key", "sk-partial-success");
+    let statusCalls = 0;
+    let claimCalls = 0;
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      const requestUrl = String(url);
+      if (requestUrl.endsWith("/credits/status")) {
+        statusCalls += 1;
+        return statusCalls === 1
+          ? new Response(JSON.stringify({ remaining_usd: 0, total_purchased_usd: 0 }), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            })
+          : new Response("balance backend detail", { status: 503 });
+      }
+      if (requestUrl.endsWith("/credits/entitlements/claim")) {
+        claimCalls += 1;
+        return new Response(
+          JSON.stringify({ operation_id: "operation-partial", status: "completed", applied_cents: 750 }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      if (requestUrl.endsWith("/credits/entitlements/operations/operation-partial")) {
+        return new Response(
+          JSON.stringify({ operation_id: "operation-partial", status: "completed", applied_cents: 750 }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/credits/entitlements/claim",
+      headers: localOwnerAdminHeaders(),
+      payload: { email: "recipient@example.com" },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(parseJson(response.body)).toEqual({
+      state: "partial_success",
+      operation_id: "operation-partial",
+      applied_cents: 750,
+      error_code: "balance_refresh_unavailable",
+    });
+    expect(response.body).not.toContain("balance backend detail");
+    expect(mockPreferences.braindrive_models_entitlement).toMatchObject({
+      operation_id: "operation-partial",
+      status: "partial_success",
+      applied_cents: 750,
+    });
+
+    await context.app.inject({
+      method: "POST",
+      url: "/credits/entitlements/claim",
+      headers: localOwnerAdminHeaders(),
+      payload: { email: "different@example.com" },
+    });
+    expect(claimCalls).toBe(1);
+  });
+
+  it.each([
+    [422, 400, "invalid_email"],
+    [404, 404, "no_available_credit"],
+    [429, 429, "throttled"],
+    [503, 503, "campaign_unavailable"],
+  ])("maps hosted claim status %i to safe local category %s", async (hostedStatus, localStatus, code) => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: brainDriveModelsAdapterConfig(),
+    });
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      const requestUrl = String(url);
+      if (requestUrl.endsWith("/credits/key/provision")) {
+        return new Response(JSON.stringify({ api_key: "sk-safe-error-mapping" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (requestUrl.endsWith("/credits/entitlements/claim")) {
+        return new Response("internal upstream detail must not escape", { status: hostedStatus });
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/credits/entitlements/claim",
+      headers: localOwnerAdminHeaders(),
+      payload: { email: "recipient@example.com" },
+    });
+    expect(response.statusCode).toBe(localStatus);
+    expect(parseJson<{ code: string }>(response.body).code).toBe(code);
+    expect(response.body).not.toContain("internal upstream detail");
+  });
+
   it("persists memory backup settings and returns a safe payload", async () => {
     context = await createTestServer({ authMode: "local-owner" });
 
