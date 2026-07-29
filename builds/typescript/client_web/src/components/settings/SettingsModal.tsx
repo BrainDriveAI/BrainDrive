@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   Bot,
   ChevronDown,
@@ -102,6 +102,8 @@ type SettingsModalProps = {
   onClose: () => void;
 };
 
+type EmailCreditClaimAttempts = Map<string, Promise<GatewayEmailCreditResult>>;
+
 type SettingsTab = "provider" | "profile" | "your-agent" | "account" | "export" | "memory-backup" | "browser-access" | "remote-access";
 
 type TabDef = { id: SettingsTab; label: string; icon: typeof Key; managedOnly?: boolean; localOnly?: boolean; desktopOnly?: boolean };
@@ -149,6 +151,7 @@ export default function SettingsModal({
   const [importResult, setImportResult] = useState<GatewayMigrationImportResult | null>(null);
   const [catalogRefreshKey, setCatalogRefreshKey] = useState(0);
   const overlayRef = useRef<HTMLDivElement>(null);
+  const emailCreditClaimAttempts = useRef<EmailCreditClaimAttempts>(new Map()).current;
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -437,7 +440,8 @@ export default function SettingsModal({
               installLocation={installLocation}
               appVersion={appVersion}
               onRefreshCatalog={() => setCatalogRefreshKey((k) => k + 1)}
-              />
+              emailCreditClaimAttempts={emailCreditClaimAttempts}
+            />
           </div>
         </div>
       </div>
@@ -506,6 +510,7 @@ export default function SettingsModal({
             installMode={installMode}
             installLocation={installLocation}
             appVersion={appVersion}
+            emailCreditClaimAttempts={emailCreditClaimAttempts}
           />
         </div>
       </div>
@@ -637,6 +642,7 @@ function TabContent({
   installLocation,
   appVersion,
   onRefreshCatalog,
+  emailCreditClaimAttempts,
 }: {
   tab: SettingsTab;
   mode: "local" | "managed";
@@ -668,6 +674,7 @@ function TabContent({
   installLocation: "local" | "managed" | "unknown";
   appVersion: string;
   onRefreshCatalog: () => void;
+  emailCreditClaimAttempts: EmailCreditClaimAttempts;
 }) {
   switch (tab) {
     case "provider":
@@ -683,6 +690,7 @@ function TabContent({
           onSaveSettings={onSaveSettings}
           onSaveCredential={onSaveCredential}
           onRefreshCatalog={onRefreshCatalog}
+          emailCreditClaimAttempts={emailCreditClaimAttempts}
         />
       );
     case "memory-backup":
@@ -1730,15 +1738,18 @@ function MemoryBackupSection({
 }
 
 const CREDIT_AMOUNTS = [5, 10, 25];
+const EMAIL_CREDIT_CLAIM_DEBOUNCE_MS = 300;
 
 function BrainDriveModelsPanel({
   profile,
   keyState,
   onSaveCredential,
+  emailCreditClaimAttempts,
 }: {
   profile: GatewayProviderProfile;
   keyState: GatewayBrainDriveModelsKeyState | null;
   onSaveCredential: (patch: GatewayCredentialUpdateRequest) => Promise<void>;
+  emailCreditClaimAttempts: EmailCreditClaimAttempts;
 }) {
   const user = useSettingsUser();
   const [apiKey, setApiKey] = useState("");
@@ -1754,23 +1765,18 @@ function BrainDriveModelsPanel({
   const [isEditingEmail, setIsEditingEmail] = useState(false);
   const [selectedAmount, setSelectedAmount] = useState<number>(CREDIT_AMOUNTS[0]!);
   const [showTopUp, setShowTopUp] = useState(false);
-  const initialClaimEmail = getSavedBillingEmail();
   const [emailCreditAvailable, setEmailCreditAvailable] = useState(false);
-  const [claimEmail, setClaimEmail] = useState(() =>
-    initialClaimEmail && !isSyntheticLocalEmail(initialClaimEmail) ? initialClaimEmail : ""
-  );
+  const [claimStatusChecked, setClaimStatusChecked] = useState(false);
   const [claimLoading, setClaimLoading] = useState(false);
   const [claimResult, setClaimResult] = useState<GatewayEmailCreditResult | null>(null);
   const [claimMessage, setClaimMessage] = useState<string | null>(null);
   const [claimNeedsRepair, setClaimNeedsRepair] = useState(false);
   const claimRequestId = useRef(0);
+  const observedClaimEmails = useRef(new Set<string>());
 
   useEffect(() => {
     if (!billingEmail && user.email && user.email.includes("@") && !isSyntheticLocalEmail(user.email)) {
       setBillingEmail(normalizeBillingEmail(user.email));
-    }
-    if (!claimEmail && user.email && user.email.includes("@") && !isSyntheticLocalEmail(user.email)) {
-      setClaimEmail(normalizeBillingEmail(user.email));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.email]);
@@ -1803,7 +1809,11 @@ function BrainDriveModelsPanel({
       }
     } catch (error) {
       const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
-      if (requestId === claimRequestId.current && code !== "no_claim_operation") {
+      if (
+        requestId === claimRequestId.current &&
+        code !== "no_claim_operation" &&
+        code !== "no_available_credit"
+      ) {
         setClaimNeedsRepair(code === "key_repair_required");
         setClaimMessage(emailCreditErrorMessage(code));
       }
@@ -1816,19 +1826,23 @@ function BrainDriveModelsPanel({
 
   useEffect(() => {
     let active = true;
-    void getEmailCreditCapability()
-      .then((capability) => {
+    void (async () => {
+      try {
+        const capability = await getEmailCreditCapability();
         if (!active || !capability.available) {
           return;
         }
         setEmailCreditAvailable(true);
-        void refreshClaimResult();
-      })
-      .catch(() => {
+        await refreshClaimResult();
+        if (active) {
+          setClaimStatusChecked(true);
+        }
+      } catch {
         if (active) {
           setEmailCreditAvailable(false);
         }
-      });
+      }
+    })();
     return () => {
       active = false;
       claimRequestId.current += 1;
@@ -1848,40 +1862,76 @@ function BrainDriveModelsPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [claimResult?.state]);
 
-  async function handleEmailCreditClaim(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const normalizedEmail = normalizeBillingEmail(claimEmail);
-    if (!isDeliverableEmail(normalizedEmail)) {
-      setClaimMessage("Enter a valid email address.");
+  useEffect(() => {
+    const normalizedEmail = normalizeBillingEmail(billingEmail);
+    const emailKey = normalizedEmail.toLowerCase();
+    if (
+      !emailCreditAvailable ||
+      !claimStatusChecked ||
+      claimLoading ||
+      claimResult?.state === "pending" ||
+      !isDeliverableEmail(normalizedEmail) ||
+      observedClaimEmails.current.has(emailKey)
+    ) {
       return;
     }
-    if (claimLoading || claimResult?.state === "pending") {
-      return;
-    }
-    const requestId = ++claimRequestId.current;
-    setClaimLoading(true);
-    setClaimMessage(null);
-    setClaimNeedsRepair(false);
-    try {
-      const result = await claimEmailCredit({ email: normalizedEmail });
-      if (requestId === claimRequestId.current) {
-        applyClaimResult(result);
+
+    const timeoutId = window.setTimeout(() => {
+      observedClaimEmails.current.add(emailKey);
+      const requestId = ++claimRequestId.current;
+      setClaimLoading(true);
+      setClaimMessage(null);
+      setClaimNeedsRepair(false);
+      let claimAttempt = emailCreditClaimAttempts.get(emailKey);
+      if (!claimAttempt) {
+        claimAttempt = claimEmailCredit({ email: normalizedEmail });
+        emailCreditClaimAttempts.set(emailKey, claimAttempt);
       }
-    } catch (error) {
-      const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
-      if (requestId === claimRequestId.current) {
-        setClaimNeedsRepair(code === "key_repair_required");
-        setClaimMessage(emailCreditErrorMessage(code));
-      }
-    } finally {
-      if (requestId === claimRequestId.current) {
-        setClaimLoading(false);
-      }
-    }
-  }
+      void claimAttempt
+        .then((result) => {
+          if (requestId === claimRequestId.current) {
+            applyClaimResult(result);
+          }
+        })
+        .catch((error) => {
+          const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
+          if (requestId !== claimRequestId.current) {
+            return;
+          }
+          if (code === "no_available_credit") {
+            setClaimResult(null);
+            setClaimMessage(null);
+            setClaimNeedsRepair(false);
+            return;
+          }
+          setClaimNeedsRepair(code === "key_repair_required");
+          setClaimMessage(emailCreditErrorMessage(code));
+        })
+        .finally(() => {
+          if (requestId === claimRequestId.current) {
+            setClaimLoading(false);
+          }
+        });
+    }, EMAIL_CREDIT_CLAIM_DEBOUNCE_MS);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    billingEmail,
+    emailCreditAvailable,
+    claimStatusChecked,
+    claimLoading,
+    claimResult?.state,
+    emailCreditClaimAttempts,
+  ]);
 
   function handleEmailChange(value: string) {
+    setIsEditingEmail(true);
     setBillingEmail(value);
+    if (claimResult?.state !== "pending") {
+      setClaimResult(null);
+      setClaimMessage(null);
+      setClaimNeedsRepair(false);
+    }
     const normalized = normalizeBillingEmail(value);
     if (normalized.includes("@") && !isSyntheticLocalEmail(normalized)) {
       localStorage.setItem("bd_billing_email", normalized);
@@ -1995,8 +2045,13 @@ function BrainDriveModelsPanel({
       .finally(() => { setIsSaving(false); });
   }
 
-  const emailValid = normalizedBillingEmail.includes("@") && !isSyntheticLocalEmail(normalizedBillingEmail);
+  const emailValid = isDeliverableEmail(normalizedBillingEmail);
   const isOpeningCheckout = purchaseLoading !== null;
+  const appliedCreditMessage =
+    claimResult?.applied_cents !== undefined &&
+    (claimResult.state === "completed" || claimResult.state === "partial_success")
+      ? `$${(claimResult.applied_cents / 100).toFixed(2)} email credit applied.`
+      : null;
 
   const repairKeyForm = (
     <div className="space-y-2">
@@ -2040,86 +2095,25 @@ function BrainDriveModelsPanel({
 
   return (
     <div className="space-y-3 pt-1">
-      {emailCreditAvailable && (
-        <section className="space-y-2 rounded-lg border border-bd-border bg-bd-bg-secondary/40 p-3" aria-labelledby="available-email-credit-heading">
-          <div>
-            <h4 id="available-email-credit-heading" className="text-sm font-medium text-bd-text-heading">
-              Available email credit
-            </h4>
-            <p className="mt-1 text-xs leading-5 text-bd-text-muted">
-              Apply any BrainDrive Models credit available for your email to this installation.
-            </p>
-          </div>
-          <form className="flex flex-col gap-2 sm:flex-row sm:items-end" onSubmit={handleEmailCreditClaim}>
-            <div className="min-w-0 flex-1">
-              <label htmlFor="bd-models-credit-email" className="mb-1 block text-xs font-medium text-bd-text-secondary">
-                Email
-              </label>
-              <input
-                id="bd-models-credit-email"
-                type="email"
-                autoComplete="email"
-                maxLength={320}
-                disabled={claimLoading}
-                value={claimEmail}
-                onChange={(event) => {
-                  setClaimEmail(event.target.value);
-                  setClaimMessage(null);
-                }}
-                placeholder="you@example.com"
-                className="h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber disabled:cursor-not-allowed disabled:opacity-60"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={
-                claimLoading ||
-                !isDeliverableEmail(normalizeBillingEmail(claimEmail)) ||
-                claimResult?.state === "pending"
-              }
-              className="h-10 shrink-0 rounded-lg bg-bd-amber px-4 text-sm font-semibold text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {claimLoading
-                ? "Checking..."
-                : claimResult?.state === "pending"
-                  ? "Reconciling..."
-                  : claimResult?.state === "completed" || claimResult?.state === "partial_success"
-                    ? "Check for another credit"
-                    : "Apply credit"}
-            </button>
-          </form>
-          <div aria-live="polite" aria-atomic="true" role="status" className="text-xs leading-5 text-bd-text-secondary">
-            {claimResult?.applied_cents !== undefined && (
-              <p>
-                {claimResult.state === "completed"
-                  ? `$${(claimResult.applied_cents / 100).toFixed(2)} applied. Authoritative balance: $${(claimResult.balance?.remaining_usd ?? 0).toFixed(2)}.`
-                  : claimResult.state === "partial_success"
-                    ? `$${(claimResult.applied_cents / 100).toFixed(2)} applied.`
-                    : null}
-              </p>
-            )}
-            {claimMessage && <p>{claimMessage}</p>}
-          </div>
-          {(claimResult?.state === "pending" || claimResult?.state === "partial_success") && (
-            <button
-              type="button"
-              disabled={claimLoading}
-              onClick={() => void refreshClaimResult()}
-              className="text-xs font-medium text-bd-amber transition-colors hover:underline disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Refresh this claim
-            </button>
-          )}
-          {claimNeedsRepair && (
-            <button
-              type="button"
-              onClick={() => setShowRepairKey(true)}
-              className="text-xs font-medium text-bd-amber transition-colors hover:underline"
-            >
-              Repair BrainDrive Models key
-            </button>
-          )}
-        </section>
+      {(appliedCreditMessage || claimMessage) && (
+        <div
+          aria-live="polite"
+          aria-atomic="true"
+          role="status"
+          className="text-xs leading-5 text-bd-text-secondary"
+        >
+          {appliedCreditMessage && <p>{appliedCreditMessage}</p>}
+          {claimMessage && <p>{claimMessage}</p>}
+        </div>
+      )}
+      {claimNeedsRepair && (
+        <button
+          type="button"
+          onClick={() => setShowRepairKey(true)}
+          className="text-xs font-medium text-bd-amber transition-colors hover:underline"
+        >
+          Repair BrainDrive Models key
+        </button>
       )}
       {keyInvalid ? (
         <div className="space-y-2">
@@ -2178,8 +2172,15 @@ function BrainDriveModelsPanel({
               <input
                 id="bd-models-billing-email"
                 type="email"
+                autoComplete="email"
+                maxLength={320}
                 value={billingEmail}
                 onChange={(e) => handleEmailChange(e.target.value)}
+                onBlur={() => {
+                  if (isDeliverableEmail(normalizedBillingEmail)) {
+                    setIsEditingEmail(false);
+                  }
+                }}
                 placeholder="you@example.com"
                 className="h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
               />
@@ -2264,12 +2265,14 @@ function ProviderSection({
   isLoadingModelCatalog,
   modelCatalogError,
   onRefreshCatalog,
+  emailCreditClaimAttempts,
 }: {
   mode: "local" | "managed";
   modelCatalog: GatewayModelCatalog | null;
   isLoadingModelCatalog: boolean;
   modelCatalogError: string | null;
   onRefreshCatalog: () => void;
+  emailCreditClaimAttempts: EmailCreditClaimAttempts;
 } & SettingsDataProps) {
   const [selectedProfile, setSelectedProfile] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -2449,6 +2452,7 @@ function ProviderSection({
                           profile={profile}
                           keyState={settings.braindrive_models_key ?? null}
                           onSaveCredential={onSaveCredential}
+                          emailCreditClaimAttempts={emailCreditClaimAttempts}
                         />
                       ) : (
                         <>
