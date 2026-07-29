@@ -140,6 +140,7 @@ type TestServerContext = {
 async function createTestServer(
   options: {
     bootstrapToken?: string;
+    allowFirstSignupAnyIp?: boolean;
     authMode?: RuntimeConfig["auth_mode"];
     deploymentMode?: "managed" | "local";
     managedApiBase?: string;
@@ -207,6 +208,7 @@ async function createTestServer(
 
   const previousSecretsHome = process.env.PAA_SECRETS_HOME;
   const previousBootstrapToken = process.env.PAA_AUTH_BOOTSTRAP_TOKEN;
+  const previousAllowFirstSignupAnyIp = process.env.PAA_AUTH_ALLOW_FIRST_SIGNUP_ANY_IP;
   const previousDeploymentMode = process.env.BD_DEPLOYMENT_MODE;
   const previousManagedApiBase = process.env.BD_MANAGED_API_BASE;
   const previousManagedPublicAccountProxyRoutes = process.env.PAA_MANAGED_PUBLIC_ACCOUNT_PROXY_ROUTES;
@@ -226,6 +228,11 @@ async function createTestServer(
     process.env.PAA_AUTH_BOOTSTRAP_TOKEN = options.bootstrapToken;
   } else {
     delete process.env.PAA_AUTH_BOOTSTRAP_TOKEN;
+  }
+  if (typeof options.allowFirstSignupAnyIp === "boolean") {
+    process.env.PAA_AUTH_ALLOW_FIRST_SIGNUP_ANY_IP = options.allowFirstSignupAnyIp ? "true" : "false";
+  } else {
+    delete process.env.PAA_AUTH_ALLOW_FIRST_SIGNUP_ANY_IP;
   }
   if (options.deploymentMode) {
     process.env.BD_DEPLOYMENT_MODE = options.deploymentMode;
@@ -271,6 +278,11 @@ async function createTestServer(
         process.env.PAA_AUTH_BOOTSTRAP_TOKEN = previousBootstrapToken;
       } else {
         delete process.env.PAA_AUTH_BOOTSTRAP_TOKEN;
+      }
+      if (typeof previousAllowFirstSignupAnyIp === "string") {
+        process.env.PAA_AUTH_ALLOW_FIRST_SIGNUP_ANY_IP = previousAllowFirstSignupAnyIp;
+      } else {
+        delete process.env.PAA_AUTH_ALLOW_FIRST_SIGNUP_ANY_IP;
       }
       if (typeof previousDeploymentMode === "string") {
         process.env.BD_DEPLOYMENT_MODE = previousDeploymentMode;
@@ -798,6 +810,39 @@ describe.sequential("gateway auth route integration", () => {
     const body = parseJson<{ access_token: string; token_type: string }>(response.body);
     expect(body.token_type).toBe("Bearer");
     expect(body.access_token.length).toBeGreaterThan(0);
+  });
+
+  it("requires a configured bootstrap token even when allow-first-signup-any-ip is true", async () => {
+    context = await createTestServer({
+      bootstrapToken: "test-bootstrap-token",
+      allowFirstSignupAnyIp: true,
+    });
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/auth/signup",
+      payload: {
+        identifier: "owner",
+        password: "password123",
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(parseJson<{ error: string }>(response.body).error).toBe("signup_bootstrap_token_required");
+
+    const acceptedResponse = await context.app.inject({
+      method: "POST",
+      url: "/auth/signup",
+      headers: {
+        "x-paa-bootstrap-token": "test-bootstrap-token",
+      },
+      payload: {
+        identifier: "owner",
+        password: "password123",
+      },
+    });
+
+    expect(acceptedResponse.statusCode).toBe(201);
   });
 
   it("rate-limits signup attempts", async () => {

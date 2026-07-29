@@ -16,8 +16,8 @@
 
 - Baseline for lifecycle scripts: Docker with Compose plugin (`docker compose`).
 - For remote metadata/update flows: `curl` (shell) or `Invoke-WebRequest` (PowerShell).
-- For signed-manifest flows: `cosign` (or auto-install via upgrade script where enabled).
-- For manifest parsing in shell upgrade flow: `node` or `python3`.
+- For signed-manifest flows: `cosign` (or auto-install via install/upgrade scripts where enabled).
+- For manifest parsing in shell install/upgrade flows: `node` or `python3`.
 
 ## File Inventory (Kept)
 
@@ -44,6 +44,10 @@
 - `preflight-production-build.sh`
 - `publish-release-images.sh`
 - `publish-release-images.ps1`
+- `release-resolution.sh`
+- `release-resolution.ps1`
+- `release-trust.sh`
+- `release-trust.ps1`
 - `release-production.sh`
 - `reset-new-user.sh`
 - `reset-new-user.ps1`
@@ -82,8 +86,10 @@ What it does:
 - First-run setup only.
 - Creates `.env` from `.env.example`.
 - Generates `PAA_SECRETS_MASTER_KEY_B64` if missing.
+- In `prod`, generates `PAA_AUTH_BOOTSTRAP_TOKEN` if missing and disables unrestricted first signup.
+- In `local` and `prod`, fetches signed release metadata, verifies it with cosign, and resolves immutable image refs before pulling.
 - Starts stack according to mode.
-- In `prod`, validates `DOMAIN` and digest-ref pairing (`BRAINDRIVE_APP_REF` and `BRAINDRIVE_EDGE_REF`).
+- In `prod`, validates `DOMAIN`.
 
 Usage:
 - Shell: `./installer/docker/scripts/install.sh [local|prod|dev]`
@@ -95,13 +101,13 @@ Arguments:
 Key behavior:
 - Fails if `.env` already exists (protects existing account/secrets state).
 - `dev` builds images.
-- `local` and `prod` pull images.
+- `local` and `prod` pull only after release resolution succeeds; verification failures stop the install.
 - On Apple Silicon macOS, shell install defaults local/prod pulls to `linux/amd64` unless `BRAINDRIVE_DOCKER_PLATFORM` is set.
 - Always prints the access URL and attempts a best-effort browser auto-open on the host.
 
 Env/config touched:
-- Reads: `DOMAIN`, `BRAINDRIVE_APP_REF`, `BRAINDRIVE_EDGE_REF`, `BRAINDRIVE_DOCKER_PLATFORM`, `BRAINDRIVE_LOCAL_BIND_HOST`, `BRAINDRIVE_DEV_BIND_HOST`, `BRAINDRIVE_DEV_PORT`
-- Writes: `.env`, `PAA_SECRETS_MASTER_KEY_B64` when missing
+- Reads: `DOMAIN`, `BRAINDRIVE_APP_REF`, `BRAINDRIVE_EDGE_REF`, release manifest/signature/key settings, `BRAINDRIVE_DOCKER_PLATFORM`, `BRAINDRIVE_LOCAL_BIND_HOST`, `BRAINDRIVE_DEV_BIND_HOST`, `BRAINDRIVE_DEV_PORT`
+- Writes: `.env`, `PAA_SECRETS_MASTER_KEY_B64` when missing; in `prod`, `PAA_AUTH_BOOTSTRAP_TOKEN` and `PAA_AUTH_ALLOW_FIRST_SIGNUP_ANY_IP=false`
 
 ### start (`start.sh`, `start.ps1`)
 
@@ -109,6 +115,7 @@ What it does:
 - Starts services for selected mode.
 - Runs startup update policy check for `local` and `prod` before `docker compose up -d`.
 - Creates required volumes in `dev` mode.
+- In `prod`, generates a missing signup bootstrap token before Compose validation so existing installations continue to start safely.
 
 Usage:
 - Shell: `./installer/docker/scripts/start.sh [local|prod|dev]`
@@ -142,6 +149,7 @@ Arguments:
 What it does:
 - Performs upgrade flow for `local|prod`.
 - Fetches remote metadata, resolves target refs, validates signatures (if required), then pulls and restarts.
+- Before a non-dry-run `prod` upgrade, generates a missing signup bootstrap token and disables unrestricted first signup.
 
 Usage:
 - Shell: `./installer/docker/scripts/upgrade.sh [local|prod]`
@@ -236,6 +244,7 @@ Arguments:
 Behavior:
 - If all URLs missing, script exits successfully with skip message.
 - If some URLs are set but not all three, script fails.
+- Downloads into temporary files and verifies `cosign.pub` against the embedded BrainDrive key fingerprint before replacing cached metadata.
 
 Required URL trio (set together):
 - `BRAINDRIVE_RELEASE_MANIFEST_URL`
@@ -419,6 +428,7 @@ What it does:
 - image build/publish and digest ref capture
 - optional `latest` tag move
 - release manifest generate/sign/verify
+- pinned installer archive generation plus `SHA256SUMS`
 - final GitHub Release upload checklist output
 
 Usage:
@@ -426,7 +436,7 @@ Usage:
 
 Options:
 - `--package-version <yy.m.d[.n]>` (default: today's local date, for example `26.4.16`; same-day patch releases can use `26.6.23.1`)
-- `--image-tag <tag>` (default: `v<package-version>`)
+- `--image-tag <tag>` (default: `<package-version>`)
 - `--channel <name>` (default: `stable`)
 - `--app-image <repo>` (default: `ghcr.io/braindriveai/braindrive-app`)
 - `--edge-image <repo>` (default: `ghcr.io/braindriveai/braindrive-edge`)
@@ -438,8 +448,10 @@ Options:
 
 Versioning rule enforced:
 - `PACKAGE_VERSION` must use `YY.M.D` or `YY.M.D.N`.
-- `IMAGE_TAG` must exactly equal `v${PACKAGE_VERSION}`.
+- `IMAGE_TAG` must exactly equal `PACKAGE_VERSION`.
 - Generated manifest must include `channels.<channel> == PACKAGE_VERSION` and `releases[PACKAGE_VERSION]`.
+- Bootstrap scripts are updated to the same release tag.
+- Release assets include `braindrive-installer-<tag>.tar.gz`, `SHA256SUMS`, `releases.json`, `releases.json.sig`, and `cosign.pub`.
 
 ### generate-release-manifest (`generate-release-manifest.sh`, `generate-release-manifest.ps1`)
 
@@ -479,13 +491,13 @@ Env vars:
 - `COSIGN_PASSWORD` (recommended in non-interactive/CI flows for encrypted keys)
 - `BRAINDRIVE_COSIGN_BIN` (optional explicit cosign binary path)
 - `BRAINDRIVE_AUTO_INSTALL_COSIGN` (shell script only; default `true`)
-- `BRAINDRIVE_COSIGN_VERSION` (shell script only; optional version pin, default `latest`)
+- `BRAINDRIVE_COSIGN_VERSION` (shell script only; auto-install requires pinned `v3.0.6`)
 - `BRAINDRIVE_COSIGN_BIN_DIR` (shell script only; optional auto-install target dir, default `$HOME/.local/bin`)
 
 ### verify-release-manifest (`verify-release-manifest.sh`, `verify-release-manifest.ps1`)
 
 What it does:
-- Verifies detached manifest signature using cosign public key.
+- Verifies the public key against BrainDrive's embedded SHA-256 fingerprint, then verifies the detached manifest signature.
 
 Usage:
 - Shell: `./installer/docker/scripts/verify-release-manifest.sh [manifest-path] [signature-path] [public-key-path]`
@@ -499,7 +511,7 @@ Arguments:
 Env vars:
 - `BRAINDRIVE_COSIGN_BIN` (optional explicit cosign binary path)
 - `BRAINDRIVE_AUTO_INSTALL_COSIGN` (shell script only; default `true`)
-- `BRAINDRIVE_COSIGN_VERSION` (shell script only; optional version pin, default `latest`)
+- `BRAINDRIVE_COSIGN_VERSION` (shell script only; auto-install requires pinned `v3.0.6`)
 - `BRAINDRIVE_COSIGN_BIN_DIR` (shell script only; optional auto-install target dir, default `$HOME/.local/bin`)
 
 ### smoke-test-release (`smoke-test-release.sh`, `smoke-test-release.ps1`)

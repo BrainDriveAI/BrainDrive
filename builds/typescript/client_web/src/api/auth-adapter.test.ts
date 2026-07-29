@@ -148,4 +148,57 @@ describe("auth-adapter security behavior", () => {
       })
     ).rejects.toThrow("Sign-up is restricted to localhost until the first account is created.");
   });
+
+  it("sends the signup bootstrap token only in the dedicated header", async () => {
+    let signupHeaders = new Headers();
+    let signupBody = "";
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const requestUrl = typeof input === "string" ? input : input.toString();
+        if (requestUrl.includes("/api/auth/bootstrap-status")) {
+          return new Response(
+            JSON.stringify({
+              account_initialized: false,
+              mode: "local",
+            }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }
+          );
+        }
+
+        if (requestUrl.includes("/api/auth/signup")) {
+          signupHeaders = new Headers(init?.headers);
+          signupBody = String(init?.body ?? "");
+          return new Response(
+            JSON.stringify({
+              access_token: "test-access-token",
+            }),
+            {
+              status: 201,
+              headers: { "content-type": "application/json" },
+            }
+          );
+        }
+
+        return new Response(null, { status: 404 });
+      })
+    );
+
+    await signup({
+      identifier: "owner",
+      password: "password123",
+      bootstrapToken: "  test-bootstrap-token  ",
+    });
+
+    expect(signupHeaders.get("x-paa-bootstrap-token")).toBe("test-bootstrap-token");
+    expect(JSON.parse(signupBody)).toEqual({
+      identifier: "owner",
+      password: "password123",
+    });
+    expect(signupBody).not.toContain("test-bootstrap-token");
+  });
 });

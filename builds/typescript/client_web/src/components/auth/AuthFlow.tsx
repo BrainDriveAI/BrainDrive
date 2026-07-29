@@ -9,12 +9,17 @@ import SignupPage from "./SignupPage";
 
 type AuthFlowProps = {
   mode: "local" | "managed";
+  requiresBootstrapToken?: boolean;
   onAuthenticated: () => void;
 };
 
 type AuthScreen = "login" | "signup" | "forgot-password";
 
-export default function AuthFlow({ mode, onAuthenticated }: AuthFlowProps) {
+export default function AuthFlow({
+  mode,
+  requiresBootstrapToken = false,
+  onAuthenticated,
+}: AuthFlowProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const [screen, setScreen] = useState<AuthScreen>("login");
@@ -106,7 +111,11 @@ export default function AuthFlow({ mode, onAuthenticated }: AuthFlowProps) {
     }
   }
 
-  async function handleSignup(credentials: { identifier: string; password: string }): Promise<void> {
+  async function handleSignup(credentials: {
+    identifier: string;
+    password: string;
+    bootstrapToken?: string;
+  }): Promise<void> {
     setIsSubmitting(true);
     setError(null);
     try {
@@ -162,11 +171,16 @@ export default function AuthFlow({ mode, onAuthenticated }: AuthFlowProps) {
       return (
         <SignupPage
           mode={mode}
+          requiresBootstrapToken={requiresBootstrapToken}
           error={error}
           isSubmitting={isSubmitting}
           onSignup={(credentials) => {
             const identifier = mode === "local" ? credentials.username ?? "" : credentials.email ?? "";
-            return handleSignup({ identifier, password: credentials.password });
+            return handleSignup({
+              identifier,
+              password: credentials.password,
+              bootstrapToken: credentials.bootstrapToken,
+            });
           }}
           onNavigateToLogin={() => {
             setError(null);

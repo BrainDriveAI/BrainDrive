@@ -14,7 +14,7 @@ The easiest way to contribute is to engage with the project -- ask questions, re
 We welcome pull requests for bug fixes, improvements, documentation, and new features.
 
 1. Fork the repository
-2. Create a branch from `main`
+2. Create a branch from `dev`
 3. Make your changes
 4. Run the tests:
    ```bash
@@ -25,6 +25,10 @@ We welcome pull requests for bug fixes, improvements, documentation, and new fea
 5. Submit a pull request with a clear description of what you changed and why
 
 For larger changes (new components, architectural modifications, protocol changes), please open an issue first to discuss the approach.
+
+### Branch and Release Model
+
+`dev` is the integration branch for ongoing development, while `main` contains released code. Releases are promoted from `dev` to `main` on a weekly cadence and tagged with date-based versions such as `26.7.23`.
 
 ## Secret Scanning
 
@@ -47,7 +51,7 @@ issue, pull request, or log.
 The fastest way to run BrainDrive locally:
 
 ```bash
-./scripts/install.sh local
+./installer/docker/scripts/install.sh local
 ```
 
 This builds and starts everything in Docker. See the [README](README.md) for prerequisites and details.

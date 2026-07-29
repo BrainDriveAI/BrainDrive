@@ -65,8 +65,6 @@ Use `README.md`, `ROADMAP.md`, and `CONTRIBUTING.md` for public product and cont
 ### Branching
 
 - Primary development base branch: `dev`.
-- For the OpenRouter/GLM 5.2 related work, use `model/glm-5.2`; it is based on `dev`.
-- This repo is not the Managed-Hosting staging/main deploy pipeline. Do not assume pushing here deploys Hosted.
 
 ### Commands
 
@@ -122,7 +120,7 @@ Use `README.md`, `ROADMAP.md`, and `CONTRIBUTING.md` for public product and cont
   ```
 - Docker dev mode:
   ```bash
-  ./scripts/start.sh dev
+  ./installer/docker/scripts/start.sh dev
   ```
 
 ### Layout
@@ -154,7 +152,6 @@ Use `README.md`, `ROADMAP.md`, and `CONTRIBUTING.md` for public product and cont
 - `installer/docker/`: Docker compose, images, lifecycle scripts, and deployment wiring.
 - `installer/docker/README.md`: Docker modes and lifecycle scripts.
 - `docs/`: user and operator documentation.
-- `client/`: legacy or auxiliary client assets; most active UI work is under `builds/typescript/client_web/`.
 
 ### Architecture Model
 
@@ -190,14 +187,9 @@ Important behavior boundaries:
 - Provider secrets, owner API keys, or local credential files.
 - Installer/release packaging when the task is limited to provider profile or runtime behavior.
 
-### Project-Specific Forbidden Moves
+### Provider Safety Boundaries
 
 - Do not put BrainDrive-owned OpenRouter provider keys in client config.
 - Do not make BrainDrive Models credits required for Ollama or BYOK OpenRouter.
-- Do not treat full BrainDrive client provider/settings regression as part of the GLM 5.2 hosted-provider migration unless explicitly promoted.
 - Do not remove Ollama or BYOK OpenRouter provider choices while changing BrainDrive Models behavior.
 - Do not hard-code production/staging hosted URLs without checking existing config patterns.
-
-## 6. Project Learnings
-
-- BrainDrive-Test-01 uses `dev` as the base branch for this work; Managed-Hosting deployment branch rules do not apply here.

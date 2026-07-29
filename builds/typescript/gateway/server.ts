@@ -492,7 +492,10 @@ export async function buildServer(rootDir = process.cwd()) {
       return;
     }
 
-    if (!authState.account_initialized && !allowFirstSignupFromAnyIp) {
+    if (
+      !authState.account_initialized &&
+      (Boolean(signupBootstrapToken) || !allowFirstSignupFromAnyIp)
+    ) {
       const signupAccess = evaluateSignupBootstrapAccess(
         {
           ip: clientIpForRequest(request, internalTransportToken),

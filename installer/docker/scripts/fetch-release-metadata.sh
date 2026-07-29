@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
+source "${SCRIPT_DIR}/release-trust.sh"
 
 get_env_value() {
   local key="$1"
@@ -78,10 +79,27 @@ public_key_path="$(resolve_path_in_root "${public_key_path}")"
 mkdir -p "$(dirname "${manifest_path}")" "$(dirname "${signature_path}")" "$(dirname "${public_key_path}")"
 
 require_cmd curl
+require_cmd mktemp
 
-curl -fsSL "${manifest_url}" -o "${manifest_path}"
-curl -fsSL "${signature_url}" -o "${signature_path}"
-curl -fsSL "${public_key_url}" -o "${public_key_path}"
+download_dir="$(mktemp -d)"
+cleanup() {
+  rm -rf "${download_dir}"
+}
+trap cleanup EXIT
+
+downloaded_manifest="${download_dir}/releases.json"
+downloaded_signature="${download_dir}/releases.json.sig"
+downloaded_public_key="${download_dir}/cosign.pub"
+
+curl -fsSL "${manifest_url}" -o "${downloaded_manifest}"
+curl -fsSL "${signature_url}" -o "${downloaded_signature}"
+curl -fsSL "${public_key_url}" -o "${downloaded_public_key}"
+
+braindrive_verify_release_public_key "${downloaded_public_key}"
+
+mv -f "${downloaded_manifest}" "${manifest_path}"
+mv -f "${downloaded_signature}" "${signature_path}"
+mv -f "${downloaded_public_key}" "${public_key_path}"
 
 echo "Fetched release metadata:"
 echo "  manifest: ${manifest_path}"

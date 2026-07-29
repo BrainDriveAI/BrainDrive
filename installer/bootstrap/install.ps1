@@ -37,11 +37,16 @@ function Require-Command {
   }
 }
 
+$bootstrapReleaseTagDefault = "26.7.23"
+$trustedReleaseKeySha256 = "c92a784b" + "e74b30f8" + "e754e302" + "5a11a7c6" + "9b44d620" + "c8f0e213" + "31b46e17" + "72b179b6"
 $repo = if ($env:BRAINDRIVE_BOOTSTRAP_REPO) { $env:BRAINDRIVE_BOOTSTRAP_REPO } else { "BrainDriveAI/BrainDrive" }
-$ref = if ($env:BRAINDRIVE_BOOTSTRAP_REF) { $env:BRAINDRIVE_BOOTSTRAP_REF } else { "main" }
+$releaseTag = if ($env:BRAINDRIVE_BOOTSTRAP_RELEASE_TAG) { $env:BRAINDRIVE_BOOTSTRAP_RELEASE_TAG } else { $bootstrapReleaseTagDefault }
 $installRoot = if ($env:BRAINDRIVE_INSTALL_ROOT) { $env:BRAINDRIVE_INSTALL_ROOT } else { Join-Path $HOME ".braindrive" }
 $forceRefresh = Convert-ToBool -Value (if ($env:BRAINDRIVE_BOOTSTRAP_FORCE_REFRESH) { $env:BRAINDRIVE_BOOTSTRAP_FORCE_REFRESH } else { "false" })
-$archiveUrl = if ($env:BRAINDRIVE_BOOTSTRAP_ARCHIVE_URL) { $env:BRAINDRIVE_BOOTSTRAP_ARCHIVE_URL } else { "https://codeload.github.com/$repo/tar.gz/$ref" }
+$archiveName = if ($env:BRAINDRIVE_BOOTSTRAP_ARCHIVE_NAME) { $env:BRAINDRIVE_BOOTSTRAP_ARCHIVE_NAME } else { "braindrive-installer-$releaseTag.tar.gz" }
+$releaseAssetBaseUrl = "https://github.com/$repo/releases/download/$releaseTag"
+$archiveUrl = if ($env:BRAINDRIVE_BOOTSTRAP_ARCHIVE_URL) { $env:BRAINDRIVE_BOOTSTRAP_ARCHIVE_URL } else { "$releaseAssetBaseUrl/$archiveName" }
+$sha256SumsUrl = if ($env:BRAINDRIVE_BOOTSTRAP_SHA256SUMS_URL) { $env:BRAINDRIVE_BOOTSTRAP_SHA256SUMS_URL } else { "$releaseAssetBaseUrl/SHA256SUMS" }
 
 Require-Command tar
 Require-Command docker
@@ -49,9 +54,35 @@ Require-Command docker
 $targetDockerDir = Join-Path $installRoot "installer/docker"
 $targetInstallScript = Join-Path $targetDockerDir "scripts/install.ps1"
 
+function Test-ArchiveChecksum {
+  param(
+    [Parameter(Mandatory = $true)][string]$ArchivePath,
+    [Parameter(Mandatory = $true)][string]$SumsPath
+  )
+
+  $checksumMatches = @()
+  foreach ($line in Get-Content -LiteralPath $SumsPath) {
+    if ($line -match "^([0-9a-fA-F]{64})\s+\*?(.+)$" -and $Matches[2] -eq $archiveName) {
+      $checksumMatches += $Matches[1].ToLowerInvariant()
+    }
+  }
+
+  if ($checksumMatches.Count -ne 1) {
+    throw "SHA256SUMS does not contain one valid entry for $archiveName."
+  }
+
+  $actualSha256 = (Get-FileHash -LiteralPath $ArchivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+  if ($actualSha256 -ne $checksumMatches[0]) {
+    throw "Installer archive SHA-256 mismatch. Expected $($checksumMatches[0]); actual $actualSha256."
+  }
+
+  Write-Host "Installer archive SHA-256 verified."
+}
+
 function Install-FromArchive {
   $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("braindrive-bootstrap-" + [guid]::NewGuid().ToString("N"))
   $archivePath = Join-Path $tempRoot "source.tar.gz"
+  $sumsPath = Join-Path $tempRoot "SHA256SUMS"
   $existingEnv = Join-Path $tempRoot "existing.env"
   $savedEnv = $false
 
@@ -59,6 +90,8 @@ function Install-FromArchive {
   try {
     Write-Host "Downloading installer source: $archiveUrl"
     Invoke-WebRequest -Uri $archiveUrl -OutFile $archivePath
+    Invoke-WebRequest -Uri $sha256SumsUrl -OutFile $sumsPath
+    Test-ArchiveChecksum -ArchivePath $archivePath -SumsPath $sumsPath
     & tar -xzf $archivePath -C $tempRoot
     if ($LASTEXITCODE -ne 0) {
       throw "Failed to extract installer archive."
@@ -104,4 +137,10 @@ if ((Test-Path $targetInstallScript) -and (-not $forceRefresh)) {
 }
 
 Write-Host "Running BrainDrive installer ($Mode) from $targetDockerDir"
-& $targetInstallScript -Mode $Mode
+$previousTrustedKeySha256 = $env:BRAINDRIVE_TRUSTED_RELEASE_KEY_SHA256
+try {
+  $env:BRAINDRIVE_TRUSTED_RELEASE_KEY_SHA256 = $trustedReleaseKeySha256
+  & $targetInstallScript -Mode $Mode
+} finally {
+  $env:BRAINDRIVE_TRUSTED_RELEASE_KEY_SHA256 = $previousTrustedKeySha256
+}

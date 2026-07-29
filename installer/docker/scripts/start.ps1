@@ -9,6 +9,7 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $rootDir = Split-Path -Parent $scriptDir
 Set-Location $rootDir
 . "$scriptDir/browser-helper.ps1"
+. "$scriptDir/auth-bootstrap.ps1"
 
 $composeFile = "compose.local.yml"
 if ($Mode -eq "prod") {
@@ -35,6 +36,8 @@ if ($Mode -eq "prod") {
   if (-not (Test-Path ".env")) {
     throw "Prod start requires installer/docker/.env with a real DOMAIN. If you meant local mode, run: ./scripts/start.ps1 local"
   }
+
+  Initialize-BrainDriveProdAuthBootstrap -EnvPath ".env"
 
   $domainValue = Get-EnvValue -Key "DOMAIN"
   if (-not $domainValue -or $domainValue -eq "app.example.com") {

@@ -12,6 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
 source "${SCRIPT_DIR}/browser-helper.sh"
+source "${SCRIPT_DIR}/auth-bootstrap.sh"
 
 COMPOSE_FILE="compose.local.yml"
 if [[ "${MODE}" == "prod" ]]; then
@@ -37,6 +38,8 @@ get_env_value() {
   line="$(grep -E "^${key}=" .env | head -n 1 || true)"
   echo "${line#*=}"
 }
+
+source "${SCRIPT_DIR}/release-resolution.sh"
 
 configure_docker_platform() {
   if [[ "${MODE}" != "prod" && "${MODE}" != "local" ]]; then
@@ -158,24 +161,14 @@ if [[ -z "${MASTER_KEY}" ]]; then
 fi
 
 if [[ "${MODE}" == "prod" ]]; then
+  braindrive_initialize_prod_auth_bootstrap ".env"
+
   DOMAIN_VALUE="$(get_env_value DOMAIN | tr -d '"')"
   if [[ -z "${DOMAIN_VALUE}" || "${DOMAIN_VALUE}" == "app.example.com" ]]; then
     echo "Please set DOMAIN in .env to your real DNS hostname before prod install." >&2
     exit 1
   fi
 
-  APP_REF_VALUE="$(get_env_value BRAINDRIVE_APP_REF | tr -d '"')"
-  EDGE_REF_VALUE="$(get_env_value BRAINDRIVE_EDGE_REF | tr -d '"')"
-  if [[ -n "${APP_REF_VALUE}" && -z "${EDGE_REF_VALUE}" ]]; then
-    echo "BRAINDRIVE_APP_REF is set but BRAINDRIVE_EDGE_REF is missing." >&2
-    echo "Set both refs or neither." >&2
-    exit 1
-  fi
-  if [[ -n "${EDGE_REF_VALUE}" && -z "${APP_REF_VALUE}" ]]; then
-    echo "BRAINDRIVE_EDGE_REF is set but BRAINDRIVE_APP_REF is missing." >&2
-    echo "Set both refs or neither." >&2
-    exit 1
-  fi
 fi
 
 configure_docker_platform
@@ -186,6 +179,10 @@ if [[ "${MODE}" == "dev" ]]; then
   echo "Building and starting developer stack using ${COMPOSE_FILE}"
   docker compose -f "${COMPOSE_FILE}" up -d --build
 else
+  bash "${SCRIPT_DIR}/fetch-release-metadata.sh"
+  resolve_prod_image_refs_from_manifest
+  validate_prod_image_refs
+
   echo "Pulling images using ${COMPOSE_FILE}"
   pull_with_retry "${COMPOSE_FILE}"
   echo "Starting stack"

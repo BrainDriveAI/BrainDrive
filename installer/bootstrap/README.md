@@ -9,24 +9,28 @@ Files:
 - `update.ps1` (Windows PowerShell)
 
 Default behavior:
-1. Download installer files from the BrainDrive GitHub repository archive.
-2. Place installer files in `~/.braindrive/installer/docker`.
-3. Run installer in `local` mode (image-based HTTP on `http://127.0.0.1:8080`).
+1. Download the installer archive and `SHA256SUMS` from one pinned BrainDrive release tag.
+2. Verify the archive SHA-256 before extracting or running it.
+3. Carry the embedded BrainDrive release-key fingerprint into the installer.
+4. Place installer files in `~/.braindrive/installer/docker`.
+5. Run installer in `local` mode (image-based HTTP on `http://127.0.0.1:8080`).
 
 Raw URL usage examples:
 - macOS/Linux:
-  - `curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/install.sh | bash`
+  - `curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/<release-tag>/installer/bootstrap/install.sh | bash`
 - Windows PowerShell:
-  - `irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/install.ps1 | iex`
+  - `irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/<release-tag>/installer/bootstrap/install.ps1 | iex`
 
 Update examples:
 - macOS/Linux:
-  - `curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/update.sh | bash`
+  - `curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/<release-tag>/installer/bootstrap/update.sh | bash`
 - Windows PowerShell:
-  - `irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/update.ps1 | iex`
+  - `irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/<release-tag>/installer/bootstrap/update.ps1 | iex`
 
-Note:
-- When signature verification is enabled, update flow now auto-installs `cosign` if missing (`BRAINDRIVE_AUTO_INSTALL_COSIGN=true`).
+Trust behavior:
+- Do not replace `<release-tag>` with `main`; use a published date tag such as `26.7.23`.
+- Release metadata keys must match the fingerprint embedded in the pinned bootstrap and installer scripts.
+- When signature verification is enabled, the installer can auto-install pinned cosign v3.0.6 after verifying its embedded platform checksum.
 
 Mode overrides:
 - Local (default): no argument.
@@ -41,7 +45,9 @@ Mode overrides:
 Optional runtime overrides:
 - `BRAINDRIVE_BOOTSTRAP_MODE` (default: `local`)
 - `BRAINDRIVE_BOOTSTRAP_REPO` (default: `BrainDriveAI/BrainDrive`)
-- `BRAINDRIVE_BOOTSTRAP_REF` (default: `main`)
+- `BRAINDRIVE_BOOTSTRAP_RELEASE_TAG` (default: release tag embedded in the script)
+- `BRAINDRIVE_BOOTSTRAP_ARCHIVE_NAME` (default: `braindrive-installer-<release-tag>.tar.gz`)
 - `BRAINDRIVE_BOOTSTRAP_ARCHIVE_URL` (override full archive URL)
+- `BRAINDRIVE_BOOTSTRAP_SHA256SUMS_URL` (override full `SHA256SUMS` URL)
 - `BRAINDRIVE_INSTALL_ROOT` (default: `~/.braindrive`)
 - `BRAINDRIVE_BOOTSTRAP_FORCE_REFRESH=true` (force installer refresh)
