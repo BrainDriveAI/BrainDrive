@@ -1096,7 +1096,7 @@ export async function buildServer(rootDir = process.cwd()) {
     await upsertVaultSecret(secretRef, plaintext, masterKey, paths);
   };
 
-  app.get("/credits/status", async (request, reply) => {
+  app.get("/credits/status", async () => {
     try {
       const currentPreferences = await loadLivePreferences();
       const currentAdapterConfig = resolveAdapterConfigForPreferences(adapterConfig, currentPreferences);
@@ -3502,32 +3502,6 @@ function toFallbackProviderModels(models: string[]): ProviderModel[] {
   return models
     .filter((model) => model.trim().length > 0)
     .map((model) => ({ id: model, tags: ["configured"] }));
-}
-
-function mergeProviderModels(primary: ProviderModel[], fallback: ProviderModel[]): ProviderModel[] {
-  const merged = new Map<string, ProviderModel>();
-
-  for (const model of [...primary, ...fallback]) {
-    const key = model.id.trim().toLowerCase();
-    if (!key) {
-      continue;
-    }
-
-    const existing = merged.get(key);
-    if (!existing) {
-      merged.set(key, model);
-      continue;
-    }
-
-    const tags = Array.from(new Set([...(existing.tags ?? []), ...(model.tags ?? [])]));
-    merged.set(key, {
-      ...existing,
-      ...model,
-      tags: tags.length > 0 ? tags : undefined,
-    });
-  }
-
-  return [...merged.values()].sort((left, right) => left.id.localeCompare(right.id));
 }
 
 function isKnownProviderProfile(

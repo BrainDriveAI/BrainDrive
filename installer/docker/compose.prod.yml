@@ -2,7 +2,7 @@
 
 services:
   app:
-    image: ${BRAINDRIVE_APP_REF:-${BRAINDRIVE_APP_IMAGE:-ghcr.io/braindrive-ai/braindrive-app}:${BRAINDRIVE_TAG:-latest}}
+    image: ${BRAINDRIVE_APP_REF:-${BRAINDRIVE_APP_IMAGE:-ghcr.io/braindriveai/braindrive-app}:${BRAINDRIVE_TAG:-latest}}
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -36,7 +36,7 @@ services:
       - no-new-privileges:true
 
   edge:
-    image: ${BRAINDRIVE_EDGE_REF:-${BRAINDRIVE_EDGE_IMAGE:-ghcr.io/braindrive-ai/braindrive-edge}:${BRAINDRIVE_TAG:-latest}}
+    image: ${BRAINDRIVE_EDGE_REF:-${BRAINDRIVE_EDGE_IMAGE:-ghcr.io/braindriveai/braindrive-edge}:${BRAINDRIVE_TAG:-latest}}
     restart: unless-stopped
     depends_on:
       app:

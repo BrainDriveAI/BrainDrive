@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Community support and feature discussion
+    url: https://community.braindrive.ai
+    about: Ask setup questions, get support, and discuss feature ideas with the community.
+  - name: Report a security vulnerability
+    url: https://github.com/BrainDriveAI/BrainDrive/security/advisories/new
+    about: Report suspected vulnerabilities privately. Do not open a public issue.

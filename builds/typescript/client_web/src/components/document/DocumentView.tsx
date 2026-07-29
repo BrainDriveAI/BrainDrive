@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AlertCircle, ArrowLeft, LoaderCircle, PencilLine, Save, X } from "lucide-react";
 
 import { readFileContent, writeFileContent } from "@/api/gateway-adapter";
@@ -33,7 +33,7 @@ export default function DocumentView({
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function loadContent() {
+  const loadContent = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
@@ -46,7 +46,7 @@ export default function DocumentView({
     } finally {
       setIsLoading(false);
     }
-  }
+  }, [file.path, projectId]);
 
   useEffect(() => {
     setIsEditing(false);
@@ -54,7 +54,7 @@ export default function DocumentView({
     setDraft("");
     setError(null);
     void loadContent();
-  }, [projectId, file.path]);
+  }, [loadContent]);
 
   async function handleSave() {
     setIsSaving(true);

@@ -9,7 +9,7 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = if ($env:REPO_ROOT) { $env:REPO_ROOT } else { (Resolve-Path (Join-Path $scriptDir "..\..\..")) }
 Set-Location $repoRoot
 
-$registry = if ($env:REGISTRY) { $env:REGISTRY } else { "ghcr.io/braindrive-ai" }
+$registry = if ($env:REGISTRY) { $env:REGISTRY } else { "ghcr.io/braindriveai" }
 $appImage = if ($env:APP_IMAGE) { $env:APP_IMAGE } else { "$registry/braindrive-app" }
 $edgeImage = if ($env:EDGE_IMAGE) { $env:EDGE_IMAGE } else { "$registry/braindrive-edge" }
 

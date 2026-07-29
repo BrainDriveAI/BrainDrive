@@ -7,6 +7,8 @@
 **/.turbo
 **/.vite
 **/.cache
+**/.env
+**/.paa-secrets
 
 builds/typescript/src-tauri
 builds/typescript/your-memory*

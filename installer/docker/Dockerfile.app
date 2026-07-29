@@ -46,7 +46,9 @@ COPY --from=build-mcp /src/builds/mcp_release/node_modules /app/mcp_release/node
 COPY --from=build-mcp /src/builds/mcp_release/dist /app/mcp_release/dist
 
 COPY installer/docker/entrypoint.sh /usr/local/bin/braindrive-entrypoint.sh
-RUN chmod +x /usr/local/bin/braindrive-entrypoint.sh \
+RUN npm --prefix /app/typescript prune --omit=dev \
+  && npm --prefix /app/mcp_release prune --omit=dev \
+  && chmod +x /usr/local/bin/braindrive-entrypoint.sh \
   && addgroup --system --gid 10001 braindrive \
   && adduser --system --uid 10001 --ingroup braindrive braindrive \
   && mkdir -p /data/memory /run/paa-secrets \

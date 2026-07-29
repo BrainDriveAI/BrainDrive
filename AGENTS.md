@@ -83,6 +83,11 @@ Use `README.md`, `ROADMAP.md`, and `CONTRIBUTING.md` for public product and cont
   cd builds/typescript
   npm run build
   ```
+- Main TypeScript lint:
+  ```bash
+  cd builds/typescript
+  npm run lint
+  ```
 - Main TypeScript tests:
   ```bash
   cd builds/typescript
@@ -92,6 +97,11 @@ Use `README.md`, `ROADMAP.md`, and `CONTRIBUTING.md` for public product and cont
   ```bash
   cd builds/typescript
   npm run web:typecheck
+  ```
+- Web lint:
+  ```bash
+  cd builds/typescript
+  npm run web:lint
   ```
 - Web tests:
   ```bash

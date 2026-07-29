@@ -137,6 +137,12 @@ if ! grep -Fq 'Resolved release refs from manifest (v-test)' "${OUTPUT_FILE}"; t
   exit 1
 fi
 
+ENV_MODE="$(stat -c '%a' "${TEST_DOCKER_ROOT}/.env" 2>/dev/null || stat -f '%Lp' "${TEST_DOCKER_ROOT}/.env")"
+if [[ "${ENV_MODE}" != "600" ]]; then
+  echo "First install left .env with permissions ${ENV_MODE}; expected 600." >&2
+  exit 1
+fi
+
 : > "${DOCKER_LOG}"
 : > "${COSIGN_LOG}"
 (

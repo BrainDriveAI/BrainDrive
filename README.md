@@ -176,6 +176,8 @@ braindrive/
 └── docs/                    # Documentation
 ```
 
+The packages use `"private": true` intentionally: they are MIT-licensed application components distributed with BrainDrive, not packages published to npm.
+
 ## Built With
 
 - [Personal AI Architecture](https://github.com/Personal-AI-Architecture/the-architecture) — the open foundation spec

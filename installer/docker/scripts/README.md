@@ -86,6 +86,7 @@ What it does:
 - First-run setup only.
 - Creates `.env` from `.env.example`.
 - Generates `PAA_SECRETS_MASTER_KEY_B64` if missing.
+- Restricts `.env` to the current user (`chmod 600`) on Unix.
 - In `prod`, generates `PAA_AUTH_BOOTSTRAP_TOKEN` if missing and disables unrestricted first signup.
 - In `local` and `prod`, fetches signed release metadata, verifies it with cosign, and resolves immutable image refs before pulling.
 - Starts stack according to mode.
@@ -377,7 +378,7 @@ Arguments:
 
 Env vars:
 - `REPO_ROOT` (shell only override)
-- `REGISTRY` (default `ghcr.io/braindrive-ai`)
+- `REGISTRY` (default `ghcr.io/braindriveai`)
 - `APP_IMAGE` (default `${REGISTRY}/braindrive-app`)
 - `EDGE_IMAGE` (default `${REGISTRY}/braindrive-edge`)
 
@@ -414,7 +415,7 @@ Arguments:
 - `Version`: required tag
 
 Env vars:
-- `REGISTRY` (default `ghcr.io/braindrive-ai`)
+- `REGISTRY` (default `ghcr.io/braindriveai`)
 - `APP_IMAGE` (default `${REGISTRY}/braindrive-app`)
 - `EDGE_IMAGE` (default `${REGISTRY}/braindrive-edge`)
 

@@ -92,7 +92,6 @@ export default function SignupPage({
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="Choose a username"
                 autoComplete="off"
-                autoFocus
                 required
                 className="h-11 w-full rounded-lg border border-bd-border bg-bd-bg-tertiary px-4 text-sm text-bd-text-primary outline-none placeholder:text-bd-text-muted focus:border-bd-amber"
               />
@@ -112,7 +111,6 @@ export default function SignupPage({
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
                 autoComplete="off"
-                autoFocus
                 required
                 className="h-11 w-full rounded-lg border border-bd-border bg-bd-bg-tertiary px-4 text-sm text-bd-text-primary outline-none placeholder:text-bd-text-muted focus:border-bd-amber"
               />

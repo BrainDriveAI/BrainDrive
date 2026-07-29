@@ -65,6 +65,7 @@ Run these from `builds/typescript/client_web/`:
 | Command | Purpose |
 |---|---|
 | `npm run dev` | Start Vite on `0.0.0.0:5073` with the gateway proxy |
+| `npm run lint` | Run TypeScript, React Hooks, and JSX accessibility lint checks |
 | `npm run typecheck` | Run TypeScript checks without emitting files |
 | `npm test` | Run the Vitest unit and component suite once |
 | `npm run test:watch` | Run Vitest in watch mode |
@@ -72,7 +73,6 @@ Run these from `builds/typescript/client_web/`:
 | `npm run preview` | Serve the production bundle locally |
 | `npm run test:e2e` | Run Playwright across desktop Chrome and mobile browser projects |
 | `npm run test:e2e:mobile` | Run only the mobile Chrome and Safari projects |
-| `npm run lint` | Placeholder command; a client linter is not configured yet |
 
 Playwright tests require a running gateway and installed Playwright browsers. The Playwright configuration starts or reuses the Vite server.
 
@@ -160,6 +160,7 @@ For UI changes, verify the affected desktop and mobile states in addition to run
 From `builds/typescript/`:
 
 ```bash
+npm run web:lint
 npm run web:typecheck
 npm run web:test
 npm run web:build
