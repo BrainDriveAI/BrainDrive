@@ -12,6 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
 source "${SCRIPT_DIR}/browser-helper.sh"
+source "${SCRIPT_DIR}/auth-bootstrap.sh"
 
 get_env_value() {
   local key="$1"
@@ -55,6 +56,8 @@ elif [[ "${MODE}" == "dev" ]]; then
 fi
 
 if [[ "${MODE}" == "prod" ]]; then
+  braindrive_initialize_prod_auth_bootstrap ".env"
+
   DOMAIN_VALUE="$(get_env_value DOMAIN | tr -d '"')"
   if [[ -z "${DOMAIN_VALUE}" || "${DOMAIN_VALUE}" == "app.example.com" ]]; then
     echo "Prod start requires installer/docker/.env with a real DOMAIN." >&2

@@ -17,35 +17,38 @@ For non-technical users, publish and use the bootstrap scripts from this repo:
 
 Recommended command examples:
 - macOS/Linux:
-  - `curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/install.sh | bash`
+  - `curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/<release-tag>/installer/bootstrap/install.sh | bash`
 - Windows PowerShell:
-  - `irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/install.ps1 | iex`
+  - `irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/<release-tag>/installer/bootstrap/install.ps1 | iex`
 
 Quick update commands:
 - macOS/Linux:
-  - `curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/update.sh | bash`
+  - `curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/<release-tag>/installer/bootstrap/update.sh | bash`
 - Windows PowerShell:
-  - `irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/update.ps1 | iex`
+  - `irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/<release-tag>/installer/bootstrap/update.ps1 | iex`
 
 Bootstrap behavior:
-1. Downloads installer files from GitHub (`codeload` tarball by default).
-2. Installs or refreshes local installer files under `~/.braindrive/installer/docker`.
-3. Runs installer in `local` mode by default (no domain required, pulls published images).
-4. `prod` is supported as an explicit mode override.
+1. Downloads an installer archive and `SHA256SUMS` from the pinned release tag.
+2. Verifies the archive checksum before extraction.
+3. Installs or refreshes local installer files under `~/.braindrive/installer/docker`.
+4. Runs installer in `local` mode by default (no domain required, pulls published images).
+5. `prod` is supported as an explicit mode override.
 
 Optional bootstrap overrides:
 - `BRAINDRIVE_BOOTSTRAP_REPO` (default: `BrainDriveAI/BrainDrive`)
-- `BRAINDRIVE_BOOTSTRAP_REF` (default: `main`, can be version tag)
+- `BRAINDRIVE_BOOTSTRAP_RELEASE_TAG` (default: release tag embedded in the script)
+- `BRAINDRIVE_BOOTSTRAP_ARCHIVE_NAME` (default: `braindrive-installer-<release-tag>.tar.gz`)
 - `BRAINDRIVE_BOOTSTRAP_ARCHIVE_URL` (full custom tarball URL)
+- `BRAINDRIVE_BOOTSTRAP_SHA256SUMS_URL` (full custom checksum-list URL)
 - `BRAINDRIVE_INSTALL_ROOT` (default: `~/.braindrive`)
 - `BRAINDRIVE_BOOTSTRAP_FORCE_REFRESH=true` (force re-download and refresh)
 
 ## Local Quick Start (Open-WebUI style)
 For a one-line, no-clone install that does not require DNS/TLS setup:
 1. macOS/Linux:
-   - `curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/install.sh | bash`
+   - `curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/<release-tag>/installer/bootstrap/install.sh | bash`
 2. Windows PowerShell:
-   - `irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/install.ps1 | iex`
+   - `irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/<release-tag>/installer/bootstrap/install.ps1 | iex`
 3. Open:
    - `http://127.0.0.1:8080`
 
@@ -55,10 +58,12 @@ Lifecycle scripts now always print the access URL and attempt a best-effort brow
 ## Production Bootstrap
 For real public HTTPS deployments:
 1. macOS/Linux:
-   - `curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/install.sh | bash -s -- prod`
+   - `curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/<release-tag>/installer/bootstrap/install.sh | bash -s -- prod`
 2. Windows PowerShell:
-   - `$env:BRAINDRIVE_BOOTSTRAP_MODE='prod'; irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/install.ps1 | iex`
+   - `$env:BRAINDRIVE_BOOTSTRAP_MODE='prod'; irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/<release-tag>/installer/bootstrap/install.ps1 | iex`
 3. Set `DOMAIN` in `~/.braindrive/installer/docker/.env` before first production run.
+
+Production install, start, and upgrade generate `PAA_AUTH_BOOTSTRAP_TOKEN` when it is missing and force `PAA_AUTH_ALLOW_FIRST_SIGNUP_ANY_IP=false`. The token is stored in `.env` and is never printed by the lifecycle scripts. On the first account-creation screen, copy the `PAA_AUTH_BOOTSTRAP_TOKEN` value from the production installer `.env` into the **Bootstrap token** field. Treat it like a password and do not share it or include it in logs.
 
 ## What users run (production)
 1. From repo root:
@@ -70,7 +75,7 @@ For real public HTTPS deployments:
 3. From `installer/docker/`:
    - `cp .env.example .env`
    - `./scripts/install.sh` or `./scripts/install.ps1`
-4. Set `DOMAIN` and `PAA_SECRETS_MASTER_KEY_B64` in `installer/docker/.env` (script can auto-generate the key if missing).
+4. Set `DOMAIN` in `installer/docker/.env`. The script generates `PAA_SECRETS_MASTER_KEY_B64` and the production signup bootstrap token when either is missing.
 5. Open `https://<DOMAIN>`
 
 `install` is first-run only. If `.env` already exists, install exits to avoid accidental account/secrets invalidation.
@@ -86,7 +91,7 @@ For local runs on prebuilt images (stable-style HTTP on localhost):
 4. Optional LAN access: set `BRAINDRIVE_LOCAL_BIND_HOST=0.0.0.0` in `.env`, then restart/start local mode and open `http://<this-machine-ip>:8080` from another device on your network.
 
 Local mode uses prebuilt images (same image/ref controls as local/prod) and does require registry pull access.
-By default, first signup is allowed from any host/IP in this installer profile (`PAA_AUTH_ALLOW_FIRST_SIGNUP_ANY_IP=true`).
+First signup defaults to loopback-only in this installer profile. Complete owner signup from the host before enabling LAN access.
 
 ## Developer hot-reload mode
 For day-to-day development with fast feedback loops:
@@ -152,7 +157,7 @@ When refs are set, compose uses them instead of `BRAINDRIVE_*_IMAGE + BRAINDRIVE
 On Apple Silicon macOS, shell scripts automatically default local/prod image runs to
 `linux/amd64` when no explicit platform override is set.
 
-Optional manifest-driven digest resolution (for upgrades):
+Signed manifest-driven digest resolution (for first installs and upgrades):
 - `BRAINDRIVE_RELEASE_MANIFEST=./release-cache/releases.json`
 - `BRAINDRIVE_RELEASE_MANIFEST_SIG=./release-cache/releases.json.sig`
 - `BRAINDRIVE_RELEASE_PUBLIC_KEY=./release-cache/cosign.pub`
@@ -162,17 +167,17 @@ Optional manifest-driven digest resolution (for upgrades):
 - `BRAINDRIVE_RELEASE_CHANNEL=stable`
 - `BRAINDRIVE_RELEASE_VERSION=` (optional explicit version override)
 - `BRAINDRIVE_REQUIRE_MANIFEST_SIGNATURE=true`
-- `BRAINDRIVE_AUTO_INSTALL_COSIGN=true` (auto-download cosign if missing)
-- `BRAINDRIVE_COSIGN_VERSION=latest` (optional version override)
+- `BRAINDRIVE_AUTO_INSTALL_COSIGN=true` (auto-download the pinned, checksummed cosign binary if missing)
+- `BRAINDRIVE_COSIGN_VERSION=v3.0.6` (the only auto-installable version; use `BRAINDRIVE_COSIGN_BIN` for another version)
 - `BRAINDRIVE_COSIGN_BIN_DIR=` (optional install location override)
 - `BRAINDRIVE_COSIGN_BIN=` (optional explicit cosign binary path)
 
-If refs are not set and a manifest is configured, upgrade scripts resolve
+If refs are not set and a manifest is configured, install and upgrade scripts resolve
 `BRAINDRIVE_APP_REF` and `BRAINDRIVE_EDGE_REF` from the manifest.
-If signature verification is required, upgrade scripts run `cosign verify-blob` before apply.
-If `cosign` is missing, upgrade scripts now auto-install it by default (`BRAINDRIVE_AUTO_INSTALL_COSIGN=true`).
+If signature verification is required, both paths run `cosign verify-blob` before any image pull.
+If `cosign` is missing, the scripts auto-install pinned v3.0.6 by default and verify its embedded platform checksum before execution.
 Current helper scripts use key-pair signature verification (trusted public key) without transparency log lookup.
-Upgrade now auto-fetches metadata from configured release URLs into local `release-cache` so normal users do not need manual `.env` edits for each update.
+Install and upgrade auto-fetch metadata from configured release URLs into local `release-cache` so normal users do not need manual `.env` edits for each release.
 Start in local/prod now runs startup update policy checks before compose up. Settings are resolved in this order: runtime env override, persistent `/data/memory/system/config/app-config.json`, `.env`, then defaults.
 Lifecycle scripts that start/restart services (`install`, `start`, `upgrade`, `restore`) always print the URL and attempt browser auto-open; if auto-open fails, users can still use the printed URL.
 
@@ -316,9 +321,9 @@ Cosign key setup (one-time per release signing identity):
 - Generate key pair:
   - `cosign generate-key-pair`
 - Keep `cosign.key` private in CI/secrets manager.
-- Distribute `cosign.pub` as the trusted updater verification key.
+- The current `cosign.pub` SHA-256 (`c92a784be74b30f8e754e3025a11a7c69b44d620c8f0e21331b46e1772b179b6`) is embedded in bootstrap and installer trust helpers. Key rotation requires a reviewed code release that updates this fingerprint.
 - For non-interactive signing (CI, no TTY), set `COSIGN_PASSWORD` when using an encrypted `cosign.key`.
-- Shell release-sign/verify scripts support `BRAINDRIVE_COSIGN_BIN` and can auto-install cosign when missing (`BRAINDRIVE_AUTO_INSTALL_COSIGN=true`).
+- Shell release-sign/verify scripts support `BRAINDRIVE_COSIGN_BIN`. Automatic installation is restricted to cosign v3.0.6 and verifies an embedded platform SHA-256 before execution.
 
 ## Notes
 - Data is persisted in named volumes: `braindrive_memory` and `braindrive_secrets`.
@@ -332,4 +337,4 @@ Cosign key setup (one-time per release signing identity):
   - `GET /api/support/bundles`
   - `GET /api/support/bundles/:fileName`
 - Keep a secure backup of `PAA_SECRETS_MASTER_KEY_B64`. Losing it may make encrypted secrets unreadable.
-- To enforce stricter first-account protection, set `PAA_AUTH_ALLOW_FIRST_SIGNUP_ANY_IP=false` and use `PAA_AUTH_BOOTSTRAP_TOKEN`.
+- Production requires `PAA_AUTH_BOOTSTRAP_TOKEN` and does not allow unrestricted first signup. Lifecycle scripts also add this protection to existing production `.env` files before start or upgrade.

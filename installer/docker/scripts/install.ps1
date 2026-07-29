@@ -9,6 +9,7 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $rootDir = Split-Path -Parent $scriptDir
 Set-Location $rootDir
 . "$scriptDir/browser-helper.ps1"
+. "$scriptDir/auth-bootstrap.ps1"
 
 $composeFile = "compose.local.yml"
 if ($Mode -eq "prod") {
@@ -37,6 +38,8 @@ function Get-EnvValue {
 
   return ($line.Split("=", 2)[1]).Trim().Trim('"')
 }
+
+. "$scriptDir/release-resolution.ps1"
 
 function Set-EnvValue {
   param(
@@ -128,19 +131,13 @@ if (-not $masterKey) {
 }
 
 if ($Mode -eq "prod") {
+  Initialize-BrainDriveProdAuthBootstrap -EnvPath ".env"
+
   $domain = Get-EnvValue -Key "DOMAIN"
   if (-not $domain -or $domain -eq "app.example.com") {
     throw "Please set DOMAIN in .env to your real DNS hostname before prod install."
   }
 
-  $appRef = Get-EnvValue -Key "BRAINDRIVE_APP_REF"
-  $edgeRef = Get-EnvValue -Key "BRAINDRIVE_EDGE_REF"
-  if ($appRef -and -not $edgeRef) {
-    throw "BRAINDRIVE_APP_REF is set but BRAINDRIVE_EDGE_REF is missing. Set both refs or neither."
-  }
-  if ($edgeRef -and -not $appRef) {
-    throw "BRAINDRIVE_EDGE_REF is set but BRAINDRIVE_APP_REF is missing. Set both refs or neither."
-  }
 }
 
 if ($Mode -eq "dev") {
@@ -149,6 +146,10 @@ if ($Mode -eq "dev") {
   Write-Host "Building and starting developer stack using $composeFile"
   docker compose -f $composeFile up -d --build
 } else {
+  & "$scriptDir/fetch-release-metadata.ps1"
+  Resolve-ProdImageRefsFromManifest
+  Validate-ProdImageRefs
+
   Write-Host "Pulling images using $composeFile"
   Invoke-PullWithRetry -ComposeFile $composeFile
   Write-Host "Starting stack"

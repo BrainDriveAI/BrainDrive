@@ -1,128 +1,179 @@
-# BrainDrive Client
+# BrainDrive Web Client
 
-Web interface for BrainDrive — a React SPA that talks to the BrainDrive backend through an adapter layer.
+The BrainDrive web client is the production React interface used in browser, Docker, managed, and Tauri desktop deployments. It connects to the BrainDrive gateway for configuration, authentication, chat streaming, projects, files, settings, backups, model providers, and account operations.
+
+Runtime data comes from the gateway. Unit and component tests mock API boundaries, but the running application does not use mock users, conversations, or projects.
+
+## How It Fits
+
+```text
+Browser or Tauri
+      |
+React web client
+      |
+API adapters in src/api/
+      |
+BrainDrive gateway
+      |
+Engine, auth, memory, secrets, and MCP services
+```
+
+Browser requests use the relative `/api` base path. During local development, Vite proxies that path to the gateway and removes the `/api` prefix. The default gateway target is `http://127.0.0.1:8787`; set `VITE_GATEWAY_PROXY_TARGET` to use a different target. In Tauri, the client resolves the native runtime URL and adds the desktop transport token.
 
 ## Quick Start
 
+### Full Stack
+
+From the repository root, install the three TypeScript workspaces and start the gateway, MCP services, and web client:
+
 ```bash
-cd client
-npm install
-npm run dev        # http://localhost:5073
+npm --prefix builds/typescript ci
+npm --prefix builds/mcp_release ci
+npm --prefix builds/typescript/client_web ci
+npm --prefix builds/typescript run dev
+```
+
+Open `http://127.0.0.1:5073`. The development runtime starts the gateway on port `8787` and the Vite client on port `5073`.
+
+For the Docker development stack:
+
+```bash
+./installer/docker/scripts/install.sh dev  # first installation
+./installer/docker/scripts/start.sh dev    # existing installation
+```
+
+### Web Client Only
+
+If the BrainDrive gateway is already running:
+
+```bash
+cd builds/typescript/client_web
+npm ci
+npm run dev
+```
+
+To proxy to a gateway on another address:
+
+```bash
+VITE_GATEWAY_PROXY_TARGET=http://127.0.0.1:9000 npm run dev
 ```
 
 ## Scripts
 
-| Command | What it does |
-|---------|-------------|
-| `npm run dev` | Start Vite dev server |
-| `npm run build` | Production build → `dist/` |
-| `npm run preview` | Preview production build |
-| `npm run typecheck` | TypeScript check (no emit) |
-| `npm test` | Run Vitest tests |
-| `npm run test:watch` | Run tests in watch mode |
+Run these from `builds/typescript/client_web/`:
 
-## Tech Stack
+| Command | Purpose |
+|---|---|
+| `npm run dev` | Start Vite on `0.0.0.0:5073` with the gateway proxy |
+| `npm run typecheck` | Run TypeScript checks without emitting files |
+| `npm test` | Run the Vitest unit and component suite once |
+| `npm run test:watch` | Run Vitest in watch mode |
+| `npm run build` | Type-check and create the production bundle in `dist/` |
+| `npm run preview` | Serve the production bundle locally |
+| `npm run test:e2e` | Run Playwright across desktop Chrome and mobile browser projects |
+| `npm run test:e2e:mobile` | Run only the mobile Chrome and Safari projects |
+| `npm run lint` | Placeholder command; a client linter is not configured yet |
 
-- **React 19** + TypeScript (strict mode)
-- **Vite 6** — SPA bundler, no SSR
-- **Tailwind CSS 4** — utility-first with BrainDrive design tokens
-- **shadcn/ui** — copy-paste components (Radix primitives)
-- **Vercel AI SDK** (`@ai-sdk/react`) — `useChat` for streaming (not yet wired)
-- **react-markdown** + remark-gfm + rehype-highlight — markdown rendering
-- **Lucide React** — SVG icons
+Playwright tests require a running gateway and installed Playwright browsers. The Playwright configuration starts or reuses the Vite server.
+
+## Runtime Integration
+
+The client is wired to the current gateway and desktop runtime:
+
+- `src/api/config-adapter.ts` loads deployment and installation metadata from `/api/config`.
+- `src/api/auth-adapter.ts` handles bootstrap status, local signup and login, token refresh, local-owner requests, and managed authentication.
+- `src/api/gateway-adapter.ts` owns gateway requests for streaming chat, approvals, conversations, projects, files, skills, settings, providers, backups, exports, credits, and accounts.
+- `src/api/useGatewayChat.ts` manages SSE chat events and conversation state.
+- `src/hooks/useProjects.ts` loads and mutates real gateway projects and their files.
+- `src/api/runtime-api-base.ts` resolves browser and Tauri gateway URLs and desktop authentication headers.
+- `src/api/desktop-browser-access.ts` and `src/api/desktop-tailscale-access.ts` bridge desktop-only remote-access controls.
+
+Keep gateway request and response normalization inside `src/api/`. Components should consume adapter or hook interfaces rather than constructing backend URLs directly.
+
+## Runtime Modes
+
+`App.tsx` loads runtime configuration before choosing the auth and application flow:
+
+- `mode` is `local` or `managed` and controls the authentication boundary and mode-specific UI.
+- `install_mode` is `dev`, `local`, or `prod`.
+- `install_location` is `local` or `managed`.
+
+Managed deployments trust gateway-provided authentication and skip the local login flow. Local deployments use the gateway's configured local or local-owner auth behavior. The same built client is also embedded in the Tauri desktop shell.
+
+Production first signup requires the bootstrap token generated in the installer `.env`. The signup form sends this value only through the `x-paa-bootstrap-token` header; it is not included in the credential request body.
 
 ## Project Structure
 
-```
-client/
-├── public/
-│   ├── braindrive-logo.svg       # Full logo (sidebar, login)
-│   └── favicon.svg               # Brain icon (browser tab)
+```text
+client_web/
+├── e2e/                     # Playwright desktop and mobile layout tests
+├── public/                  # Logos, favicon, splash page, and local fonts
 ├── src/
-│   ├── App.tsx                   # Root — auth flow → main interface
-│   ├── main.tsx                  # Entry point (ErrorBoundary, Router)
+│   ├── api/                 # Gateway, auth, config, SSE, and desktop adapters
 │   ├── components/
-│   │   ├── auth/                 # Login, Signup, ForgotPassword, AuthFlow
-│   │   ├── chat/                 # ChatPanel, MessageList, Composer, EmptyState,
-│   │   │                        #   TypingIndicator, ErrorMessage, ConnectionBanner
-│   │   ├── layout/              # AppShell, Sidebar, SidebarCollapsed, ProfileMenu
-│   │   ├── onboarding/          # WhyFinderScreen (built, deferred from flow — D32)
-│   │   ├── settings/            # SettingsModal (6 tabs, mode-aware)
-│   │   ├── ui/                  # shadcn/ui primitives (ScrollArea, Separator, etc.)
-│   │   └── ErrorBoundary.tsx    # App-level crash recovery
-│   ├── hooks/
-│   │   └── useThreads.ts        # Thread state (mock data, replaced in Phase 4)
-│   ├── design/
-│   │   └── tokens.ts            # BrainDrive design tokens (reference)
-├── index.html
+│   │   ├── auth/            # Bootstrap, signup, login, and recovery screens
+│   │   ├── chat/            # Streaming chat, composer, messages, and errors
+│   │   ├── document/        # Project file viewer
+│   │   ├── layout/          # App shell, sidebar, and responsive navigation
+│   │   ├── markdown/        # Markdown rendering
+│   │   ├── onboarding/      # Provider and guided onboarding surfaces
+│   │   ├── settings/        # Models, account, backup, and access settings
+│   │   └── ui/              # Shared Radix/shadcn-style primitives
+│   ├── design/tokens.ts     # TypeScript design-token reference
+│   ├── hooks/useProjects.ts # Project and file state backed by the gateway
+│   ├── App.tsx              # Runtime configuration and top-level auth flow
+│   ├── index.css            # CSS tokens, fonts, and global styles
+│   └── main.tsx             # React, router, error boundary, and Tauri startup
 ├── package.json
+├── playwright.config.ts
 ├── tsconfig.json
 └── vite.config.ts
 ```
 
+Tests live beside the code they cover as `*.test.ts` or `*.test.tsx`.
+
+## Tech Stack
+
+- React 19 and React Router 7
+- TypeScript 5.9 in strict mode
+- Vite 8
+- Tailwind CSS 4
+- Radix UI primitives with shadcn-style local components
+- `react-markdown`, `remark-gfm`, and `rehype-highlight`
+- Vitest 4 and Testing Library
+- Playwright 1
+- Tauri 2 browser APIs for desktop integration
+
 ## Design System
 
-Colors, typography, and spacing are defined as CSS custom properties in `src/index.css` and as a TypeScript reference in `src/design/tokens.ts`. The design system uses:
+`src/index.css` and `src/design/tokens.ts` are the design source of truth. Reuse their tokens instead of introducing one-off colors or spacing.
 
-- **Amber accent** (`#F5A623`) — CTAs, send button, active states. **Text on amber is always dark (`#03050A`), never white.**
-- **Blue foundation** — backgrounds, text, borders
-- **Montserrat** — headings and CTAs
-- **Questrial** — body text
-- **Dark mode only** (light mode deferred to V1.1). Do not introduce white/near-white (`#FFFFFF`, `#FAFAFA`) surfaces, cards, or buttons.
+- The client is dark mode only.
+- Amber (`#F5A623`) is the primary action color.
+- Text on amber must be dark (`#03050A`), never white or another light color.
+- Montserrat is used for headings and calls to action; Questrial is used for body text.
 
-**Contrast rule (every button and label):** all surfaces are dark, so white / near-white text (`text.heading` = `#FFFFFF`) belongs only on a dark fill. Never put light text on a light fill. If a control looks washed out or invisible (the white-on-white failure), the fill is wrong; fix the background, not the text. Always reference tokens from `tokens.ts` / `index.css`; do not hardcode hex values.
+For UI changes, verify the affected desktop and mobile states in addition to running typecheck, tests, and build.
 
-## Deployment Modes
+## Verification
 
-The same client serves both local (Docker) and managed (braindrive.ai) hosting. A `mode` prop flows through the app and controls:
+From `builds/typescript/`:
 
-- **Auth screens** — username (local) vs email (managed)
-- **Settings tabs** — Account + Billing only show for managed
-- **Model Provider** — API key entry (local) vs "managed by BrainDrive" (managed)
-- **Export messaging** — more prominent on managed (exit-to-ownership)
-- **Tier label** — "BrainDrive Local" / "BrainDrive Concierge"
+```bash
+npm run web:typecheck
+npm run web:test
+npm run web:build
+```
 
-In production, mode comes from `GET /api/config`. During development, a toggle in the bottom-right corner switches modes.
+Use focused Vitest runs while iterating, then run the complete web suite before handoff. Run the relevant Playwright project when a change affects responsive layout or browser behavior.
 
-## Current Status
+## Related Documentation
 
-**All pre-backend UI is built.** The interface is fully functional as a visual shell — auth, settings, chat components, error states, empty state. Everything uses placeholder/mock data.
-
-**What's placeholder (will change when backend is wired):**
-- Mock messages in `mockMessages.ts`
-- Mock threads in `mockThreads.ts`
-- Hardcoded user "Dave Waring" in sidebar profile
-- Auth flow accepts any credentials
-- Typing indicator / connection state managed locally
-
-**What's permanent:**
-- Component structure and layout
-- Design tokens and styling
-- Settings modal structure and mode-aware tabs
-- Error boundary, error messages, connection banner
-- Responsive mobile layout
-
-**What's retired:**
-- Document/file upload UI and document-processing flows are not part of the current client surface.
-- Future file handling should be specified as new work rather than restoring the retired upload path.
-
-## Next Steps
-
-Backend integration is blocked on the API contract spike with Dave J (T-298). See `projects/active/braindrive-repo/v1-api-contract-recommendations.md` for proposed routes. After that:
-
-1. **Phase 2** — Wire auth to real endpoints (httpOnly cookies)
-2. **Phase 3** — Wire chat to Gateway via `useGatewayChat` adapter
-3. **Phase 4** — Wire threads to Gateway conversation list/history
-4. **Phase 5** — WhyFinder onboarding flow (if re-enabled)
-5. **Phase 6** — Settings and mobile polish with real backend
+- [Repository overview](../../../README.md)
+- [Contributing guide](../../../CONTRIBUTING.md)
+- [Docker development and deployment](../../../installer/docker/README.md)
+- [Tailscale remote access](../../../docs/tailscale-remote-access.md)
 
 ## License
 
-MIT — see [LICENSE](../LICENSE) in the repo root.
-
-## Related Docs
-
-- [V1 Interface Spec](../../BrainDrive-Library/projects/active/braindrive-repo/v1-interface-spec.md)
-- [V1 Interface Build Plan](../../BrainDrive-Library/projects/active/braindrive-repo/v1-interface-build-plan.md)
-- [V1 Interface Test Plan](../../BrainDrive-Library/projects/active/braindrive-repo/v1-interface-test-plan.md)
-- [API Contract Recommendations](../../BrainDrive-Library/projects/active/braindrive-repo/v1-api-contract-recommendations.md)
+BrainDrive is licensed under the [MIT License](../../../LICENSE).

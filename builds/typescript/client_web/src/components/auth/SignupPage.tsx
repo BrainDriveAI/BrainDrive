@@ -6,8 +6,10 @@ type SignupPageProps = {
     username?: string;
     email?: string;
     password: string;
+    bootstrapToken?: string;
   }) => Promise<void> | void;
   onNavigateToLogin: () => void;
+  requiresBootstrapToken?: boolean;
   isSubmitting?: boolean;
   error?: string | null;
 };
@@ -16,11 +18,13 @@ export default function SignupPage({
   mode,
   onSignup,
   onNavigateToLogin,
+  requiresBootstrapToken = false,
   isSubmitting = false,
   error
 }: SignupPageProps) {
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
+  const [bootstrapToken, setBootstrapToken] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const passwordMismatch =
@@ -29,6 +33,7 @@ export default function SignupPage({
   const isValid =
     (mode === "local"
       ? username.trim().length > 0 &&
+        (!requiresBootstrapToken || bootstrapToken.trim().length > 0) &&
         password.length >= 8 &&
         password === confirmPassword
       : email.trim().length > 0 &&
@@ -41,7 +46,11 @@ export default function SignupPage({
     if (!isValid) return;
 
     if (mode === "local") {
-      onSignup({ username: username.trim(), password });
+      onSignup({
+        username: username.trim(),
+        password,
+        ...(requiresBootstrapToken ? { bootstrapToken: bootstrapToken.trim() } : {}),
+      });
     } else {
       onSignup({ email: email.trim(), password });
     }
@@ -107,6 +116,31 @@ export default function SignupPage({
                 required
                 className="h-11 w-full rounded-lg border border-bd-border bg-bd-bg-tertiary px-4 text-sm text-bd-text-primary outline-none placeholder:text-bd-text-muted focus:border-bd-amber"
               />
+            </div>
+          )}
+
+          {mode === "local" && requiresBootstrapToken && (
+            <div>
+              <label
+                htmlFor="bootstrap-token"
+                className="mb-1.5 block text-sm font-medium text-bd-text-secondary"
+              >
+                Bootstrap token
+              </label>
+              <input
+                id="bootstrap-token"
+                type="password"
+                value={bootstrapToken}
+                onChange={(e) => setBootstrapToken(e.target.value)}
+                placeholder="Paste the production bootstrap token"
+                autoComplete="off"
+                aria-describedby="bootstrap-token-help"
+                required
+                className="h-11 w-full rounded-lg border border-bd-border bg-bd-bg-tertiary px-4 text-sm text-bd-text-primary outline-none placeholder:text-bd-text-muted focus:border-bd-amber"
+              />
+              <p id="bootstrap-token-help" className="mt-1.5 text-xs text-bd-text-muted">
+                Copy PAA_AUTH_BOOTSTRAP_TOKEN from the production installer .env file.
+              </p>
             </div>
           )}
 

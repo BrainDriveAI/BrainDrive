@@ -4,6 +4,9 @@ set -euo pipefail
 # Verify releases.json signature.
 # Usage: ./scripts/verify-release-manifest.sh [manifest-path] [signature-path] [public-key-path]
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/release-trust.sh"
+
 MANIFEST_PATH="${1:-./releases.json}"
 SIGNATURE_PATH="${2:-./releases.json.sig}"
 PUBLIC_KEY_PATH="${3:-./cosign.pub}"
@@ -106,8 +109,18 @@ ensure_cosign() {
   local url
   local target
   local tmp_target
+  local expected_sha256
   version="$(trim_quotes "${BRAINDRIVE_COSIGN_VERSION:-}")"
   bin_dir="$(trim_quotes "${BRAINDRIVE_COSIGN_BIN_DIR:-}")"
+
+  if [[ -z "${version}" ]]; then
+    version="${BRAINDRIVE_EMBEDDED_COSIGN_VERSION}"
+  fi
+  if [[ "${version}" != "${BRAINDRIVE_EMBEDDED_COSIGN_VERSION}" ]]; then
+    echo "Automatic cosign install only supports pinned version ${BRAINDRIVE_EMBEDDED_COSIGN_VERSION}; requested ${version}." >&2
+    echo "Install another version manually and set BRAINDRIVE_COSIGN_BIN." >&2
+    exit 1
+  fi
 
   if [[ -z "${bin_dir}" ]]; then
     bin_dir="${HOME:-$(pwd)}/.local/bin"
@@ -119,15 +132,15 @@ ensure_cosign() {
   mkdir -p "${bin_dir}"
   target="${bin_dir}/cosign"
   tmp_target="${target}.tmp"
-
-  if [[ -n "${version}" && "${version}" != "latest" ]]; then
-    url="https://github.com/sigstore/cosign/releases/download/${version}/cosign-${os}-${arch}"
-  else
-    url="https://github.com/sigstore/cosign/releases/latest/download/cosign-${os}-${arch}"
-  fi
+  url="https://github.com/sigstore/cosign/releases/download/${version}/cosign-${os}-${arch}"
+  expected_sha256="$(braindrive_cosign_sha256 "${os}" "${arch}")"
 
   echo "cosign not found; downloading ${url}"
   curl -fsSL "${url}" -o "${tmp_target}"
+  if ! braindrive_verify_sha256 "${tmp_target}" "${expected_sha256}" "Downloaded cosign ${version} (${os}-${arch})"; then
+    rm -f "${tmp_target}"
+    exit 1
+  fi
   chmod +x "${tmp_target}"
   mv -f "${tmp_target}" "${target}"
 
@@ -147,6 +160,7 @@ if [[ ! -f "${PUBLIC_KEY_PATH}" ]]; then
   exit 1
 fi
 
+braindrive_verify_release_public_key "${PUBLIC_KEY_PATH}"
 ensure_cosign
 
 # Signature files are detached/base64 payload signatures (not bundles).

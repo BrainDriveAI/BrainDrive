@@ -51,7 +51,11 @@ export default function App() {
 
   if (screen === "auth") {
     return (
-      <AuthFlow mode={deploymentMode} onAuthenticated={() => setScreen("main")} />
+      <AuthFlow
+        mode={deploymentMode}
+        requiresBootstrapToken={installMode === "prod"}
+        onAuthenticated={() => setScreen("main")}
+      />
     );
   }
 

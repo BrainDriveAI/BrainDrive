@@ -69,6 +69,8 @@ desktop.ini
 *.log
 logs/
 **/logs/
+playwright-report/
+test-results/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

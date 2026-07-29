@@ -14,6 +14,10 @@ export type AuthCredentials = {
   password: string;
 };
 
+export type SignupCredentials = AuthCredentials & {
+  bootstrapToken?: string;
+};
+
 const LOCAL_SESSION: Session = {
   mode: "local",
   user: {
@@ -76,20 +80,25 @@ export async function restoreSession(): Promise<boolean> {
   }
 }
 
-export async function signup(credentials: AuthCredentials): Promise<void> {
+export async function signup(credentials: SignupCredentials): Promise<void> {
   await ensureBootstrapStatus();
 
   if (currentAuthMode !== "local") {
     throw new Error("Password sign-up is unavailable in the current auth mode.");
   }
 
+  const bootstrapToken = credentials.bootstrapToken?.trim();
   const response = await apiFetch("/api/auth/signup", {
     method: "POST",
     headers: {
       "content-type": "application/json",
+      ...(bootstrapToken ? { "x-paa-bootstrap-token": bootstrapToken } : {}),
     },
     credentials: "include",
-    body: JSON.stringify(credentials),
+    body: JSON.stringify({
+      identifier: credentials.identifier,
+      password: credentials.password,
+    }),
   });
 
   if (!response.ok) {

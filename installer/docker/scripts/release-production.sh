@@ -23,7 +23,7 @@ Automates the Monday production release runbook:
 
 Options:
   --package-version <yy.m.d[.n]> Release version (default: today's local date, e.g. 26.4.16)
-  --image-tag <tag>            Image/GitHub tag (default: v<package-version>)
+  --image-tag <tag>            Image/GitHub tag (default: <package-version>)
   --channel <name>             Release channel for manifest (default: stable)
   --app-image <image>          App image repo (default: ghcr.io/braindriveai/braindrive-app)
   --edge-image <image>         Edge image repo (default: ghcr.io/braindriveai/braindrive-edge)
@@ -72,6 +72,7 @@ COSIGN_KEY_PATH="${COSIGN_KEY_PATH:-${REPO_ROOT}/cosign.key}"
 COSIGN_PUB_PATH="${COSIGN_PUB_PATH:-${REPO_ROOT}/cosign.pub}"
 MANIFEST_PATH="${MANIFEST_PATH:-${REPO_ROOT}/releases.json}"
 MANIFEST_SIG_PATH="${MANIFEST_SIG_PATH:-${REPO_ROOT}/releases.json.sig}"
+RELEASE_ASSET_DIR="${RELEASE_ASSET_DIR:-}"
 SKIP_PREBUILD_CHECK="false"
 SKIP_GIT_SYNC="false"
 SKIP_DOCKER_LOGIN="false"
@@ -132,12 +133,16 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "${IMAGE_TAG}" ]]; then
-  IMAGE_TAG="v${PACKAGE_VERSION}"
+  IMAGE_TAG="${PACKAGE_VERSION}"
 fi
 
-if [[ "${IMAGE_TAG}" != "v${PACKAGE_VERSION}" ]]; then
-  echo "Versioning rule violation: IMAGE_TAG must be exactly v${PACKAGE_VERSION}" >&2
+if [[ "${IMAGE_TAG}" != "${PACKAGE_VERSION}" ]]; then
+  echo "Versioning rule violation: IMAGE_TAG must be exactly ${PACKAGE_VERSION}" >&2
   exit 1
+fi
+
+if [[ -z "${RELEASE_ASSET_DIR}" ]]; then
+  RELEASE_ASSET_DIR="${REPO_ROOT}/dist/release/${IMAGE_TAG}"
 fi
 
 if [[ ! "${PACKAGE_VERSION}" =~ ^[0-9]{2}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?$ ]]; then
@@ -155,6 +160,7 @@ echo "RELEASE_CHANNEL=${RELEASE_CHANNEL}"
 echo "APP_IMAGE=${APP_IMAGE}"
 echo "EDGE_IMAGE=${EDGE_IMAGE}"
 echo "COSIGN_KEY_PATH=${COSIGN_KEY_PATH}"
+echo "RELEASE_ASSET_DIR=${RELEASE_ASSET_DIR}"
 
 log_step "1. Preflight (maintainer machine)"
 require_cmd git
@@ -163,6 +169,7 @@ require_cmd npm
 require_cmd node
 require_cmd cosign
 require_cmd awk
+require_cmd gzip
 
 if [[ "${SKIP_GIT_SYNC}" != "true" ]]; then
   git checkout main
@@ -284,6 +291,38 @@ if (failed) {
 console.log(`Package and lockfile versions are uniform at ${releaseVersion}.`);
 NODE
 
+node - "${IMAGE_TAG}" <<'NODE'
+const fs = require("fs");
+
+const releaseTag = process.argv[2];
+const files = [
+  ["installer/bootstrap/install.sh", /BOOTSTRAP_RELEASE_TAG_DEFAULT="[^"]+"/, `BOOTSTRAP_RELEASE_TAG_DEFAULT="${releaseTag}"`],
+  ["installer/bootstrap/update.sh", /BOOTSTRAP_RELEASE_TAG_DEFAULT="[^"]+"/, `BOOTSTRAP_RELEASE_TAG_DEFAULT="${releaseTag}"`],
+  ["installer/bootstrap/install.ps1", /\$bootstrapReleaseTagDefault = "[^"]+"/, `$bootstrapReleaseTagDefault = "${releaseTag}"`],
+  ["installer/bootstrap/update.ps1", /\$bootstrapReleaseTagDefault = "[^"]+"/, `$bootstrapReleaseTagDefault = "${releaseTag}"`],
+];
+
+for (const [filePath, pattern, replacement] of files) {
+  const before = fs.readFileSync(filePath, "utf8");
+  if (!pattern.test(before)) {
+    throw new Error(`Bootstrap release-tag marker not found: ${filePath}`);
+  }
+  const after = before.replace(pattern, replacement);
+  fs.writeFileSync(filePath, after);
+  console.log(`${filePath}: bootstrap release tag -> ${releaseTag}`);
+}
+
+for (const filePath of ["README.md", "installer/bootstrap/README.md", "installer/docker/README.md"]) {
+  const before = fs.readFileSync(filePath, "utf8");
+  const after = before.replace(
+    /BrainDriveAI\/BrainDrive\/(?:<release-tag>|[0-9]{2}\.[0-9]{1,2}\.[0-9]{1,2}(?:\.[0-9]+)?)\/installer\/bootstrap/g,
+    `BrainDriveAI/BrainDrive/${releaseTag}/installer/bootstrap`,
+  );
+  fs.writeFileSync(filePath, after);
+  console.log(`${filePath}: bootstrap URLs -> ${releaseTag}`);
+}
+NODE
+
 log_step "4. Release readiness checks"
 if [[ "${SKIP_PREBUILD_CHECK}" != "true" ]]; then
   bash ./installer/docker/scripts/preflight-production-build.sh --skip-docker-build
@@ -364,12 +403,47 @@ if (!manifest.releases || !manifest.releases[pkgVersion]) {
 }
 ' "${PACKAGE_VERSION}" "${RELEASE_CHANNEL}" "${MANIFEST_PATH}"
 
-log_step "8. Publish GitHub Release assets (manual)"
+log_step "8. Build checksummed installer release assets"
+INSTALLER_ARCHIVE_NAME="braindrive-installer-${IMAGE_TAG}.tar.gz"
+INSTALLER_ARCHIVE_PATH="${RELEASE_ASSET_DIR}/${INSTALLER_ARCHIVE_NAME}"
+SHA256SUMS_PATH="${RELEASE_ASSET_DIR}/SHA256SUMS"
+
+mkdir -p "${RELEASE_ASSET_DIR}"
+git archive \
+  --format=tar \
+  --prefix="braindrive-installer-${IMAGE_TAG}/" \
+  HEAD \
+  installer/docker | gzip -n > "${INSTALLER_ARCHIVE_PATH}"
+
+cp "${MANIFEST_PATH}" "${RELEASE_ASSET_DIR}/releases.json"
+cp "${MANIFEST_SIG_PATH}" "${RELEASE_ASSET_DIR}/releases.json.sig"
+cp "${COSIGN_PUB_PATH}" "${RELEASE_ASSET_DIR}/cosign.pub"
+
+sha256_for_release_asset() {
+  local asset_path="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "${asset_path}" | awk '{print $1}'
+  else
+    shasum -a 256 "${asset_path}" | awk '{print $1}'
+  fi
+}
+
+: > "${SHA256SUMS_PATH}"
+for asset_name in "${INSTALLER_ARCHIVE_NAME}" releases.json releases.json.sig cosign.pub; do
+  asset_sha256="$(sha256_for_release_asset "${RELEASE_ASSET_DIR}/${asset_name}")"
+  printf '%s  %s\n' "${asset_sha256}" "${asset_name}" >> "${SHA256SUMS_PATH}"
+done
+
+echo "Release assets prepared in ${RELEASE_ASSET_DIR}"
+
+log_step "9. Publish GitHub Release assets (manual)"
 echo "Create release tag: ${IMAGE_TAG}"
 echo "Upload assets:"
-echo "  1. releases.json"
-echo "  2. releases.json.sig"
-echo "  3. cosign.pub"
+echo "  1. ${INSTALLER_ARCHIVE_NAME}"
+echo "  2. SHA256SUMS"
+echo "  3. releases.json"
+echo "  4. releases.json.sig"
+echo "  5. cosign.pub"
 echo "URL:"
 echo "  https://github.com/BrainDriveAI/BrainDrive/releases/new"
 

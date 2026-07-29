@@ -117,6 +117,26 @@ jobs:
       - name: Build edge image
         run: docker build --file installer/docker/Dockerfile.edge --tag braindrive-edge:ci .
 
+  installer-integrity:
+    name: Installer integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Verify bootstrap archive integrity
+        run: installer/bootstrap/test/bootstrap-integrity.sh
+
+      - name: Verify cosign auto-install integrity
+        run: installer/docker/scripts/test/cosign-auto-install-integrity.sh
+
+      - name: Verify signed first-install resolution
+        run: installer/docker/scripts/test/install-release-resolution.sh
+
+      - name: Verify production auth bootstrap
+        run: installer/docker/scripts/test/install-prod-bootstrap.sh
+
   secret-scan:
     name: Secret scan
     runs-on: ubuntu-latest

@@ -6,6 +6,8 @@
 
 $ErrorActionPreference = "Stop"
 
+. "$PSScriptRoot/release-trust.ps1"
+
 if (-not (Test-Path $ManifestPath)) {
   throw "Manifest file not found: $ManifestPath"
 }
@@ -15,6 +17,7 @@ if (-not (Test-Path $SignaturePath)) {
 if (-not (Test-Path $PublicKeyPath)) {
   throw "Cosign public key not found: $PublicKeyPath"
 }
+Test-BrainDriveReleasePublicKey -PublicKeyPath $PublicKeyPath
 if (-not (Get-Command cosign -ErrorAction SilentlyContinue)) {
   throw "cosign is required to verify manifests."
 }

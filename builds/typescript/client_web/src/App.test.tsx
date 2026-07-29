@@ -6,6 +6,9 @@ import { __resetAuthAdapterForTests } from "@/api/auth-adapter";
 
 import App from "./App";
 
+let accountInitialized = true;
+let installMode: "dev" | "local" | "prod" = "local";
+
 function renderApp() {
   return render(
     <BrowserRouter>
@@ -17,14 +20,31 @@ function renderApp() {
 describe("App", () => {
   beforeEach(() => {
     __resetAuthAdapterForTests();
+    accountInitialized = true;
+    installMode = "local";
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const requestUrl = typeof input === "string" ? input : input.toString();
+        if (requestUrl.includes("/api/config")) {
+          return new Response(
+            JSON.stringify({
+              mode: "local",
+              install_mode: installMode,
+              install_location: "local",
+              app_version: "test",
+            }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }
+          );
+        }
+
         if (requestUrl.includes("/api/auth/bootstrap-status")) {
           return new Response(
             JSON.stringify({
-              account_initialized: true,
+              account_initialized: accountInitialized,
               mode: "local",
             }),
             {
@@ -114,5 +134,15 @@ describe("App", () => {
     expect(
       (await screen.findAllByPlaceholderText("Message your BrainDrive...")).length
     ).toBeGreaterThan(0);
+  });
+
+  it("requires the installer bootstrap token for production first signup", async () => {
+    accountInitialized = false;
+    installMode = "prod";
+
+    renderApp();
+
+    expect(await screen.findByLabelText("Bootstrap token")).toBeRequired();
+    expect(screen.getByRole("button", { name: "Create account" })).toBeDisabled();
   });
 });

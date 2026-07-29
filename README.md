@@ -42,15 +42,16 @@ Other AI tools chat. BrainDrive partners with you to get things done.
 Prerequisites: [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker Engine + Compose on Linux).
 
 Local quick start uses published Docker images (no local source build required).
+Replace `<release-tag>` with a published date tag from the [Releases page](https://github.com/BrainDriveAI/BrainDrive/releases); do not use `main`.
 
 macOS/Linux:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/<release-tag>/installer/bootstrap/install.sh | bash
 ```
 
 Windows PowerShell:
 ```powershell
-irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/install.ps1 | iex
+irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/<release-tag>/installer/bootstrap/install.ps1 | iex
 ```
 
 Open [http://127.0.0.1:8080](http://127.0.0.1:8080), create your account, and start talking to your BrainDrive.
@@ -59,12 +60,12 @@ Quick update:
 
 macOS/Linux:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/update.sh | bash
+curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/<release-tag>/installer/bootstrap/update.sh | bash
 ```
 
 Windows PowerShell:
 ```powershell
-irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/main/installer/bootstrap/update.ps1 | iex
+irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/<release-tag>/installer/bootstrap/update.ps1 | iex
 ```
 
 ## How It Works

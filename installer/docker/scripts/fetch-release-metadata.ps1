@@ -5,6 +5,7 @@ $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $rootDir = Split-Path -Parent $scriptDir
 Set-Location $rootDir
+. "$scriptDir/release-trust.ps1"
 
 function Get-EnvValue {
   param([string]$Key)
@@ -80,9 +81,28 @@ New-Item -ItemType Directory -Path (Split-Path -Parent $publicKeyPath) -Force | 
 
 Require-Command Invoke-WebRequest
 
-Invoke-WebRequest -Uri $manifestUrl -OutFile $manifestPath
-Invoke-WebRequest -Uri $signatureUrl -OutFile $signaturePath
-Invoke-WebRequest -Uri $publicKeyUrl -OutFile $publicKeyPath
+$downloadRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("braindrive-release-metadata-" + [guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Path $downloadRoot | Out-Null
+
+try {
+  $downloadedManifest = Join-Path $downloadRoot "releases.json"
+  $downloadedSignature = Join-Path $downloadRoot "releases.json.sig"
+  $downloadedPublicKey = Join-Path $downloadRoot "cosign.pub"
+
+  Invoke-WebRequest -Uri $manifestUrl -OutFile $downloadedManifest
+  Invoke-WebRequest -Uri $signatureUrl -OutFile $downloadedSignature
+  Invoke-WebRequest -Uri $publicKeyUrl -OutFile $downloadedPublicKey
+
+  Test-BrainDriveReleasePublicKey -PublicKeyPath $downloadedPublicKey
+
+  Move-Item -LiteralPath $downloadedManifest -Destination $manifestPath -Force
+  Move-Item -LiteralPath $downloadedSignature -Destination $signaturePath -Force
+  Move-Item -LiteralPath $downloadedPublicKey -Destination $publicKeyPath -Force
+} finally {
+  if (Test-Path $downloadRoot) {
+    Remove-Item -LiteralPath $downloadRoot -Recurse -Force
+  }
+}
 
 Write-Host "Fetched release metadata:"
 Write-Host "  manifest: $manifestPath"
