@@ -151,6 +151,7 @@ if [[ -f .env ]]; then
 fi
 
 cp .env.example .env
+chmod 600 .env
 echo "Created .env from .env.example"
 
 MASTER_KEY="$(get_env_value PAA_SECRETS_MASTER_KEY_B64 | tr -d '"')"
@@ -159,6 +160,7 @@ if [[ -z "${MASTER_KEY}" ]]; then
   set_env_value "PAA_SECRETS_MASTER_KEY_B64" "${MASTER_KEY}"
   echo "Generated PAA_SECRETS_MASTER_KEY_B64 and wrote it to .env"
 fi
+chmod 600 .env
 
 if [[ "${MODE}" == "prod" ]]; then
   braindrive_initialize_prod_auth_bootstrap ".env"

@@ -67,7 +67,6 @@ export default function LoginPage({
               onChange={(e) => setIdentifier(e.target.value)}
               placeholder={identifierPlaceholder}
               autoComplete="off"
-              autoFocus
               required
               className="h-11 w-full rounded-lg border border-bd-border bg-bd-bg-tertiary px-4 text-sm text-bd-text-primary outline-none placeholder:text-bd-text-muted focus:border-bd-amber"
             />

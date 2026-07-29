@@ -40,6 +40,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run lint
+        run: npm run lint
+
       - name: Run tests
         run: npm test
 
@@ -66,6 +69,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Run lint
+        run: npm run lint
 
       - name: Run typecheck
         run: npm run typecheck
@@ -114,6 +120,28 @@ jobs:
       - name: Build application image
         run: docker build --file installer/docker/Dockerfile.app --tag braindrive-app:ci .
 
+      - name: Verify production dependencies
+        run: |
+          docker run --rm --entrypoint sh braindrive-app:ci -c '
+            for binary in \
+              /app/typescript/node_modules/@tauri-apps/cli \
+              /app/typescript/node_modules/eslint \
+              /app/typescript/node_modules/tsx \
+              /app/typescript/node_modules/typescript-eslint \
+              /app/typescript/node_modules/vitest \
+              /app/typescript/node_modules/.bin/eslint \
+              /app/typescript/node_modules/.bin/tauri \
+              /app/typescript/node_modules/.bin/tsx \
+              /app/typescript/node_modules/.bin/vitest \
+              /app/mcp_release/node_modules/tsx \
+              /app/mcp_release/node_modules/vitest \
+              /app/mcp_release/node_modules/.bin/tsx \
+              /app/mcp_release/node_modules/.bin/vitest
+            do
+              test ! -e "$binary"
+            done
+          '
+
       - name: Build edge image
         run: docker build --file installer/docker/Dockerfile.edge --tag braindrive-edge:ci .
 
@@ -136,6 +164,12 @@ jobs:
 
       - name: Verify production auth bootstrap
         run: installer/docker/scripts/test/install-prod-bootstrap.sh
+
+      - name: Verify canonical GHCR namespace
+        run: installer/docker/scripts/test/ghcr-namespace.sh
+
+      - name: Verify image hardening
+        run: installer/docker/scripts/test/image-hardening.sh
 
   secret-scan:
     name: Secret scan

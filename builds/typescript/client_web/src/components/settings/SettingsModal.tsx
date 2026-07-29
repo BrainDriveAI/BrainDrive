@@ -164,7 +164,7 @@ export default function SettingsModal({
     };
   }, [onClose]);
 
-  function handleOverlayClick(event: React.MouseEvent) {
+  function handleOverlayMouseDown(event: React.MouseEvent) {
     if (event.target === overlayRef.current) {
       onClose();
     }
@@ -366,7 +366,8 @@ export default function SettingsModal({
   return (
     <div
       ref={overlayRef}
-      onClick={handleOverlayClick}
+      role="presentation"
+      onMouseDown={handleOverlayMouseDown}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
     >
       {/* Desktop modal */}
@@ -1526,10 +1527,10 @@ function MemoryBackupSection({
                   className="mt-1 h-10 w-full rounded-lg border border-bd-border bg-bd-bg-secondary px-3 text-sm text-bd-text-primary outline-none focus:border-bd-amber"
                 />
               </div>
-              <div>
-                <label className="block text-xs font-medium text-bd-text-secondary">
+              <fieldset>
+                <legend className="block text-xs font-medium text-bd-text-secondary">
                   Backup frequency
-                </label>
+                </legend>
                 <div className="mt-1 flex flex-wrap gap-2">
                   {frequencyOptions.map((option) => (
                     <button
@@ -1551,7 +1552,7 @@ function MemoryBackupSection({
                     </button>
                   ))}
                 </div>
-              </div>
+              </fieldset>
             </div>
           </div>
         </div>

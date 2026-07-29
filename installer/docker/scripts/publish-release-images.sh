@@ -10,7 +10,7 @@ if [[ -z "${VERSION}" ]]; then
   exit 1
 fi
 
-REGISTRY="${REGISTRY:-ghcr.io/braindrive-ai}"
+REGISTRY="${REGISTRY:-ghcr.io/braindriveai}"
 APP_IMAGE="${APP_IMAGE:-${REGISTRY}/braindrive-app}"
 EDGE_IMAGE="${EDGE_IMAGE:-${REGISTRY}/braindrive-edge}"
 

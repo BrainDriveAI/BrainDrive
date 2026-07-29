@@ -5,7 +5,7 @@
 
 $ErrorActionPreference = "Stop"
 
-$registry = if ($env:REGISTRY) { $env:REGISTRY } else { "ghcr.io/braindrive-ai" }
+$registry = if ($env:REGISTRY) { $env:REGISTRY } else { "ghcr.io/braindriveai" }
 $appImage = if ($env:APP_IMAGE) { $env:APP_IMAGE } else { "$registry/braindrive-app" }
 $edgeImage = if ($env:EDGE_IMAGE) { $env:EDGE_IMAGE } else { "$registry/braindrive-edge" }
 

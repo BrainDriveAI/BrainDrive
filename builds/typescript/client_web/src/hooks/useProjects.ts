@@ -102,6 +102,8 @@ export function useProjects(): {
 
   useEffect(() => {
     refreshProjects();
+    // Preserve the initial loading-state snapshot; later refreshes are user initiated.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -116,6 +118,8 @@ export function useProjects(): {
         selectProject(rootAgent.id);
       }
     }
+    // selectProject reads selectedProjectId, which is already included above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projects, selectedProjectId]);
 
   function selectProject(id: string) {

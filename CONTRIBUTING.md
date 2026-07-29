@@ -6,8 +6,15 @@ Thank you for your interest in BrainDrive. We're building a user-owned AI system
 
 The easiest way to contribute is to engage with the project -- ask questions, report problems, or propose ideas.
 
-- **Issues** -- Report bugs, request features, or ask questions via [GitHub Issues](https://github.com/BrainDriveAI/braindrive/issues)
-- **Community** -- Join the conversation at [community.braindrive.ai](https://community.braindrive.ai)
+- **GitHub Issues** -- Report reproducible bugs using the [bug report form](https://github.com/BrainDriveAI/BrainDrive/issues/new/choose)
+- **Community forum** -- Get setup help, ask questions, and discuss feature ideas at [community.braindrive.ai](https://community.braindrive.ai)
+- **Security reports** -- Report suspected vulnerabilities privately by following [SECURITY.md](SECURITY.md), never in a public issue
+
+The issue tracker is for actionable, reproducible bugs. Support requests,
+troubleshooting, questions, and early feature proposals belong on the community
+forum so they can be discussed before becoming implementation work.
+
+Before participating, read and follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Code and Documentation
 
@@ -16,15 +23,16 @@ We welcome pull requests for bug fixes, improvements, documentation, and new fea
 1. Fork the repository
 2. Create a branch from `dev`
 3. Make your changes
-4. Run the tests:
+4. Run lint and tests:
    ```bash
-   cd builds/typescript && npm test
+   cd builds/typescript && npm run lint && npm test
    cd builds/mcp_release && npm test
-   cd builds/typescript/client_web && npm test
+   cd builds/typescript/client_web && npm run lint && npm test
    ```
 5. Submit a pull request with a clear description of what you changed and why
 
-For larger changes (new components, architectural modifications, protocol changes), please open an issue first to discuss the approach.
+For larger changes (new components, architectural modifications, protocol
+changes), discuss the approach on the community forum before implementation.
 
 ### Branch and Release Model
 

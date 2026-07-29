@@ -73,6 +73,8 @@ export default function TailscaleAccessSection() {
       mountedRef.current = false;
       requestGenerationRef.current += 1;
     };
+    // refreshStatus operates on stable state setters and refs; this is mount-only initialization.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

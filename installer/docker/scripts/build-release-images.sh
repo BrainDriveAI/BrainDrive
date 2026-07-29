@@ -14,7 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${REPO_ROOT:-$(cd "${SCRIPT_DIR}/../../.." && pwd)}"
 cd "${REPO_ROOT}"
 
-REGISTRY="${REGISTRY:-ghcr.io/braindrive-ai}"
+REGISTRY="${REGISTRY:-ghcr.io/braindriveai}"
 APP_IMAGE="${APP_IMAGE:-${REGISTRY}/braindrive-app}"
 EDGE_IMAGE="${EDGE_IMAGE:-${REGISTRY}/braindrive-edge}"
 

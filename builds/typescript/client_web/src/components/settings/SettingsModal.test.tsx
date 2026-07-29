@@ -1084,7 +1084,7 @@ describe("SettingsModal", () => {
     });
     render(<SettingsModal mode="local" onClose={() => {}} />);
     await user.click(screen.getAllByRole("button", { name: "Browser Access" })[0]!);
-    (await screen.findAllByRole("switch", { name: "Enable Browser Access" }))[0]!;
+    expect(await screen.findAllByRole("switch", { name: "Enable Browser Access" })).not.toHaveLength(0);
 
     expect(screen.queryAllByRole("img", { name: /QR code/i })).toHaveLength(0);
   });
