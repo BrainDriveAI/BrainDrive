@@ -14,7 +14,7 @@ BrainDrive is a personal AI system that helps you define, set, and reach your go
 ![BrainDrive — checking in on fitness goals](docs/images/braindrive-screenshot.png)
 
 <p align="center">
-  <a href="https://braindrive.ai">Website</a> · <a href="https://community.braindrive.ai">Community</a> · <a href="ROADMAP.md">Roadmap</a>
+  <a href="https://braindrive.ai">Website</a> · <a href="https://www.braindrive.ai/install">Install</a> · <a href="https://community.braindrive.ai">Community</a> · <a href="ROADMAP.md">Roadmap</a>
 </p>
 
 ## What Is BrainDrive?
@@ -33,23 +33,42 @@ Other AI tools chat. BrainDrive partners with you to get things done.
 - **Life areas built in** — Career, Relationships, Fitness, Finance, plus create your own projects
 - **Your data stays yours** — conversations, memory, and files live on your machine
 - **Memory backup modes** — push memory snapshots to your own Git repo (manual or scheduled)
-- **Any AI model** — cloud models via API, local models via Ollama, or both
-- **One install** — runs in Docker on Linux, macOS, and WSL
+- **Move it with you** — export and import your BrainDrive between machines or supported install types
+- **Flexible AI models** — BrainDrive Models with credits, OpenRouter with your API key, or local models through Ollama
+- **Install your way** — native desktop on Apple silicon Macs and x64 Windows, or Docker on macOS, Windows, Linux, and WSL
+- **Use it from your other devices** — connect over your home Wi-Fi or a private Tailscale network with BrainDrive Desktop
 - **MIT licensed** — fork it, extend it, make it yours
 
 ## Quick Start
 
-Prerequisites: [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker Engine + Compose on Linux).
+Choose the installation that fits how you want to run BrainDrive:
 
-Local quick start uses published Docker images (no local source build required).
+| Option | Supported platforms | Requirements | Best for |
+|--------|---------------------|--------------|----------|
+| **BrainDrive Desktop** | macOS (Apple silicon), Windows (x64) | No Docker required | Most people; includes Browser Access and Tailscale Remote Access controls |
+| **Docker local** | macOS, Windows, Linux, WSL | Docker Desktop, or Docker Engine + Compose on Linux | Browser-based local use and self-hosting |
+
+### BrainDrive Desktop
+
+Download the current installer from the [BrainDrive install page](https://www.braindrive.ai/install) or the [GitHub Releases page](https://github.com/BrainDriveAI/BrainDrive/releases). The desktop installer includes the BrainDrive runtime; Docker is not required.
+
+Install the app, open BrainDrive, create your local owner account, and start talking to Your Agent.
+
+### Docker Local
+
+Prerequisite: [Docker Desktop](https://www.docker.com/products/docker-desktop/) on macOS or Windows, or Docker Engine + Compose on Linux.
+
+Docker local uses published images, so no local source build is required.
 Replace `<release-tag>` with a published date tag from the [Releases page](https://github.com/BrainDriveAI/BrainDrive/releases); do not use `main`.
 
 macOS/Linux:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/<release-tag>/installer/bootstrap/install.sh | bash
 ```
 
 Windows PowerShell:
+
 ```powershell
 irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/<release-tag>/installer/bootstrap/install.ps1 | iex
 ```
@@ -59,11 +78,13 @@ Open [http://127.0.0.1:8080](http://127.0.0.1:8080), create your account, and st
 Quick update:
 
 macOS/Linux:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/<release-tag>/installer/bootstrap/update.sh | bash
 ```
 
 Windows PowerShell:
+
 ```powershell
 irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/<release-tag>/installer/bootstrap/update.ps1 | iex
 ```
@@ -86,6 +107,7 @@ BrainDrive is built on the [Personal AI Architecture](https://github.com/Persona
 | **Understand the architecture** | [Personal AI Architecture](https://github.com/Personal-AI-Architecture/the-architecture) — foundation spec, component contracts, conformance tests, zero lock-in by design |
 | **Build with AI assistance** | [Architecture Primer](https://github.com/Personal-AI-Architecture/the-architecture/tree/main/docs/ai) — token-optimized reference files designed to hand directly to your AI agent. Compliance matrix, component primers, audit playbooks, canonical examples. |
 | **Hack on BrainDrive** | [CONTRIBUTING.md](CONTRIBUTING.md) — fork, build, run tests, submit a PR |
+| **Run the hot-reload stack** | [Docker developer mode](#docker-modes-and-lifecycle-commands) — build from source with backend watching and Vite hot module replacement |
 
 ## Architecture
 
@@ -106,15 +128,19 @@ flowchart LR
     A -.->|Authorizes tool actions by actor policy| TR
 ```
 
-The system runs as two Docker containers: an app server (Gateway + tools) and an edge proxy (web client + Caddy). Your Memory is stored as plain files in a Docker volume — fully portable, fully yours.
+BrainDrive Desktop packages the web client and local runtime into a native app. The Docker deployment runs as two containers: an app server (Gateway + tools) and an edge proxy (web client + Caddy). In both local installation paths, Your Memory stays on your hardware.
 
-## Lifecycle Commands
+## Docker Modes and Lifecycle Commands
+
+- **Local** — pulls published images and runs the browser-based app at `http://127.0.0.1:8080`
+- **Developer** — builds from source and runs the backend watcher plus Vite hot reload at `http://127.0.0.1:5073`
+- **Production** — runs a self-hosted public HTTPS deployment on infrastructure and a domain you control
 
 | Command | What it does |
 |---------|-------------|
 | `./installer/docker/scripts/install.sh local` | First-time local setup — pulls prebuilt images and starts everything |
 | `./installer/docker/scripts/install.sh dev` | Developer setup — builds from source and starts hot-reload stack |
-| `./installer/docker/scripts/install.sh prod` | Production setup on managed hosting infrastructure |
+| `./installer/docker/scripts/install.sh prod` | Production setup for a self-hosted public HTTPS deployment |
 | `./installer/docker/scripts/start.sh local` | Start local stack after stopping |
 | `./installer/docker/scripts/stop.sh local` | Stop local stack without removing data |
 | `./installer/docker/scripts/upgrade.sh local` | Upgrade local stack to latest published images |
@@ -124,14 +150,14 @@ The system runs as two Docker containers: an app server (Gateway + tools) and an
 
 See [`installer/docker/README.md`](installer/docker/README.md) for production deployment, Windows equivalents, and advanced operations.
 
-## Memory Backup (MVP)
+## Backup and Restore
 
-BrainDrive includes a local-only **Memory Backup** settings tab for backing up memory snapshots to your own HTTPS Git repository.
+Local BrainDrive installations include a **Backup** settings tab for saving memory snapshots to your own HTTPS Git repository.
 
 What it supports:
 
-1. Configure repository URL, token, and frequency in **Settings -> Memory Backup**
-2. Run immediate backup with **Save Now**
+1. Configure repository URL, token, and frequency in **Settings -> Backup**
+2. Run an immediate backup with **Back Up Now**
 3. Run scheduled backups in `after_changes`, `hourly`, or `daily` modes
 4. Restore memory from backup branch snapshots
 
@@ -146,9 +172,22 @@ Setup and validation instructions:
 1. Operator notes: [`installer/docker/README.md`](installer/docker/README.md)
 2. Step-by-step local test flow: [`docs/onboarding/getting-started-testing-openrouter-docker.md`](docs/onboarding/getting-started-testing-openrouter-docker.md)
 
-## Desktop Remote Access
+## Move BrainDrive to Another Machine
 
-BrainDrive Desktop can expose the normal BrainDrive sign-in experience to your own trusted devices through a private Tailscale network. See the [Tailscale Remote Access guide](docs/tailscale-remote-access.md) for supported systems, setup, security boundaries, troubleshooting, and safe disable instructions.
+Open **Settings -> Migrate** to download a complete migration archive or import one created by another BrainDrive installation. Use migration when moving to a new computer or changing between supported install types.
+
+Migration archives include Your Memory and configured local secrets when available. Treat an exported archive like a password and store or transfer it securely. Git memory backups are different: they restore memory only and do not contain secrets.
+
+## Access BrainDrive From Other Devices
+
+BrainDrive Desktop on Windows and macOS includes two ways to use your local BrainDrive from another device:
+
+| Feature | Use it for | Requirements |
+|---------|------------|--------------|
+| **Browser Access** | Open BrainDrive from a phone, tablet, or computer on the same home Wi-Fi; the app provides a local address and QR code | BrainDrive Desktop running on the host |
+| **Remote Access** | Connect from your own trusted devices away from home through a private HTTPS Tailscale address | BrainDrive Desktop running on the host and Tailscale installed on each device |
+
+Both paths show the normal BrainDrive sign-in experience, and neither creates a public BrainDrive link. See the [Tailscale Remote Access guide](docs/tailscale-remote-access.md) for supported systems, setup, security boundaries, troubleshooting, and safe disable instructions.
 
 ## Operator Quick Usage
 
@@ -170,6 +209,7 @@ Gateway support-bundle API (local JWT auth mode only):
 ```
 braindrive/
 ├── builds/typescript/       # Core: gateway, engine, auth, memory, web client
+├── builds/typescript/src-tauri/ # Desktop shell and native installer configuration
 ├── builds/mcp_release/      # MCP tool services
 ├── installer/docker/        # Docker compose, Dockerfiles, Caddy config
 ├── installer/docker/scripts/ # Canonical lifecycle and release scripts
@@ -182,6 +222,7 @@ The packages use `"private": true` intentionally: they are MIT-licensed applicat
 
 - [Personal AI Architecture](https://github.com/Personal-AI-Architecture/the-architecture) — the open foundation spec
 - TypeScript, Fastify, React, Tailwind CSS
+- Tauri for the Windows and macOS desktop apps
 - Docker and Caddy for deployment
 - [MCP](https://modelcontextprotocol.io/) for tool integration
 
