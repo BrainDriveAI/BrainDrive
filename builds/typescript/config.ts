@@ -220,10 +220,24 @@ const brainDriveModelsKeyPreferenceSchema = z
   })
   .strict();
 
+const providerActivationRevisionSchema = z.number().int().nonnegative();
+
+const brainDriveModelsEntitlementPreferenceSchema = z
+  .object({
+    operation_id: z.string().trim().min(1).max(128).optional(),
+    status: z.enum(["pending", "completed", "partial_success"]).optional(),
+    applied_cents: z.number().int().nonnegative().optional(),
+    provider_activation_revision_at_start: providerActivationRevisionSchema.optional(),
+    last_attempt_at: z.string().datetime({ offset: true }).optional(),
+    last_error: z.string().optional().nullable(),
+  })
+  .strict();
+
 const PREFERENCE_TOP_LEVEL_KEYS = new Set([
   "default_model",
   "approval_mode",
   "active_provider_profile",
+  "provider_activation_revision",
   "provider_credentials",
   "provider_base_urls",
   "provider_default_models",
@@ -231,6 +245,7 @@ const PREFERENCE_TOP_LEVEL_KEYS = new Set([
   "memory_backup",
   "prompt_audit",
   "braindrive_models_key",
+  "braindrive_models_entitlement",
 ]);
 
 const preferencesSchema = z
@@ -238,6 +253,7 @@ const preferencesSchema = z
     default_model: z.string().min(1),
     approval_mode: z.enum(["ask-on-write", "auto-approve"]),
     active_provider_profile: z.string().min(1).optional(),
+    provider_activation_revision: providerActivationRevisionSchema.optional(),
     provider_credentials: z.record(z.string(), providerCredentialSchema).optional(),
     provider_base_urls: z.record(z.string(), z.string().url()).optional(),
     provider_default_models: z.record(z.string(), z.string().min(1)).optional(),
@@ -245,6 +261,7 @@ const preferencesSchema = z
     memory_backup: memoryBackupPreferenceSchema.optional(),
     prompt_audit: promptAuditPreferenceSchema.optional(),
     braindrive_models_key: brainDriveModelsKeyPreferenceSchema.optional(),
+    braindrive_models_entitlement: brainDriveModelsEntitlementPreferenceSchema.optional(),
   })
   .strip()
   .superRefine((value, context) => {

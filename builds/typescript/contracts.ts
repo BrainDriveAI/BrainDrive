@@ -179,6 +179,7 @@ export type Preferences = {
   default_model: string;
   approval_mode: ApprovalMode;
   active_provider_profile?: string;
+  provider_activation_revision?: number;
   provider_credentials?: Record<string, ProviderCredentialPreference>;
   provider_base_urls?: Record<string, string>;
   provider_default_models?: Record<string, string>;
@@ -215,6 +216,7 @@ export type BrainDriveModelsEntitlementPreference = {
   operation_id?: string;
   status?: "pending" | "completed" | "partial_success";
   applied_cents?: number;
+  provider_activation_revision_at_start?: number;
   last_attempt_at?: string;
   last_error?: string | null;
 };

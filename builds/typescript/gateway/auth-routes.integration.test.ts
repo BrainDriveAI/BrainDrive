@@ -1,5 +1,5 @@
 import path from "node:path";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 
 import type { AdapterConfig, Preferences, RuntimeConfig } from "../contracts.js";
@@ -8,6 +8,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 let mockRuntimeConfig: RuntimeConfig;
 let mockPreferences: Preferences;
+let mockSavePreferencesError: Error | null = null;
+let mockSavePreferencesErrorWhen: ((nextPreferences: Preferences) => boolean) | null = null;
 const { runMemoryBackupMock, restoreMemoryBackupMock, createMemoryBackupSchedulerMock, commitMemoryChangeMock } = vi.hoisted(() => ({
   runMemoryBackupMock: vi.fn<
     (
@@ -89,6 +91,12 @@ vi.mock("../config.js", () => ({
   })),
   readBootstrapPrompt: vi.fn(async () => "You are a test bootstrap prompt."),
   savePreferences: vi.fn(async (_memoryRoot: string, nextPreferences: Preferences) => {
+    if (
+      mockSavePreferencesError &&
+      (!mockSavePreferencesErrorWhen || mockSavePreferencesErrorWhen(nextPreferences))
+    ) {
+      throw mockSavePreferencesError;
+    }
     mockPreferences = nextPreferences;
   }),
 }));
@@ -127,6 +135,7 @@ import {
   loadPreferences as loadPreferencesConfigMock,
   readBootstrapPrompt as readBootstrapPromptConfigMock,
 } from "../config.js";
+import { resolveProviderCredentialForStartup } from "../secrets/resolver.js";
 import { initializeMasterKey, loadMasterKey } from "../secrets/key-provider.js";
 import { resolveSecretsPaths } from "../secrets/paths.js";
 import { getVaultSecret, upsertVaultSecret } from "../secrets/vault.js";
@@ -199,6 +208,8 @@ async function createTestServer(
       on_missing: "fail_closed",
     },
   };
+  mockSavePreferencesError = null;
+  mockSavePreferencesErrorWhen = null;
   mockAdapterConfig = options.adapterConfig ?? {
     base_url: "https://openrouter.ai/api/v1",
     model: "openai/gpt-4o-mini",
@@ -337,6 +348,11 @@ function parseJson<T>(value: string): T {
   return JSON.parse(value) as T;
 }
 
+async function restartTestServer(context: TestServerContext): Promise<void> {
+  await context.app.close();
+  context.app = (await buildServer(context.tempRoot)).app;
+}
+
 function localOwnerAdminHeaders(): Record<string, string> {
   return {
     "x-actor-id": "owner",
@@ -383,6 +399,70 @@ function brainDriveModelsAdapterConfig(): AdapterConfig {
   };
 }
 
+function providerActivationAdapterConfig(): AdapterConfig {
+  const config = brainDriveModelsAdapterConfig();
+  return {
+    ...config,
+    provider_profiles: {
+      ...config.provider_profiles,
+      openrouter: {
+        ...config.provider_profiles!.openrouter!,
+        api_key_env: "OPENROUTER_ACTIVATION_TEST_KEY",
+      },
+    },
+  };
+}
+
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((complete) => {
+    resolve = complete;
+  });
+  return { promise, resolve };
+}
+
+async function readAuditEvents(
+  context: TestServerContext,
+  eventName: string
+): Promise<Array<{ event: string; details: Record<string, unknown> }>> {
+  const auditDir = path.join(context.tempRoot, "memory", "diagnostics", "audit");
+  const fileNames = await readdir(auditDir);
+  const events: Array<{ event: string; details: Record<string, unknown> }> = [];
+  for (const fileName of fileNames.sort()) {
+    const contents = await readFile(path.join(auditDir, fileName), "utf8");
+    for (const line of contents.split("\n")) {
+      if (!line.trim()) {
+        continue;
+      }
+      const event = parseJson<{ event: string; details: Record<string, unknown> }>(line);
+      if (event.event === eventName) {
+        events.push(event);
+      }
+    }
+  }
+  return events;
+}
+
+function streamingProviderResponse(content = "Done."): Response {
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        const encoder = new TextEncoder();
+        controller.enqueue(
+          encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`)
+        );
+        controller.enqueue(encoder.encode('data: {"choices":[{"finish_reason":"stop","delta":{}}]}\n\n'));
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
+      },
+    }),
+    { status: 200, headers: { "content-type": "text/event-stream" } }
+  );
+}
+
 async function readVaultSecret(secretRef: string): Promise<string | undefined> {
   const paths = resolveSecretsPaths();
   const masterKey = await loadMasterKey(paths);
@@ -406,6 +486,10 @@ describe.sequential("gateway auth route integration", () => {
     restoreMemoryBackupMock.mockClear();
     createMemoryBackupSchedulerMock.mockClear();
     commitMemoryChangeMock.mockClear();
+    mockSavePreferencesError = null;
+    mockSavePreferencesErrorWhen = null;
+    vi.mocked(resolveProviderCredentialForStartup).mockReset();
+    vi.mocked(resolveProviderCredentialForStartup).mockResolvedValue(undefined);
     vi.unstubAllGlobals();
   });
 
@@ -1173,6 +1257,175 @@ describe.sequential("gateway auth route integration", () => {
     });
   });
 
+  it("rejects an unconfigured required-secret provider without changing provider intent", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: providerActivationAdapterConfig(),
+    });
+    mockPreferences = {
+      ...mockPreferences,
+      default_model: "braindrive-models-default",
+      active_provider_profile: "braindrive-models",
+      provider_activation_revision: 2,
+    };
+
+    const response = await context.app.inject({
+      method: "PUT",
+      url: "/settings",
+      headers: localOwnerAdminHeaders(),
+      payload: { active_provider_profile: "openrouter" },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(parseJson<{ code: string; error: string }>(response.body)).toEqual({
+      code: "provider_not_ready",
+      error: "Configure this provider before activating it",
+    });
+    expect(mockPreferences.active_provider_profile).toBe("braindrive-models");
+    expect(mockPreferences.provider_activation_revision).toBe(2);
+
+    const events = await readAuditEvents(context, "settings.provider_activation_rejected");
+    expect(events.at(-1)?.details).toEqual({
+      actor_id: "owner",
+      source: "explicit",
+      target_profile: "openrouter",
+      current_profile: "braindrive-models",
+      current_revision: 2,
+      decision: "rejected",
+      readiness: "missing_required_credential",
+      error_code: "provider_not_ready",
+    });
+  });
+
+  it("activates plain, vault-backed, environment-backed, and keyless providers with monotonic revisions", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: providerActivationAdapterConfig(),
+    });
+    mockPreferences = {
+      ...mockPreferences,
+      default_model: "braindrive-models-default",
+      active_provider_profile: "braindrive-models",
+      provider_activation_revision: 2,
+      provider_credentials: {
+        openrouter: {
+          mode: "plain",
+          required: false,
+        },
+      },
+    };
+
+    const activate = async (profile: string): Promise<number> => {
+      const response = await context!.app.inject({
+        method: "PUT",
+        url: "/settings",
+        headers: localOwnerAdminHeaders(),
+        payload: { active_provider_profile: profile },
+      });
+      expect(response.statusCode).toBe(200);
+      return parseJson<{ provider_activation_revision: number }>(response.body)
+        .provider_activation_revision;
+    };
+
+    await expect(activate("openrouter")).resolves.toBe(3);
+
+    mockPreferences = {
+      ...mockPreferences,
+      provider_credentials: {
+        openrouter: {
+          mode: "secret_ref",
+          secret_ref: "provider/openrouter/activation-test",
+          required: true,
+        },
+      },
+    };
+    await writeVaultSecret("provider/openrouter/activation-test", "sk-openrouter-vault-test");
+    await expect(activate("openrouter")).resolves.toBe(4);
+
+    mockPreferences = {
+      ...mockPreferences,
+      provider_credentials: undefined,
+    };
+    process.env.OPENROUTER_ACTIVATION_TEST_KEY = "sk-openrouter-environment-test";
+    try {
+      await expect(activate("openrouter")).resolves.toBe(5);
+    } finally {
+      delete process.env.OPENROUTER_ACTIVATION_TEST_KEY;
+    }
+
+    await expect(activate("ollama")).resolves.toBe(6);
+    expect(mockPreferences.active_provider_profile).toBe("ollama");
+
+    const events = await readAuditEvents(context, "settings.provider_activation_completed");
+    expect(events).toHaveLength(4);
+    expect(events.map((event) => event.details.source)).toEqual([
+      "explicit",
+      "explicit",
+      "explicit",
+      "explicit",
+    ]);
+    expect(events.at(-1)?.details).toMatchObject({
+      previous_profile: "openrouter",
+      target_profile: "ollama",
+      resulting_profile: "ollama",
+      previous_revision: 5,
+      resulting_revision: 6,
+      decision: "activated",
+    });
+  });
+
+  it("keeps unknown profiles rejected without advancing provider intent", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: providerActivationAdapterConfig(),
+    });
+    mockPreferences = {
+      ...mockPreferences,
+      active_provider_profile: "braindrive-models",
+      provider_activation_revision: 4,
+    };
+
+    const response = await context.app.inject({
+      method: "PUT",
+      url: "/settings",
+      headers: localOwnerAdminHeaders(),
+      payload: { active_provider_profile: "unknown-provider" },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(mockPreferences.active_provider_profile).toBe("braindrive-models");
+    expect(mockPreferences.provider_activation_revision).toBe(4);
+  });
+
+  it("returns a safe activation failure without falsely changing persisted state", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: providerActivationAdapterConfig(),
+    });
+    mockPreferences = {
+      ...mockPreferences,
+      active_provider_profile: "braindrive-models",
+      provider_activation_revision: 9,
+    };
+    mockSavePreferencesError = new Error("sensitive persistence backend detail");
+
+    const response = await context.app.inject({
+      method: "PUT",
+      url: "/settings",
+      headers: localOwnerAdminHeaders(),
+      payload: { active_provider_profile: "ollama" },
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(parseJson<{ code: string; error: string }>(response.body)).toEqual({
+      code: "provider_activation_failed",
+      error: "Unable to activate provider",
+    });
+    expect(response.body).not.toContain("sensitive persistence backend detail");
+    expect(mockPreferences.active_provider_profile).toBe("braindrive-models");
+    expect(mockPreferences.provider_activation_revision).toBe(9);
+  });
+
   it("applies credential updates immediately without requiring restart", async () => {
     context = await createTestServer({ authMode: "local-owner" });
 
@@ -1191,13 +1444,24 @@ describe.sequential("gateway auth route integration", () => {
     const saveBody = parseJson<{
       settings: {
         active_provider_profile: string | null;
+        provider_activation_revision: number;
         provider_profiles: Array<{ id: string; credential_mode: "plain" | "secret_ref" | "unset" }>;
       };
     }>(saveCredentialResponse.body);
     expect(saveBody.settings.active_provider_profile).toBe("default");
+    expect(saveBody.settings.provider_activation_revision).toBe(1);
+    expect(mockPreferences.provider_activation_revision).toBe(1);
     expect(saveBody.settings.provider_profiles.find((profile) => profile.id === "default")?.credential_mode).toBe(
       "secret_ref"
     );
+    const activationEvents = await readAuditEvents(context, "settings.provider_activation_completed");
+    expect(activationEvents.at(-1)?.details).toMatchObject({
+      source: "credential_save",
+      target_profile: "default",
+      resulting_profile: "default",
+      previous_revision: 0,
+      resulting_revision: 1,
+    });
 
     vi.mocked(loadPreferencesConfigMock).mockImplementationOnce(async () => {
       throw new Error("simulated transient read failure");
@@ -1218,6 +1482,46 @@ describe.sequential("gateway auth route integration", () => {
     expect(settingsBody.provider_profiles.find((profile) => profile.id === "default")?.credential_mode).toBe(
       "secret_ref"
     );
+  });
+
+  it("does not activate a credential-save provider when preference persistence fails", async () => {
+    context = await createTestServer({ authMode: "local-owner" });
+    mockPreferences = {
+      ...mockPreferences,
+      active_provider_profile: "braindrive-models",
+      provider_activation_revision: 4,
+    };
+    mockSavePreferencesError = new Error("sensitive credential persistence detail");
+
+    const response = await context.app.inject({
+      method: "PUT",
+      url: "/settings/credentials",
+      headers: localOwnerAdminHeaders(),
+      payload: {
+        provider_profile: "default",
+        mode: "plain",
+        set_active_provider: true,
+      },
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(parseJson<{ code: string; error: string }>(response.body)).toEqual({
+      code: "provider_activation_failed",
+      error: "Unable to activate provider",
+    });
+    expect(response.body).not.toContain("sensitive credential persistence detail");
+    expect(mockPreferences.active_provider_profile).toBe("braindrive-models");
+    expect(mockPreferences.provider_activation_revision).toBe(4);
+
+    const events = await readAuditEvents(context, "settings.provider_activation_rejected");
+    expect(events.at(-1)?.details).toMatchObject({
+      source: "credential_save",
+      target_profile: "default",
+      current_profile: "braindrive-models",
+      current_revision: 4,
+      decision: "rejected",
+      error_code: "provider_activation_failed",
+    });
   });
 
   it("normalizes local Ollama server URLs to the OpenAI-compatible base URL", async () => {
@@ -1627,6 +1931,7 @@ describe.sequential("gateway auth route integration", () => {
       adapterConfig: brainDriveModelsAdapterConfig(),
     });
     const rawKey = "sk-entitlement-vault-first";
+    let providerMessageUrl: string | null = null;
     const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
       const requestUrl = String(url);
       if (requestUrl.endsWith("/credits/key/provision")) {
@@ -1658,6 +1963,11 @@ describe.sequential("gateway auth route integration", () => {
           { status: 200, headers: { "content-type": "application/json" } }
         );
       }
+      if (requestUrl.endsWith("/chat/completions")) {
+        providerMessageUrl = requestUrl;
+        expect(init?.headers).toMatchObject({ authorization: `Bearer ${rawKey}` });
+        return streamingProviderResponse();
+      }
       return new Response("not found", { status: 404 });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -1670,7 +1980,17 @@ describe.sequential("gateway auth route integration", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(parseJson(response.body)).toEqual({
+    const body = parseJson<{
+      state: string;
+      operation_id: string;
+      applied_cents: number;
+      balance: Record<string, unknown>;
+      settings: {
+        active_provider_profile: string | null;
+        provider_activation_revision: number;
+      };
+    }>(response.body);
+    expect(body).toMatchObject({
       state: "completed",
       operation_id: "operation-1",
       applied_cents: 2500,
@@ -1681,6 +2001,10 @@ describe.sequential("gateway auth route integration", () => {
         key_valid: true,
         purchase_status: "ready",
       },
+      settings: {
+        active_provider_profile: "braindrive-models",
+        provider_activation_revision: 1,
+      },
     });
     expect(response.body).not.toContain(rawKey);
     expect(response.body.toLowerCase()).not.toContain("authorization");
@@ -1690,7 +2014,44 @@ describe.sequential("gateway auth route integration", () => {
       operation_id: "operation-1",
       status: "completed",
       applied_cents: 2500,
+      provider_activation_revision_at_start: 0,
     });
+    expect(mockPreferences.active_provider_profile).toBe("braindrive-models");
+    expect(mockPreferences.provider_activation_revision).toBe(1);
+
+    vi.mocked(resolveProviderCredentialForStartup).mockResolvedValue({
+      providerId: "braindrive-models",
+      secretRef: "provider/ai-gateway/api_key",
+      source: "vault",
+      apiKey: rawKey,
+    });
+    const messageResponse = await context.app.inject({
+      method: "POST",
+      url: "/message",
+      headers: localOwnerAdminHeaders(),
+      payload: { content: "Use the claimed provider" },
+    });
+    expect(messageResponse.statusCode).toBe(200);
+    expect(providerMessageUrl).toBe("https://my.braindrive.ai/credits/v1/chat/completions");
+
+    const activationEvents = await readAuditEvents(context, "credits.entitlement_provider_activation");
+    expect(activationEvents.at(-1)?.details).toMatchObject({
+      source: "email_credit_claim",
+      operation_id: "operation-1",
+      claim_state: "completed",
+      previous_profile: null,
+      target_profile: "braindrive-models",
+      resulting_profile: "braindrive-models",
+      captured_revision: 0,
+      current_revision: 0,
+      resulting_revision: 1,
+      decision: "activated",
+      error_code: null,
+    });
+    const serializedEvent = JSON.stringify(activationEvents.at(-1));
+    expect(serializedEvent).not.toContain(rawKey);
+    expect(serializedEvent).not.toContain("recipient@example.com");
+    expect(serializedEvent.toLowerCase()).not.toContain("authorization");
   });
 
   it("refreshes only the persisted pending operation and a duplicate submit does not create another claim", async () => {
@@ -1772,6 +2133,8 @@ describe.sequential("gateway auth route integration", () => {
     });
     mockPreferences = {
       ...mockPreferences,
+      active_provider_profile: "braindrive-models",
+      provider_activation_revision: 2,
       provider_credentials: undefined,
       braindrive_models_key: {
         install_public_id: "install-retest",
@@ -1831,9 +2194,13 @@ describe.sequential("gateway auth route integration", () => {
 
     expect(response.statusCode).toBe(200);
     expect(claimCalls).toBe(1);
-    expect(parseJson<{ operation_id: string }>(response.body).operation_id).toBe(
-      "operation-retest"
-    );
+    expect(parseJson(response.body)).toMatchObject({
+      operation_id: "operation-retest",
+      settings: {
+        active_provider_profile: "braindrive-models",
+        provider_activation_revision: 3,
+      },
+    });
     expect(mockPreferences.provider_credentials?.["braindrive-models"]).toEqual({
       mode: "secret_ref",
       secret_ref: "provider/ai-gateway/api_key",
@@ -1843,6 +2210,16 @@ describe.sequential("gateway auth route integration", () => {
       operation_id: "operation-retest",
       status: "completed",
       applied_cents: 100,
+      provider_activation_revision_at_start: 2,
+    });
+    expect(mockPreferences.provider_activation_revision).toBe(3);
+    const events = await readAuditEvents(context, "credits.entitlement_provider_activation");
+    expect(events.at(-1)?.details).toMatchObject({
+      operation_id: "operation-retest",
+      captured_revision: 2,
+      current_revision: 2,
+      resulting_revision: 3,
+      decision: "retained",
     });
   });
 
@@ -1905,18 +2282,24 @@ describe.sequential("gateway auth route integration", () => {
       payload: { email: "recipient@example.com" },
     });
     expect(response.statusCode).toBe(200);
-    expect(parseJson(response.body)).toEqual({
+    expect(parseJson(response.body)).toMatchObject({
       state: "partial_success",
       operation_id: "operation-partial",
       applied_cents: 750,
       error_code: "balance_refresh_unavailable",
+      settings: {
+        active_provider_profile: "braindrive-models",
+        provider_activation_revision: 1,
+      },
     });
     expect(response.body).not.toContain("balance backend detail");
     expect(mockPreferences.braindrive_models_entitlement).toMatchObject({
       operation_id: "operation-partial",
       status: "partial_success",
       applied_cents: 750,
+      provider_activation_revision_at_start: 0,
     });
+    expect(mockPreferences.provider_activation_revision).toBe(1);
 
     await context.app.inject({
       method: "POST",
@@ -1925,6 +2308,111 @@ describe.sequential("gateway auth route integration", () => {
       payload: { email: "different@example.com" },
     });
     expect(claimCalls).toBe(1);
+    expect(mockPreferences.provider_activation_revision).toBe(1);
+  });
+
+  it("returns safe recovery evidence when claim-side provider activation persistence fails", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: providerActivationAdapterConfig(),
+    });
+    mockPreferences = {
+      ...mockPreferences,
+      active_provider_profile: "openrouter",
+      provider_activation_revision: 2,
+      provider_credentials: {
+        "braindrive-models": {
+          mode: "secret_ref",
+          secret_ref: "provider/ai-gateway/api_key",
+          required: true,
+        },
+      },
+      braindrive_models_key: {
+        install_public_id: "install-activation-failure",
+        masked_key: "sk-...lure",
+        status: "ready",
+        checkout_pending: false,
+      },
+    };
+    const rawKey = "sk-claim-activation-failure";
+    await writeVaultSecret("provider/ai-gateway/api_key", rawKey);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL) => {
+        const requestUrl = String(url);
+        if (requestUrl.endsWith("/credits/entitlements/claim")) {
+          return new Response(
+            JSON.stringify({
+              operation_id: "operation-activation-failure",
+              status: "completed",
+              applied_cents: 500,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } }
+          );
+        }
+        if (requestUrl.endsWith("/credits/status")) {
+          return new Response(
+            JSON.stringify({
+              remaining_usd: 5,
+              total_purchased_usd: 5,
+              total_spent_usd: 0,
+              key_valid: true,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } }
+          );
+        }
+        return new Response("not found", { status: 404 });
+      })
+    );
+    mockSavePreferencesError = new Error("sensitive claim persistence detail");
+    mockSavePreferencesErrorWhen = (nextPreferences) =>
+      nextPreferences.active_provider_profile === "braindrive-models" &&
+      nextPreferences.provider_activation_revision === 3;
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/credits/entitlements/claim",
+      headers: localOwnerAdminHeaders(),
+      payload: { email: "activation-failure@example.com" },
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(parseJson<{ code: string; error: string }>(response.body)).toEqual({
+      code: "provider_activation_failed",
+      error: "Unable to activate BrainDrive Models",
+    });
+    expect(response.body).not.toContain("sensitive claim persistence detail");
+    expect(response.body).not.toContain(rawKey);
+    expect(mockPreferences.active_provider_profile).toBe("openrouter");
+    expect(mockPreferences.provider_activation_revision).toBe(2);
+    expect(mockPreferences.braindrive_models_entitlement).toMatchObject({
+      operation_id: "operation-activation-failure",
+      status: "completed",
+      applied_cents: 500,
+      provider_activation_revision_at_start: 2,
+    });
+
+    const events = await readAuditEvents(
+      context,
+      "credits.entitlement_provider_activation"
+    );
+    expect(events.at(-1)?.details).toMatchObject({
+      source: "email_credit_claim",
+      operation_id: "operation-activation-failure",
+      claim_state: "completed",
+      previous_profile: "openrouter",
+      target_profile: "braindrive-models",
+      resulting_profile: "openrouter",
+      captured_revision: 2,
+      current_revision: 2,
+      resulting_revision: 2,
+      decision: "failed",
+      error_code: "provider_activation_failed",
+    });
+    const serializedEvent = JSON.stringify(events.at(-1));
+    expect(serializedEvent).not.toContain(rawKey);
+    expect(serializedEvent).not.toContain("activation-failure@example.com");
+    expect(serializedEvent.toLowerCase()).not.toContain("authorization");
   });
 
   it.each([
@@ -1937,6 +2425,11 @@ describe.sequential("gateway auth route integration", () => {
       authMode: "local-owner",
       adapterConfig: brainDriveModelsAdapterConfig(),
     });
+    mockPreferences = {
+      ...mockPreferences,
+      active_provider_profile: "ollama",
+      provider_activation_revision: 5,
+    };
     const fetchMock = vi.fn(async (url: string | URL) => {
       const requestUrl = String(url);
       if (requestUrl.endsWith("/credits/key/provision")) {
@@ -1961,7 +2454,376 @@ describe.sequential("gateway auth route integration", () => {
     expect(response.statusCode).toBe(localStatus);
     expect(parseJson<{ code: string }>(response.body).code).toBe(code);
     expect(response.body).not.toContain("internal upstream detail");
+    expect(mockPreferences.active_provider_profile).toBe("ollama");
+    expect(mockPreferences.provider_activation_revision).toBe(5);
   });
+
+  it("preserves a later explicit provider when a deferred claim completes and routes the next message to it", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: providerActivationAdapterConfig(),
+    });
+    mockPreferences = {
+      ...mockPreferences,
+      default_model: "z-ai/glm-5.2",
+      active_provider_profile: "openrouter",
+      provider_activation_revision: 3,
+      provider_credentials: {
+        "braindrive-models": {
+          mode: "secret_ref",
+          secret_ref: "provider/ai-gateway/api_key",
+          required: true,
+        },
+      },
+      braindrive_models_key: {
+        install_public_id: "install-concurrent",
+        masked_key: "sk-...rent",
+        status: "ready",
+        checkout_pending: false,
+      },
+    };
+    const rawKey = "sk-concurrent-claim-key";
+    await writeVaultSecret("provider/ai-gateway/api_key", rawKey);
+    const claimStarted = createDeferred<void>();
+    const claimResult = createDeferred<Response>();
+    let providerMessageUrl: string | null = null;
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      const requestUrl = String(url);
+      if (requestUrl.endsWith("/credits/status")) {
+        return new Response(
+          JSON.stringify({ remaining_usd: 25, total_purchased_usd: 25, total_spent_usd: 0 }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      if (requestUrl.endsWith("/credits/entitlements/claim")) {
+        claimStarted.resolve(undefined);
+        return claimResult.promise;
+      }
+      if (requestUrl.endsWith("/chat/completions")) {
+        providerMessageUrl = requestUrl;
+        return streamingProviderResponse("Ollama response");
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const claimRequest = context.app.inject({
+      method: "POST",
+      url: "/credits/entitlements/claim",
+      headers: localOwnerAdminHeaders(),
+      payload: { email: "concurrent@example.com" },
+    });
+    await claimStarted.promise;
+
+    const activationResponse = await context.app.inject({
+      method: "PUT",
+      url: "/settings",
+      headers: localOwnerAdminHeaders(),
+      payload: { active_provider_profile: "ollama" },
+    });
+    expect(activationResponse.statusCode).toBe(200);
+    expect(parseJson<{ provider_activation_revision: number }>(activationResponse.body).provider_activation_revision)
+      .toBe(4);
+
+    claimResult.resolve(
+      new Response(
+        JSON.stringify({ operation_id: "operation-concurrent", status: "completed", applied_cents: 500 }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      )
+    );
+    const claimResponse = await claimRequest;
+    expect(claimResponse.statusCode).toBe(200);
+    expect(parseJson(claimResponse.body)).toMatchObject({
+      state: "completed",
+      settings: {
+        active_provider_profile: "ollama",
+        provider_activation_revision: 4,
+      },
+    });
+    expect(mockPreferences.braindrive_models_entitlement).toMatchObject({
+      operation_id: "operation-concurrent",
+      provider_activation_revision_at_start: 3,
+    });
+    expect(mockPreferences.active_provider_profile).toBe("ollama");
+    expect(mockPreferences.provider_activation_revision).toBe(4);
+
+    const messageResponse = await context.app.inject({
+      method: "POST",
+      url: "/message",
+      headers: localOwnerAdminHeaders(),
+      payload: { content: "Use my newer provider" },
+    });
+    expect(messageResponse.statusCode).toBe(200);
+    expect(providerMessageUrl).toBe("http://host.docker.internal:11434/v1/chat/completions");
+
+    const events = await readAuditEvents(context, "credits.entitlement_provider_activation");
+    expect(events.at(-1)?.details).toMatchObject({
+      operation_id: "operation-concurrent",
+      captured_revision: 3,
+      current_revision: 4,
+      resulting_revision: 4,
+      previous_profile: "ollama",
+      resulting_profile: "ollama",
+      decision: "preserved_newer_intent",
+    });
+  });
+
+  it("resumes a pending operation after server reconstruction with its original captured revision", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: providerActivationAdapterConfig(),
+    });
+    mockPreferences = {
+      ...mockPreferences,
+      active_provider_profile: "openrouter",
+      provider_activation_revision: 6,
+      provider_credentials: {
+        "braindrive-models": {
+          mode: "secret_ref",
+          secret_ref: "provider/ai-gateway/api_key",
+          required: true,
+        },
+      },
+      braindrive_models_key: {
+        install_public_id: "install-restart",
+        masked_key: "sk-...tart",
+        status: "ready",
+        checkout_pending: false,
+      },
+    };
+    await writeVaultSecret("provider/ai-gateway/api_key", "sk-restart-claim-key");
+    let operationStatus: "pending" | "completed" = "pending";
+    let operationStatusCalls = 0;
+    const fetchMock = vi.fn(async (url: string | URL) => {
+      const requestUrl = String(url);
+      if (requestUrl.endsWith("/credits/status")) {
+        return new Response(
+          JSON.stringify({ remaining_usd: 10, total_purchased_usd: 10, total_spent_usd: 0 }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      if (requestUrl.endsWith("/credits/entitlements/claim")) {
+        return new Response(
+          JSON.stringify({ operation_id: "operation-restart", status: "pending" }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      if (requestUrl.endsWith("/credits/entitlements/operations/operation-restart")) {
+        operationStatusCalls += 1;
+        return new Response(
+          JSON.stringify({
+            operation_id: "operation-restart",
+            status: operationStatus,
+            ...(operationStatus === "completed" ? { applied_cents: 1000 } : {}),
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pendingResponse = await context.app.inject({
+      method: "POST",
+      url: "/credits/entitlements/claim",
+      headers: localOwnerAdminHeaders(),
+      payload: { email: "restart@example.com" },
+    });
+    expect(pendingResponse.statusCode).toBe(202);
+    expect(mockPreferences.braindrive_models_entitlement).toMatchObject({
+      operation_id: "operation-restart",
+      status: "pending",
+      provider_activation_revision_at_start: 6,
+    });
+    expect(mockPreferences.provider_activation_revision).toBe(6);
+
+    const activationResponse = await context.app.inject({
+      method: "PUT",
+      url: "/settings",
+      headers: localOwnerAdminHeaders(),
+      payload: { active_provider_profile: "ollama" },
+    });
+    expect(activationResponse.statusCode).toBe(200);
+    expect(mockPreferences.provider_activation_revision).toBe(7);
+
+    await restartTestServer(context);
+    operationStatus = "completed";
+
+    const completedResponse = await context.app.inject({
+      method: "GET",
+      url: "/credits/entitlements/status",
+      headers: localOwnerAdminHeaders(),
+    });
+    expect(completedResponse.statusCode).toBe(200);
+    expect(parseJson(completedResponse.body)).toMatchObject({
+      state: "completed",
+      settings: {
+        active_provider_profile: "ollama",
+        provider_activation_revision: 7,
+      },
+    });
+    expect(operationStatusCalls).toBe(1);
+    expect(mockPreferences.braindrive_models_entitlement?.provider_activation_revision_at_start).toBe(6);
+    expect(mockPreferences.active_provider_profile).toBe("ollama");
+    expect(mockPreferences.provider_activation_revision).toBe(7);
+  });
+
+  it("keeps replay and legacy completed operations idempotent without replacing current provider intent", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: providerActivationAdapterConfig(),
+    });
+    mockPreferences = {
+      ...mockPreferences,
+      active_provider_profile: "openrouter",
+      provider_activation_revision: 4,
+      provider_credentials: {
+        "braindrive-models": {
+          mode: "secret_ref",
+          secret_ref: "provider/ai-gateway/api_key",
+          required: true,
+        },
+      },
+      braindrive_models_key: {
+        install_public_id: "install-legacy",
+        masked_key: "sk-...gacy",
+        status: "ready",
+        checkout_pending: false,
+      },
+      braindrive_models_entitlement: {
+        operation_id: "operation-legacy",
+        status: "completed",
+        applied_cents: 900,
+      },
+    };
+    await writeVaultSecret("provider/ai-gateway/api_key", "sk-legacy-claim-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL) => {
+        if (String(url).endsWith("/credits/status")) {
+          return new Response(
+            JSON.stringify({ remaining_usd: 9, total_purchased_usd: 9, total_spent_usd: 0 }),
+            { status: 200, headers: { "content-type": "application/json" } }
+          );
+        }
+        return new Response("not found", { status: 404 });
+      })
+    );
+
+    const legacyResponse = await context.app.inject({
+      method: "GET",
+      url: "/credits/entitlements/status",
+      headers: localOwnerAdminHeaders(),
+    });
+    expect(legacyResponse.statusCode).toBe(200);
+    expect(parseJson(legacyResponse.body)).toMatchObject({
+      state: "completed",
+      settings: {
+        active_provider_profile: "openrouter",
+        provider_activation_revision: 4,
+      },
+    });
+    expect(mockPreferences.provider_activation_revision).toBe(4);
+
+    const legacyEvents = await readAuditEvents(context, "credits.entitlement_provider_activation");
+    expect(legacyEvents.at(-1)?.details).toMatchObject({
+      operation_id: "operation-legacy",
+      captured_revision: null,
+      current_revision: 4,
+      resulting_revision: 4,
+      decision: "skipped_missing_revision",
+    });
+
+    mockPreferences = {
+      ...mockPreferences,
+      active_provider_profile: "braindrive-models",
+      provider_activation_revision: 5,
+      braindrive_models_entitlement: {
+        ...mockPreferences.braindrive_models_entitlement,
+        provider_activation_revision_at_start: 4,
+      },
+    };
+    const replayResponse = await context.app.inject({
+      method: "GET",
+      url: "/credits/entitlements/status",
+      headers: localOwnerAdminHeaders(),
+    });
+    expect(replayResponse.statusCode).toBe(200);
+    expect(parseJson(replayResponse.body)).toMatchObject({
+      settings: {
+        active_provider_profile: "braindrive-models",
+        provider_activation_revision: 5,
+      },
+    });
+    expect(mockPreferences.provider_activation_revision).toBe(5);
+
+    const replayEvents = await readAuditEvents(context, "credits.entitlement_provider_activation");
+    expect(replayEvents.at(-1)?.details.decision).toBe("already_applied");
+  });
+
+  it.each(["network", "malformed"] as const)(
+    "keeps provider intent unchanged for a %s hosted claim failure",
+    async (failureMode) => {
+      context = await createTestServer({
+        authMode: "local-owner",
+        adapterConfig: providerActivationAdapterConfig(),
+      });
+      mockPreferences = {
+        ...mockPreferences,
+        active_provider_profile: "ollama",
+        provider_activation_revision: 8,
+        provider_credentials: {
+          "braindrive-models": {
+            mode: "secret_ref",
+            secret_ref: "provider/ai-gateway/api_key",
+            required: true,
+          },
+        },
+        braindrive_models_key: {
+          install_public_id: "install-failure",
+          masked_key: "sk-...lure",
+          status: "ready",
+          checkout_pending: false,
+        },
+      };
+      await writeVaultSecret("provider/ai-gateway/api_key", "sk-hosted-failure-key");
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string | URL) => {
+          const requestUrl = String(url);
+          if (requestUrl.endsWith("/credits/status")) {
+            return new Response(JSON.stringify({ remaining_usd: 0, total_purchased_usd: 0 }), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            });
+          }
+          if (requestUrl.endsWith("/credits/entitlements/claim")) {
+            if (failureMode === "network") {
+              throw new Error("upstream network detail");
+            }
+            return new Response(JSON.stringify({ status: "completed", applied_cents: 500 }), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            });
+          }
+          return new Response("not found", { status: 404 });
+        })
+      );
+
+      const response = await context.app.inject({
+        method: "POST",
+        url: "/credits/entitlements/claim",
+        headers: localOwnerAdminHeaders(),
+        payload: { email: "failure@example.com" },
+      });
+
+      expect(response.statusCode).toBe(503);
+      expect(parseJson<{ code: string }>(response.body).code).toBe("campaign_unavailable");
+      expect(response.body).not.toContain("upstream network detail");
+      expect(mockPreferences.active_provider_profile).toBe("ollama");
+      expect(mockPreferences.provider_activation_revision).toBe(8);
+    }
+  );
 
   it("persists memory backup settings and returns a safe payload", async () => {
     context = await createTestServer({ authMode: "local-owner" });

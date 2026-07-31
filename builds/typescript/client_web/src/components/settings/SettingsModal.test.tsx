@@ -72,6 +72,7 @@ const getRootAgentMock = vi.fn<
   () => Promise<{ managedContent: string; overlayContent: string | null }>
 >();
 const updateRootAgentOverlayMock = vi.fn<(content: string) => Promise<void>>();
+const resetGatewayChatRuntimeMock = vi.fn();
 
 vi.mock("@/api/gateway-adapter", () => ({
   getSettings: () => getSettingsMock(),
@@ -100,6 +101,10 @@ vi.mock("@/api/auth-adapter", () => ({
   logout: () => logoutMock(),
 }));
 
+vi.mock("@/api/useGatewayChat", () => ({
+  resetGatewayChatRuntime: () => resetGatewayChatRuntimeMock(),
+}));
+
 vi.mock("@/api/desktop-browser-access", () => ({
   getBrowserAccessStatus: () => getBrowserAccessStatusMock(),
   updateBrowserAccessSettings: (settings: unknown) => updateBrowserAccessSettingsMock(settings),
@@ -118,6 +123,7 @@ const baseSettings: GatewaySettings = {
   default_model: "openai/gpt-4o-mini",
   approval_mode: "ask-on-write",
   active_provider_profile: "openrouter",
+  provider_activation_revision: 0,
   default_provider_profile: "openrouter",
   available_models: ["openai/gpt-4o-mini", "llama3.1"],
   memory_backup: null,
@@ -173,6 +179,13 @@ const brainDriveModelsReadySettings: GatewaySettings = {
     checkout_pending: false,
     masked_key: "sk-...-key",
   },
+};
+
+const openRouterActiveWithBrainDriveModels: GatewaySettings = {
+  ...brainDriveModelsSettings,
+  default_model: "openai/gpt-4o-mini",
+  active_provider_profile: "openrouter",
+  provider_activation_revision: 0,
 };
 
 const providerCatalog: GatewayModelCatalog = {
@@ -258,6 +271,16 @@ function localSession(email: string): Session {
   };
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("SettingsModal", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -287,6 +310,7 @@ describe("SettingsModal", () => {
     logoutMock.mockReset();
     getRootAgentMock.mockReset();
     updateRootAgentOverlayMock.mockReset();
+    resetGatewayChatRuntimeMock.mockReset();
     getSettingsMock.mockResolvedValue(baseSettings);
     updateSettingsMock.mockResolvedValue(baseSettings);
     updateProviderCredentialMock.mockResolvedValue({ settings: baseSettings });
@@ -358,7 +382,7 @@ describe("SettingsModal", () => {
     delete window.__TAURI_INTERNALS__;
   });
 
-  it("loads local settings and saves provider profile updates", async () => {
+  it("expands a provider without activating it or fetching its catalog", async () => {
     const user = userEvent.setup();
     render(<SettingsModal mode="local" onClose={() => {}} />);
 
@@ -367,13 +391,47 @@ describe("SettingsModal", () => {
     });
 
     await user.click(screen.getAllByRole("button", { name: "AI Models" })[0]!);
-    await user.click(screen.getAllByRole("button", { name: /Ollama/i })[0]!);
+    const ollamaCard = screen.getAllByRole("button", {
+      name: /Ollama provider settings/i,
+    })[0]!;
+    await user.click(ollamaCard);
 
+    expect(ollamaCard).toHaveAttribute("aria-expanded", "true");
+    expect(updateSettingsMock).not.toHaveBeenCalled();
+    expect(getProviderModelsMock).not.toHaveBeenCalledWith("ollama");
+  });
+
+  it("supports keyboard expansion and a separate deliberate Ollama activation", async () => {
+    const user = userEvent.setup();
+    const activatedSettings: GatewaySettings = {
+      ...baseSettings,
+      active_provider_profile: "ollama",
+      provider_activation_revision: 1,
+    };
+    updateSettingsMock.mockResolvedValueOnce(activatedSettings);
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+
+    await user.click((await screen.findAllByRole("button", { name: "AI Models" }))[0]!);
+    const ollamaCard = screen.getAllByRole("button", {
+      name: /Ollama provider settings/i,
+    })[0]!;
+    ollamaCard.focus();
+    await user.keyboard("{Enter}");
+
+    expect(ollamaCard).toHaveAttribute("aria-expanded", "true");
+    expect(updateSettingsMock).not.toHaveBeenCalled();
+
+    await user.click(screen.getAllByRole("button", { name: "Use Ollama" })[0]!);
     await waitFor(() => {
+      expect(updateSettingsMock).toHaveBeenCalledTimes(1);
       expect(updateSettingsMock).toHaveBeenCalledWith({
         active_provider_profile: "ollama",
       });
     });
+    expect(
+      screen.getAllByRole("button", { name: /Ollama provider settings/i })[0]
+    ).toHaveAttribute("aria-current", "true");
+    expect(resetGatewayChatRuntimeMock).not.toHaveBeenCalled();
   });
 
   it("downloads export from the export tab", async () => {
@@ -410,6 +468,7 @@ describe("SettingsModal", () => {
     await waitFor(() => {
       expect(importLibraryArchiveMock).toHaveBeenCalledTimes(1);
     });
+    expect(resetGatewayChatRuntimeMock).toHaveBeenCalledTimes(1);
   });
 
   it("keeps import button disabled until a migration archive is selected", async () => {
@@ -525,6 +584,100 @@ describe("SettingsModal", () => {
     expect(updateProviderCredentialMock).not.toHaveBeenCalled();
   });
 
+  it("reconciles automatic claim settings into the authoritative active provider", async () => {
+    const user = userEvent.setup();
+    getSettingsMock.mockResolvedValueOnce(openRouterActiveWithBrainDriveModels);
+    getEmailCreditCapabilityMock.mockResolvedValueOnce({ available: true, version: "1" });
+    claimEmailCreditMock.mockResolvedValueOnce({
+      state: "completed",
+      operation_id: "operation-authoritative",
+      applied_cents: 2500,
+      balance: { remaining_usd: 25, purchase_status: "ready" },
+      settings: {
+        ...brainDriveModelsReadySettings,
+        provider_activation_revision: 1,
+      },
+    });
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+    await user.click((await screen.findAllByRole("button", { name: "AI Models" }))[0]!);
+    await user.click(
+      screen.getAllByRole("button", { name: /BrainDrive Models provider settings/i })[0]!
+    );
+    await user.type(await screen.findByLabelText("Email for your receipt"), "recipient@example.com");
+
+    expect(await screen.findByRole("status")).toHaveTextContent("$25.00 email credit applied.");
+    await waitFor(() => {
+      expect(
+        screen
+          .getAllByRole("button", { name: /BrainDrive Models provider settings/i })
+          .every((button) => button.getAttribute("aria-current") === "true")
+      ).toBe(true);
+    });
+    expect(updateSettingsMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /Apply credit/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps a newer explicit provider response over an older deferred claim response", async () => {
+    const user = userEvent.setup();
+    const claim = createDeferred<{
+      state: "completed";
+      operation_id: string;
+      applied_cents: number;
+      balance: { remaining_usd: number; purchase_status: "ready" };
+      settings: GatewaySettings;
+    }>();
+    getSettingsMock.mockResolvedValueOnce(openRouterActiveWithBrainDriveModels);
+    getEmailCreditCapabilityMock.mockResolvedValue({ available: true, version: "1" });
+    claimEmailCreditMock.mockReturnValueOnce(claim.promise);
+    updateSettingsMock.mockResolvedValueOnce({
+      ...openRouterActiveWithBrainDriveModels,
+      active_provider_profile: "ollama",
+      provider_activation_revision: 2,
+    });
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+    await user.click((await screen.findAllByRole("button", { name: "AI Models" }))[0]!);
+
+    await user.click(
+      screen.getAllByRole("button", { name: /BrainDrive Models provider settings/i })[0]!
+    );
+    fireEvent.change(await screen.findByLabelText("Email for your receipt"), {
+      target: { value: "recipient@example.com" },
+    });
+    await waitFor(() => expect(claimEmailCreditMock).toHaveBeenCalledTimes(1));
+
+    await user.click(
+      screen.getAllByRole("button", { name: /Ollama provider settings/i })[1]!
+    );
+    await user.click(screen.getByRole("button", { name: "Use Ollama" }));
+    await waitFor(() =>
+      expect(updateSettingsMock).toHaveBeenCalledWith({
+        active_provider_profile: "ollama",
+      })
+    );
+
+    await act(async () => {
+      claim.resolve({
+        state: "completed",
+        operation_id: "operation-stale",
+        applied_cents: 500,
+        balance: { remaining_usd: 5, purchase_status: "ready" },
+        settings: {
+          ...brainDriveModelsReadySettings,
+          provider_activation_revision: 1,
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(
+        screen
+          .getAllByRole("button", { name: /Ollama provider settings/i })
+          .every((button) => button.getAttribute("aria-current") === "true")
+      ).toBe(true);
+    });
+    expect(updateSettingsMock).toHaveBeenCalledTimes(1);
+  });
+
   it("shares one automatic claim across the mounted desktop and mobile panels", async () => {
     const user = userEvent.setup();
     localStorage.setItem("bd_billing_email", "saved@example.com");
@@ -535,6 +688,10 @@ describe("SettingsModal", () => {
       operation_id: "operation-shared",
       applied_cents: 100,
       balance: { remaining_usd: 0, purchase_status: "zero_balance" },
+      settings: {
+        ...brainDriveModelsReadySettings,
+        provider_activation_revision: 1,
+      },
     });
     render(<SettingsModal mode="local" onClose={() => {}} />);
     await user.click((await screen.findAllByRole("button", { name: "AI Models" }))[0]!);
@@ -544,6 +701,12 @@ describe("SettingsModal", () => {
     expect(claimEmailCreditMock).toHaveBeenCalledWith({ email: "saved@example.com" });
     expect(claimEmailCreditMock).toHaveBeenCalledTimes(1);
     expect(await screen.findAllByRole("status")).toHaveLength(2);
+    expect(updateSettingsMock).not.toHaveBeenCalled();
+    expect(
+      screen
+        .getAllByRole("button", { name: /BrainDrive Models provider settings/i })
+        .every((button) => button.getAttribute("aria-current") === "true")
+    ).toBe(true);
   });
 
   it("does not automatically claim a synthetic session email", async () => {
@@ -861,9 +1024,14 @@ describe("SettingsModal", () => {
     expect(screen.getAllByText(/it carries your keys; backups don/i).length).toBeGreaterThan(0);
   });
 
-  it("keeps direct OpenRouter and Ollama selectable independently of BrainDrive Models credits", async () => {
+  it("keeps deliberate OpenRouter and Ollama activation independent of BrainDrive Models credits", async () => {
     const user = userEvent.setup();
     getSettingsMock.mockResolvedValueOnce(brainDriveModelsSettings);
+    updateSettingsMock.mockResolvedValueOnce({
+      ...brainDriveModelsSettings,
+      active_provider_profile: "ollama",
+      provider_activation_revision: 1,
+    });
     render(<SettingsModal mode="local" onClose={() => {}} />);
 
     await waitFor(() => {
@@ -873,7 +1041,9 @@ describe("SettingsModal", () => {
     await user.click(screen.getAllByRole("button", { name: "AI Models" })[0]!);
     expect(screen.getAllByText("OpenRouter").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Ollama").length).toBeGreaterThan(0);
-    await user.click(screen.getAllByRole("button", { name: /Ollama/i })[0]!);
+    await user.click(screen.getAllByRole("button", { name: /Ollama provider settings/i })[0]!);
+    expect(updateSettingsMock).not.toHaveBeenCalled();
+    await user.click(screen.getAllByRole("button", { name: "Use Ollama" })[0]!);
 
     await waitFor(() => {
       expect(updateSettingsMock).toHaveBeenCalledWith({
@@ -881,6 +1051,170 @@ describe("SettingsModal", () => {
       });
     });
     expect(createCreditsCheckoutMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves the active provider and shows safe guidance when activation is not ready", async () => {
+    const user = userEvent.setup();
+    getSettingsMock.mockResolvedValueOnce(brainDriveModelsSettings);
+    updateSettingsMock.mockRejectedValueOnce(
+      Object.assign(new Error("Configure this provider before activating it"), {
+        code: "provider_not_ready",
+      })
+    );
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+    await user.click((await screen.findAllByRole("button", { name: "AI Models" }))[0]!);
+    await user.click(
+      screen.getAllByRole("button", { name: /OpenRouter provider settings/i })[0]!
+    );
+    await user.click(screen.getAllByRole("button", { name: "Use OpenRouter" })[0]!);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Configure OpenRouter before activating it."
+    );
+    expect(
+      screen
+        .getAllByRole("button", { name: /BrainDrive Models provider settings/i })
+        .every((button) => button.getAttribute("aria-current") === "true")
+    ).toBe(true);
+  });
+
+  it("shows configured OpenRouter as active only after authoritative activation succeeds", async () => {
+    const user = userEvent.setup();
+    const activation = createDeferred<GatewaySettings>();
+    getSettingsMock.mockResolvedValueOnce(brainDriveModelsSettings);
+    updateSettingsMock.mockReturnValueOnce(activation.promise);
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+    await user.click((await screen.findAllByRole("button", { name: "AI Models" }))[0]!);
+    await user.click(
+      screen.getAllByRole("button", { name: /OpenRouter provider settings/i })[0]!
+    );
+    await user.click(screen.getByRole("button", { name: "Use OpenRouter" }));
+
+    expect(
+      screen
+        .getAllByRole("button", { name: /BrainDrive Models provider settings/i })
+        .every((button) => button.getAttribute("aria-current") === "true")
+    ).toBe(true);
+
+    await act(async () => {
+      activation.resolve({
+        ...baseSettings,
+        provider_activation_revision: 1,
+      });
+    });
+    await waitFor(() => {
+      expect(
+        screen
+          .getAllByRole("button", { name: /OpenRouter provider settings/i })
+          .every((button) => button.getAttribute("aria-current") === "true")
+      ).toBe(true);
+    });
+  });
+
+  it("keeps unconfigured OpenRouter activation unavailable while exposing configuration", async () => {
+    const user = userEvent.setup();
+    getSettingsMock.mockResolvedValueOnce({
+      ...brainDriveModelsSettings,
+      provider_profiles: brainDriveModelsSettings.provider_profiles.map((profile) =>
+        profile.id === "openrouter"
+          ? { ...profile, credential_mode: "unset", credential_ref: null }
+          : profile
+      ),
+    });
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+    await user.click((await screen.findAllByRole("button", { name: "AI Models" }))[0]!);
+    await user.click(
+      screen.getAllByRole("button", { name: /OpenRouter provider settings/i })[0]!
+    );
+
+    expect(screen.getByRole("button", { name: "Use OpenRouter" })).toBeDisabled();
+    expect(screen.getByText("Configure OpenRouter before activating it.")).toBeInTheDocument();
+    expect(screen.getByLabelText("API Key")).toBeInTheDocument();
+    expect(updateSettingsMock).not.toHaveBeenCalled();
+  });
+
+  it("does not let a late activation failure erase a newer successful provider", async () => {
+    const user = userEvent.setup();
+    const olderOpenRouter = createDeferred<GatewaySettings>();
+    updateSettingsMock.mockImplementation((patch) => {
+      if (patch.active_provider_profile === "openrouter") {
+        return olderOpenRouter.promise;
+      }
+      return Promise.resolve({
+        ...brainDriveModelsSettings,
+        active_provider_profile: "ollama",
+        provider_activation_revision: 2,
+      });
+    });
+    getSettingsMock.mockResolvedValueOnce(brainDriveModelsSettings);
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+    await user.click((await screen.findAllByRole("button", { name: "AI Models" }))[0]!);
+
+    await user.click(
+      screen.getAllByRole("button", { name: /OpenRouter provider settings/i })[0]!
+    );
+    await user.click(screen.getByRole("button", { name: "Use OpenRouter" }));
+    await user.click(
+      screen.getAllByRole("button", { name: /Ollama provider settings/i })[1]!
+    );
+    await user.click(screen.getByRole("button", { name: "Use Ollama" }));
+
+    await waitFor(() => {
+      expect(
+        screen
+          .getAllByRole("button", { name: /Ollama provider settings/i })
+          .every((button) => button.getAttribute("aria-current") === "true")
+      ).toBe(true);
+    });
+    await act(async () => {
+      olderOpenRouter.reject(
+        Object.assign(new Error("stale hidden failure"), { code: "provider_not_ready" })
+      );
+    });
+
+    await waitFor(() => expect(updateSettingsMock).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(
+      screen
+        .getAllByRole("button", { name: /Ollama provider settings/i })
+        .every((button) => button.getAttribute("aria-current") === "true")
+    ).toBe(true);
+  });
+
+  it("consumes credential-save activation settings without resetting chat", async () => {
+    const user = userEvent.setup();
+    const unconfiguredOpenRouter: GatewaySettings = {
+      ...brainDriveModelsSettings,
+      provider_profiles: brainDriveModelsSettings.provider_profiles.map((profile) =>
+        profile.id === "openrouter"
+          ? { ...profile, credential_mode: "unset", credential_ref: null }
+          : profile
+      ),
+    };
+    getSettingsMock.mockResolvedValueOnce(unconfiguredOpenRouter);
+    updateProviderCredentialMock.mockResolvedValueOnce({
+      settings: {
+        ...baseSettings,
+        provider_activation_revision: 1,
+      },
+    });
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+    await user.click((await screen.findAllByRole("button", { name: "AI Models" }))[0]!);
+    await user.click(
+      screen.getAllByRole("button", { name: /OpenRouter provider settings/i })[0]!
+    );
+    await user.type(screen.getByLabelText("API Key"), "sk-test-openrouter-key");
+    await user.click(screen.getByRole("button", { name: "Save API Key" }));
+
+    await waitFor(() => expect(updateProviderCredentialMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => {
+      expect(
+        screen
+          .getAllByRole("button", { name: /OpenRouter provider settings/i })
+          .every((button) => button.getAttribute("aria-current") === "true")
+      ).toBe(true);
+    });
+    expect(resetGatewayChatRuntimeMock).not.toHaveBeenCalled();
   });
 
   it("renders backup and migrate tabs in local mode", async () => {
@@ -1249,6 +1583,7 @@ describe("SettingsModal", () => {
     await waitFor(() => {
       expect(restoreMemoryBackupMock).toHaveBeenCalledTimes(1);
     });
+    expect(resetGatewayChatRuntimeMock).toHaveBeenCalledTimes(1);
     expect(confirmMock).toHaveBeenCalledTimes(1);
     confirmMock.mockRestore();
   });

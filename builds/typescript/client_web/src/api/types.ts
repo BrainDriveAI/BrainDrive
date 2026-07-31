@@ -215,6 +215,7 @@ export type GatewaySettings = {
   default_model: string;
   approval_mode: ApprovalMode;
   active_provider_profile: string | null;
+  provider_activation_revision?: number;
   default_provider_profile: string | null;
   available_models: string[];
   provider_profiles: GatewayProviderProfile[];
@@ -253,6 +254,7 @@ export type GatewayEmailCreditResult = {
   applied_cents?: number;
   balance?: GatewayCreditsStatus;
   error_code?: "pending_reconciliation" | "balance_refresh_unavailable";
+  settings?: GatewaySettings;
 };
 
 export type GatewayOnboardingProvider = {

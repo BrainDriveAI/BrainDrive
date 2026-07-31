@@ -413,7 +413,7 @@ describe("useGatewayChat", () => {
     expect(result.current.messages[1]?.content).toBe("Project skills updated:\n- plan");
   });
 
-  it("clears transient chat runtime state when credentials are refreshed", async () => {
+  it("clears transient chat runtime state when an explicit runtime reset is requested", async () => {
     sendMessageMock.mockImplementation(() =>
       streamEvents([
         {

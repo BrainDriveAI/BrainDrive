@@ -76,12 +76,18 @@ import { resolveSecretsPaths } from "../secrets/paths.js";
 import { getVaultSecret, upsertVaultSecret } from "../secrets/vault.js";
 import { GatewayConversationService } from "./conversations.js";
 import {
+  BRAINDRIVE_MODELS_PROVIDER_ID,
   BrainDriveModelsProvisioningError,
   ensureBrainDriveModelsClaimKey,
   ensureBrainDriveModelsCheckoutKey,
   resolveBrainDriveModelsSecretRef,
 } from "./credits-provisioning.js";
 import { createMemoryBackupScheduler } from "./memory-backup-scheduler.js";
+import {
+  decideClaimProviderActivation,
+  decideExplicitProviderActivation,
+  normalizeProviderActivationRevision,
+} from "./provider-activation.js";
 import { GatewayProjectService, isProjectMetadata, ProtectedProjectError, type GatewayProjectFile } from "./projects.js";
 import { GatewaySkillService } from "./skills.js";
 import { prepareContextWindow, type PreparedContextWindow } from "./context-window.js";
@@ -367,6 +373,20 @@ export async function buildServer(rootDir = process.cwd()) {
   const saveLivePreferences = async (nextPreferences: Preferences): Promise<void> => {
     await savePreferences(runtimeConfig.memory_root, nextPreferences);
     livePreferencesCache = nextPreferences;
+  };
+  let providerIntentMutationTail = Promise.resolve();
+  const withProviderIntentMutation = async <T>(mutation: () => Promise<T>): Promise<T> => {
+    const previousMutation = providerIntentMutationTail;
+    let releaseMutation!: () => void;
+    providerIntentMutationTail = new Promise<void>((resolve) => {
+      releaseMutation = resolve;
+    });
+    await previousMutation;
+    try {
+      return await mutation();
+    } finally {
+      releaseMutation();
+    }
   };
   let authState = await ensureAuthState(runtimeConfig.memory_root, { mode: runtimeConfig.auth_mode });
   auditLog("startup.phase", { phase: "secrets" });
@@ -1095,6 +1115,76 @@ export async function buildServer(rootDir = process.cwd()) {
     }
     await upsertVaultSecret(secretRef, plaintext, masterKey, paths);
   };
+  const saveBrainDriveModelsProvisioningPreferences = async (
+    candidatePreferences: Preferences
+  ): Promise<void> => {
+    await withProviderIntentMutation(async () => {
+      const latestPreferences = await loadLivePreferences();
+      const candidateCredential =
+        candidatePreferences.provider_credentials?.[BRAINDRIVE_MODELS_PROVIDER_ID];
+      const nextPreferences: Preferences = {
+        ...latestPreferences,
+        ...(candidateCredential
+          ? {
+              provider_credentials: {
+                ...(latestPreferences.provider_credentials ?? {}),
+                [BRAINDRIVE_MODELS_PROVIDER_ID]: candidateCredential,
+              },
+            }
+          : {}),
+        ...(candidatePreferences.braindrive_models_key
+          ? { braindrive_models_key: candidatePreferences.braindrive_models_key }
+          : {}),
+      };
+      await saveLivePreferences(nextPreferences);
+    });
+  };
+
+  const resolveProviderActivationReadiness = async (
+    preferences: Preferences,
+    profileId: string
+  ): Promise<{ ready: true; source: "keyless" | "plain" | "environment" | "vault" | "optional" } | {
+    ready: false;
+    source: "missing_required_credential";
+  }> => {
+    const profile = resolveAdapterProfile(adapterConfig, profileId);
+    const providerId = (profile.provider_id ?? profileId).trim();
+    if (providerId.toLowerCase() === "ollama") {
+      return { ready: true, source: "keyless" };
+    }
+
+    const configuredEnvironmentValue = process.env[profile.api_key_env]?.trim();
+    if (configuredEnvironmentValue) {
+      return { ready: true, source: "environment" };
+    }
+
+    const credential = preferences.provider_credentials?.[providerId];
+    if (credential?.mode === "plain") {
+      return { ready: true, source: "plain" };
+    }
+    if (credential?.mode === "secret_ref") {
+      const referencedEnvironmentValue = credential.env_ref
+        ? process.env[credential.env_ref]?.trim()
+        : undefined;
+      if (referencedEnvironmentValue) {
+        return { ready: true, source: "environment" };
+      }
+      let vaultValue: string | undefined;
+      try {
+        vaultValue = await loadGatewayVaultSecret(credential.secret_ref);
+      } catch {
+        return { ready: false, source: "missing_required_credential" };
+      }
+      if (vaultValue?.trim()) {
+        return { ready: true, source: "vault" };
+      }
+      if (credential.required === false) {
+        return { ready: true, source: "optional" };
+      }
+    }
+
+    return { ready: false, source: "missing_required_credential" };
+  };
 
   app.get("/credits/status", async () => {
     try {
@@ -1122,7 +1212,7 @@ export async function buildServer(rootDir = process.cwd()) {
               last_error: "invalid_existing_key",
             },
           };
-          await saveLivePreferences(nextPreferences);
+          await saveBrainDriveModelsProvisioningPreferences(nextPreferences);
         }
         return {
           remaining_usd: 0, total_purchased_usd: 0, total_spent_usd: 0,
@@ -1142,7 +1232,7 @@ export async function buildServer(rootDir = process.cwd()) {
           : "zero_balance";
       const persistedStatus = purchaseStatus === "activating" ? "checkout_pending" : purchaseStatus;
       if (metadata?.checkout_pending || metadata?.status !== persistedStatus) {
-        await saveLivePreferences({
+        await saveBrainDriveModelsProvisioningPreferences({
           ...currentPreferences,
           braindrive_models_key: {
             ...(metadata ?? {}),
@@ -1187,22 +1277,102 @@ export async function buildServer(rootDir = process.cwd()) {
   const saveEntitlementOperation = async (
     operation: EntitlementOperation,
     status: "pending" | "completed" | "partial_success",
-    lastError: string | null = null
+    lastError: string | null = null,
+    providerActivationRevisionAtStart?: number
   ): Promise<Preferences> => {
-    const preferences = await loadLivePreferences();
-    const nextPreferences: Preferences = {
-      ...preferences,
-      braindrive_models_entitlement: {
-        operation_id: operation.operationId,
-        status,
-        ...(operation.appliedCents !== undefined ? { applied_cents: operation.appliedCents } : {}),
-        last_attempt_at: new Date().toISOString(),
-        last_error: lastError,
-      },
-    };
-    await saveLivePreferences(nextPreferences);
-    return nextPreferences;
+    return withProviderIntentMutation(async () => {
+      const preferences = await loadLivePreferences();
+      const capturedRevision =
+        providerActivationRevisionAtStart ??
+        preferences.braindrive_models_entitlement?.provider_activation_revision_at_start;
+      const nextPreferences: Preferences = {
+        ...preferences,
+        braindrive_models_entitlement: {
+          operation_id: operation.operationId,
+          status,
+          ...(operation.appliedCents !== undefined ? { applied_cents: operation.appliedCents } : {}),
+          ...(capturedRevision !== undefined
+            ? { provider_activation_revision_at_start: capturedRevision }
+            : {}),
+          last_attempt_at: new Date().toISOString(),
+          last_error: lastError,
+        },
+      };
+      await saveLivePreferences(nextPreferences);
+      return nextPreferences;
+    });
   };
+
+  const applyEntitlementProviderActivation = async (
+    operationId: string,
+    claimState: "completed" | "partial_success"
+  ): Promise<Preferences> =>
+    withProviderIntentMutation(async () => {
+      const currentPreferences = await loadLivePreferences();
+      const previousProfile = currentPreferences.active_provider_profile;
+      const currentRevision = normalizeProviderActivationRevision(
+        currentPreferences.provider_activation_revision
+      );
+      const capturedRevision =
+        currentPreferences.braindrive_models_entitlement
+          ?.provider_activation_revision_at_start;
+      const activation = decideClaimProviderActivation({
+        currentProviderProfile: previousProfile,
+        currentRevision,
+        revisionAtClaimStart: capturedRevision,
+        targetProviderProfile: BRAINDRIVE_MODELS_PROVIDER_ID,
+      });
+
+      let resultingPreferences = currentPreferences;
+      if (activation.shouldPersist) {
+        resultingPreferences = {
+          ...currentPreferences,
+          active_provider_profile: BRAINDRIVE_MODELS_PROVIDER_ID,
+          provider_activation_revision: activation.providerActivationRevision,
+        };
+        const effectiveModel =
+          resultingPreferences.provider_default_models?.[BRAINDRIVE_MODELS_PROVIDER_ID] ??
+          adapterConfig.provider_profiles?.[BRAINDRIVE_MODELS_PROVIDER_ID]?.model;
+        if (effectiveModel) {
+          resultingPreferences.default_model = effectiveModel;
+        }
+        try {
+          await saveLivePreferences(resultingPreferences);
+        } catch {
+          auditLog("credits.entitlement_provider_activation", {
+            source: "email_credit_claim",
+            operation_id: operationId,
+            claim_state: claimState,
+            previous_profile: previousProfile ?? null,
+            target_profile: BRAINDRIVE_MODELS_PROVIDER_ID,
+            resulting_profile: previousProfile ?? null,
+            captured_revision: capturedRevision ?? null,
+            current_revision: currentRevision,
+            resulting_revision: currentRevision,
+            decision: "failed",
+            error_code: "provider_activation_failed",
+          });
+          throw new Error("provider_activation_failed");
+        }
+      }
+
+      auditLog("credits.entitlement_provider_activation", {
+        source: "email_credit_claim",
+        operation_id: operationId,
+        claim_state: claimState,
+        previous_profile: previousProfile ?? null,
+        target_profile: BRAINDRIVE_MODELS_PROVIDER_ID,
+        resulting_profile: resultingPreferences.active_provider_profile ?? null,
+        captured_revision: capturedRevision ?? null,
+        current_revision: currentRevision,
+        resulting_revision: normalizeProviderActivationRevision(
+          resultingPreferences.provider_activation_revision
+        ),
+        decision: activation.decision,
+        error_code: null,
+      });
+      return resultingPreferences;
+    });
 
   const loadEntitlementBalance = async (apiKey: string): Promise<Record<string, unknown> | null> => {
     const response = await fetch(`${creditsApiBase}/credits/status`, {
@@ -1261,7 +1431,26 @@ export async function buildServer(rootDir = process.cwd()) {
       };
       const balance = await loadEntitlementBalance(existingKey.trim());
       if (!balance) {
-        await saveEntitlementOperation(operation, "partial_success", "balance_refresh_unavailable");
+        await saveEntitlementOperation(
+          operation,
+          "partial_success",
+          "balance_refresh_unavailable",
+          saved.provider_activation_revision_at_start
+        );
+        let finalPreferences;
+        try {
+          finalPreferences = await applyEntitlementProviderActivation(
+            operationId,
+            "partial_success"
+          );
+        } catch {
+          return {
+            ok: false,
+            statusCode: 500,
+            code: "provider_activation_failed",
+            message: "Unable to activate BrainDrive Models",
+          };
+        }
         return {
           ok: true,
           statusCode: 200,
@@ -1270,10 +1459,27 @@ export async function buildServer(rootDir = process.cwd()) {
             operation_id: operationId,
             applied_cents: saved.applied_cents,
             error_code: "balance_refresh_unavailable",
+            settings: buildSettingsPayload(adapterConfig, finalPreferences),
           },
         };
       }
-      await saveEntitlementOperation(operation, "completed");
+      await saveEntitlementOperation(
+        operation,
+        "completed",
+        null,
+        saved.provider_activation_revision_at_start
+      );
+      let finalPreferences;
+      try {
+        finalPreferences = await applyEntitlementProviderActivation(operationId, "completed");
+      } catch {
+        return {
+          ok: false,
+          statusCode: 500,
+          code: "provider_activation_failed",
+          message: "Unable to activate BrainDrive Models",
+        };
+      }
       return {
         ok: true,
         statusCode: 200,
@@ -1282,6 +1488,7 @@ export async function buildServer(rootDir = process.cwd()) {
           operation_id: operationId,
           applied_cents: saved.applied_cents,
           balance,
+          settings: buildSettingsPayload(adapterConfig, finalPreferences),
         },
       };
     }
@@ -1293,7 +1500,7 @@ export async function buildServer(rootDir = process.cwd()) {
         preferences,
         loadVaultSecret: loadGatewayVaultSecret,
         saveVaultSecret: saveGatewayVaultSecret,
-        savePreferences: saveLivePreferences,
+        savePreferences: saveBrainDriveModelsProvisioningPreferences,
       });
     } catch (error) {
       if (error instanceof BrainDriveModelsProvisioningError && error.code === "repair_required") {
@@ -1314,7 +1521,7 @@ export async function buildServer(rootDir = process.cwd()) {
       }
     );
     if (response.status === 401 || response.status === 403) {
-      await saveLivePreferences({
+      await saveBrainDriveModelsProvisioningPreferences({
         ...readiness.preferences,
         braindrive_models_key: {
           ...(readiness.preferences.braindrive_models_key ?? {}),
@@ -1341,7 +1548,12 @@ export async function buildServer(rootDir = process.cwd()) {
       return { ok: false, statusCode: 503, code: "campaign_unavailable", message: "Email credit service is unavailable" };
     }
     if (operation.status === "pending") {
-      await saveEntitlementOperation(operation, "pending");
+      await saveEntitlementOperation(
+        operation,
+        "pending",
+        null,
+        saved?.provider_activation_revision_at_start
+      );
       return {
         ok: true,
         statusCode: 202,
@@ -1354,10 +1566,34 @@ export async function buildServer(rootDir = process.cwd()) {
       };
     }
 
-    await saveEntitlementOperation(operation, "completed");
+    await saveEntitlementOperation(
+      operation,
+      "completed",
+      null,
+      saved?.provider_activation_revision_at_start
+    );
     const balance = await loadEntitlementBalance(readiness.apiKey);
     if (!balance) {
-      await saveEntitlementOperation(operation, "partial_success", "balance_refresh_unavailable");
+      await saveEntitlementOperation(
+        operation,
+        "partial_success",
+        "balance_refresh_unavailable",
+        saved?.provider_activation_revision_at_start
+      );
+      let finalPreferences;
+      try {
+        finalPreferences = await applyEntitlementProviderActivation(
+          operation.operationId,
+          "partial_success"
+        );
+      } catch {
+        return {
+          ok: false,
+          statusCode: 500,
+          code: "provider_activation_failed",
+          message: "Unable to activate BrainDrive Models",
+        };
+      }
       return {
         ok: true,
         statusCode: 200,
@@ -1366,7 +1602,22 @@ export async function buildServer(rootDir = process.cwd()) {
           operation_id: operation.operationId,
           applied_cents: operation.appliedCents,
           error_code: "balance_refresh_unavailable",
+          settings: buildSettingsPayload(adapterConfig, finalPreferences),
         },
+      };
+    }
+    let finalPreferences;
+    try {
+      finalPreferences = await applyEntitlementProviderActivation(
+        operation.operationId,
+        "completed"
+      );
+    } catch {
+      return {
+        ok: false,
+        statusCode: 500,
+        code: "provider_activation_failed",
+        message: "Unable to activate BrainDrive Models",
       };
     }
     return {
@@ -1377,6 +1628,7 @@ export async function buildServer(rootDir = process.cwd()) {
         operation_id: operation.operationId,
         applied_cents: operation.appliedCents,
         balance,
+        settings: buildSettingsPayload(adapterConfig, finalPreferences),
       },
     };
   };
@@ -1414,6 +1666,9 @@ export async function buildServer(rootDir = process.cwd()) {
     }
 
     const initialPreferences = await loadLivePreferences();
+    const claimStartRevision = normalizeProviderActivationRevision(
+      initialPreferences.provider_activation_revision
+    );
     const savedOperation = initialPreferences.braindrive_models_entitlement;
     const hasUnfinishedOperation = Boolean(
       savedOperation?.operation_id
@@ -1437,7 +1692,7 @@ export async function buildServer(rootDir = process.cwd()) {
         preferences: initialPreferences,
         loadVaultSecret: loadGatewayVaultSecret,
         saveVaultSecret: saveGatewayVaultSecret,
-        savePreferences: saveLivePreferences,
+        savePreferences: saveBrainDriveModelsProvisioningPreferences,
       });
     } catch (error) {
       if (error instanceof BrainDriveModelsProvisioningError) {
@@ -1474,7 +1729,7 @@ export async function buildServer(rootDir = process.cwd()) {
 
     if (!response.ok) {
       if (response.status === 401 || response.status === 403) {
-        await saveLivePreferences({
+        await saveBrainDriveModelsProvisioningPreferences({
           ...readiness.preferences,
           braindrive_models_key: {
             ...(readiness.preferences.braindrive_models_key ?? {}),
@@ -1503,7 +1758,7 @@ export async function buildServer(rootDir = process.cwd()) {
       return;
     }
     if (operation.status === "pending") {
-      await saveEntitlementOperation(operation, "pending");
+      await saveEntitlementOperation(operation, "pending", null, claimStartRevision);
       reply.code(202).send({
         state: "pending",
         operation_id: operation.operationId,
@@ -1513,16 +1768,52 @@ export async function buildServer(rootDir = process.cwd()) {
       return;
     }
 
-    await saveEntitlementOperation(operation, "completed");
+    await saveEntitlementOperation(operation, "completed", null, claimStartRevision);
     const balance = await loadEntitlementBalance(readiness.apiKey);
     if (!balance) {
-      await saveEntitlementOperation(operation, "partial_success", "balance_refresh_unavailable");
+      await saveEntitlementOperation(
+        operation,
+        "partial_success",
+        "balance_refresh_unavailable",
+        claimStartRevision
+      );
+      let finalPreferences;
+      try {
+        finalPreferences = await applyEntitlementProviderActivation(
+          operation.operationId,
+          "partial_success"
+        );
+      } catch {
+        entitlementError(
+          reply,
+          500,
+          "provider_activation_failed",
+          "Unable to activate BrainDrive Models"
+        );
+        return;
+      }
       reply.send({
         state: "partial_success",
         operation_id: operation.operationId,
         applied_cents: operation.appliedCents,
         error_code: "balance_refresh_unavailable",
+        settings: buildSettingsPayload(adapterConfig, finalPreferences),
       });
+      return;
+    }
+    let finalPreferences;
+    try {
+      finalPreferences = await applyEntitlementProviderActivation(
+        operation.operationId,
+        "completed"
+      );
+    } catch {
+      entitlementError(
+        reply,
+        500,
+        "provider_activation_failed",
+        "Unable to activate BrainDrive Models"
+      );
       return;
     }
     reply.send({
@@ -1530,6 +1821,7 @@ export async function buildServer(rootDir = process.cwd()) {
       operation_id: operation.operationId,
       applied_cents: operation.appliedCents,
       balance,
+      settings: buildSettingsPayload(adapterConfig, finalPreferences),
     });
   });
 
@@ -1566,7 +1858,7 @@ export async function buildServer(rootDir = process.cwd()) {
         preferences: await loadLivePreferences(),
         loadVaultSecret: loadGatewayVaultSecret,
         saveVaultSecret: saveGatewayVaultSecret,
-        savePreferences: saveLivePreferences,
+        savePreferences: saveBrainDriveModelsProvisioningPreferences,
       });
       const resp = await fetch(`${creditsApiBase}/credits/checkout`, {
         method: "POST",
@@ -1940,60 +2232,153 @@ export async function buildServer(rootDir = process.cwd()) {
     }
 
     const body = parsed.data;
-    const currentPreferences = await loadLivePreferences();
-    const nextPreferences = { ...currentPreferences };
-
-    if (body.default_model !== undefined) {
-      nextPreferences.default_model = body.default_model;
-      const activeProfile =
-        (body.active_provider_profile ?? nextPreferences.active_provider_profile) ||
-        adapterConfig.default_provider_profile ||
-        listProviderProfiles(adapterConfig)[0]?.id;
-      if (activeProfile) {
-        const models = { ...nextPreferences.provider_default_models };
-        models[activeProfile] = body.default_model;
-        nextPreferences.provider_default_models = models;
+    if (body.active_provider_profile !== undefined) {
+      if (
+        body.active_provider_profile !== null &&
+        !isKnownProviderProfile(adapterConfig, body.active_provider_profile)
+      ) {
+        sendInvalidRequest(reply, "/settings", 1);
+        return;
       }
     }
 
-    if (body.active_provider_profile !== undefined) {
-      if (body.active_provider_profile === null) {
-        delete nextPreferences.active_provider_profile;
-      } else if (!isKnownProviderProfile(adapterConfig, body.active_provider_profile)) {
-        sendInvalidRequest(reply, "/settings", 1);
-        return;
-      } else {
-        nextPreferences.active_provider_profile = body.active_provider_profile;
-        // When switching providers, sync default_model to the new provider's
-        // per-provider default so display stays consistent. Model IDs are
-        // provider-specific — the global default_model should reflect the
-        // active provider's selection.
-        if (body.default_model === undefined) {
-          const newProviderModel = nextPreferences.provider_default_models?.[body.active_provider_profile];
-          const profileConfig = adapterConfig.provider_profiles?.[body.active_provider_profile];
-          const effectiveModel = newProviderModel ?? profileConfig?.model;
-          if (effectiveModel) {
-            nextPreferences.default_model = effectiveModel;
+    if (
+      body.provider_base_url !== undefined &&
+      !isKnownProviderProfile(adapterConfig, body.provider_base_url.provider_profile)
+    ) {
+      sendInvalidRequest(reply, "/settings", 1);
+      return;
+    }
+
+    const applySettingsUpdate = (currentPreferences: Preferences): Preferences => {
+      const nextPreferences: Preferences = { ...currentPreferences };
+      if (body.default_model !== undefined) {
+        nextPreferences.default_model = body.default_model;
+        const activeProfile =
+          (body.active_provider_profile ?? nextPreferences.active_provider_profile) ||
+          adapterConfig.default_provider_profile ||
+          listProviderProfiles(adapterConfig)[0]?.id;
+        if (activeProfile) {
+          const models = { ...nextPreferences.provider_default_models };
+          models[activeProfile] = body.default_model;
+          nextPreferences.provider_default_models = models;
+        }
+      }
+
+      if (body.active_provider_profile !== undefined) {
+        if (body.active_provider_profile === null) {
+          delete nextPreferences.active_provider_profile;
+        } else {
+          nextPreferences.active_provider_profile = body.active_provider_profile;
+          if (body.default_model === undefined) {
+            const newProviderModel =
+              nextPreferences.provider_default_models?.[body.active_provider_profile];
+            const profileConfig =
+              adapterConfig.provider_profiles?.[body.active_provider_profile];
+            const effectiveModel = newProviderModel ?? profileConfig?.model;
+            if (effectiveModel) {
+              nextPreferences.default_model = effectiveModel;
+            }
           }
         }
       }
-    }
 
-    if (body.provider_base_url !== undefined) {
-      const { provider_profile, base_url } = body.provider_base_url;
-      if (!isKnownProviderProfile(adapterConfig, provider_profile)) {
-        sendInvalidRequest(reply, "/settings", 1);
-        return;
+      if (body.provider_base_url !== undefined) {
+        const { provider_profile, base_url } = body.provider_base_url;
+        const profileConfig = resolveAdapterProfile(adapterConfig, provider_profile);
+        const urls = { ...nextPreferences.provider_base_urls };
+        urls[provider_profile] =
+          profileConfig.provider_id?.toLowerCase() === "ollama"
+            ? normalizeOllamaOpenAIBaseUrl(base_url)
+            : base_url;
+        nextPreferences.provider_base_urls = urls;
       }
-      const profileConfig = resolveAdapterProfile(adapterConfig, provider_profile);
-      const urls = { ...nextPreferences.provider_base_urls };
-      urls[provider_profile] =
-        profileConfig.provider_id?.toLowerCase() === "ollama" ? normalizeOllamaOpenAIBaseUrl(base_url) : base_url;
-      nextPreferences.provider_base_urls = urls;
+      return nextPreferences;
+    };
+
+    if (body.active_provider_profile === undefined) {
+      const nextPreferences = applySettingsUpdate(await loadLivePreferences());
+      await saveLivePreferences(nextPreferences);
+      reply.send(buildSettingsPayload(adapterConfig, nextPreferences));
+      return;
     }
 
-    await saveLivePreferences(nextPreferences);
-    reply.send(buildSettingsPayload(adapterConfig, nextPreferences));
+    const targetProfile = body.active_provider_profile ?? undefined;
+    const activationResult = await withProviderIntentMutation(async () => {
+      const currentPreferences = await loadLivePreferences();
+      if (targetProfile) {
+        const readiness = await resolveProviderActivationReadiness(
+          currentPreferences,
+          targetProfile
+        );
+        if (!readiness.ready) {
+          auditLog("settings.provider_activation_rejected", {
+            actor_id: request.authContext.actorId,
+            source: "explicit",
+            target_profile: targetProfile,
+            current_profile: currentPreferences.active_provider_profile ?? null,
+            current_revision: normalizeProviderActivationRevision(
+              currentPreferences.provider_activation_revision
+            ),
+            decision: "rejected",
+            readiness: readiness.source,
+            error_code: "provider_not_ready",
+          });
+          return { kind: "not_ready" as const };
+        }
+      }
+
+      const activation = decideExplicitProviderActivation({
+        currentProviderProfile: currentPreferences.active_provider_profile,
+        currentRevision: currentPreferences.provider_activation_revision,
+        targetProviderProfile: targetProfile,
+      });
+      const nextPreferences = applySettingsUpdate(currentPreferences);
+      nextPreferences.provider_activation_revision =
+        activation.providerActivationRevision;
+      try {
+        await saveLivePreferences(nextPreferences);
+      } catch {
+        auditLog("settings.provider_activation_rejected", {
+          actor_id: request.authContext.actorId,
+          source: "explicit",
+          target_profile: targetProfile ?? null,
+          current_profile: currentPreferences.active_provider_profile ?? null,
+          current_revision: activation.previousProviderActivationRevision,
+          decision: "rejected",
+          readiness: targetProfile ? "ready" : "not_applicable",
+          error_code: "provider_activation_failed",
+        });
+        return { kind: "save_failed" as const };
+      }
+      auditLog("settings.provider_activation_completed", {
+        actor_id: request.authContext.actorId,
+        source: "explicit",
+        previous_profile: activation.previousProviderProfile ?? null,
+        target_profile: targetProfile ?? null,
+        resulting_profile: nextPreferences.active_provider_profile ?? null,
+        previous_revision: activation.previousProviderActivationRevision,
+        resulting_revision: activation.providerActivationRevision,
+        decision: activation.decision,
+      });
+      return { kind: "completed" as const, preferences: nextPreferences };
+    });
+
+    if (activationResult.kind === "not_ready") {
+      reply.code(409).send({
+        error: "Configure this provider before activating it",
+        code: "provider_not_ready",
+      });
+      return;
+    }
+    if (activationResult.kind === "save_failed") {
+      reply.code(500).send({
+        error: "Unable to activate provider",
+        code: "provider_activation_failed",
+      });
+      return;
+    }
+    reply.send(buildSettingsPayload(adapterConfig, activationResult.preferences));
   });
 
   app.put("/settings/memory-backup", async (request, reply) => {
@@ -2264,12 +2649,84 @@ export async function buildServer(rootDir = process.cwd()) {
       }
     }
 
+    const credentialPreference = nextPreferences.provider_credentials![providerId];
+    let savedPreferences: Preferences;
     if (shouldSetActiveProvider) {
-      nextPreferences.active_provider_profile = body.provider_profile;
+      try {
+        savedPreferences = await withProviderIntentMutation(async () => {
+          const latestPreferences = await loadLivePreferences();
+          const activation = decideExplicitProviderActivation({
+            currentProviderProfile: latestPreferences.active_provider_profile,
+            currentRevision: latestPreferences.provider_activation_revision,
+            targetProviderProfile: body.provider_profile,
+          });
+          const activatedPreferences: Preferences = {
+            ...latestPreferences,
+            provider_credentials: {
+              ...(latestPreferences.provider_credentials ?? {}),
+              [providerId]: credentialPreference,
+            },
+            secret_resolution:
+              latestPreferences.secret_resolution ?? { on_missing: "fail_closed" },
+            active_provider_profile: body.provider_profile,
+            provider_activation_revision: activation.providerActivationRevision,
+          };
+          const effectiveModel =
+            activatedPreferences.provider_default_models?.[body.provider_profile] ??
+            adapterConfig.provider_profiles?.[body.provider_profile]?.model;
+          if (effectiveModel) {
+            activatedPreferences.default_model = effectiveModel;
+          }
+          await saveLivePreferences(activatedPreferences);
+          auditLog("settings.provider_activation_completed", {
+            actor_id: request.authContext.actorId,
+            source: "credential_save",
+            previous_profile: activation.previousProviderProfile ?? null,
+            target_profile: body.provider_profile,
+            resulting_profile: activatedPreferences.active_provider_profile,
+            previous_revision: activation.previousProviderActivationRevision,
+            resulting_revision: activation.providerActivationRevision,
+            decision: activation.decision,
+          });
+          return activatedPreferences;
+        });
+      } catch {
+        auditLog("settings.provider_activation_rejected", {
+          actor_id: request.authContext.actorId,
+          source: "credential_save",
+          target_profile: body.provider_profile,
+          current_profile: currentPreferences.active_provider_profile ?? null,
+          current_revision: normalizeProviderActivationRevision(
+            currentPreferences.provider_activation_revision
+          ),
+          decision: "rejected",
+          readiness: "credential_persisted",
+          error_code: "provider_activation_failed",
+        });
+        reply.code(500).send({
+          error: "Unable to activate provider",
+          code: "provider_activation_failed",
+        });
+        return;
+      }
+    } else {
+      const latestPreferences = await loadLivePreferences();
+      savedPreferences = {
+        ...latestPreferences,
+        provider_credentials: {
+          ...(latestPreferences.provider_credentials ?? {}),
+          [providerId]: credentialPreference,
+        },
+        secret_resolution:
+          latestPreferences.secret_resolution ?? { on_missing: "fail_closed" },
+      };
+      await saveLivePreferences(savedPreferences);
     }
 
-    await saveLivePreferences(nextPreferences);
-    const onboardingStatus = await buildOnboardingStatusPayload(adapterConfig, nextPreferences);
+    const onboardingStatus = await buildOnboardingStatusPayload(
+      adapterConfig,
+      savedPreferences
+    );
     auditLog("settings.credentials_update", {
       provider_profile: body.provider_profile,
       provider_id: providerId,
@@ -2281,7 +2738,7 @@ export async function buildServer(rootDir = process.cwd()) {
     });
 
     reply.send({
-      settings: buildSettingsPayload(adapterConfig, nextPreferences),
+      settings: buildSettingsPayload(adapterConfig, savedPreferences),
       onboarding: onboardingStatus,
     });
   });
@@ -3188,6 +3645,7 @@ function buildSettingsPayload(
   default_model: string;
   approval_mode: ApprovalMode;
   active_provider_profile: string | null;
+  provider_activation_revision: number;
   default_provider_profile: string | null;
   available_models: string[];
   provider_profiles: Array<{
@@ -3267,6 +3725,9 @@ function buildSettingsPayload(
     default_model: effectiveDefaultModel,
     approval_mode: preferences.approval_mode,
     active_provider_profile: preferences.active_provider_profile ?? null,
+    provider_activation_revision: normalizeProviderActivationRevision(
+      preferences.provider_activation_revision
+    ),
     default_provider_profile: adapterConfig.default_provider_profile ?? null,
     available_models: availableModels,
     provider_profiles: providerProfilePayload,
