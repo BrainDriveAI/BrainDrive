@@ -12,6 +12,7 @@ import {
   restoreMemoryBackup,
   runMemoryBackupNow,
   sendMessage,
+  updateSettings,
   updateMemoryBackupSettings,
   updateProviderCredential,
   type ChatEvent,
@@ -75,6 +76,63 @@ describe("gateway-adapter email credit calls", () => {
     await expect(refreshEmailCreditStatus()).resolves.toMatchObject({ state: "pending" });
     expect(fetchMock).toHaveBeenCalledWith("/api/credits/entitlements/status", {
       headers: {},
+    });
+  });
+
+  it("preserves additive authoritative settings and activation revision in claim results", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            state: "completed",
+            operation_id: "operation-authoritative",
+            applied_cents: 500,
+            settings: {
+              default_model: "braindrive-models-default",
+              approval_mode: "ask-on-write",
+              active_provider_profile: "braindrive-models",
+              provider_activation_revision: 3,
+              default_provider_profile: "braindrive-models",
+              available_models: ["braindrive-models-default"],
+              provider_profiles: [],
+              braindrive_models_key: null,
+              memory_backup: null,
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+    );
+
+    await expect(claimEmailCredit({ email: "recipient@example.com" })).resolves.toMatchObject({
+      settings: {
+        active_provider_profile: "braindrive-models",
+        provider_activation_revision: 3,
+      },
+    });
+  });
+
+  it("preserves the safe provider_not_ready code without exposing hidden details", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            error: "Configure this provider before activating it",
+            code: "provider_not_ready",
+          }),
+          { status: 409, headers: { "content-type": "application/json" } }
+        )
+      )
+    );
+
+    await expect(
+      updateSettings({ active_provider_profile: "openrouter" })
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "provider_not_ready",
+      message: "Configure this provider before activating it",
     });
   });
 });

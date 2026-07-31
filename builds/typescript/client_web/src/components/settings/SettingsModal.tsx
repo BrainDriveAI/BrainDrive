@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   Bot,
   ChevronDown,
@@ -102,7 +102,19 @@ type SettingsModalProps = {
   onClose: () => void;
 };
 
-type EmailCreditClaimAttempts = Map<string, Promise<GatewayEmailCreditResult>>;
+type EmailCreditClaimAttempt = {
+  promise: Promise<GatewayEmailCreditResult>;
+  providerIntentEpoch: number;
+};
+
+type EmailCreditClaimAttempts = Map<string, EmailCreditClaimAttempt>;
+
+function providerActivationRevision(settings: GatewaySettings | null): number | undefined {
+  const revision = settings?.provider_activation_revision;
+  return typeof revision === "number" && Number.isSafeInteger(revision) && revision >= 0
+    ? revision
+    : undefined;
+}
 
 type SettingsTab = "provider" | "profile" | "your-agent" | "account" | "export" | "memory-backup" | "browser-access" | "remote-access";
 
@@ -152,6 +164,48 @@ export default function SettingsModal({
   const [catalogRefreshKey, setCatalogRefreshKey] = useState(0);
   const overlayRef = useRef<HTMLDivElement>(null);
   const emailCreditClaimAttempts = useRef<EmailCreditClaimAttempts>(new Map()).current;
+  const settingsRef = useRef<GatewaySettings | null>(null);
+  const providerIntentEpochRef = useRef(0);
+  const appliedLegacyClaimSettings = useRef(new Set<string>());
+
+  const commitSettings = useCallback((nextSettings: GatewaySettings) => {
+    settingsRef.current = nextSettings;
+    setSettings(nextSettings);
+    setSettingsError(null);
+  }, []);
+
+  const getProviderIntentEpoch = useCallback(
+    () => providerIntentEpochRef.current,
+    []
+  );
+
+  const applyClaimSettings = useCallback(
+    (nextSettings: GatewaySettings, providerIntentEpochAtStart: number) => {
+      if (providerIntentEpochAtStart !== providerIntentEpochRef.current) {
+        return;
+      }
+
+      const currentSettings = settingsRef.current;
+      const currentRevision = providerActivationRevision(currentSettings);
+      const nextRevision = providerActivationRevision(nextSettings);
+      if (
+        currentRevision !== undefined &&
+        nextRevision !== undefined &&
+        nextRevision <= currentRevision
+      ) {
+        return;
+      }
+      if (nextRevision === undefined) {
+        const legacyKey = `${providerIntentEpochAtStart}:${nextSettings.active_provider_profile ?? ""}`;
+        if (appliedLegacyClaimSettings.current.has(legacyKey)) {
+          return;
+        }
+        appliedLegacyClaimSettings.current.add(legacyKey);
+      }
+      commitSettings(nextSettings);
+    },
+    [commitSettings]
+  );
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -191,7 +245,7 @@ export default function SettingsModal({
         if (cancelled) {
           return;
         }
-        setSettings(payload);
+        commitSettings(payload);
       })
       .catch((loadError) => {
         if (cancelled) {
@@ -208,7 +262,7 @@ export default function SettingsModal({
     return () => {
       cancelled = true;
     };
-  }, [mode]);
+  }, [commitSettings, mode]);
 
   useEffect(() => {
     if (mode !== "local" || isLoadingSettings || settingsError || !settings) {
@@ -277,25 +331,70 @@ export default function SettingsModal({
   async function saveSettings(
     patch: SettingsPatch
   ): Promise<GatewaySettings> {
-    const updated = await updateGatewaySettings(patch);
-    setSettings(updated);
-    setSettingsError(null);
-    return updated;
+    const changesProviderIntent = patch.active_provider_profile !== undefined;
+    const requestEpoch = changesProviderIntent
+      ? ++providerIntentEpochRef.current
+      : providerIntentEpochRef.current;
+    try {
+      const updated = await updateGatewaySettings(patch);
+      if (changesProviderIntent && requestEpoch !== providerIntentEpochRef.current) {
+        return settingsRef.current ?? updated;
+      }
+      const currentRevision = providerActivationRevision(settingsRef.current);
+      const updatedRevision = providerActivationRevision(updated);
+      if (
+        currentRevision !== undefined &&
+        updatedRevision !== undefined &&
+        updatedRevision < currentRevision
+      ) {
+        return settingsRef.current ?? updated;
+      }
+      commitSettings(updated);
+      return updated;
+    } catch (error) {
+      if (changesProviderIntent && requestEpoch !== providerIntentEpochRef.current) {
+        const currentSettings = settingsRef.current;
+        if (currentSettings) {
+          return currentSettings;
+        }
+      }
+      throw error;
+    }
   }
 
   async function saveCredential(patch: GatewayCredentialUpdateRequest): Promise<void> {
-    const updated = await updateGatewayProviderCredential(patch);
-    setSettings(updated.settings);
-    setSettingsError(null);
-    resetGatewayChatRuntime();
+    const changesProviderIntent = patch.set_active_provider === true;
+    const requestEpoch = changesProviderIntent
+      ? ++providerIntentEpochRef.current
+      : providerIntentEpochRef.current;
+    try {
+      const updated = await updateGatewayProviderCredential(patch);
+      if (changesProviderIntent && requestEpoch !== providerIntentEpochRef.current) {
+        return;
+      }
+      const currentRevision = providerActivationRevision(settingsRef.current);
+      const updatedRevision = providerActivationRevision(updated.settings);
+      if (
+        currentRevision !== undefined &&
+        updatedRevision !== undefined &&
+        updatedRevision < currentRevision
+      ) {
+        return;
+      }
+      commitSettings(updated.settings);
+    } catch (error) {
+      if (changesProviderIntent && requestEpoch !== providerIntentEpochRef.current) {
+        return;
+      }
+      throw error;
+    }
   }
 
   async function saveMemoryBackupSettings(
     payload: GatewayMemoryBackupSettingsUpdateRequest
   ): Promise<GatewaySettings> {
     const updated = await updateGatewayMemoryBackupSettings(payload);
-    setSettings(updated);
-    setSettingsError(null);
+    commitSettings(updated);
     return updated;
   }
 
@@ -303,8 +402,7 @@ export default function SettingsModal({
     payload: GatewayMemoryBackupRunRequest = {}
   ): Promise<GatewayMemoryBackupRunResult> {
     const updated = await runMemoryBackupNow(payload);
-    setSettings(updated.settings);
-    setSettingsError(null);
+    commitSettings(updated.settings);
     return updated.result;
   }
 
@@ -312,8 +410,7 @@ export default function SettingsModal({
     payload?: GatewayMemoryBackupRestoreRequest
   ): Promise<GatewayMemoryBackupRestoreResult> {
     const updated = await restoreGatewayMemoryBackup(payload ?? {});
-    setSettings(updated.settings);
-    setSettingsError(null);
+    commitSettings(updated.settings);
     resetGatewayChatRuntime();
     if (updated.logout_required) {
       await logout();
@@ -351,7 +448,7 @@ export default function SettingsModal({
       const result = await importLibraryArchive(file);
       setImportResult(result);
       if (mode === "local") {
-        setSettings(result.settings);
+        commitSettings(result.settings);
         resetGatewayChatRuntime();
         setCatalogRefreshKey((current) => current + 1);
         if (result.logout_required) {
@@ -441,6 +538,8 @@ export default function SettingsModal({
               appVersion={appVersion}
               onRefreshCatalog={() => setCatalogRefreshKey((k) => k + 1)}
               emailCreditClaimAttempts={emailCreditClaimAttempts}
+              getProviderIntentEpoch={getProviderIntentEpoch}
+              onApplyClaimSettings={applyClaimSettings}
             />
           </div>
         </div>
@@ -511,6 +610,8 @@ export default function SettingsModal({
             installLocation={installLocation}
             appVersion={appVersion}
             emailCreditClaimAttempts={emailCreditClaimAttempts}
+            getProviderIntentEpoch={getProviderIntentEpoch}
+            onApplyClaimSettings={applyClaimSettings}
           />
         </div>
       </div>
@@ -643,6 +744,8 @@ function TabContent({
   appVersion,
   onRefreshCatalog,
   emailCreditClaimAttempts,
+  getProviderIntentEpoch,
+  onApplyClaimSettings,
 }: {
   tab: SettingsTab;
   mode: "local" | "managed";
@@ -675,6 +778,11 @@ function TabContent({
   appVersion: string;
   onRefreshCatalog: () => void;
   emailCreditClaimAttempts: EmailCreditClaimAttempts;
+  getProviderIntentEpoch: () => number;
+  onApplyClaimSettings: (
+    settings: GatewaySettings,
+    providerIntentEpochAtStart: number
+  ) => void;
 }) {
   switch (tab) {
     case "provider":
@@ -691,6 +799,8 @@ function TabContent({
           onSaveCredential={onSaveCredential}
           onRefreshCatalog={onRefreshCatalog}
           emailCreditClaimAttempts={emailCreditClaimAttempts}
+          getProviderIntentEpoch={getProviderIntentEpoch}
+          onApplyClaimSettings={onApplyClaimSettings}
         />
       );
     case "memory-backup":
@@ -1745,11 +1855,18 @@ function BrainDriveModelsPanel({
   keyState,
   onSaveCredential,
   emailCreditClaimAttempts,
+  getProviderIntentEpoch,
+  onApplyClaimSettings,
 }: {
   profile: GatewayProviderProfile;
   keyState: GatewayBrainDriveModelsKeyState | null;
   onSaveCredential: (patch: GatewayCredentialUpdateRequest) => Promise<void>;
   emailCreditClaimAttempts: EmailCreditClaimAttempts;
+  getProviderIntentEpoch: () => number;
+  onApplyClaimSettings: (
+    settings: GatewaySettings,
+    providerIntentEpochAtStart: number
+  ) => void;
 }) {
   const user = useSettingsUser();
   const [apiKey, setApiKey] = useState("");
@@ -1781,7 +1898,10 @@ function BrainDriveModelsPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.email]);
 
-  function applyClaimResult(result: GatewayEmailCreditResult) {
+  const applyClaimResult = useCallback((
+    result: GatewayEmailCreditResult,
+    providerIntentEpochAtStart: number
+  ) => {
     setClaimResult(result);
     setClaimNeedsRepair(false);
     setKeyInvalid(false);
@@ -1797,15 +1917,22 @@ function BrainDriveModelsPanel({
     } else {
       setClaimMessage(null);
     }
-  }
+    if (
+      result.settings &&
+      (result.state === "completed" || result.state === "partial_success")
+    ) {
+      onApplyClaimSettings(result.settings, providerIntentEpochAtStart);
+    }
+  }, [onApplyClaimSettings]);
 
   async function refreshClaimResult() {
     const requestId = ++claimRequestId.current;
+    const providerIntentEpochAtStart = getProviderIntentEpoch();
     setClaimLoading(true);
     try {
       const result = await refreshEmailCreditStatus();
       if (requestId === claimRequestId.current) {
-        applyClaimResult(result);
+        applyClaimResult(result, providerIntentEpochAtStart);
       }
     } catch (error) {
       const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
@@ -1884,13 +2011,16 @@ function BrainDriveModelsPanel({
       setClaimNeedsRepair(false);
       let claimAttempt = emailCreditClaimAttempts.get(emailKey);
       if (!claimAttempt) {
-        claimAttempt = claimEmailCredit({ email: normalizedEmail });
+        claimAttempt = {
+          promise: claimEmailCredit({ email: normalizedEmail }),
+          providerIntentEpoch: getProviderIntentEpoch(),
+        };
         emailCreditClaimAttempts.set(emailKey, claimAttempt);
       }
-      void claimAttempt
+      void claimAttempt.promise
         .then((result) => {
           if (requestId === claimRequestId.current) {
-            applyClaimResult(result);
+            applyClaimResult(result, claimAttempt.providerIntentEpoch);
           }
         })
         .catch((error) => {
@@ -1922,6 +2052,8 @@ function BrainDriveModelsPanel({
     claimLoading,
     claimResult?.state,
     emailCreditClaimAttempts,
+    applyClaimResult,
+    getProviderIntentEpoch,
   ]);
 
   function handleEmailChange(value: string) {
@@ -2266,6 +2398,8 @@ function ProviderSection({
   modelCatalogError,
   onRefreshCatalog,
   emailCreditClaimAttempts,
+  getProviderIntentEpoch,
+  onApplyClaimSettings,
 }: {
   mode: "local" | "managed";
   modelCatalog: GatewayModelCatalog | null;
@@ -2273,8 +2407,14 @@ function ProviderSection({
   modelCatalogError: string | null;
   onRefreshCatalog: () => void;
   emailCreditClaimAttempts: EmailCreditClaimAttempts;
+  getProviderIntentEpoch: () => number;
+  onApplyClaimSettings: (
+    settings: GatewaySettings,
+    providerIntentEpochAtStart: number
+  ) => void;
 } & SettingsDataProps) {
-  const [selectedProfile, setSelectedProfile] = useState("");
+  const providerSectionId = useId();
+  const [expandedProfile, setExpandedProfile] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [providerApiKey, setProviderApiKey] = useState("");
@@ -2283,7 +2423,7 @@ function ProviderSection({
   const [ollamaUrl, setOllamaUrl] = useState("");
   const [isSavingUrl, setIsSavingUrl] = useState(false);
   const [urlError, setUrlError] = useState<string | null>(null);
-  const activeProfile = settings?.provider_profiles.find((profile) => profile.id === selectedProfile) ??
+  const activeProfile = settings?.provider_profiles.find((profile) => profile.id === expandedProfile) ??
     settings?.provider_profiles[0] ?? null;
   const canUsePlainCredentialMode = activeProfile?.credential_mode === "plain" ||
     activeProfile?.provider_id?.toLowerCase() === "ollama";
@@ -2294,7 +2434,15 @@ function ProviderSection({
     if (!settings) {
       return;
     }
-    setSelectedProfile(settings.active_provider_profile ?? settings.default_provider_profile ?? "");
+    setExpandedProfile((currentProfile) => {
+      if (
+        currentProfile &&
+        settings.provider_profiles.some((profile) => profile.id === currentProfile)
+      ) {
+        return currentProfile;
+      }
+      return settings.active_provider_profile ?? settings.default_provider_profile ?? "";
+    });
     const ollamaProfile = settings.provider_profiles.find(
       (p) => p.provider_id?.toLowerCase() === "ollama"
     );
@@ -2380,53 +2528,69 @@ function ProviderSection({
         <div>
           <div className="space-y-2">
             {orderedProfiles.map((profile) => {
-              const isSelected = selectedProfile === profile.id;
+              const isExpanded = expandedProfile === profile.id;
+              const isActive =
+                profile.id ===
+                (settings.active_provider_profile ?? settings.default_provider_profile);
               const isOllama = profile.provider_id?.toLowerCase() === "ollama";
               const isBrainDriveModels = profile.provider_id?.toLowerCase() === "braindrive-models";
               const profileCanUsePlain = profile.credential_mode === "plain" || isOllama;
-              const showKeyForProfile = isSelected && showApiKeyInput;
+              const showKeyForProfile = isExpanded && showApiKeyInput;
+              const profileLabel = isBrainDriveModels
+                ? "BrainDrive Models"
+                : isOllama
+                  ? "Ollama"
+                  : "OpenRouter";
+              const canActivate =
+                isOllama ||
+                profile.credential_mode !== "unset" ||
+                (isBrainDriveModels && settings.braindrive_models_key !== null);
+              const panelId = `${providerSectionId}-${profile.id}-panel`;
 
               return (
                 <div key={profile.id} className="space-y-0">
                   <button
                     type="button"
-                    disabled={isSaving}
+                    aria-controls={panelId}
+                    aria-current={isActive ? "true" : undefined}
+                    aria-expanded={isExpanded}
+                    aria-label={`${profileLabel} provider settings${isActive ? " (active)" : ""}`}
                     onClick={() => {
-                      setSelectedProfile(profile.id);
+                      setExpandedProfile((currentProfile) =>
+                        currentProfile === profile.id ? "" : profile.id
+                      );
                       setCredentialError(null);
                       setProviderApiKey("");
-                      setIsSaving(true);
                       setSaveError(null);
-                      void onSaveSettings({ active_provider_profile: profile.id })
-                        .then(() => {})
-                        .catch((error) => {
-                          setSaveError(error instanceof Error ? error.message : String(error));
-                        })
-                        .finally(() => {
-                          setIsSaving(false);
-                        });
                     }}
                     className={[
-                      "flex w-full items-center gap-3 border px-4 py-3 text-left transition-all duration-200",
-                      isSelected
+                      "flex w-full items-center gap-3 border px-4 py-3 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bd-amber/60",
+                      isExpanded
                         ? "rounded-t-lg border-bd-amber border-b-0 bg-bd-bg-tertiary"
-                        : "rounded-lg border-bd-border hover:border-bd-border hover:bg-bd-bg-hover"
+                        : isActive
+                          ? "rounded-lg border-bd-amber/60 bg-bd-bg-tertiary"
+                          : "rounded-lg border-bd-border hover:border-bd-border hover:bg-bd-bg-hover"
                     ].join(" ")}
                   >
                     <div className={[
                       "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2",
-                      isSelected ? "border-bd-amber" : "border-bd-border"
+                      isActive ? "border-bd-amber" : "border-bd-border"
                     ].join(" ")}>
-                      {isSelected && <div className="h-2 w-2 rounded-full bg-bd-amber" />}
+                      {isActive && <div className="h-2 w-2 rounded-full bg-bd-amber" />}
                     </div>
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <div className={[
                           "text-sm font-medium",
-                          isSelected ? "text-bd-text-primary" : "text-bd-text-secondary"
+                          isExpanded || isActive ? "text-bd-text-primary" : "text-bd-text-secondary"
                         ].join(" ")}>
-                          {isBrainDriveModels ? "BrainDrive Models" : isOllama ? "Ollama" : "OpenRouter"}
+                          {profileLabel}
                         </div>
+                        {isActive && (
+                          <span className="text-[10px] font-medium uppercase tracking-wide text-bd-amber">
+                            Active
+                          </span>
+                        )}
                         {isBrainDriveModels && (
                           <span className="rounded-full border border-bd-amber/40 bg-bd-amber/10 px-2 py-0.5 text-[10px] font-medium text-bd-amber">
                             Recommended
@@ -2441,18 +2605,63 @@ function ProviderSection({
                           : <>Cloud-based, requires API key — <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" className="text-bd-text-muted hover:text-bd-text-secondary hover:underline" onClick={(e) => e.stopPropagation()}>openrouter.ai/keys</a></>}
                       </div>
                     </div>
+                    {isExpanded ? (
+                      <ChevronDown size={16} className="shrink-0 text-bd-text-muted" />
+                    ) : (
+                      <ChevronRight size={16} className="shrink-0 text-bd-text-muted" />
+                    )}
                   </button>
 
-                  {isSelected && (
-                    <div className={[
-                      "border border-t-0 border-bd-amber bg-bd-bg-tertiary px-4 pb-3 pt-2 rounded-b-lg"
-                    ].join(" ")}>
+                  {isExpanded && (
+                    <div
+                      id={panelId}
+                      className="rounded-b-lg border border-t-0 border-bd-amber bg-bd-bg-tertiary px-4 pb-3 pt-2"
+                    >
+                      {!isActive && (
+                        <div className="mb-3 space-y-2 border-b border-bd-border pb-3">
+                          <button
+                            type="button"
+                            disabled={isSaving || !canActivate}
+                            onClick={() => {
+                              setIsSaving(true);
+                              setSaveError(null);
+                              void onSaveSettings({ active_provider_profile: profile.id })
+                                .catch((error) => {
+                                  const code =
+                                    typeof error === "object" &&
+                                    error &&
+                                    "code" in error
+                                      ? String(error.code)
+                                      : "";
+                                  setSaveError(
+                                    code === "provider_not_ready"
+                                      ? `Configure ${profileLabel} before activating it.`
+                                      : "Unable to activate this provider. Try again."
+                                  );
+                                })
+                                .finally(() => {
+                                  setIsSaving(false);
+                                });
+                            }}
+                            className="rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {isSaving ? "Activating..." : `Use ${profileLabel}`}
+                          </button>
+                          {!canActivate && (
+                            <p className="text-xs text-bd-text-muted">
+                              Configure {profileLabel} before activating it.
+                            </p>
+                          )}
+                        </div>
+                      )}
                       {isBrainDriveModels ? (
                         <BrainDriveModelsPanel
                           profile={profile}
                           keyState={settings.braindrive_models_key ?? null}
                           onSaveCredential={onSaveCredential}
                           emailCreditClaimAttempts={emailCreditClaimAttempts}
+                          getProviderIntentEpoch={getProviderIntentEpoch}
+                          onApplyClaimSettings={onApplyClaimSettings}
                         />
                       ) : (
                         <>
@@ -2647,7 +2856,10 @@ function ProviderSection({
         </div>
 
         {saveError && (
-          <div className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2.5 text-sm text-bd-text-primary">
+          <div
+            role="alert"
+            className="rounded-lg border border-bd-danger-border bg-bd-danger-bg px-3 py-2.5 text-sm text-bd-text-primary"
+          >
             {saveError}
           </div>
         )}

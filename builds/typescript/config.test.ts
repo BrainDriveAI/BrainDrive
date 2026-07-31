@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { loadPreferences, readBootstrapPrompt, savePreferences } from "./config.js";
 import type { Preferences } from "./contracts.js";
+import { normalizeProviderActivationRevision } from "./gateway/provider-activation.js";
 
 describe("preferences compatibility", () => {
   let tempRoot: string | null = null;
@@ -134,6 +135,198 @@ describe("preferences compatibility", () => {
     >;
     expect(Object.prototype.hasOwnProperty.call(persisted, "prompt_audit")).toBe(true);
     expect(Object.prototype.hasOwnProperty.call(persisted, "unknown_setting")).toBe(false);
+  });
+
+  it("round-trips entitlement metadata and provider activation revisions", async () => {
+    if (!tempRoot) {
+      throw new Error("Missing temp root");
+    }
+
+    const preferencesDir = path.join(tempRoot, "preferences");
+    await mkdir(preferencesDir, { recursive: true });
+
+    const nextPreferences = {
+      default_model: "braindrive-models-default",
+      approval_mode: "ask-on-write",
+      active_provider_profile: "braindrive-models",
+      provider_activation_revision: 4,
+      braindrive_models_entitlement: {
+        operation_id: "operation-round-trip",
+        status: "completed",
+        applied_cents: 2500,
+        provider_activation_revision_at_start: 3,
+        last_attempt_at: "2026-07-30T12:34:56.000Z",
+        last_error: null,
+      },
+      unrelated_setting: true,
+    } as unknown as Preferences;
+
+    await savePreferences(tempRoot, nextPreferences);
+    const loaded = await loadPreferences(tempRoot);
+
+    expect(loaded).toMatchObject({
+      provider_activation_revision: 4,
+      braindrive_models_entitlement: {
+        operation_id: "operation-round-trip",
+        status: "completed",
+        applied_cents: 2500,
+        provider_activation_revision_at_start: 3,
+        last_attempt_at: "2026-07-30T12:34:56.000Z",
+        last_error: null,
+      },
+    });
+
+    const persisted = JSON.parse(await readFile(path.join(preferencesDir, "default.json"), "utf8")) as Record<
+      string,
+      unknown
+    >;
+    expect(persisted.provider_activation_revision).toBe(4);
+    expect(Object.prototype.hasOwnProperty.call(persisted, "unrelated_setting")).toBe(false);
+    expect(Object.keys(persisted.braindrive_models_entitlement as Record<string, unknown>).sort()).toEqual([
+      "applied_cents",
+      "last_attempt_at",
+      "last_error",
+      "operation_id",
+      "provider_activation_revision_at_start",
+      "status",
+    ]);
+  });
+
+  it("loads legacy entitlement metadata without writing revision fields", async () => {
+    if (!tempRoot) {
+      throw new Error("Missing temp root");
+    }
+
+    const preferencesDir = path.join(tempRoot, "preferences");
+    await mkdir(preferencesDir, { recursive: true });
+    await writeFile(
+      path.join(preferencesDir, "default.json"),
+      `${JSON.stringify(
+        {
+          default_model: "braindrive-models-default",
+          approval_mode: "ask-on-write",
+          active_provider_profile: "openrouter",
+          braindrive_models_entitlement: {
+            operation_id: "operation-legacy",
+            status: "pending",
+            last_attempt_at: "2026-07-30T12:34:56.000Z",
+            last_error: null,
+          },
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const loaded = await loadPreferences(tempRoot);
+
+    expect(loaded.braindrive_models_entitlement).toEqual({
+      operation_id: "operation-legacy",
+      status: "pending",
+      last_attempt_at: "2026-07-30T12:34:56.000Z",
+      last_error: null,
+    });
+    expect(Object.prototype.hasOwnProperty.call(loaded, "provider_activation_revision")).toBe(false);
+    expect(normalizeProviderActivationRevision(loaded.provider_activation_revision)).toBe(0);
+    expect(
+      Object.prototype.hasOwnProperty.call(
+        loaded.braindrive_models_entitlement ?? {},
+        "provider_activation_revision_at_start"
+      )
+    ).toBe(false);
+  });
+
+  it.each([
+    ["negative", -1],
+    ["fractional", 1.5],
+    ["string", "1"],
+    ["unsafe", Number.MAX_SAFE_INTEGER + 1],
+  ])("rejects a %s provider activation revision", async (_label, invalidRevision) => {
+    if (!tempRoot) {
+      throw new Error("Missing temp root");
+    }
+
+    const preferencesDir = path.join(tempRoot, "preferences");
+    await mkdir(preferencesDir, { recursive: true });
+    const nextPreferences = {
+      default_model: "braindrive-models-default",
+      approval_mode: "ask-on-write",
+      provider_activation_revision: invalidRevision,
+    } as unknown as Preferences;
+
+    await expect(savePreferences(tempRoot, nextPreferences)).rejects.toThrow();
+  });
+
+  it.each([
+    ["negative", -1],
+    ["fractional", 1.5],
+    ["string", "1"],
+    ["unsafe", Number.MAX_SAFE_INTEGER + 1],
+  ])("rejects a %s captured provider activation revision", async (_label, invalidRevision) => {
+    if (!tempRoot) {
+      throw new Error("Missing temp root");
+    }
+
+    const preferencesDir = path.join(tempRoot, "preferences");
+    await mkdir(preferencesDir, { recursive: true });
+    const nextPreferences = {
+      default_model: "braindrive-models-default",
+      approval_mode: "ask-on-write",
+      braindrive_models_entitlement: {
+        operation_id: "operation-invalid",
+        status: "pending",
+        provider_activation_revision_at_start: invalidRevision,
+      },
+    } as unknown as Preferences;
+
+    await expect(savePreferences(tempRoot, nextPreferences)).rejects.toThrow();
+  });
+
+  it("rejects JSON null revisions produced by non-finite numeric serialization", async () => {
+    if (!tempRoot) {
+      throw new Error("Missing temp root");
+    }
+
+    const preferencesDir = path.join(tempRoot, "preferences");
+    await mkdir(preferencesDir, { recursive: true });
+    await writeFile(
+      path.join(preferencesDir, "default.json"),
+      `${JSON.stringify({
+        default_model: "braindrive-models-default",
+        approval_mode: "ask-on-write",
+        provider_activation_revision: Number.NaN,
+        braindrive_models_entitlement: {
+          operation_id: "operation-non-finite",
+          status: "pending",
+          provider_activation_revision_at_start: Number.POSITIVE_INFINITY,
+        },
+      })}\n`,
+      "utf8"
+    );
+
+    await expect(loadPreferences(tempRoot)).rejects.toThrow();
+  });
+
+  it("rejects unknown or sensitive entitlement fields", async () => {
+    if (!tempRoot) {
+      throw new Error("Missing temp root");
+    }
+
+    const preferencesDir = path.join(tempRoot, "preferences");
+    await mkdir(preferencesDir, { recursive: true });
+    const nextPreferences = {
+      default_model: "braindrive-models-default",
+      approval_mode: "ask-on-write",
+      braindrive_models_entitlement: {
+        operation_id: "operation-sensitive",
+        status: "pending",
+        billing_email: "owner@example.com",
+        api_key: "not-a-real-key",
+      },
+    } as unknown as Preferences;
+
+    await expect(savePreferences(tempRoot, nextPreferences)).rejects.toThrow();
   });
 });
 
