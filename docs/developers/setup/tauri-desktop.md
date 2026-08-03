@@ -6,7 +6,7 @@
 > - Audience: First-time contributors, Recurring contributors, Maintainers, AI coding agents, Verification agents and human reviewers.
 > - Status: Current on `dev`; Milestone 2.
 > - Owner role: runtime-maintainers.
-> - Expected outcome: Desktop preflight passes and the provider-independent desktop shell reaches its ready local runtime on an evidenced platform.
+> - Expected outcome: Desktop preflight passes and the provider-independent desktop shell reaches its ready local runtime on an evidenced claimed platform.
 > - Prerequisites: Node.js 22 and npm; Rust toolchain; Tauri platform dependencies; Graphical desktop session; Installed TypeScript, web, and MCP dependencies.
 > - Parent: [docs/developers/README.md](../README.md).
 > - Adjacent topics: [BrainDrive Tauri desktop shell](../../../builds/typescript/src-tauri/README.md); [Native TypeScript and web development](./native.md); [Change verification](../verification.md); [Safe debugging and failure evidence](../debugging.md).
@@ -21,11 +21,13 @@ The Tauri shell uses the Vite client during development. Its designed runtime bo
 
 - Node.js 22/npm and dependencies installed in `builds/typescript/`, `builds/typescript/client_web/`, and `builds/mcp_release/`.
 - Rust stable with `cargo` and a native compiler/linker.
-- Tauri 2 platform prerequisites from the [official prerequisite guide](https://v2.tauri.app/start/prerequisites/): WebView2 and Microsoft C++ Build Tools on Windows; Xcode or Xcode Command Line Tools on macOS; the distribution's WebKitGTK, GTK, OpenSSL, and build packages on Linux.
+- Tauri 2 platform prerequisites from the [official prerequisite guide](https://v2.tauri.app/start/prerequisites/): WebView2 and Microsoft C++ Build Tools on native Windows; Xcode or Xcode Command Line Tools on native macOS. Linux WebKitGTK, GTK, OpenSSL, and build packages may be used for source/build diagnostics, but do not establish a V1 Linux desktop support claim.
 - A graphical desktop session. Headless shells can run preflight/tests but do not prove the desktop window journey.
 - The Vite development port must be free. The embedded MCP and gateway ports are selected dynamically.
 
-Repository configuration defines Windows, macOS, and Linux bundle targets, but a platform is evidenced only by a recorded run on that platform. Milestone records do not turn one Linux run into a Windows or macOS claim.
+Repository configuration defines Windows, macOS, and Linux bundle targets. That is configuration truth, not the claimed-platform matrix. V1 J-05 claims native Windows and native macOS. WSL and Linux are not claimed J-05 platforms unless a later maintainer decision explicitly adopts them and supplies their own successful evidence.
+
+WSL may run `desktop:preflight`, `desktop:test`, compilation, and controlled launch diagnostics. Those results cannot satisfy native Windows or native macOS J-05 evidence. While the V1 claims remain, both required reports are recorded as `DEFERRED — REQUIRED BEFORE MILESTONE 7`; final readiness must fail closed if either native report is absent.
 
 ## Command contract
 
@@ -33,7 +35,7 @@ Repository configuration defines Windows, macOS, and Linux bundle targets, but a
 |---|---|
 | Working directory | `builds/typescript/` |
 | Commands | `npm run desktop:preflight`, then `npm run desktop:dev` |
-| Platform | Tauri-configured Windows, macOS, and Linux; execution evidence is platform-specific |
+| Platform | V1 J-05 claims native Windows and native macOS. WSL/Linux is diagnostic-only and is not claimed desktop-support evidence |
 | Mode | Tauri development shell with local embedded runtime; not Docker or managed deployment |
 | Credential need | None for preflight, runtime health, local authentication UI, or the desktop shell |
 | Side effects | Preflight emits TypeScript/MCP build output; dev starts Vite and compiles Rust, writes Cargo target artifacts, starts local child services, creates desktop app data/config/secrets/log directories, and opens native windows |
@@ -52,11 +54,17 @@ npm run desktop:dev
 
 The bare development command uses the current OS account's normal application data/config/cache paths. For isolated Linux/WSL evidence, allocate a task-owned root first and set `XDG_DATA_HOME`, `XDG_CONFIG_HOME`, and `XDG_CACHE_HOME` to explicit subdirectories of it for the `npm run desktop:dev` process. Stop the process before removing only that validated root. Windows and macOS need an authorized disposable OS account or equivalent isolated environment until a repository-supported path override is evidenced; do not redirect or delete an owner's normal desktop directories.
 
-## Current controlled evidence
+## Prior WSL diagnostic record
 
-The 2026-08-01 WSL/Linux controlled journey is blocked. Preflight passed, Vite and Rust compiled, the native window and WebKit processes launched, all three MCP services became ready, and the dynamically allocated gateway health check passed. In two isolated runs, however, the client continued sending `/api` traffic through the Vite proxy to its fixed native-development gateway target. The local auth/bootstrap surface therefore did not reach the usable-shell baseline even though the embedded runtime was healthy.
+The 2026-08-01 WSL/Linux controlled journey failed to reach the usable shell. Preflight passed, Vite and Rust compiled, the native window and WebKit processes launched, all three MCP services became ready, and the dynamically allocated gateway health check passed. In two isolated runs, however, the client continued sending `/api` traffic through the Vite proxy to its fixed native-development gateway target. The local auth/bootstrap surface therefore did not reach the usable-shell baseline even though the embedded runtime was healthy.
 
-This is a product/platform investigation boundary, not a provider failure and not proof of general Linux, Windows, or macOS support. Do not work around it by starting an unrelated gateway on the Vite proxy target or by reusing owner desktop data: either action would hide the failed desktop transport handoff. Windows and macOS remain unverified.
+This remains a diagnostic failure record. It is not relabeled as passing J-05 evidence, does not establish Linux/WSL support, and cannot substitute for either native claimed platform. Do not work around it by starting an unrelated gateway on the Vite proxy target or by reusing owner desktop data: either action would hide the failed desktop transport handoff.
+
+| Claimed platform | J-05 evidence state |
+|---|---|
+| Native Windows | `DEFERRED — REQUIRED BEFORE MILESTONE 7` |
+| Native macOS | `DEFERRED — REQUIRED BEFORE MILESTONE 7` |
+| WSL/Linux | Not claimed for V1 J-05; diagnostics only |
 
 ## Provider-independent baseline
 
@@ -90,4 +98,4 @@ Stop with `Ctrl-C` and verify no task-owned Tauri, Vite, gateway, or MCP process
 - [`runtime-api-base.ts`](../../../builds/typescript/client_web/src/api/runtime-api-base.ts) owns browser-versus-Tauri API resolution.
 - [`package.json`](../../../builds/typescript/package.json) owns preflight, dev, build, and desktop-test command composition.
 
-There is no focused automated test for `resolveGatewayBaseUrl`, `/api` rewriting to the dynamic gateway, or the desktop request header. The controlled failure and this gap remain part of OPEN-03; optional Tailscale/browser-access tests do not cover the core handoff.
+There is no focused automated test for `resolveGatewayBaseUrl`, `/api` rewriting to the dynamic gateway, or the desktop request header. The prior WSL failure preserves this diagnostic gap; optional Tailscale/browser-access tests do not cover the core handoff. OPEN-03 now tracks the two deferred native platform reports and the rule that WSL/Linux cannot satisfy them.

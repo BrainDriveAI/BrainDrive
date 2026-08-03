@@ -46,13 +46,15 @@ npm run desktop:dev
 
 These commands do not need a model-provider credential for build, test, runtime health, or the desktop shell. A model response is a separate authorized integration check.
 
-## Platform and data safety
+## Configuration, platform claims, and data safety
 
-The bundle configuration targets Windows, macOS, and Linux, but evidence is platform-specific. Report the actual OS/toolchain used. Desktop startup creates application data, configuration, secret, and log directories through Tauri platform paths. Controlled runs must use isolated task-specific platform data roots; do not inspect or overwrite an existing owner's desktop state.
+The bundle configuration targets Windows, macOS, and Linux. Configured output targets are not support claims. V1 J-05 claims native Windows and native macOS; both reports are `DEFERRED — REQUIRED BEFORE MILESTONE 7`. WSL/Linux may run preflight, tests, builds, and launch diagnostics, but is not a claimed J-05 environment unless separately adopted and evidenced. Report the actual OS/toolchain used and never translate WSL execution into native Windows evidence.
+
+Desktop startup creates application data, configuration, secret, and log directories through Tauri platform paths. Controlled runs must use isolated task-specific platform data roots; do not inspect or overwrite an existing owner's desktop state.
 
 Optional browser/Tailscale access is not part of basic desktop readiness and must not be enabled as a setup side effect. It has separate network and mutation safeguards in source and tests.
 
-No focused test currently covers `runtime-api-base.ts` resolving the dynamic gateway, rewriting `/api`, and attaching the desktop request header. The optional Tailscale tests do not prove that core handoff; see the setup guide's current controlled evidence and OPEN-03 status.
+No focused test currently covers `runtime-api-base.ts` resolving the dynamic gateway, rewriting `/api`, and attaching the desktop request header. The optional Tailscale tests do not prove that core handoff; see the setup guide's preserved WSL diagnostic failure and OPEN-03 platform-evidence status.
 
 ## Verification routing
 

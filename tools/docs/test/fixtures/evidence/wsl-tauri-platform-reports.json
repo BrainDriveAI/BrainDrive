@@ -1,0 +1,16 @@
+{
+  "reports": [
+    {
+      "journeyId": "J-05",
+      "platform": "windows",
+      "environment": "wsl",
+      "disposition": "pass"
+    },
+    {
+      "journeyId": "J-05",
+      "platform": "macos",
+      "environment": "wsl",
+      "disposition": "pass"
+    }
+  ]
+}

@@ -1,10 +1,32 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { validateEvidence, validateEvidenceTemplates, validateHarness, validateMilestoneRecord } from '../lib/rules/evidence.mjs';
+import { validateClaimedPlatformEvidence, validateEvidence, validateEvidenceTemplates, validateHarness, validateMilestoneRecord } from '../lib/rules/evidence.mjs';
 import { validateSchema } from '../lib/schema.mjs';
 
 const fixture = async (name) => JSON.parse(await readFile(new URL(`./fixtures/evidence/${name}`, import.meta.url), 'utf8'));
+const repositoryCatalog = async () => JSON.parse(await readFile(new URL('../../../docs/developers/catalog.json', import.meta.url), 'utf8'));
+const milestonePath = (number, slug) => `docs/developers/verification/milestones/${String(number).padStart(2, '0')}-${slug}.md`;
+const readMilestone = (path) => readFile(new URL(`../../../${path}`, import.meta.url), 'utf8');
+const terminalResult = (text) => text.trimEnd().split(/\r?\n/).at(-1);
+const completionResult = (number) => `MILESTONE ${number} COMPLETE — NEXT LEGAL PROMPT: ${number + 1}`;
+
+async function assertConditionalCascade(predecessor, successor) {
+  const predecessorText = await readMilestone(predecessor.path);
+  const successorText = await readMilestone(successor.path);
+  const predecessorComplete = terminalResult(predecessorText) === completionResult(predecessor.number);
+
+  assert.deepEqual(validateMilestoneRecord(successorText, successor.path), []);
+  if (!predecessorComplete) {
+    assert.equal(
+      terminalResult(successorText),
+      'BLOCKED',
+      `Milestone ${successor.number} must remain blocked while Milestone ${predecessor.number} is incomplete`,
+    );
+  }
+
+  return { predecessorComplete, successorText, successorResult: terminalResult(successorText) };
+}
 
 test('complete sanitized journey evidence passes', async () => {
   assert.deepEqual(validateEvidence(await fixture('valid-journey.json')), []);
@@ -39,80 +61,64 @@ test('milestone records accept the Milestone 1 terminal result and reject a mism
   assert.ok(diagnostics.some(({ rule }) => rule === 'DA-18'));
 });
 
-test('Milestone 2 record is present, structurally valid, and ends blocked when a required claimed journey fails', async () => {
+test('Milestone 2 record preserves its prior blocker and records the completed repository continuation', async () => {
   const path = 'docs/developers/verification/milestones/02-developer-journeys.md';
   const text = await readFile(new URL(`../../../${path}`, import.meta.url), 'utf8');
   assert.deepEqual(validateMilestoneRecord(text, path), []);
-  assert.equal(text.trimEnd().split(/\r?\n/).at(-1), 'BLOCKED');
+  assert.equal(text.trimEnd().split(/\r?\n/).at(-1), 'MILESTONE 2 COMPLETE — NEXT LEGAL PROMPT: 3');
+  assert.match(text, /Prior attempt result: BLOCKED/);
   assert.match(text, /Tauri/i);
   assert.match(text, /OPEN-03/);
   assert.match(text, /OPEN-06/);
 });
 
-test('Milestone 3 remains blocked while the Milestone 2 dependency is blocked', async () => {
-  const dependencyPath = 'docs/developers/verification/milestones/02-developer-journeys.md';
-  const dependency = await readFile(new URL(`../../../${dependencyPath}`, import.meta.url), 'utf8');
-  assert.equal(dependency.trimEnd().split(/\r?\n/).at(-1), 'BLOCKED');
-
-  const path = 'docs/developers/verification/milestones/03-technical-boundaries.md';
-  const text = await readFile(new URL(`../../../${path}`, import.meta.url), 'utf8');
-  assert.deepEqual(validateMilestoneRecord(text, path), []);
-  assert.equal(text.trimEnd().split(/\r?\n/).at(-1), 'BLOCKED');
-  assert.match(text, /Milestone 2/i);
-  assert.match(text, /Tauri/i);
+test('a completed Milestone 2 reopens Prompt 3 without auto-promoting its untouched blocker record', async () => {
+  const result = await assertConditionalCascade(
+    { number: 2, path: milestonePath(2, 'developer-journeys') },
+    { number: 3, path: milestonePath(3, 'technical-boundaries') },
+  );
+  assert.equal(result.predecessorComplete, true);
+  assert.equal(result.successorResult, 'BLOCKED');
+  assert.match(result.successorText, /rerun original Prompt 3/i);
+  assert.match(result.successorText, /not (?:be )?promoted automatically/i);
 });
 
-test('Milestone 4 remains blocked while the Milestone 3 dependency is blocked', async () => {
-  const dependencyPath = 'docs/developers/verification/milestones/03-technical-boundaries.md';
-  const dependency = await readFile(new URL(`../../../${dependencyPath}`, import.meta.url), 'utf8');
-  assert.equal(dependency.trimEnd().split(/\r?\n/).at(-1), 'BLOCKED');
+test('claimed native Tauri platforms fail closed when reports are absent or supplied by WSL', async () => {
+  const catalog = await repositoryCatalog();
+  const claim = catalog.platformClaims.find(({ id }) => id === 'tauri-development');
+  const missing = await fixture('missing-tauri-platform-reports.json');
+  const wsl = await fixture('wsl-tauri-platform-reports.json');
 
-  const path = 'docs/developers/verification/milestones/04-github-governance.md';
-  const text = await readFile(new URL(`../../../${path}`, import.meta.url), 'utf8');
-  assert.deepEqual(validateMilestoneRecord(text, path), []);
-  assert.equal(text.trimEnd().split(/\r?\n/).at(-1), 'BLOCKED');
-  assert.match(text, /Milestone 3/i);
-  assert.match(text, /Tauri/i);
+  const missingDiagnostics = validateClaimedPlatformEvidence(claim, missing.reports);
+  assert.deepEqual(
+    missingDiagnostics.map(({ path }) => path),
+    ['platform-evidence:J-05:windows', 'platform-evidence:J-05:macos'],
+  );
+
+  const wslDiagnostics = validateClaimedPlatformEvidence(claim, wsl.reports);
+  assert.equal(wslDiagnostics.length, 2);
+  assert.ok(wslDiagnostics.every(({ message }) => /native/i.test(message)));
+
+  assert.deepEqual(validateClaimedPlatformEvidence(claim, [
+    { journeyId: 'J-05', platform: 'windows', environment: 'native', disposition: 'pass' },
+    { journeyId: 'J-05', platform: 'macos', environment: 'native', disposition: 'pass' },
+  ]), []);
 });
 
-test('Milestone 5 remains blocked while the Milestone 4 dependency is blocked', async () => {
-  const dependencyPath = 'docs/developers/verification/milestones/04-github-governance.md';
-  const dependency = await readFile(new URL(`../../../${dependencyPath}`, import.meta.url), 'utf8');
-  assert.equal(dependency.trimEnd().split(/\r?\n/).at(-1), 'BLOCKED');
+test('incomplete predecessors keep later untouched milestone records blocked until each prompt is rerun', async () => {
+  const chain = [
+    [{ number: 3, path: milestonePath(3, 'technical-boundaries') }, { number: 4, path: milestonePath(4, 'github-governance') }, [/Milestone 3/i, /Tauri/i]],
+    [{ number: 4, path: milestonePath(4, 'github-governance') }, { number: 5, path: milestonePath(5, 'ai-agent-system') }, [/Milestone 4/i, /AIH-01 through AIH-10/i]],
+    [{ number: 5, path: milestonePath(5, 'ai-agent-system') }, { number: 6, path: milestonePath(6, 'validation-integration') }, [/Milestone 5/i, /DA-01 through DA-18/i]],
+    [{ number: 6, path: milestonePath(6, 'validation-integration') }, { number: 7, path: milestonePath(7, 'release-gauntlet') }, [/Milestone 6/i, /G-01 through G-14/i, /v1-readiness\.md/i]],
+  ];
 
-  const path = 'docs/developers/verification/milestones/05-ai-agent-system.md';
-  const text = await readFile(new URL(`../../../${path}`, import.meta.url), 'utf8');
-  assert.deepEqual(validateMilestoneRecord(text, path), []);
-  assert.equal(text.trimEnd().split(/\r?\n/).at(-1), 'BLOCKED');
-  assert.match(text, /Milestone 4/i);
-  assert.match(text, /AIH-01 through AIH-10/i);
-});
-
-test('Milestone 6 remains blocked while the Milestone 5 dependency is blocked', async () => {
-  const dependencyPath = 'docs/developers/verification/milestones/05-ai-agent-system.md';
-  const dependency = await readFile(new URL(`../../../${dependencyPath}`, import.meta.url), 'utf8');
-  assert.equal(dependency.trimEnd().split(/\r?\n/).at(-1), 'BLOCKED');
-
-  const path = 'docs/developers/verification/milestones/06-validation-integration.md';
-  const text = await readFile(new URL(`../../../${path}`, import.meta.url), 'utf8');
-  assert.deepEqual(validateMilestoneRecord(text, path), []);
-  assert.equal(text.trimEnd().split(/\r?\n/).at(-1), 'BLOCKED');
-  assert.match(text, /Milestone 5/i);
-  assert.match(text, /DA-01 through DA-18/i);
-});
-
-test('Milestone 7 blocks release while the Milestone 6 dependency is blocked', async () => {
-  const dependencyPath = 'docs/developers/verification/milestones/06-validation-integration.md';
-  const dependency = await readFile(new URL(`../../../${dependencyPath}`, import.meta.url), 'utf8');
-  assert.equal(dependency.trimEnd().split(/\r?\n/).at(-1), 'BLOCKED');
-
-  const path = 'docs/developers/verification/milestones/07-release-gauntlet.md';
-  const text = await readFile(new URL(`../../../${path}`, import.meta.url), 'utf8');
-  assert.deepEqual(validateMilestoneRecord(text, path), []);
-  assert.equal(text.trimEnd().split(/\r?\n/).at(-1), 'BLOCKED');
-  assert.match(text, /Milestone 6/i);
-  assert.match(text, /G-01 through G-14/i);
-  assert.match(text, /v1-readiness\.md/i);
+  for (const [predecessor, successor, requiredPatterns] of chain) {
+    const result = await assertConditionalCascade(predecessor, successor);
+    assert.equal(result.predecessorComplete, false);
+    assert.equal(result.successorResult, 'BLOCKED');
+    for (const pattern of requiredPatterns) assert.match(result.successorText, pattern);
+  }
 });
 
 test('evidence and harness schemas reject malformed types and empty scenarios', async () => {

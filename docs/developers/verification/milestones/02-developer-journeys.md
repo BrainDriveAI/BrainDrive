@@ -82,4 +82,76 @@ This is a sanitized, revision-bound execution record. It is not product or techn
 - The host's default Node version is below the documented CI baseline; isolated Node 22 evidence passed, but contributors still need the stated prerequisite.
 - The working tree intentionally combines the uncommitted Milestones 0–2 changes and has not been committed or published.
 
-BLOCKED
+Prior attempt result: BLOCKED
+
+## Attempt 2 — claimed-platform continuation
+
+### Candidate revision
+
+- Branch: `agent/developer-documentation-system`.
+- Base revision: `f78ed1ffe1db`; no commit, push, pull request, publication, or repository-setting mutation was authorized.
+- Continuation date and environment: 2026-08-03 in WSL2/Linux. No native Windows or native macOS command was executed or implied.
+
+### Dependencies and tests-first correction
+
+- The original prompt pack, Prompt 2, accepted specification, test plan, implementation plan, root/scoped instructions, Milestones 00–07, Tauri configuration/source, desktop runtime API-base selection, and applicable tests were read before edits.
+- Pre-edit `npm run docs:verify` passed with 77 tests and a composed check over 170 scoped candidates with zero diagnostics.
+- New focused assertions then failed as intended because the catalog did not distinguish configured bundle targets from claimed J-05 platforms, no platform-evidence validator existed, and the cascade test still treated this record's prior blocker as current.
+
+### Claim-boundary decision
+
+- `tauri.conf.json` remains source/configuration truth for Windows, macOS, and Linux bundle targets. Configured targets are not support claims.
+- V1 J-05 claims native Windows and native macOS. WSL/Linux is diagnostic-only and is not a claimed J-05 platform unless a later recorded decision explicitly adopts and evidences it.
+- Native Windows: `DEFERRED — REQUIRED BEFORE MILESTONE 7`.
+- Native macOS: `DEFERRED — REQUIRED BEFORE MILESTONE 7`.
+- The platform-evidence validator fails closed when either required native report is absent and rejects WSL reports offered for native Windows or native macOS.
+
+### WSL evidence retained
+
+- The provider-independent native J-03/J-06 WSL result and the Docker J-04 start-only reuse result above remain valid repository evidence; this continuation changed no runtime, Docker, installer, Tauri, provider, or auth behavior.
+- The two WSL Tauri runs above remain failed diagnostic evidence: embedded services and the dynamic gateway became healthy, but the frontend remained on the Vite proxy and the usable shell was not reached.
+- That WSL failure was not deleted, relabeled as success, used as native Windows/macOS evidence, or treated as a Linux support claim.
+
+### Cascade status
+
+- Milestone 2 is now repository-complete under the narrowed claimed-platform boundary, reopening the legal path to original Prompt 3.
+- Milestone 3's existing `BLOCKED` record is not promoted automatically. It remains the historical dependency-block attempt until original Prompt 3 is rerun.
+- Milestones 4–6 likewise remain untouched dependency-block attempts until their original prompts are rerun in sequence. Milestone 7 remains a blocked historical release record and cannot pass while required native platform reports and later milestone evidence are absent.
+
+### Files changed
+
+- Platform claims and validation: `docs/developers/catalog.json`, `tools/docs/schemas/catalog.schema.json`, `tools/docs/lib/catalog.mjs`, `tools/docs/lib/rules/evidence.mjs`, focused tests, and synthetic platform-report fixtures.
+- Developer guidance: `docs/developers/setup/tauri-desktop.md`, `docs/developers/verification.md`, `docs/developers/README.md`, and `builds/typescript/src-tauri/README.md`.
+- Execution records: this appended attempt and a non-promoting continuation note in the Milestone 3 record.
+- No runtime, Tauri, installer, provider, auth, product, release, or repository-setting behavior changed.
+
+### Commands and results
+
+- Pre-edit `cd builds/typescript && npm run docs:verify`: exit 0; 77 tests passed; documentation validation passed over 170 scoped candidates with zero diagnostics.
+- Tests-first `node --test tools/docs/test/developer-journeys.test.mjs tools/docs/test/evidence-harness.test.mjs`: exit 1; 23 passed and two intended platform/cascade assertions failed.
+- Tests-first `node --test tools/docs/test/evidence-harness.test.mjs` after adding the validator assertion: exit 1 because `validateClaimedPlatformEvidence` did not yet exist.
+- Final focused `node --test tools/docs/test/catalog.test.mjs tools/docs/test/developer-journeys.test.mjs tools/docs/test/evidence-harness.test.mjs`: exit 0; 34 tests passed.
+- Final `cd builds/typescript && npm run docs:verify`: exit 0; 76 tests passed; documentation validation passed over 172 scoped candidates with zero diagnostics.
+- Final `node tools/docs/sync-generated.mjs --check`: exit 0; documentation projections matched the catalog.
+- Final task-cached `tools/security/scan-secrets.sh --current`: exit 0; gitleaks 8.30.1 scanned tracked and non-ignored worktree scope and reported zero findings; the task cache was removed.
+- Final `git diff --check`: exit 0 with no whitespace errors.
+
+### Reviews and adjudication
+
+- Repository/source review confirms the configured-target list comes from `tauri.conf.json`; native claim/evidence state comes from the accepted platform decision and the repository catalog, not from bundle configuration.
+- The prior independent Tauri/platform review remains attached to the original diagnostic attempt. This continuation does not reinterpret it as native-platform or human evidence.
+- No Windows, macOS, native-Linux, hosted-GitHub, or fresh-human execution is claimed.
+
+### Global gates
+
+- G-01, G-04, G-07, G-09, G-12, G-13, and G-14 remain `OPEN — FINAL ADJUDICATION IN MILESTONE 7`.
+- This milestone-local completion does not adjudicate any V1 release gate. G-07 must fail closed until both deferred native J-05 reports pass on the final candidate.
+
+### Open items and remaining risk
+
+- The required native Windows and native macOS J-05 reports remain absent and mandatory before Milestone 7 readiness.
+- The core dynamic gateway handoff still lacks focused automated coverage. The preserved WSL failure remains diagnostic evidence for later investigation, not a claimed-platform blocker or pass.
+- Linux/WSL Tauri support is not adopted by this decision. If that product claim is later desired, it requires a separate recorded decision and successful platform evidence.
+- Later milestone records remain blocked until their original prompts are rerun; they may not be promoted from this continuation alone.
+
+MILESTONE 2 COMPLETE — NEXT LEGAL PROMPT: 3

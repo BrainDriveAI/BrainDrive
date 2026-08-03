@@ -122,14 +122,37 @@ test('native isolation and Docker mutation/network boundaries are explicit', asy
   }
 });
 
-test('Tauri guidance records the current WSL journey blocker without inventing platform support', async () => {
+test('Tauri guidance preserves the WSL failure as diagnostic evidence without inventing platform support', async () => {
   const text = await read('docs/developers/setup/tauri-desktop.md');
   const value = await catalog();
   const open03 = value.openItems.find(({ id }) => id === 'OPEN-03');
-  assert.match(text, /## Current controlled evidence/);
+  assert.match(text, /## Prior WSL diagnostic record/);
   assert.match(text, /Vite proxy/i);
-  assert.match(text, /blocked/i);
-  assert.match(open03?.state ?? '', /blocked/);
+  assert.match(text, /not [^\n]*passing J-05 evidence/i);
+  assert.match(open03?.state ?? '', /deferred-required-before-milestone-7/);
   assert.match(open03?.summary ?? '', /Tauri/i);
-  assert.match(open03?.summary ?? '', /Windows and macOS remain unverified/i);
+  assert.match(open03?.summary ?? '', /native Windows and native macOS/i);
+});
+
+test('Tauri configured bundle targets are distinct from claimed and evidenced J-05 platforms', async () => {
+  const value = await catalog();
+  const claim = value.platformClaims.find(({ id }) => id === 'tauri-development');
+
+  assert.deepEqual(claim?.configuredBundleTargets, ['windows', 'macos', 'linux']);
+  assert.deepEqual(claim?.claimedPlatforms, ['windows', 'macos']);
+  assert.deepEqual(claim?.diagnosticOnlyEnvironments, ['wsl', 'linux']);
+  assert.equal(claim?.journeyId, 'J-05');
+  assert.deepEqual(
+    claim?.requiredEvidence,
+    [
+      { platform: 'windows', environment: 'native', status: 'DEFERRED — REQUIRED BEFORE MILESTONE 7' },
+      { platform: 'macos', environment: 'native', status: 'DEFERRED — REQUIRED BEFORE MILESTONE 7' },
+    ],
+  );
+
+  const tauriCommand = value.commands.find(({ id }) => id === 'tauri-dev');
+  assert.deepEqual(tauriCommand?.platforms, [
+    'claimed V1 J-05: native windows, native macos',
+    'diagnostics only, not claimed J-05: wsl, linux',
+  ]);
 });

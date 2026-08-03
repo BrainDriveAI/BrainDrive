@@ -5,6 +5,18 @@
   "audiences": [],
   "journeys": [],
   "components": [],
+  "platformClaims": [
+    {
+      "id": "sample-platform",
+      "journeyId": "J-X",
+      "configuredBundleTargets": ["sample-os"],
+      "claimedPlatforms": ["sample-os"],
+      "diagnosticOnlyEnvironments": ["sample-shell"],
+      "requiredEvidence": [
+        { "platform": "sample-os", "environment": "native", "status": "DEFERRED — REQUIRED BEFORE MILESTONE 7" }
+      ]
+    }
+  ],
   "topics": [
     {
       "topicId": "sample",

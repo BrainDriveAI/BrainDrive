@@ -73,4 +73,10 @@ This is a sanitized, revision-bound execution record. It is not product or techn
 - Advancing despite the blocked predecessor would allow green static checks to override a failed required journey, contrary to the non-compensating proof contract.
 - The working tree remains intentionally uncommitted and includes earlier milestone changes. No external state was changed.
 
+## Platform-continuation note
+
+- Milestone 2 later completed its repository-controlled continuation by narrowing V1 J-05 to native Windows and native macOS and deferring both required reports to Milestone 7.
+- This record remains the historical dependency-block attempt. It is not promoted automatically and does not contain Milestone 3 implementation or verification evidence.
+- Rerun original Prompt 3 to implement and adjudicate Milestone 3 before changing this terminal result.
+
 BLOCKED

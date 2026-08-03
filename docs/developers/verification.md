@@ -35,7 +35,7 @@ A Tier A check never silently launches Tier B or Tier C behavior. A Tier B repor
 | Engine, tools, auth, memory, secrets, providers | Closest colocated unit/integration tests | Runtime lint, test, and build | Add provider validation only with Tier C authority; preserve memory/secrets boundaries |
 | Web client | Closest colocated Vitest test | From `builds/typescript/`: `npm run web:lint`, `npm run web:typecheck`, `npm run web:test`, `npm run web:build` | Inspect affected desktop/mobile states; Playwright only when browser behavior requires it |
 | Docker or installer | Shell/PowerShell fixture or targeted installer test | Applicable installer-integrity scripts and Docker image smoke in CI | `./installer/docker/scripts/start.sh dev` for dev-mode claims; record pre-existing state and cleanup |
-| Tauri desktop | Closest Rust or web adapter test | From `builds/typescript/`: `npm run desktop:preflight`, `npm run desktop:test` | `npm run desktop:dev` on each platform actually claimed |
+| Tauri desktop | Closest Rust or web adapter test | From `builds/typescript/`: `npm run desktop:preflight`, `npm run desktop:test` | Native Windows and native macOS `npm run desktop:dev` J-05 reports; WSL/Linux diagnostics cannot satisfy either claim |
 | MCP release package | Closest package unit test | From `builds/mcp_release/`: `npm run test`, `npm run build` | Integration test only when the documented environment is available |
 | Documentation | Closest `tools/docs/test/*.test.mjs` test | From `builds/typescript/`: `npm run docs:verify`; from root: projection check and current secret scan | Run any setup journey whose claim changed |
 
@@ -55,6 +55,12 @@ Web changes also run typecheck/build even when a focused unit test passes. Provi
 | `./installer/docker/scripts/start.sh dev` | Repository root | [Docker setup](./setup/docker-development.md); authority over configured bind/UID/GID | None for baseline | Stateful Compose start/reuse; container startup changes target ownership, runs package install, and exposes Vite/proxied API | Observe healthy app/web; restore prior service and verified ownership state; preserve pre-existing volumes/data | B |
 | `npm run test:e2e` / `test:e2e:mobile` | `builds/typescript/client_web/` | Installed browsers; task-owned runtime at Vite proxy target; reproducible synthetic local-auth fixture (OPEN-10, unresolved) | Synthetic isolated local account; no provider credential for shell/layout checks | Starts/reuses Vite; writes HTML report; trace on retry and screenshot on failure | Blocked until auth fixture exists; classify browser/runtime/proxy/auth/layout; stop task processes and sanitize conditional artifacts | B |
 | `npm run desktop:dev` | `builds/typescript/` | [Tauri setup](./setup/tauri-desktop.md) | None for baseline | Builds/starts Vite, Rust shell, local services, desktop data/logs | Observe embedded health, desktop transport handoff, and usable main window; `Ctrl-C` and remove only isolated task data | B |
+
+## Tauri claimed-platform evidence
+
+`tauri.conf.json` configures Windows, macOS, and Linux bundle targets. The V1 development-support claim is narrower: native Windows and native macOS for J-05. WSL/Linux may supply preflight, test, build, and launch diagnostics, but cannot be used as evidence for either native claim and is not itself a claimed J-05 platform.
+
+Both native reports are `DEFERRED — REQUIRED BEFORE MILESTONE 7`. Final readiness must fail closed while either report is absent. The earlier WSL dynamic-gateway handoff failure remains a failed diagnostic artifact; it is not a passing journey and is not a waiver.
 
 ## OPEN-06 and browser E2E
 

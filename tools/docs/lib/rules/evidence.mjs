@@ -29,6 +29,32 @@ export function validateHarness(data = {}) {
   return diagnostics;
 }
 
+export function validateClaimedPlatformEvidence(claim = {}, reports = []) {
+  const diagnostics = [];
+  const requiredEvidence = Array.isArray(claim.requiredEvidence) ? claim.requiredEvidence : [];
+  const diagnosticOnly = new Set(claim.diagnosticOnlyEnvironments || []);
+
+  for (const requirement of requiredEvidence) {
+    const path = `platform-evidence:${claim.journeyId || '<missing>'}:${requirement.platform || '<missing>'}`;
+    const report = reports.find((candidate) =>
+      candidate?.journeyId === claim.journeyId && candidate?.platform === requirement.platform
+    );
+    if (!report) {
+      diagnostics.push(diagnostic('G-07', path, `required native ${requirement.platform} journey evidence report is absent`));
+      continue;
+    }
+    if (report.environment !== requirement.environment || diagnosticOnly.has(report.environment)) {
+      diagnostics.push(diagnostic('G-07', path, `claimed ${requirement.platform} journey evidence must come from its native environment`));
+      continue;
+    }
+    if (report.disposition !== 'pass') {
+      diagnostics.push(diagnostic('G-07', path, `claimed ${requirement.platform} journey evidence must have a passing disposition`));
+    }
+  }
+
+  return diagnostics;
+}
+
 export function validateMilestoneRecord(text, path) {
   const diagnostics = [];
   const match = path.match(/\/milestones\/(\d{2})-/);

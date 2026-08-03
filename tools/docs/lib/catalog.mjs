@@ -34,7 +34,26 @@ export function validateCatalog(catalog, { root = process.cwd(), checkPaths = tr
   duplicateIds(catalog.topics, 'topicId', 'topic', diagnostics);
   duplicateIds(catalog.topicBindings, 'topicId', 'topic binding', diagnostics);
   duplicateIds(catalog.commands, 'id', 'command', diagnostics);
+  duplicateIds(catalog.platformClaims, 'id', 'platform claim', diagnostics);
   duplicateIds(catalog.versionDomains, 'id', 'version domain', diagnostics);
+  for (const claim of catalog.platformClaims || []) {
+    const configured = new Set(claim.configuredBundleTargets || []);
+    const claimed = new Set(claim.claimedPlatforms || []);
+    const diagnosticOnly = new Set(claim.diagnosticOnlyEnvironments || []);
+    const evidencePlatforms = new Set((claim.requiredEvidence || []).map(({ platform }) => platform));
+    if (!claim.id || !claim.journeyId || configured.size === 0 || claimed.size === 0 || diagnosticOnly.size === 0) {
+      diagnostics.push(diagnostic('DA-06', 'docs/developers/catalog.json', 'platform claim requires id, journeyId, configured targets, claimed platforms, and diagnostic-only environments'));
+    }
+    for (const platform of claimed) {
+      if (!configured.has(platform)) diagnostics.push(diagnostic('DA-09', 'docs/developers/catalog.json', `claimed platform is not a configured bundle target: ${platform}`));
+      if (!evidencePlatforms.has(platform)) diagnostics.push(diagnostic('DA-18', 'docs/developers/catalog.json', `claimed platform lacks a required evidence entry: ${platform}`));
+    }
+    for (const requirement of claim.requiredEvidence || []) {
+      if (!claimed.has(requirement.platform)) diagnostics.push(diagnostic('DA-18', 'docs/developers/catalog.json', `platform evidence is declared for a non-claimed platform: ${requirement.platform}`));
+      if (requirement.environment !== 'native') diagnostics.push(diagnostic('DA-18', 'docs/developers/catalog.json', `claimed platform evidence must require a native environment: ${requirement.platform}`));
+      if (requirement.status !== 'DEFERRED — REQUIRED BEFORE MILESTONE 7') diagnostics.push(diagnostic('DA-18', 'docs/developers/catalog.json', `claimed platform evidence has an invalid deferred status: ${requirement.platform}`));
+    }
+  }
   for (const topic of catalog.topics) {
     const missing = REQUIRED_TOPIC_FIELDS.filter((field) => {
       const value = topic[field];
