@@ -9,7 +9,7 @@ export function isWithin(root, target) {
 
 export function inspectContainedPathSync(root, candidate, { allowSymlink = false, regularFile = true } = {}) {
   const rootReal = realpathSync(root);
-  const lexical = resolve(root, candidate);
+  const lexical = resolve(rootReal, candidate);
   if (!isWithin(rootReal, lexical)) return { ok: false, reason: 'path escapes repository root' };
   let info;
   try { info = lstatSync(lexical); } catch { return { ok: false, reason: 'path does not exist' }; }
@@ -22,7 +22,7 @@ export function inspectContainedPathSync(root, candidate, { allowSymlink = false
 
 export async function inspectContainedPath(root, candidate, { allowSymlink = false, regularFile = true } = {}) {
   const rootReal = await realpath(root);
-  const lexical = resolve(root, candidate);
+  const lexical = resolve(rootReal, candidate);
   if (!isWithin(rootReal, lexical)) return { ok: false, reason: 'path escapes validation root' };
   let info;
   try { info = await lstat(lexical); } catch { return { ok: false, reason: 'path does not exist' }; }

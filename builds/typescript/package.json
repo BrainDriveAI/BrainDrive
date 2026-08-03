@@ -52,7 +52,7 @@
     "desktop:build:linux": "tauri build --bundles deb,appimage",
     "desktop:build:frontend": "npm --prefix client_web run build",
     "desktop:dev:web": "npm --prefix client_web run dev",
-    "desktop:test": "npm run test && npm --prefix ../mcp_release run build && npm --prefix client_web run test && cargo test --manifest-path src-tauri/Cargo.toml"
+    "desktop:test": "npm run desktop:prepare-dev && npm run test && npm --prefix ../mcp_release run build && npm --prefix client_web run test && cargo test --manifest-path src-tauri/Cargo.toml"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

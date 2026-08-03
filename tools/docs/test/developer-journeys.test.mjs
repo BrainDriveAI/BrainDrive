@@ -90,6 +90,10 @@ test('clean-clone Tauri development prepares the configured runtime resource bef
 
   assert.equal(packageJson.scripts['desktop:prepare-dev'], 'node scripts/desktop-prepare-dev.mjs');
   assert.match(
+    packageJson.scripts['desktop:test'],
+    /^npm run desktop:prepare-dev[^\n]+cargo test/,
+  );
+  assert.match(
     tauriConfig.build.beforeDevCommand,
     /desktop:preflight[^\n]+desktop:prepare-dev[^\n]+desktop:dev:web/,
   );

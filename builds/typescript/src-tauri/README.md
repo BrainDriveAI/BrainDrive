@@ -26,7 +26,7 @@ This directory owns the native shell, not normal-user desktop installation. The 
 | `src/tailscale_access.rs` / `src/tailscale_runtime.rs` | Platform discovery and guarded optional Tailscale browser-access lifecycle |
 | `capabilities/default.json` | Tauri capability allowlist |
 | `../client_web/src/api/runtime-api-base.ts` | Browser-versus-Tauri API base selection and desktop request header |
-| `../scripts/desktop-prepare-dev.mjs` | Clean-clone creation of the ignored resource root required by Tauri development builds |
+| `../scripts/desktop-prepare-dev.mjs` | Clean-clone creation of the ignored resource root required by Tauri development builds and Cargo tests |
 | `../scripts/desktop-stage-runtime.mjs` | Release-build staging of Node, compiled gateway/MCP, web assets, adapters, and starter pack |
 
 During `desktop:dev`, the before-dev hook creates the ignored `desktop-runtime/` resource root when it is absent, then Vite serves the frontend. Rust resolves the source workspace, starts the built MCP package and gateway on free loopback ports, waits for health, and exposes runtime status through a Tauri command. Release builds replace that root with the staged runtime. Generated/staged runtime content is not hand-edited.
@@ -42,7 +42,7 @@ npm run desktop:dev
 ```
 
 - `desktop:preflight` builds the TypeScript gateway, builds the MCP package, and typechecks the web client.
-- `desktop:test` runs runtime tests, builds MCP, runs web tests, and runs Cargo tests.
+- `desktop:test` prepares the ignored development resource root, runs runtime tests, builds MCP, runs web tests, and runs Cargo tests.
 - `desktop:dev` invokes Tauri; its configured before-dev hook reruns preflight and starts Vite.
 
 These commands do not need a model-provider credential for build, test, runtime health, or the desktop shell. A model response is a separate authorized integration check.

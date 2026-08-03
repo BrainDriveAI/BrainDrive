@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
@@ -69,6 +69,29 @@ test('generated catalog projections accept native Windows line endings', async (
     await writeFile(resolve(temporary, 'docs/developers/catalog.json'), JSON.stringify(catalog));
     await writeFile(resolve(temporary, topic.path), `${renderContract(topic, catalog).replace(/\n/g, '\r\n')}\r\n`);
     assert.deepEqual(await synchronizeGenerated({ root: temporary }), []);
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
+
+test('generated catalog projections accept a platform-aliased validation root', async () => {
+  const temporary = await mkdtemp(resolve(tmpdir(), 'docs-projection-root-alias-'));
+  const actualRoot = resolve(temporary, 'actual');
+  const aliasRoot = resolve(temporary, 'alias');
+  try {
+    await mkdir(resolve(actualRoot, 'docs/developers'), { recursive: true });
+    await writeFile(
+      resolve(actualRoot, 'docs/developers/catalog.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        authority: 'catalog',
+        audiences: [],
+        topics: [],
+        topicBindings: [],
+      }),
+    );
+    await symlink(actualRoot, aliasRoot, process.platform === 'win32' ? 'junction' : 'dir');
+    assert.deepEqual(await synchronizeGenerated({ root: aliasRoot }), []);
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }
