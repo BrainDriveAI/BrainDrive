@@ -2415,8 +2415,8 @@ function ProviderSection({
 } & SettingsDataProps) {
   const providerSectionId = useId();
   const [expandedProfile, setExpandedProfile] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const activatingProfiles = useRef(new Set<string>()).current;
   const [providerApiKey, setProviderApiKey] = useState("");
   const [isSavingCredential, setIsSavingCredential] = useState(false);
   const [credentialError, setCredentialError] = useState<string | null>(null);
@@ -2562,6 +2562,31 @@ function ProviderSection({
                       setCredentialError(null);
                       setProviderApiKey("");
                       setSaveError(null);
+                      if (
+                        isActive ||
+                        !canActivate ||
+                        activatingProfiles.has(profile.id)
+                      ) {
+                        return;
+                      }
+                      activatingProfiles.add(profile.id);
+                      void onSaveSettings({ active_provider_profile: profile.id })
+                        .catch((error) => {
+                          const code =
+                            typeof error === "object" &&
+                            error &&
+                            "code" in error
+                              ? String(error.code)
+                              : "";
+                          setSaveError(
+                            code === "provider_not_ready"
+                              ? `Configure ${profileLabel} before activating it.`
+                              : "Unable to activate this provider. Try again."
+                          );
+                        })
+                        .finally(() => {
+                          activatingProfiles.delete(profile.id);
+                        });
                     }}
                     className={[
                       "flex w-full items-center gap-3 border px-4 py-3 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bd-amber/60",
@@ -2617,41 +2642,11 @@ function ProviderSection({
                       id={panelId}
                       className="rounded-b-lg border border-t-0 border-bd-amber bg-bd-bg-tertiary px-4 pb-3 pt-2"
                     >
-                      {!isActive && (
-                        <div className="mb-3 space-y-2 border-b border-bd-border pb-3">
-                          <button
-                            type="button"
-                            disabled={isSaving || !canActivate}
-                            onClick={() => {
-                              setIsSaving(true);
-                              setSaveError(null);
-                              void onSaveSettings({ active_provider_profile: profile.id })
-                                .catch((error) => {
-                                  const code =
-                                    typeof error === "object" &&
-                                    error &&
-                                    "code" in error
-                                      ? String(error.code)
-                                      : "";
-                                  setSaveError(
-                                    code === "provider_not_ready"
-                                      ? `Configure ${profileLabel} before activating it.`
-                                      : "Unable to activate this provider. Try again."
-                                  );
-                                })
-                                .finally(() => {
-                                  setIsSaving(false);
-                                });
-                            }}
-                            className="rounded-lg bg-bd-amber px-3 py-1.5 text-xs font-medium text-bd-bg-primary transition-colors hover:bg-bd-amber-hover disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            {isSaving ? "Activating..." : `Use ${profileLabel}`}
-                          </button>
-                          {!canActivate && (
-                            <p className="text-xs text-bd-text-muted">
-                              Configure {profileLabel} before activating it.
-                            </p>
-                          )}
+                      {!isActive && !canActivate && (
+                        <div className="mb-3 border-b border-bd-border pb-3">
+                          <p className="text-xs text-bd-text-muted">
+                            Configure {profileLabel} before activating it.
+                          </p>
                         </div>
                       )}
                       {isBrainDriveModels ? (

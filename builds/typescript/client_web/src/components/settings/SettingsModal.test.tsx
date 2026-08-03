@@ -382,8 +382,13 @@ describe("SettingsModal", () => {
     delete window.__TAURI_INTERNALS__;
   });
 
-  it("expands a provider without activating it or fetching its catalog", async () => {
+  it("activates and expands an Ollama provider card with one click", async () => {
     const user = userEvent.setup();
+    updateSettingsMock.mockResolvedValueOnce({
+      ...baseSettings,
+      active_provider_profile: "ollama",
+      provider_activation_revision: 1,
+    });
     render(<SettingsModal mode="local" onClose={() => {}} />);
 
     await waitFor(() => {
@@ -397,11 +402,15 @@ describe("SettingsModal", () => {
     await user.click(ollamaCard);
 
     expect(ollamaCard).toHaveAttribute("aria-expanded", "true");
-    expect(updateSettingsMock).not.toHaveBeenCalled();
-    expect(getProviderModelsMock).not.toHaveBeenCalledWith("ollama");
+    await waitFor(() => {
+      expect(updateSettingsMock).toHaveBeenCalledWith({
+        active_provider_profile: "ollama",
+      });
+    });
+    expect(screen.queryByRole("button", { name: "Use Ollama" })).not.toBeInTheDocument();
   });
 
-  it("supports keyboard expansion and a separate deliberate Ollama activation", async () => {
+  it("supports one-step keyboard activation for Ollama", async () => {
     const user = userEvent.setup();
     const activatedSettings: GatewaySettings = {
       ...baseSettings,
@@ -419,9 +428,6 @@ describe("SettingsModal", () => {
     await user.keyboard("{Enter}");
 
     expect(ollamaCard).toHaveAttribute("aria-expanded", "true");
-    expect(updateSettingsMock).not.toHaveBeenCalled();
-
-    await user.click(screen.getAllByRole("button", { name: "Use Ollama" })[0]!);
     await waitFor(() => {
       expect(updateSettingsMock).toHaveBeenCalledTimes(1);
       expect(updateSettingsMock).toHaveBeenCalledWith({
@@ -432,6 +438,37 @@ describe("SettingsModal", () => {
       screen.getAllByRole("button", { name: /Ollama provider settings/i })[0]
     ).toHaveAttribute("aria-current", "true");
     expect(resetGatewayChatRuntimeMock).not.toHaveBeenCalled();
+  });
+
+  it("activates configured BrainDrive Models from its provider card with one click", async () => {
+    const user = userEvent.setup();
+    const openRouterActiveSettings: GatewaySettings = {
+      ...brainDriveModelsReadySettings,
+      default_model: "openai/gpt-4o-mini",
+      active_provider_profile: "openrouter",
+      default_provider_profile: "openrouter",
+      provider_activation_revision: 0,
+    };
+    getSettingsMock.mockResolvedValueOnce(openRouterActiveSettings);
+    updateSettingsMock.mockResolvedValueOnce({
+      ...brainDriveModelsReadySettings,
+      provider_activation_revision: 1,
+    });
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+
+    await user.click((await screen.findAllByRole("button", { name: "AI Models" }))[0]!);
+    await user.click(
+      screen.getAllByRole("button", { name: /BrainDrive Models provider settings/i })[0]!
+    );
+
+    await waitFor(() => {
+      expect(updateSettingsMock).toHaveBeenCalledWith({
+        active_provider_profile: "braindrive-models",
+      });
+    });
+    expect(
+      screen.queryByRole("button", { name: "Use BrainDrive Models" })
+    ).not.toBeInTheDocument();
   });
 
   it("downloads export from the export tab", async () => {
@@ -648,7 +685,6 @@ describe("SettingsModal", () => {
     await user.click(
       screen.getAllByRole("button", { name: /Ollama provider settings/i })[1]!
     );
-    await user.click(screen.getByRole("button", { name: "Use Ollama" }));
     await waitFor(() =>
       expect(updateSettingsMock).toHaveBeenCalledWith({
         active_provider_profile: "ollama",
@@ -1024,7 +1060,7 @@ describe("SettingsModal", () => {
     expect(screen.getAllByText(/it carries your keys; backups don/i).length).toBeGreaterThan(0);
   });
 
-  it("keeps deliberate OpenRouter and Ollama activation independent of BrainDrive Models credits", async () => {
+  it("keeps one-click OpenRouter and Ollama activation independent of BrainDrive Models credits", async () => {
     const user = userEvent.setup();
     getSettingsMock.mockResolvedValueOnce(brainDriveModelsSettings);
     updateSettingsMock.mockResolvedValueOnce({
@@ -1042,8 +1078,6 @@ describe("SettingsModal", () => {
     expect(screen.getAllByText("OpenRouter").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Ollama").length).toBeGreaterThan(0);
     await user.click(screen.getAllByRole("button", { name: /Ollama provider settings/i })[0]!);
-    expect(updateSettingsMock).not.toHaveBeenCalled();
-    await user.click(screen.getAllByRole("button", { name: "Use Ollama" })[0]!);
 
     await waitFor(() => {
       expect(updateSettingsMock).toHaveBeenCalledWith({
@@ -1066,7 +1100,6 @@ describe("SettingsModal", () => {
     await user.click(
       screen.getAllByRole("button", { name: /OpenRouter provider settings/i })[0]!
     );
-    await user.click(screen.getAllByRole("button", { name: "Use OpenRouter" })[0]!);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Configure OpenRouter before activating it."
@@ -1088,7 +1121,6 @@ describe("SettingsModal", () => {
     await user.click(
       screen.getAllByRole("button", { name: /OpenRouter provider settings/i })[0]!
     );
-    await user.click(screen.getByRole("button", { name: "Use OpenRouter" }));
 
     expect(
       screen
@@ -1127,7 +1159,7 @@ describe("SettingsModal", () => {
       screen.getAllByRole("button", { name: /OpenRouter provider settings/i })[0]!
     );
 
-    expect(screen.getByRole("button", { name: "Use OpenRouter" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Use OpenRouter" })).not.toBeInTheDocument();
     expect(screen.getByText("Configure OpenRouter before activating it.")).toBeInTheDocument();
     expect(screen.getByLabelText("API Key")).toBeInTheDocument();
     expect(updateSettingsMock).not.toHaveBeenCalled();
@@ -1153,11 +1185,9 @@ describe("SettingsModal", () => {
     await user.click(
       screen.getAllByRole("button", { name: /OpenRouter provider settings/i })[0]!
     );
-    await user.click(screen.getByRole("button", { name: "Use OpenRouter" }));
     await user.click(
       screen.getAllByRole("button", { name: /Ollama provider settings/i })[1]!
     );
-    await user.click(screen.getByRole("button", { name: "Use Ollama" }));
 
     await waitFor(() => {
       expect(
