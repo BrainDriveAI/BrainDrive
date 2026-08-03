@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://braindrive.ai/schemas/developer-docs-catalog-v1.json",
+  "title": "BrainDrive developer documentation catalog",
+  "type": "object",
+  "required": ["schemaVersion", "authority", "ownerRoles", "audiences", "journeys", "components", "topics", "topicBindings", "documents", "governanceSurfaces", "commands", "sourceMappings", "aliases", "versionDomains", "searchVocabulary", "openItems"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "authority": { "const": "catalog" },
+    "ownerRoles": { "type": "array", "items": { "$ref": "#/$defs/ownerRole" } },
+    "audiences": { "type": "array", "items": { "$ref": "#/$defs/route" } },
+    "journeys": { "type": "array", "items": { "$ref": "#/$defs/route" } },
+    "components": { "type": "array", "items": { "$ref": "#/$defs/route" } },
+    "topics": { "type": "array", "items": { "$ref": "#/$defs/topic" } },
+    "topicBindings": { "type": "array", "items": { "$ref": "#/$defs/topicBinding" } },
+    "documents": { "type": "array", "items": { "$ref": "#/$defs/document" } },
+    "governanceSurfaces": { "type": "array", "items": { "$ref": "#/$defs/document" } },
+    "commands": { "type": "array", "items": { "$ref": "#/$defs/command" } },
+    "sourceMappings": { "type": "array", "items": { "$ref": "#/$defs/sourceMapping" } },
+    "aliases": { "type": "array", "items": { "$ref": "#/$defs/alias" } },
+    "versionDomains": { "type": "array", "items": { "$ref": "#/$defs/versionDomain" } },
+    "searchVocabulary": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+    "openItems": { "type": "array", "minItems": 8 }
+  },
+  "$defs": {
+    "ownerRole": { "type": "object", "required": ["id", "responsibility", "enforcement"], "properties": { "id": { "type": "string" }, "responsibility": { "type": "string" }, "enforcement": { "type": "string" } } },
+    "route": { "type": "object", "required": ["id", "label", "path"], "properties": { "id": { "type": "string" }, "label": { "type": "string" }, "path": { "type": "string" } } },
+    "topic": {
+      "type": "object",
+      "required": ["topicId", "path", "title", "purpose", "audiences", "status", "applicability", "ownerRole", "expectedOutcome", "prerequisites"],
+      "properties": {
+        "topicId": { "type": "string" }, "path": { "type": "string" }, "title": { "type": "string" }, "purpose": { "type": "string" },
+        "audiences": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "status": { "enum": ["current", "legacy", "historical", "experimental", "internal", "deprecated", "removed", "unsupported", "unresolved"] },
+        "applicability": { "type": "object" }, "ownerRole": { "type": "string" }, "expectedOutcome": { "type": "string" },
+        "prerequisites": { "type": "array", "minItems": 1, "items": { "type": "string" } }, "projection": { "type": "boolean" },
+        "keywords": { "type": "array", "minItems": 2, "items": { "type": "string" } }, "parentPath": { "type": "string" }, "adjacentTopics": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+      }
+    },
+    "document": { "type": "object", "required": ["path", "classification", "status", "ownerRole"], "properties": { "path": { "type": "string" }, "classification": { "type": "string" }, "status": { "enum": ["current", "legacy", "historical", "experimental", "internal", "deprecated", "removed", "unsupported", "unresolved"] }, "ownerRole": { "type": "string" } } },
+    "sourceMapping": { "type": "object", "required": ["source", "documentation", "impact"], "properties": { "source": { "type": "string" }, "documentation": { "type": "string" }, "impact": { "type": "string" } } },
+    "alias": { "type": "object", "required": ["path", "canonicalPath", "kind", "status"], "properties": { "path": { "type": "string" }, "canonicalPath": { "type": "string" }, "kind": { "type": "string" }, "status": { "enum": ["current", "legacy", "historical", "experimental", "internal", "deprecated", "removed", "unsupported", "unresolved"] } } },
+    "versionDomain": { "type": "object", "required": ["id", "sources", "status"], "properties": { "id": { "type": "string" }, "sources": { "type": "array", "minItems": 1, "items": { "type": "string" } }, "status": { "const": "current-distinct-domain" } } },
+    "topicBinding": { "type": "object", "required": ["topicId", "sources", "tests", "commands"], "properties": { "topicId": { "type": "string" }, "sources": { "type": "array", "minItems": 1, "items": { "type": "string" } }, "tests": { "type": "array", "minItems": 1, "items": { "type": "string" } }, "commands": { "type": "array", "minItems": 1, "items": { "type": "string" } } } },
+    "command": {
+      "type": "object",
+      "required": ["id", "command", "workingDirectory", "prerequisites", "platforms", "modes", "credentialNeed", "sideEffects", "expectedResult", "failureClassification", "cleanup", "riskTier", "recovery"],
+      "properties": { "riskTier": { "enum": ["A", "B", "C"] }, "target": { "type": "string", "minLength": 1 }, "authority": { "type": "string", "minLength": 1 } },
+      "allOf": [{ "if": { "properties": { "riskTier": { "enum": ["B", "C"] } }, "required": ["riskTier"] }, "then": { "required": ["target", "authority"] } }]
+    }
+  }
+}

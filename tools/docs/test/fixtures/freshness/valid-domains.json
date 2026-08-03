@@ -1,0 +1,1 @@
+{"versionDomains":[{"id":"app","sources":["builds/typescript/package.json"]},{"id":"mcp","sources":["builds/mcp_release/package.json"]}],"references":[{"domain":"app","applicability":"dev"},{"domain":"mcp","applicability":"tag"}]}

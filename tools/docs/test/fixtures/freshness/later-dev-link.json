@@ -1,0 +1,1 @@
+{"versionDomains":[{"id":"app","sources":["package.json"]}],"references":[{"domain":"app","applicability":"tag","targetApplicability":"dev"}]}

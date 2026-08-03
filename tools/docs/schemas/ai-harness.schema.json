@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://braindrive.ai/schemas/developer-docs-ai-harness-v1.json",
+  "title": "Provider-independent AI coding-agent scenarios",
+  "type": "object",
+  "required": ["schemaVersion", "authority", "scenarios"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "authority": { "type": "string" },
+    "scenarios": { "type": "array", "minItems": 10, "maxItems": 10, "items": { "$ref": "#/$defs/scenario" } }
+  },
+  "$defs": {
+    "scenario": {
+      "type": "object",
+      "required": ["id", "goal", "allowedContext", "startingPath", "prohibitedInputs", "prohibitedActions", "expectedAuthorities", "requiredOutput", "rubric", "evidence"],
+      "properties": { "id": { "pattern": "^AIH-(0[1-9]|10)$" } }
+    }
+  }
+}

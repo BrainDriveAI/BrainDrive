@@ -3,9 +3,10 @@ import type { Locator, Page } from "@playwright/test";
 /**
  * Log in through the local auth form.
  *
- * The auth adapter in local mode accepts any non-empty credentials and sets a
- * sessionStorage flag — there is no real validation. We just need to fill both
- * fields and submit.
+ * The current helper submits fixed synthetic credentials to the real local
+ * login endpoint. It therefore requires an initialized isolated account with
+ * matching credentials; arbitrary non-empty values do not create a session.
+ * Until that seed contract exists, this helper is not clean-start evidence.
  */
 export async function loginAsLocalUser(page: Page) {
   await page.goto("/");

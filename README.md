@@ -104,6 +104,7 @@ BrainDrive is built on the [Personal AI Architecture](https://github.com/Persona
 
 | I want to... | Start here |
 |--------------|------------|
+| **Navigate BrainDrive source and tests** | [Developer documentation index](docs/developers/README.md) — persona, journey, component, repository, terminology, and architecture routes |
 | **Understand the architecture** | [Personal AI Architecture](https://github.com/Personal-AI-Architecture/the-architecture) — foundation spec, component contracts, conformance tests, zero lock-in by design |
 | **Build with AI assistance** | [Architecture Primer](https://github.com/Personal-AI-Architecture/the-architecture/tree/main/docs/ai) — token-optimized reference files designed to hand directly to your AI agent. Compliance matrix, component primers, audit playbooks, canonical examples. |
 | **Hack on BrainDrive** | [CONTRIBUTING.md](CONTRIBUTING.md) — fork, build, run tests, submit a PR |
@@ -129,6 +130,8 @@ flowchart LR
 ```
 
 BrainDrive Desktop packages the web client and local runtime into a native app. The Docker deployment runs as two containers: an app server (Gateway + tools) and an edge proxy (web client + Caddy). In both local installation paths, Your Memory stays on your hardware.
+
+Text alternative: clients call the Gateway; the Gateway applies authentication and invokes the agent loop for chat; the agent loop calls model providers and approved tools; conversation and tool operations reach user-owned memory, while external tools may reach external services. See the [developer architecture relationship overview](docs/developers/architecture/README.md#relationship-overview) for boundaries, variants, and source links.
 
 ## Docker Modes and Lifecycle Commands
 

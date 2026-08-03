@@ -1,6 +1,23 @@
 # BrainDrive Web Client
 
+<!-- catalog-contract:start web-client-boundary -->
+> **Document contract**
+> - Purpose: Define the source-adjacent web-client boundary and checks.
+> - Audience: Recurring contributors, Maintainers.
+> - Status: Current on `dev`.
+> - Owner role: runtime-maintainers.
+> - Expected outcome: A contributor finds web source, adapters, design authority, and checks.
+> - Prerequisites: Node.js and workspace dependencies.
+> - Parent: [docs/developers/README.md](../../../docs/developers/README.md).
+> - Adjacent topics: [Architecture overview](../../../docs/developers/architecture/README.md); [TypeScript runtime workspace](../README.md).
+> - Keywords: `web client`, `React`, `Vite`.
+> - Sources: [`builds/typescript/client_web/README.md`](./README.md); [`builds/typescript/client_web/package.json`](./package.json).
+> - Tests: [`tools/docs/test/links.test.mjs`](../../../tools/docs/test/links.test.mjs).
+<!-- catalog-contract:end web-client-boundary -->
+
 The BrainDrive web client is the production React interface used in browser, Docker, managed, and Tauri desktop deployments. It connects to the BrainDrive gateway for configuration, authentication, chat streaming, projects, files, settings, backups, model providers, and account operations.
+
+Developer routes: [developer documentation index](../../../docs/developers/README.md), [repository map](../../../docs/developers/repository-map.md), and [architecture overview](../../../docs/developers/architecture/README.md#web-client).
 
 Runtime data comes from the gateway. Unit and component tests mock API boundaries, but the running application does not use mock users, conversations, or projects.
 
@@ -35,7 +52,7 @@ npm --prefix builds/typescript run dev
 
 Open `http://127.0.0.1:5073`. The development runtime starts the gateway on port `8787` and the Vite client on port `5073`.
 
-For the Docker development stack:
+For the Docker development stack, use the canonical repo-root script paths:
 
 ```bash
 ./installer/docker/scripts/install.sh dev  # first installation
@@ -74,7 +91,7 @@ Run these from `builds/typescript/client_web/`:
 | `npm run test:e2e` | Run Playwright across desktop Chrome and mobile browser projects |
 | `npm run test:e2e:mobile` | Run only the mobile Chrome and Safari projects |
 
-Playwright tests require a running gateway and installed Playwright browsers. The Playwright configuration starts or reuses the Vite server.
+Playwright tests require installed browsers plus MCP services and a gateway at the Vite proxy target. The Playwright configuration starts or reuses Vite; from `builds/typescript/`, `npm run dev:server` starts the non-web runtime at the default development target. The existing helpers also require an initialized isolated local account matching their synthetic credentials. That reproducible auth seed is not implemented, so B-09/B-10 remain blocked as clean evidence. See [change verification](../../../docs/developers/verification.md#open-06-and-browser-e2e); Playwright is not the provider-independent startup baseline.
 
 ## Runtime Integration
 
@@ -173,6 +190,9 @@ Use focused Vitest runs while iterating, then run the complete web suite before 
 - [Repository overview](../../../README.md)
 - [Contributing guide](../../../CONTRIBUTING.md)
 - [Docker development and deployment](../../../installer/docker/README.md)
+- [Native development journey](../../../docs/developers/setup/native.md)
+- [Change verification](../../../docs/developers/verification.md)
+- [Safe debugging](../../../docs/developers/debugging.md)
 - [Tailscale remote access](../../../docs/tailscale-remote-access.md)
 
 ## License

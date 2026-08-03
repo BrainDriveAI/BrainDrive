@@ -1,7 +1,25 @@
 # Gateway Contract
 
-> Status (2026-03-23): This file contains legacy examples from the original test-team client.
-> C1 runtime now uses canonical Gateway contract routes:
+<!-- catalog-contract:start gateway-client-contract -->
+> **Document contract**
+> - Purpose: Record a known mixed current/legacy contract pending migration.
+> - Audience: Integrators, Recurring contributors.
+> - Status: Unresolved on `dev`.
+> - Owner role: runtime-maintainers.
+> - Expected outcome: No public stability promise is inferred before reconciliation.
+> - Prerequisites: Current source and tests must be consulted.
+> - Parent: [docs/developers/README.md](../../../../../docs/developers/README.md).
+> - Adjacent topics: [Architecture overview](../../../../../docs/developers/architecture/README.md); [BrainDrive web client](../../README.md).
+> - Keywords: `gateway contract`, `API`, `mixed current/legacy`.
+> - Sources: [`builds/typescript/client_web/src/api/CONTRACT.md`](./CONTRACT.md); [`builds/typescript/client_web/src/api/gateway-adapter.ts`](./gateway-adapter.ts); [`builds/typescript/gateway/server.ts`](../../../gateway/server.ts).
+> - Tests: [`tools/docs/test/orientation.test.mjs`](../../../../../tools/docs/test/orientation.test.mjs); [`builds/typescript/client_web/src/api/gateway-adapter.test.ts`](./gateway-adapter.test.ts); [`builds/typescript/gateway/auth-routes.integration.test.ts`](../../../gateway/auth-routes.integration.test.ts).
+<!-- catalog-contract:end gateway-client-contract -->
+
+> **Status: Unresolved — mixed current/legacy content.** The body below is retained for reconciliation and is not current technical authority. Start with the [developer documentation index](../../../../../docs/developers/README.md) and [gateway architecture boundary](../../../../../docs/developers/architecture/README.md#gateway-and-api), then verify exact behavior in [`gateway/server.ts`](../../../gateway/server.ts), [`gateway-adapter.ts`](gateway-adapter.ts), and [`gateway-adapter.test.ts`](gateway-adapter.test.ts). Public interface maturity remains OPEN-02.
+
+The following dated notes and examples may disagree with current source:
+
+> C1 runtime uses these Gateway routes:
 > - `POST /api/message` (with optional `X-Conversation-ID`)
 > - `GET /api/conversations`
 > - `GET /api/conversations/:id`
@@ -16,9 +34,9 @@
 > - `GET /api/agent`
 > - `PUT /api/agent`
 > - `GET /api/export`
-> Streaming canonical event fields are `text-delta.delta` and `tool-call.input`.
+> Streaming event fields include `text-delta.delta` and `tool-call.input`; consult current source and tests before relying on them.
 
-This document describes the current local-mode contract between the V1 interface and the standalone BrainDrive gateway behind the Vite `/api` proxy.
+The remaining content describes a former local-mode contract between the V1 interface and a standalone gateway behind the Vite `/api` proxy. It is non-authoritative until reconciled.
 
 ## Base URL
 

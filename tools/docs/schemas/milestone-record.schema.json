@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://braindrive.ai/schemas/developer-docs-milestone-record-v1.json",
+  "title": "Sanitized non-authoritative milestone record",
+  "description": "Markdown records must contain candidate revision, dependencies, files, actual command results, review adjudication, all global gates, open items, remaining risks, and exactly one final allowed result. Acceptance and approval metadata are prohibited.",
+  "type": "string",
+  "allOf": [
+    { "pattern": "## Candidate revision" }, { "pattern": "## Commands and results" }, { "pattern": "## Reviews and adjudication" },
+    { "pattern": "## Global gates" }, { "pattern": "## Open items" }, { "pattern": "## Remaining risks" }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "authority": "catalog",
+  "ownerRoles": [],
+  "audiences": [],
+  "journeys": [],
+  "components": [],
+  "topics": [
+    {
+      "topicId": "sample",
+      "path": "docs/sample.md",
+      "title": "Sample",
+      "purpose": "Orient readers",
+      "audiences": ["contributors"],
+      "status": "current",
+      "applicability": { "branches": ["dev"] },
+      "ownerRole": "documentation-maintainers",
+      "expectedOutcome": "Reader finds the source",
+      "prerequisites": ["Repository access"]
+    }
+  ],
+  "topicBindings": [
+    { "topicId": "sample", "sources": ["docs/sample.md"], "tests": ["test/sample.test.mjs"], "commands": ["sample"] }
+  ],
+  "documents": [],
+  "governanceSurfaces": [],
+  "commands": [
+    { "id": "sample", "command": "node sample.mjs", "workingDirectory": "repository root", "prerequisites": ["Node.js"], "platforms": ["all"], "modes": ["repository"], "credentialNeed": "none", "sideEffects": "none", "expectedResult": "pass", "failureClassification": "sample", "cleanup": "none", "riskTier": "A", "recovery": "inspect" }
+  ],
+  "sourceMappings": [],
+  "aliases": [],
+  "versionDomains": [],
+  "searchVocabulary": ["sample"],
+  "openItems": [1, 2, 3, 4, 5, 6, 7, 8]
+}

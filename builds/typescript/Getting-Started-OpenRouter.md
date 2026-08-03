@@ -1,6 +1,8 @@
 # Getting Started (OpenRouter + Core MCP)
 
-Use this file for quick startup in BrainDrive-MVP.
+> **Status: Legacy — not a current setup route.** This page is preserved for historical context and may describe retired services or defaults. Start with the [developer documentation index](../../docs/developers/README.md) and [current TypeScript runtime workspace](README.md); detailed setup reconciliation continues in Milestone 2.
+
+The commands below describe the former BrainDrive-MVP quick-start flow.
 
 ## One Command Setup
 

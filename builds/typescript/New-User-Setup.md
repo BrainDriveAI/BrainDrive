@@ -1,6 +1,8 @@
 # New User Setup
 
-## Recommended
+> **Status: Legacy — not a current setup route.** This page is preserved for historical context and may describe retired provider or bootstrap defaults. Start with the [developer documentation index](../../docs/developers/README.md) and [current TypeScript runtime workspace](README.md); detailed setup reconciliation continues in Milestone 2.
+
+## Former recommended flow
 
 Linux/macOS/WSL:
 

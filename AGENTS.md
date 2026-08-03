@@ -118,6 +118,12 @@ Use `README.md`, `ROADMAP.md`, and `CONTRIBUTING.md` for public product and cont
   cd builds/typescript
   npm run desktop:preflight
   ```
+
+### Developer Documentation
+
+- Front door and catalog: `docs/developers/README.md` and `docs/developers/catalog.json`.
+- Documentation impact: update the catalog source mapping and the affected canonical page; record the decision in the pull request template.
+- Verification: from `builds/typescript`, run `npm run docs:test`, `npm run docs:check`, and `npm run docs:verify`; from the repository root, run `node tools/docs/sync-generated.mjs --check`.
 - MCP release build:
   ```bash
   cd builds/mcp_release

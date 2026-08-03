@@ -2,11 +2,16 @@
 
 This directory contains the production-oriented Docker setup for BrainDrive.
 
+Developer orientation: use the [developer index](../../docs/developers/README.md), [repository map](../../docs/developers/repository-map.md), and [Docker architecture boundary](../../docs/developers/architecture/README.md#docker-and-installer). This page remains the source-adjacent operational authority for Docker dev, local, and prod modes.
+
 ## Supported launch points
-You can run installer commands from any of these directories:
-- Repo root (e.g. `./scripts/install.sh local` or `./scripts/start.sh dev`)
-- Installer root (e.g. `./installer/scripts/install.sh local` or `./installer/scripts/start.sh dev`)
-- This directory (e.g. `./scripts/install.sh local` or `./scripts/start.sh dev`)
+
+The scripts exist only under `installer/docker/scripts/`. Use one of these truthful forms:
+
+- Repository root: `./installer/docker/scripts/<script>.sh` or `.\installer\docker\scripts\<script>.ps1`.
+- `installer/docker/`: `./scripts/<script>.sh` or `.\scripts\<script>.ps1`.
+
+There is no repository-root `scripts/` directory and no `installer/scripts/` directory. The [scripts README](scripts/README.md) owns exact arguments and side effects.
 
 ## GitHub Bootstrap (No Clone)
 For non-technical users, publish and use the bootstrap scripts from this repo:
@@ -66,51 +71,42 @@ For real public HTTPS deployments:
 Production install, start, and upgrade generate `PAA_AUTH_BOOTSTRAP_TOKEN` when it is missing and force `PAA_AUTH_ALLOW_FIRST_SIGNUP_ANY_IP=false`. The token is stored in `.env` and is never printed by the lifecycle scripts. On the first account-creation screen, copy the `PAA_AUTH_BOOTSTRAP_TOKEN` value from the production installer `.env` into the **Bootstrap token** field. Treat it like a password and do not share it or include it in logs.
 
 ## What users run (production)
-1. From repo root:
-   - `cp installer/docker/.env.example installer/docker/.env`
-   - `./scripts/install.sh` (Linux/macOS/WSL) or `./scripts/install.ps1` (Windows)
-2. From `installer/`:
-   - `cp docker/.env.example docker/.env`
-   - `./scripts/install.sh` or `./scripts/install.ps1`
-3. From `installer/docker/`:
-   - `cp .env.example .env`
-   - `./scripts/install.sh` or `./scripts/install.ps1`
-4. Set `DOMAIN` in `installer/docker/.env`. The script generates `PAA_SECRETS_MASTER_KEY_B64` and the production signup bootstrap token when either is missing.
-5. Open `https://<DOMAIN>`
 
-`install` is first-run only. If `.env` already exists, install exits to avoid accidental account/secrets invalidation.
+Use the pinned [production bootstrap](#production-bootstrap) above for the normal no-clone production journey. This Milestone 2 developer guide does not validate or authorize a clone-based production first run. The lifecycle scripts still exist only at the [supported launch points](#supported-launch-points), and `install` remains first-run only: if `.env` already exists, it exits to protect account and secrets state.
 
 ## Local image mode
 For local runs on prebuilt images (stable-style HTTP on localhost):
-1. Prepare `installer/docker/.env` (as shown above).
-2. Run local mode from any supported launch point:
-   - Repo root: `./scripts/install.sh local`
-   - Installer root: `./scripts/install.sh local`
-   - Docker installer dir: `./scripts/install.sh local`
-3. Open `http://127.0.0.1:8080` (default bind).
-4. Optional LAN access: set `BRAINDRIVE_LOCAL_BIND_HOST=0.0.0.0` in `.env`, then restart/start local mode and open `http://<this-machine-ip>:8080` from another device on your network.
+1. Run the first-install command from a supported launch point; it creates the protected `.env` itself:
+   - Repository root: `./installer/docker/scripts/install.sh local`
+   - Docker installer directory: `./scripts/install.sh local`
+2. Open `http://127.0.0.1:8080` (default bind).
+3. Optional LAN access: set `BRAINDRIVE_LOCAL_BIND_HOST=0.0.0.0` in `.env`, then restart/start local mode and open `http://<this-machine-ip>:8080` from another device on your network.
 
 Local mode uses prebuilt images (same image/ref controls as local/prod) and does require registry pull access.
 First signup defaults to loopback-only in this installer profile. Complete owner signup from the host before enabling LAN access.
 
 ## Developer hot-reload mode
-For day-to-day development with fast feedback loops:
-1. Prepare `installer/docker/.env` (run install once if needed to generate secrets key).
-2. Start dev mode:
-   - Repo root: `./scripts/start.sh dev`
-   - Installer root: `./scripts/start.sh dev`
-   - Docker installer dir: `./scripts/start.sh dev`
-3. Open `http://127.0.0.1:5073` (default bind).
+
+The canonical developer journey, prerequisites, provider-independent baseline, failure classes, and cleanup contract are in [Docker development with hot reload](../../docs/developers/setup/docker-development.md). This overview owns only mode distinctions and operator context.
+
+For an existing initialized installation:
+
+1. From the repository root, run `./installer/docker/scripts/start.sh dev`.
+2. Or from `installer/docker/`, run `./scripts/start.sh dev`.
+3. Open the printed dev URL.
 
 How dev mode works:
 - Backend runs with `tsx watch` against mounted source.
 - Web client runs Vite dev server with HMR.
 - API calls proxy from Vite to backend (`/api` -> app service).
-- Shared memory/secrets volumes are reused (`braindrive_memory`, `braindrive_secrets`).
+- Runtime memory is a host bind mount from `PAA_LIBRARY_HOST_PATH` (defaulting to the repository development memory fixture); secrets use the external `braindrive_secrets` volume. The app and web dependency trees use separate named volumes.
+- App startup recursively changes ownership of the active memory bind, secrets/dependency state, and temporary home to `BRAINDRIVE_DEV_HOST_UID` / `BRAINDRIVE_DEV_HOST_GID` (default `1000`). Authorize the exact bind target and UID/GID before starting. Both containers run `npm install` from bind-mounted workspaces, so review package metadata and lockfiles after a recreate.
+- Compose creates or reuses `braindrive_dev_default`; only Vite is host-bound, and its `/api` route proxies to the internal app.
 - Startup update checks are not used in dev mode.
 
 Optional LAN access for dev UI:
 - Set `BRAINDRIVE_DEV_BIND_HOST=0.0.0.0` in `.env`, restart dev mode, then open `http://<this-machine-ip>:5073`.
+- This exposes the non-TLS Vite shell and proxied gateway API to the LAN. Use only on a trusted network after checking local-auth state; it is not production/public exposure guidance.
 
 If file watching is unreliable (WSL/network mounts), enable polling in `.env`:
 - `BRAINDRIVE_DEV_CHOKIDAR_POLLING=true`
@@ -182,6 +178,8 @@ Start in local/prod now runs startup update policy checks before compose up. Set
 Lifecycle scripts that start/restart services (`install`, `start`, `upgrade`, `restore`) always print the URL and attempt browser auto-open; if auto-open fails, users can still use the printed URL.
 
 ## Operations
+
+The relative commands in this section use `installer/docker/` as their working directory. From the repository root, prefix them with `./installer/docker/` as shown under [supported launch points](#supported-launch-points).
 - Start (local): `./scripts/start.sh local`
   - Runs startup update check first (policy-driven), then starts containers.
 - Stop (local): `./scripts/stop.sh local`
@@ -326,7 +324,7 @@ Cosign key setup (one-time per release signing identity):
 - Shell release-sign/verify scripts support `BRAINDRIVE_COSIGN_BIN`. Automatic installation is restricted to cosign v3.0.6 and verifies an embedded platform SHA-256 before execution.
 
 ## Notes
-- Data is persisted in named volumes: `braindrive_memory` and `braindrive_secrets`.
+- Local/prod data is persisted in named volumes `braindrive_memory` and `braindrive_secrets`. Docker dev uses the explicit bind/named-volume map in [Developer hot-reload mode](#developer-hot-reload-mode).
 - Structured audit logs are persisted to `memory/diagnostics/audit/YYYY-MM-DD(.N).jsonl` while still emitting to stdout.
 - Audit retention/rotation env knobs:
   - `PAA_AUDIT_FILE_SINK_ENABLED` (default `true`)

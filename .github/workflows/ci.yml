@@ -19,6 +19,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  documentation:
+    name: Documentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Run documentation verification
+        id: docs-verify
+        run: npm --prefix builds/typescript run docs:verify
+
+      - name: Generate sanitized documentation report
+        if: always()
+        run: node tools/docs/check.mjs --report "$RUNNER_TEMP/docs-verification-report.json"
+
+      - name: Add documentation summary
+        if: always()
+        env:
+          DOCS_VERIFY_OUTCOME: ${{ steps.docs-verify.outcome }}
+        run: node tools/docs/ci-summary.mjs "$RUNNER_TEMP/docs-verification-report.json" >> "$GITHUB_STEP_SUMMARY"
+
   runtime:
     name: Runtime
     runs-on: ubuntu-latest

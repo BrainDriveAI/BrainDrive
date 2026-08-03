@@ -3,8 +3,10 @@ import { defineConfig, devices } from "@playwright/test";
 /**
  * E2E tests require both the Vite dev server and the BrainDrive gateway.
  *
- *   Gateway: must be running on http://localhost:3000 before tests start.
- *            Start it manually (e.g. `cd ../gateway && npm run dev`).
+ *   Runtime: MCP services and the gateway must already be running at Vite's
+ *            default proxy target on port 8787. From builds/typescript, use
+ *            `npm run dev:server`; a reproducible isolated E2E auth fixture is
+ *            still required before this suite can be cited as clean evidence.
  *
  *   Vite:    started automatically via the webServer config below.
  */

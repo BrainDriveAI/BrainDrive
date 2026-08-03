@@ -1,0 +1,1 @@
+{"id":"risky","command":"synthetic state change","workingDirectory":"isolated fixture","prerequisites":["Authorization"],"platforms":["all"],"modes":["isolated"],"credentialNeed":"none","sideEffects":"Mutates the named synthetic fixture","expectedResult":"Fixture changes","riskTier":"B","authority":"fixture owner"}

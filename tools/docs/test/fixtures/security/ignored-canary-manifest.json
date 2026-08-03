@@ -1,0 +1,1 @@
+{"candidates":["AGENTS.md","docs/developers/README.md","tools/docs/check.mjs"],"forbidden":["builds/typescript/your-memory-canary/private.md","builds/typescript/.paa-secrets-canary/value","node_modules/canary.md","dist/canary.md","docs/Security/private.md"]}

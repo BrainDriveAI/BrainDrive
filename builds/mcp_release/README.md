@@ -2,6 +2,8 @@
 
 This package ships the first-party MCP servers required by `builds/typescript`.
 
+> **Status:** Unresolved for public interface maturity under OPEN-02. This source-adjacent page describes the shipped package; it is not a compatibility promise. Start at the [developer index](../../docs/developers/README.md) or [providers and MCP architecture boundary](../../docs/developers/architecture/README.md#providers-and-mcp), then verify exact behavior in source and tests.
+
 ## Server Kinds
 
 1. `memory`:

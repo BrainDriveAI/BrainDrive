@@ -1,5 +1,7 @@
 # Installer Docker Scripts Reference
 
+Developer orientation: start with the [developer index](../../../docs/developers/README.md) and [repository map](../../../docs/developers/repository-map.md). This page remains the canonical operational reference for script behavior and side effects.
+
 ## Canonical Location
 
 - Canonical script directory: `installer/docker/scripts`
@@ -77,6 +79,20 @@
 Notes:
 - `install/start/stop` support `dev`.
 - `check-update/upgrade` support `local|prod`.
+
+## Development lifecycle command contracts
+
+The [Docker development journey](../../../docs/developers/setup/docker-development.md) owns setup order and the provider-independent success baseline. This page owns exact script effects.
+
+| Script | Working directory | Prerequisites / mode | Credentials | Side effects | Expected / failure | Cleanup / recovery | Tier |
+|---|---|---|---|---|---|---|---|
+| `./installer/docker/scripts/install.sh dev` | Repository root | Docker + Compose; first run with no existing `.env`; authority over configured bind and UID/GID | Generates a local secrets-encryption key; no model-provider credential | Creates protected `.env`, network, volumes, image/build state and containers; recursively changes ownership of memory/secrets/dependency targets; runs `npm install` from bind-mounted workspaces; exposes Vite/proxied API; may open browser | App healthy and web running; classify prerequisite, build, mount/ownership, package, port/network, or health failure | Stop with the dev stop script; preserve `.env`, volumes, and data; restore ownership only for a verified target using known prior state | B |
+| `./installer/docker/scripts/start.sh dev` | Repository root | Existing initialization; Docker + Compose; authority over configured bind and UID/GID | No model-provider credential for baseline; never print `.env` | Ensures network/volumes, starts/reuses/recreates services; on container startup changes target ownership and runs `npm install`; exposes Vite/proxied API; may open browser | Compose app healthy and web running; classify Compose/config/build/mount/ownership/package/port/network/health | Restore prior service state; preserve existing volumes/data; restore ownership only for the exact verified target | B |
+| `./installer/docker/scripts/stop.sh dev` | Repository root | Existing dev Compose project | None | Stops services; preserves containers, volumes, `.env`, and bind-mounted data | Services show stopped; classify Docker/Compose failure | Restart only if the prior state or task requires it | B |
+
+`reset-new-user`, restore/import, volume removal, production, release, signing, and publishing operations are Tier C for developer-documentation evidence. They are never implicit cleanup for the commands above.
+
+The PowerShell install/start/stop scripts currently do not fail closed on every nonzero native Docker exit before printing completion. Their entry points are source references, not passing Windows evidence; verify actual Compose state and do not rely on completion text until that product gap is fixed and tested.
 
 ## Script Catalog
 
