@@ -68,8 +68,10 @@ export async function synchronizeGenerated({ root = repositoryRoot, write = fals
       continue;
     }
     const current = content.match(pattern)[0];
-    if (current !== expected) {
-      if (write) await writeFile(path, content.replace(pattern, expected));
+    if (current.replace(/\r\n/g, '\n') !== expected) {
+      const lineEnding = content.includes('\r\n') ? '\r\n' : '\n';
+      const nativeExpected = lineEnding === '\r\n' ? expected.replace(/\n/g, '\r\n') : expected;
+      if (write) await writeFile(path, content.replace(pattern, nativeExpected));
       else diagnostics.push(diagnostic('DA-07', topic.path, `declared catalog projection diverges for ${topic.topicId}`, 'Run sync-generated.mjs --write only when the catalog change is intentional'));
     }
   }

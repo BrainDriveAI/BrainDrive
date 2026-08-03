@@ -227,8 +227,10 @@ describe("file ops memory_search", () => {
       };
 
       expect(result.matches).toHaveLength(1);
-      expect(result.matches[0]?.path).toContain("documents/finance/plan.md");
-      expect(result.matches.map((match) => match.path).join("\n")).not.toContain("diagnostics/prompt-audit");
+      expect(result.matches[0]?.path).toContain(path.join("documents", "finance", "plan.md"));
+      expect(result.matches.map((match) => match.path).join("\n")).not.toContain(
+        path.join("diagnostics", "prompt-audit")
+      );
     } finally {
       await rm(memoryRoot, { recursive: true, force: true });
     }

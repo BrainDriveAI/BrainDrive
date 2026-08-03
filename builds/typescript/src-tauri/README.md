@@ -26,9 +26,10 @@ This directory owns the native shell, not normal-user desktop installation. The 
 | `src/tailscale_access.rs` / `src/tailscale_runtime.rs` | Platform discovery and guarded optional Tailscale browser-access lifecycle |
 | `capabilities/default.json` | Tauri capability allowlist |
 | `../client_web/src/api/runtime-api-base.ts` | Browser-versus-Tauri API base selection and desktop request header |
+| `../scripts/desktop-prepare-dev.mjs` | Clean-clone creation of the ignored resource root required by Tauri development builds |
 | `../scripts/desktop-stage-runtime.mjs` | Release-build staging of Node, compiled gateway/MCP, web assets, adapters, and starter pack |
 
-During `desktop:dev`, Vite serves the frontend. Rust resolves the source workspace, starts the built MCP package and gateway on free loopback ports, waits for health, and exposes runtime status through a Tauri command. Release builds instead use the staged `desktop-runtime/` resource. Generated/staged runtime content is not hand-edited.
+During `desktop:dev`, the before-dev hook creates the ignored `desktop-runtime/` resource root when it is absent, then Vite serves the frontend. Rust resolves the source workspace, starts the built MCP package and gateway on free loopback ports, waits for health, and exposes runtime status through a Tauri command. Release builds replace that root with the staged runtime. Generated/staged runtime content is not hand-edited.
 
 ## Commands
 

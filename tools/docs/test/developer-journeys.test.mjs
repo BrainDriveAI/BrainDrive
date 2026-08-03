@@ -83,6 +83,20 @@ test('source-adjacent READMEs preserve their assigned responsibilities and real 
   assert.match(scripts, /Development lifecycle command contracts/);
 });
 
+test('clean-clone Tauri development prepares the configured runtime resource before Vite', async () => {
+  const packageJson = JSON.parse(await read('builds/typescript/package.json'));
+  const tauriConfig = JSON.parse(await read('builds/typescript/src-tauri/tauri.conf.json'));
+  const prepareScript = await read('builds/typescript/scripts/desktop-prepare-dev.mjs');
+
+  assert.equal(packageJson.scripts['desktop:prepare-dev'], 'node scripts/desktop-prepare-dev.mjs');
+  assert.match(
+    tauriConfig.build.beforeDevCommand,
+    /desktop:preflight[^\n]+desktop:prepare-dev[^\n]+desktop:dev:web/,
+  );
+  assert.match(prepareScript, /mkdir/);
+  assert.match(prepareScript, /desktop-runtime/);
+});
+
 test('OPEN-06 records one accurate Playwright and Vite gateway startup contract', async () => {
   const value = await catalog();
   const open06 = value.openItems.find(({ id }) => id === 'OPEN-06');

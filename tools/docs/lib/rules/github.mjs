@@ -78,7 +78,7 @@ export async function validateGitHubContracts(root) {
   if (!ci.includes('npm --prefix builds/typescript run docs:verify')) diagnostics.push(diagnostic('DA-12', '.github/workflows/ci.yml', 'Documentation job is missing docs:verify command'));
   if (!ci.includes('node tools/docs/check.mjs --report "$RUNNER_TEMP/docs-verification-report.json"')) diagnostics.push(diagnostic('DA-12', '.github/workflows/ci.yml', 'Documentation job is missing the repository-root report command'));
   for (const job of ['runtime', 'web-client', 'mcp-release', 'docker-smoke', 'installer-integrity', 'secret-scan']) {
-    if (!new RegExp(`\\n  ${job}:\\n`).test(ci)) diagnostics.push(diagnostic('DA-12', '.github/workflows/ci.yml', `existing CI job is missing: ${job}`));
+    if (!new RegExp(`(?:^|\\r?\\n)  ${job}:\\r?\\n`).test(ci)) diagnostics.push(diagnostic('DA-12', '.github/workflows/ci.yml', `existing CI job is missing: ${job}`));
   }
   for (const trigger of ['pull_request', 'push', 'workflow_dispatch']) if (!new RegExp(`^  ${trigger}:`, 'm').test(ci)) diagnostics.push(diagnostic('DA-12', '.github/workflows/ci.yml', `existing workflow trigger is missing: ${trigger}`));
   if (!/pull_request:\s*\n\s*branches:\s*\n\s*- dev\s*\n\s*- main/.test(ci) || !/push:\s*\n\s*branches:\s*\n\s*- dev\s*\n\s*- main/.test(ci)) diagnostics.push(diagnostic('DA-12', '.github/workflows/ci.yml', 'pull-request and push triggers must retain dev and main branches'));

@@ -32,10 +32,12 @@ test('symlink targets fail closed before reading outside content', async () => {
   const temporary = await mkdtemp(resolve(tmpdir(), 'docs-links-'));
   try {
     const docs = resolve(temporary, 'docs');
+    const outside = resolve(temporary, 'outside');
     await mkdir(docs);
-    await writeFile(resolve(temporary, 'outside.md'), '# outside-private-marker\n');
-    await symlink(resolve(temporary, 'outside.md'), resolve(docs, 'linked.md'));
-    await writeFile(resolve(docs, 'index.md'), '# Index\n\n[Linked](linked.md#outside-private-marker)\n');
+    await mkdir(outside);
+    await writeFile(resolve(outside, 'linked.md'), '# outside-private-marker\n');
+    await symlink(outside, resolve(docs, 'external'), process.platform === 'win32' ? 'junction' : 'dir');
+    await writeFile(resolve(docs, 'index.md'), '# Index\n\n[Linked](external/linked.md#outside-private-marker)\n');
     const diagnostics = await validateMarkdownTree(new URL(`file://${docs}/`));
     assert.ok(diagnostics.some((item) => item.rule === 'DA-16'));
     assert.ok(diagnostics.every((item) => !item.message.includes('outside-private-marker')));

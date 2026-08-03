@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { diagnostic } from '../diagnostics.mjs';
 import { inspectContainedPath, readContainedText } from '../paths.mjs';
 
+const normalizeLineEndings = (text) => text.replace(/\r\n/g, '\n');
+
 export async function validateAuthorityFixture(root) {
   const base = fileURLToPath(root);
   const declaration = JSON.parse(await readFile(resolve(base, 'authority.json'), 'utf8'));
@@ -31,7 +33,13 @@ export async function validateRepositoryAuthority(root, catalog) {
       if (await readlink(full) !== 'AGENTS.md') diagnostics.push(diagnostic('DA-07', path, 'compatibility symlink must target AGENTS.md'));
     } else {
       const mirror = await readContainedText(root, path);
-      if (canonical.ok && mirror.ok && canonical.text !== mirror.text) diagnostics.push(diagnostic('DA-07', path, 'compatibility mirror diverges from canonical AGENTS.md'));
+      const isGitSymlinkPlaceholder = process.platform === 'win32' && mirror.ok && mirror.text.trim() === 'AGENTS.md';
+      if (
+        canonical.ok &&
+        mirror.ok &&
+        !isGitSymlinkPlaceholder &&
+        normalizeLineEndings(canonical.text) !== normalizeLineEndings(mirror.text)
+      ) diagnostics.push(diagnostic('DA-07', path, 'compatibility mirror diverges from canonical AGENTS.md'));
     }
   }
   const classes = new Map((catalog.documents || []).map((item) => [item.path, item.classification]));

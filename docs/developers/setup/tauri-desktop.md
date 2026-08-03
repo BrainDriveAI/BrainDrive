@@ -38,7 +38,7 @@ WSL may run `desktop:preflight`, `desktop:test`, compilation, and controlled lau
 | Platform | V1 J-05 claims native Windows and native macOS. WSL/Linux is diagnostic-only and is not claimed desktop-support evidence |
 | Mode | Tauri development shell with local embedded runtime; not Docker or managed deployment |
 | Credential need | None for preflight, runtime health, local authentication UI, or the desktop shell |
-| Side effects | Preflight emits TypeScript/MCP build output; dev starts Vite and compiles Rust, writes Cargo target artifacts, starts local child services, creates desktop app data/config/secrets/log directories, and opens native windows |
+| Side effects | Preflight emits TypeScript/MCP build output; dev creates the ignored Tauri resource root when absent, starts Vite and compiles Rust, writes Cargo target artifacts, starts local child services, creates desktop app data/config/secrets/log directories, and opens native windows |
 | Expected result | Preflight exits 0; Vite and Rust compile; MCP and gateway health checks pass; the splash closes and the main window becomes usable |
 | Failure classification | Toolchain, platform library, build/typecheck, Vite port, Rust compile/link, embedded runtime, desktop transport handoff, or window/display |
 | Cleanup | Press `Ctrl-C` in the Tauri process and wait for child services to stop. Remove only task-specific XDG/app-data locations created for controlled evidence |
@@ -50,7 +50,7 @@ npm run desktop:preflight
 npm run desktop:dev
 ```
 
-`desktop:dev` already invokes preflight through `tauri.conf.json`; running it separately first makes failures easier to classify and provides an independent check result.
+`desktop:dev` already invokes preflight and creates the ignored `src-tauri/desktop-runtime/` resource root through `tauri.conf.json`; running preflight separately first makes failures easier to classify and provides an independent check result. Development still runs against the source workspace. Release builds replace that root with the fully staged runtime.
 
 The bare development command uses the current OS account's normal application data/config/cache paths. For isolated Linux/WSL evidence, allocate a task-owned root first and set `XDG_DATA_HOME`, `XDG_CONFIG_HOME`, and `XDG_CACHE_HOME` to explicit subdirectories of it for the `npm run desktop:dev` process. Stop the process before removing only that validated root. Windows and macOS need an authorized disposable OS account or equivalent isolated environment until a repository-supported path override is evidenced; do not redirect or delete an owner's normal desktop directories.
 
@@ -95,6 +95,7 @@ Stop with `Ctrl-C` and verify no task-owned Tauri, Vite, gateway, or MCP process
 
 - [`tauri.conf.json`](../../../builds/typescript/src-tauri/tauri.conf.json) owns the before-dev command, Vite URL, windows, bundles, and embedded resource declaration.
 - [`main.rs`](../../../builds/typescript/src-tauri/src/main.rs) owns desktop data paths, free-port allocation, child services, health checks, transport token, and window readiness.
+- [`desktop-prepare-dev.mjs`](../../../builds/typescript/scripts/desktop-prepare-dev.mjs) ensures a clean clone has the resource root required by Tauri development builds.
 - [`runtime-api-base.ts`](../../../builds/typescript/client_web/src/api/runtime-api-base.ts) owns browser-versus-Tauri API resolution.
 - [`package.json`](../../../builds/typescript/package.json) owns preflight, dev, build, and desktop-test command composition.
 

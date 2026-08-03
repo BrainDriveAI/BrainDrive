@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { validateClaimedPlatformEvidence, validateEvidence, validateEvidenceTemplates, validateHarness, validateMilestoneRecord } from '../lib/rules/evidence.mjs';
 import { validateSchema } from '../lib/schema.mjs';
@@ -165,6 +166,6 @@ test('journey evidence requires execution context, cleanup, and remaining risk',
 });
 
 test('tracked evidence templates expose required public-safe fields', async () => {
-  const root = new URL('../../../', import.meta.url).pathname;
+  const root = fileURLToPath(new URL('../../../', import.meta.url));
   assert.deepEqual(await validateEvidenceTemplates(root), []);
 });
