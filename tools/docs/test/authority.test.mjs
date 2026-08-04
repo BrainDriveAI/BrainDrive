@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import test from 'node:test';
 import { validateAuthorityFixture, validateRepositoryAuthority } from '../lib/rules/authority.mjs';
 import { validateDuplicationFixture } from '../lib/rules/duplication.mjs';
+import { inspectContainedPath, inspectContainedPathSync } from '../lib/paths.mjs';
 import { renderContract, synchronizeGenerated } from '../sync-generated.mjs';
 
 const root = new URL('./fixtures/authority/', import.meta.url);
@@ -116,6 +117,27 @@ test('generated catalog projections accept a platform-aliased validation root', 
     );
     await symlink(actualRoot, aliasRoot, process.platform === 'win32' ? 'junction' : 'dir');
     assert.deepEqual(await synchronizeGenerated({ root: aliasRoot }), []);
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
+
+test('contained path inspection maps absolute candidates through a platform-aliased root', async () => {
+  const temporary = await mkdtemp(resolve(tmpdir(), 'docs-contained-root-alias-'));
+  const actualRoot = resolve(temporary, 'actual');
+  const aliasRoot = resolve(temporary, 'alias');
+  try {
+    await mkdir(resolve(actualRoot, 'docs'), { recursive: true });
+    await writeFile(resolve(actualRoot, 'docs/input.md'), '# Input\n');
+    await symlink(actualRoot, aliasRoot, process.platform === 'win32' ? 'junction' : 'dir');
+
+    const candidate = resolve(aliasRoot, 'docs/input.md');
+    assert.equal((await inspectContainedPath(aliasRoot, candidate)).ok, true);
+    assert.equal(inspectContainedPathSync(aliasRoot, candidate).ok, true);
+
+    const missing = resolve(aliasRoot, 'docs/missing.md');
+    assert.equal((await inspectContainedPath(aliasRoot, missing)).reason, 'path does not exist');
+    assert.equal(inspectContainedPathSync(aliasRoot, missing).reason, 'path does not exist');
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }

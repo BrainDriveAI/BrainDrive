@@ -1,16 +1,27 @@
 import { lstatSync, realpathSync } from 'node:fs';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export function isWithin(root, target) {
   const relation = relative(root, target);
   return relation === '' || (!relation.startsWith('..') && !isAbsolute(relation));
 }
 
+function resolveContainedCandidate(root, rootReal, candidate) {
+  const rootLexical = resolve(root instanceof URL ? fileURLToPath(root) : root);
+  const candidateLexical = resolve(rootLexical, candidate instanceof URL ? fileURLToPath(candidate) : candidate);
+  if (isWithin(rootLexical, candidateLexical)) {
+    return resolve(rootReal, relative(rootLexical, candidateLexical));
+  }
+  if (isWithin(rootReal, candidateLexical)) return candidateLexical;
+  return null;
+}
+
 export function inspectContainedPathSync(root, candidate, { allowSymlink = false, regularFile = true } = {}) {
   const rootReal = realpathSync(root);
-  const lexical = resolve(rootReal, candidate);
-  if (!isWithin(rootReal, lexical)) return { ok: false, reason: 'path escapes repository root' };
+  const lexical = resolveContainedCandidate(root, rootReal, candidate);
+  if (!lexical) return { ok: false, reason: 'path escapes repository root' };
   let info;
   try { info = lstatSync(lexical); } catch { return { ok: false, reason: 'path does not exist' }; }
   if (info.isSymbolicLink() && !allowSymlink) return { ok: false, reason: 'symlink is not permitted for this input' };
@@ -22,8 +33,8 @@ export function inspectContainedPathSync(root, candidate, { allowSymlink = false
 
 export async function inspectContainedPath(root, candidate, { allowSymlink = false, regularFile = true } = {}) {
   const rootReal = await realpath(root);
-  const lexical = resolve(rootReal, candidate);
-  if (!isWithin(rootReal, lexical)) return { ok: false, reason: 'path escapes validation root' };
+  const lexical = resolveContainedCandidate(root, rootReal, candidate);
+  if (!lexical) return { ok: false, reason: 'path escapes validation root' };
   let info;
   try { info = await lstat(lexical); } catch { return { ok: false, reason: 'path does not exist' }; }
   if (info.isSymbolicLink() && !allowSymlink) return { ok: false, reason: 'symlink is not permitted for documentation input' };
