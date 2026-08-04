@@ -109,12 +109,17 @@ test('sanitized reports use exclusive private writes inside an approved temporar
   const path = resolve(temporary, 'report.json');
   try {
     await writeReportSafely(path, { status: 'fail', candidateManifest: { documentationGovernanceCandidates: ['OWNER_API_KEY=synthetic-private-value'] }, diagnostics: [] }, { allowedRoots: [temporary] });
-    assert.equal((await stat(path)).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') assert.equal((await stat(path)).mode & 0o777, 0o600);
+    else assert.ok((await stat(path)).isFile());
     assert.doesNotMatch(await readFile(path, 'utf8'), /synthetic-private-value/);
     await assert.rejects(writeReportSafely(path, {}, { allowedRoots: [temporary] }), /already exists/);
     const link = resolve(temporary, 'linked.json');
-    await symlink(path, link);
-    await assert.rejects(writeReportSafely(link, {}, { allowedRoots: [temporary] }), /already exists/);
+    try {
+      await symlink(path, link);
+      await assert.rejects(writeReportSafely(link, {}, { allowedRoots: [temporary] }), /already exists/);
+    } catch (error) {
+      if (process.platform !== 'win32' || error?.code !== 'EPERM') throw error;
+    }
     await assert.rejects(writeReportSafely(resolve(outside, 'report.json'), {}, { allowedRoots: [temporary] }), /approved temporary root/);
   } finally {
     await rm(temporary, { recursive: true, force: true });
@@ -226,11 +231,16 @@ test('composed repository validator reaches every DA capability with an isolated
     ['DA-09', mutateCatalog((catalog) => { catalog.topics[0].status = 'legacy'; })],
     ['DA-10', async (temporary) => { const path = resolve(temporary, 'builds/typescript/package.json'); const value = JSON.parse(await readFile(path, 'utf8')); value.scripts['docs:check'] = 'node wrong.mjs'; await writeFile(path, `${JSON.stringify(value, null, 2)}\n`); }],
     ['DA-11', mutateCatalog((catalog) => { delete catalog.commands[0].cleanup; })],
-    ['DA-12', async (temporary) => { const path = resolve(temporary, '.github/workflows/ci.yml'); await writeFile(path, (await readFile(path, 'utf8')).replace('        run: rm -f -- "$RUNNER_TEMP/docs-verification-report.json"\n', '')); }],
+    ['DA-12', async (temporary) => { const path = resolve(temporary, '.github/workflows/ci.yml'); await writeFile(path, (await readFile(path, 'utf8')).replace(/        run: rm -f -- "\$RUNNER_TEMP\/docs-verification-report\.json"\r?\n/, '')); }],
     ['DA-13', mutateCatalog((catalog) => { catalog.migrationPolicies = []; })],
     ['DA-14', mutateCatalog((catalog) => { delete catalog.versionDomains[0].branchTagContract; })],
     ['DA-15', async (temporary) => { const path = resolve(temporary, 'docs/developers/README.md'); await writeFile(path, `${await readFile(path, 'utf8')}\nsk-<synthetic-secret-shaped-value>\n`); }],
-    ['DA-16', async (temporary) => { await rm(resolve(temporary, 'docs/AGENTS.md')); await symlink(dirname(temporary), resolve(temporary, 'docs/AGENTS.md'), process.platform === 'win32' ? 'junction' : 'dir'); }],
+    ['DA-16', async (temporary) => {
+      const path = resolve(temporary, 'docs/AGENTS.md');
+      await rm(path);
+      if (process.platform === 'win32') await mkdir(path);
+      else await symlink(dirname(temporary), path, 'dir');
+    }],
     ['DA-17', async (temporary) => { const path = resolve(temporary, 'docs/developers/README.md'); await writeFile(path, `${await readFile(path, 'utf8')}\n<iframe src="https://example.invalid/required-renderer"></iframe>\n`); }],
     ['DA-18', async (temporary) => { await writeFile(resolve(temporary, 'tools/docs/harness/scenarios.json'), '{ invalid json\n'); }],
   ];
@@ -243,6 +253,7 @@ test('composed repository validator reaches every DA capability with an isolated
       assert.equal(report.capabilities.find(({ id }) => id === rule)?.status, 'fail', `${rule} mutation did not reach its composed capability`);
       assert.ok(report.diagnostics.some((item) => item.rule === rule), `${rule} mutation lacked its intended diagnostic`);
     } finally {
+      if (rule === 'DA-16') await rm(resolve(temporary, 'docs/AGENTS.md'), { recursive: true, force: true });
       await rm(temporary, { recursive: true, force: true });
     }
   }

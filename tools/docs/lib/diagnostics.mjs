@@ -12,7 +12,7 @@ export function redactDiagnosticText(value) {
 export function diagnostic(rule, path, message, hint = '') {
   return {
     rule: redactDiagnosticText(rule),
-    path: redactDiagnosticText(path),
+    path: redactDiagnosticText(path).replace(/\\/g, '/'),
     message: redactDiagnosticText(message),
     hint: redactDiagnosticText(hint),
   };

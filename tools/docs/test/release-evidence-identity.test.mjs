@@ -235,7 +235,13 @@ test('evidence reads reject escapes and symlinks without echoing sensitive value
     const sensitive = 'OWNER_API_KEY=synthetic-private-value';
     await writeFile(resolve(outside, 'report.json'), JSON.stringify({ value: sensitive }));
     await mkdir(resolve(root, 'reports'));
-    await symlink(resolve(outside, 'report.json'), resolve(root, 'reports/report.json'));
+    try {
+      await symlink(resolve(outside, 'report.json'), resolve(root, 'reports/report.json'));
+    } catch (error) {
+      if (process.platform !== 'win32' || error?.code !== 'EPERM') throw error;
+      await rm(resolve(root, 'reports'), { recursive: true, force: true });
+      await symlink(outside, resolve(root, 'reports'), 'junction');
+    }
     for (const path of ['../outside/report.json', 'reports/report.json']) {
       const result = await readEvidenceJson(root, path, { rule: 'G-07' });
       assert.equal(result.value, undefined);
