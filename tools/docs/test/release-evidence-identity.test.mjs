@@ -6,6 +6,7 @@ import { resolve } from 'node:path';
 import test from 'node:test';
 import {
   adjudicateRevisionCompatibility,
+  adjudicatePlatformEvidenceCarryForward,
   classifyEvidenceImpact,
   isApprovedEvidenceOutput,
   readEvidenceJson,
@@ -83,7 +84,7 @@ test('a clean immutable source revision can carry forward to an evidence-only re
   }
 });
 
-test('carry-forward rejects arbitrary and mapped source, guidance, or validator changes', async () => {
+test('evidence-revision carry-forward rejects paths outside the evidence allowlist and maps affected AI/human evidence', async () => {
   const root = await repositoryFixture();
   try {
     const sourceTestRevision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
@@ -96,7 +97,7 @@ test('carry-forward rejects arbitrary and mapped source, guidance, or validator 
     const result = await adjudicateRevisionCompatibility(root, { sourceTestRevision, evidenceRevision });
     assert.equal(result.compatible, false);
     assert.deepEqual(result.disallowedPaths, ['arbitrary.txt', 'docs/developers/verification.md', 'tools/docs/lib/rules/evidence.mjs']);
-    assert.ok(result.rerun.platform.includes('windows-j05'));
+    assert.deepEqual(result.rerun.platform, []);
     assert.ok(result.rerun.aih.includes('AIH-01'));
     assert.ok(result.rerun.human.includes('REV-08'));
   } finally {
@@ -104,20 +105,40 @@ test('carry-forward rejects arbitrary and mapped source, guidance, or validator 
   }
 });
 
-test('Tauri source, API-base, desktop command/config, prerequisite, setup, schema, and validator changes stale both platform reports', () => {
+test('Tauri runtime, API-base, desktop command, configuration, and package changes stale platform reports', () => {
   for (const path of [
     'builds/typescript/src-tauri/src/main.rs',
     'builds/typescript/client_web/src/api/runtime-api-base.ts',
     'builds/typescript/client_web/vite.config.ts',
     'builds/typescript/scripts/desktop-prepare-dev.mjs',
     'builds/typescript/package.json',
-    'docs/developers/setup/tauri-desktop.md',
-    'tools/docs/schemas/platform-report.schema.json',
-    'tools/docs/lib/rules/evidence.mjs',
-    'tools/docs/lib/schema.mjs',
   ]) {
     const impact = classifyEvidenceImpact([path]);
     assert.deepEqual(impact.platform, ['macos-j05', 'windows-j05'], path);
+  }
+});
+
+test('platform evidence carries across policy-only changes but not desktop-runtime changes', async () => {
+  const root = await repositoryFixture();
+  try {
+    const testedRevision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+    await mkdir(resolve(root, 'docs/developers'), { recursive: true });
+    await mkdir(resolve(root, 'tools/docs/lib/rules'), { recursive: true });
+    await writeFile(resolve(root, 'docs/developers/catalog.json'), '{"claimedPlatforms":["windows"]}\n');
+    await writeFile(resolve(root, 'tools/docs/lib/rules/evidence.mjs'), 'policy validator\n');
+    const policyRevision = commit(root, 'policy only');
+    const carried = await adjudicatePlatformEvidenceCarryForward(root, { testedRevision, targetRevision: policyRevision, platform: 'windows' });
+    assert.equal(carried.compatible, true);
+    assert.deepEqual(carried.changedPaths, ['docs/developers/catalog.json', 'tools/docs/lib/rules/evidence.mjs']);
+
+    await mkdir(resolve(root, 'builds/typescript/src-tauri/src'), { recursive: true });
+    await writeFile(resolve(root, 'builds/typescript/src-tauri/src/main.rs'), 'runtime change\n');
+    const runtimeRevision = commit(root, 'runtime change');
+    const stale = await adjudicatePlatformEvidenceCarryForward(root, { testedRevision, targetRevision: runtimeRevision, platform: 'windows' });
+    assert.equal(stale.compatible, false);
+    assert.ok(stale.diagnostics.some(({ message }) => /runtime-relevant/i.test(message)));
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });
 

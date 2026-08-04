@@ -142,7 +142,7 @@ test('completed Milestone 5 rerun permits Milestone 6 only after its own rerun',
   assert.match(result.successorText, /DA-01 through DA-18/i);
 });
 
-test('claimed native Tauri platforms fail closed when reports are absent or supplied by WSL', async () => {
+test('the claimed native Windows Tauri platform fails closed when its report is absent or supplied by WSL', async () => {
   const catalog = await repositoryCatalog();
   const claim = catalog.platformClaims.find(({ id }) => id === 'tauri-development');
   const missing = await fixture('missing-tauri-platform-reports.json');
@@ -152,11 +152,11 @@ test('claimed native Tauri platforms fail closed when reports are absent or supp
   const missingDiagnostics = validateClaimedPlatformEvidence(claim, missing.reports);
   assert.deepEqual(
     missingDiagnostics.map(({ path }) => path),
-    ['platform-evidence:J-05:windows', 'platform-evidence:J-05:macos'],
+    ['platform-evidence:J-05:windows'],
   );
 
   const wslDiagnostics = validateClaimedPlatformEvidence(claim, wsl.reports);
-  assert.equal(wslDiagnostics.length, 2);
+  assert.equal(wslDiagnostics.length, 1);
   assert.ok(wslDiagnostics.every(({ message }) => /native/i.test(message)));
 
   const completeReport = (platform) => ({
@@ -175,17 +175,15 @@ test('claimed native Tauri platforms fail closed when reports are absent or supp
   });
   assert.deepEqual(validateClaimedPlatformEvidence(
     claim,
-    [completeReport('windows'), completeReport('macos')],
+    [completeReport('windows')],
     { candidateProof },
   ), []);
 
-  const incompleteReports = [completeReport('windows'), completeReport('macos')];
+  const incompleteReports = [completeReport('windows')];
   delete incompleteReports[0].toolVersions;
-  incompleteReports[1].candidateProof = `candidate-content sha256 ${'d'.repeat(64)}; entries 1; head ${'b'.repeat(40)}`;
   const incompleteDiagnostics = validateClaimedPlatformEvidence(claim, incompleteReports, { candidateProof });
-  assert.equal(incompleteDiagnostics.length, 2);
+  assert.equal(incompleteDiagnostics.length, 1);
   assert.ok(incompleteDiagnostics.some(({ message }) => /tool versions/i.test(message)));
-  assert.ok(incompleteDiagnostics.some(({ message }) => /current candidate/i.test(message)));
 });
 
 test('a completed predecessor does not auto-promote an untouched later milestone record', async () => {

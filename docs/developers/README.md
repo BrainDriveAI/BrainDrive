@@ -37,7 +37,7 @@ Normal BrainDrive owners looking to install or use the product should use the [p
 | Journey | Current route | Maturity boundary |
 |---|---|---|
 | Orient | [Repository map](repository-map.md) and [terminology](terminology.md) | Current |
-| Run | [Native TypeScript/web](setup/native.md), [Docker development](setup/docker-development.md), or [Tauri desktop](setup/tauri-desktop.md) | Current provider-independent setup contracts; Tauri V1 claims native Windows/macOS and keeps WSL/Linux diagnostic-only |
+| Run | [Native TypeScript/web](setup/native.md), [Docker development](setup/docker-development.md), or [Tauri desktop](setup/tauri-desktop.md) | Current provider-independent setup contracts; Tauri V1 claims native Windows while macOS/Linux remain configured but unclaimed |
 | Contribute | [Contribution policy](../../CONTRIBUTING.md) | Current |
 | Trace | [Request flows](architecture/request-flows.md), [modes and trust](architecture/modes-data-and-trust.md), and [memory/secrets lifecycle](architecture/memory-and-secrets.md) | Current source-backed detailed architecture |
 | Integrate | [Integration inventory](integrations/README.md) | Shipped internal behavior; public stability remains OPEN-02 |

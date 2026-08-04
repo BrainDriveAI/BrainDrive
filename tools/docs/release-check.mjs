@@ -6,6 +6,7 @@ import { checkRepository } from './check.mjs';
 import { diagnostic, formatDiagnostic, redactDiagnosticText } from './lib/diagnostics.mjs';
 import {
   adjudicateRevisionCompatibility,
+  adjudicatePlatformEvidenceCarryForward,
   readEvidenceJson,
   resolveCommit,
   sourceCandidateIdentity,
@@ -128,7 +129,25 @@ export async function checkReleaseEvidence(repositoryRoot = root, options = {}) 
       continue;
     }
     if (platformSchema) diagnostics.push(...validateSchema(platformSchema, value, path, { rule: 'G-07' }));
-    diagnostics.push(...validatePlatformReport(value, { expectedPlatform: requirement.platform, ...expectedIdentity }));
+    let reportIdentity = expectedIdentity;
+    if (value.sourceTestRevision !== identity.sourceTestRevision || value.sourceCandidateProof !== identity.sourceCandidateProof) {
+      try {
+        const testedIdentity = await sourceCandidateIdentity(repositoryRoot, value.sourceTestRevision);
+        reportIdentity = {
+          sourceTestRevision: testedIdentity.sourceTestRevision,
+          sourceCandidateProof: testedIdentity.sourceCandidateProof,
+        };
+        const carryForward = await adjudicatePlatformEvidenceCarryForward(repositoryRoot, {
+          testedRevision: testedIdentity.sourceTestRevision,
+          targetRevision: identity.sourceTestRevision,
+          platform: requirement.platform,
+        });
+        diagnostics.push(...carryForward.diagnostics);
+      } catch {
+        diagnostics.push(diagnostic('G-07', `platform-evidence:${claim.journeyId}:${requirement.platform}`, 'platform report SOURCE_TEST_REVISION does not resolve for compatibility review'));
+      }
+    }
+    diagnostics.push(...validatePlatformReport(value, { expectedPlatform: requirement.platform, ...reportIdentity }));
   }
 
   for (const requirement of catalog?.humanReviewRequirements || []) {

@@ -58,9 +58,9 @@ Web changes also run typecheck/build even when a focused unit test passes. Provi
 
 ## Tauri claimed-platform evidence
 
-`tauri.conf.json` configures Windows, macOS, and Linux bundle targets. The V1 development-support claim is narrower: native Windows and native macOS for J-05. WSL/Linux may supply preflight, test, build, and launch diagnostics, but cannot be used as evidence for either native claim and is not itself a claimed J-05 platform.
+`tauri.conf.json` configures Windows, macOS, and Linux bundle targets. The V1 development-support claim is narrower: native Windows for J-05. macOS and Linux remain configured targets without a V1 J-05 claim. WSL/Linux may supply preflight, test, build, and launch diagnostics, but cannot substitute for native Windows evidence.
 
-Both native reports are `DEFERRED — REQUIRED BEFORE MILESTONE 7`. Final readiness must fail closed while either report is absent. The earlier WSL dynamic-gateway handoff failure remains a failed diagnostic artifact; it is not a passing journey and is not a waiver.
+The native Windows report is `DEFERRED — REQUIRED BEFORE MILESTONE 7` until integrated. Final readiness must fail closed while it is absent, failed, or incompatible. The earlier WSL dynamic-gateway handoff failure remains a failed diagnostic artifact; it is not a passing journey and is not a waiver.
 
 ## OPEN-06 and browser E2E
 
@@ -82,4 +82,4 @@ Run `node tools/docs/candidate-digest.mjs --source-test-revision <full-sha>` bef
 
 Approved outputs are AIH-01 through AIH-10 scorecards, `platform-reports/windows-j05.json`, `platform-reports/macos-j05.json`, `human-reviews/rev-01.json` through `rev-08.json`, Milestone 7, the M7 trace matrix, and the readiness summary. The catalog declares the same fixed patterns. Platform reports validate against `tools/docs/schemas/platform-report.schema.json`; human records validate against `tools/docs/schemas/human-review.schema.json`.
 
-Tauri source, runtime API-base, desktop scripts/configuration, prerequisites, setup, command, platform schema, or evidence-validator changes stale both native platform reports. Agent instructions and shared harness/validator contracts stale affected AIH records; catalog routes, scenario prompts/rubrics, scenario sources, and checks stale their mapped scenarios. A reviewed source, security, release, or governance change stales the mapped REV record. Missing, malformed, unsanitized, failed, unattributable, non-native, or stale evidence remains blocked.
+Tauri source, runtime API-base, desktop scripts/configuration, or package-command changes stale native platform evidence. A platform report from an ancestor revision may carry forward only when Git proves the intervening diff has no mapped executable platform impact and the current schema/validator revalidates the report. Documentation claims and evidence-policy changes therefore trigger revalidation, not automatic native reruns. Agent instructions and shared harness/validator contracts stale affected AIH records; catalog routes, scenario prompts/rubrics, scenario sources, and checks stale their mapped scenarios. A reviewed source, security, release, or governance change stales the mapped REV record. Missing, malformed, unsanitized, failed, unattributable, non-native, incompatible, or stale evidence remains blocked.

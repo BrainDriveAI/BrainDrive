@@ -25,9 +25,9 @@ The Tauri shell uses the Vite client during development. Its designed runtime bo
 - A graphical desktop session. Headless shells can run preflight/tests but do not prove the desktop window journey.
 - The Vite development port must be free. The embedded MCP and gateway ports are selected dynamically.
 
-Repository configuration defines Windows, macOS, and Linux bundle targets. That is configuration truth, not the claimed-platform matrix. V1 J-05 claims native Windows and native macOS. WSL and Linux are not claimed J-05 platforms unless a later maintainer decision explicitly adopts them and supplies their own successful evidence.
+Repository configuration defines Windows, macOS, and Linux bundle targets. That is configuration truth, not the claimed-platform matrix. The 2026-08-04 maintainer decision narrows the V1 J-05 evidence claim to native Windows. macOS and Linux remain configured targets without a V1 J-05 support claim; a later release may adopt either only with successful native evidence.
 
-WSL may run `desktop:preflight`, `desktop:test`, compilation, and controlled launch diagnostics. Those results cannot satisfy native Windows or native macOS J-05 evidence. While the V1 claims remain, both required reports are recorded as `DEFERRED — REQUIRED BEFORE MILESTONE 7`; final readiness must fail closed if either native report is absent.
+WSL, Linux, and macOS may run `desktop:preflight`, `desktop:test`, compilation, and controlled launch diagnostics. Those results cannot substitute for the claimed native Windows J-05 evidence. Final readiness fails closed until the Windows report is present, valid, and compatible with the source candidate.
 
 ## Command contract
 
@@ -35,7 +35,7 @@ WSL may run `desktop:preflight`, `desktop:test`, compilation, and controlled lau
 |---|---|
 | Working directory | `builds/typescript/` |
 | Commands | `npm run desktop:preflight`, then `npm run desktop:dev` |
-| Platform | V1 J-05 claims native Windows and native macOS. WSL/Linux is diagnostic-only and is not claimed desktop-support evidence |
+| Platform | V1 J-05 claims native Windows. macOS/Linux remain configured but unclaimed; WSL/Linux is diagnostic-only |
 | Mode | Tauri development shell with local embedded runtime; not Docker or managed deployment |
 | Credential need | None for preflight, runtime health, local authentication UI, or the desktop shell |
 | Side effects | Preflight emits TypeScript/MCP build output; dev creates the ignored Tauri resource root when absent, starts Vite and compiles Rust, writes Cargo target artifacts, starts local child services, creates desktop app data/config/secrets/log directories, and opens native windows |
@@ -60,14 +60,14 @@ The bare development command uses the current OS account's normal application da
 
 The 2026-08-01 WSL/Linux controlled journey failed to reach the usable shell. Preflight passed, Vite and Rust compiled, the native window and WebKit processes launched, all three MCP services became ready, and the dynamically allocated gateway health check passed. In two isolated runs, however, the client continued sending `/api` traffic through the Vite proxy to its fixed native-development gateway target. The local auth/bootstrap surface therefore did not reach the usable-shell baseline even though the embedded runtime was healthy.
 
-This remains a diagnostic failure record. It is not relabeled as passing J-05 evidence, does not establish Linux/WSL support, and cannot substitute for either native claimed platform. Do not work around it by starting an unrelated gateway on the Vite proxy target or by reusing owner desktop data: either action would hide the failed desktop transport handoff.
+This remains a diagnostic failure record. It is not relabeled as passing J-05 evidence, does not establish Linux/WSL support, and cannot substitute for the claimed native Windows platform. Do not work around it by starting an unrelated gateway on the Vite proxy target or by reusing owner desktop data: either action would hide the failed desktop transport handoff.
 
 The shared client handoff was subsequently corrected under focused source tests: a Tauri status without a ready state, loopback gateway URL, and desktop transport token now fails closed instead of caching `/api`, and caller headers cannot replace the native token. That correction invalidates older platform evidence and requires fresh native runs. It does not retroactively change this WSL result or prove a native window journey.
 
 | Claimed platform | J-05 evidence state |
 |---|---|
 | Native Windows | `DEFERRED — REQUIRED BEFORE MILESTONE 7` |
-| Native macOS | `DEFERRED — REQUIRED BEFORE MILESTONE 7` |
+| Native macOS | Configured bundle target; not claimed for V1 J-05 |
 | WSL/Linux | Not claimed for V1 J-05; diagnostics only |
 
 ## Provider-independent baseline
@@ -103,4 +103,4 @@ Stop with `Ctrl-C` and verify no task-owned Tauri, Vite, gateway, or MCP process
 - [`runtime-api-base.ts`](../../../builds/typescript/client_web/src/api/runtime-api-base.ts) owns browser-versus-Tauri API resolution.
 - [`package.json`](../../../builds/typescript/package.json) owns preflight, dev, build, and desktop-test command composition.
 
-There is no focused automated test for `resolveGatewayBaseUrl`, `/api` rewriting to the dynamic gateway, or the desktop request header. The prior WSL failure preserves this diagnostic gap; optional Tailscale/browser-access tests do not cover the core handoff. OPEN-03 now tracks the two deferred native platform reports and the rule that WSL/Linux cannot satisfy them.
+Focused tests cover `resolveGatewayBaseUrl`, `/api` rewriting to the dynamic gateway, the desktop request header, and fail-closed incomplete handoff. OPEN-03 tracks the required Windows report and preserves macOS/Linux as configured but unclaimed V1 targets. Evidence-policy changes may revalidate compatible native evidence across source revisions; executable Tauri/runtime/API/script/package changes still force a native rerun.

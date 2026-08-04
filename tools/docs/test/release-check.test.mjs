@@ -10,7 +10,7 @@ test('release evidence precursor fails closed for missing platform, human, readi
   assert.equal(result.status, 'blocked');
   assert.deepEqual(
     result.diagnostics.filter(({ rule }) => rule === 'G-07').map(({ path }) => path),
-    ['platform-evidence:J-05:windows', 'platform-evidence:J-05:macos'],
+    ['platform-evidence:J-05:windows'],
   );
   assert.deepEqual(
     result.diagnostics.filter(({ rule, path }) => rule === 'G-05' && path.startsWith('human-evidence:')).map(({ path }) => path),

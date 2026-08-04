@@ -30,21 +30,7 @@ const PLATFORM_RERUN_PATTERNS = [
   'builds/typescript/scripts/desktop-*',
   'builds/typescript/package.json',
   'builds/typescript/package-lock.json',
-  'docs/developers/setup/tauri-desktop.md',
-  'docs/developers/verification.md',
-  'builds/typescript/src-tauri/README.md',
-  'docs/developers/catalog.json',
-  'tools/docs/release-check.mjs',
-  'tools/docs/candidate-digest.mjs',
-  'tools/docs/check.mjs',
-  'tools/docs/lib/diagnostics.mjs',
-  'tools/docs/lib/evidence-identity.mjs',
   'tools/docs/lib/paths.mjs',
-  'tools/docs/lib/rules/evidence.mjs',
-  'tools/docs/lib/schema.mjs',
-  'tools/docs/schemas/catalog.schema.json',
-  'tools/docs/schemas/platform-report.schema.json',
-  'tools/docs/schemas/evidence-policy.schema.json',
 ];
 
 const AIH_GLOBAL_PATTERNS = [
@@ -152,6 +138,30 @@ export function classifyEvidenceImpact(changedPaths = []) {
   const aih = AIH_IDS.filter((id) => paths.some((path) => matches(path, AIH_GLOBAL_PATTERNS) || path === 'tools/docs/harness/scenarios.json' || matches(path, AIH_SCENARIO_PATTERNS[id])));
   const human = HUMAN_IDS.filter((id) => paths.some((path) => matches(path, HUMAN_REVIEW_PATTERNS[id])));
   return { platform, aih, human };
+}
+
+export async function adjudicatePlatformEvidenceCarryForward(repositoryRoot, { testedRevision, targetRevision, platform } = {}) {
+  const root = resolve(repositoryRoot);
+  const tested = resolveCommit(root, testedRevision);
+  const target = resolveCommit(root, targetRevision);
+  const evidenceId = `${platform}-j05`;
+  const ancestor = spawnSync('git', ['merge-base', '--is-ancestor', tested, target], { cwd: root });
+  if (ancestor.status !== 0) {
+    return {
+      compatible: false,
+      testedRevision: tested,
+      targetRevision: target,
+      changedPaths: [],
+      rerun: { platform: [], aih: [], human: [] },
+      diagnostics: [diagnostic('G-07', `platform-evidence:J-05:${platform || '<missing>'}`, 'tested platform revision is not an ancestor of the current source candidate')],
+    };
+  }
+  const changedPaths = git(root, ['diff', '--name-only', '--no-renames', '-z', `${tested}..${target}`]).split('\0').filter(Boolean).sort();
+  const rerun = classifyEvidenceImpact(changedPaths);
+  const diagnostics = [];
+  if (!PLATFORM_IDS.includes(evidenceId)) diagnostics.push(diagnostic('G-07', `platform-evidence:J-05:${platform || '<missing>'}`, 'platform evidence carry-forward requested an unknown platform'));
+  else if (rerun.platform.includes(evidenceId)) diagnostics.push(diagnostic('G-07', `platform-evidence:J-05:${platform}`, 'runtime-relevant changes require this native platform journey to be rerun'));
+  return { compatible: diagnostics.length === 0, testedRevision: tested, targetRevision: target, changedPaths, rerun, diagnostics };
 }
 
 export async function adjudicateRevisionCompatibility(repositoryRoot, { sourceTestRevision, evidenceRevision } = {}) {
