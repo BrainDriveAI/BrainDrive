@@ -60,21 +60,26 @@ test('mode and lifecycle pages separate memory, secrets, auth, deployment, and b
 
 test('integration documentation makes maturity and provider independence explicit', async () => {
   const gateway = await read('docs/developers/integrations/gateway.md');
-  assert.match(gateway, /Maturity[^\n]+unresolved/i);
-  assert.doesNotMatch(gateway, /Maturity[^\n]+supported/i);
+  assert.match(gateway, /Maturity[^\n]+internal beta/i);
+  assert.match(gateway, /same tagged release/i);
+  assert.match(gateway, /no public third-party API|not a public third-party API/i);
 
   const providers = await read('docs/developers/integrations/providers.md');
-  for (const term of ['BrainDrive Models', 'BYOK OpenRouter', 'Ollama', 'independent', 'secret_ref']) {
+  for (const term of ['beta-supported built-in', 'BrainDrive Models', 'BYOK OpenRouter', 'Ollama', 'independent', 'secret_ref', 'does not cover every model', 'generic OpenAI-compatible']) {
     assert.match(providers, new RegExp(term, 'i'));
   }
   assert.match(providers, /BrainDrive Models credits[^\n]+not required[^\n]+Ollama|Ollama[^\n]+not require[^\n]+BrainDrive Models credits/i);
 
   const mcp = await read('docs/developers/integrations/mcp-and-tools.md');
+  assert.match(mcp, /Maturity[^\n]+internal beta/i);
+  assert.match(mcp, /custom[^\n]+experimental/i);
   assert.match(mcp, /streamable HTTP/i);
   assert.match(mcp, /system_shipped/i);
   assert.match(mcp, /not an SDK/i);
 
   const mcpReadme = await read('builds/mcp_release/README.md');
+  assert.match(mcpReadme, /internal beta/i);
+  assert.match(mcpReadme, /same-release orchestration/i);
   for (const term of ['Risk tier', 'Prerequisites', 'Target', 'Side effects', 'Authority', 'Recovery']) {
     assert.match(mcpReadme, new RegExp(term, 'i'), `MCP command contracts are missing ${term}`);
   }

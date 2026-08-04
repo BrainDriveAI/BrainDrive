@@ -62,6 +62,8 @@ The 2026-08-01 WSL/Linux controlled journey failed to reach the usable shell. Pr
 
 This remains a diagnostic failure record. It is not relabeled as passing J-05 evidence, does not establish Linux/WSL support, and cannot substitute for either native claimed platform. Do not work around it by starting an unrelated gateway on the Vite proxy target or by reusing owner desktop data: either action would hide the failed desktop transport handoff.
 
+The shared client handoff was subsequently corrected under focused source tests: a Tauri status without a ready state, loopback gateway URL, and desktop transport token now fails closed instead of caching `/api`, and caller headers cannot replace the native token. That correction invalidates older platform evidence and requires fresh native runs. It does not retroactively change this WSL result or prove a native window journey.
+
 | Claimed platform | J-05 evidence state |
 |---|---|
 | Native Windows | `DEFERRED — REQUIRED BEFORE MILESTONE 7` |

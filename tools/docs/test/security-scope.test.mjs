@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -62,3 +63,18 @@ for (const name of ['provider-coupling.md', 'owned-key-example.md']) {
     assert.ok(diagnostics.some((item) => item.rule === 'DA-15'));
   });
 }
+
+test('approved historical exception is exact, owned, and time-bounded', async () => {
+  const ignoreLines = (await readFile(new URL('../../../.gitleaksignore', import.meta.url), 'utf8'))
+    .split(/\r?\n/)
+    .filter(Boolean);
+  const reviewed = ignoreLines.filter((line) => createHash('sha256').update(line).digest('hex').startsWith('592e330f7b5b6fe6'));
+
+  assert.equal(reviewed.length, 1);
+  assert.match(reviewed[0], /^[0-9a-f]{40}:[^:*?\[\]]+:[a-z0-9-]+:[1-9][0-9]*$/);
+
+  const policy = await readFile(new URL('../../../docs/repository-security.md', import.meta.url), 'utf8');
+  for (const expected of ['sha256:592e330f7b5b6fe6', 'reviewed-false-positive', '@DJJones66', '2026-08-04', '2027-08-04']) {
+    assert.match(policy, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
+  }
+});

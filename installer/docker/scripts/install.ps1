@@ -10,6 +10,7 @@ $rootDir = Split-Path -Parent $scriptDir
 Set-Location $rootDir
 . "$scriptDir/browser-helper.ps1"
 . "$scriptDir/auth-bootstrap.ps1"
+. "$scriptDir/native-command.ps1"
 
 $composeFile = "compose.local.yml"
 if ($Mode -eq "prod") {
@@ -104,7 +105,10 @@ function Invoke-PullWithRetry {
 Require-Command docker
 
 try {
-  docker compose version | Out-Null
+  Invoke-CheckedNativeCommand `
+    -Command "docker" `
+    -Arguments @("compose", "version") `
+    -FailureMessage "Docker Compose plugin check failed" | Out-Null
 } catch {
   throw "Docker Compose plugin is required (docker compose)."
 }
@@ -141,10 +145,19 @@ if ($Mode -eq "prod") {
 }
 
 if ($Mode -eq "dev") {
-  docker volume create braindrive_memory | Out-Null
-  docker volume create braindrive_secrets | Out-Null
+  Invoke-CheckedNativeCommand `
+    -Command "docker" `
+    -Arguments @("volume", "create", "braindrive_memory") `
+    -FailureMessage "Could not create the BrainDrive memory volume" | Out-Null
+  Invoke-CheckedNativeCommand `
+    -Command "docker" `
+    -Arguments @("volume", "create", "braindrive_secrets") `
+    -FailureMessage "Could not create the BrainDrive secrets volume" | Out-Null
   Write-Host "Building and starting developer stack using $composeFile"
-  docker compose -f $composeFile up -d --build
+  Invoke-CheckedNativeCommand `
+    -Command "docker" `
+    -Arguments @("compose", "-f", $composeFile, "up", "-d", "--build") `
+    -FailureMessage "Could not build and start the BrainDrive developer stack"
 } else {
   & "$scriptDir/fetch-release-metadata.ps1"
   Resolve-ProdImageRefsFromManifest
@@ -153,10 +166,16 @@ if ($Mode -eq "dev") {
   Write-Host "Pulling images using $composeFile"
   Invoke-PullWithRetry -ComposeFile $composeFile
   Write-Host "Starting stack"
-  docker compose -f $composeFile up -d
+  Invoke-CheckedNativeCommand `
+    -Command "docker" `
+    -Arguments @("compose", "-f", $composeFile, "up", "-d") `
+    -FailureMessage "Could not start the BrainDrive stack"
 }
 
 Write-Host "Current service status"
-docker compose -f $composeFile ps
+Invoke-CheckedNativeCommand `
+  -Command "docker" `
+  -Arguments @("compose", "-f", $composeFile, "ps") `
+  -FailureMessage "Could not read the BrainDrive service status"
 
 Write-BrainDriveAccessInfo -Mode $Mode -Prefix "Install complete."

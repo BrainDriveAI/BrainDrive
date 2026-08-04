@@ -1,6 +1,6 @@
 # MCP and tool integration boundary
 
-**Maturity: internal; public SDK/extension compatibility unresolved under OPEN-02.** The repository contains working application components, not an SDK.
+**Maturity: internal beta under the resolved OPEN-02 decision.** First-party services are supported only under BrainDrive's standard same-release orchestration and trusted network boundary. Custom or external MCP is experimental. The repository contains working application components, not an SDK, plugin ABI, semantic-version compatibility promise, or arbitrary third-party server guarantee.
 
 ## Discovery and execution
 

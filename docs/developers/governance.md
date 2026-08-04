@@ -1,6 +1,6 @@
 # Developer documentation governance
 
-> - Status: Current repository governance contract for `dev`; external GitHub enforcement remains explicitly unconfirmed.
+> - Status: Current repository governance contract for `dev`; ownership source is ready, while external GitHub enforcement remains a Step 7/9 proof obligation.
 > - Parent: [Developer documentation index](README.md)
 > - Sources: [`catalog.json`](catalog.json), [`CONTRIBUTING.md`](../../CONTRIBUTING.md), repository Git history, and GitHub workflow/template files
 > - Tests: [`github.test.mjs`](../../tools/docs/test/github.test.mjs), [`freshness-versioning.test.mjs`](../../tools/docs/test/freshness-versioning.test.mjs), and [`governance-release.test.mjs`](../../tools/docs/test/governance-release.test.mjs)
@@ -23,7 +23,9 @@ Each topic has one current canonical path. Cross-cutting pages link to that path
 | Security maintainers | Vulnerability policy, scanning, secrets, auth, data, and trust boundaries | Any public security-sensitive guidance or sanitized security evidence |
 | Release maintainers | Branch/tag/version, artifact, signature, deprecation, and public release truth | Material release, version, compatibility, or deprecation guidance |
 
-The catalog declares roles, not people. OPEN-01 remains open because no authoritative current repository evidence confirms GitHub users or teams for these roles. No `.github/CODEOWNERS` file is added until real handles are confirmed. OPEN-08 remains open because local files cannot prove CODEOWNERS review enforcement, branch protection, or which Actions checks GitHub marks required.
+BrainDriveAI is the confirmed repository-owner organization. The proposed role teams do not yet exist, so `.github/CODEOWNERS` delegates every declared role to the confirmed write-enabled repository administrator `@DJJones66`, who also serves as the authorized security reviewer and restricted-evidence access owner for the initial maintainer group. This resolves OPEN-01 for the initial small maintainer group without inventing teams. When visible BrainDriveAI role teams exist with explicit write access, migrate the matching paths from the individual owner in the same pull request as the catalog update.
+
+The checked-in CODEOWNERS source makes ownership requests reviewable, but it does not prove enforcement. OPEN-08 is source-ready and remains pending Step 7/9 GitHub evidence for required code-owner review, branch/ruleset protection, stale-approval dismissal, and the exact required Actions checks.
 
 ## Required review
 

@@ -17,8 +17,8 @@ Repository evidence defines separate domains; matching them without source autho
 
 | Domain | Public sources | Contract |
 |---|---|---|
-| app/web/Tauri | `builds/typescript/package.json`, `builds/typescript/client_web/package.json`, `builds/typescript/src-tauri/tauri.conf.json`, date Git tags, and `CHANGELOG.md` | Release tooling expects the app and web package version to match `YY.M.D` or `YY.M.D.N`; tagged desktop metadata is reviewed with them. |
-| MCP release | `builds/mcp_release/package.json` and tagged MCP source | This application-component version is independent. It is not a public SDK stability promise while OPEN-02 remains unresolved. |
+| app/web/Tauri | `builds/typescript/package.json`, `builds/typescript/client_web/package.json`, both lockfile roots, `builds/typescript/src-tauri/tauri.conf.json`, date Git tags, and `CHANGELOG.md` | `normalize-release-version.mjs` updates or checks app, web, lockfile, and Tauri versions together at `YY.M.D` or `YY.M.D.N`. |
+| MCP release | `builds/mcp_release/package.json` and tagged MCP source | This internal-beta application-component version is independent. It is not a public SDK or cross-version stability promise. |
 | installer release | Bootstrap tag markers, Docker release scripts, published release assets, and signed release manifest | Installer image/tag and manifest compatibility are evidenced by the specific published release. A local ignored release cache is not repository authority. |
 
 Date tags may use `YY.M.D`; same-day corrections may use `YY.M.D.N`. Tags with a `v0.1.x` shape also exist in Git history and must be evaluated in their own artifact context rather than normalized into the app date domain.
@@ -53,10 +53,28 @@ bash ./installer/docker/scripts/release-production.sh --help
 
 Working directory: repository root. Prerequisites: Bash and a repository checkout. Side effects: help text only; the scripts exit before dependency installation, Git changes, Docker login/build/push, package rewrites, signing, or publication. Expected result: usage text and exit 0. Recovery: none.
 
-The verified help path does not verify production preflight or a release. Actual preflight can recreate ignored dependency trees and build images. The release helper can switch/pull branches, rewrite tracked version/bootstrap files, log in to a registry, build and push images, move tags, use signing authority, create artifacts, and prepare publication. Those are restricted Tier C operations for release-maintainers with an exact target, clean immutable candidate, prerequisites, recovery plan, and separate authorization.
+The verified help path does not verify production preflight or a release. Normalization is now a separate `--normalize-only` stop point: it requires a clean starting tree, updates app/web/lock/Tauri versions and bootstrap markers, then exits so the changes can be reviewed and committed. Publication never normalizes tracked source. It requires a clean immutable candidate, records full `CANDIDATE_REVISION`, checks every version and bootstrap marker, and fails closed if the tree or revision changes.
+
+An authorized release then preflights that commit, publishes versioned images, generates/signs/verifies the manifest, and archives `installer/docker` from exactly `CANDIDATE_REVISION`. Mutable `latest` tags move only after manifest and asset verification. Git tag creation and GitHub release publication remain manual restricted boundaries at the same candidate revision. The helper's `--dry-run --skip-git-sync` path validates a clean normalized candidate and prints this ordering without checkout, pull, login, build, push, sign, tag, or publication. Failure recovery leaves `latest` and the Git tag untouched; the maintainer must inspect any already-published immutable version refs and resume only under the authorized procedure.
+
+Actual preflight may recreate ignored dependency trees and build images. Normalization mutates tracked source. Publication can sync Git, authenticate to a registry, build/push versioned and mutable images, use signing authority, and create release assets. Those remain restricted Tier C operations for release-maintainers with an exact target, prerequisites, recovery plan, and separate authorization.
 
 ## Restricted maintainer boundary
 
-The public escalation role is `release-maintainers`. OPEN-04 remains open because the authorized private procedure location and approved public escalation wording are not confirmed. OPEN-05 remains open because evidence-retention duration and the restricted evidence store are external facts. This page does not invent either location.
+Suspected vulnerabilities must be reported through [GitHub Private Vulnerability Reporting](../../SECURITY.md#reporting-a-vulnerability). Restricted release and production procedures are available only to authorized BrainDriveAI security or release maintainers. Public contributors must stop at the documented safe checks and request the applicable maintainer review.
 
-OPEN-08 also remains open: workflow files show checks that run, but only GitHub repository settings can prove required-check, branch-protection, or ownership enforcement.
+The approved procedure and restricted-evidence location class is a BrainDriveAI-controlled private operations system administered by `@DJJones66`, the confirmed security reviewer and restricted-evidence access owner. Vulnerability collaboration uses GitHub Private Vulnerability Reporting and Security Advisories. Credentials and signing material remain in an approved secret manager, never in either Git repository. The exact private locator is distributed out of band and must not appear in this public corpus. This resolves OPEN-04 without publishing restricted location details.
+
+## Evidence retention
+
+| Evidence class | Retention | Public boundary |
+|---|---|---|
+| Canonical sanitized source, platform, AI, human, and release evidence | Indefinite through normal Git history | Schema-valid public repository evidence only |
+| Hosted CI artifacts and job summaries | At least 90 days | Canonical results are also summarized in the repository evidence record |
+| Restricted release evidence | 36 months after release or 12 months after support ends, whichever is later | BrainDriveAI private operations system administered by `@DJJones66`; authorized security/release-maintainer access only |
+| Private vulnerability records | Through remediation plus at least 36 months | GitHub private vulnerability/security-advisory system |
+| Raw transient diagnostic logs | No more than 30 days unless an active investigation or legal hold requires longer | Restricted store only; delete as soon as the retained decision can stand without them |
+
+Access is reviewed annually and when a maintainer leaves. A legal, contractual, or insurance obligation may lengthen these periods but must not silently shorten them. The owner decision resolves OPEN-05's durations, storage category, and access owner. Evidence of the configured GitHub Actions retention value remains OPEN-08 Step 7/9 work.
+
+OPEN-08 remains a Step 7/9 external proof obligation: workflow and CODEOWNERS files show intended checks and owners, but only GitHub repository settings can prove required-check, branch-protection, or ownership enforcement.

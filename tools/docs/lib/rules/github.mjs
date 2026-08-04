@@ -28,6 +28,19 @@ function validateContract(contract, path = 'contract.json') {
   return diagnostics;
 }
 
+function validateCodeowners(text, catalog) {
+  const diagnostics = [];
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith('#'));
+  const declaredOwners = new Set((catalog.ownerRoles || []).flatMap(({ githubOwners }) => githubOwners || []));
+  const codeownersOwners = new Set(lines.flatMap((line) => line.split(/\s+/).slice(1).filter((value) => value.startsWith('@'))));
+  for (const owner of declaredOwners) if (!codeownersOwners.has(owner)) diagnostics.push(diagnostic('DA-12', '.github/CODEOWNERS', 'a catalog GitHub owner is absent from CODEOWNERS'));
+  for (const path of ['*', '/docs/', '/tools/docs/', '/SECURITY.md', '/tools/security/', '/builds/typescript/auth/', '/builds/typescript/secrets/', '/installer/docker/scripts/release-production.sh']) {
+    const entry = lines.find((line) => line.split(/\s+/)[0] === path);
+    if (!entry || !entry.split(/\s+/).slice(1).some((owner) => declaredOwners.has(owner))) diagnostics.push(diagnostic('DA-12', '.github/CODEOWNERS', `CODEOWNERS is missing a confirmed owner for ${path}`));
+  }
+  return diagnostics;
+}
+
 function section(body, title) {
   const clean = body.replace(/<!--[\s\S]*?-->/g, '');
   const lines = clean.split(/\r?\n/);
@@ -137,12 +150,13 @@ export async function validateGitHubContracts(root) {
     readContainedText(base, '.github/ISSUE_TEMPLATE/documentation.yml'),
     readContainedText(base, '.github/pull_request_template.md'),
     readContainedText(base, '.github/workflows/ci.yml'),
+    readContainedText(base, '.github/CODEOWNERS'),
     readContainedText(base, 'docs/developers/catalog.json'),
   ]);
-  const inputPaths = ['.github/ISSUE_TEMPLATE/documentation.yml', '.github/pull_request_template.md', '.github/workflows/ci.yml', 'docs/developers/catalog.json'];
+  const inputPaths = ['.github/ISSUE_TEMPLATE/documentation.yml', '.github/pull_request_template.md', '.github/workflows/ci.yml', '.github/CODEOWNERS', 'docs/developers/catalog.json'];
   const unsafe = inputs.flatMap((input, index) => input.ok ? [] : [diagnostic('DA-16', inputPaths[index], `GitHub governance input was not read: ${input.reason}`)]);
   if (unsafe.length) return unsafe;
-  const [issue, pr, ci, catalogText] = inputs.map(({ text }) => text);
+  const [issue, pr, ci, codeowners, catalogText] = inputs.map(({ text }) => text);
   const issueStructure = parseIssueFormStructure(issue);
   const issueBody = issueStructure.items;
   let catalog;
@@ -155,7 +169,7 @@ export async function validateGitHubContracts(root) {
     ownerRole: catalog.ownerRoles?.find(({ id }) => id === 'documentation-maintainers')?.id,
     ci: { job: /\n\s*documentation:\s*\n[\s\S]*?name:\s*Documentation/.test(ci) ? 'Documentation' : '', node: /documentation:[\s\S]*?node-version:\s*22/.test(ci) ? 22 : 0 },
   };
-  const diagnostics = [...validateIssueFormStructure(issue), ...validateContract(contract, '.github')];
+  const diagnostics = [...validateIssueFormStructure(issue), ...validateContract(contract, '.github'), ...validateCodeowners(codeowners, catalog)];
   if (!ci.includes('npm --prefix builds/typescript run docs:verify')) diagnostics.push(diagnostic('DA-12', '.github/workflows/ci.yml', 'Documentation job is missing docs:verify command'));
   if (!ci.includes('node tools/docs/check.mjs --report "$RUNNER_TEMP/docs-verification-report.json"')) diagnostics.push(diagnostic('DA-12', '.github/workflows/ci.yml', 'Documentation job is missing the repository-root report command'));
   if (!ci.includes('rm -f -- "$RUNNER_TEMP/docs-verification-report.json"')) diagnostics.push(diagnostic('DA-12', '.github/workflows/ci.yml', 'Documentation job is missing explicit temporary report cleanup'));

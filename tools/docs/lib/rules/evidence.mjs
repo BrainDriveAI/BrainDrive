@@ -1,7 +1,7 @@
 import { diagnostic } from '../diagnostics.mjs';
 import { readContainedText } from '../paths.mjs';
 
-const EVIDENCE_FIELDS = ['schemaVersion', 'kind', 'id', 'revision', 'branchOrTag', 'environment', 'startState', 'command', 'workingDirectory', 'toolVersions', 'steps', 'expected', 'actual', 'interventions', 'confusionPoints', 'cleanup', 'remainingRisk', 'disposition', 'sanitization'];
+const EVIDENCE_FIELDS = ['schemaVersion', 'kind', 'id', 'sourceTestRevision', 'sourceCandidateProof', 'branchOrTag', 'environment', 'startState', 'command', 'workingDirectory', 'toolVersions', 'steps', 'expected', 'actual', 'interventions', 'confusionPoints', 'cleanup', 'remainingRisk', 'disposition', 'sanitization'];
 const HARNESS_FIELDS = ['id', 'goal', 'taskPrompt', 'allowedContext', 'startingPath', 'prohibitedInputs', 'prohibitedActions', 'expectedAuthorities', 'requiredOutput', 'rubric', 'evidence'];
 const HARNESS_ARRAY_FIELDS = ['allowedContext', 'prohibitedInputs', 'prohibitedActions', 'expectedAuthorities', 'requiredOutput', 'rubric'];
 const HARNESS_DIMENSIONS = new Set(['authority', 'repository accuracy', 'scope', 'trust', 'verification', 'conflict behavior', 'documentation impact', 'handoff']);
@@ -15,6 +15,10 @@ export function validateEvidence(data = {}) {
   const missing = EVIDENCE_FIELDS.filter((field) => data[field] === undefined || data[field] === '' || (field === 'steps' && Array.isArray(data[field]) && data[field].length === 0));
   if (missing.length) diagnostics.push(diagnostic('DA-18', `evidence:${data.id || '<missing>'}`, `evidence record is missing fields: ${missing.join(', ')}`));
   for (const field of ['steps', 'interventions', 'confusionPoints']) if (data[field] !== undefined && !Array.isArray(data[field])) diagnostics.push(diagnostic('DA-18', `evidence:${data.id || '<missing>'}`, `${field} must be an array`));
+  if (data.sourceTestRevision !== undefined && !/^[0-9a-f]{40}$/i.test(data.sourceTestRevision)) diagnostics.push(diagnostic('DA-18', `evidence:${data.id || '<missing>'}`, 'SOURCE_TEST_REVISION must be a full commit SHA'));
+  if (data.sourceCandidateProof !== undefined && !/^source-candidate sha256 [0-9a-f]{64}; entries \d+; revision [0-9a-f]{40}$/i.test(data.sourceCandidateProof)) diagnostics.push(diagnostic('DA-18', `evidence:${data.id || '<missing>'}`, 'SOURCE_CANDIDATE_PROOF must use the canonical immutable-source format'));
+  const proofRevision = data.sourceCandidateProof?.match(/; revision ([0-9a-f]{40})$/i)?.[1];
+  if (proofRevision && data.sourceTestRevision && proofRevision !== data.sourceTestRevision) diagnostics.push(diagnostic('DA-18', `evidence:${data.id || '<missing>'}`, 'SOURCE_CANDIDATE_PROOF revision must match SOURCE_TEST_REVISION'));
   if (data.disposition && !['pass', 'fail', 'blocked'].includes(data.disposition)) diagnostics.push(diagnostic('DA-18', `evidence:${data.id || '<missing>'}`, 'disposition must be pass, fail, or blocked'));
   const serialized = JSON.stringify(data);
   if (containsSensitiveEvidence(serialized)) diagnostics.push(diagnostic('DA-18', `evidence:${data.id || '<missing>'}`, 'evidence contains a disallowed private, network, or credential-shaped value; content is redacted'));
@@ -50,15 +54,36 @@ export function validateHarness(data = {}) {
   return diagnostics;
 }
 
-export function validateAiScorecard(scenario = {}, text = '', path = '<scorecard>', { candidateProof } = {}) {
+function substantiveArtifactRetained(section, field) {
+  const escaped = escapeRegExp(field);
+  const bullet = section.match(new RegExp(`^[-*] ${escaped}:\\s*(.+)$`, 'mi'))?.[1]?.trim() || '';
+  const generic = /^(?:present|retained|complete|included|yes|pass|passed|see (?:above|below))\.?$/i.test(bullet);
+  const inlineReferences = [...bullet.matchAll(/`[^`]+`/g)].length;
+  const headingBlock = section.match(new RegExp(`^#{3,6}\\s+${escaped}\\s*$([\\s\\S]*?)(?=^#{2,6}\\s|$(?![\\s\\S]))`, 'mi'))?.[1] || '';
+  const tableRows = headingBlock.split(/\r?\n/).filter((line) => /^\|.+\|\s*$/.test(line) && !/^\|\s*:?-+/.test(line)).length;
+  const listItems = headingBlock.split(/\r?\n/).filter((line) => /^[-*]\s+\S/.test(line)).length;
+  return (!generic && bullet.length >= 80 && inlineReferences >= 2) || tableRows >= 3 || listItems >= 3;
+}
+
+export function validateAiScorecard(scenario = {}, text = '', path = '<scorecard>', { candidateProof, sourceTestRevision, sourceCandidateProof, requireSubstantiveArtifacts = false } = {}) {
   const diagnostics = [];
   if (!text.includes(`- Scenario ID: ${scenario.id}`)) diagnostics.push(diagnostic('DA-18', path, `scorecard must identify ${scenario.id}`));
   if (!text.includes(`- Task prompt: ${scenario.taskPrompt}`)) diagnostics.push(diagnostic('DA-18', path, 'scorecard must retain the exact task prompt'));
-  if (!/- Candidate state proof:\s*`?candidate-content sha256 [a-f0-9]{64}; entries \d+; head [a-f0-9]{40}`?\s*$/im.test(text)) diagnostics.push(diagnostic('DA-18', path, 'scorecard must bind the candidate-under-test with the canonical content digest'));
+  const requiresSourceIdentity = sourceTestRevision || sourceCandidateProof;
+  if (requiresSourceIdentity) {
+    const sourceLabel = '(?:SOURCE_TEST_REVISION|Source test revision)';
+    const proofLabel = '(?:SOURCE_CANDIDATE_PROOF|Source candidate proof)';
+    if (!new RegExp(`^- ${sourceLabel}:\\s*\`?[a-f0-9]{40}\`?\\s*$`, 'im').test(text)) diagnostics.push(diagnostic('G-10', path, 'scorecard requires a full SOURCE_TEST_REVISION'));
+    if (!new RegExp(`^- ${proofLabel}:\\s*\`?source-candidate sha256 [a-f0-9]{64}; entries \\d+; revision [a-f0-9]{40}\`?\\s*$`, 'im').test(text)) diagnostics.push(diagnostic('G-10', path, 'scorecard requires the canonical SOURCE_CANDIDATE_PROOF'));
+    if (sourceTestRevision && !new RegExp(`^- ${sourceLabel}:\\s*\`?${escapeRegExp(sourceTestRevision)}\`?\\s*$`, 'im').test(text)) diagnostics.push(diagnostic('G-10', path, 'scorecard SOURCE_TEST_REVISION is stale'));
+    if (sourceCandidateProof && !new RegExp(`^- ${proofLabel}:\\s*\`?${escapeRegExp(sourceCandidateProof)}\`?\\s*$`, 'im').test(text)) diagnostics.push(diagnostic('G-10', path, 'scorecard SOURCE_CANDIDATE_PROOF is stale'));
+  } else if (!/- Candidate state proof:\s*`?candidate-content sha256 [a-f0-9]{64}; entries \d+; head [a-f0-9]{40}`?\s*$/im.test(text)) diagnostics.push(diagnostic('DA-18', path, 'scorecard must bind the candidate-under-test with the canonical content digest'));
   if (candidateProof && !text.includes(`- Candidate state proof: ${candidateProof}`)) diagnostics.push(diagnostic('G-10', path, 'scorecard does not bind the current candidate content proof'));
   if (!text.includes('## Required output evidence')) diagnostics.push(diagnostic('DA-18', path, 'scorecard must retain a required-output evidence section'));
+  const requiredOutputSection = text.match(/## Required output evidence\s*([\s\S]*?)(?=^##\s|$(?![\s\S]))/mi)?.[1] || '';
   for (const field of scenario.evidence?.requiredFields || []) {
     if (!new RegExp(`^[-*] ${escapeRegExp(field)}:\\s*\\S`, 'm').test(text)) diagnostics.push(diagnostic('DA-18', path, `scorecard is missing required evidence field: ${field}`));
+    if (requireSubstantiveArtifacts && /\b(?:map|matrix|worksheet|comparison|handoff|artifact)\b/i.test(field) && !substantiveArtifactRetained(requiredOutputSection, field)) diagnostics.push(diagnostic('G-10', path, `scorecard must substantively retain the required ${field} artifact`));
   }
   for (const { dimension } of scenario.rubric || []) {
     const label = DIMENSION_LABELS.get(dimension) || dimension;
@@ -127,9 +152,9 @@ export function validateMilestoneRecord(text, path) {
 
 export async function validateEvidenceTemplates(root) {
   const requirements = {
-    'docs/developers/verification/templates/journey-report.md': ['Scenario ID:', 'Candidate revision:', 'Starting state:', 'Command:', 'Working directory:', 'Tool versions:', 'Cleanup:', 'Remaining risk:', '## Steps and results', '## Interventions and confusion points', '## Sanitization and disposition'],
-    'docs/developers/verification/templates/human-review.md': ['Review ID:', 'Reviewer role', 'Candidate revision:', '## Findings', '## Decision'],
-    'docs/developers/verification/templates/ai-agent-scorecard.md': ['Scenario ID:', 'Candidate revision:', 'Candidate state proof:', 'Task prompt:', 'Prohibited inputs/actions confirmed:', 'Gating dimension', '## Trace summary', '## Required output evidence', '## Outcome'],
+    'docs/developers/verification/templates/journey-report.md': ['Scenario ID:', 'SOURCE_TEST_REVISION:', 'SOURCE_CANDIDATE_PROOF:', 'EVIDENCE_REVISION', 'Starting state:', 'Command:', 'Working directory:', 'Tool versions:', 'Cleanup:', 'Remaining risk:', '## Steps and results', '## Interventions and confusion points', '## Sanitization and disposition'],
+    'docs/developers/verification/templates/human-review.md': ['Review ID:', 'Reviewer role', 'SOURCE_TEST_REVISION:', 'SOURCE_CANDIDATE_PROOF:', 'EVIDENCE_REVISION', '## Findings', '## Decision'],
+    'docs/developers/verification/templates/ai-agent-scorecard.md': ['Scenario ID:', 'SOURCE_TEST_REVISION:', 'SOURCE_CANDIDATE_PROOF:', 'EVIDENCE_REVISION', 'Task prompt:', 'Prohibited inputs/actions confirmed:', 'Gating dimension', '## Trace summary', '## Required output evidence', '## Outcome'],
   };
   const diagnostics = [];
   for (const [path, fields] of Object.entries(requirements)) {

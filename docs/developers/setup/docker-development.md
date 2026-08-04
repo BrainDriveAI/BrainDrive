@@ -11,8 +11,8 @@
 > - Parent: [docs/developers/README.md](../README.md).
 > - Adjacent topics: [Native TypeScript and web development](./native.md); [Docker installer and deployment overview](../../../installer/docker/README.md); [Docker lifecycle script reference](../../../installer/docker/scripts/README.md); [Safe debugging and failure evidence](../debugging.md).
 > - Keywords: `Docker dev`, `hot reload`, `compose.dev.yml`, `provider-independent startup`.
-> - Sources: [`installer/docker/compose.dev.yml`](../../../installer/docker/compose.dev.yml); [`installer/docker/scripts/start.sh`](../../../installer/docker/scripts/start.sh); [`installer/docker/scripts/stop.sh`](../../../installer/docker/scripts/stop.sh).
-> - Tests: [`tools/docs/test/developer-journeys.test.mjs`](../../../tools/docs/test/developer-journeys.test.mjs); [`installer/docker/scripts/test/image-hardening.sh`](../../../installer/docker/scripts/test/image-hardening.sh).
+> - Sources: [`installer/docker/compose.dev.yml`](../../../installer/docker/compose.dev.yml); [`installer/docker/scripts/start.sh`](../../../installer/docker/scripts/start.sh); [`installer/docker/scripts/stop.sh`](../../../installer/docker/scripts/stop.sh); [`installer/docker/scripts/native-command.ps1`](../../../installer/docker/scripts/native-command.ps1).
+> - Tests: [`tools/docs/test/developer-journeys.test.mjs`](../../../tools/docs/test/developer-journeys.test.mjs); [`tools/docs/test/powershell-lifecycle.test.mjs`](../../../tools/docs/test/powershell-lifecycle.test.mjs); [`installer/docker/scripts/test/image-hardening.sh`](../../../installer/docker/scripts/test/image-hardening.sh).
 <!-- catalog-contract:end docker-development-setup -->
 
 Docker `dev` is the source-mounted hot-reload mode. It is not Docker `local`: `local` pulls published images and serves through the local edge container, while `dev` builds the app image, mounts source, runs the gateway under `tsx watch`, and runs Vite with HMR.
@@ -74,7 +74,7 @@ The default web bind is loopback. Setting `BRAINDRIVE_DEV_BIND_HOST=0.0.0.0` exp
 
 The 2026-08-01 WSL/Linux journey exercised only `start.sh dev` against a pre-existing initialized stack. Compose reported the existing app healthy and reused the app/web containers; the web endpoint responded. The web service was temporarily stopped and restarted only to free its host port for other controlled journeys, then the original running app/web state was restored. No first install, rebuild, local/prod mode, PowerShell, Windows, or macOS result is claimed.
 
-The PowerShell install/start/stop scripts currently do not check every native Docker process exit code before printing completion. Treat their completion text as unverified and inspect the actual Compose result; do not cite those paths as passing evidence until the product scripts gain fail-closed native-command handling and a controlled Windows run.
+The PowerShell install/start/stop scripts now check every required native Docker process exit before printing completion. A WSL static contract test verifies the shared fail-closed wrapper and rejects unchecked direct Docker invocations. This closes the source defect only: do not cite it as passing Windows evidence until a controlled native Windows run exercises the scripts.
 
 ## Provider validation is separate
 
@@ -89,7 +89,7 @@ Provider response testing is Tier C and requires explicit authority for the sele
 - Host bind failure: port conflict; identify the existing owner before changing it.
 - App remains unhealthy: MCP/gateway startup failure; inspect sanitized service status before logs.
 - App healthy but web absent: web dependency/Vite failure.
-- PowerShell prints completion after a Docker failure: script failure-reporting gap; use the actual native exit/service state and do not record a pass.
+- PowerShell native Docker failure: the lifecycle script must throw before completion output; if a native Windows run observes otherwise, record a source regression and do not record a pass.
 
 ## Cleanup and recovery
 
@@ -107,4 +107,5 @@ docker compose -f installer/docker/compose.dev.yml ps
 - [`compose.dev.yml`](../../../installer/docker/compose.dev.yml) is authoritative for mounts, ports, health checks, dependency installation, service commands, and named volumes.
 - [`start.sh`](../../../installer/docker/scripts/start.sh) selects dev Compose, ensures volumes, starts services, prints status, and attempts a browser open.
 - [`stop.sh`](../../../installer/docker/scripts/stop.sh) stops services without removing containers or volumes.
+- [`native-command.ps1`](../../../installer/docker/scripts/native-command.ps1) owns fail-closed native exit handling for the PowerShell install/start/stop paths; [`powershell-lifecycle.test.mjs`](../../../tools/docs/test/powershell-lifecycle.test.mjs) enforces the source contract in WSL.
 - [`installer/docker/scripts/README.md`](../../../installer/docker/scripts/README.md) owns the per-script reference; the [Docker overview](../../../installer/docker/README.md) owns mode distinctions.

@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, symlink, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
-import { candidateDigest } from '../candidate-digest.mjs';
+import { sourceCandidateIdentity } from '../candidate-digest.mjs';
 
-test('candidate content digest is stable and changes for tracked content, untracked files, and deletions', async () => {
+test('source candidate proof is stable for an immutable commit and changes only after a new source commit', async () => {
   const temporary = await mkdtemp(resolve(tmpdir(), 'docs-candidate-digest-'));
   try {
     execFileSync('git', ['init', '-q'], { cwd: temporary });
@@ -17,28 +17,24 @@ test('candidate content digest is stable and changes for tracked content, untrac
     execFileSync('git', ['add', '.gitignore', 'tracked.md'], { cwd: temporary });
     execFileSync('git', ['commit', '-qm', 'fixture'], { cwd: temporary });
 
-    const clean = await candidateDigest(temporary);
-    assert.deepEqual(await candidateDigest(temporary), clean);
+    const sourceRevision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: temporary, encoding: 'utf8' }).trim();
+    const clean = await sourceCandidateIdentity(temporary, sourceRevision);
+    assert.deepEqual(await sourceCandidateIdentity(temporary, sourceRevision), clean);
     await writeFile(resolve(temporary, 'tracked.md'), 'two\n');
-    const modified = await candidateDigest(temporary);
-    assert.notEqual(modified.digest, clean.digest);
-    assert.equal(modified.entries, 1);
     await writeFile(resolve(temporary, 'new.md'), 'new\n');
-    const untracked = await candidateDigest(temporary);
-    assert.notEqual(untracked.digest, modified.digest);
-    assert.equal(untracked.entries, 2);
     await writeFile(resolve(temporary, 'ignored-private'), 'excluded\n');
-    assert.deepEqual(await candidateDigest(temporary), untracked);
-    await unlink(resolve(temporary, 'tracked.md'));
-    const deleted = await candidateDigest(temporary);
-    assert.notEqual(deleted.digest, untracked.digest);
-    assert.deepEqual(await candidateDigest(temporary), deleted);
+    assert.deepEqual(await sourceCandidateIdentity(temporary, sourceRevision), clean);
+    execFileSync('git', ['add', 'tracked.md', 'new.md'], { cwd: temporary });
+    execFileSync('git', ['commit', '-qm', 'next source'], { cwd: temporary });
+    const next = await sourceCandidateIdentity(temporary, 'HEAD');
+    assert.notEqual(next.digest, clean.digest);
+    assert.equal(next.entries, clean.entries + 1);
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }
 });
 
-test('candidate digest rejects a tracked file reached through an outside symlinked ancestor', async () => {
+test('source candidate proof reads the commit tree without following a worktree symlink escape', async () => {
   const temporary = await mkdtemp(resolve(tmpdir(), 'docs-candidate-digest-root-'));
   const outside = await mkdtemp(resolve(tmpdir(), 'docs-candidate-digest-outside-'));
   try {
@@ -49,17 +45,19 @@ test('candidate digest rejects a tracked file reached through an outside symlink
     await writeFile(resolve(temporary, 'nested/file.md'), 'inside\n');
     execFileSync('git', ['add', 'nested/file.md'], { cwd: temporary });
     execFileSync('git', ['commit', '-qm', 'fixture'], { cwd: temporary });
+    const sourceRevision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: temporary, encoding: 'utf8' }).trim();
+    const clean = await sourceCandidateIdentity(temporary, sourceRevision);
     await writeFile(resolve(outside, 'file.md'), 'outside-private-marker\n');
     await rm(resolve(temporary, 'nested'), { recursive: true });
     await symlink(outside, resolve(temporary, 'nested'), process.platform === 'win32' ? 'junction' : 'dir');
-    await assert.rejects(candidateDigest(temporary), (error) => /escaped repository root/.test(error.message) && !error.message.includes('outside-private-marker'));
+    assert.deepEqual(await sourceCandidateIdentity(temporary, sourceRevision), clean);
   } finally {
     await rm(temporary, { recursive: true, force: true });
     await rm(outside, { recursive: true, force: true });
   }
 });
 
-test('candidate digest excludes self-referential Milestone 7 evidence outputs', async () => {
+test('source candidate proof excludes declared release evidence outputs', async () => {
   const temporary = await mkdtemp(resolve(tmpdir(), 'docs-candidate-digest-release-'));
   try {
     execFileSync('git', ['init', '-q'], { cwd: temporary });
@@ -75,15 +73,18 @@ test('candidate digest excludes self-referential Milestone 7 evidence outputs', 
     execFileSync('git', ['add', '.'], { cwd: temporary });
     execFileSync('git', ['commit', '-qm', 'fixture'], { cwd: temporary });
 
-    const clean = await candidateDigest(temporary);
+    const sourceRevision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: temporary, encoding: 'utf8' }).trim();
+    const clean = await sourceCandidateIdentity(temporary, sourceRevision);
     for (const path of [
       'docs/developers/verification/milestones/07-release-gauntlet.md',
       'docs/developers/verification/m7-trace-matrix.md',
       'docs/developers/verification/v1-readiness.md',
     ]) await writeFile(resolve(temporary, path), 'final evidence\n');
-    assert.deepEqual(await candidateDigest(temporary), clean);
+    assert.deepEqual(await sourceCandidateIdentity(temporary, sourceRevision), clean);
     await writeFile(resolve(temporary, 'candidate.md'), 'changed candidate\n');
-    assert.notEqual((await candidateDigest(temporary)).digest, clean.digest);
+    execFileSync('git', ['add', '.'], { cwd: temporary });
+    execFileSync('git', ['commit', '-qm', 'evidence and source change'], { cwd: temporary });
+    assert.notEqual((await sourceCandidateIdentity(temporary, 'HEAD')).digest, clean.digest);
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }

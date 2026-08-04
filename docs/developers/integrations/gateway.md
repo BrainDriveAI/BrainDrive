@@ -1,6 +1,6 @@
 # Gateway integration boundary
 
-**Maturity: unresolved for public compatibility under OPEN-02.** The gateway is a shipped internal contract between BrainDrive clients and runtime; this page is not an API stability or third-party support promise.
+**Maturity: internal beta under the resolved OPEN-02 decision.** The supported use is the bundled BrainDrive web or Tauri client with the runtime from the same tagged release. This is not a public third-party API or a cross-version compatibility promise; during beta, routes and payloads may change when source, tests, documentation, and release notes change together.
 
 ## Current contract shape
 

@@ -15,7 +15,10 @@ For repository secret scanning, synthetic test patterns, remediation expectation
 - Restore/import, secret deletion or rotation, remote backup push, destructive Compose cleanup, production, release, and signing actions require separate authority.
 - Security, data, compatibility, provider, migration, or production conflicts stop documentation work; they are not corrected by changing product behavior under a docs prompt.
 
-Restricted maintainer procedures remain outside this public corpus. This page intentionally does not name or link a private location, because OPEN-04 has no recorded authorized location or escalation wording. Ask the responsible maintainer through an already authorized channel without copying restricted details.
+The approved location class for restricted maintainer procedures and evidence is a BrainDriveAI-controlled private operations system administered by `@DJJones66`, the confirmed security reviewer and access owner. Suspected vulnerabilities use GitHub Private Vulnerability Reporting and Security Advisories; restricted release or production questions go to an authorized BrainDriveAI security or release maintainer. The exact private locator, procedures, credentials, and signing material are intentionally absent from public documentation.
+
+## Current dependency disposition
+
+The web audit's React Router finding has upstream high severity but applies to unstable React Server Components APIs. BrainDrive currently uses browser routing and has no identified React Router RSC integration. Authorized BrainDriveAI security reviewer `@DJJones66` accepts **not affected in the current architecture**. Rerun this disposition if React Server Components or router server actions are adopted, the router/build architecture changes, a supported patched release becomes available, or the next scheduled dependency review occurs.
 
 Safe checks are `tools/security/scan-secrets.sh --self-test` followed by `tools/security/scan-secrets.sh --current`, plus the affected unit/documentation tests. A green scan does not prove runtime isolation or authorize access to secret-bearing state.
-

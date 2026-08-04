@@ -111,11 +111,13 @@ test('OPEN-06 records one accurate Playwright and Vite gateway startup contract'
   const vite = await read('builds/typescript/client_web/vite.config.ts');
   assert.doesNotMatch(playwright, /localhost:3000/);
   assert.doesNotMatch(mobile, /localhost:3000/);
-  assert.match(playwright, /npm run dev:server/);
+  const runner = await read('builds/typescript/client_web/scripts/run-isolated-e2e.mjs');
+  assert.match(runner, /scripts\/dev-runtime\.mjs/);
+  assert.match(runner, /VITE_GATEWAY_PROXY_TARGET/);
   assert.match(vite, /127\.0\.0\.1:8787/);
 });
 
-test('browser E2E remains explicitly blocked on reproducible isolated auth state', async () => {
+test('browser E2E has a reproducible disposable provider-independent auth seed', async () => {
   const value = await catalog();
   const commands = new Map(value.commands.map((command) => [command.id, command]));
   for (const id of ['browser-e2e', 'browser-e2e-mobile']) {
@@ -123,11 +125,12 @@ test('browser E2E remains explicitly blocked on reproducible isolated auth state
     assert.equal(command?.riskTier, 'B');
     assert.ok(command?.target);
     assert.ok(command?.authority);
-    assert.match(command?.prerequisites.join(' ') ?? '', /auth/i);
+    assert.match(command?.prerequisites.join(' ') ?? '', /Playwright browsers/i);
+    assert.doesNotMatch(command?.prerequisites.join(' ') ?? '', /unresolved|initialized.*account/i);
   }
   const open10 = value.openItems.find(({ id }) => id === 'OPEN-10');
-  assert.match(open10?.state ?? '', /blocked/);
-  assert.match(open10?.summary ?? '', /auth/i);
+  assert.match(open10?.state ?? '', /^resolved/);
+  assert.match(open10?.summary ?? '', /task-owned|disposable/i);
 });
 
 test('native isolation and Docker mutation/network boundaries are explicit', async () => {
@@ -163,8 +166,8 @@ test('Tauri configured bundle targets are distinct from claimed and evidenced J-
   assert.deepEqual(
     claim?.requiredEvidence,
     [
-      { platform: 'windows', environment: 'native', status: 'DEFERRED — REQUIRED BEFORE MILESTONE 7' },
-      { platform: 'macos', environment: 'native', status: 'DEFERRED — REQUIRED BEFORE MILESTONE 7' },
+      { platform: 'windows', environment: 'native', status: 'DEFERRED — REQUIRED BEFORE MILESTONE 7', reportPath: 'docs/developers/verification/platform-reports/windows-j05.json', schemaPath: 'tools/docs/schemas/platform-report.schema.json' },
+      { platform: 'macos', environment: 'native', status: 'DEFERRED — REQUIRED BEFORE MILESTONE 7', reportPath: 'docs/developers/verification/platform-reports/macos-j05.json', schemaPath: 'tools/docs/schemas/platform-report.schema.json' },
     ],
   );
 

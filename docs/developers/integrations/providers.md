@@ -1,6 +1,6 @@
 # Provider integration boundary
 
-**Maturity: internal configuration; public extension and compatibility status unresolved under OPEN-02.**
+**Maturity: beta-supported built-in integrations under the resolved OPEN-02 decision.** Support covers BrainDrive's declared configuration and credential boundaries for the three named profiles in a tagged release. It does not cover every model, endpoint, provider feature, future third-party behavior, or a generic OpenAI-compatible extension contract.
 
 BrainDrive uses the `openai-compatible` adapter with three declared profiles in `adapters/openai-compatible.json`:
 
@@ -11,6 +11,8 @@ BrainDrive uses the `openai-compatible` adapter with three declared profiles in 
 | Ollama | Local OpenAI-compatible endpoint | Does not require a provider secret by default; a running compatible local service/model is separate. |
 
 These choices are independent. BrainDrive Models credits are not required for Ollama or BYOK OpenRouter. Selecting one profile must not remove or silently fund another. A completed BrainDrive Models claim may activate that profile only when the captured provider-intent revision still matches; a newer explicit OpenRouter/Ollama choice is preserved. BrainDrive-owned provider keys must never be placed in client configuration.
+
+External provider reachability, model availability, account entitlement, pricing, and provider-specific behavior are outside BrainDrive's compatibility guarantee. Compatibility claims are limited to the configuration and tests evidenced for the tagged BrainDrive release.
 
 ## Selection and secret resolution
 

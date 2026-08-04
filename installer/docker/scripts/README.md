@@ -92,7 +92,7 @@ The [Docker development journey](../../../docs/developers/setup/docker-developme
 
 `reset-new-user`, restore/import, volume removal, production, release, signing, and publishing operations are Tier C for developer-documentation evidence. They are never implicit cleanup for the commands above.
 
-The PowerShell install/start/stop scripts currently do not fail closed on every nonzero native Docker exit before printing completion. Their entry points are source references, not passing Windows evidence; verify actual Compose state and do not rely on completion text until that product gap is fixed and tested.
+The PowerShell install/start/stop scripts route required native Docker commands through `native-command.ps1`, which captures `$LASTEXITCODE` immediately and throws before any completion output on failure. WSL static contract tests cover that source behavior, but they are not native Windows execution evidence; a controlled Windows run is still required before citing these entry points as passing platform evidence.
 
 ## Script Catalog
 
@@ -119,6 +119,7 @@ Key behavior:
 - Fails if `.env` already exists (protects existing account/secrets state).
 - `dev` builds images.
 - `local` and `prod` pull only after release resolution succeeds; verification failures stop the install.
+- Required native Docker commands fail closed before access or completion output.
 - On Apple Silicon macOS, shell install defaults local/prod pulls to `linux/amd64` unless `BRAINDRIVE_DOCKER_PLATFORM` is set.
 - Always prints the access URL and attempts a best-effort browser auto-open on the host.
 
@@ -144,6 +145,7 @@ Arguments:
 Key behavior:
 - `prod` requires `.env` and real `DOMAIN`.
 - If `check-update` returns fail-closed errors, startup halts.
+- Required native Docker commands fail closed before access or completion output.
 - Always prints the access URL and attempts a best-effort browser auto-open on the host.
 
 Env/config read:
@@ -160,6 +162,9 @@ Usage:
 
 Arguments:
 - `Mode` (default: `local`)
+
+Key behavior:
+- Both the stop command and status query fail closed before completion output.
 
 ### upgrade (`upgrade.sh`, `upgrade.ps1`)
 

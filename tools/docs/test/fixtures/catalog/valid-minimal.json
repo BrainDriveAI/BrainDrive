@@ -25,14 +25,42 @@
     {
       "id": "sample-platform",
       "journeyId": "J-X",
-      "configuredBundleTargets": ["sample-os"],
-      "claimedPlatforms": ["sample-os"],
+      "configuredBundleTargets": ["windows"],
+      "claimedPlatforms": ["windows"],
       "diagnosticOnlyEnvironments": ["sample-shell"],
       "requiredEvidence": [
-        { "platform": "sample-os", "environment": "native", "status": "DEFERRED — REQUIRED BEFORE MILESTONE 7" }
+        { "platform": "windows", "environment": "native", "status": "DEFERRED — REQUIRED BEFORE MILESTONE 7", "reportPath": "docs/developers/verification/platform-reports/windows-j05.json", "schemaPath": "tools/docs/schemas/platform-report.schema.json" }
       ]
     }
   ],
+  "humanReviewRequirements": [
+    { "id": "REV-01", "reviewerRole": "reviewer 1", "path": "docs/developers/verification/human-reviews/rev-01.json", "schemaPath": "tools/docs/schemas/human-review.schema.json" },
+    { "id": "REV-02", "reviewerRole": "reviewer 2", "path": "docs/developers/verification/human-reviews/rev-02.json", "schemaPath": "tools/docs/schemas/human-review.schema.json" },
+    { "id": "REV-03", "reviewerRole": "reviewer 3", "path": "docs/developers/verification/human-reviews/rev-03.json", "schemaPath": "tools/docs/schemas/human-review.schema.json" },
+    { "id": "REV-04", "reviewerRole": "reviewer 4", "path": "docs/developers/verification/human-reviews/rev-04.json", "schemaPath": "tools/docs/schemas/human-review.schema.json" },
+    { "id": "REV-05", "reviewerRole": "reviewer 5", "path": "docs/developers/verification/human-reviews/rev-05.json", "schemaPath": "tools/docs/schemas/human-review.schema.json" },
+    { "id": "REV-06", "reviewerRole": "reviewer 6", "path": "docs/developers/verification/human-reviews/rev-06.json", "schemaPath": "tools/docs/schemas/human-review.schema.json" },
+    { "id": "REV-07", "reviewerRole": "reviewer 7", "path": "docs/developers/verification/human-reviews/rev-07.json", "schemaPath": "tools/docs/schemas/human-review.schema.json" },
+    { "id": "REV-08", "reviewerRole": "reviewer 8", "path": "docs/developers/verification/human-reviews/rev-08.json", "schemaPath": "tools/docs/schemas/human-review.schema.json" }
+  ],
+  "evidenceOutputs": {
+    "recordIdentityFields": ["SOURCE_TEST_REVISION", "SOURCE_CANDIDATE_PROOF"],
+    "revisionModelFields": ["SOURCE_TEST_REVISION", "EVIDENCE_REVISION"],
+    "approvedPathPatterns": [
+      "docs/developers/verification/ai-agent-scorecards/aih-??.md",
+      "docs/developers/verification/platform-reports/windows-j05.json",
+      "docs/developers/verification/platform-reports/macos-j05.json",
+      "docs/developers/verification/human-reviews/rev-??.json",
+      "docs/developers/verification/milestones/07-release-gauntlet.md",
+      "docs/developers/verification/m7-trace-matrix.md",
+      "docs/developers/verification/v1-readiness.md"
+    ],
+    "releaseRecords": [
+      "docs/developers/verification/milestones/07-release-gauntlet.md",
+      "docs/developers/verification/m7-trace-matrix.md",
+      "docs/developers/verification/v1-readiness.md"
+    ]
+  },
   "topics": [
     {
       "topicId": "sample",

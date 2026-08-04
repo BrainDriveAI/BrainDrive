@@ -1,26 +1,26 @@
 import { defineConfig, devices } from "@playwright/test";
 
-/**
- * E2E tests require both the Vite dev server and the BrainDrive gateway.
- *
- *   Runtime: MCP services and the gateway must already be running at Vite's
- *            default proxy target on port 8787. From builds/typescript, use
- *            `npm run dev:server`; a reproducible isolated E2E auth fixture is
- *            still required before this suite can be cited as clean evidence.
- *
- *   Vite:    started automatically via the webServer config below.
- */
+const isolatedE2e = process.env.BRAINDRIVE_E2E_ISOLATED === "1";
+const webPort = process.env.BRAINDRIVE_E2E_WEB_PORT ?? "5073";
+const baseURL = `http://127.0.0.1:${webPort}`;
+const artifactRoot = process.env.BRAINDRIVE_E2E_ARTIFACT_ROOT;
+
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
-  reporter: "html",
+  // The disposable contract seeds one synthetic local owner. Serialize isolated
+  // runs so concurrent login/message traffic cannot race shared account state.
+  workers: isolatedE2e ? 1 : process.env.CI ? 1 : undefined,
+  reporter: artifactRoot
+    ? [["html", { outputFolder: `${artifactRoot}/html`, open: "never" }]]
+    : "html",
+  outputDir: artifactRoot ? `${artifactRoot}/test-results` : "test-results",
   timeout: 30_000,
 
   use: {
-    baseURL: "http://localhost:5073",
+    baseURL,
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },
@@ -41,9 +41,9 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: "npm run dev",
-    url: "http://localhost:5073",
-    reuseExistingServer: !process.env.CI,
+    command: `npm run dev -- --host 127.0.0.1 --port ${webPort}`,
+    url: baseURL,
+    reuseExistingServer: !isolatedE2e && !process.env.CI,
     timeout: 15_000,
   },
 });

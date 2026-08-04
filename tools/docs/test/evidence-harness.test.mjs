@@ -30,7 +30,9 @@ async function assertConditionalCascade(predecessor, successor) {
 }
 
 test('complete sanitized journey evidence passes', async () => {
-  assert.deepEqual(validateEvidence(await fixture('valid-journey.json')), []);
+  const valid = await fixture('valid-journey.json');
+  assert.deepEqual(validateEvidence(valid), []);
+  assert.ok(validateEvidence({ ...valid, sourceTestRevision: 'f'.repeat(40) }).some(({ message }) => /must match SOURCE_TEST_REVISION/i.test(message)));
 });
 
 test('missing evidence fields fail', async () => {
@@ -203,6 +205,7 @@ test('evidence and harness schemas reject malformed types and empty scenarios', 
   const evidenceSchema = JSON.parse(await readFile(new URL('../schemas/evidence.schema.json', import.meta.url), 'utf8'));
   const harnessSchema = JSON.parse(await readFile(new URL('../schemas/ai-harness.schema.json', import.meta.url), 'utf8'));
   assert.ok(validateSchema(evidenceSchema, { schemaVersion: 1, kind: 'journey', steps: 'not-an-array' }, 'evidence').length > 0);
+  assert.ok(validateSchema(evidenceSchema, { schemaVersion: 1, kind: 'journey', id: 'J-01', revision: 'a'.repeat(40) }, 'evidence').some(({ message }) => /sourceTestRevision|sourceCandidateProof|evidenceRevision|additional property/i.test(message)));
   assert.ok(validateSchema(harnessSchema, { schemaVersion: 1, authority: 'test', scenarios: [] }, 'harness').length > 0);
   assert.ok(validateHarness({ schemaVersion: 1, authority: 'test', scenarios: [] }).some((item) => item.rule === 'DA-18'));
 });

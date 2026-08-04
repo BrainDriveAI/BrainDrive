@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: ./installer/docker/scripts/preflight-production-build.sh [options]
+Usage: bash ./installer/docker/scripts/preflight-production-build.sh [options]
 
 Validates Monday production release readiness by checking:
 1. Node dependencies and TypeScript builds (app + web client)
@@ -100,11 +100,12 @@ if [[ "${SKIP_DOCKER_BUILD}" != "true" ]]; then
 fi
 
 CURRENT_BRANCH="$(git branch --show-current || true)"
-CURRENT_COMMIT="$(git rev-parse --short=12 HEAD)"
+CURRENT_COMMIT="$(git rev-parse HEAD)"
 echo "Branch=${CURRENT_BRANCH:-detached} Commit=${CURRENT_COMMIT}"
 
-if ! git diff --quiet || ! git diff --cached --quiet; then
-  echo "Warning: working tree has local changes. Release builds are safer from a clean tree."
+if [[ -n "$(git status --porcelain=v1 --untracked-files=all)" ]]; then
+  echo "Production preflight requires a clean candidate; tracked and untracked changes are present." >&2
+  exit 1
 fi
 
 log_step "1. Install Node Dependencies"
@@ -134,4 +135,4 @@ fi
 echo
 echo "Preflight production build checks passed."
 echo "Recommended next step:"
-echo "  ./installer/docker/scripts/release-production.sh"
+echo "  bash ./installer/docker/scripts/release-production.sh"

@@ -69,6 +69,8 @@ export function validateSchema(schema, value, path = 'value', { rule = 'DA-18' }
       else if (node.items && typeof node.items === 'object') current.slice(prefixLength).forEach((item, offset) => visit(node.items, item, `${currentPath}[${offset + prefixLength}]`));
     }
     if (current !== null && typeof current === 'object' && !Array.isArray(current)) {
+      if (node.minProperties !== undefined && Object.keys(current).length < node.minProperties) diagnostics.push(diagnostic(rule, currentPath, `object must contain at least ${node.minProperties} properties`));
+      if (node.maxProperties !== undefined && Object.keys(current).length > node.maxProperties) diagnostics.push(diagnostic(rule, currentPath, `object must contain at most ${node.maxProperties} properties`));
       for (const required of node.required || []) if (!(required in current)) diagnostics.push(diagnostic(rule, currentPath, `object is missing required property ${required}`));
       for (const [key, child] of Object.entries(node.properties || {})) if (key in current) visit(child, current[key], `${currentPath}.${key}`);
       if (node.additionalProperties === false) {

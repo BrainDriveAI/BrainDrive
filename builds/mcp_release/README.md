@@ -1,8 +1,8 @@
 # First-party MCP services
 
-This package provides the memory, auth, and project services used by the standard orchestrated native, Docker, and Tauri runtime when a tracked full MCP source is selected. It is an internal BrainDrive application component, not an SDK or public compatibility contract. Configured `tool_sources` determine which services participate.
+This package provides the memory, auth, and project services used by the standard orchestrated native, Docker, and Tauri runtime when a tracked full MCP source is selected. It is an internal beta BrainDrive application component supported only through standard same-release orchestration and its trusted network boundary, not an SDK, plugin ABI, or cross-version public compatibility contract. Configured `tool_sources` determine which services participate; custom or external MCP remains experimental.
 
-> **Status:** Unresolved for public interface maturity under OPEN-02. Start at the [MCP and tools integration boundary](../../docs/developers/integrations/mcp-and-tools.md), then verify exact behavior in source and tests.
+> **Status:** Internal beta under the resolved OPEN-02 maintainer decision. Start at the [MCP and tools integration boundary](../../docs/developers/integrations/mcp-and-tools.md), then verify exact behavior in source and tests.
 
 > **Trust boundary:** These services do not independently authenticate callers. Missing or malformed request-context headers default to a local owner context. Standard orchestration keeps them on loopback or its internal network; do not expose them to an untrusted network.
 

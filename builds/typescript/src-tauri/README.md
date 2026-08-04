@@ -55,7 +55,7 @@ Desktop startup creates application data, configuration, secret, and log directo
 
 Optional browser/Tailscale access is not part of basic desktop readiness and must not be enabled as a setup side effect. It has separate network and mutation safeguards in source and tests.
 
-No focused test currently covers `runtime-api-base.ts` resolving the dynamic gateway, rewriting `/api`, and attaching the desktop request header. The optional Tailscale tests do not prove that core handoff; see the setup guide's preserved WSL diagnostic failure and OPEN-03 platform-evidence status.
+`runtime-api-base.test.ts` now covers dynamic gateway resolution, `/api` rewriting, the authoritative desktop transport header, browser proxy behavior, and fail-closed incomplete handoff. These source tests correct the shared boundary but do not turn the preserved WSL diagnostic failure into passing J-05 evidence; native Windows and macOS reports remain required under OPEN-03.
 
 ## Verification routing
 

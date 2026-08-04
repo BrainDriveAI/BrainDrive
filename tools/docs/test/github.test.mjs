@@ -64,6 +64,14 @@ test('repository issue form has valid structure with both required preflight ack
   assert.deepEqual(await validateGitHubContracts(new URL('../../../', import.meta.url)), []);
 });
 
+test('repository has a checked-in CODEOWNERS file for the confirmed BrainDriveAI maintainer', async () => {
+  const repositoryRoot = new URL('../../../', import.meta.url);
+  const codeowners = await readFile(new URL('.github/CODEOWNERS', repositoryRoot), 'utf8');
+  assert.match(codeowners, /^\*\s+@DJJones66(?:\s|$)/m);
+  assert.match(codeowners, /^\/docs\/\s+@DJJones66(?:\s|$)/m);
+  assert.match(codeowners, /^\/tools\/security\/\s+@DJJones66(?:\s|$)/m);
+});
+
 test('issue form structure rejects a checkbox stranded beneath validations', () => {
   const diagnostics = validateIssueFormStructure('body:\n  - type: checkboxes\n    id: preflight\n    attributes:\n      options:\n        - label: I searched existing issues for this documentation problem.\n          required: true\n    validations:\n      required: true\n        - label: I removed credentials from evidence.\n          required: true\n');
   assert.ok(diagnostics.some((item) => item.rule === 'DA-12' && /checkbox label|sanitized-evidence/.test(item.message)));

@@ -4,10 +4,8 @@ import { loginAsLocalUser, visibleComposer, visibleSendButton } from "./helpers"
 // These tests run against the mobile-chrome and mobile-safari projects
 // defined in playwright.config.ts (Pixel 7 / iPhone 14 viewports).
 //
-// NOTE: MCP services and the gateway must be running at Vite's configured
-// proxy target (the default development target uses port 8787). These tests
-// also require an initialized synthetic local account matching the helper;
-// that clean E2E seed contract is not yet implemented.
+// The package command supplies disposable MCP/gateway/Vite processes and an
+// initialized synthetic local account through the isolated E2E runner.
 
 test.describe("Mobile layout regression", () => {
   test.beforeEach(async ({ page, isMobile }) => {

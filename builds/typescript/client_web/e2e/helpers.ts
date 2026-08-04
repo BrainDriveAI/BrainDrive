@@ -3,15 +3,17 @@ import type { Locator, Page } from "@playwright/test";
 /**
  * Log in through the local auth form.
  *
- * The current helper submits fixed synthetic credentials to the real local
- * login endpoint. It therefore requires an initialized isolated account with
- * matching credentials; arbitrary non-empty values do not create a session.
- * Until that seed contract exists, this helper is not clean-start evidence.
+ * The isolated E2E runner creates a disposable local account matching these
+ * environment-provided synthetic credentials before Playwright starts.
  */
 export async function loginAsLocalUser(page: Page) {
   await page.goto("/");
-  await page.locator("#identifier").fill("testuser");
-  await page.locator("#password").fill("password123");
+  await page.locator("#identifier").fill(
+    process.env.BRAINDRIVE_E2E_IDENTIFIER ?? "synthetic-e2e-owner"
+  );
+  await page.locator("#password").fill(
+    process.env.BRAINDRIVE_E2E_PASSWORD ?? "synthetic-e2e-password-26!"
+  );
   await page.getByRole("button", { name: "Sign in" }).click();
 
   // Wait for the main app shell to appear.

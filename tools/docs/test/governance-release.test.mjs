@@ -23,13 +23,20 @@ test('contribution policy defines the complete issue-to-PR and evidence workflow
 
 test('governance page defines catalog, review, freshness, versioning, deprecation, history, and correction contracts', async () => {
   const text = await repositoryFile('docs/developers/governance.md');
-  for (const expected of ['Catalog authority', 'Required review', 'Same-PR', 'Generated projections', 'Branch truth', 'Tag truth', 'Deprecation', 'Historical', 'Correction workflow', 'OPEN-01', 'OPEN-08']) assert.match(text, new RegExp(expected, 'i'));
+  for (const expected of ['Catalog authority', 'Required review', 'Same-PR', 'Generated projections', 'Branch truth', 'Tag truth', 'Deprecation', 'Historical', 'Correction workflow', 'BrainDriveAI', '@DJJones66', 'CODEOWNERS', 'OPEN-08']) assert.match(text, new RegExp(expected, 'i'));
 });
 
-test('release page separates public trust contracts from restricted release operations', async () => {
+test('release page separates normalization, immutable candidate, and restricted publication', async () => {
   const text = await repositoryFile('docs/developers/releases.md');
-  for (const expected of ['app/web/Tauri', 'MCP release', 'installer release', 'YY.M.D', 'YY.M.D.N', 'digest', 'signature', 'restricted', 'release-maintainers', 'bash ./installer/docker/scripts/preflight-production-build.sh --help', 'OPEN-04']) assert.match(text, new RegExp(expected, 'i'));
+  for (const expected of ['app/web/Tauri', 'MCP release', 'installer release', 'YY.M.D', 'YY.M.D.N', 'normalize-only', 'clean immutable candidate', 'CANDIDATE_REVISION', 'digest', 'signature', 'latest', 'failure recovery', 'restricted', 'release-maintainers', 'bash ./installer/docker/scripts/preflight-production-build.sh --help', 'Private Vulnerability Reporting', 'private operations system', '@DJJones66', 'indefinite', '90 days', '36 months', '12 months']) assert.match(text, new RegExp(expected, 'i'));
   assert.doesNotMatch(text, /private key location|secret manager location|production host/i);
+});
+
+test('CODEOWNERS uses a confirmed write-enabled BrainDriveAI maintainer for default and high-risk paths', async () => {
+  const text = await repositoryFile('.github/CODEOWNERS');
+  for (const pattern of ['*', '/docs/', '/tools/docs/', '/SECURITY.md', '/tools/security/', '/builds/typescript/auth/', '/builds/typescript/secrets/', '/installer/docker/scripts/release-production.sh']) {
+    assert.match(text, new RegExp(`^${pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+@DJJones66(?:\\s|$)`, 'm'), `missing confirmed owner for ${pattern}`);
+  }
 });
 
 test('release-helper help contract remains non-direct, read-only, and tied to mode-100644 sources', async () => {
@@ -53,7 +60,11 @@ test('catalog exposes governance/release authority, honest enforcement, and migr
   assert.equal(catalog.journeys.find(({ id }) => id === 'maintain')?.path, 'docs/developers/governance.md');
   assert.equal(catalog.journeys.find(({ id }) => id === 'release')?.path, 'docs/developers/releases.md');
   assert.ok(catalog.ownerRoles.some(({ id }) => id === 'release-maintainers'));
-  assert.ok(catalog.openItems.some(({ id, state, summary }) => id === 'OPEN-01' && state === 'open' && /unconfirmed/i.test(summary)));
-  assert.ok(catalog.openItems.some(({ id, state, summary }) => id === 'OPEN-08' && state === 'open' && /unconfirmed/i.test(summary)));
+  assert.ok(catalog.ownerRoles.every(({ githubOwners }) => Array.isArray(githubOwners) && githubOwners.includes('@DJJones66')));
+  assert.ok(catalog.openItems.some(({ id, state, summary }) => id === 'OPEN-01' && state === 'resolved-owner-identity' && /BrainDriveAI.*@DJJones66/i.test(summary)));
+  assert.ok(catalog.openItems.some(({ id, state, summary }) => id === 'OPEN-02' && state === 'resolved-maintainer-decision' && /internal beta/i.test(summary)));
+  assert.ok(catalog.openItems.some(({ id, state, summary }) => id === 'OPEN-04' && state === 'resolved-private-location-owner' && /private operations system.*@DJJones66/i.test(summary)));
+  assert.ok(catalog.openItems.some(({ id, state, summary }) => id === 'OPEN-05' && state === 'resolved-retention-store-owner' && /indefinite.*36 months.*@DJJones66/i.test(summary)));
+  assert.ok(catalog.openItems.some(({ id, state, summary }) => id === 'OPEN-08' && state === 'source-ready-settings-pending-step-7-9' && /CODEOWNERS.*settings evidence/i.test(summary)));
   assert.ok(Array.isArray(catalog.migrationPolicies) && catalog.migrationPolicies.length > 0);
 });

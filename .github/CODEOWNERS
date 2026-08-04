@@ -1,0 +1,16 @@
+# BrainDriveAI currently delegates repository code ownership to the confirmed
+# write-enabled maintainer below. Replace or supplement this user with visible
+# BrainDriveAI teams when those teams exist and have explicit write access.
+
+* @DJJones66
+/.github/ @DJJones66
+/docs/ @DJJones66
+/tools/docs/ @DJJones66
+/SECURITY.md @DJJones66
+/docs/repository-security.md @DJJones66
+/tools/security/ @DJJones66
+/builds/typescript/auth/ @DJJones66
+/builds/typescript/secrets/ @DJJones66
+/installer/docker/scripts/release-production.sh @DJJones66
+/installer/docker/scripts/preflight-production-build.sh @DJJones66
+/docs/developers/releases.md @DJJones66

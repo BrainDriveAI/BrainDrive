@@ -1,4 +1,5 @@
 type NativeRuntimeStatus = {
+  state?: string;
   gatewayBaseUrl?: string;
   desktopApiToken?: string;
 };
@@ -38,8 +39,20 @@ export async function resolveGatewayBaseUrl(): Promise<string> {
   }
 
   const status = await getNativeRuntimeStatus();
-  cachedGatewayBaseUrl = normalizeBaseUrl(status.gatewayBaseUrl || "/api");
-  cachedDesktopApiToken = status.desktopApiToken ?? null;
+  const state = status.state?.trim() || "unknown";
+  if (state !== "ready") {
+    throw new Error(`Desktop runtime handoff failed closed: runtime state is ${state}`);
+  }
+
+  if (!status.gatewayBaseUrl?.trim()) {
+    throw new Error("Desktop runtime handoff failed closed: missing gateway URL");
+  }
+  if (!status.desktopApiToken?.trim()) {
+    throw new Error("Desktop runtime handoff failed closed: missing transport token");
+  }
+
+  cachedGatewayBaseUrl = normalizeDesktopBaseUrl(status.gatewayBaseUrl);
+  cachedDesktopApiToken = status.desktopApiToken;
   return cachedGatewayBaseUrl;
 }
 
@@ -102,16 +115,43 @@ function normalizeBaseUrl(baseUrl: string): string {
   return trimmed.replace(/\/+$/, "");
 }
 
-function mergeHeaders(base: Record<string, string>, headers?: HeadersInit): Record<string, string> {
-  const merged = { ...base };
-  if (!headers) {
-    return merged;
+function normalizeDesktopBaseUrl(baseUrl: string): string {
+  const normalized = normalizeBaseUrl(baseUrl);
+  let parsed: URL;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    throw new Error("Desktop runtime handoff failed closed: invalid gateway URL");
   }
 
-  const incoming = new Headers(headers);
-  incoming.forEach((value, key) => {
+  if (
+    parsed.protocol !== "http:" ||
+    !["127.0.0.1", "localhost"].includes(parsed.hostname) ||
+    !parsed.port ||
+    parsed.username ||
+    parsed.password ||
+    (parsed.pathname !== "/" && parsed.pathname !== "") ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    throw new Error("Desktop runtime handoff failed closed: invalid loopback gateway URL");
+  }
+
+  return normalized;
+}
+
+function mergeHeaders(base: Record<string, string>, headers?: HeadersInit): Record<string, string> {
+  const merged: Record<string, string> = {};
+  if (headers) {
+    const incoming = new Headers(headers);
+    incoming.forEach((value, key) => {
+      merged[key] = value;
+    });
+  }
+
+  for (const [key, value] of Object.entries(base)) {
     merged[key] = value;
-  });
+  }
   return merged;
 }
 

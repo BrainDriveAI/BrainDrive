@@ -1,5 +1,6 @@
 import { diagnostic } from './diagnostics.mjs';
 import { inspectContainedPathSync } from './paths.mjs';
+import { APPROVED_EVIDENCE_OUTPUT_PATTERNS } from './evidence-identity.mjs';
 
 export const CURRENT_STATUS = 'current';
 export const ALLOWED_STATUSES = new Set(['current', 'legacy', 'historical', 'experimental', 'internal', 'deprecated', 'removed', 'unsupported', 'unresolved']);
@@ -28,6 +29,10 @@ export function validateCatalog(catalog, { root = process.cwd(), checkPaths = tr
   }
   if (!Array.isArray(catalog.topics)) return [diagnostic('DA-06', 'docs/developers/catalog.json', 'topics must be an array')];
   duplicateIds(catalog.ownerRoles, 'id', 'owner role', diagnostics);
+  for (const role of catalog.ownerRoles || []) {
+    if (!Array.isArray(role.githubOwners) || role.githubOwners.length === 0) diagnostics.push(diagnostic('DA-12', 'docs/developers/catalog.json', `owner role lacks a confirmed GitHub owner: ${role.id || '<missing>'}`));
+    for (const owner of role.githubOwners || []) if (!/^@[A-Za-z0-9][A-Za-z0-9-]{0,38}(?:\/[A-Za-z0-9][A-Za-z0-9_-]{0,99})?$/.test(owner)) diagnostics.push(diagnostic('DA-12', 'docs/developers/catalog.json', `owner role has an invalid GitHub owner handle: ${role.id || '<missing>'}`));
+  }
   duplicateIds(catalog.audiences, 'id', 'audience route', diagnostics);
   duplicateIds(catalog.journeys, 'id', 'journey route', diagnostics);
   duplicateIds(catalog.components, 'id', 'component route', diagnostics);
@@ -35,6 +40,7 @@ export function validateCatalog(catalog, { root = process.cwd(), checkPaths = tr
   duplicateIds(catalog.topicBindings, 'topicId', 'topic binding', diagnostics);
   duplicateIds(catalog.commands, 'id', 'command', diagnostics);
   duplicateIds(catalog.platformClaims, 'id', 'platform claim', diagnostics);
+  duplicateIds(catalog.humanReviewRequirements, 'id', 'human review requirement', diagnostics);
   duplicateIds(catalog.versionDomains, 'id', 'version domain', diagnostics);
   for (const claim of catalog.platformClaims || []) {
     const configured = new Set(claim.configuredBundleTargets || []);
@@ -52,8 +58,21 @@ export function validateCatalog(catalog, { root = process.cwd(), checkPaths = tr
       if (!claimed.has(requirement.platform)) diagnostics.push(diagnostic('DA-18', 'docs/developers/catalog.json', `platform evidence is declared for a non-claimed platform: ${requirement.platform}`));
       if (requirement.environment !== 'native') diagnostics.push(diagnostic('DA-18', 'docs/developers/catalog.json', `claimed platform evidence must require a native environment: ${requirement.platform}`));
       if (requirement.status !== 'DEFERRED — REQUIRED BEFORE MILESTONE 7') diagnostics.push(diagnostic('DA-18', 'docs/developers/catalog.json', `claimed platform evidence has an invalid deferred status: ${requirement.platform}`));
+      if (requirement.reportPath !== `docs/developers/verification/platform-reports/${requirement.platform}-j05.json`) diagnostics.push(diagnostic('DA-18', 'docs/developers/catalog.json', `claimed platform evidence has an invalid report path: ${requirement.platform}`));
+      if (requirement.schemaPath !== 'tools/docs/schemas/platform-report.schema.json') diagnostics.push(diagnostic('DA-18', 'docs/developers/catalog.json', `claimed platform evidence has an invalid schema path: ${requirement.platform}`));
     }
   }
+  const expectedReviewIds = Array.from({ length: 8 }, (_, index) => `REV-${String(index + 1).padStart(2, '0')}`);
+  const actualReviewIds = (catalog.humanReviewRequirements || []).map(({ id }) => id);
+  if (JSON.stringify(actualReviewIds) !== JSON.stringify(expectedReviewIds)) diagnostics.push(diagnostic('DA-18', 'docs/developers/catalog.json', 'human review requirements must declare REV-01 through REV-08 exactly once and in order'));
+  for (const review of catalog.humanReviewRequirements || []) {
+    if (review.path !== `docs/developers/verification/human-reviews/${String(review.id || '').toLowerCase()}.json` || review.schemaPath !== 'tools/docs/schemas/human-review.schema.json' || !review.reviewerRole) diagnostics.push(diagnostic('DA-18', 'docs/developers/catalog.json', `human review requirement is invalid: ${review.id || '<missing>'}`));
+  }
+  if (JSON.stringify(catalog.evidenceOutputs?.recordIdentityFields) !== JSON.stringify(['SOURCE_TEST_REVISION', 'SOURCE_CANDIDATE_PROOF'])) diagnostics.push(diagnostic('DA-18', 'docs/developers/catalog.json', 'evidence records must declare the immutable source identity fields'));
+  if (JSON.stringify(catalog.evidenceOutputs?.revisionModelFields) !== JSON.stringify(['SOURCE_TEST_REVISION', 'EVIDENCE_REVISION'])) diagnostics.push(diagnostic('DA-18', 'docs/developers/catalog.json', 'evidence outputs must declare the two-revision compatibility fields'));
+  if (JSON.stringify(catalog.evidenceOutputs?.approvedPathPatterns) !== JSON.stringify(APPROVED_EVIDENCE_OUTPUT_PATTERNS)) diagnostics.push(diagnostic('DA-18', 'docs/developers/catalog.json', 'approved evidence-output paths do not match the fixed validator allowlist'));
+  if (JSON.stringify(catalog.evidenceOutputs?.releaseRecords) !== JSON.stringify(APPROVED_EVIDENCE_OUTPUT_PATTERNS.slice(-3))) diagnostics.push(diagnostic('DA-18', 'docs/developers/catalog.json', 'release evidence records do not match the fixed validator allowlist'));
+  if (checkPaths) for (const schemaPath of ['tools/docs/schemas/platform-report.schema.json', 'tools/docs/schemas/human-review.schema.json']) inspectReference(root, schemaPath, 'evidence schema', diagnostics);
   for (const topic of catalog.topics) {
     const missing = REQUIRED_TOPIC_FIELDS.filter((field) => {
       const value = topic[field];

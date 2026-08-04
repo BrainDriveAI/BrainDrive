@@ -156,7 +156,7 @@ export async function checkRepository(repositoryRoot = root) {
   diagnostics.push(...await synchronizeGenerated({ root: repositoryRoot }));
 
   const schemas = {};
-  for (const schema of ['catalog.schema.json', 'evidence.schema.json', 'ai-harness.schema.json', 'milestone-record.schema.json', 'verification-report.schema.json']) {
+  for (const schema of ['catalog.schema.json', 'evidence.schema.json', 'ai-harness.schema.json', 'human-review.schema.json', 'platform-report.schema.json', 'milestone-record.schema.json', 'verification-report.schema.json']) {
     const path = `tools/docs/schemas/${schema}`;
     const schemaText = await safeText(path, 'DA-18');
     if (schemaText !== null) {

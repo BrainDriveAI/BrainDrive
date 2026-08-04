@@ -91,7 +91,7 @@ Run these from `builds/typescript/client_web/`:
 | `npm run test:e2e` | Run Playwright across desktop Chrome and mobile browser projects |
 | `npm run test:e2e:mobile` | Run only the mobile Chrome and Safari projects |
 
-Playwright tests require installed browsers plus MCP services and a gateway at the Vite proxy target. The Playwright configuration starts or reuses Vite; from `builds/typescript/`, `npm run dev:server` starts the non-web runtime at the default development target. The existing helpers also require an initialized isolated local account matching their synthetic credentials. That reproducible auth seed is not implemented, so B-09/B-10 remain blocked as clean evidence. See [change verification](../../../docs/developers/verification.md#open-06-and-browser-e2e); Playwright is not the provider-independent startup baseline.
+Playwright commands use `scripts/run-isolated-e2e.mjs`. The runner creates disposable memory, secrets, local-auth, gateway, Vite, and artifact roots; seeds a synthetic local account; selects credential-free Ollama only to suppress provider onboarding; runs the requested projects; and removes only its temporary root. Install the Playwright browsers first, then use `npm run test:e2e` or `npm run test:e2e:mobile`. No provider credential or running model is required for the layout/auth-shell checks. See [change verification](../../../docs/developers/verification.md#open-06-and-browser-e2e); Playwright is not the provider-independent startup baseline.
 
 ## Runtime Integration
 
