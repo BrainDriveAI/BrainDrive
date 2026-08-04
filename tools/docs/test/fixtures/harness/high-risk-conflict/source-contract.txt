@@ -1,0 +1,1 @@
+Synthetic executable contract: a credential-bearing production migration requires explicit target authority, controlled evidence, rollback planning, and separately scoped implementation. Client configuration must not receive an owned provider credential. Stop when guidance disagrees.

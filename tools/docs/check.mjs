@@ -1,19 +1,20 @@
 import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { readFile, writeFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { open, readFile, realpath, unlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateCatalog } from './lib/catalog.mjs';
-import { formatDiagnostic, diagnostic } from './lib/diagnostics.mjs';
+import { formatDiagnostic, diagnostic, redactDiagnosticText } from './lib/diagnostics.mjs';
 import { documentationCandidates, enumerateCandidates } from './lib/git-inputs.mjs';
 import { validateRepositoryAuthority } from './lib/rules/authority.mjs';
 import { validateCommands, validatePackageScripts } from './lib/rules/commands.mjs';
 import { validateRepositoryDuplication } from './lib/rules/duplication.mjs';
-import { validateEvidenceTemplates, validateMilestoneRecord, validateHarness } from './lib/rules/evidence.mjs';
-import { pullRequestDecision, validateGitHubContracts, validatePullRequestBody } from './lib/rules/github.mjs';
+import { validateAiScorecard, validateEvidenceTemplates, validateMilestoneRecord, validateHarness } from './lib/rules/evidence.mjs';
+import { freshnessNoImpactReason, validateGitHubContracts, validatePullRequestBody } from './lib/rules/github.mjs';
 import { validateMarkdownFiles } from './lib/rules/links.mjs';
 import { validateCandidateScope, validateSecurityText } from './lib/rules/security.mjs';
-import { validateDirectEntryStatus, validateOrientationContent, validateStructure } from './lib/rules/structure.mjs';
+import { validateDirectEntryStatus, validateOrientationContent, validatePlainSourceText, validateStructure } from './lib/rules/structure.mjs';
 import { validateFreshness } from './lib/rules/freshness.mjs';
 import { validateVersioning } from './lib/rules/versioning.mjs';
 import { synchronizeGenerated } from './sync-generated.mjs';
@@ -21,6 +22,60 @@ import { validateSchema } from './lib/schema.mjs';
 import { readContainedText } from './lib/paths.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const DA_CAPABILITIES = Array.from({ length: 18 }, (_, index) => `DA-${String(index + 1).padStart(2, '0')}`);
+
+export function validateVerificationReport(report) {
+  const diagnostics = [];
+  const capabilities = Array.isArray(report?.capabilities) ? report.capabilities : [];
+  const reportDiagnostics = Array.isArray(report?.diagnostics) ? report.diagnostics : [];
+  if (reportDiagnostics.some(({ rule }) => !DA_CAPABILITIES.includes(rule))) diagnostics.push(diagnostic('DA-18', 'documentation-verification-report.diagnostics', 'diagnostic rules must be DA-01 through DA-18'));
+  const ids = capabilities.map(({ id }) => id);
+  if (JSON.stringify(ids) !== JSON.stringify(DA_CAPABILITIES)) {
+    diagnostics.push(diagnostic('DA-18', 'documentation-verification-report.capabilities', 'capability matrix must contain DA-01 through DA-18 exactly once and in order'));
+  }
+  const expectedReportStatus = reportDiagnostics.length ? 'fail' : 'pass';
+  if (report?.status !== expectedReportStatus) {
+    diagnostics.push(diagnostic('DA-18', 'documentation-verification-report.status', `report status must be ${expectedReportStatus} when diagnostics are ${reportDiagnostics.length ? 'present' : 'absent'}`));
+  }
+  for (const capability of capabilities) {
+    if (!DA_CAPABILITIES.includes(capability.id)) continue;
+    const expectedStatus = reportDiagnostics.some(({ rule }) => rule === capability.id) ? 'fail' : 'pass';
+    if (capability.status !== expectedStatus) {
+      diagnostics.push(diagnostic('DA-18', `documentation-verification-report.capabilities.${capability.id}`, `capability status must be ${expectedStatus} for the reported diagnostics`));
+    }
+  }
+  return diagnostics;
+}
+
+function sanitizeReportValue(value) {
+  if (typeof value === 'string') return redactDiagnosticText(value);
+  if (Array.isArray(value)) return value.map(sanitizeReportValue);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, sanitizeReportValue(item)]));
+  return value;
+}
+
+export async function writeReportSafely(reportPath, output, { allowedRoots = [tmpdir(), process.env.RUNNER_TEMP].filter(Boolean) } = {}) {
+  const resolvedPath = resolve(reportPath);
+  const parent = await realpath(dirname(resolvedPath));
+  const roots = await Promise.all(allowedRoots.map((path) => realpath(resolve(path))));
+  if (!roots.some((allowed) => parent === allowed || parent.startsWith(`${allowed}${sep}`))) throw new Error('report destination must be inside an approved temporary root');
+  let handle;
+  try {
+    handle = await open(resolvedPath, 'wx', 0o600);
+  } catch (error) {
+    if (error?.code === 'EEXIST') throw new Error('report destination already exists or is a symlink');
+    throw error;
+  }
+  try {
+    await handle.writeFile(`${JSON.stringify(sanitizeReportValue(output), null, 2)}\n`);
+    await handle.chmod(0o600);
+  } catch (error) {
+    await handle.close();
+    await unlink(resolvedPath).catch(() => {});
+    throw error;
+  }
+  await handle.close();
+}
 
 function reportArgument(argv) {
   const index = argv.indexOf('--report');
@@ -44,6 +99,10 @@ export async function checkRepository(repositoryRoot = root) {
       documentationGovernanceCandidates: scoped,
       excludedBoundaries: ['ignored paths', 'docs/Security/', 'owner memory', 'backups', 'credential paths', 'generated output', 'vendored dependencies']
     },
+    capabilities: DA_CAPABILITIES.map((id) => ({
+      id,
+      status: diagnostics.some(({ rule }) => rule === id) ? 'fail' : 'pass',
+    })),
     diagnostics,
   });
   const safeText = async (path, rule = 'DA-16') => {
@@ -67,6 +126,7 @@ export async function checkRepository(repositoryRoot = root) {
     ...validateStructure(catalog, candidates),
     ...validateCommands(catalog.commands),
     ...validateCandidateScope(candidates),
+    ...validateFreshness(catalog),
     ...validateVersioning(catalog),
   );
   const packageText = await safeText('builds/typescript/package.json');
@@ -89,14 +149,14 @@ export async function checkRepository(repositoryRoot = root) {
       if (diff.status !== 0) diagnostics.push(diagnostic('DA-13', 'pull_request.event', 'changed paths could not be resolved from the pull request revisions'));
       else {
         const changedPaths = diff.stdout.split('\0').filter(Boolean);
-        diagnostics.push(...validateFreshness({ changedPaths, changedDocs: changedPaths, sourceMappings: catalog.sourceMappings, noImpactReason: pullRequestDecision(body).noImpactReason }));
+        diagnostics.push(...validateFreshness({ changedPaths, changedDocs: changedPaths, sourceMappings: catalog.sourceMappings, noImpactReason: freshnessNoImpactReason(body) }));
       }
     }
   }
   diagnostics.push(...await synchronizeGenerated({ root: repositoryRoot }));
 
   const schemas = {};
-  for (const schema of ['catalog.schema.json', 'evidence.schema.json', 'ai-harness.schema.json', 'milestone-record.schema.json']) {
+  for (const schema of ['catalog.schema.json', 'evidence.schema.json', 'ai-harness.schema.json', 'milestone-record.schema.json', 'verification-report.schema.json']) {
     const path = `tools/docs/schemas/${schema}`;
     const schemaText = await safeText(path, 'DA-18');
     if (schemaText !== null) {
@@ -113,6 +173,12 @@ export async function checkRepository(repositoryRoot = root) {
   }
   diagnostics.push(...await validateEvidenceTemplates(repositoryRoot));
   if (schemas['ai-harness.schema.json'] && harness) diagnostics.push(...validateSchema(schemas['ai-harness.schema.json'], harness, 'tools/docs/harness/scenarios.json'));
+  if (harness) for (const scenario of harness.scenarios || []) {
+    const scorecardPath = scenario.evidence?.scorecardPath;
+    if (!scorecardPath) continue;
+    const scorecard = await safeText(scorecardPath, 'DA-18');
+    if (scorecard !== null) diagnostics.push(...validateAiScorecard(scenario, scorecard, scorecardPath));
+  }
 
   for (const milestonePath of candidates.filter((path) => /^docs\/developers\/verification\/milestones\/\d{2}-.*\.md$/.test(path))) {
     if (!existsSync(resolve(repositoryRoot, milestonePath))) continue;
@@ -133,7 +199,7 @@ export async function checkRepository(repositoryRoot = root) {
   for (const absolutePath of currentMarkdown) {
     const path = absolutePath.slice(repositoryRoot.length + 1);
     const content = await safeText(path);
-    if (content !== null) diagnostics.push(...validateSecurityText(path, content));
+    if (content !== null) diagnostics.push(...validateSecurityText(path, content), ...validatePlainSourceText(path, content));
   }
   const orientationContents = new Map();
   for (const path of ['docs/developers/README.md', 'docs/developers/terminology.md', 'docs/developers/repository-map.md', 'docs/developers/architecture/README.md']) {
@@ -148,6 +214,9 @@ export async function checkRepository(repositoryRoot = root) {
   }
   diagnostics.push(...validateDirectEntryStatus(catalog, directEntryContents));
 
+  const output = report();
+  if (schemas['verification-report.schema.json']) diagnostics.push(...validateSchema(schemas['verification-report.schema.json'], output, 'documentation-verification-report', { rule: 'DA-18' }));
+  diagnostics.push(...validateVerificationReport(output));
   return report();
 }
 
@@ -156,11 +225,11 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const output = await checkRepository();
     for (const item of output.diagnostics) console.error(formatDiagnostic(item));
     const reportPath = reportArgument(process.argv.slice(2));
-    if (reportPath) await writeFile(reportPath, `${JSON.stringify(output, null, 2)}\n`);
+    if (reportPath) await writeReportSafely(reportPath, output);
     console.log(`Documentation validation: ${output.status.toUpperCase()} (${output.candidateManifest.documentationGovernanceCandidates.length} scoped candidates, ${output.diagnostics.length} diagnostics).`);
     if (output.diagnostics.length) process.exitCode = 1;
   } catch (error) {
-    console.error(`[DA-00] tools/docs/check.mjs: validation could not run: ${error.message}`);
+    console.error(`[DA-00] tools/docs/check.mjs: validation could not run: ${redactDiagnosticText(error.message)}`);
     process.exitCode = 1;
   }
 }

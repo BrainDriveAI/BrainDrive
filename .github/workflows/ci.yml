@@ -49,6 +49,10 @@ jobs:
           DOCS_VERIFY_OUTCOME: ${{ steps.docs-verify.outcome }}
         run: node tools/docs/ci-summary.mjs "$RUNNER_TEMP/docs-verification-report.json" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Remove temporary documentation report
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/docs-verification-report.json"
+
   runtime:
     name: Runtime
     runs-on: ubuntu-latest

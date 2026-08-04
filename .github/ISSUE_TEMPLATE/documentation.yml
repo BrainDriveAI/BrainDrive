@@ -19,6 +19,17 @@ body:
         - label: I removed credentials, owner data, private URLs, network identifiers, raw scanner matches, sensitive logs, and restricted details.
           required: true
 
+  - type: dropdown
+    id: report-type
+    attributes:
+      label: Documentation request type
+      description: Classify this public-safe request before providing details.
+      options:
+        - Reproducible documentation defect
+        - Focused documentation improvement
+    validations:
+      required: true
+
   - type: input
     id: page-path
     attributes:

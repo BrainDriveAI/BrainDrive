@@ -2,9 +2,23 @@
 
 - Scenario ID:
 - Candidate revision:
+- Candidate state proof: `candidate-content sha256 <digest>; entries <count>; head <full-sha>`
+- Task prompt:
 - Starting path and allowed context:
 - Prohibited inputs/actions confirmed:
 - Evaluator role:
+
+## Trace summary
+
+- Authorities consulted:
+- Repository evidence inspected:
+- Required output:
+- Exact checks or comparisons:
+- Zero-change evidence, when required:
+
+## Required output evidence
+
+- Copy every `evidence.requiredFields` label from the scenario manifest and retain its public-safe result here.
 
 | Gating dimension | Pass/fail | Evidence |
 |---|---|---|

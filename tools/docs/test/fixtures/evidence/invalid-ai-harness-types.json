@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "authority": "Synthetic invalid fixture",
+  "scenarios": [
+    {
+      "id": "AIH-01",
+      "goal": 7,
+      "taskPrompt": [],
+      "allowedContext": "tracked repository",
+      "startingPath": 9,
+      "prohibitedInputs": {},
+      "prohibitedActions": false,
+      "expectedAuthorities": "AGENTS.md",
+      "requiredOutput": null,
+      "rubric": ["authority"],
+      "evidence": ["trace"]
+    }
+  ]
+}

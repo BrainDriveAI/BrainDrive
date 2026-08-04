@@ -1,6 +1,22 @@
 {
   "schemaVersion": 1,
   "authority": "catalog",
+  "agentContract": {
+    "governingInstructions": [
+      { "path": "AGENTS.md", "scope": "**", "kind": "canonical-root", "precedence": 1 },
+      { "path": "docs/AGENTS.md", "scope": "docs/**", "kind": "additive-scoped", "precedence": 2 }
+    ],
+    "compatibilityMirrors": [
+      { "path": "CLAUDE.md", "canonicalPath": "AGENTS.md", "kind": "symlink-mirror", "independentAuthority": false },
+      { "path": "GEMINI.md", "canonicalPath": "AGENTS.md", "kind": "symlink-mirror", "independentAuthority": false }
+    ],
+    "artifactClasses": [{ "pattern": "starter/**/AGENT.md", "classification": "product-agent-artifact", "codingAuthority": false, "rule": "product only" }],
+    "taskRoutes": [{ "id": "sample", "taskPattern": "sample task", "startPaths": ["docs/sample.md"] }],
+    "changeRoutes": [{ "id": "sample", "sourcePaths": ["docs/sample.md"], "callerPaths": ["docs/sample.md"], "configurationPaths": ["docs/sample.md"], "testPaths": ["test/sample.test.mjs"], "documentationPaths": ["docs/sample.md"], "checkRouteIds": ["sample"] }],
+    "checkRoutes": [{ "id": "sample", "changeTypes": ["sample"], "focusedRule": "sample", "broaderCommandIds": ["sample"] }],
+    "pairedChangeObligations": [{ "id": "sample", "triggerPatterns": ["sample/**"], "requiredSurfaces": ["sample"], "forbiddenSurfaces": ["private"] }],
+    "restrictedExclusions": [{ "pattern": "private/**", "reason": "private", "allowedAction": "exclude" }]
+  },
   "ownerRoles": [],
   "audiences": [],
   "journeys": [],
@@ -42,6 +58,17 @@
   "sourceMappings": [],
   "aliases": [],
   "versionDomains": [],
+  "migrationPolicies": [],
+  "deprecations": [],
   "searchVocabulary": ["sample"],
-  "openItems": [1, 2, 3, 4, 5, 6, 7, 8]
+  "openItems": [
+    { "id": "OPEN-01", "state": "open", "summary": "Synthetic open item 1" },
+    { "id": "OPEN-02", "state": "open", "summary": "Synthetic open item 2" },
+    { "id": "OPEN-03", "state": "open", "summary": "Synthetic open item 3" },
+    { "id": "OPEN-04", "state": "open", "summary": "Synthetic open item 4" },
+    { "id": "OPEN-05", "state": "open", "summary": "Synthetic open item 5" },
+    { "id": "OPEN-06", "state": "open", "summary": "Synthetic open item 6" },
+    { "id": "OPEN-07", "state": "open", "summary": "Synthetic open item 7" },
+    { "id": "OPEN-08", "state": "open", "summary": "Synthetic open item 8" }
+  ]
 }

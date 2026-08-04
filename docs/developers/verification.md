@@ -71,3 +71,5 @@ Playwright is not a basic startup gate. B-09/B-10 are currently blocked by OPEN-
 ## Evidence contract
 
 Record the candidate revision, branch/tag, operating system and architecture, tool versions, starting state, exact command and working directory, expected and actual result, interventions, cleanup, remaining risk, disposition, and sanitization. Tier B/C evidence also names the exact target and authority. A skipped command needs a concrete applicability or environment reason. Never paste raw secrets, `.env` contents, owner memory, private identifiers, or unrestricted logs.
+
+Provider-independent AIH-01 through AIH-10 execution follows the [AI coding-agent harness](verification/ai-agent-harness.md). Those read-only scorecards test authority, scope, trust, verification, conflict, documentation impact, and handoff behavior; they are AI evidence, not human review.

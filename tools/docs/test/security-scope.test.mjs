@@ -26,6 +26,17 @@ test('ignored/generated/vendor canaries are excluded', async () => {
   assert.ok(validateCandidateScope([...manifest.candidates, manifest.forbidden[0]], manifest.forbidden).some((item) => item.rule === 'DA-16'));
 });
 
+test('owner-memory and secret families reject every ignored suffix form', () => {
+  for (const path of [
+    'builds/typescript/your-memory/private.md',
+    'builds/typescript/your-memory-canary/private.md',
+    'builds/typescript/your-memory2/private.md',
+    'builds/typescript/.paa-secrets/private',
+    'builds/typescript/.paa-secrets-canary/value',
+    'builds/typescript/.paa-secrets.json',
+  ]) assert.ok(validateCandidateScope([path]).some(({ rule }) => rule === 'DA-16'), `${path} must be rejected`);
+});
+
 test('real Git enumeration excludes ignored canaries without reading them', async () => {
   const temporary = await mkdtemp(resolve(tmpdir(), 'docs-git-inputs-'));
   try {

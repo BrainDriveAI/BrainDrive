@@ -1,8 +1,8 @@
 import { diagnostic } from '../diagnostics.mjs';
 
 const FORBIDDEN_PATHS = [
-  /^builds\/typescript\/your-memory(?:\/|-|$)/,
-  /^builds\/typescript\/\.paa-secrets(?:\/|-|$)/,
+  /^builds\/typescript\/your-memory[^/]*(?:\/|$)/,
+  /^builds\/typescript\/\.paa-secrets[^/]*(?:\/|$)/,
   /^builds\/typescript\/\.reset-backups\//,
   /^builds\/typescript\/\.your-memory\.root-owned\.backup\//,
   /^installer\/docker\/backups\//,

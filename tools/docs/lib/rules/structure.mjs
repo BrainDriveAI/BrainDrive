@@ -1,5 +1,6 @@
 import { posix } from 'node:path';
 import { diagnostic } from '../diagnostics.mjs';
+import { markdownFences, stripMarkdownCode } from '../markdown.mjs';
 
 const REQUIRED_AUDIENCES = ['first-time-contributors', 'recurring-contributors', 'integrators', 'maintainers', 'security-researchers', 'release-engineers', 'ai-coding-agents', 'verification-reviewers'];
 const REQUIRED_JOURNEYS = ['orient', 'run', 'contribute', 'trace', 'integrate', 'secure', 'maintain', 'release'];
@@ -73,6 +74,37 @@ export function validateOrientationContent(catalog, contents = new Map()) {
     for (const field of ['> - Status:', '> - Parent:', '> - Sources:', '> - Tests:']) if (!text.includes(field)) diagnostics.push(diagnostic('DA-06', path, `plain-source metadata is missing: ${field}`));
   }
   for (const term of requiredTerms) if (!combined.includes(term.toLowerCase())) diagnostics.push(diagnostic('DA-03', 'docs/developers/README.md', `orientation corpus is missing searchable term: ${term}`));
+  return diagnostics;
+}
+
+export function validatePlainSourceText(path, text = '') {
+  const diagnostics = [];
+  const prose = stripMarkdownCode(text);
+  if (!/^\uFEFF?#\s+\S/m.test(prose)) diagnostics.push(diagnostic('DA-17', path, 'plain-source document requires a visible level-one heading'));
+  if (/<(?:script|iframe|object|embed)(?:\s|>)/i.test(prose) || /javascript:/i.test(prose)) diagnostics.push(diagnostic('DA-17', path, 'plain-source document depends on a prohibited embedded renderer or executable construct'));
+  for (const match of prose.matchAll(/(?<!!)\[([^\]]+)\](?:\([^)]*\)|\[[^\]]*\])/g)) {
+    if (/^(?:here|click here|read more)$/i.test(match[1].trim())) diagnostics.push(diagnostic('DA-17', path, 'plain-source navigation requires descriptive link text'));
+  }
+  const referenceLabels = new Set([...prose.matchAll(/^\s{0,3}\[([^\]]+)\]:\s*\S+/gm)].map((match) => match[1].trim().toLowerCase()));
+  for (const match of prose.matchAll(/(?<![!\]])\[([^\]]+)\](?![ \t]*(?:\(|\[|:))/g)) {
+    if (referenceLabels.has(match[1].trim().toLowerCase()) && /^(?:here|click here|read more)$/i.test(match[1].trim())) diagnostics.push(diagnostic('DA-17', path, 'plain-source navigation requires descriptive link text'));
+  }
+  for (const match of prose.matchAll(/!\[([^\]]*)\](?:\([^)]*\)|\[[^\]]*\])/g)) {
+    if (!match[1].trim()) diagnostics.push(diagnostic('DA-17', path, 'plain-source image requires a non-empty image alternative'));
+  }
+  for (const match of prose.matchAll(/<img\b[^>]*>/gi)) {
+    const alt = /\balt\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(match[0]);
+    if (!(alt && (alt[1] || alt[2] || alt[3] || '').trim())) diagnostics.push(diagnostic('DA-17', path, 'plain-source image requires a non-empty image alternative'));
+  }
+  const fences = markdownFences(text);
+  for (const [index, fence] of fences.entries()) {
+    if (!/^mermaid(?:\s|$)/i.test(fence.info)) continue;
+    const following = text.slice(fence.end);
+    const nextFence = fences[index + 1] ? fences[index + 1].start - fence.end : -1;
+    const boundaries = [nextFence, following.search(/^ {0,3}#{1,6}\s/gm)].filter((boundary) => boundary >= 0);
+    const adjacent = following.slice(0, boundaries.length ? Math.min(...boundaries) : undefined);
+    if (!/Text alternative\s*:\s*\S/i.test(adjacent)) diagnostics.push(diagnostic('DA-17', path, 'plain-source diagram requires an adjacent text alternative'));
+  }
   return diagnostics;
 }
 

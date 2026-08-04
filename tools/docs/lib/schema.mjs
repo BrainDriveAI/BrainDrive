@@ -36,7 +36,6 @@ export function validateSchema(schema, value, path = 'value', { rule = 'DA-18' }
       const target = pointer(schema, node.$ref);
       if (!target) diagnostics.push(diagnostic(rule, currentPath, `schema reference cannot be resolved: ${node.$ref}`));
       else visit(target, current, currentPath);
-      return;
     }
     if (node.allOf) for (const child of node.allOf) visit(child, current, currentPath);
     if (node.if) {
@@ -55,14 +54,30 @@ export function validateSchema(schema, value, path = 'value', { rule = 'DA-18' }
       try { if (!new RegExp(node.pattern).test(current)) diagnostics.push(diagnostic(rule, currentPath, 'string does not match the required pattern')); }
       catch { diagnostics.push(diagnostic(rule, currentPath, 'schema contains an invalid pattern')); }
     }
+    if (typeof current === 'string' && node.minLength !== undefined && current.length < node.minLength) diagnostics.push(diagnostic(rule, currentPath, `string must contain at least ${node.minLength} characters`));
+    if (typeof current === 'number' && node.minimum !== undefined && current < node.minimum) diagnostics.push(diagnostic(rule, currentPath, `number must be at least ${node.minimum}`));
     if (Array.isArray(current)) {
       if (node.minItems !== undefined && current.length < node.minItems) diagnostics.push(diagnostic(rule, currentPath, `array must contain at least ${node.minItems} items`));
       if (node.maxItems !== undefined && current.length > node.maxItems) diagnostics.push(diagnostic(rule, currentPath, `array must contain at most ${node.maxItems} items`));
-      if (node.items) current.forEach((item, index) => visit(node.items, item, `${currentPath}[${index}]`));
+      if (node.uniqueItems) {
+        const serialized = current.map((item) => JSON.stringify(item));
+        if (new Set(serialized).size !== serialized.length) diagnostics.push(diagnostic(rule, currentPath, 'array items must be unique'));
+      }
+      const prefixLength = Array.isArray(node.prefixItems) ? node.prefixItems.length : 0;
+      for (let index = 0; index < prefixLength && index < current.length; index += 1) visit(node.prefixItems[index], current[index], `${currentPath}[${index}]`);
+      if (node.items === false && current.length > prefixLength) diagnostics.push(diagnostic(rule, currentPath, `array must not contain more than ${prefixLength} positional items`));
+      else if (node.items && typeof node.items === 'object') current.slice(prefixLength).forEach((item, offset) => visit(node.items, item, `${currentPath}[${offset + prefixLength}]`));
     }
     if (current !== null && typeof current === 'object' && !Array.isArray(current)) {
       for (const required of node.required || []) if (!(required in current)) diagnostics.push(diagnostic(rule, currentPath, `object is missing required property ${required}`));
       for (const [key, child] of Object.entries(node.properties || {})) if (key in current) visit(child, current[key], `${currentPath}.${key}`);
+      if (node.additionalProperties === false) {
+        const declared = new Set(Object.keys(node.properties || {}));
+        for (const key of Object.keys(current)) if (!declared.has(key)) diagnostics.push(diagnostic(rule, currentPath, `object contains unexpected property ${key}`));
+      } else if (node.additionalProperties && typeof node.additionalProperties === 'object') {
+        const declared = new Set(Object.keys(node.properties || {}));
+        for (const key of Object.keys(current)) if (!declared.has(key)) visit(node.additionalProperties, current[key], `${currentPath}.${key}`);
+      }
     }
   }
   visit(schema, value, path);

@@ -1,0 +1,10 @@
+{
+  "issueFields": ["page-path", "branch-tag", "journey", "expected", "actual", "proposed-correction", "sanitized-evidence"],
+  "prFields": ["documentation impact", "no-impact reason"],
+  "routes": {
+    "support": "BrainDrive community forum",
+    "security": "GitHub Private Vulnerability Reporting"
+  },
+  "ownerRole": "documentation-maintainers",
+  "ci": { "job": "Documentation", "node": 22 }
+}

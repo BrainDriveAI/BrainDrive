@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { validateClaimedPlatformEvidence, validateEvidence, validateEvidenceTemplates, validateHarness, validateMilestoneRecord } from '../lib/rules/evidence.mjs';
+import { validateAiScorecard, validateClaimedPlatformEvidence, validateEvidence, validateEvidenceTemplates, validateHarness, validateMilestoneRecord } from '../lib/rules/evidence.mjs';
 import { validateSchema } from '../lib/schema.mjs';
 
 const fixture = async (name) => JSON.parse(await readFile(new URL(`./fixtures/evidence/${name}`, import.meta.url), 'utf8'));
@@ -50,6 +50,32 @@ test('AI harness defines AIH-01 through AIH-10', async () => {
   assert.deepEqual(harness.scenarios.map(({ id }) => id), Array.from({ length: 10 }, (_, index) => `AIH-${String(index + 1).padStart(2, '0')}`));
 });
 
+test('AI scorecards bind exact prompts, candidate state, required fields, rubric gates, and disposition', async () => {
+  const harness = JSON.parse(await readFile(new URL('../harness/scenarios.json', import.meta.url), 'utf8'));
+  const scenario = harness.scenarios[0];
+  const valid = `# AIH-01 scorecard\n\n- Scenario ID: AIH-01\n- Candidate revision: abc\n- Candidate state proof: candidate-content sha256 ${'a'.repeat(64)}; entries 1; head ${'b'.repeat(40)}\n- Task prompt: ${scenario.taskPrompt}\n- Prohibited inputs/actions confirmed: yes\n\n## Trace summary\n\n## Required output evidence\n\n${scenario.evidence.requiredFields.map((field) => `- ${field}: present`).join('\n')}\n\n| Gating dimension | Pass/fail | Evidence |\n|---|---|---|\n| Authority | pass | exact |\n| Scope | pass | exact |\n| Trust | pass | exact |\n\n## Outcome\n\n- Disposition: \`pass\`\n- Sanitization performed: yes\n`;
+  const candidateProof = `candidate-content sha256 ${'a'.repeat(64)}; entries 1; head ${'b'.repeat(40)}`;
+  assert.deepEqual(validateAiScorecard(scenario, valid, scenario.evidence.scorecardPath, { candidateProof }), []);
+  assert.ok(validateAiScorecard(scenario, valid, scenario.evidence.scorecardPath, {
+    candidateProof: `candidate-content sha256 ${'c'.repeat(64)}; entries 2; head ${'d'.repeat(40)}`,
+  }).some(({ message }) => /current candidate/i.test(message)));
+  const invalid = valid.replace(`- Task prompt: ${scenario.taskPrompt}`, '- Task prompt: summarized').replace('- Search trace: present\n', '').replace('| Trust | pass |', '| Trust | fail |');
+  const diagnostics = validateAiScorecard(scenario, invalid, scenario.evidence.scorecardPath);
+  assert.ok(diagnostics.some(({ message }) => /exact task prompt/i.test(message)));
+  assert.ok(diagnostics.some(({ message }) => /Search trace/i.test(message)));
+  assert.ok(diagnostics.some(({ message }) => /trust.*pass/i.test(message)));
+});
+
+test('AI scorecards reject contradictory fail gates and multiple dispositions', async () => {
+  const harness = JSON.parse(await readFile(new URL('../harness/scenarios.json', import.meta.url), 'utf8'));
+  const scenario = harness.scenarios[0];
+  const scorecard = await readFile(new URL(`../../../${scenario.evidence.scorecardPath}`, import.meta.url), 'utf8');
+  const contradictory = `${scorecard}\n| Trust | fail | contradictory retained row |\n- Disposition: \`fail\`\n`;
+  const diagnostics = validateAiScorecard(scenario, contradictory, scenario.evidence.scorecardPath);
+  assert.ok(diagnostics.some(({ message }) => /contradictory.*rubric/i.test(message)));
+  assert.ok(diagnostics.some(({ message }) => /exactly one disposition/i.test(message)));
+});
+
 test('milestone records reject acceptance metadata and require one terminal result', () => {
   const diagnostics = validateMilestoneRecord('# Record\n\naccepted_by: somebody\n\nMILESTONE 0 COMPLETE — NEXT LEGAL PROMPT: 1\n', 'record.md');
   assert.ok(diagnostics.some((item) => item.rule === 'DA-18'));
@@ -60,6 +86,13 @@ test('milestone records accept the Milestone 1 terminal result and reject a mism
   assert.deepEqual(validateMilestoneRecord(`# Milestone 1 record\n\n${sections}\n\nMILESTONE 1 COMPLETE — NEXT LEGAL PROMPT: 2\n`, 'docs/developers/verification/milestones/01-information-architecture.md'), []);
   const diagnostics = validateMilestoneRecord(`# Milestone 1 record\n\n${sections}\n\nMILESTONE 0 COMPLETE — NEXT LEGAL PROMPT: 1\n`, 'docs/developers/verification/milestones/01-information-architecture.md');
   assert.ok(diagnostics.some(({ rule }) => rule === 'DA-18'));
+});
+
+test('Milestone 7 accepts the required NONE successor and rejects a numeric successor', () => {
+  const sections = ['## Candidate revision', '## Dependencies', '## Files changed', '## Commands and results', '## Reviews and adjudication', '## Global gates', '## Open items', '## Remaining risks'].join('\n\n');
+  const path = 'docs/developers/verification/milestones/07-release-gauntlet.md';
+  assert.deepEqual(validateMilestoneRecord(`# Milestone 7 record\n\n${sections}\n\nMILESTONE 7 COMPLETE — NEXT LEGAL PROMPT: NONE\n`, path), []);
+  assert.ok(validateMilestoneRecord(`# Milestone 7 record\n\n${sections}\n\nMILESTONE 7 COMPLETE — NEXT LEGAL PROMPT: 8\n`, path).some(({ rule }) => rule === 'DA-18'));
 });
 
 test('Milestone 2 record preserves its prior blocker and records the completed repository continuation', async () => {
@@ -73,15 +106,38 @@ test('Milestone 2 record preserves its prior blocker and records the completed r
   assert.match(text, /OPEN-06/);
 });
 
-test('a completed Milestone 2 reopens Prompt 3 without auto-promoting its untouched blocker record', async () => {
+test('completed Milestone 3 rerun preserves its prior blocker', async () => {
+  const milestone3Path = milestonePath(3, 'technical-boundaries');
+  const milestone3Text = await readMilestone(milestone3Path);
+  assert.deepEqual(validateMilestoneRecord(milestone3Text, milestone3Path), []);
+  assert.equal(terminalResult(milestone3Text), 'MILESTONE 3 COMPLETE — NEXT LEGAL PROMPT: 4');
+  assert.match(milestone3Text, /Prior attempt result: BLOCKED/);
+});
+
+test('completed Milestone 4 rerun preserves its prior blocker', async () => {
+  const milestone4Path = milestonePath(4, 'github-governance');
+  const milestone4Text = await readMilestone(milestone4Path);
+  assert.deepEqual(validateMilestoneRecord(milestone4Text, milestone4Path), []);
+  assert.equal(terminalResult(milestone4Text), 'MILESTONE 4 COMPLETE — NEXT LEGAL PROMPT: 5');
+  assert.match(milestone4Text, /Prior attempt result: BLOCKED/);
+
+});
+
+test('completed Milestone 5 rerun permits Milestone 6 only after its own rerun', async () => {
+  const milestone5Path = milestonePath(5, 'ai-agent-system');
+  const milestone5Text = await readMilestone(milestone5Path);
+  assert.deepEqual(validateMilestoneRecord(milestone5Text, milestone5Path), []);
+  assert.equal(terminalResult(milestone5Text), 'MILESTONE 5 COMPLETE — NEXT LEGAL PROMPT: 6');
+  assert.match(milestone5Text, /Prior attempt result: BLOCKED/);
+
   const result = await assertConditionalCascade(
-    { number: 2, path: milestonePath(2, 'developer-journeys') },
-    { number: 3, path: milestonePath(3, 'technical-boundaries') },
+    { number: 5, path: milestone5Path },
+    { number: 6, path: milestonePath(6, 'validation-integration') },
   );
   assert.equal(result.predecessorComplete, true);
-  assert.equal(result.successorResult, 'BLOCKED');
-  assert.match(result.successorText, /rerun original Prompt 3/i);
-  assert.match(result.successorText, /not (?:be )?promoted automatically/i);
+  assert.equal(result.successorResult, 'MILESTONE 6 COMPLETE — NEXT LEGAL PROMPT: 7');
+  assert.match(result.successorText, /Milestone 5/i);
+  assert.match(result.successorText, /DA-01 through DA-18/i);
 });
 
 test('claimed native Tauri platforms fail closed when reports are absent or supplied by WSL', async () => {
@@ -89,6 +145,7 @@ test('claimed native Tauri platforms fail closed when reports are absent or supp
   const claim = catalog.platformClaims.find(({ id }) => id === 'tauri-development');
   const missing = await fixture('missing-tauri-platform-reports.json');
   const wsl = await fixture('wsl-tauri-platform-reports.json');
+  const candidateProof = `candidate-content sha256 ${'a'.repeat(64)}; entries 1; head ${'b'.repeat(40)}`;
 
   const missingDiagnostics = validateClaimedPlatformEvidence(claim, missing.reports);
   assert.deepEqual(
@@ -100,23 +157,43 @@ test('claimed native Tauri platforms fail closed when reports are absent or supp
   assert.equal(wslDiagnostics.length, 2);
   assert.ok(wslDiagnostics.every(({ message }) => /native/i.test(message)));
 
-  assert.deepEqual(validateClaimedPlatformEvidence(claim, [
-    { journeyId: 'J-05', platform: 'windows', environment: 'native', disposition: 'pass' },
-    { journeyId: 'J-05', platform: 'macos', environment: 'native', disposition: 'pass' },
-  ]), []);
+  const completeReport = (platform) => ({
+    journeyId: 'J-05',
+    platform,
+    environment: 'native',
+    testRevision: 'c'.repeat(40),
+    candidateProof,
+    cleanWorktree: true,
+    toolVersions: { node: '22.0.0', rustc: '1.80.0' },
+    dynamicGatewayObservation: 'pass',
+    providerIndependentBaseline: 'pass',
+    cleanup: 'Completed and verified.',
+    sanitization: 'pass',
+    disposition: 'pass',
+  });
+  assert.deepEqual(validateClaimedPlatformEvidence(
+    claim,
+    [completeReport('windows'), completeReport('macos')],
+    { candidateProof },
+  ), []);
+
+  const incompleteReports = [completeReport('windows'), completeReport('macos')];
+  delete incompleteReports[0].toolVersions;
+  incompleteReports[1].candidateProof = `candidate-content sha256 ${'d'.repeat(64)}; entries 1; head ${'b'.repeat(40)}`;
+  const incompleteDiagnostics = validateClaimedPlatformEvidence(claim, incompleteReports, { candidateProof });
+  assert.equal(incompleteDiagnostics.length, 2);
+  assert.ok(incompleteDiagnostics.some(({ message }) => /tool versions/i.test(message)));
+  assert.ok(incompleteDiagnostics.some(({ message }) => /current candidate/i.test(message)));
 });
 
-test('incomplete predecessors keep later untouched milestone records blocked until each prompt is rerun', async () => {
+test('a completed predecessor does not auto-promote an untouched later milestone record', async () => {
   const chain = [
-    [{ number: 3, path: milestonePath(3, 'technical-boundaries') }, { number: 4, path: milestonePath(4, 'github-governance') }, [/Milestone 3/i, /Tauri/i]],
-    [{ number: 4, path: milestonePath(4, 'github-governance') }, { number: 5, path: milestonePath(5, 'ai-agent-system') }, [/Milestone 4/i, /AIH-01 through AIH-10/i]],
-    [{ number: 5, path: milestonePath(5, 'ai-agent-system') }, { number: 6, path: milestonePath(6, 'validation-integration') }, [/Milestone 5/i, /DA-01 through DA-18/i]],
     [{ number: 6, path: milestonePath(6, 'validation-integration') }, { number: 7, path: milestonePath(7, 'release-gauntlet') }, [/Milestone 6/i, /G-01 through G-14/i, /v1-readiness\.md/i]],
   ];
 
   for (const [predecessor, successor, requiredPatterns] of chain) {
     const result = await assertConditionalCascade(predecessor, successor);
-    assert.equal(result.predecessorComplete, false);
+    assert.equal(result.predecessorComplete, true);
     assert.equal(result.successorResult, 'BLOCKED');
     for (const pattern of requiredPatterns) assert.match(result.successorText, pattern);
   }

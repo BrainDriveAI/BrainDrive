@@ -407,7 +407,9 @@ What it does:
 - Optionally builds production Docker images (`Dockerfile.app` and `Dockerfile.edge`) with local test tags.
 
 Usage:
-- Shell: `./installer/docker/scripts/preflight-production-build.sh [options]`
+- Shell from repository root: `bash ./installer/docker/scripts/preflight-production-build.sh [options]`
+
+The helper is tracked mode `100644`, so direct `./...` execution is not the repository contract. The `bash ... --help` path is safe to inspect; running preflight itself may replace ignored dependency trees and build local images. See [Release and version truth](../../../docs/developers/releases.md#release-readiness-boundary).
 
 Options:
 - `--app-image <name>` (default `braindrive-preflight-app`)
@@ -449,7 +451,9 @@ What it does:
 - final GitHub Release upload checklist output
 
 Usage:
-- Shell: `./installer/docker/scripts/release-production.sh [options]`
+- Shell from repository root: `bash ./installer/docker/scripts/release-production.sh [options]`
+
+The helper is tracked mode `100644`. `bash ... --help` is the only routine public-safe probe; the release flow is a restricted, state-changing operation and requires separate release-maintainer authority. See [Release and version truth](../../../docs/developers/releases.md#restricted-maintainer-boundary).
 
 Options:
 - `--package-version <yy.m.d[.n]>` (default: today's local date, for example `26.4.16`; same-day patch releases can use `26.6.23.1`)

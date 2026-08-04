@@ -2,52 +2,60 @@
 
 This is a sanitized, revision-bound execution record. It is not product, repository-instruction, harness, or technical authority.
 
+Prior attempt result: BLOCKED
+
 ## Candidate revision
 
-- Branch: `dev`
-- Base revision: `ba37f0893fbd`
-- Candidate state: uncommitted working tree containing Milestones 0 through 4 and this dependency-block record. Commit, push, publication, provider use, external administration, and ignored-data access were outside this prompt.
+- Branch: `agent/developer-documentation-system`
+- Base revision: `79fd0e3de2cd137b38b624552478d2ab13f775f1`
+- Scenario candidate proof: `candidate-content sha256 d83e1a6aaabb13c4e8c158195e59de28c05bcaae21d7a0cac6bbb48430645dc8; entries 59; head 79fd0e3de2cd137b38b624552478d2ab13f775f1`
+- Final affected AIH-05 rerun proof: `candidate-content sha256 54835e0d302cd46cf3ed776048ea00ff3d48bc9a0bfad605de0f8ed537339a65; entries 59; head 79fd0e3de2cd137b38b624552478d2ab13f775f1`
+- Candidate state: uncommitted working tree containing preserved Milestones 0–4 work, the Milestone 5 implementation, and evidence outputs. Commit, push, publication, provider use, external administration, and ignored-data access were outside this prompt.
+- After the frozen AIH runs, evidence packaging, scorecard catalog registration, the conditional Milestone 5-to-6 cascade assertion, and a mechanical correction from a nonexistent provider-UI caller to the tracked `AppShell` caller changed. AIH-05 was rerun against the final affected candidate; the other nine runs were carried forward because their prompts, rubrics, allowed contexts, mapped routes, and check contracts were unaffected. Full documentation verification remains required after packaging.
 
 ## Dependencies
 
-- Fresh revalidation, `npm --prefix builds/typescript run docs:verify`, passed with 74 of 74 tests and a composed check over 167 scoped candidates with zero diagnostics.
-- Milestones 0 and 1 have valid completion terminal results. Milestones 2, 3, and 4 end `BLOCKED`.
-- Milestone 4 does not end `MILESTONE 4 COMPLETE — NEXT LEGAL PROMPT: 5`, so the explicit Milestone 5 predecessor contract is unmet.
-- The predecessor chain originates in the failed required Tauri journey recorded by Milestone 2. Static documentation checks cannot waive that end-to-end failure.
-- The specification, test plan, implementation plan, root and scoped instructions, Milestones 0–4 records, and the milestone-check skill were read completely in the current milestone sequence and revalidated before this record was written.
+- Milestone 4 ends `MILESTONE 4 COMPLETE — NEXT LEGAL PROMPT: 5`; Prompt 5 was therefore legal to run.
+- Root and scoped instructions, original planning inputs, Milestones 00–04, the AIH manifest/schema/procedure, catalog, live scripts, CI, and the milestone-check skill were read or revalidated before implementation.
+- Pre-edit `npm run docs:verify` passed with 99 tests, one Windows-only skip, and zero documentation diagnostics.
+- Local Node is `v20.20.1`, while the catalog and CI contract require Node 22. Local results are retained honestly and do not claim Node 22 CI execution.
 
 ## Files changed
 
-- Added this non-authoritative dependency-block record.
-- Registered this record in `docs/developers/catalog.json`.
-- Added a focused regression assertion in `tools/docs/test/evidence-harness.test.mjs` requiring Milestone 5 to remain blocked while Milestone 4 is blocked.
-- No root or scoped instructions, compatibility mirrors, starter-pack product artifacts, catalog task/change/check routes, harness manifest, harness schema, harness procedure, scorecards, runtime source, provider configuration, or product behavior was changed under Milestone 5.
+- Reconciled concise agent routes in `AGENTS.md` and additive harness routing in `docs/AGENTS.md`; compatibility mirrors remain symlinks to the root authority.
+- Added `docs/developers/verification/ai-agent-harness.md`, ten scorecards under `docs/developers/verification/ai-agent-scorecards/`, and the expanded scorecard template.
+- Added the machine-readable `agentContract`, scorecard registrations, source/test/check routes, provider negative guarantees, paired memory disposition, restricted exclusions, and catalog commands in `docs/developers/catalog.json`.
+- Added strict harness/catalog schemas, candidate-content binding in `tools/docs/candidate-digest.mjs`, evidence/authority/security validation, focused fixtures, and tests including `agent-contract.test.mjs` and `candidate-digest.test.mjs`.
+- Updated the conditional milestone cascade test so this completed rerun does not promote untouched Milestone 6. Milestones 6 and 7 remain historical blocker attempts until their prompts run.
+- No runtime, provider, Tauri, installer, auth, memory, or product behavior was modified for Milestone 5.
 
 ## Commands and results
 
-- `npm --prefix builds/typescript run docs:verify`: exit 0; 74 tests passed; documentation validation passed with 167 scoped candidates and zero diagnostics. This passing baseline does not satisfy the predecessor terminal contract.
-- Tests-first focused run, `node --test tools/docs/test/evidence-harness.test.mjs`: exit 1; 15 tests passed and the new Milestone 5 dependency assertion failed because this record did not yet exist.
-- AIH-01 through AIH-10 were not executed. No transcript, trace summary, scorecard, aggregate result, or provider-backed evaluation is claimed.
-
-## Attempt 2 — blocker-record verification
-
-- Corrected focused run, `node --test tools/docs/test/evidence-harness.test.mjs`: exit 0; all 16 focused tests passed.
-- `npm --prefix builds/typescript run docs:test`: exit 0; all 75 documentation tests passed.
-- `npm --prefix builds/typescript run docs:check`: exit 0; documentation validation passed over 168 scoped candidates with zero diagnostics.
-- `npm --prefix builds/typescript run docs:verify`: exit 0; all 75 tests passed and the composed check again passed over 168 scoped candidates with zero diagnostics.
-- `node tools/docs/sync-generated.mjs --check`: exit 0; documentation projections matched the catalog.
-- `git ls-files --stage AGENTS.md CLAUDE.md GEMINI.md`: exit 0; `AGENTS.md` remains mode `100644`, while `CLAUDE.md` and `GEMINI.md` remain mode `120000` symlinks.
-- `readlink CLAUDE.md` and `readlink GEMINI.md`: exit 0; both targets are `AGENTS.md`.
-- `tools/security/scan-secrets.sh --current` with a task-specific cache: exit 0; Gitleaks 8.30.1 inspected tracked and non-ignored worktree scope and reported zero findings; the cache was removed.
-- `git diff --check`: exit 0.
+- Tests-first agent-contract run: exit 1 with six intended contract failures after the candidate-enumeration exclusion passed.
+- Tests-first route-completeness run: exit 1 on missing web adapter/executor members and missing scorecards.
+- Tests-first cascade run: exit 1 because this record still ended with its historical blocker result.
+- Candidate digest/security focused run: exit 0; eight tests passed, including content-change, untracked-addition, deletion, stable-rerun, ignored-family, and provider-safety cases.
+- Post-scorecard focused run, `node --test tools/docs/test/agent-contract.test.mjs tools/docs/test/evidence-harness.test.mjs`: 26 tests passed; only the intentionally red Milestone 5 terminal assertion remained before this record was updated.
+- `npm run docs:test`: exit 0; 112 tests, 111 passed, one expected Windows-only skip, zero failed.
+- `npm run docs:check`: exit 0; 207 scoped candidates, zero diagnostics.
+- `npm run docs:verify`: exit 0; the composed documentation test and validation contract passed with the same 112-test/207-candidate results.
+- `node tools/docs/sync-generated.mjs --check`: exit 0; documentation projections match the catalog.
+- `tools/security/scan-secrets.sh --current` with an isolated temporary Gitleaks cache: exit 0; Gitleaks 8.30.1 scanned tracked and non-ignored worktree content and found zero findings.
+- Agent compatibility check: exit 0; `AGENTS.md` remains mode `100644`, `CLAUDE.md` and `GEMINI.md` remain mode `120000`, and both resolve to `AGENTS.md`.
+- `git diff --check`: exit 0 with no whitespace errors.
+- Final `node tools/docs/candidate-digest.mjs`: exit 0 with `candidate-content sha256 54835e0d302cd46cf3ed776048ea00ff3d48bc9a0bfad605de0f8ed537339a65; entries 59; head 79fd0e3de2cd137b38b624552478d2ab13f775f1`.
 
 ## Reviews and adjudication
 
-- Authority, repository-architecture, verification-selection, and security/provider AI specialist reviews were not started because the Milestone 4 prerequisite forbids Milestone 5 implementation and there is no Milestone 5 instruction or harness corpus to review.
-- Prior AI reviews are not reused as current scenario execution, human review, fresh-contributor evidence, or Milestone 5 specialist evidence.
-- Required milestone-check objective result: `BLOCKED` for the mapped AI-completion phase. Baseline automation passes, but predecessor completion and all ten required AI scenario artifacts are absent.
-- Milestone-check summary: baseline `PASS`; predecessor criterion `FAIL`; AIH evidence `0/10`; release gates remain open for Milestone 7; recommendation `BLOCKED`.
-- Coverage percentage is not applicable to this dependency-only record; the documentation regression test directly proves the predecessor stop condition.
+- Ten accepted scenario executions used ten separate fork-none evaluator contexts. AIH-01 through AIH-10 each passed every declared binary gate; no aggregate score compensated for a failed dimension.
+- Invalid attempts remained separate: an unsafe broad traversal, pre-fix tracked-context failures, candidate drift, a prior-evidence test read, bounded timeouts, and thread-limit failures were never relabeled as passing evidence.
+- Authority specialist review found missing scorecard enforcement, weak candidate binding, incomplete scope semantics, and restricted-exclusion drift. The composed validator now opens every declared scorecard, compares the exact prompt/required fields/rubric, enforces exact instruction scope/kind/precedence and symlink semantics, and checks the complete restricted families.
+- Repository-architecture specialist review found missing web adapter/executor, MCP client/configuration, provider, memory, and test routes. The catalog routes and data-driven validator assertions now enumerate those live surfaces and disclose the absent starter-pack updater and MCP registration coverage.
+- Verification-selection specialist review found an unchecked MCP command, over-broad package verification, an absent integration entrypoint, and incomplete AIH-08 evidence. MCP package verification is now a registered Node 22 command, package-only and runtime-integrated routes are distinct, the absent target remains blocked, and AIH-08 retains the full three-surface matrix and omissions.
+- Security/provider specialist review found path-set-only binding, incomplete ignored families, and missing client provider safety routing. Candidate proof now hashes HEAD plus candidate content while excluding self-referential evidence outputs, ignored families match Git scope, and provider UI/negative guarantees require web verification where applicable.
+- Advisory findings retained as risk: no focused MCP registration test, no live provider proof, several candidate canonical pages remain uncommitted, local Node is not 22, and extra IPv6/private-shape hardening remains future defense in depth.
+- Required milestone-check objective result: PASS. Repository-controlled Phase 4 AI-agent criteria are satisfied, AIH evidence is 10/10, predecessor Milestone 4 is complete, the full documentation gate passes, and global release gates remain deliberately open for Milestone 7. Recommendation: proceed to original Prompt 6.
+- Coverage percentage is not configured for the documentation validator. Tests-first negative fixtures, route assertions, scorecard content validation, candidate-digest mutation cases, and the full documentation suite provide the applicable proof.
 
 ## Global gates
 
@@ -68,16 +76,18 @@ This is a sanitized, revision-bound execution record. It is not product, reposit
 
 ## Open items
 
-- OPEN-03 remains blocked on the required Tauri desktop journey and prevents completion of Milestones 2 through 4.
-- AIH-01 through AIH-10 remain unexecuted for Milestone 5. Required binary scorecards, zero-change conflict evidence, command-selection comparison, and independent AI reviews do not exist.
-- OPEN-01, OPEN-04, OPEN-05, OPEN-07, OPEN-08, OPEN-09, and OPEN-10 retain the unresolved states recorded by earlier milestones.
-- The sanitized full-history scanner finding recorded by Milestone 4 remains unreviewed/open and requires authorized security review; no raw match was opened or retained here.
+- OPEN-01, OPEN-02, OPEN-04, OPEN-05, OPEN-08, OPEN-09, and OPEN-10 retain their catalog states; Milestone 5 does not invent ownership, compatibility, retention, platform, PowerShell, or browser-fixture decisions.
+- OPEN-03 remains deferred-required-before-Milestone-7 for claimed native Windows/macOS J-05 evidence. WSL/Linux remains diagnostic-only for desktop support.
+- OPEN-06 and OPEN-07 retain their earlier resolved-source/static dispositions.
+- Milestone 6 remains blocked in its untouched historical record and must be rerun; this completion does not promote it.
+- Human review, GitHub-platform proof, whole-trace integration, immutable-candidate proof, full-history security adjudication, and final release gates remain outside Milestone 5.
 
 ## Remaining risks
 
-- The AI-readable authority, artifact-classification, change-surface, paired-change, proportional-verification, conflict-stop, and honest-handoff deliverables remain unimplemented for Milestone 5.
-- Root and scoped instructions and the machine-readable catalog have not received Milestone 5 reconciliation or fresh-context behavioral proof.
-- Advancing would represent unexecuted AIH scenarios as passing and would treat a blocked predecessor as complete.
-- The working tree remains intentionally uncommitted and includes earlier milestone changes. No external state was changed.
+- The nine unaffected accepted scenarios bind the frozen implementation candidate; AIH-05 binds the final corrected provider-route candidate. The final digest and full verification confirm no later AIH prompt, rubric, route, procedure, or check-contract drift.
+- Local verification runs on Node `v20.20.1`, not the declared Node 22 baseline; CI must supply Node 22 evidence later.
+- Scorecards and several canonical pages are currently uncommitted candidate evidence and are not yet GitHub-visible.
+- Missing MCP registration coverage and the absent integration target remain explicit gaps; they are not represented as passing.
+- AI evidence is non-authoritative and does not substitute for Prompt 7 human, platform, security, GitHub, or release evidence.
 
-BLOCKED
+MILESTONE 5 COMPLETE — NEXT LEGAL PROMPT: 6

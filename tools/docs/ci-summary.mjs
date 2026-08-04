@@ -1,8 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { redactDiagnosticText } from './lib/diagnostics.mjs';
 
 function safe(value) {
-  return String(value || '').replace(/[\r\n]+/g, ' ').replace(/\|/g, '\\|').replace(/[<>]/g, '');
+  return redactDiagnosticText(value).replace(/[\r\n]+/g, ' ').replace(/\|/g, '\\|').replace(/[<>]/g, '');
 }
 
 export function formatSummary(report, { verificationOutcome = 'success' } = {}) {

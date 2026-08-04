@@ -30,13 +30,37 @@ test('undeclared material copy fails', async () => {
 test('Windows Git symlink placeholder files remain valid agent compatibility aliases', { skip: process.platform !== 'win32' }, async () => {
   const temporary = await mkdtemp(resolve(tmpdir(), 'docs-agent-pointer-'));
   try {
+    await mkdir(resolve(temporary, 'docs'));
     await writeFile(resolve(temporary, 'AGENTS.md'), '# Canonical instructions\r\n');
+    await writeFile(resolve(temporary, 'docs/AGENTS.md'), '# Additive docs instructions\r\n');
     await writeFile(resolve(temporary, 'CLAUDE.md'), 'AGENTS.md');
     await writeFile(resolve(temporary, 'GEMINI.md'), 'AGENTS.md');
-    assert.deepEqual(await validateRepositoryAuthority(temporary, { documents: [] }), []);
+    const restrictedExclusions = ['builds/typescript/your-memory/**', 'builds/typescript/your-memory*', 'builds/typescript/.paa-secrets/**', 'builds/typescript/.paa-secrets*', 'builds/typescript/.reset-backups/**', 'builds/typescript/.your-memory.root-owned.backup/**', 'installer/docker/backups/**', '**/node_modules/**', '**/dist/**', '**/build/**', '**/target/**', '**/coverage/**', '**/vendor/**', '**/.cache/**', 'docs/Security/**'].map((pattern) => ({ pattern }));
+    assert.deepEqual(await validateRepositoryAuthority(temporary, {
+      documents: [],
+      agentContract: {
+        governingInstructions: [
+          { path: 'AGENTS.md', scope: '**', kind: 'canonical-root', precedence: 1 },
+          { path: 'docs/AGENTS.md', scope: 'docs/**', kind: 'additive-scoped', precedence: 2 },
+        ],
+        compatibilityMirrors: [
+          { path: 'CLAUDE.md', canonicalPath: 'AGENTS.md', independentAuthority: false },
+          { path: 'GEMINI.md', canonicalPath: 'AGENTS.md', independentAuthority: false },
+        ],
+        artifactClasses: [{ pattern: 'builds/typescript/memory/starter-pack/**/AGENT.md', classification: 'product-agent-artifact', codingAuthority: false }],
+        taskRoutes: [], changeRoutes: [], checkRoutes: [], pairedChangeObligations: [{ id: 'memory-template-existing-owner', existingOwnerDisposition: 'No active starter-pack updater exists', proposedUpdaterRequirements: 'Update an exact recognized prior default, preserve customized content, and remain idempotent' }], restrictedExclusions,
+      },
+    }), []);
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }
+});
+
+test('repository authority requires the memory existing-owner paired-change obligation', async () => {
+  const catalog = JSON.parse(await readFile(new URL('../../../docs/developers/catalog.json', import.meta.url), 'utf8'));
+  catalog.agentContract.pairedChangeObligations = catalog.agentContract.pairedChangeObligations.filter(({ id }) => id !== 'memory-template-existing-owner');
+  const diagnostics = await validateRepositoryAuthority(new URL('../../../', import.meta.url), catalog);
+  assert.ok(diagnostics.some(({ rule, message }) => rule === 'DA-08' && /memory-template-existing-owner/.test(message)));
 });
 
 test('generated catalog projections accept native Windows line endings', async () => {

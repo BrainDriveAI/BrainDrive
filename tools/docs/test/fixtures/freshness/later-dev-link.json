@@ -1,1 +1,1 @@
-{"versionDomains":[{"id":"app","sources":["package.json"]}],"references":[{"domain":"app","applicability":"tag","targetApplicability":"dev"}]}
+{"versionDomains":[{"id":"app","sources":["package.json"],"branchTagContract":"tag source must remain tag-local","compatibilityContract":"app-only"}],"references":[{"domain":"app","applicability":"tag","targetApplicability":"dev"}]}
