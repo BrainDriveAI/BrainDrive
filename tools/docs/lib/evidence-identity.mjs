@@ -33,6 +33,10 @@ const PLATFORM_RERUN_PATTERNS = [
   'tools/docs/lib/paths.mjs',
 ];
 
+const PLATFORM_POLICY_ONLY_PATHS = new Set([
+  'builds/typescript/src-tauri/README.md',
+]);
+
 const AIH_GLOBAL_PATTERNS = [
   'AGENTS.md',
   '**/AGENTS.md',
@@ -134,7 +138,7 @@ export async function sourceCandidateIdentity(repositoryRoot, revision = 'HEAD')
 
 export function classifyEvidenceImpact(changedPaths = []) {
   const paths = [...new Set(changedPaths)].filter((path) => !isApprovedEvidenceOutput(path)).sort();
-  const platform = paths.some((path) => matches(path, PLATFORM_RERUN_PATTERNS)) ? [...PLATFORM_IDS] : [];
+  const platform = paths.some((path) => !PLATFORM_POLICY_ONLY_PATHS.has(path) && matches(path, PLATFORM_RERUN_PATTERNS)) ? [...PLATFORM_IDS] : [];
   const aih = AIH_IDS.filter((id) => paths.some((path) => matches(path, AIH_GLOBAL_PATTERNS) || path === 'tools/docs/harness/scenarios.json' || matches(path, AIH_SCENARIO_PATTERNS[id])));
   const human = HUMAN_IDS.filter((id) => paths.some((path) => matches(path, HUMAN_REVIEW_PATTERNS[id])));
   return { platform, aih, human };

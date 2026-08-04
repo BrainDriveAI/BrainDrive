@@ -122,14 +122,16 @@ test('platform evidence carries across policy-only changes but not desktop-runti
   const root = await repositoryFixture();
   try {
     const testedRevision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+    await mkdir(resolve(root, 'builds/typescript/src-tauri'), { recursive: true });
     await mkdir(resolve(root, 'docs/developers'), { recursive: true });
     await mkdir(resolve(root, 'tools/docs/lib/rules'), { recursive: true });
+    await writeFile(resolve(root, 'builds/typescript/src-tauri/README.md'), 'configured target policy\n');
     await writeFile(resolve(root, 'docs/developers/catalog.json'), '{"claimedPlatforms":["windows"]}\n');
     await writeFile(resolve(root, 'tools/docs/lib/rules/evidence.mjs'), 'policy validator\n');
     const policyRevision = commit(root, 'policy only');
     const carried = await adjudicatePlatformEvidenceCarryForward(root, { testedRevision, targetRevision: policyRevision, platform: 'windows' });
     assert.equal(carried.compatible, true);
-    assert.deepEqual(carried.changedPaths, ['docs/developers/catalog.json', 'tools/docs/lib/rules/evidence.mjs']);
+    assert.deepEqual(carried.changedPaths, ['builds/typescript/src-tauri/README.md', 'docs/developers/catalog.json', 'tools/docs/lib/rules/evidence.mjs']);
 
     await mkdir(resolve(root, 'builds/typescript/src-tauri/src'), { recursive: true });
     await writeFile(resolve(root, 'builds/typescript/src-tauri/src/main.rs'), 'runtime change\n');
