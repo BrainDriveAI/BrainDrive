@@ -32,6 +32,7 @@ test('minimal catalog with complete metadata passes', async () => {
 
 test('repository catalog assigns the accepted human review roles', async () => {
   const catalog = JSON.parse(await readFile(resolve(repositoryRoot, 'docs/developers/catalog.json'), 'utf8'));
+  assert.equal(HUMAN_REVIEW_ROLES['REV-01'], 'repository-owner acceptance reviewer');
   assert.deepEqual(
     Object.fromEntries(catalog.humanReviewRequirements.map(({ id, reviewerRole }) => [id, reviewerRole])),
     HUMAN_REVIEW_ROLES,

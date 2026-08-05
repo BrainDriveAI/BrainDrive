@@ -31,6 +31,15 @@ The checked-in CODEOWNERS source makes ownership requests reviewable, but it doe
 
 Material contract, security, migration, provider, and release documentation changes require the corresponding technical role review plus documentation-maintainer review. A security-sensitive or restricted-boundary change also requires security-maintainer review. A release/tag/version change requires release-maintainer review. AI review can find defects but is not human area-owner, security-aware, release-maintainer, or GitHub-platform evidence.
 
+For the V1 developer-documentation candidate, the authorized repository owner
+replaced REV-01's independent fresh-contributor gate with an attributable
+repository-owner acceptance decision. That record must state that it is an owner
+policy decision and must not be relabeled as independent fresh-contributor
+evidence. The owner may combine REV-02 through REV-08 only by explicitly
+attesting to each role-specific scope, exact revision, findings, and remaining
+risk. Later releases may restore an independent fresh-contributor gate through a
+reviewed catalog and verification-policy change.
+
 ## Same-PR truth and documentation impact
 
 Behavior, contracts, configuration, compatibility, migration, security, provider, and release processes change with their canonical documentation in the same pull request. The catalog's `sourceMappings` identifies the minimum mapped authority. Contributors must also inspect adjacent effects instead of assuming one mapping is exhaustive.

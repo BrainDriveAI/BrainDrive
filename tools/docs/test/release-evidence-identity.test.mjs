@@ -200,6 +200,7 @@ function validHumanReview() {
     reviewId: 'REV-04',
     reviewerRole: 'security-aware reviewer',
     operatorRole: 'review recorder',
+    reviewDate: '2026-08-05',
     sourceTestRevision,
     sourceCandidateProof: proof('a', sourceTestRevision),
     scope: ['Synthetic security surface'],
@@ -235,6 +236,8 @@ test('missing, malformed, unsanitized, failed, unattributable, non-native, and s
     assert.ok(diagnostics.every(({ message }) => !message.includes('synthetic-private-value')));
   }
   for (const mutate of [
+    (record) => { delete record.reviewDate; },
+    (record) => { record.reviewDate = 'not-a-date'; },
     (record) => { delete record.reviewedSources; },
     (record) => { record.scope = 'malformed'; },
     (record) => { record.remainingRisk = 'token=synthetic-private-value'; },

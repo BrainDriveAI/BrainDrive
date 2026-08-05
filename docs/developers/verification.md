@@ -82,4 +82,11 @@ Run `node tools/docs/candidate-digest.mjs --source-test-revision <full-sha>` bef
 
 Approved outputs are AIH-01 through AIH-10 scorecards, `platform-reports/windows-j05.json`, `platform-reports/macos-j05.json`, `human-reviews/rev-01.json` through `rev-08.json`, Milestone 7, the M7 trace matrix, and the readiness summary. The catalog declares the same fixed patterns. Platform reports validate against `tools/docs/schemas/platform-report.schema.json`; human records validate against `tools/docs/schemas/human-review.schema.json`.
 
+The V1 REV-01 gate records an explicit repository-owner acceptance decision.
+It does not claim the owner is an independent fresh contributor. The record must
+retain that limitation, its review date, the exact source revision, scope,
+reviewed sources, findings, remaining risk, and sanitized disposition. REV-02
+through REV-08 retain their catalog-declared specialist roles; one owner may
+combine those roles only through an explicit attributable attestation.
+
 Tauri source, runtime API-base, desktop scripts/configuration, or package-command changes stale native platform evidence. A platform report from an ancestor revision may carry forward only when Git proves the intervening diff has no mapped executable platform impact and the current schema/validator revalidates the report. Documentation claims and evidence-policy changes therefore trigger revalidation, not automatic native reruns. Agent instructions and shared harness/validator contracts stale affected AIH records; catalog routes, scenario prompts/rubrics, scenario sources, and checks stale their mapped scenarios. A reviewed source, security, release, or governance change stales the mapped REV record. Missing, malformed, unsanitized, failed, unattributable, non-native, incompatible, or stale evidence remains blocked.

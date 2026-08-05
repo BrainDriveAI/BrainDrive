@@ -5,7 +5,7 @@ import { APPROVED_EVIDENCE_OUTPUT_PATTERNS } from './evidence-identity.mjs';
 export const CURRENT_STATUS = 'current';
 export const ALLOWED_STATUSES = new Set(['current', 'legacy', 'historical', 'experimental', 'internal', 'deprecated', 'removed', 'unsupported', 'unresolved']);
 export const HUMAN_REVIEW_ROLES = Object.freeze({
-  'REV-01': 'fresh-contributor reviewer',
+  'REV-01': 'repository-owner acceptance reviewer',
   'REV-02': 'technical-maintainer reviewer',
   'REV-03': 'integrator reviewer',
   'REV-04': 'security-aware reviewer',

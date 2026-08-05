@@ -235,12 +235,13 @@ export function validatePlatformReport(report = {}, expected = {}) {
 export function validateHumanReview(report = {}, expected = {}) {
   const path = `human-evidence:${expected.expectedReviewId || report.reviewId || '<missing>'}`;
   const diagnostics = identityDiagnostics(report, path, 'G-05', expected);
-  const required = ['schemaVersion', 'reviewId', 'reviewerRole', 'operatorRole', 'sourceTestRevision', 'sourceCandidateProof', 'scope', 'reviewedSources', 'findings', 'independence', 'sanitization', 'remainingRisk', 'disposition'];
+  const required = ['schemaVersion', 'reviewId', 'reviewerRole', 'operatorRole', 'reviewDate', 'sourceTestRevision', 'sourceCandidateProof', 'scope', 'reviewedSources', 'findings', 'independence', 'sanitization', 'remainingRisk', 'disposition'];
   const missing = required.filter((field) => report[field] === undefined || report[field] === '');
   if (missing.length) diagnostics.push(diagnostic('G-05', path, `human review is missing required fields: ${missing.join(', ')}`));
   if (report.schemaVersion !== 1 || !/^REV-0[1-8]$/.test(report.reviewId || '')) diagnostics.push(diagnostic('G-05', path, 'human review schema version or review ID is invalid'));
   if (expected.expectedReviewId && report.reviewId !== expected.expectedReviewId) diagnostics.push(diagnostic('G-05', path, 'human review ID does not match its declared location'));
   if (expected.expectedReviewerRole && report.reviewerRole !== expected.expectedReviewerRole) diagnostics.push(diagnostic('G-05', path, 'human review is not attributable to the required reviewer role'));
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(report.reviewDate || '')) diagnostics.push(diagnostic('G-05', path, 'human review requires a YYYY-MM-DD reviewDate'));
   for (const field of ['reviewerRole', 'operatorRole', 'independence', 'remainingRisk']) if (!nonempty(report[field])) diagnostics.push(diagnostic('G-05', path, `human review requires ${field}`));
   for (const field of ['scope', 'reviewedSources']) if (!Array.isArray(report[field]) || report[field].length === 0 || report[field].some((value) => !nonempty(value))) diagnostics.push(diagnostic('G-05', path, `human review requires a non-empty ${field} array`));
   if (!Array.isArray(report.findings) || report.findings.some((finding) => !object(finding))) diagnostics.push(diagnostic('G-05', path, 'human review findings must be an array of structured records'));

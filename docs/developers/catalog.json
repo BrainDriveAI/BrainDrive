@@ -125,7 +125,7 @@
     }
   ],
   "humanReviewRequirements": [
-    { "id": "REV-01", "reviewerRole": "fresh-contributor reviewer", "path": "docs/developers/verification/human-reviews/rev-01.json", "schemaPath": "tools/docs/schemas/human-review.schema.json" },
+    { "id": "REV-01", "reviewerRole": "repository-owner acceptance reviewer", "path": "docs/developers/verification/human-reviews/rev-01.json", "schemaPath": "tools/docs/schemas/human-review.schema.json" },
     { "id": "REV-02", "reviewerRole": "technical-maintainer reviewer", "path": "docs/developers/verification/human-reviews/rev-02.json", "schemaPath": "tools/docs/schemas/human-review.schema.json" },
     { "id": "REV-03", "reviewerRole": "integrator reviewer", "path": "docs/developers/verification/human-reviews/rev-03.json", "schemaPath": "tools/docs/schemas/human-review.schema.json" },
     { "id": "REV-04", "reviewerRole": "security-aware reviewer", "path": "docs/developers/verification/human-reviews/rev-04.json", "schemaPath": "tools/docs/schemas/human-review.schema.json" },
