@@ -6,9 +6,9 @@ import { checkReleaseEvidence } from '../release-check.mjs';
 
 const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url));
 
-test('release evidence precursor fails closed across pre- and post-AIH evidence phases', async () => {
+test('release evidence precursor reports the current evidence phase and fails closed on diagnostics', async () => {
   const result = await checkReleaseEvidence(repositoryRoot);
-  assert.equal(result.status, 'blocked');
+  assert.equal(result.status, result.diagnostics.length === 0 ? 'pass' : 'blocked');
   const platformReportExists = existsSync(new URL(
     '../../../docs/developers/verification/platform-reports/windows-j05.json',
     import.meta.url,
@@ -38,7 +38,14 @@ test('release evidence precursor fails closed across pre- and post-AIH evidence 
     result.diagnostics.filter(({ rule }) => rule === 'G-10').map(({ path }) => path),
   )];
   if (staleAiPaths.length > 0) assert.deepEqual(staleAiPaths, expectedAiPaths);
-  assert.ok(result.diagnostics.some(({ rule, path }) => rule === 'G-13' && path.endsWith('v1-readiness.md')));
+  const readinessExists = existsSync(new URL(
+    '../../../docs/developers/verification/v1-readiness.md',
+    import.meta.url,
+  ));
+  assert.equal(
+    result.diagnostics.some(({ rule, path }) => rule === 'G-13' && path.endsWith('v1-readiness.md')),
+    !readinessExists,
+  );
   assert.match(result.sourceTestRevision, /^[a-f0-9]{40}$/);
   assert.match(result.sourceCandidateProof, /^source-candidate sha256 [a-f0-9]{64}; entries \d+; revision [a-f0-9]{40}$/);
   assert.match(result.evidenceRevision, /^[a-f0-9]{40}$/);

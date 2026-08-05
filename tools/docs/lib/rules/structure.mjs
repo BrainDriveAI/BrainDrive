@@ -49,8 +49,9 @@ export function validateStructure(catalog, candidates = []) {
     if (!vocabulary.includes(required)) diagnostics.push(diagnostic('DA-03', 'docs/developers/catalog.json', `required search term is missing: ${required}`));
   }
   const inventory = new Set((catalog.documents || []).map(({ path }) => path));
+  const releaseRecords = new Set(catalog.evidenceOutputs?.releaseRecords || []);
   const markdown = candidates.filter((path) => path.endsWith('.md') && !path.startsWith('tools/docs/test/fixtures/'));
-  for (const path of markdown) if (!inventory.has(path)) diagnostics.push(diagnostic('DA-01', path, 'tracked/current Markdown candidate is missing from the document inventory'));
+  for (const path of markdown) if (!inventory.has(path) && !releaseRecords.has(path)) diagnostics.push(diagnostic('DA-01', path, 'tracked/current Markdown candidate is missing from the document inventory'));
   for (const path of ['.github/ISSUE_TEMPLATE/bug_report.yml', '.github/ISSUE_TEMPLATE/config.yml', '.github/ISSUE_TEMPLATE/documentation.yml', '.github/workflows/ci.yml', 'builds/typescript/package.json', 'tools/docs/check.mjs', 'tools/docs/sync-generated.mjs']) {
     if (!(catalog.governanceSurfaces || []).some((entry) => entry.path === path)) diagnostics.push(diagnostic('DA-01', path, 'required governance surface is missing from the catalog inventory'));
   }

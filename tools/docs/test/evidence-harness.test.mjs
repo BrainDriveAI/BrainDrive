@@ -186,7 +186,7 @@ test('the claimed native Windows Tauri platform fails closed when its report is 
   assert.ok(incompleteDiagnostics.some(({ message }) => /tool versions/i.test(message)));
 });
 
-test('a completed predecessor does not auto-promote an untouched later milestone record', async () => {
+test('Milestone 7 state remains self-consistent after its predecessor completes', async () => {
   const chain = [
     [{ number: 6, path: milestonePath(6, 'validation-integration') }, { number: 7, path: milestonePath(7, 'release-gauntlet') }, [/Milestone 6/i, /G-01 through G-14/i, /v1-readiness\.md/i]],
   ];
@@ -194,7 +194,10 @@ test('a completed predecessor does not auto-promote an untouched later milestone
   for (const [predecessor, successor, requiredPatterns] of chain) {
     const result = await assertConditionalCascade(predecessor, successor);
     assert.equal(result.predecessorComplete, true);
-    assert.equal(result.successorResult, 'BLOCKED');
+    assert.ok(['BLOCKED', 'MILESTONE 7 COMPLETE — NEXT LEGAL PROMPT: NONE'].includes(result.successorResult));
+    if (result.successorResult === 'MILESTONE 7 COMPLETE — NEXT LEGAL PROMPT: NONE') {
+      assert.match(result.successorText, /final source\/evidence adjudication/);
+    }
     for (const pattern of requiredPatterns) assert.match(result.successorText, pattern);
   }
 });

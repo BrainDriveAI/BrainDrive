@@ -8,6 +8,7 @@ import test from 'node:test';
 import { HUMAN_REVIEW_ROLES, validateCatalog } from '../lib/catalog.mjs';
 import { enumerateCandidates } from '../lib/git-inputs.mjs';
 import { validateSchema } from '../lib/schema.mjs';
+import { validateStructure } from '../lib/rules/structure.mjs';
 import { checkRepository, validateVerificationReport, writeReportSafely } from '../check.mjs';
 
 const fixture = async (name) => JSON.parse(await readFile(new URL(`./fixtures/catalog/${name}`, import.meta.url), 'utf8'));
@@ -37,6 +38,14 @@ test('repository catalog assigns the accepted human review roles', async () => {
     Object.fromEntries(catalog.humanReviewRequirements.map(({ id, reviewerRole }) => [id, reviewerRole])),
     HUMAN_REVIEW_ROLES,
   );
+});
+
+test('declared final release records can materialize without a self-referential inventory edit', async () => {
+  const catalog = JSON.parse(await readFile(resolve(repositoryRoot, 'docs/developers/catalog.json'), 'utf8'));
+  const readiness = 'docs/developers/verification/v1-readiness.md';
+  const diagnostics = validateStructure(catalog, [readiness, 'docs/developers/unregistered-current.md']);
+  assert.ok(!diagnostics.some(({ path }) => path === readiness));
+  assert.ok(diagnostics.some(({ path, message }) => path === 'docs/developers/unregistered-current.md' && /missing from the document inventory/.test(message)));
 });
 
 test('duplicate current authorities fail with both paths', async () => {
