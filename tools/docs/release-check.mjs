@@ -33,11 +33,9 @@ function identityFromScorecard(text) {
 
 async function discoverSourceTestRevision(repositoryRoot, catalog, harness) {
   const revisions = new Set();
-  for (const claim of catalog?.platformClaims || []) for (const requirement of claim.requiredEvidence || []) {
-    if (!requirement.reportPath || !existsSync(resolve(repositoryRoot, requirement.reportPath))) continue;
-    const result = await readJson(repositoryRoot, requirement.reportPath, 'G-07');
-    if (result.value?.sourceTestRevision) revisions.add(result.value.sourceTestRevision);
-  }
+  // Native reports may legitimately bind an older tested ancestor and carry
+  // forward through the platform impact classifier. Only evidence that must
+  // bind the current candidate exactly can identify it automatically.
   for (const requirement of catalog?.humanReviewRequirements || []) {
     if (!existsSync(resolve(repositoryRoot, requirement.path))) continue;
     const result = await readJson(repositoryRoot, requirement.path, 'G-05');
