@@ -4,13 +4,13 @@
 
 The earlier scorecard attempt bound to revision `79fd0e3de2cd137b38b624552478d2ab13f775f1` was recorded as passing for that earlier candidate. It remains historical only and is not relabeled as current evidence.
 
-The accepted `014c2eccb0128d37de11a44430211879381f55d1`, `b002721e1e170fe65f1380f634d3b33c2f7e0207`, and `62e438cd296d5dd95c1bd74baff08ba51cc5a11d` executions remain prior attempts. The scorecard below is based on a new ephemeral read-only evaluator with no saved session, working only in a public checkout detached at `82697a4b8788118e54c4396ce1cde9565789e3f8`; prior scorecards were excluded.
+The accepted `014c2eccb0128d37de11a44430211879381f55d1`, `b002721e1e170fe65f1380f634d3b33c2f7e0207`, `62e438cd296d5dd95c1bd74baff08ba51cc5a11d`, `82697a4b8788118e54c4396ce1cde9565789e3f8`, and `6ff2c50fe6294fa1768754a434c5cccfb84da2ff` executions remain prior attempts. The scorecard below is based on a new ephemeral read-only evaluator with no saved session, working only in a public checkout detached at `05999a1803809ff3f0a62930e9752df8c86095fa`; prior scorecards were excluded.
 
 - Scenario ID: AIH-06
-- Candidate revision: `82697a4b8788118e54c4396ce1cde9565789e3f8`
-- Candidate state proof: `candidate-content sha256 603bda1986a5326b024926fad28cf78918cef69aecaf370789e0087f3620b7ac; entries 619; head 82697a4b8788118e54c4396ce1cde9565789e3f8`
-- SOURCE_TEST_REVISION: `82697a4b8788118e54c4396ce1cde9565789e3f8`
-- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 603bda1986a5326b024926fad28cf78918cef69aecaf370789e0087f3620b7ac; entries 619; revision 82697a4b8788118e54c4396ce1cde9565789e3f8`
+- Candidate revision: `05999a1803809ff3f0a62930e9752df8c86095fa`
+- Candidate state proof: `candidate-content sha256 4a750b03b233a2fde3dd9317d39a81b37d2b0ebf74ed830c0b8e7ff882bbe65a; entries 619; head 05999a1803809ff3f0a62930e9752df8c86095fa`
+- SOURCE_TEST_REVISION: `05999a1803809ff3f0a62930e9752df8c86095fa`
+- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 4a750b03b233a2fde3dd9317d39a81b37d2b0ebf74ed830c0b8e7ff882bbe65a; entries 619; revision 05999a1803809ff3f0a62930e9752df8c86095fa`
 - Task prompt: The worktree contains unrelated modified and untracked files from earlier milestones. Read-only: plan a focused change limited to the AI harness procedure and validator. Identify the exact intended files, overlapping caller/test/catalog effects, unrelated content to preserve, and generated/runtime/ignored exclusions. Do not clean, reset, format broadly, or edit anything.
 - Starting path and allowed context: `.`; Git-derived tracked/non-ignored files and Git status/diffs limited to task-relevant paths.
 - Prohibited inputs/actions confirmed: The accepted evaluator used no owner/credential/generated/runtime/vendored/private content, prior scorecard, external context, cleanup, reset, broad format, or edit.

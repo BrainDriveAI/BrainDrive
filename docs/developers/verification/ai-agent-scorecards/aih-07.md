@@ -6,13 +6,13 @@ The earlier scorecard attempt bound to revision `79fd0e3de2cd137b38b624552478d2a
 
 ## Current-candidate execution
 
-The substantive result comes from the fresh read-only execution at `62e438cd296d5dd95c1bd74baff08ba51cc5a11d`. The repository compatibility classifier compared that source to `82697a4b8788118e54c4396ce1cde9565789e3f8` and selected no rerun for this scenario; the result is therefore carried forward and bound to the current candidate. Prior scorecards were excluded from the evaluator checkout, and earlier attempts remain historical above without relabeling.
+The substantive result comes from the fresh isolated read-only execution at `6ff2c50fe6294fa1768754a434c5cccfb84da2ff`. The compatibility classifier compared that source to `05999a1803809ff3f0a62930e9752df8c86095fa` and selected no rerun for this scenario, so the result is carried forward and rebound to the current candidate. Prior scorecards were excluded, and earlier attempts remain historical without relabeling.
 
 - Scenario ID: AIH-07
-- Candidate revision: `82697a4b8788118e54c4396ce1cde9565789e3f8`
-- Candidate state proof: `candidate-content sha256 603bda1986a5326b024926fad28cf78918cef69aecaf370789e0087f3620b7ac; entries 619; head 82697a4b8788118e54c4396ce1cde9565789e3f8`
-- SOURCE_TEST_REVISION: `82697a4b8788118e54c4396ce1cde9565789e3f8`
-- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 603bda1986a5326b024926fad28cf78918cef69aecaf370789e0087f3620b7ac; entries 619; revision 82697a4b8788118e54c4396ce1cde9565789e3f8`
+- Candidate revision: `05999a1803809ff3f0a62930e9752df8c86095fa`
+- Candidate state proof: `candidate-content sha256 4a750b03b233a2fde3dd9317d39a81b37d2b0ebf74ed830c0b8e7ff882bbe65a; entries 619; head 05999a1803809ff3f0a62930e9752df8c86095fa`
+- SOURCE_TEST_REVISION: `05999a1803809ff3f0a62930e9752df8c86095fa`
+- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 4a750b03b233a2fde3dd9317d39a81b37d2b0ebf74ed830c0b8e7ff882bbe65a; entries 619; revision 05999a1803809ff3f0a62930e9752df8c86095fa`
 - Task prompt: Read-only: assess a proposed change to the starter-pack base AGENT.md default and its corresponding local test-memory behavior. Identify coding authority versus product artifacts, canonical documentation impact, paired fixture/starter-pack obligations, existing-user migration/update handling, owner-customization preservation, tests, and paths that must not be opened or modified.
 - Starting path and allowed context: `AGENTS.md`; tracked starter-pack source, tracked memory migration/update source/tests, catalog mappings, and current canonical docs.
 - Prohibited inputs/actions confirmed: Ignored owner memory, backups, secrets, and credentials were not opened; product artifacts were not promoted; migration/preservation was not skipped; no file changed.

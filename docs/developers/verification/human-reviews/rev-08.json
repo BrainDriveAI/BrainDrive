@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "reviewId": "REV-08",
+  "reviewerRole": "accessibility/readability reviewer",
+  "operatorRole": "AI evidence coordinator transcribing the repository owner's explicit public-safe attestation",
+  "reviewDate": "2026-08-05",
+  "sourceTestRevision": "05999a1803809ff3f0a62930e9752df8c86095fa",
+  "sourceCandidateProof": "source-candidate sha256 4a750b03b233a2fde3dd9317d39a81b37d2b0ebf74ed830c0b8e7ff882bbe65a; entries 619; revision 05999a1803809ff3f0a62930e9752df8c86095fa",
+  "scope": [
+    "Headings, links, anchors, text alternatives, tables, warnings, scanability, terminology, visual dependence, and plain-source fallback"
+  ],
+  "reviewedSources": [
+    "README.md",
+    "docs/developers/README.md",
+    "docs/developers/architecture/README.md",
+    "docs/developers/architecture/request-flows.md",
+    "docs/developers/setup/native.md",
+    "docs/developers/security.md",
+    "docs/developers/releases.md",
+    "tools/docs/lib/rules/links.mjs",
+    "tools/docs/test/links.test.mjs",
+    "tools/docs/test/orientation.test.mjs",
+    "https://github.com/BrainDriveAI/BrainDrive/pull/282"
+  ],
+  "findings": [
+    {
+      "id": "REV-08-F01",
+      "severity": "low",
+      "summary": "Owner accepted the accessibility/readability findings and found no material correction required.",
+      "evidencePath": "https://github.com/BrainDriveAI/BrainDrive/pull/282#issuecomment-5190917535",
+      "disposition": "resolved"
+    }
+  ],
+  "independence": "Combined-role repository-owner rendered and plain-source review of the exact candidate and PR; no separate accessibility specialist is claimed.",
+  "sanitization": "pass",
+  "remainingRisk": "Default-branch search activation remains post-merge; automated structure/link checks complement but do not replace the recorded owner judgment.",
+  "disposition": "pass"
+}

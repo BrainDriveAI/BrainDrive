@@ -1,124 +1,134 @@
 # Milestone 7 acceptance trace matrix
 
-**Status:** Blocked release evidence; non-authoritative execution trace.  
-**Candidate:** Branch `agent/developer-documentation-system`, HEAD `79fd0e3de2cd137b38b624552478d2ab13f775f1`, with uncommitted repository-controlled candidate content.  
-**Decision rule:** A local structural or historical precursor is not a V1 pass. Every row remains blocked unless all mapped automation, controlled journeys, exact-candidate GitHub evidence, and required genuine human review pass together.
+**Status:** Step 8 evidence reconciled; final non-compensating release adjudication remains owned by Step 10.
+- SOURCE_TEST_REVISION: `05999a1803809ff3f0a62930e9752df8c86095fa`
+- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 4a750b03b233a2fde3dd9317d39a81b37d2b0ebf74ed830c0b8e7ff882bbe65a; entries 619; revision 05999a1803809ff3f0a62930e9752df8c86095fa`
 
-This matrix enumerates every required specification element. Grouped rows list every ID in that group; the disposition applies to each listed ID without averaging.
+“Pass” means mapped evidence is present and acceptable for Step 8. It does not authorize merge, tag, signing, publication, production release, or creation of `v1-readiness.md`.
+
+## Evidence anchors
+
+- Platform: [Windows J-05 report](platform-reports/windows-j05.json); Milestone 2 retains scoped WSL native/Docker evidence and the diagnostic-only Tauri failure.
+- AI: [harness](ai-agent-harness.md) and [AIH-01](ai-agent-scorecards/aih-01.md) through [AIH-10](ai-agent-scorecards/aih-10.md).
+- Human: [REV-01](human-reviews/rev-01.json) through [REV-08](human-reviews/rev-08.json).
+- Automation: Milestones [00](milestones/00-repository-truth.md) through [06](milestones/06-validation-integration.md), current validators, projections, scanner, and release checker.
+- GitHub: [PR #282](https://github.com/BrainDriveAI/BrainDrive/pull/282), [owner attestation](https://github.com/BrainDriveAI/BrainDrive/pull/282#issuecomment-5190917535), and [exact-source checks](https://github.com/BrainDriveAI/BrainDrive/actions/runs/31000641934).
+- Release state: [Milestone 7](milestones/07-release-gauntlet.md) remains a historical blocked attempt until Step 10 reruns it; no tag or publication is claimed.
 
 ## User stories
 
-| ID | Current evidence | Final disposition |
+| IDs | Evidence | Step 8 |
 |---|---|---|
-| US-01 | DA-01–DA-09/DA-17 local checks; Milestone 1 routes | BLOCKED — exact-candidate GitHub navigation/search and REV-01/05/08 are absent |
-| US-02 | WSL native/Docker precursors; desktop diagnostics | BLOCKED — native Windows/macOS J-05 reports are absent |
-| US-03 | Local issue/PR/governance contract tests | BLOCKED — no exact-candidate PR/Actions specimen or REV-01/05 |
-| US-04 | Source-backed architecture traces and AI review | BLOCKED — genuine REV-02 evidence is absent |
-| US-05 | Internal/unresolved integration corpus | BLOCKED — public maturity authority and REV-03 are absent |
-| US-06 | Security routing/static negative tests | BLOCKED — REV-04 and authorized restricted-evidence routing are absent |
-| US-07 | Preserved sanitized WSL failure record and debugging contract | BLOCKED — final-candidate human journey/review is absent |
-| US-08 | DA-13 and local governance specimens | BLOCKED — no exact-candidate PR/owner enforcement or human review |
-| US-09 | AIH-01–AIH-10 historical scorecards | BLOCKED — scorecards are stale against the current candidate and substantive outputs are incomplete |
-| US-10 | Local release/tag/static helper contract | BLOCKED — representative tag is not candidate lineage; REV-06 and restricted evidence are absent |
+| US-01 | Front door/catalog, GitHub rendering, REV-01/05/08 | PASS |
+| US-02 | J-03/J-04, compatible Windows J-05, macOS-unclaimed decision | PASS |
+| US-03 | Contribution/issue/PR contracts, PR #282, Actions, REV-01/05 | PASS |
+| US-04 | Request/mode traces, AIH-02/04, REV-02 | PASS |
+| US-05 | Resolved maturity policy, AIH-05, REV-03 | PASS |
+| US-06 | Security routes/scans, restricted boundary, REV-04 | PASS |
+| US-07 | Safe failures, command contracts, REV-02/04 | PASS |
+| US-08 | Impact/freshness checks, PR evidence, REV-02/05 | PASS |
+| US-09 | Fresh AIH-01 through AIH-10 and REV-07 | PASS |
+| US-10 | Branch/no-tag truth and REV-04/06 | PASS |
 
-## Derived acceptance criteria
+## Acceptance criteria
 
-| IDs | Current evidence | Final disposition |
+| IDs | Evidence | Step 8 |
 |---|---|---|
-| US-01/AC-01, US-01/AC-02 | Local route, metadata, canonicality, and legacy-status checks | BLOCKED — G-06 human/GitHub proof absent |
-| US-02/AC-01, US-02/AC-02, US-02/AC-03 | WSL provider-independent native/Docker results; prerequisite failure artifact; desktop diagnostics | BLOCKED — claimed native desktop reports absent and final journey suite not rerun |
-| US-03/AC-01, US-03/AC-02, US-03/AC-03 | Contribution, issue, PR, routing, and DA-12/13 contracts | BLOCKED — no candidate PR/Actions/REV evidence |
-| US-04/AC-01, US-04/AC-02, US-04/AC-03 | Request/bypass/mode traces cross-checked to source | BLOCKED — REV-02 absent |
-| US-05/AC-01, US-05/AC-02 | Shipped-internal and unsupported-surface guidance | BLOCKED — OPEN-02 and REV-03 absent |
-| US-06/AC-01, US-06/AC-02 | Security router, sanitization tests, Private Vulnerability Reporting route | BLOCKED — REV-04 and authorized evidence store/routing absent |
-| US-07/AC-01, US-07/AC-02 | Debugging/evidence schemas and risky-command contracts | BLOCKED — final human/tabletop proof incomplete |
-| US-08/AC-01, US-08/AC-02 | Docs-impact/freshness mutations pass locally | BLOCKED — no exact-candidate GitHub specimen or owner review |
-| US-09/AC-01, US-09/AC-02, US-09/AC-03 | Harness structure and historical scorecards | BLOCKED — current digest mismatch and missing retained outputs |
-| US-10/AC-01, US-10/AC-02, US-10/AC-03 | Version domains, representative tag, public/restricted boundary | BLOCKED — candidate release lineage and human release review absent |
+| US-01/AC-01, US-01/AC-02 | Navigation, metadata, direct entry, rendering | PASS |
+| US-02/AC-01, US-02/AC-02, US-02/AC-03 | Native/Docker/desktop and safe-failure evidence | PASS |
+| US-03/AC-01, US-03/AC-02, US-03/AC-03 | Contribution, routing, PR, Actions, ownership | PASS |
+| US-04/AC-01, US-04/AC-02, US-04/AC-03 | Request, bypass, persistence, trust, modes | PASS |
+| US-05/AC-01, US-05/AC-02 | Maturity and unsupported-surface escalation | PASS |
+| US-06/AC-01, US-06/AC-02 | Private vulnerability route and sanitization | PASS |
+| US-07/AC-01, US-07/AC-02 | Debugging and command recovery | PASS |
+| US-08/AC-01, US-08/AC-02 | Same-PR impact/freshness | PASS |
+| US-09/AC-01, US-09/AC-02, US-09/AC-03 | Fresh AI contexts, binary gates, handoff | PASS |
+| US-10/AC-01, US-10/AC-02, US-10/AC-03 | Version domains, no-tag state, restricted boundary | PASS |
 
 ## Stable requirements
 
-| IDs | Current evidence | Final disposition |
+| IDs | Evidence | Step 8 |
 |---|---|---|
-| IA-001, IA-002, IA-003, IA-004, IA-005, IA-006, IA-007 | DA-01–DA-04/DA-17 and Milestone 1 local traces | BLOCKED — actual GitHub and fresh-human evidence absent |
-| CAN-001, CAN-002, CAN-003, CAN-004, CAN-005, CAN-006, CAN-007, CAN-008 | Catalog, authority, duplication, lifecycle, and conflict tests | BLOCKED — exact-candidate whole-trace/human proof incomplete |
-| TEC-001, TEC-002, TEC-003, TEC-004, TEC-005, TEC-006, TEC-007, TEC-008, TEC-009, TEC-010, TEC-011, TEC-012, TEC-013, TEC-014, TEC-015 | Technical corpus, product baselines, source reviews, and static release helper proof | BLOCKED — REV-02/03/04/06, claimed platforms, and final candidate evidence incomplete |
-| DEV-001, DEV-002, DEV-003, DEV-004, DEV-005, DEV-006, DEV-007, DEV-008 | Command contracts, WSL startup evidence, contribution routes | BLOCKED — platform, fresh-contributor, GitHub, and final handoff evidence incomplete |
-| INT-001, INT-002, INT-003, INT-004, INT-005 | Integration inventory uses internal/unresolved maturity and safe unsupported routing | BLOCKED — OPEN-02 and REV-03 remain open |
-| GH-001, GH-002, GH-003, GH-004, GH-005, GH-006, GH-007, GH-008 | Local GitHub contract tests; representative historical release/tag evidence | BLOCKED — candidate is not published; templates are not active on default branch; no PR/Actions/protection/CODEOWNERS/REV-05 |
-| AGT-001, AGT-002, AGT-003, AGT-004, AGT-005, AGT-006, AGT-007, AGT-008, AGT-009, AGT-010 | Agent contract and historical AIH records | BLOCKED — current-candidate AIH rerun and substantive artifacts absent |
-| GOV-001, GOV-002, GOV-003, GOV-004, GOV-005, GOV-006, GOV-007, GOV-008, GOV-009 | Role ownership, local validators, migration and version rules | BLOCKED — named/enforced ownership, human review, GitHub settings, and candidate release truth absent |
-| SEC-001, SEC-002, SEC-003, SEC-004, SEC-005, SEC-006, SEC-007, SEC-008, SEC-009, SEC-010, SEC-011, SEC-012, SEC-013 | Local security fixtures, containment, provider rules, current scan, and AI security review | BLOCKED — history finding open; REV-04 and restricted evidence governance absent |
-| EVI-001, EVI-002, EVI-003, EVI-004, EVI-005, EVI-006, EVI-007 | Schemas/templates, milestone records, historical scorecards, local reports, preserved failure | BLOCKED — exact-candidate journey/AI/human/GitHub/retention evidence incomplete |
+| IA-001–IA-007 | DA-01–04/17, rendering, REV-01/05/08 | PASS |
+| CAN-001–CAN-008 | Catalog authority, lifecycle, conflict, projections | PASS |
+| TEC-001–TEC-015 | Source corpus, baselines, platform report, REV-02/03/04/06 | PASS |
+| DEV-001–DEV-008 | Commands/journeys, contribution, Windows, owner acceptance | PASS |
+| INT-001–INT-005 | Maturity policy, inventory, safe unsupported routing, REV-03 | PASS |
+| GH-001–GH-008 | Rendering, templates, Actions, ruleset, retention, branch/no-tag truth | PASS |
+| AGT-001–AGT-010 | Fresh AIH scorecards and REV-07 | PASS |
+| GOV-001–GOV-009 | Roles, owner policy, validators, PR/settings, release boundaries | PASS |
+| SEC-001–SEC-013 | Scans, provider/auth/destructive/restricted boundaries, REV-04 | PASS |
+| EVI-001–EVI-007 | Schemas, milestones, journeys, AIH, eight REV records | PASS |
 
-## Invariants
+EVI-002 uses the accepted V1 repository-owner substitution and does not claim independent fresh-contributor evidence.
 
-| IDs | Current evidence | Final disposition |
+## Invariants, edges, failures, and security
+
+| IDs | Evidence | Step 8 |
 |---|---|---|
-| INV-001, INV-002, INV-003, INV-004 | Local authority, route, plain-source, and lifecycle checks | BLOCKED — actual GitHub/fresh-human proof absent |
-| INV-005, INV-006, INV-007, INV-008 | Current scan, scope containment, command contracts, lifecycle separation | BLOCKED — open history finding and REV-04 absent |
-| INV-009, INV-010 | Provider independence and mode-separation checks | BLOCKED — final human/whole-trace proof incomplete |
-| INV-011, INV-012 | Same-PR and branch/tag validators | BLOCKED — no candidate PR/tag lineage or GitHub evidence |
-| INV-013, INV-014 | Conflict-stop structures and evidence schema | BLOCKED — current AIH/human evidence and complete success provenance absent |
+| INV-001–INV-004 | Authority, canonical routes, plain source, maturity | PASS |
+| INV-005–INV-008 | Secret/scope/command/lifecycle validation | PASS |
+| INV-009–INV-010 | Provider independence and mode separation | PASS |
+| INV-011–INV-012 | Same-PR/branch/version and explicit no-tag state | PASS |
+| INV-013–INV-014 | Conflict-stop and attributable evidence | PASS |
+| E-01–E-05 | No-provider, prerequisite, platform, Docker, mode matrices | PASS |
+| E-06–E-11 | Legacy/link/mirror/product-agent/command-tier/integration routes | PASS |
+| E-12–E-16 | No-tag truth, conflict stop, sanitization, source, anchors | PASS |
+| E-17–E-20 | Migration, tier, scope, version-domain checks | PASS |
+| F-01–F-07 | Conflict/canonical/link/command/credential/platform/destructive negatives | PASS |
+| F-08–F-11 | Redaction/scans/maturity/external-failure classification | PASS |
+| F-12–F-16 | Plain source, mirrors, roles, no-tag, release-check fail-closed behavior | PASS |
+| SEC-001–SEC-005 | Detection, scope, commands, lifecycle | PASS |
+| SEC-006–SEC-009 | Provider independence, auth/mode scope | PASS |
+| SEC-010–SEC-013 | Private reporting, restricted release, conflict stop | PASS |
 
-## Edge cases
+All eight explicit security boundaries pass: public evidence excludes secrets/owner data; auth changes require scope; sensitive provider/release metadata remains protected; Ollama/BYOK remain independent and visible; production/signing remains restricted; vulnerabilities route privately; and destructive operations require target, authority, safeguards, and recovery.
 
-| IDs | Current evidence | Final disposition |
+## Journeys
+
+| IDs | Evidence | Step 8 |
 |---|---|---|
-| E-01, E-02, E-03 | WSL no-provider/prerequisite evidence and platform boundary | BLOCKED — claimed native platform suite incomplete |
-| E-04, E-05 | Docker/auth/deployment mode matrices | BLOCKED — final human journey evidence absent |
-| E-06, E-07, E-08, E-09 | Legacy, link, mirror, and product-agent mutations | BLOCKED — actual GitHub/fresh-reader proof absent |
-| E-10, E-11 | Command tier and unsupported-integration tests | BLOCKED — integrator/human evidence absent |
-| E-12, E-13 | Representative tag and conflict-stop rules | BLOCKED — candidate lineage and current AIH/human conflict proof absent |
-| E-14, E-15, E-16 | Sanitization, plain-source, and anchor fixtures | BLOCKED — GitHub renderer/accessibility human proof absent |
-| E-17, E-18, E-19, E-20 | Migration, execution-tier, input-scope, and version-domain tests | BLOCKED — candidate GitHub/release/human proof incomplete |
+| J-01–J-02 | Milestone 1, GitHub navigation/rendering, REV-01/05/08 | PASS |
+| J-03–J-04 | Scoped WSL native and Docker start-only evidence | PASS within recorded scope |
+| J-05 | Compatible native Windows pass; WSL diagnostic retained; macOS unclaimed | PASS for claimed V1 platform |
+| J-06–J-07 | No-provider and missing-prerequisite evidence | PASS |
+| J-08–J-09 | Contribution, issue/PR, security routing, REV-04/05 | PASS |
+| J-10–J-11 | Request/bypass/mode maps and REV-02 | PASS |
+| J-12–J-13 | Integration maturity and unsupported-surface route, REV-03 | PASS |
+| J-14–J-16 | Private security, safe failure, risky-command tabletop, REV-04/06 | PASS |
+| J-17 | Same-PR freshness and hosted diagnostics | PASS |
+| J-18–J-19 | Branch/no-tag truth and public/restricted release boundary | PASS; no release claimed |
 
-## Failure modes
+## AI, human, properties, baselines, and regressions
 
-| IDs | Current evidence | Final disposition |
+| IDs | Evidence | Step 8 |
 |---|---|---|
-| F-01, F-02, F-03, F-04 | Conflict, canonicality, link, and command negative fixtures | BLOCKED — final integrated/human proof incomplete |
-| F-05, F-06, F-07 | Credential, mode/platform, and destructive-command contracts | BLOCKED — claimed-platform and human review incomplete |
-| F-08, F-09 | Redaction, current scan, and containment tests | BLOCKED — history finding remains open |
-| F-10, F-11 | Unresolved integration maturity and external-failure classification | BLOCKED — REV-03 and current journey proof absent |
-| F-12, F-13 | Plain-source and mirror fixtures | BLOCKED — exact GitHub rendering absent |
-| F-14, F-15 | Role ownership and representative-tag checks | BLOCKED — named enforcement and candidate lineage absent |
-| F-16 | Release checker now rejects missing platform and stale AI evidence | BLOCKED as designed — end-to-end/human/GitHub evidence still fails |
+| AIH-01–AIH-10 | Ten fresh exact-prompt outputs, scorecards, controller validation | PASS |
+| REV-01 | Owner-policy acceptance; independence not claimed | PASS |
+| REV-02–REV-08 | Attributable combined-role owner records and PR attestation | PASS |
+| P-01–P-14 | DA/property checks, journeys, AIH-09, PR/review evidence | PASS |
+| S-01–S-13 | Fixtures, scanner modes, provider/mode matrices, REV-04/06 | PASS |
+| B-01–B-08 | Local baselines and exact-source GitHub CI | PASS |
+| B-09–B-10 | No browser/mobile behavior change; OPEN-10 remains explicit | NOT APPLICABLE |
+| B-11–B-13 | Controlled native, Docker, and Windows desktop journeys | PASS within scope |
+| B-14 | Declared integration entrypoint absent; not used as evidence | NOT APPLICABLE |
+| B-15–B-16 | Static/tabletop release-helper boundary only | PASS for boundary; not executed |
+| R-01–R-12 | Front door, routing, CI, security, provider, lifecycle, authority, release, ignored-data regressions | PASS |
 
-## Security requirements
+## Totals
 
-| IDs | Current evidence | Final disposition |
-|---|---|---|
-| SEC-001, SEC-002, SEC-003 | Synthetic detection, redaction, Git-derived scope, current scan | BLOCKED — open history finding and REV-04 absent |
-| SEC-004, SEC-005 | Command contracts and lifecycle distinctions | BLOCKED — human security/tabletop evidence absent |
-| SEC-006, SEC-007, SEC-008, SEC-009 | Provider, mode, and auth-scope negative tests | BLOCKED — final current-candidate human/AI proof incomplete |
-| SEC-010, SEC-011 | Private route and authorized-testing language | BLOCKED — actual human security journey absent |
-| SEC-012, SEC-013 | Restricted release boundary and conflict-stop rules | BLOCKED — OPEN-04/05, REV-04/06, and current AIH proof absent |
-
-## Explicit security boundaries
-
-| Boundary | Current evidence | Final disposition |
-|---|---|---|
-| Never commit secrets, credentials, personal data, owner memory, or sensitive logs | Current scan and containment tests pass | BLOCKED — historical finding is unreviewed/open |
-| Never modify auth without explicit scope and verification | No auth behavior changed; scope rules exist | BLOCKED — required human review absent |
-| Treat provider config, owner keys, gateway URLs, and release metadata as sensitive | Static/provider/security rules pass | BLOCKED — complete human/restricted evidence absent |
-| Do not require BrainDrive Models credits for Ollama/BYOK | Provider independence tests and docs pass | BLOCKED — final whole-trace proof incomplete |
-| Do not remove or obscure Ollama/BYOK | Provider routes remain present | BLOCKED — final current-candidate review incomplete |
-| Production config and signing remain restricted | Public/restricted boundary is documented | BLOCKED — OPEN-04/05 and REV-06 absent |
-| Security findings use private reporting and sanitized evidence | Routes and redaction tests pass | BLOCKED — REV-04 and authorized retention/routing absent |
-| Destructive operations require target, authority, safeguards, and recovery | DA-11 command contracts pass | BLOCKED — required human tabletop/release review absent |
-
-## Final trace totals
-
-| Element | Required | Enumerated | Passing on one frozen release revision |
+| Element | Required | Enumerated | Step 8 pass |
 |---|---:|---:|---:|
-| User stories | 10 | 10 | 0 |
-| Acceptance criteria | 25 | 25 | 0 |
-| Stable requirements | 90 | 90 | 0 |
-| Invariants | 14 | 14 | 0 |
-| Edge cases | 20 | 20 | 0 |
-| Failure modes | 16 | 16 | 0 |
-| Security requirements | 13 | 13 | 0 |
-| Explicit security boundaries | 8 | 8 | 0 |
+| User stories | 10 | 10 | 10 |
+| Acceptance criteria | 25 | 25 | 25 |
+| Stable requirements | 90 | 90 | 90 |
+| Invariants | 14 | 14 | 14 |
+| Edge cases | 20 | 20 | 20 |
+| Failure modes | 16 | 16 | 16 |
+| Security requirements | 13 | 13 | 13 |
+| Explicit security boundaries | 8 | 8 | 8 |
+| Journeys | 19 | 19 | 19 |
+| AIH scenarios | 10 | 10 | 10 |
+| Human review roles | 8 | 8 | 8 |
 
-The matrix has zero unmapped elements and zero final passes. The zero-pass result is non-compensating: local precursor evidence remains useful, but missing human, native-platform, exact-candidate GitHub, immutable-revision, current AIH, retention/ownership, and full-history-security evidence blocks release.
+No element is unmapped. Remaining risks are explicit: four embedded Windows services required termination; macOS is configured but unclaimed; default-branch search activation is post-merge; B-09/B-10 and B-14 are not evidence; B-15/B-16 remain tabletop; and no merge, tag, signing, publication, production release, or final readiness decision is authorized.
