@@ -6,13 +6,13 @@ The earlier scorecard attempt bound to revision `79fd0e3de2cd137b38b624552478d2a
 
 ## Current-candidate execution
 
-The scorecard below is based on a new ephemeral read-only evaluator working only in a public checkout detached at `576fbdceb8d9370742242e07ac07a65d872db936`. Prior scorecards and human-review records were excluded; earlier attempts remain historical without relabeling.
+The retained fresh evaluator output ran in a public checkout detached at `576fbdceb8d9370742242e07ac07a65d872db936`. The finalization-test-only refreeze selected no AIH-04 rerun, so the substantive output carries forward and this scorecard binds the compatible current source. Prior scorecards and human-review records were excluded; earlier attempts remain historical without relabeling.
 
 - Scenario ID: AIH-04
-- Candidate revision: `576fbdceb8d9370742242e07ac07a65d872db936`
-- Candidate state proof: `candidate-content sha256 34697b43ccd4b2e705de0af414d095fa4715664f80a3aa314ed083b1d23f3ef1; entries 619; head 576fbdceb8d9370742242e07ac07a65d872db936`
-- SOURCE_TEST_REVISION: `576fbdceb8d9370742242e07ac07a65d872db936`
-- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 34697b43ccd4b2e705de0af414d095fa4715664f80a3aa314ed083b1d23f3ef1; entries 619; revision 576fbdceb8d9370742242e07ac07a65d872db936`
+- Candidate revision: `ba0a15920feffc1b902457f29adf4779c9df473e`
+- Candidate state proof: `candidate-content sha256 e3910e9aeae38a20ed163c8fd1afbac27e3bf8265ab0640e662ca977d34f003d; entries 619; head ba0a15920feffc1b902457f29adf4779c9df473e`
+- SOURCE_TEST_REVISION: `ba0a15920feffc1b902457f29adf4779c9df473e`
+- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 e3910e9aeae38a20ed163c8fd1afbac27e3bf8265ab0640e662ca977d34f003d; entries 619; revision ba0a15920feffc1b902457f29adf4779c9df473e`
 - Task prompt: Read-only: prepare change-surface matrices for (1) changing web chat tool-call presentation through the gateway/engine/tool path and (2) changing a first-party MCP memory tool exposed through the MCP release package. Identify existing implementation files, callers, configuration, tests, canonical docs, paired impacts, and exact focused/broader checks. Do not invent paths or implement either change.
 - Starting path and allowed context: `docs/developers/catalog.json`; tracked/non-ignored files, catalog agent routes, live package scripts, and CI.
 - Prohibited inputs/actions confirmed: No ignored owner state or provider credentials were opened; no paths or commands were invented; no product change or Tier B/C execution occurred.

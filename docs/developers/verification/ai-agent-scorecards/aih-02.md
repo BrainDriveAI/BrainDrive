@@ -6,13 +6,13 @@ The earlier scorecard attempt bound to revision `79fd0e3de2cd137b38b624552478d2a
 
 ## Current-candidate execution
 
-The scorecard below is based on a new ephemeral read-only evaluator working only in a public checkout detached at `576fbdceb8d9370742242e07ac07a65d872db936`. Prior scorecards and human-review records were excluded; earlier attempts remain historical without relabeling.
+The retained fresh evaluator output ran in a public checkout detached at `576fbdceb8d9370742242e07ac07a65d872db936`. The finalization-test-only refreeze selected no AIH-02 rerun, so the substantive output carries forward and this scorecard binds the compatible current source. Prior scorecards and human-review records were excluded; earlier attempts remain historical without relabeling.
 
 - Scenario ID: AIH-02
-- Candidate revision: `576fbdceb8d9370742242e07ac07a65d872db936`
-- Candidate state proof: `candidate-content sha256 34697b43ccd4b2e705de0af414d095fa4715664f80a3aa314ed083b1d23f3ef1; entries 619; head 576fbdceb8d9370742242e07ac07a65d872db936`
-- SOURCE_TEST_REVISION: `576fbdceb8d9370742242e07ac07a65d872db936`
-- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 34697b43ccd4b2e705de0af414d095fa4715664f80a3aa314ed083b1d23f3ef1; entries 619; revision 576fbdceb8d9370742242e07ac07a65d872db936`
+- Candidate revision: `ba0a15920feffc1b902457f29adf4779c9df473e`
+- Candidate state proof: `candidate-content sha256 e3910e9aeae38a20ed163c8fd1afbac27e3bf8265ab0640e662ca977d34f003d; entries 619; head ba0a15920feffc1b902457f29adf4779c9df473e`
+- SOURCE_TEST_REVISION: `ba0a15920feffc1b902457f29adf4779c9df473e`
+- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 e3910e9aeae38a20ed163c8fd1afbac27e3bf8265ab0640e662ca977d34f003d; entries 619; revision ba0a15920feffc1b902457f29adf4779c9df473e`
 - Task prompt: Starting at docs/developers/README.md, map the web client, gateway, auth/config, engine, providers, tools/MCP, memory/secrets, Docker/installer, Tauri desktop, tests/CI, and release surfaces. Cite tracked source or current canonical documentation for every component and do not infer one universal request path.
 - Starting path and allowed context: `docs/developers/README.md`; Git-derived tracked and non-ignored files linked from the developer front door and catalog.
 - Prohibited inputs/actions confirmed: No archived/external planning or ignored runtime state was used; no component, interface, support claim, or file change was invented.

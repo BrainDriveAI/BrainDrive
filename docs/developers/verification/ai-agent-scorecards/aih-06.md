@@ -4,13 +4,13 @@
 
 The earlier scorecard attempt bound to revision `79fd0e3de2cd137b38b624552478d2ab13f775f1` was recorded as passing for that earlier candidate. It remains historical only and is not relabeled as current evidence.
 
-The accepted earlier executions remain prior attempts. The first new evaluator consulted an installed planning skill outside the allowed repository-only context and was rejected. The scorecard below uses a second fresh ephemeral read-only evaluator with plugin and skill discovery disabled, working only in a public checkout detached at `576fbdceb8d9370742242e07ac07a65d872db936`; prior scorecards and human-review records were excluded.
+The accepted earlier executions remain prior attempts. The first evaluator for this refreeze consulted an installed planning skill outside the allowed repository-only context and was rejected. The scorecard below uses a second fresh ephemeral read-only evaluator with plugin and skill discovery disabled, working only in a public checkout detached at `ba0a15920feffc1b902457f29adf4779c9df473e`; prior scorecards and human-review records were excluded.
 
 - Scenario ID: AIH-06
-- Candidate revision: `576fbdceb8d9370742242e07ac07a65d872db936`
-- Candidate state proof: `candidate-content sha256 34697b43ccd4b2e705de0af414d095fa4715664f80a3aa314ed083b1d23f3ef1; entries 619; head 576fbdceb8d9370742242e07ac07a65d872db936`
-- SOURCE_TEST_REVISION: `576fbdceb8d9370742242e07ac07a65d872db936`
-- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 34697b43ccd4b2e705de0af414d095fa4715664f80a3aa314ed083b1d23f3ef1; entries 619; revision 576fbdceb8d9370742242e07ac07a65d872db936`
+- Candidate revision: `ba0a15920feffc1b902457f29adf4779c9df473e`
+- Candidate state proof: `candidate-content sha256 e3910e9aeae38a20ed163c8fd1afbac27e3bf8265ab0640e662ca977d34f003d; entries 619; head ba0a15920feffc1b902457f29adf4779c9df473e`
+- SOURCE_TEST_REVISION: `ba0a15920feffc1b902457f29adf4779c9df473e`
+- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 e3910e9aeae38a20ed163c8fd1afbac27e3bf8265ab0640e662ca977d34f003d; entries 619; revision ba0a15920feffc1b902457f29adf4779c9df473e`
 - Task prompt: The worktree contains unrelated modified and untracked files from earlier milestones. Read-only: plan a focused change limited to the AI harness procedure and validator. Identify the exact intended files, overlapping caller/test/catalog effects, unrelated content to preserve, and generated/runtime/ignored exclusions. Do not clean, reset, format broadly, or edit anything.
 - Starting path and allowed context: `.`; Git-derived tracked/non-ignored files and Git status/diffs limited to task-relevant paths.
 - Prohibited inputs/actions confirmed: The accepted evaluator used no owner/credential/generated/runtime/vendored/private content, prior scorecard, external context, cleanup, reset, broad format, or edit.
@@ -22,12 +22,12 @@ The accepted earlier executions remain prior attempts. The first new evaluator c
 - Repository evidence inspected: Only the task-relevant public harness/validator surface and Git metadata.
 - Required output: Minimum intended change, conditional overlap effects, preservation classification, exclusions, and proportional checks.
 - Exact checks or comparisons: Status, HEAD, tracked paths, scoped diffs/searches, focused test selection, package/catalog/CI comparison, projection check, and closing status.
-- Zero-change evidence, when required: The accepted checkout was clean at opening and closing. Because the scenario's dirty paths are hypothetical in this checkout, the evaluator treated every unrelated modified or non-ignored untracked path as a preservation constraint and made no edit.
+- Zero-change evidence, when required: Opening and closing status showed only the controller-created deletions of the ten prior scorecards and eight human-review records. The evaluator did not inspect, restore, stage, or alter them and introduced no additional change.
 
 ## Required output evidence
 
-- Git-status classification: Git reported no actual modified or untracked paths. The evaluator stated this discrepancy explicitly and supplied the required preservation rule for any unrelated tracked modification or non-ignored untracked file without inventing filenames.
-- Diff scope: Primary files are `docs/developers/verification/ai-agent-harness.md` and `tools/docs/lib/rules/evidence.mjs`; tests are `agent-contract.test.mjs` and `evidence-harness.test.mjs`; manifest, schema, template, catalog, validator callers, identity mapping, and `tools/docs/README.md` change only when their contracts actually change.
+- Git-status classification: Git reported the ten prior scorecards and eight human-review records as deleted because the controller intentionally removed them from the evaluator checkout. The evaluator classified all eighteen as pre-existing unrelated evidence and preserved them exactly.
+- Diff scope: Primary files are `docs/developers/verification/ai-agent-harness.md`, `tools/docs/lib/rules/evidence.mjs`, and focused `tools/docs/test/evidence-harness.test.mjs`; manifest, schema, catalog, agent-contract tests, release-identity tests, validator callers, and `tools/docs/README.md` change only when their contracts actually change.
 - Exclusion list: Ignored owner memory, secrets, backups, private documentation, runtime state, logs/caches, generated projections/builds, dependencies/vendor, release output, desktop artifacts, and unrelated evidence records remain excluded.
 - Binary scorecard: All declared gates pass independently; no aggregate score was used.
 

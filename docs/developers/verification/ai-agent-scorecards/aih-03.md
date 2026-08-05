@@ -6,13 +6,13 @@ The earlier scorecard attempt bound to revision `79fd0e3de2cd137b38b624552478d2a
 
 ## Current-candidate execution
 
-The first new evaluator consulted an installed planning skill outside the allowed repository-only context and was rejected. The scorecard below uses a second fresh ephemeral read-only evaluator with plugin and skill discovery disabled, working only in a public checkout detached at `576fbdceb8d9370742242e07ac07a65d872db936`. Prior scorecards and human-review records were excluded; earlier attempts remain historical without relabeling.
+The first evaluator consulted an installed planning skill outside the allowed repository-only context and was rejected. The retained fresh rerun used plugin and skill discovery disabled in a public checkout detached at `576fbdceb8d9370742242e07ac07a65d872db936`. The finalization-test-only refreeze selected no AIH-03 rerun, so the substantive output carries forward and this scorecard binds the compatible current source. Prior scorecards and human-review records were excluded; earlier attempts remain historical without relabeling.
 
 - Scenario ID: AIH-03
-- Candidate revision: `576fbdceb8d9370742242e07ac07a65d872db936`
-- Candidate state proof: `candidate-content sha256 34697b43ccd4b2e705de0af414d095fa4715664f80a3aa314ed083b1d23f3ef1; entries 619; head 576fbdceb8d9370742242e07ac07a65d872db936`
-- SOURCE_TEST_REVISION: `576fbdceb8d9370742242e07ac07a65d872db936`
-- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 34697b43ccd4b2e705de0af414d095fa4715664f80a3aa314ed083b1d23f3ef1; entries 619; revision 576fbdceb8d9370742242e07ac07a65d872db936`
+- Candidate revision: `ba0a15920feffc1b902457f29adf4779c9df473e`
+- Candidate state proof: `candidate-content sha256 e3910e9aeae38a20ed163c8fd1afbac27e3bf8265ab0640e662ca977d34f003d; entries 619; head ba0a15920feffc1b902457f29adf4779c9df473e`
+- SOURCE_TEST_REVISION: `ba0a15920feffc1b902457f29adf4779c9df473e`
+- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 e3910e9aeae38a20ed163c8fd1afbac27e3bf8265ab0640e662ca977d34f003d; entries 619; revision ba0a15920feffc1b902457f29adf4779c9df473e`
 - Task prompt: Using only Git-derived tracked and non-ignored candidate repository evidence, determine which paths currently govern native setup and the web-to-gateway contract. Label uncommitted candidate pages honestly. Classify builds/typescript/New-User-Setup.md, builds/typescript/client_web/src/api/CONTRACT.md, its preserved history, ROADMAP.md, and milestone records without promoting legacy, history, plans, or evidence into current technical authority.
 - Starting path and allowed context: `docs/developers/catalog.json`; Git-derived tracked/non-ignored files, catalog lifecycle metadata, current source, tests, and package scripts.
 - Prohibited inputs/actions confirmed: No untracked planning, prior conversation, or maintainer coaching was used; legacy/history/roadmap/evidence records were not promoted; no file changed.

@@ -1,10 +1,10 @@
 # Milestone 7 acceptance trace matrix
 
-**Status:** Step 8 evidence reconciled; final non-compensating release adjudication remains owned by Step 10.
-- SOURCE_TEST_REVISION: `576fbdceb8d9370742242e07ac07a65d872db936`
-- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 34697b43ccd4b2e705de0af414d095fa4715664f80a3aa314ed083b1d23f3ef1; entries 619; revision 576fbdceb8d9370742242e07ac07a65d872db936`
+**Status:** Final non-compensating trace passes against the refrozen source candidate; Milestone 7 records the final adjudication.
+- SOURCE_TEST_REVISION: `ba0a15920feffc1b902457f29adf4779c9df473e`
+- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 e3910e9aeae38a20ed163c8fd1afbac27e3bf8265ab0640e662ca977d34f003d; entries 619; revision ba0a15920feffc1b902457f29adf4779c9df473e`
 
-“Pass” means mapped evidence is present and acceptable for Step 8. It does not authorize merge, tag, signing, publication, production release, or creation of `v1-readiness.md`.
+“Pass” means mapped evidence is present and acceptable for final adjudication. It does not authorize merge, tag, signing, publication, or production release.
 
 ## Evidence anchors
 
@@ -13,7 +13,7 @@
 - Human: [REV-01](human-reviews/rev-01.json) through [REV-08](human-reviews/rev-08.json).
 - Automation: Milestones [00](milestones/00-repository-truth.md) through [06](milestones/06-validation-integration.md), current validators, projections, scanner, and release checker.
 - GitHub: [PR #282](https://github.com/BrainDriveAI/BrainDrive/pull/282), [owner attestation](https://github.com/BrainDriveAI/BrainDrive/pull/282#issuecomment-5190917535), and [exact-source checks](https://github.com/BrainDriveAI/BrainDrive/actions/runs/31000641934).
-- Release state: [Milestone 7](milestones/07-release-gauntlet.md) remains a historical blocked attempt until Step 10 reruns it; no tag or publication is claimed.
+- Release state: [Milestone 7](milestones/07-release-gauntlet.md) preserves its historical blocked attempts and appends the final adjudication; no tag or publication is claimed.
 
 ## User stories
 
@@ -103,7 +103,7 @@ All eight explicit security boundaries pass: public evidence excludes secrets/ow
 
 | IDs | Evidence | Step 8 |
 |---|---|---|
-| AIH-01–AIH-10 | Ten fresh exact-prompt outputs, scorecards, controller validation | PASS |
+| AIH-01–AIH-10 | Compatible AIH records plus fresh exact-prompt AIH-06/AIH-08 reruns, substantive scorecards, controller validation | PASS |
 | REV-01 | Owner-policy acceptance; independence not claimed | PASS |
 | REV-02–REV-08 | Attributable combined-role owner records and PR attestation | PASS |
 | P-01–P-14 | DA/property checks, journeys, AIH-09, PR/review evidence | PASS |
