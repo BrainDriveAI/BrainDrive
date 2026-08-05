@@ -4,6 +4,16 @@ import { APPROVED_EVIDENCE_OUTPUT_PATTERNS } from './evidence-identity.mjs';
 
 export const CURRENT_STATUS = 'current';
 export const ALLOWED_STATUSES = new Set(['current', 'legacy', 'historical', 'experimental', 'internal', 'deprecated', 'removed', 'unsupported', 'unresolved']);
+export const HUMAN_REVIEW_ROLES = Object.freeze({
+  'REV-01': 'fresh-contributor reviewer',
+  'REV-02': 'technical-maintainer reviewer',
+  'REV-03': 'integrator reviewer',
+  'REV-04': 'security-aware reviewer',
+  'REV-05': 'GitHub-reader/workflow reviewer',
+  'REV-06': 'release-maintainer reviewer',
+  'REV-07': 'AI-agent evaluator',
+  'REV-08': 'accessibility/readability reviewer',
+});
 const REQUIRED_TOPIC_FIELDS = ['topicId', 'path', 'title', 'purpose', 'audiences', 'status', 'applicability', 'ownerRole', 'expectedOutcome', 'prerequisites'];
 
 function duplicateIds(items, field, label, diagnostics) {
@@ -62,11 +72,12 @@ export function validateCatalog(catalog, { root = process.cwd(), checkPaths = tr
       if (requirement.schemaPath !== 'tools/docs/schemas/platform-report.schema.json') diagnostics.push(diagnostic('DA-18', 'docs/developers/catalog.json', `claimed platform evidence has an invalid schema path: ${requirement.platform}`));
     }
   }
-  const expectedReviewIds = Array.from({ length: 8 }, (_, index) => `REV-${String(index + 1).padStart(2, '0')}`);
+  const expectedReviewIds = Object.keys(HUMAN_REVIEW_ROLES);
   const actualReviewIds = (catalog.humanReviewRequirements || []).map(({ id }) => id);
   if (JSON.stringify(actualReviewIds) !== JSON.stringify(expectedReviewIds)) diagnostics.push(diagnostic('DA-18', 'docs/developers/catalog.json', 'human review requirements must declare REV-01 through REV-08 exactly once and in order'));
   for (const review of catalog.humanReviewRequirements || []) {
     if (review.path !== `docs/developers/verification/human-reviews/${String(review.id || '').toLowerCase()}.json` || review.schemaPath !== 'tools/docs/schemas/human-review.schema.json' || !review.reviewerRole) diagnostics.push(diagnostic('DA-18', 'docs/developers/catalog.json', `human review requirement is invalid: ${review.id || '<missing>'}`));
+    if (HUMAN_REVIEW_ROLES[review.id] && review.reviewerRole !== HUMAN_REVIEW_ROLES[review.id]) diagnostics.push(diagnostic('DA-18', 'docs/developers/catalog.json', `human review requirement has the wrong reviewer role: ${review.id}`));
   }
   if (JSON.stringify(catalog.evidenceOutputs?.recordIdentityFields) !== JSON.stringify(['SOURCE_TEST_REVISION', 'SOURCE_CANDIDATE_PROOF'])) diagnostics.push(diagnostic('DA-18', 'docs/developers/catalog.json', 'evidence records must declare the immutable source identity fields'));
   if (JSON.stringify(catalog.evidenceOutputs?.revisionModelFields) !== JSON.stringify(['SOURCE_TEST_REVISION', 'EVIDENCE_REVISION'])) diagnostics.push(diagnostic('DA-18', 'docs/developers/catalog.json', 'evidence outputs must declare the two-revision compatibility fields'));

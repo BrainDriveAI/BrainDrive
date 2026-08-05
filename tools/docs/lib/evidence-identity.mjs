@@ -72,8 +72,8 @@ const HUMAN_REVIEW_PATTERNS = {
   'REV-04': ['SECURITY.md', 'docs/repository-security.md', 'docs/developers/security.md', 'tools/security/**', 'builds/typescript/secrets/**', 'tools/docs/lib/rules/evidence.mjs', 'tools/docs/lib/evidence-identity.mjs', 'tools/docs/schemas/*evidence*', 'tools/docs/schemas/platform-report.schema.json', 'tools/docs/schemas/human-review.schema.json'],
   'REV-05': ['.github/**', 'CONTRIBUTING.md', 'docs/developers/README.md', 'docs/developers/governance.md'],
   'REV-06': ['CHANGELOG.md', '.github/workflows/**', 'docs/developers/releases.md', 'installer/docker/scripts/preflight-production-build.sh', 'installer/docker/scripts/release-production.sh', 'builds/typescript/package.json', 'builds/mcp_release/package.json'],
-  'REV-07': ['docs/developers/*.md', 'docs/developers/**/*.md', 'README.md', 'CONTRIBUTING.md'],
-  'REV-08': ['AGENTS.md', 'docs/AGENTS.md', 'docs/developers/catalog.json', 'docs/developers/governance.md', 'docs/developers/verification/**', 'tools/docs/**'],
+  'REV-07': ['AGENTS.md', 'docs/AGENTS.md', 'docs/developers/catalog.json', 'docs/developers/governance.md', 'docs/developers/verification.md', 'docs/developers/verification/**', 'tools/docs/**'],
+  'REV-08': ['docs/developers/*.md', 'docs/developers/**/*.md', 'README.md', 'CONTRIBUTING.md'],
 };
 
 function globPattern(pattern) {

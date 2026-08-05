@@ -14,21 +14,11 @@ import {
   validatePlatformReport,
 } from './lib/evidence-identity.mjs';
 import { readContainedText } from './lib/paths.mjs';
+import { HUMAN_REVIEW_ROLES } from './lib/catalog.mjs';
 import { validateAiScorecard, validateMilestoneRecord } from './lib/rules/evidence.mjs';
 import { validateSchema } from './lib/schema.mjs';
 
 const root = resolve(fileURLToPath(new URL('../..', import.meta.url)));
-const HUMAN_REVIEW_ROLES = {
-  'REV-01': 'fresh-contributor reviewer',
-  'REV-02': 'technical-maintainer reviewer',
-  'REV-03': 'integrator reviewer',
-  'REV-04': 'security-aware reviewer',
-  'REV-05': 'GitHub-reader/workflow reviewer',
-  'REV-06': 'release-maintainer reviewer',
-  'REV-07': 'accessibility/readability reviewer',
-  'REV-08': 'documentation-governance reviewer',
-};
-
 async function readJson(repositoryRoot, path, rule) {
   const result = await readEvidenceJson(repositoryRoot, path, { rule });
   return result;

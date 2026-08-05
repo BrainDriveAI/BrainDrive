@@ -163,8 +163,8 @@ test('reviewed source, security, release, and governance changes stale affected 
     ['tools/security/scan-secrets.sh', 'REV-04'],
     ['installer/docker/scripts/release-production.sh', 'REV-06'],
     ['.github/workflows/release.yml', 'REV-06'],
-    ['docs/developers/verification.md', 'REV-07'],
-    ['docs/developers/governance.md', 'REV-08'],
+    ['tools/docs/harness/scenarios.json', 'REV-07'],
+    ['docs/developers/README.md', 'REV-08'],
   ];
   for (const [path, review] of cases) assert.ok(classifyEvidenceImpact([path]).human.includes(review), `${path} must stale ${review}`);
 });

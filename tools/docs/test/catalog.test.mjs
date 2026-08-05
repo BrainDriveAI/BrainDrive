@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { validateCatalog } from '../lib/catalog.mjs';
+import { HUMAN_REVIEW_ROLES, validateCatalog } from '../lib/catalog.mjs';
 import { enumerateCandidates } from '../lib/git-inputs.mjs';
 import { validateSchema } from '../lib/schema.mjs';
 import { checkRepository, validateVerificationReport, writeReportSafely } from '../check.mjs';
@@ -28,6 +28,14 @@ async function copyCandidateTo(temporary) {
 
 test('minimal catalog with complete metadata passes', async () => {
   assert.deepEqual(validateCatalog(await fixture('valid-minimal.json'), { checkPaths: false }), []);
+});
+
+test('repository catalog assigns the accepted human review roles', async () => {
+  const catalog = JSON.parse(await readFile(resolve(repositoryRoot, 'docs/developers/catalog.json'), 'utf8'));
+  assert.deepEqual(
+    Object.fromEntries(catalog.humanReviewRequirements.map(({ id, reviewerRole }) => [id, reviewerRole])),
+    HUMAN_REVIEW_ROLES,
+  );
 });
 
 test('duplicate current authorities fail with both paths', async () => {
