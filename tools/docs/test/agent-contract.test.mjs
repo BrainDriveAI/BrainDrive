@@ -16,7 +16,22 @@ test('root instructions expose concise catalog, documentation-impact, and verifi
     'sourceMappings',
     'docs/developers/verification.md',
     'same pull request',
+    'Required Context Discovery',
+    'agentContract.taskRoutes',
+    'do not recursively ingest the entire `docs/` tree',
+    'accepted request or specification as change authority',
   ]) assert.match(text, new RegExp(expected, 'i'));
+});
+
+test('public README routes planning work to agent instructions and canonical context discovery', async () => {
+  const text = await repositoryText('README.md');
+  for (const expected of [
+    'This README is the public product overview',
+    '[`AGENTS.md`](AGENTS.md)',
+    '[developer documentation index](docs/developers/README.md)',
+    '[`docs/developers/catalog.json`](docs/developers/catalog.json)',
+    'Select the routes relevant to the change instead of loading the entire documentation tree',
+  ]) assert.match(text, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
 });
 
 test('documentation instructions remain additive and route AI harness evidence without duplicating root authority', async () => {

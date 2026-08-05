@@ -125,6 +125,19 @@ Use `README.md`, `ROADMAP.md`, and `CONTRIBUTING.md` for public product and cont
 - Machine-readable task routes: use `agentContract` in `docs/developers/catalog.json` for governing instructions, artifact classes, task/change/check routes, paired changes, and restricted exclusions; confirm every referenced path and command against the live repository.
 - Documentation impact: use catalog `sourceMappings` to find the minimum canonical page, inspect adjacent effects, and update behavior and documentation in the same pull request or record a substantive no-impact reason.
 - Verification selection: use `docs/developers/verification.md` and catalog check routes to choose focused iteration plus broader handoff checks. From `builds/typescript`, run `npm run docs:test`, `npm run docs:check`, and `npm run docs:verify`; from the repository root, run `node tools/docs/sync-generated.mjs --check`.
+
+#### Required Context Discovery
+
+Before interviewing for, drafting, or implementing a specification or plan:
+
+1. Read every applicable `AGENTS.md`, starting with this file. More deeply nested files add instructions for their subtree.
+2. Use `docs/developers/README.md` for human-readable orientation and `agentContract.taskRoutes` in `docs/developers/catalog.json` for deterministic task routing.
+3. Read the canonical documents, source, tests, and configuration selected by the relevant route. Load only task-relevant context; do not recursively ingest the entire `docs/` tree.
+4. Record the repository-relative paths of material governing documents in the specification or plan so later work can reproduce the context selection.
+5. Treat this `AGENTS.md` as agent-working authority, the accepted request or specification as change authority, catalog-routed canonical documentation as existing-system context, and source/tests/configuration as executable evidence. If they conflict materially, identify the exact conflict and stop before inventing or silently choosing behavior.
+
+`README.md` is a public overview and discovery aid. It may help people and agents find the context system, but it does not replace applicable instructions, catalog routes, canonical developer documentation, or executable evidence.
+
 - MCP release build:
   ```bash
   cd builds/mcp_release
