@@ -102,9 +102,12 @@ irm https://raw.githubusercontent.com/BrainDriveAI/BrainDrive/<release-tag>/inst
 
 BrainDrive is built on the [Personal AI Architecture](https://github.com/Personal-AI-Architecture/the-architecture) (PAA) — an open, MIT-licensed standard for user-owned AI systems. Think of PAA as the spec and BrainDrive as the implementation. Anyone can build on the architecture; BrainDrive is our take on it.
 
+This README is the public product overview. Before planning, specifying, or implementing a change, read [`AGENTS.md`](AGENTS.md) for repository working rules and use the [developer documentation index](docs/developers/README.md) to find the relevant system context. AI tools and other automation can use [`docs/developers/catalog.json`](docs/developers/catalog.json) as the machine-readable route to governing documentation, source, tests, and verification. Select the routes relevant to the change instead of loading the entire documentation tree.
+
 | I want to... | Start here |
 |--------------|------------|
 | **Navigate BrainDrive source and tests** | [Developer documentation index](docs/developers/README.md) — persona, journey, component, repository, terminology, and architecture routes |
+| **Plan or specify a change** | [`AGENTS.md`](AGENTS.md), then the [developer documentation index](docs/developers/README.md) — establish constraints and existing system context before defining new behavior |
 | **Understand the architecture** | [Personal AI Architecture](https://github.com/Personal-AI-Architecture/the-architecture) — foundation spec, component contracts, conformance tests, zero lock-in by design |
 | **Build with AI assistance** | [Architecture Primer](https://github.com/Personal-AI-Architecture/the-architecture/tree/main/docs/ai) — token-optimized reference files designed to hand directly to your AI agent. Compliance matrix, component primers, audit playbooks, canonical examples. |
 | **Hack on BrainDrive** | [CONTRIBUTING.md](CONTRIBUTING.md) — fork, build, run tests, submit a PR |
