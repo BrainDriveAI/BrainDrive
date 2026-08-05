@@ -402,7 +402,7 @@
   ],
   "versionDomains": [
     { "id": "app-web-tauri", "sources": ["builds/typescript/package.json", "builds/typescript/client_web/package.json", "builds/typescript/src-tauri/tauri.conf.json"], "status": "current-distinct-domain", "branchTagContract": "Branch files describe that branch; release-tag files describe the tag and may not depend on later dev guidance", "compatibilityContract": "The normalization helper updates and checks app, web, both lock roots, and Tauri together at one YY.M.D or YY.M.D.N version before the clean candidate is committed" },
-    { "id": "mcp-release", "sources": ["builds/mcp_release/package.json"], "status": "current-distinct-domain", "branchTagContract": "MCP package version truth comes from the selected branch or tag source", "compatibilityContract": "Independent application-component version; no public SDK compatibility promise while OPEN-02 remains unresolved" },
+    { "id": "mcp-release", "sources": ["builds/mcp_release/package.json"], "status": "current-distinct-domain", "branchTagContract": "MCP package version truth comes from the selected branch or tag source", "compatibilityContract": "Independent application-component version; resolved OPEN-02 permits same-release internal-beta use but no public SDK or cross-version compatibility promise" },
     { "id": "installer-release", "sources": ["installer/bootstrap", "installer/docker"], "status": "current-distinct-domain", "branchTagContract": "Bootstrap markers, installer source, and published assets are evaluated on the same release tag", "compatibilityContract": "Manifest channel, digest-pinned images, config bounds, checksums, and signature apply only to the specific published installer release" }
   ],
   "migrationPolicies": [

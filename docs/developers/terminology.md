@@ -51,7 +51,7 @@ Use these terms consistently in developer pages, issues, reviews, and AI-agent i
 - **file-backed memory**: user-owned files and git-aware history handled under `builds/typescript/memory/` and `memory-tools/`.
 - **secrets**: protected credential material under `builds/typescript/secrets/`; secrets are not part of ordinary memory backup semantics.
 - **providers**: model adapter profiles. Current configured choices include BrainDrive Models, BYOK OpenRouter, and Ollama; BrainDrive-owned provider keys must not enter client configuration.
-- **MCP**: Model Context Protocol services registered as tool sources. The shipped package is discoverable, while public interface maturity remains unresolved under OPEN-02.
+- **MCP**: Model Context Protocol services registered as tool sources. Under the resolved OPEN-02 decision, the shipped package is an internal-beta same-release component, custom MCP is experimental, and neither is a public SDK.
 
 ## Governance terms
 

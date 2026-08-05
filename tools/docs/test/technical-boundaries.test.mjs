@@ -83,6 +83,18 @@ test('integration documentation makes maturity and provider independence explici
   for (const term of ['Risk tier', 'Prerequisites', 'Target', 'Side effects', 'Authority', 'Recovery']) {
     assert.match(mcpReadme, new RegExp(term, 'i'), `MCP command contracts are missing ${term}`);
   }
+
+  const resolvedBoundarySurfaces = [
+    'docs/developers/README.md',
+    'docs/developers/repository-map.md',
+    'docs/developers/terminology.md',
+    'docs/developers/architecture/README.md',
+    'docs/developers/catalog.json',
+  ];
+  for (const path of resolvedBoundarySurfaces) {
+    const text = await read(path);
+    assert.doesNotMatch(text, /OPEN-02[^\n]*(?:remain|is)[^\n]*unresolved|unresolved[^\n]*OPEN-02/i, `${path} must not contradict the resolved OPEN-02 decision`);
+  }
 });
 
 test('legacy gateway contract is preserved in history and the old path is only a pointer', async () => {

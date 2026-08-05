@@ -22,7 +22,7 @@ The primary development branch is `dev`. Read the root [`AGENTS.md`](../../AGENT
 | Path | Role |
 |---|---|
 | [`builds/typescript/`](../../builds/typescript/README.md) | Main TypeScript gateway, engine, auth, memory, provider, web, and desktop workspaces |
-| [`builds/mcp_release/`](../../builds/mcp_release/README.md) | First-party MCP release package; maturity remains unresolved under OPEN-02 |
+| [`builds/mcp_release/`](../../builds/mcp_release/README.md) | First-party MCP release package; internal beta for same-release orchestration under resolved OPEN-02, not a public SDK |
 | [`installer/`](../../installer/docker/README.md) | Bootstrap, Docker packaging, lifecycle, update, backup, and release assets |
 | [`docs/`](../AGENTS.md) | User, operator, security, and canonical developer documentation |
 | [`.github/`](../../.github/workflows/ci.yml) | Issue/PR collaboration surfaces and CI workflow |

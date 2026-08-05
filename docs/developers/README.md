@@ -23,7 +23,7 @@ This is the GitHub-first front door for people and coding agents working on Brai
 |---|---|---|
 | First-time contributor | [Repository map](repository-map.md) | Where the product code and closest tests live |
 | Recurring contributor | [Native setup](setup/native.md) and [change verification](verification.md) | Which development path and proportional checks to use |
-| Integrator | [Integration inventory](integrations/README.md) | Where gateway, providers, MCP/tools, and deployment participate; compatibility promises remain unresolved under OPEN-02 |
+| Integrator | [Integration inventory](integrations/README.md) | Where gateway, providers, MCP/tools, and deployment participate under the resolved OPEN-02 beta/internal boundaries |
 | Maintainer | [Documentation governance](governance.md) | How authority, ownership roles, review, catalog updates, freshness, and migration are governed |
 | Security researcher | [Security policy](../../SECURITY.md) | How to report privately and provide sanitized evidence |
 | Release engineer | [Release and version truth](releases.md) | How branch, tag, version domains, public artifacts, and restricted release boundaries fit together |
@@ -40,7 +40,7 @@ Normal BrainDrive owners looking to install or use the product should use the [p
 | Run | [Native TypeScript/web](setup/native.md), [Docker development](setup/docker-development.md), or [Tauri desktop](setup/tauri-desktop.md) | Current provider-independent setup contracts; Tauri V1 claims native Windows while macOS/Linux remain configured but unclaimed |
 | Contribute | [Contribution policy](../../CONTRIBUTING.md) | Current |
 | Trace | [Request flows](architecture/request-flows.md), [modes and trust](architecture/modes-data-and-trust.md), and [memory/secrets lifecycle](architecture/memory-and-secrets.md) | Current source-backed detailed architecture |
-| Integrate | [Integration inventory](integrations/README.md) | Shipped internal behavior; public stability remains OPEN-02 |
+| Integrate | [Integration inventory](integrations/README.md) | Shipped beta/internal behavior under resolved OPEN-02; no public SDK or cross-version promise |
 | Secure | [Developer security router](security.md) | Current policy and safe repository boundaries |
 | Maintain documentation | [Documentation governance](governance.md), [scoped instructions](../AGENTS.md), [catalog](catalog.json), and [validator](../../tools/docs/README.md) | Current repository contract; named owners and external enforcement remain OPEN-01/OPEN-08 |
 | Release | [Release and version truth](releases.md), [changelog](../../CHANGELOG.md), and [bootstrap trust](../../installer/bootstrap/README.md) | Current public contract; restricted execution and external evidence remain explicit |
