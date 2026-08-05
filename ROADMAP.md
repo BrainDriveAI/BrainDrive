@@ -61,25 +61,26 @@ Built on the [Personal AI Architecture](https://github.com/Personal-AI-Architect
 
 > Give your BrainDrive the ability to act in the world on your behalf.
 
-Phase 2 builds the partnership. Phase 3 gets you off the keyboard.
+Phase 2 builds the partnership. Phase 3 gets you off the keyboard. Everything here is outbound and owner-initiated — your BrainDrive acts on the world; the world doesn't yet act on it.
 
 - **General computer agency** — your BrainDrive uses browsers, apps, and interfaces the way you do
-- **Systems come to you** — your BrainDrive already knows you, so the systems come to it
 - **Agent teams** — specialized agents coordinate on complex tasks in parallel
 - **Multi-channel presence** — your BrainDrive meets the world where it is
 - **Device agency** — your BrainDrive acts through your devices, not just receiving input
-- **The Network** — when personal AI systems interact, they form an emergent collective intelligence
 
 ---
 
 ## Phase 4: Earn (Vision)
 
-> Enable owners to share what they've built and earn from it.
+> The world connects back — share what you've built, earn from it, and let services and agents come to you on your terms.
 
+- **Systems come to you** — external services and agents connect into your BrainDrive, with your permission
+- **Federation** — BrainDrive-to-BrainDrive communication over open protocols
 - **Portable expertise** — knowledge and methodology you've built becomes value others can benefit from
 - **Tools become products** — share, sell, or contribute what you've built
 - **Agent-to-agent commerce** — your BrainDrive negotiates and transacts on your behalf
 - **Revenue for creators** — earn directly from what you build, no middleman
+- **The Network** — when personal AI systems interact, they form an emergent collective intelligence
 
 ---
 
@@ -88,8 +89,7 @@ Phase 2 builds the partnership. Phase 3 gets you off the keyboard.
 > Ensure the ecosystem sustains itself without depending on any single company — including us.
 
 - **Community governance** — contributors propose and vote on direction
-- **Open protocols** — communication runs on open standards anyone can implement
-- **Federation** — owners interact directly from their own BrainDrives
+- **Open protocols** — federation and commerce run on open standards anyone can implement
 - **Self-sustaining ecosystem** — runs because it serves its participants
 
 ---
