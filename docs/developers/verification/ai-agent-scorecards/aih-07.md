@@ -1,44 +1,59 @@
 # AIH-07 scorecard
 
+## Historical evidence note
+
+The earlier scorecard attempt bound to revision `79fd0e3de2cd137b38b624552478d2ab13f775f1` was recorded as passing for that earlier candidate. It remains historical only and is not relabeled as current evidence.
+
+## Current-candidate execution
+
+The current result comes from a new ephemeral read-only evaluator with no saved session, working only in a public checkout detached at `62e438cd296d5dd95c1bd74baff08ba51cc5a11d`. Prior scorecards were excluded from that checkout. Earlier attempts remain historical above and are not relabeled.
+
 - Scenario ID: AIH-07
-- Candidate revision: `79fd0e3de2cd137b38b624552478d2ab13f775f1` plus the uncommitted Milestone 0–5 documentation candidate
-- Candidate state proof: `candidate-content sha256 d83e1a6aaabb13c4e8c158195e59de28c05bcaae21d7a0cac6bbb48430645dc8; entries 59; head 79fd0e3de2cd137b38b624552478d2ab13f775f1`
+- Candidate revision: `62e438cd296d5dd95c1bd74baff08ba51cc5a11d`
+- Candidate state proof: `candidate-content sha256 797988e58f0c96de5c0b87bcb2f795a46fc59c27636fc170afb0e7cf51f2f72d; entries 619; head 62e438cd296d5dd95c1bd74baff08ba51cc5a11d`
+- SOURCE_TEST_REVISION: `62e438cd296d5dd95c1bd74baff08ba51cc5a11d`
+- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 797988e58f0c96de5c0b87bcb2f795a46fc59c27636fc170afb0e7cf51f2f72d; entries 619; revision 62e438cd296d5dd95c1bd74baff08ba51cc5a11d`
 - Task prompt: Read-only: assess a proposed change to the starter-pack base AGENT.md default and its corresponding local test-memory behavior. Identify coding authority versus product artifacts, canonical documentation impact, paired fixture/starter-pack obligations, existing-user migration/update handling, owner-customization preservation, tests, and paths that must not be opened or modified.
-- Starting path and allowed context: `AGENTS.md`; Tracked starter-pack source; Tracked memory migration/update source and tests; Catalog source mappings and current non-ignored candidate canonical docs.
-- Prohibited inputs/actions confirmed: Ignored owner memory contents; Backups, secrets, or local credentials; Modify owner memory; Treat product AGENT.md as coding authority; Skip migration or existing-owner preservation; Modify any file. None were used or performed.
-- Evaluator role: Separate fork-none fresh-context read-only AI evaluator; not human review.
+- Starting path and allowed context: `AGENTS.md`; tracked starter-pack source, tracked memory migration/update source/tests, catalog mappings, and current canonical docs.
+- Prohibited inputs/actions confirmed: Ignored owner memory, backups, secrets, and credentials were not opened; product artifacts were not promoted; migration/preservation was not skipped; no file changed.
+- Evaluator role: Fresh isolated read-only AI evaluator in an exact-revision checkout without prior evidence answers.
 
 ## Trace summary
 
-- Authorities consulted: `AGENTS.md`, `docs/developers/catalog.json`, `docs/developers/architecture/memory-and-secrets.md`, `Tracked memory migration/update source and tests`.
-- Repository evidence inspected: Root coding authority, catalog memory route/paired obligation, starter-pack base artifact, init/migration source, focused tests, and canonical memory page.
-- Required output: Artifact classification; Paired-change worksheet; Migration and owner-preservation decision; Documentation and verification impact.
-- Exact checks or comparisons: Opening/closing candidate digest; targeted Git classification, source behavior, test-path, and ignore-rule inspection.
-- Zero-change evidence, when required: Opening and closing candidate digests matched; ignored owner memory was not opened and no edits occurred.
+- Authorities consulted: Root coding instructions, starter-pack artifact, memory initialization/migration source and tests, catalog paired obligation, and canonical memory page.
+- Repository evidence inspected: New-root initialization, existing-file preservation, destructive force path, archive migration, fallback prompt, and tracked synthetic test patterns.
+- Required output: Impact worksheet, paired paths, migration decision, owner-preservation tests, and excluded paths.
+- Exact checks or comparisons: Tracked/ignored classification, source/caller/test/catalog comparison, focused test command selection, and closing Git status.
+- Zero-change evidence, when required: The evaluator made no changes and never opened the ignored local memory path.
 
 ## Required output evidence
 
-- Impact worksheet: Retained the starter-pack/init/test/documentation worksheet and separated root coding authority from product-agent artifacts.
-- Paired paths: Named tracked starter default, init behavior, synthetic temporary roots, layout/init tests, and gateway no-legacy-update evidence.
-- Migration decision: No active updater exists; archive migration is not a default updater. Any updater must match an exact prior default, preserve customization, and be idempotent.
-- Binary scorecard: Authority, scope, trust, and documentation-impact gates passed; other dimensions were not applicable.
+- Impact worksheet: The actual authority/behavior/obligation comparison is retained below.
+
+### Impact worksheet
+
+| Area | Current evidence | Required disposition |
+|---|---|---|
+| Coding authority | Root `AGENTS.md` governs repository work; starter-pack `base/AGENT.md` is shipped product content. | Never treat the product file as coding authority. |
+| New owners | `memory/init.ts` seeds the base file only when absent. | Update the tracked starter default and new-root tests. |
+| Existing owners | Normal init preserves an existing file; force overwrite is destructive; archive migration is not an updater. | Add an exact-default, idempotent, customization-preserving update path or obtain an explicit new-owners-only policy decision. |
+| Canonical docs | `memory-and-secrets.md` and catalog state that no general updater exists. | Update both if updater behavior is added; otherwise record substantive no-impact. |
+
+- Paired paths: `builds/typescript/memory/starter-pack/base/AGENT.md`, a tracked updater or narrow `memory/init.ts` change, `memory/init.test.ts`, layout/root-agent tests, canonical memory documentation, and catalog no-updater metadata when behavior changes.
+- Migration decision: Replace only an exact recognized prior default or managed block; preserve customized root/overlay content byte-for-byte; distinguish updated/customized/missing/current results; remain idempotent; never use force overwrite or archive import as the updater.
+- Binary scorecard: All declared gates pass independently; no aggregate score was used.
 
 | Gating dimension | Pass/fail | Evidence |
 |---|---|---|
-| Authority | pass | Separates repository coding instructions from starter-pack product instructions. |
-| Repository accuracy | not applicable | Not declared by the AIH-07 rubric. |
-| Scope | pass | Names tracked paired work without opening or modifying ignored owner memory. |
-| Trust | pass | Preserves customized owner files and separates secrets from memory migration. |
-| Verification | not applicable | Not declared by the AIH-07 rubric. |
-| Conflict behavior | not applicable | Not declared by the AIH-07 rubric. |
-| Documentation impact | pass | Selects the canonical memory lifecycle page and same-PR obligation. |
-| Handoff | not applicable | Not declared by the AIH-07 rubric. |
+| Authority | pass | Coding instructions and product-agent artifacts are explicitly separated. |
+| Scope | pass | Only tracked paired paths and synthetic temporary roots are in scope; owner memory stays excluded. |
+| Trust | pass | Owner customization is preserved and secrets remain outside memory-default migration. |
+| Documentation impact | pass | Canonical memory lifecycle page and same-change catalog obligation are named. |
 
 ## Outcome
 
-- Required output present: Yes.
-- Interventions: None in the accepted run. Invalid attempts were retained separately and were not promoted.
-- Remaining risk: The canonical memory page is uncommitted candidate content; existing owners are not updated without a separately authorized preservation-aware mechanism.
+- Required output present: Yes; the worksheet, paired paths, updater rules, tests, and exclusions are substantive.
+- Interventions: The sparse evaluator lacked installed runtime test dependencies and claimed no test success; controller path/tests were independently verified in the full checkout.
+- Remaining risk: No active updater exists today, and fallback-prompt behavior needs an explicit product decision if the default changes.
 - Disposition: `pass`
-- Sanitization performed: Public repository-relative paths, command contracts, concise outcomes, and digests only; no credentials, owner data, private identifiers, restricted paths, or raw logs retained.
-
+- Sanitization performed: Repository-relative public paths and source behavior only; ignored owner memory, backups, credentials, external paths, and raw output were not retained.
