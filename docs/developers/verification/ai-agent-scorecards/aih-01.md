@@ -6,13 +6,13 @@ The earlier scorecard attempt bound to revision `79fd0e3de2cd137b38b624552478d2a
 
 ## Current-candidate execution
 
-The current result comes from a new ephemeral read-only evaluator with no saved session, working only in a public checkout detached at `62e438cd296d5dd95c1bd74baff08ba51cc5a11d`. Prior scorecards were excluded from that checkout. Earlier attempts remain historical above and are not relabeled.
+The substantive result comes from the fresh read-only execution at `62e438cd296d5dd95c1bd74baff08ba51cc5a11d`. The repository compatibility classifier compared that source to `82697a4b8788118e54c4396ce1cde9565789e3f8` and selected no rerun for this scenario; the result is therefore carried forward and bound to the current candidate. Prior scorecards were excluded from the evaluator checkout, and earlier attempts remain historical above without relabeling.
 
 - Scenario ID: AIH-01
-- Candidate revision: `62e438cd296d5dd95c1bd74baff08ba51cc5a11d`
-- Candidate state proof: `candidate-content sha256 797988e58f0c96de5c0b87bcb2f795a46fc59c27636fc170afb0e7cf51f2f72d; entries 619; head 62e438cd296d5dd95c1bd74baff08ba51cc5a11d`
-- SOURCE_TEST_REVISION: `62e438cd296d5dd95c1bd74baff08ba51cc5a11d`
-- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 797988e58f0c96de5c0b87bcb2f795a46fc59c27636fc170afb0e7cf51f2f72d; entries 619; revision 62e438cd296d5dd95c1bd74baff08ba51cc5a11d`
+- Candidate revision: `82697a4b8788118e54c4396ce1cde9565789e3f8`
+- Candidate state proof: `candidate-content sha256 603bda1986a5326b024926fad28cf78918cef69aecaf370789e0087f3620b7ac; entries 619; head 82697a4b8788118e54c4396ce1cde9565789e3f8`
+- SOURCE_TEST_REVISION: `82697a4b8788118e54c4396ce1cde9565789e3f8`
+- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 603bda1986a5326b024926fad28cf78918cef69aecaf370789e0087f3620b7ac; entries 619; revision 82697a4b8788118e54c4396ce1cde9565789e3f8`
 - Task prompt: From the repository root, identify every applicable coding-agent instruction for work under docs/developers, classify CLAUDE.md, GEMINI.md, tracked starter-pack AGENT.md files, and any ignored owner AGENT.md candidates, and explain which files may govern the change. Stay read-only and prove ignored paths were excluded without opening them.
 - Starting path and allowed context: `.`; tracked and non-ignored repository candidates; Git modes, symlink targets, and ignore metadata.
 - Prohibited inputs/actions confirmed: Ignored owner/runtime content and private planning were not opened; no file was modified; mirrors and product artifacts were not promoted to independent authority.

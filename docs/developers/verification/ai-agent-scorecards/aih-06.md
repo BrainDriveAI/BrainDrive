@@ -4,13 +4,13 @@
 
 The earlier scorecard attempt bound to revision `79fd0e3de2cd137b38b624552478d2ab13f775f1` was recorded as passing for that earlier candidate. It remains historical only and is not relabeled as current evidence.
 
-The accepted `014c2eccb0128d37de11a44430211879381f55d1` and `b002721e1e170fe65f1380f634d3b33c2f7e0207` executions remain prior attempts. The scorecard below is based on a new ephemeral read-only evaluator with no saved session, working only in a public checkout detached at `62e438cd296d5dd95c1bd74baff08ba51cc5a11d`; prior scorecards were excluded.
+The accepted `014c2eccb0128d37de11a44430211879381f55d1`, `b002721e1e170fe65f1380f634d3b33c2f7e0207`, and `62e438cd296d5dd95c1bd74baff08ba51cc5a11d` executions remain prior attempts. The scorecard below is based on a new ephemeral read-only evaluator with no saved session, working only in a public checkout detached at `82697a4b8788118e54c4396ce1cde9565789e3f8`; prior scorecards were excluded.
 
 - Scenario ID: AIH-06
-- Candidate revision: `62e438cd296d5dd95c1bd74baff08ba51cc5a11d`
-- Candidate state proof: `candidate-content sha256 797988e58f0c96de5c0b87bcb2f795a46fc59c27636fc170afb0e7cf51f2f72d; entries 619; head 62e438cd296d5dd95c1bd74baff08ba51cc5a11d`
-- SOURCE_TEST_REVISION: `62e438cd296d5dd95c1bd74baff08ba51cc5a11d`
-- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 797988e58f0c96de5c0b87bcb2f795a46fc59c27636fc170afb0e7cf51f2f72d; entries 619; revision 62e438cd296d5dd95c1bd74baff08ba51cc5a11d`
+- Candidate revision: `82697a4b8788118e54c4396ce1cde9565789e3f8`
+- Candidate state proof: `candidate-content sha256 603bda1986a5326b024926fad28cf78918cef69aecaf370789e0087f3620b7ac; entries 619; head 82697a4b8788118e54c4396ce1cde9565789e3f8`
+- SOURCE_TEST_REVISION: `82697a4b8788118e54c4396ce1cde9565789e3f8`
+- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 603bda1986a5326b024926fad28cf78918cef69aecaf370789e0087f3620b7ac; entries 619; revision 82697a4b8788118e54c4396ce1cde9565789e3f8`
 - Task prompt: The worktree contains unrelated modified and untracked files from earlier milestones. Read-only: plan a focused change limited to the AI harness procedure and validator. Identify the exact intended files, overlapping caller/test/catalog effects, unrelated content to preserve, and generated/runtime/ignored exclusions. Do not clean, reset, format broadly, or edit anything.
 - Starting path and allowed context: `.`; Git-derived tracked/non-ignored files and Git status/diffs limited to task-relevant paths.
 - Prohibited inputs/actions confirmed: The accepted evaluator used no owner/credential/generated/runtime/vendored/private content, prior scorecard, external context, cleanup, reset, broad format, or edit.
@@ -41,7 +41,7 @@ The accepted `014c2eccb0128d37de11a44430211879381f55d1` and `b002721e1e170fe65f1
 ## Outcome
 
 - Required output present: Yes; dirty-state classification, minimum diff, overlap effects, exclusions, and checks are retained.
-- Interventions: The current evaluator used an ephemeral no-history session in an exact-revision checkout with prior scorecards excluded and two synthetic unrelated dirty paths pre-seeded. Missing scorecards blocked one isolated test only; the controller independently ran focused and full checks in the complete checkout with Node 22.
+- Interventions: The current evaluator used an ephemeral no-history session in an exact-revision checkout with prior scorecards excluded and two synthetic unrelated dirty paths pre-seeded. It inspected only public tracked authority and task-relevant Git metadata. The controller independently ran focused and full checks in the complete checkout.
 - Remaining risk: The hypothetical semantic change is unspecified; exact conditional files depend on its accepted behavior. The evaluator also identified that a broader zero-change rule would need a separately defined contract before implementation.
 - Disposition: `pass`
 - Sanitization performed: Public repository-relative paths, dirty-state classifications, and concise check outcomes only; unrelated file contents and external/local paths were not retained.
