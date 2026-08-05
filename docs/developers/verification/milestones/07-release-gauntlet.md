@@ -210,4 +210,175 @@ This attempt ran after Milestones 0 through 6 obtained valid completion results.
 - The open history finding, dependency-audit findings, and release-helper review findings prevent a clean security/release disposition.
 - `v1-readiness.md` was intentionally not created. Creating it now would misstate a blocked release.
 
-BLOCKED
+Prior attempt terminal result was BLOCKED.
+
+## Attempt 4 — final source/evidence adjudication
+
+This attempt applies the milestone-check proof contract to the immutable source
+candidate plus its compatible, hosted evidence revision. It preserves every
+earlier blocked attempt as history and does not reinterpret those earlier facts
+as success.
+
+## Candidate revision — final attempt
+
+- Branch: `agent/developer-documentation-system`.
+- SOURCE_TEST_REVISION: `ba0a15920feffc1b902457f29adf4779c9df473e`.
+- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 e3910e9aeae38a20ed163c8fd1afbac27e3bf8265ab0640e662ca977d34f003d; entries 619; revision ba0a15920feffc1b902457f29adf4779c9df473e`.
+- EVIDENCE_REVISION: supplied to the checker from the immutable final evidence
+  commit and recorded in the portable ledger and PR; evidence records do not
+  self-embed the commit that contains them.
+- The source is an ancestor of the final evidence revision. The intervening 21
+  paths are exactly ten AIH scorecards, eight human-review records, the M7 trace
+  matrix, this Milestone 7 record, and the readiness record. Compatibility is
+  `true`, disallowed paths and diagnostics are empty, and no further platform,
+  AIH, or human rerun is selected.
+- Repository history is complete rather than shallow. The evidence precursor
+  `3c3109db090841ea1d0aae661059362ab6f9f270` was pushed without force and all
+  seven hosted jobs passed before this final adjudication overlay was sealed.
+- Final verification environment: WSL2/Linux x86_64; Node `v20.20.1`, npm
+  `10.8.2`, Rust `1.95.0`, and Cargo `1.95.0`. Hosted CI supplied the required
+  Node 22 and clean-install evidence.
+
+## Dependencies and complete trace — final attempt
+
+- Milestones 0 through 6 retain valid completion lines. Portable-runbook Steps
+  1 through 9 retain successful ledger dispositions; the latest Step 9 block
+  binds the source/evidence pair above and supersedes earlier source freezes.
+- The final trace has zero unmapped elements and passes all 10 stories, 25
+  acceptance criteria, 90 stable requirements, 14 invariants, 20 edges, 16
+  failures, 13 security requirements, eight explicit security boundaries, 19
+  journeys, ten AIH scenarios, eight REV roles, and applicable P/S/B/R checks.
+- EVI-002/REV-01 uses the transparent V1 repository-owner substitution. It is
+  not represented as an independent fresh-contributor run. REV-02 through
+  REV-08 are combined repository-owner roles with no invented separate
+  independence.
+- Browser/mobile B-09/B-10 and the absent B-14 integration entrypoint are not
+  applicable evidence for this documentation-only candidate. B-15/B-16 remain
+  static/tabletop release-boundary evidence and were not executed.
+
+## Files changed — final attempt
+
+- Corrected the finalization-only structure/release tests and structure rule,
+  refroze source at `ba0a15920feffc1b902457f29adf4779c9df473e`, and reran the
+  classifier-selected AIH-06, AIH-08, and REV-07 evidence. No product behavior,
+  schema, catalog, platform report, GitHub setting, tag, release, or restricted
+  artifact changed.
+- Rebound the compatible AIH/human identities, updated the trace, appended this
+  attempt, and created `docs/developers/verification/v1-readiness.md` from
+  passing sanitized evidence.
+
+## Commands and results — final attempt
+
+- Focused evidence/release suite,
+  `node --test tools/docs/test/agent-contract.test.mjs tools/docs/test/catalog.test.mjs tools/docs/test/evidence-harness.test.mjs tools/docs/test/release-check.test.mjs tools/docs/test/release-evidence-identity.test.mjs`:
+  exit 0 after evidence identity reconciliation; 59 passed, zero failed or
+  skipped.
+- Full `npm run docs:verify` from `builds/typescript`: exit 0; 162 passed,
+  one Windows-only compatibility test skipped on WSL, zero failed; the composed
+  validator passed 222 scoped candidates with zero diagnostics.
+- `node tools/docs/sync-generated.mjs --check`: exit 0; projections match.
+- Source/evidence identity and compatibility checks: exit 0; the refrozen
+  source proof matches, the source is an ancestor, all 21 changed paths are
+  approved evidence outputs, no further rerun is selected, and `git diff
+  --check` passes.
+- Final `node tools/docs/release-check.mjs --source-test-revision
+  ba0a15920feffc1b902457f29adf4779c9df473e --evidence-revision <final full SHA>`:
+  exit 0 with zero diagnostics; the portable ledger records the immutable final
+  evidence SHA to avoid self-reference in this record.
+- `tools/security/scan-secrets.sh --self-test`: exit 0; all canaries and guards
+  passed. `--current`: exit 0 with zero findings. `--history`: exit 0 after 289
+  reachable refs with zero findings. No raw match was opened or retained.
+- Evidence-precursor hosted [CI run
+  31008441480](https://github.com/BrainDriveAI/BrainDrive/actions/runs/31008441480)
+  completed `success`: Documentation job `92314122555`, Runtime
+  `92314122450`, Web client `92314122509`, MCP release `92314122473`, Docker
+  smoke `92314122260`, Installer integrity `92314122427`, and Secret scan
+  `92314122537` all completed successfully; none was skipped, neutral,
+  cancelled, or absent. The portable ledger records the same seven exact-job
+  dispositions for the final adjudication commit after it is pushed.
+
+## Platform, AI, human, GitHub, and security disposition
+
+- WSL J-03/J-06 and the bounded Docker J-04 evidence remain valid. The two WSL
+  desktop failures remain diagnostic-only and are not relabeled.
+- Windows is the sole claimed V1 J-05 platform. Its native report passed at
+  `7576ac504e42fce346bf79b3559fafbcdd342d98` and carries to the final source
+  with no platform rerun or diagnostic. macOS is configured but unclaimed and
+  is not a V1 gate.
+- AIH-01 through AIH-10 bind the final source, retain substantive outputs, and
+  pass every applicable binary dimension. The finalization-test refreeze
+  selected fresh AIH-06 and AIH-08 reruns; the other eight carry forward under
+  the compatibility classifier. Invalid out-of-context attempts remain rejected
+  rather than relabeled.
+- REV-01 through REV-08 are attributable, sanitized, final-source-bound owner
+  records. The public [owner
+  attestation](https://github.com/BrainDriveAI/BrainDrive/pull/282#issuecomment-5190917535)
+  records the V1 substitution, combined roles, findings, and accepted risks.
+- Draft [PR #282](https://github.com/BrainDriveAI/BrainDrive/pull/282) exposes
+  the exact evidence revision. Active ruleset `15006715` protects `main` and
+  `dev`, requires seven strict checks and review protections, and Actions
+  retention is 90 days. Exact-revision CODEOWNERS is present; it is absent on
+  the current protected base branches, so automatic code-owner enforcement is
+  not claimed for this PR.
+- The PR remains draft, `REVIEW_REQUIRED`, and merge-blocked. That is retained
+  as a non-release risk because this prompt does not authorize merge or supply
+  formal approval; it does not negate the attributable owner review or the
+  repository settings proof.
+- Current and full-history secret scans have zero findings. Provider, auth,
+  ignored-data, destructive-operation, private vulnerability, and restricted
+  release boundaries pass without exposing restricted values or executing Tier
+  C work.
+
+## Global gates — final attempt
+
+- G-01: PASS — 10 stories and 25 acceptance criteria pass in their required or
+  explicitly claimed environments.
+- G-02: PASS — all 90 stable requirements are mapped and supported; none is
+  unmapped.
+- G-03: PASS — INV-001 through INV-014 pass through property, automation,
+  journey, AI, and owner review evidence.
+- G-04: PASS — E-01 through E-20 and F-01 through F-16 have the expected
+  positive or fail-closed behavior.
+- G-05: PASS — SEC-001 through SEC-013 and all eight explicit boundaries pass;
+  current and full history contain zero scanner findings.
+- G-06: PASS — root/index/direct-entry rendering and navigation pass on GitHub;
+  the owner accepts default-branch search activation as post-merge risk.
+- G-07: PASS — native TypeScript/web and bounded Docker journeys pass in WSL;
+  native Windows J-05 passes and is the sole claimed desktop platform.
+- G-08: PASS — issue/PR contracts, Actions diagnostics, public owner visibility,
+  exact revision provenance, required contexts, ruleset, and retention are
+  evidenced. Draft approval state is not misrepresented.
+- G-09: PASS — architecture, commands, maturity, modes, lifecycle, provider,
+  security, and release claims match source and executable evidence.
+- G-10: PASS — all ten AIH records pass every applicable binary gate with
+  substantive retained output and honest intervention history; AIH-06 and
+  AIH-08 were freshly rerun for the final refreeze.
+- G-11: PASS — same-PR, duplicate, branch, representative tag, deprecation,
+  historical, and unreleased-candidate truth pass; no tag or release is claimed.
+- G-12: PASS — all seven applicable hosted CI jobs pass on the exact compatible
+  evidence revision; applicable local focused and documentation checks pass.
+- G-13: PASS — platform, AIH, human, GitHub, security, trace, lineage, and
+  retention evidence is complete, attributable, sanitized, and compatible.
+- G-14: PASS — ownership, maturity, platform, restricted-boundary, retention,
+  release-helper, and settings decisions have explicit passing or inapplicable
+  outcomes without an ambiguous supported claim.
+
+## Open items and remaining risks — final attempt
+
+- No open item blocks documentation-system V1 readiness. Unclaimed or
+  inapplicable surfaces remain explicitly outside the evidence claim.
+- Four task-owned Windows embedded services required explicit termination after
+  Ctrl-C; all task ports then closed and the worktree remained clean.
+- macOS remains configured but unclaimed. A later support claim requires native
+  evidence.
+- Default-branch search and candidate issue routing remain post-merge risks.
+- The PR has no formal approval after its last push and remains intentionally
+  draft/merge-blocked. No merge is authorized by this record.
+- B-09/B-10 and B-14 are not evidence; B-15/B-16 remain tabletop. No provider,
+  production, tag, signing, publication, or restricted release operation ran.
+- The milestone-check objective disposition is PASS. Coverage percentages are
+  not configured for the documentation validator; tests-first mutations,
+  complete traceability, exact hosted baselines, and non-compensating external
+  evidence provide the applicable proof.
+
+MILESTONE 7 COMPLETE — NEXT LEGAL PROMPT: NONE
