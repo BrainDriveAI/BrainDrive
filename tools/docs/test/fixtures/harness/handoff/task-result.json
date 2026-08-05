@@ -1,0 +1,13 @@
+{
+  "candidateRevision": "79fd0e3de2cd137b38b624552478d2ab13f775f1",
+  "files": ["docs/developers/example.md", "tools/docs/test/example.test.mjs"],
+  "checks": [
+    { "command": "node --test tools/docs/test/example.test.mjs", "result": "pass: 3 tests" },
+    { "command": "npm run docs:verify", "result": "fail: DA-13 mapped documentation missing" },
+    { "command": "npm run web:test", "result": "not run: no web behavior changed" }
+  ],
+  "manualEvidence": "Static source review completed; no runtime journey applied",
+  "blocker": "Required mapped documentation is absent",
+  "remainingRisk": "The candidate cannot be represented as complete until DA-13 passes",
+  "sanitization": "Synthetic paths and public-safe summaries only"
+}

@@ -2,6 +2,8 @@
 
 These scripts are intended for no-clone installation from GitHub-hosted raw URLs.
 
+Developer orientation: use the [developer index](../../docs/developers/README.md), [repository map](../../docs/developers/repository-map.md), and [security/release routes](../../docs/developers/repository-map.md#security-and-release). This page remains the source-adjacent trust reference for pinned bootstrap behavior.
+
 Files:
 - `install.sh` (macOS/Linux/WSL)
 - `install.ps1` (Windows PowerShell)

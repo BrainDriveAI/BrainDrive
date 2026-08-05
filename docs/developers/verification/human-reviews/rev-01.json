@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "reviewId": "REV-01",
+  "reviewerRole": "repository-owner acceptance reviewer",
+  "operatorRole": "AI evidence coordinator transcribing the repository owner's explicit public-safe attestation",
+  "reviewDate": "2026-08-05",
+  "sourceTestRevision": "ba0a15920feffc1b902457f29adf4779c9df473e",
+  "sourceCandidateProof": "source-candidate sha256 e3910e9aeae38a20ed163c8fd1afbac27e3bf8265ab0640e662ca977d34f003d; entries 619; revision ba0a15920feffc1b902457f29adf4779c9df473e",
+  "scope": [
+    "Front door, navigation, direct entry, setup, contribution, and absence of required tribal knowledge",
+    "Owner-policy substitution for the V1 independent fresh-contributor gate"
+  ],
+  "reviewedSources": [
+    "README.md",
+    "CONTRIBUTING.md",
+    "docs/developers/README.md",
+    "docs/developers/setup/native.md",
+    "docs/developers/setup/docker-development.md",
+    "docs/developers/setup/tauri-desktop.md",
+    ".github/ISSUE_TEMPLATE/documentation.yml",
+    ".github/pull_request_template.md",
+    "https://github.com/BrainDriveAI/BrainDrive/pull/282"
+  ],
+  "findings": [
+    {
+      "id": "REV-01-F01",
+      "severity": "low",
+      "summary": "Owner accepted the proposed REV-01 findings for this V1 candidate and found no material correction required.",
+      "evidencePath": "https://github.com/BrainDriveAI/BrainDrive/pull/282#issuecomment-5190917535",
+      "disposition": "resolved"
+    }
+  ],
+  "independence": "The repository owner explicitly replaced independent fresh-contributor evidence for this V1 candidate. This record is owner acceptance and does not claim an uncoached or independent fresh-contributor review.",
+  "sanitization": "pass",
+  "remainingRisk": "Default-branch search activation is accepted as a post-merge risk; this record does not establish independent fresh-contributor usability evidence.",
+  "disposition": "pass"
+}

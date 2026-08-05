@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "reviewId": "REV-06",
+  "reviewerRole": "release-maintainer reviewer",
+  "operatorRole": "AI evidence coordinator transcribing the repository owner's explicit public-safe attestation",
+  "reviewDate": "2026-08-05",
+  "sourceTestRevision": "ba0a15920feffc1b902457f29adf4779c9df473e",
+  "sourceCandidateProof": "source-candidate sha256 e3910e9aeae38a20ed163c8fd1afbac27e3bf8265ab0640e662ca977d34f003d; entries 619; revision ba0a15920feffc1b902457f29adf4779c9df473e",
+  "scope": [
+    "Branch, tag, version, artifact, signature, publication, rollback, evidence retention, and restricted release-helper boundaries"
+  ],
+  "reviewedSources": [
+    "docs/developers/releases.md",
+    "docs/developers/governance.md",
+    "docs/developers/verification.md",
+    "docs/developers/verification/milestones/07-release-gauntlet.md",
+    "docs/developers/verification/m7-trace-matrix.md",
+    "https://github.com/BrainDriveAI/BrainDrive/pull/282"
+  ],
+  "findings": [
+    {
+      "id": "REV-06-F01",
+      "severity": "low",
+      "summary": "Owner accepted the release-maintainer findings and exact unreleased candidate boundary with no material correction required.",
+      "evidencePath": "https://github.com/BrainDriveAI/BrainDrive/pull/282#issuecomment-5190917535",
+      "disposition": "resolved"
+    }
+  ],
+  "independence": "Combined-role repository-owner release review of the exact candidate and PR; no separate release reviewer is claimed.",
+  "sanitization": "pass",
+  "remainingRisk": "No tag, merge, signing, artifact publication, production release, or release-readiness conclusion is authorized by this review.",
+  "disposition": "pass"
+}

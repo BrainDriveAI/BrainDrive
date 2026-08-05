@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "authority": "catalog",
+  "agentContract": {
+    "governingInstructions": [
+      { "path": "AGENTS.md", "scope": "**", "kind": "canonical-root", "precedence": 1 },
+      { "path": "docs/AGENTS.md", "scope": "docs/**", "kind": "additive-scoped", "precedence": 2 }
+    ],
+    "compatibilityMirrors": [
+      { "path": "CLAUDE.md", "canonicalPath": "AGENTS.md", "kind": "symlink-mirror", "independentAuthority": false },
+      { "path": "GEMINI.md", "canonicalPath": "AGENTS.md", "kind": "symlink-mirror", "independentAuthority": false }
+    ],
+    "artifactClasses": [{ "pattern": "starter/**/AGENT.md", "classification": "product-agent-artifact", "codingAuthority": false, "rule": "product only" }],
+    "taskRoutes": [{ "id": "sample", "taskPattern": "sample task", "startPaths": ["docs/sample.md"] }],
+    "changeRoutes": [{ "id": "sample", "sourcePaths": ["docs/sample.md"], "callerPaths": ["docs/sample.md"], "configurationPaths": ["docs/sample.md"], "testPaths": ["test/sample.test.mjs"], "documentationPaths": ["docs/sample.md"], "checkRouteIds": ["sample"] }],
+    "checkRoutes": [{ "id": "sample", "changeTypes": ["sample"], "focusedRule": "sample", "broaderCommandIds": ["sample"] }],
+    "pairedChangeObligations": [{ "id": "sample", "triggerPatterns": ["sample/**"], "requiredSurfaces": ["sample"], "forbiddenSurfaces": ["private"] }],
+    "restrictedExclusions": [{ "pattern": "private/**", "reason": "private", "allowedAction": "exclude" }]
+  },
+  "ownerRoles": [],
+  "audiences": [],
+  "journeys": [],
+  "components": [],
+  "platformClaims": [
+    {
+      "id": "sample-platform",
+      "journeyId": "J-X",
+      "configuredBundleTargets": ["windows"],
+      "claimedPlatforms": ["windows"],
+      "diagnosticOnlyEnvironments": ["sample-shell"],
+      "requiredEvidence": [
+        { "platform": "windows", "environment": "native", "status": "DEFERRED — REQUIRED BEFORE MILESTONE 7", "reportPath": "docs/developers/verification/platform-reports/windows-j05.json", "schemaPath": "tools/docs/schemas/platform-report.schema.json" }
+      ]
+    }
+  ],
+  "humanReviewRequirements": [
+    { "id": "REV-01", "reviewerRole": "repository-owner acceptance reviewer", "path": "docs/developers/verification/human-reviews/rev-01.json", "schemaPath": "tools/docs/schemas/human-review.schema.json" },
+    { "id": "REV-02", "reviewerRole": "technical-maintainer reviewer", "path": "docs/developers/verification/human-reviews/rev-02.json", "schemaPath": "tools/docs/schemas/human-review.schema.json" },
+    { "id": "REV-03", "reviewerRole": "integrator reviewer", "path": "docs/developers/verification/human-reviews/rev-03.json", "schemaPath": "tools/docs/schemas/human-review.schema.json" },
+    { "id": "REV-04", "reviewerRole": "security-aware reviewer", "path": "docs/developers/verification/human-reviews/rev-04.json", "schemaPath": "tools/docs/schemas/human-review.schema.json" },
+    { "id": "REV-05", "reviewerRole": "GitHub-reader/workflow reviewer", "path": "docs/developers/verification/human-reviews/rev-05.json", "schemaPath": "tools/docs/schemas/human-review.schema.json" },
+    { "id": "REV-06", "reviewerRole": "release-maintainer reviewer", "path": "docs/developers/verification/human-reviews/rev-06.json", "schemaPath": "tools/docs/schemas/human-review.schema.json" },
+    { "id": "REV-07", "reviewerRole": "AI-agent evaluator", "path": "docs/developers/verification/human-reviews/rev-07.json", "schemaPath": "tools/docs/schemas/human-review.schema.json" },
+    { "id": "REV-08", "reviewerRole": "accessibility/readability reviewer", "path": "docs/developers/verification/human-reviews/rev-08.json", "schemaPath": "tools/docs/schemas/human-review.schema.json" }
+  ],
+  "evidenceOutputs": {
+    "recordIdentityFields": ["SOURCE_TEST_REVISION", "SOURCE_CANDIDATE_PROOF"],
+    "revisionModelFields": ["SOURCE_TEST_REVISION", "EVIDENCE_REVISION"],
+    "approvedPathPatterns": [
+      "docs/developers/verification/ai-agent-scorecards/aih-??.md",
+      "docs/developers/verification/platform-reports/windows-j05.json",
+      "docs/developers/verification/platform-reports/macos-j05.json",
+      "docs/developers/verification/human-reviews/rev-??.json",
+      "docs/developers/verification/milestones/07-release-gauntlet.md",
+      "docs/developers/verification/m7-trace-matrix.md",
+      "docs/developers/verification/v1-readiness.md"
+    ],
+    "releaseRecords": [
+      "docs/developers/verification/milestones/07-release-gauntlet.md",
+      "docs/developers/verification/m7-trace-matrix.md",
+      "docs/developers/verification/v1-readiness.md"
+    ]
+  },
+  "topics": [
+    {
+      "topicId": "sample",
+      "path": "docs/sample.md",
+      "title": "Sample",
+      "purpose": "Orient readers",
+      "audiences": ["contributors"],
+      "status": "current",
+      "applicability": { "branches": ["dev"] },
+      "ownerRole": "documentation-maintainers",
+      "expectedOutcome": "Reader finds the source",
+      "prerequisites": ["Repository access"]
+    }
+  ],
+  "topicBindings": [
+    { "topicId": "sample", "sources": ["docs/sample.md"], "tests": ["test/sample.test.mjs"], "commands": ["sample"] }
+  ],
+  "documents": [],
+  "governanceSurfaces": [],
+  "commands": [
+    { "id": "sample", "command": "node sample.mjs", "workingDirectory": "repository root", "prerequisites": ["Node.js"], "platforms": ["all"], "modes": ["repository"], "credentialNeed": "none", "sideEffects": "none", "expectedResult": "pass", "failureClassification": "sample", "cleanup": "none", "riskTier": "A", "recovery": "inspect" }
+  ],
+  "sourceMappings": [],
+  "aliases": [],
+  "versionDomains": [],
+  "migrationPolicies": [],
+  "deprecations": [],
+  "searchVocabulary": ["sample"],
+  "openItems": [
+    { "id": "OPEN-01", "state": "open", "summary": "Synthetic open item 1" },
+    { "id": "OPEN-02", "state": "open", "summary": "Synthetic open item 2" },
+    { "id": "OPEN-03", "state": "open", "summary": "Synthetic open item 3" },
+    { "id": "OPEN-04", "state": "open", "summary": "Synthetic open item 4" },
+    { "id": "OPEN-05", "state": "open", "summary": "Synthetic open item 5" },
+    { "id": "OPEN-06", "state": "open", "summary": "Synthetic open item 6" },
+    { "id": "OPEN-07", "state": "open", "summary": "Synthetic open item 7" },
+    { "id": "OPEN-08", "state": "open", "summary": "Synthetic open item 8" }
+  ]
+}

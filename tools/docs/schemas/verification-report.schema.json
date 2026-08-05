@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://braindrive.ai/schemas/developer-docs-verification-report-v1.json",
+  "title": "Sanitized BrainDrive documentation verification report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "status", "evaluatedAt", "candidateManifest", "capabilities", "diagnostics"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "status": { "enum": ["pass", "fail"] },
+    "evaluatedAt": { "type": "string", "minLength": 1 },
+    "candidateManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enumeration", "totalCandidates", "documentationGovernanceCandidates", "excludedBoundaries"],
+      "properties": {
+        "enumeration": { "const": "git ls-files --cached --others --exclude-standard -z" },
+        "totalCandidates": { "type": "integer", "minimum": 0 },
+        "documentationGovernanceCandidates": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "excludedBoundaries": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 18,
+      "maxItems": 18,
+      "uniqueItems": true,
+      "prefixItems": [
+        { "$ref": "#/$defs/DA-01" }, { "$ref": "#/$defs/DA-02" }, { "$ref": "#/$defs/DA-03" },
+        { "$ref": "#/$defs/DA-04" }, { "$ref": "#/$defs/DA-05" }, { "$ref": "#/$defs/DA-06" },
+        { "$ref": "#/$defs/DA-07" }, { "$ref": "#/$defs/DA-08" }, { "$ref": "#/$defs/DA-09" },
+        { "$ref": "#/$defs/DA-10" }, { "$ref": "#/$defs/DA-11" }, { "$ref": "#/$defs/DA-12" },
+        { "$ref": "#/$defs/DA-13" }, { "$ref": "#/$defs/DA-14" }, { "$ref": "#/$defs/DA-15" },
+        { "$ref": "#/$defs/DA-16" }, { "$ref": "#/$defs/DA-17" }, { "$ref": "#/$defs/DA-18" }
+      ],
+      "items": false
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["rule", "path", "message", "hint"],
+        "properties": {
+          "rule": { "enum": ["DA-01", "DA-02", "DA-03", "DA-04", "DA-05", "DA-06", "DA-07", "DA-08", "DA-09", "DA-10", "DA-11", "DA-12", "DA-13", "DA-14", "DA-15", "DA-16", "DA-17", "DA-18"] },
+          "path": { "type": "string", "minLength": 1 },
+          "message": { "type": "string", "minLength": 1 },
+          "hint": { "type": "string" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "DA-01": { "$ref": "#/$defs/capability", "properties": { "id": { "const": "DA-01" }, "status": { "enum": ["pass", "fail"] } } },
+    "DA-02": { "$ref": "#/$defs/capability", "properties": { "id": { "const": "DA-02" }, "status": { "enum": ["pass", "fail"] } } },
+    "DA-03": { "$ref": "#/$defs/capability", "properties": { "id": { "const": "DA-03" }, "status": { "enum": ["pass", "fail"] } } },
+    "DA-04": { "$ref": "#/$defs/capability", "properties": { "id": { "const": "DA-04" }, "status": { "enum": ["pass", "fail"] } } },
+    "DA-05": { "$ref": "#/$defs/capability", "properties": { "id": { "const": "DA-05" }, "status": { "enum": ["pass", "fail"] } } },
+    "DA-06": { "$ref": "#/$defs/capability", "properties": { "id": { "const": "DA-06" }, "status": { "enum": ["pass", "fail"] } } },
+    "DA-07": { "$ref": "#/$defs/capability", "properties": { "id": { "const": "DA-07" }, "status": { "enum": ["pass", "fail"] } } },
+    "DA-08": { "$ref": "#/$defs/capability", "properties": { "id": { "const": "DA-08" }, "status": { "enum": ["pass", "fail"] } } },
+    "DA-09": { "$ref": "#/$defs/capability", "properties": { "id": { "const": "DA-09" }, "status": { "enum": ["pass", "fail"] } } },
+    "DA-10": { "$ref": "#/$defs/capability", "properties": { "id": { "const": "DA-10" }, "status": { "enum": ["pass", "fail"] } } },
+    "DA-11": { "$ref": "#/$defs/capability", "properties": { "id": { "const": "DA-11" }, "status": { "enum": ["pass", "fail"] } } },
+    "DA-12": { "$ref": "#/$defs/capability", "properties": { "id": { "const": "DA-12" }, "status": { "enum": ["pass", "fail"] } } },
+    "DA-13": { "$ref": "#/$defs/capability", "properties": { "id": { "const": "DA-13" }, "status": { "enum": ["pass", "fail"] } } },
+    "DA-14": { "$ref": "#/$defs/capability", "properties": { "id": { "const": "DA-14" }, "status": { "enum": ["pass", "fail"] } } },
+    "DA-15": { "$ref": "#/$defs/capability", "properties": { "id": { "const": "DA-15" }, "status": { "enum": ["pass", "fail"] } } },
+    "DA-16": { "$ref": "#/$defs/capability", "properties": { "id": { "const": "DA-16" }, "status": { "enum": ["pass", "fail"] } } },
+    "DA-17": { "$ref": "#/$defs/capability", "properties": { "id": { "const": "DA-17" }, "status": { "enum": ["pass", "fail"] } } },
+    "DA-18": { "$ref": "#/$defs/capability", "properties": { "id": { "const": "DA-18" }, "status": { "enum": ["pass", "fail"] } } },
+    "capability": { "type": "object", "additionalProperties": false, "required": ["id", "status"], "properties": { "id": { "type": "string" }, "status": { "enum": ["pass", "fail"] } } }
+  }
+}

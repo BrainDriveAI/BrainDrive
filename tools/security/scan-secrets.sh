@@ -34,6 +34,10 @@ fail() {
   return 1
 }
 
+canonical_path() {
+  node -e 'const fs = require("node:fs"); try { process.stdout.write(fs.realpathSync(process.argv[1])); } catch { process.exit(1); }' "$1"
+}
+
 cleanup() {
   if [[ -n "${RUN_DIR}" && -d "${RUN_DIR}" ]]; then
     rm -rf "${RUN_DIR}"
@@ -214,10 +218,17 @@ gitleaks_common_args() {
 copy_current_candidates() {
   local source_root="$1"
   local snapshot_root="$2"
+  local canonical_root
   local relative_path
   local source_path
+  local resolved_path
   local destination_path
   local manifest_path="${RUN_DIR}/current-files.manifest"
+
+  canonical_root="$(canonical_path "${source_root}")" || {
+    fail "current scan root could not be resolved"
+    return 1
+  }
 
   if git -C "${source_root}" ls-files --stage | awk '$1 == "160000" { found=1 } END { exit(found ? 0 : 1) }'; then
     fail "current scan does not support tracked submodules"
@@ -232,8 +243,25 @@ copy_current_candidates() {
   while IFS= read -r -d '' relative_path; do
     source_path="${source_root}/${relative_path}"
     destination_path="${snapshot_root}/${relative_path}"
+    if ! resolved_path="$(canonical_path "$(dirname "${source_path}")")"; then
+      continue
+    fi
+    case "${resolved_path}" in
+      "${canonical_root}"|"${canonical_root}"/*) ;;
+      *) fail "current scan candidate escaped repository root"; return 1 ;;
+    esac
     if [[ ! -f "${source_path}" && ! -L "${source_path}" ]]; then
       continue
+    fi
+    if [[ ! -L "${source_path}" ]]; then
+      resolved_path="$(canonical_path "${source_path}")" || {
+        fail "current scan candidate could not be resolved"
+        return 1
+      }
+      case "${resolved_path}" in
+        "${canonical_root}"|"${canonical_root}"/*) ;;
+        *) fail "current scan candidate escaped repository root"; return 1 ;;
+      esac
     fi
     mkdir -p "$(dirname "${destination_path}")"
     if [[ -L "${source_path}" ]]; then
@@ -494,6 +522,9 @@ run_self_test() {
   local history_log="${RUN_DIR}/self-history.log"
   local wrong_scanner="${RUN_DIR}/wrong-gitleaks"
   local bad_archive="${RUN_DIR}/bad-archive"
+  local outside_root="${RUN_DIR}/outside-current-root"
+  local escape_snapshot="${RUN_DIR}/escape-snapshot"
+  local escape_log="${RUN_DIR}/escape-current.log"
   local current_canary
   local history_canary
   local labeled_canary
@@ -532,6 +563,9 @@ run_self_test() {
     printf 'Secret Access Key: "%s"\n' "${labeled_canary}"
   } >"${fixture_root}/current-canary.txt"
   git -C "${fixture_root}" add current-canary.txt
+  mkdir -p "${fixture_root}/tracked-directory"
+  printf 'inside\n' >"${fixture_root}/tracked-directory/file.txt"
+  git -C "${fixture_root}" add tracked-directory/file.txt
   git -C "${fixture_root}" commit -q -m "add ephemeral current canary"
 
   set +e
@@ -557,6 +591,22 @@ process.exit(rows.some((row) => row.RuleID === "braindrive-labeled-secret-access
   assert_report_redacted \
     "${current_report}" "${current_log}" \
     "${current_canary}" "${history_canary}" "${labeled_canary}"
+
+  mkdir -p "${outside_root}"
+  printf '%s\n' "${current_canary}" >"${outside_root}/file.txt"
+  rm "${fixture_root}/tracked-directory/file.txt"
+  rmdir "${fixture_root}/tracked-directory"
+  ln -s "${outside_root}" "${fixture_root}/tracked-directory"
+  if copy_current_candidates "${fixture_root}" "${escape_snapshot}" >"${escape_log}" 2>&1; then
+    fail "self-test ancestor symlink escape was not rejected"
+    return 1
+  fi
+  if grep -Fq "${current_canary}" "${escape_log}"; then
+    fail "self-test ancestor symlink guard exposed outside content"
+    return 1
+  fi
+  unlink "${fixture_root}/tracked-directory"
+  git -C "${fixture_root}" checkout -q -- tracked-directory/file.txt
 
   set +e
   run_history_scan "${fixture_root}" "${history_report}" "${history_log}"
@@ -592,7 +642,7 @@ process.exit(rows.some((row) => row.File === "deleted-canary.txt") ? 0 : 1);
     return 1
   fi
 
-  printf 'secret_scan self_test=pass current_canary=detected history_deleted_canary=detected custom_rule_canary=detected redaction=pass checksum_guard=pass version_guard=pass shallow_guard=pass exception_scope=pass\n'
+  printf 'secret_scan self_test=pass current_canary=detected history_deleted_canary=detected custom_rule_canary=detected redaction=pass checksum_guard=pass version_guard=pass shallow_guard=pass containment_guard=pass exception_scope=pass\n'
 }
 
 main() {

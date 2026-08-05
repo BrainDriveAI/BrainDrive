@@ -10,6 +10,7 @@ $rootDir = Split-Path -Parent $scriptDir
 Set-Location $rootDir
 . "$scriptDir/browser-helper.ps1"
 . "$scriptDir/auth-bootstrap.ps1"
+. "$scriptDir/native-command.ps1"
 
 $composeFile = "compose.local.yml"
 if ($Mode -eq "prod") {
@@ -54,12 +55,21 @@ if ($Mode -eq "prod" -or $Mode -eq "local") {
 }
 
 if ($Mode -eq "dev") {
-  docker volume create braindrive_memory | Out-Null
-  docker volume create braindrive_secrets | Out-Null
+  Invoke-CheckedNativeCommand `
+    -Command "docker" `
+    -Arguments @("volume", "create", "braindrive_memory") `
+    -FailureMessage "Could not create the BrainDrive memory volume" | Out-Null
+  Invoke-CheckedNativeCommand `
+    -Command "docker" `
+    -Arguments @("volume", "create", "braindrive_secrets") `
+    -FailureMessage "Could not create the BrainDrive secrets volume" | Out-Null
 }
 
 try {
-  docker compose -f $composeFile up -d
+  Invoke-CheckedNativeCommand `
+    -Command "docker" `
+    -Arguments @("compose", "-f", $composeFile, "up", "-d") `
+    -FailureMessage "Could not start the BrainDrive stack"
 } catch {
   if ($Mode -eq "prod") {
     throw "Prod start failed. If you are running locally, use: ./scripts/start.ps1 local"
@@ -67,6 +77,9 @@ try {
   throw
 }
 
-docker compose -f $composeFile ps
+Invoke-CheckedNativeCommand `
+  -Command "docker" `
+  -Arguments @("compose", "-f", $composeFile, "ps") `
+  -FailureMessage "Could not read the BrainDrive service status"
 
 Write-BrainDriveAccessInfo -Mode $Mode -Prefix "Start complete."

@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://braindrive.ai/schemas/developer-docs-ai-harness-v1.json",
+  "title": "Provider-independent AI coding-agent scenarios",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "authority", "scenarios"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "authority": { "type": "string", "minLength": 1 },
+    "scenarios": {
+      "type": "array",
+      "minItems": 10,
+      "maxItems": 10,
+      "items": { "$ref": "#/$defs/scenario" }
+    }
+  },
+  "$defs": {
+    "nonEmptyStringArray": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "rubricEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dimension", "passingStandard", "gate"],
+      "properties": {
+        "dimension": { "enum": ["authority", "repository accuracy", "scope", "trust", "verification", "conflict behavior", "documentation impact", "handoff"] },
+        "passingStandard": { "type": "string", "minLength": 1 },
+        "gate": { "const": "must-pass" }
+      }
+    },
+    "evidenceContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["traceSummaryPath", "scorecardPath", "requiredFields"],
+      "properties": {
+        "traceSummaryPath": { "type": "string", "pattern": "^docs/developers/verification/ai-agent-scorecards/aih-(0[1-9]|10)\\.md$" },
+        "scorecardPath": { "type": "string", "pattern": "^docs/developers/verification/ai-agent-scorecards/aih-(0[1-9]|10)\\.md$" },
+        "requiredFields": { "$ref": "#/$defs/nonEmptyStringArray" }
+      }
+    },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "goal", "taskPrompt", "allowedContext", "startingPath", "prohibitedInputs", "prohibitedActions", "expectedAuthorities", "requiredOutput", "rubric", "evidence"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^AIH-(0[1-9]|10)$" },
+        "goal": { "type": "string", "minLength": 1 },
+        "taskPrompt": { "type": "string", "minLength": 1 },
+        "allowedContext": { "$ref": "#/$defs/nonEmptyStringArray" },
+        "startingPath": { "type": "string", "minLength": 1 },
+        "prohibitedInputs": { "$ref": "#/$defs/nonEmptyStringArray" },
+        "prohibitedActions": { "$ref": "#/$defs/nonEmptyStringArray" },
+        "expectedAuthorities": { "$ref": "#/$defs/nonEmptyStringArray" },
+        "requiredOutput": { "$ref": "#/$defs/nonEmptyStringArray" },
+        "rubric": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/rubricEntry" } },
+        "evidence": { "$ref": "#/$defs/evidenceContract" }
+      }
+    }
+  }
+}

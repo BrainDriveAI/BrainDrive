@@ -1,5 +1,7 @@
 # Installer Docker Scripts Reference
 
+Developer orientation: start with the [developer index](../../../docs/developers/README.md) and [repository map](../../../docs/developers/repository-map.md). This page remains the canonical operational reference for script behavior and side effects.
+
 ## Canonical Location
 
 - Canonical script directory: `installer/docker/scripts`
@@ -78,6 +80,20 @@ Notes:
 - `install/start/stop` support `dev`.
 - `check-update/upgrade` support `local|prod`.
 
+## Development lifecycle command contracts
+
+The [Docker development journey](../../../docs/developers/setup/docker-development.md) owns setup order and the provider-independent success baseline. This page owns exact script effects.
+
+| Script | Working directory | Prerequisites / mode | Credentials | Side effects | Expected / failure | Cleanup / recovery | Tier |
+|---|---|---|---|---|---|---|---|
+| `./installer/docker/scripts/install.sh dev` | Repository root | Docker + Compose; first run with no existing `.env`; authority over configured bind and UID/GID | Generates a local secrets-encryption key; no model-provider credential | Creates protected `.env`, network, volumes, image/build state and containers; recursively changes ownership of memory/secrets/dependency targets; runs `npm install` from bind-mounted workspaces; exposes Vite/proxied API; may open browser | App healthy and web running; classify prerequisite, build, mount/ownership, package, port/network, or health failure | Stop with the dev stop script; preserve `.env`, volumes, and data; restore ownership only for a verified target using known prior state | B |
+| `./installer/docker/scripts/start.sh dev` | Repository root | Existing initialization; Docker + Compose; authority over configured bind and UID/GID | No model-provider credential for baseline; never print `.env` | Ensures network/volumes, starts/reuses/recreates services; on container startup changes target ownership and runs `npm install`; exposes Vite/proxied API; may open browser | Compose app healthy and web running; classify Compose/config/build/mount/ownership/package/port/network/health | Restore prior service state; preserve existing volumes/data; restore ownership only for the exact verified target | B |
+| `./installer/docker/scripts/stop.sh dev` | Repository root | Existing dev Compose project | None | Stops services; preserves containers, volumes, `.env`, and bind-mounted data | Services show stopped; classify Docker/Compose failure | Restart only if the prior state or task requires it | B |
+
+`reset-new-user`, restore/import, volume removal, production, release, signing, and publishing operations are Tier C for developer-documentation evidence. They are never implicit cleanup for the commands above.
+
+The PowerShell install/start/stop scripts route required native Docker commands through `native-command.ps1`, which captures `$LASTEXITCODE` immediately and throws before any completion output on failure. WSL static contract tests cover that source behavior, but they are not native Windows execution evidence; a controlled Windows run is still required before citing these entry points as passing platform evidence.
+
 ## Script Catalog
 
 ### install (`install.sh`, `install.ps1`)
@@ -103,6 +119,7 @@ Key behavior:
 - Fails if `.env` already exists (protects existing account/secrets state).
 - `dev` builds images.
 - `local` and `prod` pull only after release resolution succeeds; verification failures stop the install.
+- Required native Docker commands fail closed before access or completion output.
 - On Apple Silicon macOS, shell install defaults local/prod pulls to `linux/amd64` unless `BRAINDRIVE_DOCKER_PLATFORM` is set.
 - Always prints the access URL and attempts a best-effort browser auto-open on the host.
 
@@ -128,6 +145,7 @@ Arguments:
 Key behavior:
 - `prod` requires `.env` and real `DOMAIN`.
 - If `check-update` returns fail-closed errors, startup halts.
+- Required native Docker commands fail closed before access or completion output.
 - Always prints the access URL and attempts a best-effort browser auto-open on the host.
 
 Env/config read:
@@ -144,6 +162,9 @@ Usage:
 
 Arguments:
 - `Mode` (default: `local`)
+
+Key behavior:
+- Both the stop command and status query fail closed before completion output.
 
 ### upgrade (`upgrade.sh`, `upgrade.ps1`)
 
@@ -391,7 +412,9 @@ What it does:
 - Optionally builds production Docker images (`Dockerfile.app` and `Dockerfile.edge`) with local test tags.
 
 Usage:
-- Shell: `./installer/docker/scripts/preflight-production-build.sh [options]`
+- Shell from repository root: `bash ./installer/docker/scripts/preflight-production-build.sh [options]`
+
+The helper is tracked mode `100644`, so direct `./...` execution is not the repository contract. The `bash ... --help` path is safe to inspect; running preflight itself may replace ignored dependency trees and build local images. See [Release and version truth](../../../docs/developers/releases.md#release-readiness-boundary).
 
 Options:
 - `--app-image <name>` (default `braindrive-preflight-app`)
@@ -433,7 +456,9 @@ What it does:
 - final GitHub Release upload checklist output
 
 Usage:
-- Shell: `./installer/docker/scripts/release-production.sh [options]`
+- Shell from repository root: `bash ./installer/docker/scripts/release-production.sh [options]`
+
+The helper is tracked mode `100644`. `bash ... --help` is the only routine public-safe probe; the release flow is a restricted, state-changing operation and requires separate release-maintainer authority. See [Release and version truth](../../../docs/developers/releases.md#restricted-maintainer-boundary).
 
 Options:
 - `--package-version <yy.m.d[.n]>` (default: today's local date, for example `26.4.16`; same-day patch releases can use `26.6.23.1`)

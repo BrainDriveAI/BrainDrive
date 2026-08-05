@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "journeyId": "J-05",
+  "platform": "windows",
+  "environment": {
+    "kind": "native",
+    "osName": "Microsoft Windows 11 Pro",
+    "osVersion": "10.0.26200 build 26200",
+    "architecture": "x64"
+  },
+  "sourceTestRevision": "7576ac504e42fce346bf79b3559fafbcdd342d98",
+  "sourceCandidateProof": "source-candidate sha256 9f9e7b2252aa7a3f8211001f057438bbe6f8e7572df0bb950b6f9f4d6b30d859; entries 619; revision 7576ac504e42fce346bf79b3559fafbcdd342d98",
+  "cleanBefore": true,
+  "cleanAfter": true,
+  "toolVersions": {
+    "node": "22.22.3",
+    "npm": "10.9.8",
+    "rustc": "1.95.0 x86_64-pc-windows-msvc",
+    "cargo": "1.95.0",
+    "tauriCli": "2.11.4",
+    "visualStudioBuildTools": "2022 17.14.37314.3",
+    "webView2Runtime": "151.0.4129.59"
+  },
+  "commands": [
+    {
+      "command": "git clone https://github.com/BrainDriveAI/BrainDrive <disposable-clone>",
+      "workingDirectory": "task-owned disposable parent directory",
+      "exitCode": 0,
+      "result": "pass",
+      "summary": "Created a disposable public repository checkout without reusing owner application data."
+    },
+    {
+      "command": "git fetch origin && git checkout --detach 7576ac504e42fce346bf79b3559fafbcdd342d98",
+      "workingDirectory": "disposable repository root",
+      "exitCode": 0,
+      "result": "pass",
+      "summary": "Checked out the exact tested revision."
+    },
+    {
+      "command": "npm --prefix builds/typescript ci",
+      "workingDirectory": "disposable repository root",
+      "exitCode": 0,
+      "result": "pass",
+      "summary": "Installed the locked runtime dependencies."
+    },
+    {
+      "command": "npm --prefix builds/typescript/client_web ci",
+      "workingDirectory": "disposable repository root",
+      "exitCode": 0,
+      "result": "pass",
+      "summary": "Installed the locked web dependencies."
+    },
+    {
+      "command": "npm --prefix builds/mcp_release ci",
+      "workingDirectory": "disposable repository root",
+      "exitCode": 0,
+      "result": "pass",
+      "summary": "Installed the locked MCP release dependencies."
+    },
+    {
+      "command": "npm --prefix builds/typescript run docs:verify",
+      "workingDirectory": "disposable repository root",
+      "exitCode": 0,
+      "result": "pass",
+      "summary": "Documentation tests and validation passed with 221 candidates and zero diagnostics."
+    },
+    {
+      "command": "npm --prefix builds/typescript run desktop:preflight",
+      "workingDirectory": "disposable repository root",
+      "exitCode": 0,
+      "result": "pass",
+      "summary": "Desktop runtime, MCP, web, and Rust prerequisites passed."
+    },
+    {
+      "command": "npm --prefix builds/typescript run desktop:test",
+      "workingDirectory": "disposable repository root",
+      "exitCode": 0,
+      "result": "pass",
+      "summary": "Runtime, web, and Cargo suites passed: 222 runtime tests, 186 web tests, and 49 Cargo tests."
+    }
+  ],
+  "dynamicGatewayObservation": {
+    "result": "pass",
+    "summary": "The supervisor allocated distinct dynamic loopback services; the gateway and three MCP services became healthy, direct health and configuration probes passed, a request without the desktop transport token was rejected, the fixed proxy target was not listening, and native signup reached the dynamic gateway."
+  },
+  "providerIndependentUsableShellBaseline": {
+    "result": "pass",
+    "summary": "The native desktop window reached local account setup, completed one disposable local signup, and displayed a responsive authenticated application shell without provider credentials, model credits, a local model service, or a model response."
+  },
+  "cleanup": "Ctrl-C stopped the desktop and web processes. Four remaining task-owned embedded Node services were explicitly terminated by observed task ownership. All task service ports closed, no task PID remained, and the tracked checkout was clean.",
+  "sanitization": "pass",
+  "operatorRole": "native Windows Tauri J-05 evidence operator",
+  "reviewerRole": "native Windows Tauri J-05 evidence reviewer",
+  "remainingRisk": "Ctrl-C did not terminate four embedded Node services; explicit task-owned cleanup succeeded, but desktop shutdown ownership remains a follow-up risk.",
+  "disposition": "pass"
+}

@@ -4,9 +4,8 @@ import { loginAsLocalUser, visibleComposer, visibleSendButton } from "./helpers"
 // These tests run against the mobile-chrome and mobile-safari projects
 // defined in playwright.config.ts (Pixel 7 / iPhone 14 viewports).
 //
-// NOTE: The gateway must be running on localhost:3000 for chat messages to
-// actually round-trip. Layout assertions work without it, but tests that
-// send messages and wait for AI responses will time out.
+// The package command supplies disposable MCP/gateway/Vite processes and an
+// initialized synthetic local account through the isolated E2E runner.
 
 test.describe("Mobile layout regression", () => {
   test.beforeEach(async ({ page, isMobile }) => {

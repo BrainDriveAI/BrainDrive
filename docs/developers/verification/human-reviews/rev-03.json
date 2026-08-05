@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "reviewId": "REV-03",
+  "reviewerRole": "integrator reviewer",
+  "operatorRole": "AI evidence coordinator transcribing the repository owner's explicit public-safe attestation",
+  "reviewDate": "2026-08-05",
+  "sourceTestRevision": "ba0a15920feffc1b902457f29adf4779c9df473e",
+  "sourceCandidateProof": "source-candidate sha256 e3910e9aeae38a20ed163c8fd1afbac27e3bf8265ab0640e662ca977d34f003d; entries 619; revision ba0a15920feffc1b902457f29adf4779c9df473e",
+  "scope": [
+    "Integration discovery, maturity, contracts, examples, provider independence, boundaries, and verification"
+  ],
+  "reviewedSources": [
+    "docs/developers/integrations/README.md",
+    "docs/developers/integrations/gateway.md",
+    "docs/developers/integrations/providers.md",
+    "docs/developers/integrations/mcp-and-tools.md",
+    "docs/developers/integrations/deployment.md",
+    "builds/typescript/client_web/src/api/CONTRACT.md",
+    "docs/developers/history/gateway-contract-original-client.md",
+    "https://github.com/BrainDriveAI/BrainDrive/pull/282"
+  ],
+  "findings": [
+    {
+      "id": "REV-03-F01",
+      "severity": "low",
+      "summary": "Owner accepted the integration findings and found no material correction required.",
+      "evidencePath": "https://github.com/BrainDriveAI/BrainDrive/pull/282#issuecomment-5190917535",
+      "disposition": "resolved"
+    }
+  ],
+  "independence": "Combined-role repository-owner review of the exact candidate and PR; no independent third-party integrator identity is claimed.",
+  "sanitization": "pass",
+  "remainingRisk": "Experimental and unsupported integration surfaces require later authority and evidence before any stable public SDK claim.",
+  "disposition": "pass"
+}

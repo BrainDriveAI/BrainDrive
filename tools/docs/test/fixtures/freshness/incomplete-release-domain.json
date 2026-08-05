@@ -1,0 +1,9 @@
+{
+  "versionDomains": [
+    { "id": "app", "sources": ["package.json"], "status": "current-distinct-domain" }
+  ],
+  "references": [],
+  "deprecations": [
+    { "subject": "old-route", "status": "deprecated" }
+  ]
+}

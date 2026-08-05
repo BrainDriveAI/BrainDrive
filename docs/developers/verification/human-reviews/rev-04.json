@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "reviewId": "REV-04",
+  "reviewerRole": "security-aware reviewer",
+  "operatorRole": "AI evidence coordinator transcribing the repository owner's explicit public-safe attestation",
+  "reviewDate": "2026-08-05",
+  "sourceTestRevision": "ba0a15920feffc1b902457f29adf4779c9df473e",
+  "sourceCandidateProof": "source-candidate sha256 e3910e9aeae38a20ed163c8fd1afbac27e3bf8265ab0640e662ca977d34f003d; entries 619; revision ba0a15920feffc1b902457f29adf4779c9df473e",
+  "scope": [
+    "Secrets, owner data, authentication, providers, destructive operations, vulnerability routing, restricted evidence, history, dependencies, and sanitization"
+  ],
+  "reviewedSources": [
+    "docs/developers/security.md",
+    "docs/developers/architecture/memory-and-secrets.md",
+    "docs/developers/architecture/modes-data-and-trust.md",
+    "docs/developers/integrations/providers.md",
+    "docs/developers/governance.md",
+    "tools/security/scan-secrets.sh",
+    ".gitleaks.toml",
+    ".gitleaksignore",
+    "tools/docs/lib/rules/security.mjs",
+    "tools/docs/test/security-scope.test.mjs",
+    "https://github.com/BrainDriveAI/BrainDrive/pull/282"
+  ],
+  "findings": [
+    {
+      "id": "REV-04-F01",
+      "severity": "low",
+      "summary": "Owner accepted the security findings, public/restricted boundary, scanner disposition, and found no material correction required.",
+      "evidencePath": "https://github.com/BrainDriveAI/BrainDrive/pull/282#issuecomment-5190917535",
+      "disposition": "resolved"
+    }
+  ],
+  "independence": "Combined-role repository-owner security review of the exact candidate and PR; no separate independent security auditor is claimed.",
+  "sanitization": "pass",
+  "remainingRisk": "Restricted operational evidence remains outside the public repository; no production, credential, signing, or publication action is authorized.",
+  "disposition": "pass"
+}

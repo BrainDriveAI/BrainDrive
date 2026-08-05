@@ -31,12 +31,16 @@
     "start:cli": "node dist/client/repl.js",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
+    "docs:test": "node --test ../../tools/docs/test/*.test.mjs",
+    "docs:check": "node ../../tools/docs/check.mjs",
+    "docs:verify": "npm run docs:test && npm run docs:check",
     "web:install": "npm --prefix client_web ci",
     "web:lint": "npm --prefix client_web run lint",
     "web:typecheck": "npm --prefix client_web run typecheck",
     "web:test": "npm --prefix client_web run test",
     "web:build": "npm --prefix client_web run build",
     "desktop:preflight": "npm run build && npm --prefix ../mcp_release run build && npm --prefix client_web run typecheck",
+    "desktop:prepare-dev": "node scripts/desktop-prepare-dev.mjs",
     "desktop:stage-runtime": "node scripts/desktop-stage-runtime.mjs",
     "desktop:stage-runtime:powershell": "powershell -ExecutionPolicy Bypass -File scripts/desktop-stage-runtime.ps1",
     "desktop:dev": "tauri dev",
@@ -48,7 +52,7 @@
     "desktop:build:linux": "tauri build --bundles deb,appimage",
     "desktop:build:frontend": "npm --prefix client_web run build",
     "desktop:dev:web": "npm --prefix client_web run dev",
-    "desktop:test": "npm run test && npm --prefix ../mcp_release run build && npm --prefix client_web run test && cargo test --manifest-path src-tauri/Cargo.toml"
+    "desktop:test": "npm run desktop:prepare-dev && npm run test && npm --prefix ../mcp_release run build && npm --prefix client_web run test && cargo test --manifest-path src-tauri/Cargo.toml"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

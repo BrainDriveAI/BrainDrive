@@ -4,7 +4,7 @@
   "version": "26.7.23",
   "identifier": "ai.braindrive.desktop",
   "build": {
-    "beforeDevCommand": "npm run desktop:preflight && npm run desktop:dev:web",
+    "beforeDevCommand": "npm run desktop:preflight && npm run desktop:prepare-dev && npm run desktop:dev:web",
     "beforeBuildCommand": "npm run desktop:preflight && npm run desktop:build:frontend && npm run desktop:stage-runtime",
     "devUrl": "http://localhost:5073",
     "frontendDist": "../client_web/dist"

@@ -1,0 +1,9 @@
+{
+  "documents": [
+    { "path": "docs/current.md", "classification": "developer-authority", "status": "current" },
+    { "path": "docs/history.md", "classification": "historical-contract", "status": "historical" }
+  ],
+  "migrationPolicies": [
+    { "classifications": ["historical-contract"], "disposition": "retain-history" }
+  ]
+}

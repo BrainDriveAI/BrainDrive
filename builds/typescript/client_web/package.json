@@ -21,8 +21,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test",
-    "test:e2e:mobile": "playwright test --project=mobile-chrome --project=mobile-safari",
+    "test:e2e": "npm run test:e2e:mobile && node scripts/run-isolated-e2e.mjs --project=desktop-chrome",
+    "test:e2e:mobile": "node scripts/run-isolated-e2e.mjs --project=mobile-chrome --project=mobile-safari",
     "lint": "eslint . --max-warnings 0"
   },
   "dependencies": {

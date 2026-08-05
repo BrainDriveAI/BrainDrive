@@ -118,6 +118,13 @@ Use `README.md`, `ROADMAP.md`, and `CONTRIBUTING.md` for public product and cont
   cd builds/typescript
   npm run desktop:preflight
   ```
+
+### Developer Documentation
+
+- Front door and catalog: `docs/developers/README.md` and `docs/developers/catalog.json`.
+- Machine-readable task routes: use `agentContract` in `docs/developers/catalog.json` for governing instructions, artifact classes, task/change/check routes, paired changes, and restricted exclusions; confirm every referenced path and command against the live repository.
+- Documentation impact: use catalog `sourceMappings` to find the minimum canonical page, inspect adjacent effects, and update behavior and documentation in the same pull request or record a substantive no-impact reason.
+- Verification selection: use `docs/developers/verification.md` and catalog check routes to choose focused iteration plus broader handoff checks. From `builds/typescript`, run `npm run docs:test`, `npm run docs:check`, and `npm run docs:verify`; from the repository root, run `node tools/docs/sync-generated.mjs --check`.
 - MCP release build:
   ```bash
   cd builds/mcp_release
@@ -199,7 +206,7 @@ Important behavior boundaries:
 
 ### Provider Safety Boundaries
 
-- Do not put BrainDrive-owned OpenRouter provider keys in client config.
+- Do not put BrainDrive-owned provider keys in client config.
 - Do not make BrainDrive Models credits required for Ollama or BYOK OpenRouter.
 - Do not remove Ollama or BYOK OpenRouter provider choices while changing BrainDrive Models behavior.
 - Do not hard-code production/staging hosted URLs without checking existing config patterns.

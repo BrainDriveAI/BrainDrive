@@ -67,6 +67,18 @@ include the rule, path, commit, hashed fingerprint, disposition, reviewer,
 status, and rationale without the matched value. Re-run both scan modes after
 every remediation or exception.
 
+### Approved historical exception
+
+The exception identified publicly as `sha256:592e330f7b5b6fe6` is
+`reviewed-false-positive`: authorized BrainDriveAI security reviewer
+`@DJJones66` classified the historical value as synthetic, false-positive, or
+expired and therefore non-authorizing on 2026-08-04. Only its exact Gitleaks
+fingerprint is allowlisted; no directory, filename family, rule, or pattern is
+excluded. Review expires on 2027-08-04 and must run earlier if the affected
+history is republished, the rule or scanner version changes, or new evidence
+questions the non-authorizing classification. The matched value is deliberately
+absent from this record.
+
 History rewriting is not incident containment. Consider it only after any real
 credential is revoked, with explicit maintainer approval, scoped refs,
 recovery backups, force-push coordination, contributor repair instructions,

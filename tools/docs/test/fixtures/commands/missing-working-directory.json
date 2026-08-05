@@ -1,0 +1,1 @@
+{"id":"ambiguous","command":"npm test","prerequisites":["Node.js 22"],"platforms":["all"],"modes":["repository"],"credentialNeed":"none","sideEffects":"Test-only","expectedResult":"Exit 0","riskTier":"A","recovery":"Inspect diagnostics"}

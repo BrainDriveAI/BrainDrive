@@ -1,0 +1,108 @@
+name: Documentation report
+description: Report a reproducible documentation defect or propose a focused documentation improvement
+title: "[Docs]: "
+labels:
+  - documentation
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for public-safe documentation defects and improvements. For setup help or product questions, use the [BrainDrive community forum](https://community.braindrive.ai). Report suspected vulnerabilities only through [GitHub Private Vulnerability Reporting](https://github.com/BrainDriveAI/BrainDrive/security/advisories/new); never place sensitive security evidence in this form.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues for this documentation problem.
+          required: true
+        - label: I removed credentials, owner data, private URLs, network identifiers, raw scanner matches, sensitive logs, and restricted details.
+          required: true
+
+  - type: dropdown
+    id: report-type
+    attributes:
+      label: Documentation request type
+      description: Classify this public-safe request before providing details.
+      options:
+        - Reproducible documentation defect
+        - Focused documentation improvement
+    validations:
+      required: true
+
+  - type: input
+    id: page-path
+    attributes:
+      label: Page or repository path
+      description: Name the exact Markdown page, heading, catalog topic, or collaboration surface.
+      placeholder: "Example: docs/developers/README.md"
+    validations:
+      required: true
+
+  - type: input
+    id: branch-tag
+    attributes:
+      label: Branch, tag, or revision
+      description: Identify the branch, release tag, or commit where you observed the issue.
+      placeholder: "Example: dev or 26.7.23"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: journey
+    attributes:
+      label: Developer journey
+      options:
+        - Orient in the repository
+        - Run a development environment
+        - Contribute a verified change
+        - Trace participating components
+        - Use a shipped integration
+        - Report a security issue safely
+        - Maintain canonical documentation
+        - Preserve release truth
+        - Direct entry or repository search
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected documentation behavior
+      description: What authority, route, command context, or outcome did you expect?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual documentation behavior
+      description: What was missing, stale, ambiguous, broken, or unsafe?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-correction
+    attributes:
+      label: Proposed correction
+      description: Suggest the smallest source-backed correction, if known. Do not invent behavior or compatibility.
+    validations:
+      required: false
+
+  - type: textarea
+    id: sanitized-evidence
+    attributes:
+      label: Sanitized evidence
+      description: Provide public-safe steps, expected-versus-actual excerpts, or links. Never include credentials, owner data, private infrastructure, raw secret matches, or vulnerability details.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: safe-routing
+    attributes:
+      label: Safe routing
+      options:
+        - label: This is a documentation report, not a support request or suspected vulnerability.
+          required: true
+        - label: Any system or account referenced is mine or one I am explicitly authorized to assess.
+          required: true
