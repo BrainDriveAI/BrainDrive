@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { checkReleaseEvidence } from '../release-check.mjs';
@@ -8,9 +9,13 @@ const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url));
 test('release evidence precursor fails closed across pre- and post-AIH evidence phases', async () => {
   const result = await checkReleaseEvidence(repositoryRoot);
   assert.equal(result.status, 'blocked');
+  const platformReportExists = existsSync(new URL(
+    '../../../docs/developers/verification/platform-reports/windows-j05.json',
+    import.meta.url,
+  ));
   assert.deepEqual(
     result.diagnostics.filter(({ rule }) => rule === 'G-07').map(({ path }) => path),
-    ['platform-evidence:J-05:windows'],
+    platformReportExists ? [] : ['platform-evidence:J-05:windows'],
   );
   assert.deepEqual(
     result.diagnostics.filter(({ rule, path }) => rule === 'G-05' && path.startsWith('human-evidence:')).map(({ path }) => path),
