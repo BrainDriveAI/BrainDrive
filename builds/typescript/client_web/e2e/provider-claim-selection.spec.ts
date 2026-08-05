@@ -321,16 +321,10 @@ test("post-claim layout shift cannot activate OpenRouter without a second delibe
     contentType: "image/png",
   });
 
-  const activateOpenRouter = page.getByRole("button", {
-    name: "Use OpenRouter",
-  }).filter({ visible: true });
-  for (let index = 0; index < 3; index += 1) {
-    if (await activateOpenRouter.evaluate((element) => element === document.activeElement)) {
-      break;
-    }
-    await page.keyboard.press("Tab");
-  }
-  await expect(activateOpenRouter).toBeFocused();
+  // The first displaced click focuses and discloses the one-click card without
+  // activating it. A subsequent keyboard gesture on that focused card is
+  // deliberate and may perform the activation.
+  await expect(openRouterCard).toBeFocused();
   await page.keyboard.press("Enter");
 
   await expect(openRouterCard).toHaveAttribute("aria-current", "true");

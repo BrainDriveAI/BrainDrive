@@ -2417,6 +2417,7 @@ function ProviderSection({
   const [expandedProfile, setExpandedProfile] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
   const activatingProfiles = useRef(new Set<string>()).current;
+  const activationIntentProfiles = useRef(new Set<string>()).current;
   const [providerApiKey, setProviderApiKey] = useState("");
   const [isSavingCredential, setIsSavingCredential] = useState(false);
   const [credentialError, setCredentialError] = useState<string | null>(null);
@@ -2555,17 +2556,33 @@ function ProviderSection({
                     aria-current={isActive ? "true" : undefined}
                     aria-expanded={isExpanded}
                     aria-label={`${profileLabel} provider settings${isActive ? " (active)" : ""}`}
-                    onClick={() => {
+                    onPointerMove={(event) => {
+                      if (event.pointerType === "mouse") {
+                        activationIntentProfiles.add(profile.id);
+                      }
+                    }}
+                    onPointerDown={(event) => {
+                      if (event.pointerType !== "mouse") {
+                        activationIntentProfiles.add(profile.id);
+                      }
+                    }}
+                    onPointerLeave={() => {
+                      activationIntentProfiles.delete(profile.id);
+                    }}
+                    onClick={(event) => {
                       setExpandedProfile((currentProfile) =>
                         currentProfile === profile.id ? "" : profile.id
                       );
                       setCredentialError(null);
                       setProviderApiKey("");
                       setSaveError(null);
+                      const hasDeliberateActivationIntent =
+                        event.detail === 0 || activationIntentProfiles.has(profile.id);
                       if (
                         isActive ||
                         !canActivate ||
-                        activatingProfiles.has(profile.id)
+                        activatingProfiles.has(profile.id) ||
+                        !hasDeliberateActivationIntent
                       ) {
                         return;
                       }
