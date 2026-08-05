@@ -4,8 +4,8 @@
   "reviewerRole": "GitHub-reader/workflow reviewer",
   "operatorRole": "AI evidence coordinator transcribing the repository owner's explicit public-safe attestation",
   "reviewDate": "2026-08-05",
-  "sourceTestRevision": "05999a1803809ff3f0a62930e9752df8c86095fa",
-  "sourceCandidateProof": "source-candidate sha256 4a750b03b233a2fde3dd9317d39a81b37d2b0ebf74ed830c0b8e7ff882bbe65a; entries 619; revision 05999a1803809ff3f0a62930e9752df8c86095fa",
+  "sourceTestRevision": "576fbdceb8d9370742242e07ac07a65d872db936",
+  "sourceCandidateProof": "source-candidate sha256 34697b43ccd4b2e705de0af414d095fa4715664f80a3aa314ed083b1d23f3ef1; entries 619; revision 576fbdceb8d9370742242e07ac07a65d872db936",
   "scope": [
     "Actual Markdown rendering, navigation, search, issue and PR routes, Actions diagnostics, ownership, required checks, settings, retention, and revision provenance"
   ],

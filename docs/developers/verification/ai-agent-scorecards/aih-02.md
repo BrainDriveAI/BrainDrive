@@ -6,13 +6,13 @@ The earlier scorecard attempt bound to revision `79fd0e3de2cd137b38b624552478d2a
 
 ## Current-candidate execution
 
-The substantive result comes from the fresh isolated read-only execution at `6ff2c50fe6294fa1768754a434c5cccfb84da2ff`. The compatibility classifier compared that source to `05999a1803809ff3f0a62930e9752df8c86095fa` and selected no rerun for this scenario, so the result is carried forward and rebound to the current candidate. Prior scorecards were excluded, and earlier attempts remain historical without relabeling.
+The scorecard below is based on a new ephemeral read-only evaluator working only in a public checkout detached at `576fbdceb8d9370742242e07ac07a65d872db936`. Prior scorecards and human-review records were excluded; earlier attempts remain historical without relabeling.
 
 - Scenario ID: AIH-02
-- Candidate revision: `05999a1803809ff3f0a62930e9752df8c86095fa`
-- Candidate state proof: `candidate-content sha256 4a750b03b233a2fde3dd9317d39a81b37d2b0ebf74ed830c0b8e7ff882bbe65a; entries 619; head 05999a1803809ff3f0a62930e9752df8c86095fa`
-- SOURCE_TEST_REVISION: `05999a1803809ff3f0a62930e9752df8c86095fa`
-- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 4a750b03b233a2fde3dd9317d39a81b37d2b0ebf74ed830c0b8e7ff882bbe65a; entries 619; revision 05999a1803809ff3f0a62930e9752df8c86095fa`
+- Candidate revision: `576fbdceb8d9370742242e07ac07a65d872db936`
+- Candidate state proof: `candidate-content sha256 34697b43ccd4b2e705de0af414d095fa4715664f80a3aa314ed083b1d23f3ef1; entries 619; head 576fbdceb8d9370742242e07ac07a65d872db936`
+- SOURCE_TEST_REVISION: `576fbdceb8d9370742242e07ac07a65d872db936`
+- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 34697b43ccd4b2e705de0af414d095fa4715664f80a3aa314ed083b1d23f3ef1; entries 619; revision 576fbdceb8d9370742242e07ac07a65d872db936`
 - Task prompt: Starting at docs/developers/README.md, map the web client, gateway, auth/config, engine, providers, tools/MCP, memory/secrets, Docker/installer, Tauri desktop, tests/CI, and release surfaces. Cite tracked source or current canonical documentation for every component and do not infer one universal request path.
 - Starting path and allowed context: `docs/developers/README.md`; Git-derived tracked and non-ignored files linked from the developer front door and catalog.
 - Prohibited inputs/actions confirmed: No archived/external planning or ignored runtime state was used; no component, interface, support claim, or file change was invented.

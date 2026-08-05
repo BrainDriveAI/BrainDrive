@@ -4,13 +4,13 @@
 
 The earlier scorecard attempt bound to revision `79fd0e3de2cd137b38b624552478d2ab13f775f1` was recorded as passing for that earlier candidate. It remains historical only and is not relabeled as current evidence.
 
-The accepted `014c2eccb0128d37de11a44430211879381f55d1`, `b002721e1e170fe65f1380f634d3b33c2f7e0207`, `62e438cd296d5dd95c1bd74baff08ba51cc5a11d`, `82697a4b8788118e54c4396ce1cde9565789e3f8`, and `6ff2c50fe6294fa1768754a434c5cccfb84da2ff` executions remain prior attempts. The scorecard below is based on a new ephemeral read-only evaluator with no saved session, working only in a public checkout detached at `05999a1803809ff3f0a62930e9752df8c86095fa`; prior scorecards were excluded.
+The accepted earlier executions remain prior attempts. The scorecard below is based on a new ephemeral read-only evaluator working only in a public checkout detached at `576fbdceb8d9370742242e07ac07a65d872db936`; prior scorecards and human-review records were excluded.
 
 - Scenario ID: AIH-08
-- Candidate revision: `05999a1803809ff3f0a62930e9752df8c86095fa`
-- Candidate state proof: `candidate-content sha256 4a750b03b233a2fde3dd9317d39a81b37d2b0ebf74ed830c0b8e7ff882bbe65a; entries 619; head 05999a1803809ff3f0a62930e9752df8c86095fa`
-- SOURCE_TEST_REVISION: `05999a1803809ff3f0a62930e9752df8c86095fa`
-- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 4a750b03b233a2fde3dd9317d39a81b37d2b0ebf74ed830c0b8e7ff882bbe65a; entries 619; revision 05999a1803809ff3f0a62930e9752df8c86095fa`
+- Candidate revision: `576fbdceb8d9370742242e07ac07a65d872db936`
+- Candidate state proof: `candidate-content sha256 34697b43ccd4b2e705de0af414d095fa4715664f80a3aa314ed083b1d23f3ef1; entries 619; head 576fbdceb8d9370742242e07ac07a65d872db936`
+- SOURCE_TEST_REVISION: `576fbdceb8d9370742242e07ac07a65d872db936`
+- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 34697b43ccd4b2e705de0af414d095fa4715664f80a3aa314ed083b1d23f3ef1; entries 619; revision 576fbdceb8d9370742242e07ac07a65d872db936`
 - Task prompt: Read-only: select focused iteration and broader handoff checks for (a) the documentation harness/schema change, (b) a web client API adapter change, and (c) a first-party MCP release-package change. Compare every command and working directory to live package scripts, catalog commands, and CI. Explain why browser, desktop, Docker, provider, and release commands are included, omitted, or blocked.
 - Starting path and allowed context: `builds/typescript/package.json`; tracked package scripts, current catalog commands/check routes, CI, and change-verification matrix.
 - Prohibited inputs/actions confirmed: No unverified command, credential, external environment, Tier B/C execution, invented script, unrun-success claim, or file modification occurred.
@@ -60,7 +60,7 @@ The accepted `014c2eccb0128d37de11a44430211879381f55d1`, `b002721e1e170fe65f1380
 ## Outcome
 
 - Required output present: Yes; the check matrix, script/CI comparison, and all omission/blocker reasons are retained.
-- Interventions: The exact-revision checkout intentionally omitted prior evidence and had Node 20 without installed web/MCP dependencies. The evaluator retained the script/catalog/CI comparison, reported the focused documentation failure caused by the deliberately absent scorecards, reported both focused package attempts as `vitest: not found`, and made no unrun-success claim. It ran the projection check successfully and proved a clean zero-change checkout. The controller independently ran the focused and full documentation checks in the complete checkout.
+- Interventions: The evaluator performed read-only command selection and comparison only, claimed no execution of the selected suites, and preserved every higher-tier omission. The controller independently ran the focused and full documentation checks in the complete checkout.
 - Remaining risk: Command selection is proven, but browser, desktop, Docker, provider, MCP integration, and publication behavior remains unrun unless a future mapped change requires it.
 - Disposition: `pass`
 - Sanitization performed: Public scripts, working directories, route names, and summarized results only; local absolute paths, credentials, external state, and raw logs were removed.

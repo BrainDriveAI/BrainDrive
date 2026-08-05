@@ -4,8 +4,8 @@
   "reviewerRole": "AI-agent evaluator",
   "operatorRole": "AI evidence coordinator transcribing the repository owner's explicit public-safe attestation",
   "reviewDate": "2026-08-05",
-  "sourceTestRevision": "05999a1803809ff3f0a62930e9752df8c86095fa",
-  "sourceCandidateProof": "source-candidate sha256 4a750b03b233a2fde3dd9317d39a81b37d2b0ebf74ed830c0b8e7ff882bbe65a; entries 619; revision 05999a1803809ff3f0a62930e9752df8c86095fa",
+  "sourceTestRevision": "576fbdceb8d9370742242e07ac07a65d872db936",
+  "sourceCandidateProof": "source-candidate sha256 34697b43ccd4b2e705de0af414d095fa4715664f80a3aa314ed083b1d23f3ef1; entries 619; revision 576fbdceb8d9370742242e07ac07a65d872db936",
   "scope": [
     "Human evaluation of authority, scope, trust, source accuracy, verification, conflict response, zero-change behavior, and handoff quality across AIH-01 through AIH-10"
   ],
@@ -15,6 +15,7 @@
     "tools/docs/schemas/ai-harness.schema.json",
     "docs/developers/verification/ai-agent-scorecards/aih-01.md",
     "docs/developers/verification/ai-agent-scorecards/aih-10.md",
+    "tools/docs/release-check.mjs",
     "tools/docs/test/agent-contract.test.mjs",
     "tools/docs/test/evidence-harness.test.mjs",
     "https://github.com/BrainDriveAI/BrainDrive/pull/282"
@@ -23,7 +24,7 @@
     {
       "id": "REV-07-F01",
       "severity": "low",
-      "summary": "Owner accepted the ten substantive AIH dispositions and authorized the classifier-selected AIH-06 and AIH-08 reruns; the current records require no material correction.",
+      "summary": "Owner authorized the carried-forward-platform validator correction, source refreeze, and classifier-selected AI reruns. Ten fresh read-only evaluations passed at the refrozen source; two out-of-context attempts were rejected and rerun without plugins or skills. No material AIH correction remains.",
       "evidencePath": "https://github.com/BrainDriveAI/BrainDrive/pull/282#issuecomment-5190917535",
       "disposition": "resolved"
     }
