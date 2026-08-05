@@ -19,7 +19,16 @@ test('release evidence precursor fails closed across pre- and post-AIH evidence 
   );
   assert.deepEqual(
     result.diagnostics.filter(({ rule, path }) => rule === 'G-05' && path.startsWith('human-evidence:')).map(({ path }) => path),
-    Array.from({ length: 8 }, (_, index) => `human-evidence:REV-${String(index + 1).padStart(2, '0')}`),
+    Array.from({ length: 8 }, (_, index) => {
+      const number = String(index + 1).padStart(2, '0');
+      return {
+        diagnosticPath: `human-evidence:REV-${number}`,
+        reportExists: existsSync(new URL(
+          `../../../docs/developers/verification/human-reviews/rev-${number}.json`,
+          import.meta.url,
+        )),
+      };
+    }).filter(({ reportExists }) => !reportExists).map(({ diagnosticPath }) => diagnosticPath),
   );
   const expectedAiPaths = Array.from(
     { length: 10 },
