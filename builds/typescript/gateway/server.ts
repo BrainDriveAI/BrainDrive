@@ -2311,7 +2311,11 @@ export async function buildServer(rootDir = process.cwd()) {
           currentPreferences,
           targetProfile
         );
-        if (!readiness.ready) {
+        const targetProviderId = (
+          resolveAdapterProfile(adapterConfig, targetProfile).provider_id ?? targetProfile
+        ).trim().toLowerCase();
+        const allowsUnconfiguredSelection = targetProviderId === "openrouter";
+        if (!readiness.ready && !allowsUnconfiguredSelection) {
           auditLog("settings.provider_activation_rejected", {
             actor_id: request.authContext.actorId,
             source: "explicit",

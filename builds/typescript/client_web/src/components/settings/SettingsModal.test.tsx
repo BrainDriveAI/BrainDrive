@@ -1143,15 +1143,21 @@ describe("SettingsModal", () => {
     });
   });
 
-  it("keeps unconfigured OpenRouter activation unavailable while exposing configuration", async () => {
+  it("activates unconfigured OpenRouter while exposing its credential configuration", async () => {
     const user = userEvent.setup();
-    getSettingsMock.mockResolvedValueOnce({
+    const unconfiguredOpenRouter: GatewaySettings = {
       ...brainDriveModelsSettings,
       provider_profiles: brainDriveModelsSettings.provider_profiles.map((profile) =>
         profile.id === "openrouter"
           ? { ...profile, credential_mode: "unset", credential_ref: null }
           : profile
       ),
+    };
+    getSettingsMock.mockResolvedValueOnce(unconfiguredOpenRouter);
+    updateSettingsMock.mockResolvedValueOnce({
+      ...unconfiguredOpenRouter,
+      active_provider_profile: "openrouter",
+      provider_activation_revision: 1,
     });
     render(<SettingsModal mode="local" onClose={() => {}} />);
     await user.click((await screen.findAllByRole("button", { name: "AI Models" }))[0]!);
@@ -1159,10 +1165,18 @@ describe("SettingsModal", () => {
       screen.getAllByRole("button", { name: /OpenRouter provider settings/i })[0]!
     );
 
-    expect(screen.queryByRole("button", { name: "Use OpenRouter" })).not.toBeInTheDocument();
-    expect(screen.getByText("Configure OpenRouter before activating it.")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(updateSettingsMock).toHaveBeenCalledWith({
+        active_provider_profile: "openrouter",
+      });
+      expect(
+        screen
+          .getAllByRole("button", { name: /OpenRouter provider settings/i })
+          .every((button) => button.getAttribute("aria-current") === "true")
+      ).toBe(true);
+    });
+    expect(screen.queryByText("Configure OpenRouter before activating it.")).not.toBeInTheDocument();
     expect(screen.getByLabelText("API Key")).toBeInTheDocument();
-    expect(updateSettingsMock).not.toHaveBeenCalled();
   });
 
   it("does not let a late activation failure erase a newer successful provider", async () => {
@@ -1234,7 +1248,7 @@ describe("SettingsModal", () => {
       screen.getAllByRole("button", { name: /OpenRouter provider settings/i })[0]!
     );
     await user.type(screen.getByLabelText("API Key"), "sk-test-openrouter-key");
-    await user.click(screen.getByRole("button", { name: "Save API Key" }));
+    await user.click(screen.getAllByRole("button", { name: "Save API Key" })[0]!);
 
     await waitFor(() => expect(updateProviderCredentialMock).toHaveBeenCalledTimes(1));
     await waitFor(() => {
