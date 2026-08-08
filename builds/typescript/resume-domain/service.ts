@@ -9,6 +9,7 @@ import {
   InterviewProgressRecordSchema,
   JobDescriptionRecordSchema,
   RequirementEvidenceSchema,
+  ResumeDataRecordSchema,
   ResumeDefinitionRecordSchema,
   ResumeStatementSchema,
   SourceRecordSchema,
@@ -20,8 +21,26 @@ import type { CapabilityGrant } from "../app-platform/lifecycle/store.js";
 import type { InferenceDataBlockSchema } from "../app-platform/contracts/inference.js";
 import { ResumeDomainError } from "./errors.js";
 import { ResumeDataStore, type MutationContext, type ResumeDataRecord } from "./store.js";
+import {
+  CareerFactRepository,
+  CareerSourceRepository,
+  FactDecisionInputSchema,
+  type FactDecisionInput,
+  type HostOwnerDecisionEvidence,
+  proposalClassificationFromFact,
+  requireHostOwnerDecisionEvidence,
+} from "./career-data.js";
 import { RESUME_PROMPT_POLICY_ID } from "../resume-inference/policy.js";
 import { validateInferenceClaims } from "../resume-inference/validators.js";
+import {
+  ResumeArtifactRepository,
+  ResumeDefinitionRepository,
+  ResumeExportRepository,
+  ResumeJobRepository,
+  ResumeReferenceRepository,
+  TailoredVariantRepository,
+} from "./lineage-repositories.js";
+import { changedStatementIds, type ResumeLineageGraph } from "./resume-lineage.js";
 
 type Sensitivity = z.infer<typeof SensitivitySchema>;
 
@@ -48,14 +67,17 @@ const ProposalInputSchema = z.object({
   }).strict(),
 }).strict();
 
-const ConfirmationInputSchema = z.object({
-  fact_record_id: OpaqueIdSchema,
-  expected_revision: z.number().int().positive(),
-  decision: z.enum(["accept", "edit_and_accept", "reject"]),
-  edited_value: z.string().min(1).max(16_384).nullable(),
-  review_note: z.string().max(512).nullable().default(null),
+const LinkedProposalInputSchema = z.object({
+  source_revision_ids: z.array(OpaqueIdSchema).min(1).max(25),
+  fact: ProposalInputSchema.shape.fact,
+}).strict();
+
+const GroupConfirmationInputSchema = z.object({
+  decisions: z.array(FactDecisionInputSchema).min(1).max(100),
 }).strict().superRefine((value, context) => {
-  if ((value.decision === "edit_and_accept") !== (value.edited_value !== null)) context.addIssue({ code: "custom", message: "edited value must match edit-and-accept decision" });
+  if (new Set(value.decisions.map((decision) => decision.fact_record_id)).size !== value.decisions.length) {
+    context.addIssue({ code: "custom", message: "grouped review requires one decision per fact" });
+  }
 });
 
 const DefinitionInputSchema = z.object({
@@ -78,7 +100,8 @@ const DefinitionInputSchema = z.object({
 
 const JobInputSchema = z.object({ job_id: OpaqueIdSchema.optional(), safe_label: z.string().min(1).max(256), description_text: z.string().min(1).max(131_072), content_digest: Sha256DigestSchema, captured_at: TimestampSchema, sensitivity: z.enum(["standard", "sensitive", "highly_sensitive"]).default("sensitive") }).strict();
 
-const ExportReceiptInputSchema = z.object({ artifact_revision_id: OpaqueIdSchema, artifact_digest: Sha256DigestSchema, format: z.enum(["pdf", "docx", "html"]), outcome: z.enum(["completed", "cancelled", "failed"]), exported_at: TimestampSchema, safe_destination_label: z.string().min(1).max(256).regex(/^[^/\\]+$/) }).strict();
+const SafeDestinationLabelSchema = z.string().min(1).max(256).regex(/^[^/\\:\u0000-\u001f]+$/).refine((value) => value !== "." && value !== "..", "destination label cannot be a path segment");
+const ExportReceiptInputSchema = z.object({ artifact_revision_id: OpaqueIdSchema, artifact_digest: Sha256DigestSchema, format: z.enum(["pdf", "docx", "html"]), outcome: z.enum(["completed", "cancelled", "failed"]), exported_at: TimestampSchema, safe_destination_label: SafeDestinationLabelSchema }).strict();
 
 const ArtifactInputSchema = z.object({
   definition_revision_id: OpaqueIdSchema,
@@ -110,10 +133,43 @@ const DefinitionApprovalInputSchema = z.object({
   expected_revision: z.number().int().positive(),
 }).strict();
 
-export class ResumeDomainService {
-  constructor(public readonly store: ResumeDataStore, private readonly now = () => new Date()) {}
+const DefinitionComparisonInputSchema = z.object({
+  left_revision_id: OpaqueIdSchema,
+  right_revision_id: OpaqueIdSchema,
+  left_expected_revision: z.number().int().positive().optional(),
+  right_expected_revision: z.number().int().positive().optional(),
+}).strict();
 
-  async proposeFact(raw: unknown, authority: DataAuthority): Promise<{ source: ResumeDataRecord; fact: ResumeDataRecord; reused: boolean }> {
+const DefinitionRollbackInputSchema = z.object({
+  current_definition_record_id: OpaqueIdSchema,
+  current_expected_revision: z.number().int().positive(),
+  target_definition_revision_id: OpaqueIdSchema,
+}).strict();
+
+const RetireRecordInputSchema = z.object({ record_id: OpaqueIdSchema, expected_revision: z.number().int().positive() }).strict();
+
+export class ResumeDomainService {
+  readonly sources: CareerSourceRepository;
+  readonly facts: CareerFactRepository;
+  readonly definitions: ResumeDefinitionRepository;
+  readonly jobs: ResumeJobRepository;
+  readonly variants: TailoredVariantRepository;
+  readonly artifacts: ResumeArtifactRepository;
+  readonly exports: ResumeExportRepository;
+  readonly references: ResumeReferenceRepository;
+
+  constructor(public readonly store: ResumeDataStore, private readonly now = () => new Date()) {
+    this.sources = new CareerSourceRepository(store);
+    this.facts = new CareerFactRepository(store);
+    this.definitions = new ResumeDefinitionRepository(store);
+    this.jobs = new ResumeJobRepository(store);
+    this.variants = new TailoredVariantRepository(store);
+    this.artifacts = new ResumeArtifactRepository(store);
+    this.exports = new ResumeExportRepository(store);
+    this.references = new ResumeReferenceRepository(store);
+  }
+
+  async proposeFact(raw: unknown, authority: DataAuthority): Promise<{ source: z.infer<typeof SourceRecordSchema>; fact: z.infer<typeof CareerFactRecordSchema>; classification: ReturnType<typeof proposalClassificationFromFact>; reused: boolean }> {
     this.authorize(authority, "career.facts.propose");
     const input = ProposalInputSchema.parse(raw);
     const sourceId = randomUUID();
@@ -121,6 +177,7 @@ export class ResumeDomainService {
     const factId = randomUUID();
     const factRevisionId = randomUUID();
     const timestamp = this.now().toISOString();
+    const classification = await this.facts.classify(input.fact.fact_kind, input.fact.value, authority.grant.record_scopes);
     const source = SourceRecordSchema.parse({
       ...this.envelope("source", sourceId, sourceRevisionId, 1, null, input.fact.sensitivity, "durable_provenance_while_referenced", authority, timestamp),
       source_kind: input.source.source_kind, safe_label: input.source.safe_label, content_digest: input.source.content_digest,
@@ -131,31 +188,68 @@ export class ResumeDomainService {
       fact_kind: input.fact.fact_kind, state: input.fact.state, value: input.fact.value,
       source_revision_ids: [sourceRevisionId], confirmation: null, supersedes_fact_revision_id: null,
       review: { reviewed_at: null, review_note: null },
+      extensions: { proposal_classification: classification },
     });
     const result = await this.store.commit([source, fact], this.mutation(authority, input, "career_fact", null, null));
-    return { source: result.records[0]!, fact: result.records[1]!, reused: result.reused };
+    const committedSource = SourceRecordSchema.parse(result.records.find((record) => record.record_type === "source"));
+    const committedFact = CareerFactRecordSchema.parse(result.records.find((record) => record.record_type === "career_fact"));
+    return { source: committedSource, fact: committedFact, classification: proposalClassificationFromFact(committedFact), reused: result.reused };
   }
 
-  async confirmFact(raw: unknown, authority: DataAuthority, hostOwnerConfirmed: boolean): Promise<{ fact: ResumeDataRecord; reused: boolean }> {
-    this.authorize(authority, "career.facts.confirm");
-    if (!hostOwnerConfirmed) throw new ResumeDomainError("denied", "Fact confirmation requires a host-mediated owner action", 403);
-    const input = ConfirmationInputSchema.parse(raw);
-    const current = await this.store.readHead(input.fact_record_id, authority.grant.record_scopes);
-    if (current.record_type !== "career_fact") throw new ResumeDomainError("not_found_within_scope", "Record was not found within the granted scope", 404);
-    if (current.metadata.revision !== input.expected_revision) throw new ResumeDomainError("conflict", "Expected fact revision is stale");
+  async proposeFactFromSources(raw: unknown, authority: DataAuthority): Promise<{ fact: z.infer<typeof CareerFactRecordSchema>; classification: ReturnType<typeof proposalClassificationFromFact>; reused: boolean }> {
+    this.authorize(authority, "career.facts.propose");
+    const input = LinkedProposalInputSchema.parse(raw);
+    const sources = await this.sources.requireMany(input.source_revision_ids, authority.grant.record_scopes);
+    const classification = await this.facts.classify(input.fact.fact_kind, input.fact.value, authority.grant.record_scopes);
     const timestamp = this.now().toISOString();
-    const next = CareerFactRecordSchema.parse({
-      ...this.envelope("career_fact", current.metadata.record_id, randomUUID(), current.metadata.revision + 1, current.metadata.revision_id, current.sensitivity, "durable_owner_data", authority, timestamp),
-      fact_kind: current.fact_kind,
-      state: input.decision === "reject" ? "rejected" : "confirmed",
-      value: input.edited_value ?? current.value,
-      source_revision_ids: current.source_revision_ids,
-      confirmation: { confirmation_id: randomUUID(), owner_id: authority.grant.owner_id, actor_id: authority.grant.actor_id, host_mediated: true, decision: input.decision, confirmed_at: timestamp, operation_id: authority.operationId, input_revision_id: current.metadata.revision_id },
-      supersedes_fact_revision_id: current.metadata.revision_id,
-      review: { reviewed_at: timestamp, review_note: input.review_note },
+    const fact = CareerFactRecordSchema.parse({
+      ...this.envelope(
+        "career_fact",
+        randomUUID(),
+        randomUUID(),
+        1,
+        null,
+        this.maxSensitivity([input.fact.sensitivity, ...sources.map((source) => source.sensitivity)]),
+        "durable_owner_data",
+        authority,
+        timestamp,
+      ),
+      fact_kind: input.fact.fact_kind,
+      state: input.fact.state,
+      value: input.fact.value,
+      source_revision_ids: input.source_revision_ids,
+      confirmation: null,
+      supersedes_fact_revision_id: null,
+      review: { reviewed_at: null, review_note: null },
+      extensions: { proposal_classification: classification },
     });
-    const result = await this.store.commit([next], this.mutation(authority, input, "career_fact", current.metadata.record_id, input.expected_revision));
-    return { fact: result.records[0]!, reused: result.reused };
+    const result = await this.store.commit([fact], this.mutation(authority, input, "career_fact", null, null));
+    const committedFact = CareerFactRecordSchema.parse(result.records[0]);
+    return { fact: committedFact, classification: proposalClassificationFromFact(committedFact), reused: result.reused };
+  }
+
+  async confirmFact(raw: unknown, authority: DataAuthority, evidence: HostOwnerDecisionEvidence): Promise<{ fact: z.infer<typeof CareerFactRecordSchema>; reused: boolean }> {
+    this.authorize(authority, "career.facts.confirm");
+    const input = FactDecisionInputSchema.parse(raw);
+    const result = await this.confirmFactsInternal([input], authority, [evidence], false);
+    return { fact: result.facts[0]!, reused: result.reused };
+  }
+
+  async confirmFacts(raw: unknown, authority: DataAuthority, evidence: readonly HostOwnerDecisionEvidence[]): Promise<{ facts: z.infer<typeof CareerFactRecordSchema>[]; reused: boolean }> {
+    this.authorize(authority, "career.facts.confirm");
+    const input = GroupConfirmationInputSchema.parse(raw);
+    return this.confirmFactsInternal(input.decisions, authority, evidence, true);
+  }
+
+  async factHistory(recordId: string, authority: DataAuthority): Promise<z.infer<typeof CareerFactRecordSchema>[]> {
+    this.authorize(authority, "career.facts.read");
+    return this.facts.history(recordId, authority.grant.record_scopes);
+  }
+
+  async sourcesForFact(revisionId: string, authority: DataAuthority): Promise<z.infer<typeof SourceRecordSchema>[]> {
+    this.authorize(authority, "career.facts.read");
+    const fact = await this.facts.requireRevision(revisionId, authority.grant.record_scopes);
+    return this.sources.requireMany(fact.source_revision_ids, authority.grant.record_scopes);
   }
 
   async writeJob(raw: unknown, authority: DataAuthority): Promise<{ job: ResumeDataRecord; reused: boolean }> {
@@ -191,7 +285,7 @@ export class ResumeDomainService {
       if (!input.parent_definition_revision_id || !input.job_revision_id || !input.variant) throw new ResumeDomainError("invalid_input", "Targeted definitions require parent, job, and evidence metadata", 400);
       parent = await this.store.readRevision(input.parent_definition_revision_id, authority.grant.record_scopes);
       job = await this.store.readRevision(input.job_revision_id, authority.grant.record_scopes);
-      if (parent.record_type !== "resume_definition" || parent.definition_kind !== "general" || job.record_type !== "job_description") throw new ResumeDomainError("validation_failed", "Targeted definition lineage is invalid");
+      if (parent.record_type !== "resume_definition" || parent.definition_kind !== "general" || parent.status !== "approved" || job.record_type !== "job_description") throw new ResumeDomainError("validation_failed", "Targeted definition lineage is invalid");
     } else {
       if (input.job_revision_id || input.variant) throw new ResumeDomainError("invalid_input", "General definitions cannot carry targeted lineage", 400);
       if (input.parent_definition_revision_id) {
@@ -208,8 +302,21 @@ export class ResumeDomainService {
       ...(job ? [job.sensitivity] : []),
     ]);
     const factSnapshot = [...facts.values()].map((fact) => ({ revision_id: fact.metadata.revision_id, fact_kind: fact.fact_kind, value: fact.value, source_revision_ids: fact.source_revision_ids }));
+    const approvalBlocks: Array<z.infer<typeof InferenceDataBlockSchema>> = [{ category: "confirmed_fact_snapshot", content_digest: canonicalInputDigest({ facts: factSnapshot }), schema_id: "resume.confirmed-facts.v1", schema_version: 1, data: { facts: factSnapshot } }];
+    if (input.definition_kind === "targeted" && parent?.record_type === "resume_definition" && job?.record_type === "job_description") {
+      approvalBlocks.push(
+        { category: "general_resume_definition", content_digest: canonicalInputDigest(parent), schema_id: "resume.definition.v1", schema_version: 1, data: parent },
+        { category: "job_description", content_digest: canonicalInputDigest(job), schema_id: "resume.job-description.v1", schema_version: 1, data: job },
+      );
+    }
     const approvalReport = input.status === "approved"
-      ? validateInferenceClaims("general_resume_draft", { statements: input.statements }, [{ category: "confirmed_fact_snapshot", content_digest: canonicalInputDigest({ facts: factSnapshot }), schema_id: "resume.confirmed-facts.v1", schema_version: 1, data: { facts: factSnapshot } }])
+      ? validateInferenceClaims(
+          input.definition_kind === "targeted" ? "targeted_resume_draft" : "general_resume_draft",
+          input.definition_kind === "targeted"
+            ? { statements: input.statements, parent_general_definition_revision_id: input.parent_definition_revision_id, job_revision_id: input.job_revision_id }
+            : { statements: input.statements },
+          approvalBlocks,
+        )
       : null;
     if (approvalReport && !approvalReport.accepted) throw new ResumeDomainError("validation_failed", "Definition contains unsupported or unproven claims");
     const definition = ResumeDefinitionRecordSchema.parse({
@@ -247,14 +354,14 @@ export class ResumeDomainService {
     return { definition: result.records[0]!, variant: result.records[1] ?? null, reused: result.reused };
   }
 
-  async approveDefinition(raw: unknown, authority: DataAuthority, hostOwnerConfirmed: boolean): Promise<{ definition: ResumeDataRecord; reused: boolean }> {
+  async approveDefinition(raw: unknown, authority: DataAuthority, hostOwnerConfirmed: boolean): Promise<{ definition: ResumeDataRecord; variant: ResumeDataRecord | null; reused: boolean }> {
     this.authorize(authority, "resume.definitions.write");
     if (!hostOwnerConfirmed) throw new ResumeDomainError("denied", "Definition approval requires a host-mediated owner action", 403);
     const input = DefinitionApprovalInputSchema.parse(raw);
     const current = await this.store.readHead(input.definition_record_id, authority.grant.record_scopes);
     if (current.record_type !== "resume_definition") throw new ResumeDomainError("not_found_within_scope", "Definition was not found within the granted scope", 404);
-    if (current.metadata.revision !== input.expected_revision) throw new ResumeDomainError("conflict", "Expected definition revision is stale");
-    if (current.status === "approved") throw new ResumeDomainError("conflict", "Definition is already approved");
+    if (current.metadata.revision !== input.expected_revision) throw new ResumeDomainError("conflict", "Expected definition revision is stale", 409, { currentRevision: current.metadata.revision });
+    if (current.status === "approved") throw new ResumeDomainError("conflict", "Definition is already approved", 409, { currentRevision: current.metadata.revision });
     const factRecords = await this.confirmedFacts(current.selected_fact_revision_ids, authority.grant.record_scopes);
     const facts = [...factRecords.values()].map((fact) => ({ revision_id: fact.metadata.revision_id, fact_kind: fact.fact_kind, value: fact.value, source_revision_ids: fact.source_revision_ids }));
     const dataBlocks: Array<z.infer<typeof InferenceDataBlockSchema>> = [{ category: "confirmed_fact_snapshot", content_digest: canonicalInputDigest({ facts }), schema_id: "resume.confirmed-facts.v1", schema_version: 1, data: { facts } }];
@@ -266,7 +373,7 @@ export class ResumeDomainService {
         this.store.readRevision(current.parent_definition_revision_id, authority.grant.record_scopes),
         this.store.readRevision(current.job_revision_id, authority.grant.record_scopes),
       ]);
-      if (parent.record_type !== "resume_definition" || parent.definition_kind !== "general" || job.record_type !== "job_description") {
+      if (parent.record_type !== "resume_definition" || parent.definition_kind !== "general" || parent.status !== "approved" || job.record_type !== "job_description") {
         throw new ResumeDomainError("validation_failed", "Targeted definition lineage is invalid");
       }
       dataBlocks.push(
@@ -309,8 +416,20 @@ export class ResumeDomainService {
         validated_at: timestamp,
       },
     });
-    const result = await this.store.commit([next], this.mutation(authority, input, "resume_definition", current.metadata.record_id, input.expected_revision));
-    return { definition: result.records[0]!, reused: result.reused };
+    let variant: z.infer<typeof TailoredVariantRecordSchema> | null = null;
+    if (current.definition_kind === "targeted") {
+      const priorVariant = await this.variants.forTargetedDefinition(current.metadata.revision_id, authority.grant.record_scopes);
+      variant = TailoredVariantRecordSchema.parse({
+        ...this.envelope("tailored_variant", randomUUID(), randomUUID(), 1, null, current.sensitivity, "durable_owner_data", authority, timestamp),
+        parent_general_definition_revision_id: priorVariant.parent_general_definition_revision_id,
+        targeted_definition_revision_id: next.metadata.revision_id,
+        job_revision_id: priorVariant.job_revision_id,
+        evidence_matrix: priorVariant.evidence_matrix,
+        changed_statement_ids: priorVariant.changed_statement_ids,
+      });
+    }
+    const result = await this.store.commit(variant ? [next, variant] : [next], this.mutation(authority, input, "resume_definition", current.metadata.record_id, input.expected_revision));
+    return { definition: result.records[0]!, variant: result.records[1] ?? null, reused: result.reused };
   }
 
   async registerArtifact(raw: unknown, authority: DataAuthority): Promise<{ artifact: ResumeDataRecord; reused: boolean }> {
@@ -339,7 +458,7 @@ export class ResumeDomainService {
     this.authorize(authority, "resume.export.request");
     const input = ExportReceiptInputSchema.parse(raw);
     const artifact = await this.store.readRevision(input.artifact_revision_id, authority.grant.record_scopes);
-    if (artifact.record_type !== "artifact" || artifact.artifact_digest !== input.artifact_digest || artifact.format !== input.format) throw new ResumeDomainError("validation_failed", "Export receipt does not match registered artifact lineage");
+    if (artifact.record_type !== "artifact" || !artifact.accepted || artifact.artifact_digest !== input.artifact_digest || artifact.format !== input.format) throw new ResumeDomainError("validation_failed", "Export receipt does not match registered artifact lineage");
     const timestamp = this.now().toISOString();
     const receipt = ExportReceiptRecordSchema.parse({
       ...this.envelope("export_receipt", randomUUID(), randomUUID(), 1, null, artifact.sensitivity, "durable_owner_data", authority, timestamp),
@@ -347,6 +466,127 @@ export class ResumeDomainService {
     });
     const result = await this.store.commit([receipt], this.mutation(authority, input, "export_receipt", null, null));
     return { receipt: result.records[0]!, reused: result.reused };
+  }
+
+  async referenceGraph(authority: DataAuthority): Promise<ResumeLineageGraph> {
+    this.authorize(authority, "resume.definitions.read");
+    return this.references.graph(authority.grant.record_scopes);
+  }
+
+  async compareDefinitions(raw: unknown, authority: DataAuthority) {
+    this.authorize(authority, "resume.definitions.read");
+    const input = DefinitionComparisonInputSchema.parse(raw);
+    const [left, right] = await Promise.all([
+      this.definitions.requireRevision(input.left_revision_id, authority.grant.record_scopes),
+      this.definitions.requireRevision(input.right_revision_id, authority.grant.record_scopes),
+    ]);
+    if (
+      (input.left_expected_revision !== undefined && input.left_expected_revision !== left.metadata.revision) ||
+      (input.right_expected_revision !== undefined && input.right_expected_revision !== right.metadata.revision)
+    ) throw new ResumeDomainError("conflict", "Definition comparison revision is stale", 409, { currentRevision: Math.max(left.metadata.revision, right.metadata.revision) });
+    const changed = changedStatementIds(left.statements, right.statements);
+    const leftIds = new Set(left.statements.map((statement) => statement.statement_id));
+    const rightIds = new Set(right.statements.map((statement) => statement.statement_id));
+    return {
+      comparison_version: 1 as const,
+      left_revision_id: left.metadata.revision_id,
+      right_revision_id: right.metadata.revision_id,
+      left_digest: canonicalInputDigest(left),
+      right_digest: canonicalInputDigest(right),
+      added_statement_ids: [...rightIds].filter((statementId) => !leftIds.has(statementId)),
+      removed_statement_ids: [...leftIds].filter((statementId) => !rightIds.has(statementId)),
+      changed_statement_ids: changed.filter((statementId) => leftIds.has(statementId) && rightIds.has(statementId)),
+      selected_fact_changes: {
+        added_revision_ids: right.selected_fact_revision_ids.filter((revisionId) => !left.selected_fact_revision_ids.includes(revisionId)),
+        removed_revision_ids: left.selected_fact_revision_ids.filter((revisionId) => !right.selected_fact_revision_ids.includes(revisionId)),
+      },
+      same_parent: left.parent_definition_revision_id === right.parent_definition_revision_id,
+      same_job: left.job_revision_id === right.job_revision_id,
+    };
+  }
+
+  async selectDefinition(revisionId: string, authority: DataAuthority) {
+    this.authorize(authority, "resume.definitions.read");
+    const definition = await this.definitions.requireRevision(OpaqueIdSchema.parse(revisionId), authority.grant.record_scopes);
+    await this.references.graph(authority.grant.record_scopes);
+    return definition;
+  }
+
+  async rollbackDefinition(raw: unknown, authority: DataAuthority, hostOwnerConfirmed: boolean): Promise<{ definition: ResumeDataRecord; variant: ResumeDataRecord | null; reused: boolean }> {
+    this.authorize(authority, "resume.definitions.write");
+    const input = DefinitionRollbackInputSchema.parse(raw);
+    const [current, target] = await Promise.all([
+      this.definitions.requireHead(input.current_definition_record_id, authority.grant.record_scopes),
+      this.definitions.requireRevision(input.target_definition_revision_id, authority.grant.record_scopes),
+    ]);
+    if (current.metadata.revision !== input.current_expected_revision) throw new ResumeDomainError("conflict", "Expected definition revision is stale", 409, { currentRevision: current.metadata.revision });
+    if (current.metadata.revision_id === target.metadata.revision_id || current.definition_kind !== target.definition_kind) {
+      throw new ResumeDomainError("conflict", "Rollback target is not a coherent prior definition", 409);
+    }
+    if (target.status === "approved" && !hostOwnerConfirmed) throw new ResumeDomainError("denied", "Approved rollback requires a host-mediated owner action", 403);
+    const timestamp = this.now().toISOString();
+    const base = this.envelope("resume_definition", randomUUID(), randomUUID(), 1, null, target.sensitivity, "durable_owner_data", authority, timestamp);
+    const definition = ResumeDefinitionRecordSchema.parse({
+      ...target,
+      ...base,
+      metadata: { ...base.metadata, extensions: target.metadata.extensions },
+      extensions: target.extensions,
+      parent_definition_revision_id: target.definition_kind === "general" ? target.metadata.revision_id : target.parent_definition_revision_id,
+    });
+    let variant: z.infer<typeof TailoredVariantRecordSchema> | null = null;
+    if (target.definition_kind === "targeted") {
+      const targetVariant = await this.variants.forTargetedDefinition(target.metadata.revision_id, authority.grant.record_scopes);
+      variant = TailoredVariantRecordSchema.parse({
+        ...this.envelope("tailored_variant", randomUUID(), randomUUID(), 1, null, targetVariant.sensitivity, "durable_owner_data", authority, timestamp),
+        parent_general_definition_revision_id: targetVariant.parent_general_definition_revision_id,
+        targeted_definition_revision_id: definition.metadata.revision_id,
+        job_revision_id: targetVariant.job_revision_id,
+        evidence_matrix: targetVariant.evidence_matrix,
+        changed_statement_ids: targetVariant.changed_statement_ids,
+        extensions: targetVariant.extensions,
+      });
+    }
+    const result = await this.store.commit(
+      variant ? [definition, variant] : [definition],
+      this.mutation(authority, input, "resume_definition_rollback", current.metadata.record_id, input.current_expected_revision),
+    );
+    return { definition: result.records[0]!, variant: result.records[1] ?? null, reused: result.reused };
+  }
+
+  async retireRecord(raw: unknown, authority: DataAuthority): Promise<{ record: ResumeDataRecord; reused: boolean }> {
+    const input = RetireRecordInputSchema.parse(raw);
+    const current = await this.store.readHead(input.record_id, authority.grant.record_scopes);
+    this.authorizeRecordMutation(current.record_type, authority);
+    if (current.metadata.revision !== input.expected_revision || current.lifecycle_state !== "active") {
+      throw new ResumeDomainError("conflict", "Expected active record revision is stale", 409, { currentRevision: current.metadata.revision });
+    }
+    await this.references.assertNoInboundReferences(current.metadata.revision_id, authority.grant.record_scopes);
+    const timestamp = this.now().toISOString();
+    const candidate = ResumeDataRecordSchema.parse({
+      ...current,
+      metadata: {
+        ...current.metadata,
+        revision_id: randomUUID(),
+        revision: current.metadata.revision + 1,
+        created_at: timestamp,
+        created_by: { ...current.metadata.created_by, actor_id: authority.grant.actor_id, installation_id: authority.grant.installation_id, package_digest: authority.grant.package_digest },
+        prior_revision_id: current.metadata.revision_id,
+      },
+      updated_at: timestamp,
+      lifecycle_state: "retired",
+      ...(current.record_type === "resume_definition" ? { status: "retired", approved_at: null, approval_evidence: null } : {}),
+    });
+    const result = await this.store.commit([candidate], this.mutation(authority, input, current.record_type, current.metadata.record_id, input.expected_revision));
+    return { record: result.records[0]!, reused: result.reused };
+  }
+
+  async assertRecordDeletable(revisionId: string, authority: DataAuthority): Promise<void> {
+    if (!authority.grant.capabilities.includes(authority.capability) || authority.grant.revoked_at || Date.parse(authority.grant.expires_at) <= Date.now()) {
+      throw new ResumeDomainError("denied", "Capability operation is not authorized", 403);
+    }
+    const record = await this.store.readRevision(OpaqueIdSchema.parse(revisionId), authority.grant.record_scopes);
+    await this.references.assertNoInboundReferences(record.metadata.revision_id, authority.grant.record_scopes);
+    throw new ResumeDomainError("conflict", "Durable owner records cannot be destructively deleted", 409);
   }
 
   async saveInterviewProgress(raw: unknown, authority: DataAuthority): Promise<{ progress: ResumeDataRecord; reused: boolean }> {
@@ -367,10 +607,107 @@ export class ResumeDomainService {
     return this.store.list(recordType, authority.grant.record_scopes);
   }
 
+  private async confirmFactsInternal(
+    decisions: readonly FactDecisionInput[],
+    authority: DataAuthority,
+    evidence: readonly HostOwnerDecisionEvidence[],
+    grouped: boolean,
+  ): Promise<{ facts: z.infer<typeof CareerFactRecordSchema>[]; reused: boolean }> {
+    if (decisions.length !== evidence.length) {
+      throw new ResumeDomainError("denied", "Every fact decision requires separate authenticated host-owner evidence", 403);
+    }
+    const proofs = decisions.map((input, index) => requireHostOwnerDecisionEvidence(evidence[index], {
+      ownerId: authority.grant.owner_id,
+      actorId: authority.grant.actor_id,
+      operationId: authority.operationId,
+      inputRevisionId: input.fact_revision_id,
+      decision: input.decision,
+    }));
+    const inputRecords = await Promise.all(decisions.map((input) => this.facts.requireRevision(input.fact_revision_id, authority.grant.record_scopes)));
+    const timestamp = this.now().toISOString();
+    const nextRecords = await Promise.all(inputRecords.map(async (current, index) => {
+      const input = decisions[index]!;
+      if (current.metadata.record_id !== input.fact_record_id || current.metadata.revision !== input.expected_revision) {
+        throw new ResumeDomainError("conflict", "Expected fact revision is stale", 409, { currentRevision: current.metadata.revision });
+      }
+      if (current.state === "rejected") {
+        throw new ResumeDomainError("conflict", "Rejected facts cannot transition again", 409);
+      }
+      if (current.state === "confirmed") {
+        if (input.decision !== "edit_and_accept" || input.edited_value === current.value) {
+          throw new ResumeDomainError("conflict", "Confirmed facts require a material owner correction", 409);
+        }
+      }
+      const sourceRecords = await this.sources.requireMany(current.source_revision_ids, authority.grant.record_scopes);
+      const nextSensitivity = this.maxSensitivity([current.sensitivity, ...sourceRecords.map((source) => source.sensitivity)]);
+      const base = this.envelope(
+        "career_fact",
+        current.metadata.record_id,
+        randomUUID(),
+        current.metadata.revision + 1,
+        current.metadata.revision_id,
+        nextSensitivity,
+        "durable_owner_data",
+        authority,
+        timestamp,
+      );
+      return CareerFactRecordSchema.parse({
+        ...base,
+        metadata: { ...base.metadata, extensions: current.metadata.extensions },
+        extensions: current.extensions,
+        fact_kind: current.fact_kind,
+        state: input.decision === "reject" ? "rejected" : "confirmed",
+        value: input.edited_value ?? current.value,
+        source_revision_ids: current.source_revision_ids,
+        confirmation: proofs[index],
+        supersedes_fact_revision_id: current.metadata.revision_id,
+        review: { reviewed_at: timestamp, review_note: input.review_note },
+      });
+    }));
+    const expectedRevisions = Object.fromEntries(decisions.map((input) => [input.fact_record_id, input.expected_revision]));
+    const canonicalInput = {
+      decisions,
+      owner_confirmations: proofs.map((proof) => ({
+        owner_id: proof.owner_id,
+        actor_id: proof.actor_id,
+        host_mediated: proof.host_mediated,
+        decision: proof.decision,
+        operation_id: proof.operation_id,
+        input_revision_id: proof.input_revision_id,
+      })),
+    };
+    const mutation = this.mutation(
+      authority,
+      canonicalInput,
+      grouped ? "career_fact_group" : "career_fact",
+      grouped ? null : decisions[0]!.fact_record_id,
+      grouped ? null : decisions[0]!.expected_revision,
+    );
+    if (grouped) mutation.expectedRevisions = expectedRevisions;
+    const result = await this.store.commit(nextRecords, mutation);
+    return {
+      facts: result.records.map((record) => CareerFactRecordSchema.parse(record)),
+      reused: result.reused,
+    };
+  }
+
   private authorize(authority: DataAuthority, expected: DataAuthority["capability"]): void {
     if (authority.capability !== expected || !authority.grant.capabilities.includes(expected) || authority.grant.revoked_at || Date.parse(authority.grant.expires_at) <= Date.now()) {
       throw new ResumeDomainError("denied", "Capability operation is not authorized", 403);
     }
+  }
+
+  private authorizeRecordMutation(recordType: ResumeDataRecord["record_type"], authority: DataAuthority): void {
+    const capabilityByType: Partial<Record<ResumeDataRecord["record_type"], DataAuthority["capability"]>> = {
+      resume_definition: "resume.definitions.write",
+      tailored_variant: "resume.definitions.write",
+      job_description: "resume.jobs.write",
+      artifact: "resume.artifacts.register",
+      export_receipt: "resume.export.request",
+    };
+    const expected = capabilityByType[recordType];
+    if (!expected) throw new ResumeDomainError("denied", "Record retirement is outside this milestone authority", 403);
+    this.authorize(authority, expected);
   }
 
   private envelope(recordType: ResumeDataRecord["record_type"], recordId: string, revisionId: string, revision: number, priorRevisionId: string | null, sensitivity: Sensitivity, retentionClass: string, authority: DataAuthority, timestamp: string) {

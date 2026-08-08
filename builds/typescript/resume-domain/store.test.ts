@@ -4,10 +4,11 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { canonicalInputDigest } from "../app-platform/contracts/common.js";
 import { ResumeDomainError } from "./errors.js";
 import { ResumeDomainService } from "./service.js";
 import { ResumeDataCatalogSchema, ResumeDataStore } from "./store.js";
-import { authority, proposalInput, testGrant } from "./test-helpers.js";
+import { authority, ownerDecision, proposalInput, testGrant } from "./test-helpers.js";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
@@ -44,10 +45,12 @@ describe("ResumeDataStore atomic catalog and operations", () => {
   it("allows one concurrent CAS confirmation and preserves the losing proposal", async () => {
     const { store, service } = await setup();
     const proposal = await service.proposeFact(proposalInput(), authority("career.facts.propose"));
-    const input = { fact_record_id: proposal.fact.metadata.record_id, expected_revision: 1, decision: "accept", edited_value: null, review_note: null };
+    const input = { fact_record_id: proposal.fact.metadata.record_id, fact_revision_id: proposal.fact.metadata.revision_id, expected_revision: 1, decision: "accept" as const, edited_value: null, review_note: null };
+    const firstAuthority = authority("career.facts.confirm");
+    const secondAuthority = authority("career.facts.confirm");
     const results = await Promise.allSettled([
-      service.confirmFact(input, authority("career.facts.confirm"), true),
-      service.confirmFact(input, authority("career.facts.confirm"), true),
+      service.confirmFact(input, firstAuthority, ownerDecision(firstAuthority, proposal.fact.metadata.revision_id)),
+      service.confirmFact(input, secondAuthority, ownerDecision(secondAuthority, proposal.fact.metadata.revision_id)),
     ]);
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     const rejected = results.find((result) => result.status === "rejected") as PromiseRejectedResult;
@@ -71,7 +74,7 @@ describe("ResumeDataStore atomic catalog and operations", () => {
     expect(replay.reused).toBe(true);
   });
 
-  it("journals cancellation after record staging but before catalog visibility", async () => {
+  it("leaves no visible operation or generation after cancellation before catalog visibility", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-resume-staged-cancel-")); roots.push(root);
     let cancelled = false;
     const store = new ResumeDataStore(root, undefined, { beforeCatalogCommit: async () => { cancelled = true; } }, false);
@@ -81,8 +84,9 @@ describe("ResumeDataStore atomic catalog and operations", () => {
     const operationId = crypto.randomUUID();
     await expect(service.proposeFact(proposalInput(), authority("career.facts.propose", operationId, { isCancelled: () => cancelled }))).rejects.toMatchObject({ code: "cancelled" });
     expect(await store.list("career_fact")).toHaveLength(0);
-    expect((await store.operation(operationId, grant.installation_id)).record).toMatchObject({ status: "cancelled_before_commit", commit_outcome: "not_committed" });
-    await expect(service.proposeFact(proposalInput(), authority("career.facts.propose", operationId))).rejects.toMatchObject({ code: "cancelled" });
+    expect((await store.catalog()).generation).toBe(0);
+    await expect(store.operation(operationId, grant.installation_id)).rejects.toMatchObject({ code: "not_found_within_scope" });
+    expect((await service.proposeFact(proposalInput(), authority("career.facts.propose", operationId))).reused).toBe(false);
   });
 
   it("recovers the committed identity when response delivery fails after the catalog commit", async () => {
@@ -94,7 +98,7 @@ describe("ResumeDataStore atomic catalog and operations", () => {
     const service = new ResumeDomainService(store, () => new Date("2026-08-07T12:00:00.000Z"));
     const operationId = crypto.randomUUID();
     const auth = authority("career.facts.propose", operationId);
-    await expect(service.proposeFact(proposalInput(), auth)).rejects.toThrow("synthetic response loss");
+    await expect(service.proposeFact(proposalInput(), auth)).rejects.toMatchObject({ code: "recoverable_internal_failure" });
     const recovered = await service.proposeFact(proposalInput(), auth);
     expect(recovered.reused).toBe(true);
     expect(await store.list("career_fact")).toHaveLength(1);
@@ -121,9 +125,13 @@ describe("ResumeDataStore atomic catalog and operations", () => {
     const proposal = await service.proposeFact(proposalInput(), authority("career.facts.propose"));
     const catalogPath = path.join(store.namespaceRoot, "catalog.json");
     const catalog = ResumeDataCatalogSchema.parse(JSON.parse(await readFile(catalogPath, "utf8")));
-    await writeFile(catalogPath, `${JSON.stringify({ ...catalog, extensions: { future_catalog_hint: { retained: true } } })}\n`, "utf8");
+    const { integrity_digest: _integrityDigest, ...body } = catalog;
+    const updatedBody = { ...body, extensions: { future_catalog_hint: { retained: true } } };
+    await writeFile(catalogPath, `${JSON.stringify({ ...updatedBody, integrity_digest: canonicalInputDigest(updatedBody) })}\n`, "utf8");
     expect((await store.catalog()).extensions).toEqual({ future_catalog_hint: { retained: true } });
-    expect(proposal.fact.extensions).toEqual({});
+    expect(proposal.fact.extensions).toEqual({
+      proposal_classification: { kind: "new", related_fact_revision_ids: [] },
+    });
   });
 
   it("never enumerates a record outside granted scope", async () => {

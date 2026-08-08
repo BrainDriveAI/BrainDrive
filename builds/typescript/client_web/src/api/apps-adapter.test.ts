@@ -1,5 +1,5 @@
 import { authenticatedFetch } from "./auth-adapter";
-import { closeResumeBuilderSession, finalizeResumeBuilderExport, getResumeBuilderApp, launchResumeBuilderApp, mutateResumeBuilderApp, sendResumeBuilderBridgeMessage } from "./apps-adapter";
+import { callResumeBuilderCapability, closeResumeBuilderSession, finalizeResumeBuilderExport, getResumeBuilderApp, launchResumeBuilderApp, mutateResumeBuilderApp, ResumeCapabilityError, sendResumeBuilderBridgeMessage } from "./apps-adapter";
 
 vi.mock("./auth-adapter", () => ({ authenticatedFetch: vi.fn() }));
 const fetchMock = vi.mocked(authenticatedFetch);
@@ -42,5 +42,33 @@ describe("Apps gateway adapter", () => {
     const body = JSON.parse(String(init?.body));
     expect(body).toMatchObject({ safe_destination_label: "resume.pdf", outcome: "cancelled" });
     expect(JSON.stringify(body)).not.toContain("/");
+  });
+
+  it("preserves the owner-safe conflict state without exposing internal error details", async () => {
+    const operationId = crypto.randomUUID();
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      error: {
+        error_version: 1,
+        code: "conflict",
+        safe_message: "The saved version changed. Refresh and review the preserved proposal.",
+        retryable: false,
+        correlation_id: operationId,
+        occurred_at: "2026-08-08T12:00:00.000Z",
+        details: { category: "stale_revision", current_revision: 3 },
+      },
+      owner_state: {
+        state_version: 1,
+        state: "conflict",
+        safe_message: "The saved version changed. Refresh and review the preserved proposal.",
+        retryable: false,
+        refresh_required: true,
+        current_revision: 3,
+        proposal_preserved: true,
+      },
+    }), { status: 409, headers: { "content-type": "application/json" } }));
+    const error = await callResumeBuilderCapability("career.facts.confirm", {}, operationId, true).catch((failure) => failure);
+    expect(error).toBeInstanceOf(ResumeCapabilityError);
+    expect(error).toMatchObject({ code: "conflict", ownerState: { state: "conflict", current_revision: 3, proposal_preserved: true } });
+    expect(JSON.stringify(error)).not.toContain("private");
   });
 });

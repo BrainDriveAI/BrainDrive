@@ -2,6 +2,8 @@
 
 This directory is the executable Milestone 1 contract boundary shared by the future BrainDrive app platform and Resume Builder. It contains schemas, deterministic validators, fixtures, and conformance tests only. Importing these modules does not register a route, start a process, create storage, call a provider, or enable an app.
 
+Spec 2's data-specific REQ-001–REQ-040 traceability is recorded separately in `fixtures/spec-02-requirements.json`; `fixtures/requirements.json` remains the accepted cross-spec Resume Builder REQ-001–REQ-034 manifest. `data-conformance.ts` freezes the data-only capability context/request/result, owner-safe state, migration provenance and compatibility, retention, sensitivity, CAS, and transition rules without becoming a runtime route or a second persistence implementation.
+
 Contract authority is the project-owner-approved Resume Builder Specs 1–5 in `/home/hex/Reference/Designs/BrainDrive-Tools/Resume-Builder/MVP/`. The accepted verification plan is `/home/hex/Reference/Designs/BrainDrive-Tools/Resume-Builder/MVP/test-plan.md`.
 
 All authority-bearing envelopes are strict: unknown fields fail. Durable owner-data records use an explicit `extensions` object so a compatible reader can preserve unknown extension fields without granting them authority. Schema version 1 cannot be silently downgraded.
@@ -11,3 +13,5 @@ Package verification authority is split deliberately: `PackageManifestSchema` de
 The valid trust/source/revocation/package-signature fixtures contain mutually verified public keys and signatures. Their one-time private keys were discarded and are not present in the repository, so later runtime fixture generation must use an ephemeral test trust root or release-authority-provided signing material rather than treating conformance vectors as signing credentials.
 
 JSON Schema artifacts are generated from the Zod authorities with `npm run contracts:schemas` from `builds/typescript`. Generated artifacts are checked for drift by the contract tests.
+
+The accepted physical namespace is the existing repository-consistent `apps/resume-builder` mapping below the configured memory root. These contracts do not initialize or write that namespace. Data operations use exactly `career.context.read`, `career.facts.read`, `career.facts.propose`, `career.facts.confirm`, `resume.definitions.read`, `resume.definitions.write`, `resume.jobs.read`, `resume.jobs.write`, `resume.artifacts.register`, `resume.export.request`, and `resume.operations.read`; inference remains a separate host capability.

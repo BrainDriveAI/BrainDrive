@@ -1,0 +1,9 @@
+{
+  "kind": "fact_proposal",
+  "fact_kind": "employment",
+  "value": "Synthetic proposal cannot self-confirm",
+  "state": "confirmed",
+  "source_revision_ids": ["91000000-0000-4000-8000-000000000001"],
+  "sensitivity": "sensitive",
+  "confirmation_authority": true
+}

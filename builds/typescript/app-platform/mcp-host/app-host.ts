@@ -17,6 +17,12 @@ import {
 import type { CompleteMcpResult } from "../../mcp/result-envelope.js";
 import type { CapabilityGrant } from "../lifecycle/store.js";
 import type { ResumeCapabilityRouter } from "../../resume-domain/capabilities.js";
+import {
+  requireHostOwnerCapabilityAuthorization,
+  restrictedAuthorityFromTokenClaims,
+  type HostOwnerCapabilityAuthorization,
+} from "../../resume-domain/capability-policy.js";
+import { FactDecisionInputSchema, issueHostOwnerDecisionEvidence } from "../../resume-domain/career-data.js";
 import { ResumeDomainError } from "../../resume-domain/errors.js";
 import { CapabilityNameSchema } from "../contracts/package.js";
 import type { CareerReturnSummary } from "../../resume-domain/career.js";
@@ -236,8 +242,13 @@ export class AppMcpHost {
         if (!this.capabilityRouter) throw new AppPlatformError("bridge_denied", "Data capabilities are not available for this app session", 403);
         const audience = parsedCapability.data === "resume.export.request" ? "app_export" : "app_data";
         const issued = await this.lifecycle.issueSession({ audience, capabilities: [parsedCapability.data], operationId: message.message_id, viewId: session.viewId, connectionId: session.mcp.connectionId });
-        this.lifecycle.dependencies.tokenBroker.consume(issued.token, { audience, capability: parsedCapability.data, installationId: session.installationId, operationId: message.message_id });
-        const result = await this.capabilityRouter.execute(parsedCapability.data, message.payload.input, { grant: session.grant, operationId: message.message_id, idempotencyKey: `bridge-${message.message_id}` });
+        const claims = this.lifecycle.dependencies.tokenBroker.consume(issued.token, { audience, capability: parsedCapability.data, installationId: session.installationId, operationId: message.message_id });
+        const result = await this.capabilityRouter.execute(parsedCapability.data, message.payload.input, {
+          authority: restrictedAuthorityFromTokenClaims(claims),
+          operationId: message.message_id,
+          correlationId: message.message_id,
+          idempotencyKey: `bridge-${message.message_id}`,
+        });
         return { status: "capability_completed", result };
       } catch (error) { throw this.asHostError(error); }
     }
@@ -263,9 +274,10 @@ export class AppMcpHost {
     }
   }
 
-  async handleOwnerCapability(capability: unknown, input: unknown, operationId: string, hostOwnerConfirmed: boolean): Promise<unknown> {
+  async handleOwnerCapability(capability: unknown, input: unknown, operationId: string, hostOwnerConfirmed: boolean, ownerAuthorization: HostOwnerCapabilityAuthorization): Promise<unknown> {
     const parsedCapability = CapabilityNameSchema.safeParse(capability);
     if (!parsedCapability.success) throw new AppPlatformError("invalid_input", "Capability name is invalid", 400);
+    requireHostOwnerCapabilityAuthorization(ownerAuthorization);
     const descriptor = await this.lifecycle.ownerDescriptor();
     if (descriptor.record.state !== "active" || !descriptor.record.installation_id || !descriptor.grant) throw new AppPlatformError("invalid_state_transition", "Resume Builder must be active before data access");
     try {
@@ -280,8 +292,28 @@ export class AppMcpHost {
       if (!this.capabilityRouter) throw new AppPlatformError("bridge_denied", "Data capabilities are not available", 403);
       const audience = parsedCapability.data === "resume.export.request" ? "app_export" : "app_data";
       const issued = await this.lifecycle.issueSession({ audience, capabilities: [parsedCapability.data], operationId });
-      this.lifecycle.dependencies.tokenBroker.consume(issued.token, { audience, capability: parsedCapability.data, installationId: descriptor.record.installation_id, operationId });
-      return await this.capabilityRouter.execute(parsedCapability.data, input, { grant: descriptor.grant, operationId, idempotencyKey: `owner-${operationId}`, hostOwnerConfirmed });
+      const claims = this.lifecycle.dependencies.tokenBroker.consume(issued.token, { audience, capability: parsedCapability.data, installationId: descriptor.record.installation_id, operationId });
+      const factDecision = parsedCapability.data === "career.facts.confirm" && hostOwnerConfirmed
+        ? FactDecisionInputSchema.safeParse(input)
+        : null;
+      const ownerDecision = factDecision?.success
+        ? issueHostOwnerDecisionEvidence({
+            ownerId: descriptor.grant.owner_id,
+            actorId: descriptor.grant.actor_id,
+            operationId,
+            inputRevisionId: factDecision.data.fact_revision_id,
+            decision: factDecision.data.decision,
+            confirmedAt: new Date(this.now()).toISOString(),
+          })
+        : undefined;
+      return await this.capabilityRouter.execute(parsedCapability.data, input, {
+        authority: restrictedAuthorityFromTokenClaims(claims),
+        operationId,
+        correlationId: operationId,
+        idempotencyKey: `owner-${operationId}`,
+        hostOwnerConfirmed,
+        ownerDecision,
+      });
     } catch (error) { throw this.asHostError(error); }
   }
 
@@ -345,7 +377,7 @@ export class AppMcpHost {
 
   private asHostError(error: unknown): AppPlatformError {
     if (error instanceof AppPlatformError) return error;
-    if (error instanceof ResumeDomainError) return new AppPlatformError(error.code, error.message, error.statusCode);
+    if (error instanceof ResumeDomainError) return new AppPlatformError(error.code, error.message, error.statusCode, error.details);
     if (error instanceof ResumeInferenceError) {
       const code = error.code === "invalid_request"
         ? "invalid_input"

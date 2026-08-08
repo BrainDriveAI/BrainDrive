@@ -5,6 +5,8 @@ import { AppPlatformError } from "../lifecycle/errors.js";
 import type { AppMcpHost } from "./app-host.js";
 import { CareerReturnSummarySchema } from "../contracts/data.js";
 import { CapabilityNameSchema } from "../contracts/package.js";
+import { ownerSafeCapabilityFailure } from "../../resume-domain/owner-safe-state.js";
+import { issueHostOwnerCapabilityAuthorization } from "../../resume-domain/capability-policy.js";
 
 const bridgeRequestSchema = z.object({
   session_id: z.string().uuid(),
@@ -63,8 +65,16 @@ export function registerAppMcpHostRoutes(app: FastifyInstance, host: AppMcpHost)
     if (!authorizeOwner(request, reply)) return;
     const parsed = ownerCapabilityRequestSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_request" });
-    try { return reply.send({ result: await host.handleOwnerCapability(parsed.data.capability, parsed.data.input, parsed.data.operation_id, parsed.data.owner_confirmed) }); }
-    catch (error) { return sendSafeError(reply, error); }
+    try {
+      return reply.send({ result: await host.handleOwnerCapability(
+        parsed.data.capability,
+        parsed.data.input,
+        parsed.data.operation_id,
+        parsed.data.owner_confirmed,
+        issueHostOwnerCapabilityAuthorization(request.authContext!.actorId),
+      ) });
+    }
+    catch (error) { return sendOwnerDataError(reply, error, parsed.data.operation_id); }
   });
 
   app.post("/apps/resume-builder/career-return", async (request, reply) => {
@@ -96,4 +106,15 @@ function authorizeOwner(request: FastifyRequest, reply: FastifyReply): boolean {
 function sendSafeError(reply: FastifyReply, error: unknown) {
   const failure = error instanceof AppPlatformError ? error : new AppPlatformError("lifecycle_failed", "Installed app host operation failed", 500);
   return reply.code(failure.statusCode).send({ error: failure.code, retryable: failure.statusCode >= 500 });
+}
+
+function sendOwnerDataError(reply: FastifyReply, error: unknown, correlationId: string) {
+  const platform = error instanceof AppPlatformError ? error : new AppPlatformError("recoverable_internal_failure", "Installed app host operation failed", 500);
+  const mappedCode = platform.code.startsWith("token_") || platform.code.startsWith("grant_") || platform.code === "bridge_denied" || platform.code === "session_closed" || platform.code === "session_expired"
+    ? "denied"
+    : platform.code === "protocol_incompatible" || platform.code === "extension_incompatible"
+      ? "incompatible_schema"
+      : platform.code;
+  const failure = ownerSafeCapabilityFailure({ code: mappedCode, details: platform.details }, correlationId);
+  return reply.code(platform.statusCode).send(failure);
 }

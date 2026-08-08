@@ -9,7 +9,7 @@ This directory began as the Milestone 3 host boundary and now composes the M4 na
 3. The client lists tools/resources, reads the declared `ui://resume-builder/main` resource, retains complete list/read metadata internally, validates its exact media type and encoded size, and rejects HTML that violates the fail-closed content policy.
 4. The host creates an installation/view/operation/session-bound bridge, consumes the raw one-use bootstrap token, and returns only opaque IDs plus the validated UI projection to the authenticated owner client.
 5. The web client renders the HTML through `srcDoc` in an opaque-origin iframe with `sandbox="allow-scripts"`. It checks both the exact iframe window and origin `null` before forwarding a bounded message.
-6. The gateway accepts only the typed bridge envelope for that owner session. Same-server app-visible tools and declared data capabilities are allowed. Inference uses a one-use `app_inference` token; export uses a one-use `app_export` token and the host-owned browser-save boundary. Fact confirmation and definition approval are intercepted for authenticated owner confirmation. Cross-server/model-only calls, undeclared host actions, stale, replayed, malformed, oversized, or wrongly bound messages fail closed.
+6. The gateway accepts only the typed bridge envelope for that owner session. Same-server app-visible tools and declared data capabilities are allowed. A consumed `app_data` or `app_export` token is immediately reduced to the strict Resume data authority projection, and the data policy rechecks the current lifecycle grant before record lookup. Inference uses a one-use `app_inference` token; export uses a one-use `app_export` token and the host-owned browser-save boundary. Fact confirmation and definition approval are intercepted for authenticated owner confirmation. Cross-server/model-only calls, undeclared host actions, stale, replayed, revoked, malformed, oversized, or wrongly bound messages fail closed.
 
 Disable, update, uninstall, lifecycle generation change, expiry, tab hiding, iframe closure, and gateway shutdown remove bridge-session authority. The sandbox receives no bearer credential, owner permission object, host path, filesystem/Tauri API, arbitrary network permission, download authority, or unrestricted MCP endpoint.
 
@@ -26,7 +26,7 @@ When `BRAINDRIVE_APP_PLATFORM_ENABLED=true`, the existing owner-administration l
 - `POST /apps/resume-builder/launch`
 - `POST /apps/resume-builder/bridge`
 - `DELETE /apps/resume-builder/sessions/:sessionId`
-- `POST /apps/resume-builder/data/call` for host-owned owner actions
+- `POST /apps/resume-builder/data/call` for host-owned owner actions; failures use the M1 content-free `{ error, owner_state }` contract
 
 The web client exposes one top-level `Apps` sidebar entry. Its single Resume Builder card shows publisher, lifecycle state, installed/available version, declared capabilities, AI/storage disclosures, and install/launch/disable/enable/update/uninstall controls. States use readable text in addition to color, controls wrap at narrow widths, and closing the iframe returns focus to Launch.
 

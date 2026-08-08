@@ -43,6 +43,28 @@ export type AppLaunch = {
   entry_point: "direct" | "career";
 };
 
+export type OwnerSafeResumeDataState = {
+  state_version: 1;
+  state: "ready" | "review_needed" | "conflict" | "cancelled" | "incompatible" | "recoverable_failure";
+  safe_message: string;
+  retryable: boolean;
+  refresh_required: boolean;
+  current_revision: number | null;
+  proposal_preserved: boolean;
+};
+
+export class ResumeCapabilityError extends GatewayError {
+  constructor(
+    message: string,
+    status: number,
+    code: string,
+    public readonly ownerState: OwnerSafeResumeDataState,
+  ) {
+    super(message, status, code);
+    this.name = "ResumeCapabilityError";
+  }
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await authenticatedFetch(`${GATEWAY_BASE_URL}${path}`, init);
   if (!response.ok) {
@@ -79,11 +101,30 @@ export function launchResumeBuilderApp(entryPoint: "direct" | "career" = "direct
 }
 
 export function callResumeBuilderCapability(capability: string, input: unknown, operationId: string, ownerConfirmed = false): Promise<{ result: unknown }> {
-  return requestJson("/apps/resume-builder/data/call", {
+  return requestCapabilityJson("/apps/resume-builder/data/call", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ capability, operation_id: operationId, input, owner_confirmed: ownerConfirmed }),
   });
+}
+
+async function requestCapabilityJson<T>(path: string, init: RequestInit): Promise<T> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}${path}`, init);
+  if (!response.ok) {
+    try {
+      const payload = await response.json() as {
+        error?: { code?: string; safe_message?: string };
+        owner_state?: OwnerSafeResumeDataState;
+      };
+      if (payload.error?.code && payload.error.safe_message && payload.owner_state) {
+        throw new ResumeCapabilityError(payload.error.safe_message, response.status, payload.error.code, payload.owner_state);
+      }
+    } catch (error) {
+      if (error instanceof ResumeCapabilityError) throw error;
+    }
+    throw new GatewayError(`App request failed with status ${response.status}`, response.status, "recoverable_internal_failure");
+  }
+  return await response.json() as T;
 }
 
 export async function closeResumeBuilderSession(sessionId: string): Promise<void> {

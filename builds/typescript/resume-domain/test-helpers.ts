@@ -1,5 +1,6 @@
 import type { CapabilityGrant } from "../app-platform/lifecycle/store.js";
 import type { DataAuthority } from "./service.js";
+import { issueHostOwnerDecisionEvidence } from "./career-data.js";
 
 export const TEST_DIGEST = `sha256:${"a".repeat(64)}` as const;
 
@@ -29,6 +30,21 @@ export function proposalInput(value = "Synthetic supported statement") {
     source: { source_kind: "owner_interview", safe_label: "Owner interview", content_digest: TEST_DIGEST, captured_at: "2026-08-07T12:00:00.000Z" },
     fact: { fact_kind: "accomplishment", state: "suggested", value, sensitivity: "standard" },
   } as const;
+}
+
+export function ownerDecision(
+  authorityInput: DataAuthority,
+  inputRevisionId: string,
+  decision: "accept" | "edit_and_accept" | "reject" = "accept",
+) {
+  return issueHostOwnerDecisionEvidence({
+    ownerId: authorityInput.grant.owner_id,
+    actorId: authorityInput.grant.actor_id,
+    operationId: authorityInput.operationId,
+    inputRevisionId,
+    decision,
+    confirmedAt: "2026-08-07T12:00:00.000Z",
+  });
 }
 
 export function definitionInput(factRevisionId: string, overrides: Record<string, unknown> = {}) {

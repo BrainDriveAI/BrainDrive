@@ -69,6 +69,7 @@ export class AppPlatformError extends Error {
     public readonly code: AppPlatformErrorCode,
     message: string,
     public readonly statusCode = 409,
+    public readonly details: { currentRevision?: number } = {},
   ) {
     super(message);
     this.name = "AppPlatformError";

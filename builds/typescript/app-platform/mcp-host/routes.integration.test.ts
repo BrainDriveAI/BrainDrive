@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { PermissionSet } from "../../contracts.js";
 import { AppPlatformError } from "../lifecycle/errors.js";
+import { HostOwnerCapabilityAuthorization } from "../../resume-domain/capability-policy.js";
 import type { AppMcpHost } from "./app-host.js";
 import { registerAppMcpHostRoutes } from "./routes.js";
 
@@ -91,12 +92,35 @@ describe("owner MCP Apps host gateway routes", () => {
     const payload = { capability: "career.facts.confirm", operation_id: operationId, input: {}, owner_confirmed: true };
     expect((await app.inject({ method: "POST", url: "/apps/resume-builder/data/call", headers: { "x-test-denied": "1" }, payload })).statusCode).toBe(403);
     expect((await app.inject({ method: "POST", url: "/apps/resume-builder/data/call", payload })).statusCode).toBe(200);
-    expect(host.handleOwnerCapability).toHaveBeenCalledWith("career.facts.confirm", {}, operationId, true);
+    expect(host.handleOwnerCapability).toHaveBeenCalledWith("career.facts.confirm", {}, operationId, true, expect.any(HostOwnerCapabilityAuthorization));
 
     const summary = { summary_version: 1, status: "completed", outcome_summary: "Synthetic completion", approved_reference: null, stable_fact_proposals: [], next_career_action: null, updated_at: "2026-08-07T12:00:00.000Z" };
     const returnOperationId = crypto.randomUUID();
     expect((await app.inject({ method: "POST", url: "/apps/resume-builder/career-return", payload: { operation_id: returnOperationId, entry_point: "career", summary } })).statusCode).toBe(200);
     expect(host.placeCareerReturn).toHaveBeenCalledWith(summary, "career", returnOperationId);
+    await app.close();
+  });
+
+  it("returns an owner-safe conflict DTO for data calls", async () => {
+    const host = createHost();
+    vi.mocked(host.handleOwnerCapability).mockRejectedValue(new AppPlatformError("conflict", "private current record content", 409, { currentRevision: 4 }));
+    const app = Fastify();
+    app.addHook("preHandler", async (request) => {
+      request.authContext = { actorId: "owner", actorType: "owner", mode: "local-owner", permissions };
+    });
+    registerAppMcpHostRoutes(app, host);
+    const operationId = crypto.randomUUID();
+    const response = await app.inject({
+      method: "POST",
+      url: "/apps/resume-builder/data/call",
+      payload: { capability: "career.facts.confirm", operation_id: operationId, input: {}, owner_confirmed: true },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({
+      error: { code: "conflict", correlation_id: operationId },
+      owner_state: { state: "conflict", current_revision: 4, proposal_preserved: true },
+    });
+    expect(response.body).not.toContain("private current record content");
     await app.close();
   });
 });

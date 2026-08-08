@@ -20,6 +20,15 @@ import {
   SourceRecordSchema,
   TailoredVariantRecordSchema,
 } from "./data.js";
+import {
+  MigrationCompatibilityPolicySchema,
+  MigrationProvenanceSchema,
+  OwnerSafeResumeDataStateSchema,
+  ResumeDataCapabilityContextSchema,
+  ResumeDataCapabilityRequestSchema,
+  ResumeDataCapabilityResultSchema,
+  RetentionMatrixSchema,
+} from "./data-conformance.js";
 import { ContractErrorSchema } from "./errors.js";
 import { InferenceRequestSchema, InferenceResultSchema, ModelCompatibilityEntrySchema } from "./inference.js";
 import { PURPOSE_RESULT_SCHEMAS } from "../../resume-inference/results.js";
@@ -77,6 +86,9 @@ export const JSON_SCHEMA_AUTHORITIES = {
   "career-fact-record": CareerFactRecordSchema,
   "career-context-projection": CareerContextProjectionSchema,
   "career-return-summary": CareerReturnSummarySchema,
+  "data-capability-context": ResumeDataCapabilityContextSchema,
+  "data-capability-request": ResumeDataCapabilityRequestSchema,
+  "data-capability-result": ResumeDataCapabilityResultSchema,
   "compatibility-matrix": CompatibilityMatrixSchema,
   "complete-mcp-result": CompleteMcpResultSchema,
   "contract-error": ContractErrorSchema,
@@ -98,8 +110,11 @@ export const JSON_SCHEMA_AUTHORITIES = {
   "lifecycle-result": LifecycleResultSchema,
   "mcp-app-resource": McpAppResourceSchema,
   "migration-record": MigrationRecordSchema,
+  "migration-compatibility-policy": MigrationCompatibilityPolicySchema,
+  "migration-provenance": MigrationProvenanceSchema,
   "model-compatibility-entry": ModelCompatibilityEntrySchema,
   "operation-record": OperationRecordSchema,
+  "owner-safe-data-state": OwnerSafeResumeDataStateSchema,
   "package-descriptor": PackageDescriptorSchema,
   "package-manifest": PackageManifestSchema,
   "package-source-index": PackageSourceIndexSchema,
@@ -107,6 +122,7 @@ export const JSON_SCHEMA_AUTHORITIES = {
   "revocation-list": RevocationListSchema,
   "revocation-freshness-policy": RevocationFreshnessPolicySchema,
   "resume-definition-record": ResumeDefinitionRecordSchema,
+  "retention-matrix": RetentionMatrixSchema,
   "source-record": SourceRecordSchema,
   "supervisor-policy": SupervisorPolicySchema,
   "supervisor-endpoint-descriptor": EndpointDescriptorSchema,

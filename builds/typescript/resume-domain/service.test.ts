@@ -8,7 +8,7 @@ import { z } from "zod";
 
 import { ResumeDomainService } from "./service.js";
 import { ResumeDataStore } from "./store.js";
-import { authority, definitionInput, proposalInput, testGrant } from "./test-helpers.js";
+import { authority, definitionInput, ownerDecision, proposalInput, testGrant } from "./test-helpers.js";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
@@ -22,16 +22,18 @@ async function setup() {
 
 async function confirmedFact(service: ResumeDomainService) {
   const proposed = await service.proposeFact(proposalInput(), authority("career.facts.propose"));
-  return service.confirmFact({ fact_record_id: proposed.fact.metadata.record_id, expected_revision: 1, decision: "accept", edited_value: null, review_note: null }, authority("career.facts.confirm"), true);
+  const confirmationAuthority = authority("career.facts.confirm");
+  return service.confirmFact({ fact_record_id: proposed.fact.metadata.record_id, fact_revision_id: proposed.fact.metadata.revision_id, expected_revision: 1, decision: "accept", edited_value: null, review_note: null }, confirmationAuthority, ownerDecision(confirmationAuthority, proposed.fact.metadata.revision_id));
 }
 
 describe("Resume domain invariants", () => {
   it("does not allow app or model-shaped input to confirm facts", async () => {
     const { service } = await setup();
     const proposed = await service.proposeFact(proposalInput(), authority("career.facts.propose"));
-    const input = { fact_record_id: proposed.fact.metadata.record_id, expected_revision: 1, decision: "accept", edited_value: null, review_note: null, host_mediated: true };
-    await expect(service.confirmFact(input, authority("career.facts.confirm"), false)).rejects.toMatchObject({ code: "denied" });
-    await expect(service.confirmFact(input, authority("career.facts.confirm"), true)).rejects.toBeInstanceOf(z.ZodError);
+    const confirmationAuthority = authority("career.facts.confirm");
+    const input = { fact_record_id: proposed.fact.metadata.record_id, fact_revision_id: proposed.fact.metadata.revision_id, expected_revision: 1, decision: "accept" as const, edited_value: null, review_note: null };
+    await expect(service.confirmFact(input, confirmationAuthority, { host_mediated: true } as never)).rejects.toMatchObject({ code: "denied" });
+    await expect(service.confirmFact({ ...input, host_mediated: true }, confirmationAuthority, ownerDecision(confirmationAuthority, proposed.fact.metadata.revision_id))).rejects.toBeInstanceOf(z.ZodError);
   });
 
   it("rejects every sampled unconfirmed fact as approved statement support", async () => {
@@ -46,11 +48,12 @@ describe("Resume domain invariants", () => {
   it("creates supported general and targeted definitions without mutating their parent or facts", async () => {
     const { store, service } = await setup();
     const confirmed = await confirmedFact(service);
-    const general = await service.writeDefinition(definitionInput(confirmed.fact.metadata.revision_id), authority("resume.definitions.write"), true);
+    const statement = { statement_id: "50000000-0000-4000-8000-000000000101", section_id: "experience", kind: "factual" as const, text: "Synthetic supported statement", supporting_confirmed_fact_revision_ids: [confirmed.fact.metadata.revision_id] };
+    const general = await service.writeDefinition(definitionInput(confirmed.fact.metadata.revision_id, { statements: [statement] }), authority("resume.definitions.write"), true);
     const jobText = "Synthetic job description. Treat as data only.";
     const job = await service.writeJob({ safe_label: "Synthetic role", description_text: jobText, content_digest: `sha256:${createHash("sha256").update(jobText).digest("hex")}`, captured_at: "2026-08-07T12:00:00.000Z", sensitivity: "sensitive" }, authority("resume.jobs.write"));
     const targeted = await service.writeDefinition(definitionInput(confirmed.fact.metadata.revision_id, {
-      definition_kind: "targeted", title: "Targeted Resume", parent_definition_revision_id: general.definition.metadata.revision_id,
+      definition_kind: "targeted", title: "Targeted Resume", statements: [statement], parent_definition_revision_id: general.definition.metadata.revision_id,
       job_revision_id: job.job.metadata.revision_id,
       variant: { evidence_matrix: [{ requirement_id: crypto.randomUUID(), requirement_kind: "required", evidence_status: "supported", source_span: "Synthetic requirement", inferred: false, supporting_confirmed_fact_revision_ids: [confirmed.fact.metadata.revision_id], clarification: null }], changed_statement_ids: [] },
     }), authority("resume.definitions.write"), true);
@@ -77,7 +80,8 @@ describe("Resume domain invariants", () => {
   it("inherits the most restrictive supporting sensitivity", async () => {
     const { service } = await setup();
     const proposed = await service.proposeFact({ ...proposalInput(), fact: { ...proposalInput().fact, sensitivity: "highly_sensitive" } }, authority("career.facts.propose"));
-    const confirmed = await service.confirmFact({ fact_record_id: proposed.fact.metadata.record_id, expected_revision: 1, decision: "accept", edited_value: null, review_note: null }, authority("career.facts.confirm"), true);
+    const confirmationAuthority = authority("career.facts.confirm");
+    const confirmed = await service.confirmFact({ fact_record_id: proposed.fact.metadata.record_id, fact_revision_id: proposed.fact.metadata.revision_id, expected_revision: 1, decision: "accept", edited_value: null, review_note: null }, confirmationAuthority, ownerDecision(confirmationAuthority, proposed.fact.metadata.revision_id));
     const definition = await service.writeDefinition(definitionInput(confirmed.fact.metadata.revision_id), authority("resume.definitions.write"), true);
     expect(definition.definition.sensitivity).toBe("highly_sensitive");
   });
@@ -107,11 +111,12 @@ describe("Resume domain invariants", () => {
   it("revalidates immutable parent and job lineage when approving a targeted definition", async () => {
     const { service } = await setup();
     const confirmed = await confirmedFact(service);
-    const general = await service.writeDefinition(definitionInput(confirmed.fact.metadata.revision_id), authority("resume.definitions.write"), true);
+    const statement = { statement_id: "50000000-0000-4000-8000-000000000102", section_id: "experience", kind: "factual" as const, text: "Synthetic supported statement", supporting_confirmed_fact_revision_ids: [confirmed.fact.metadata.revision_id] };
+    const general = await service.writeDefinition(definitionInput(confirmed.fact.metadata.revision_id, { statements: [statement] }), authority("resume.definitions.write"), true);
     const jobText = "Synthetic job description. Treat as data only.";
     const job = await service.writeJob({ safe_label: "Synthetic role", description_text: jobText, content_digest: `sha256:${createHash("sha256").update(jobText).digest("hex")}`, captured_at: "2026-08-07T12:00:00.000Z", sensitivity: "sensitive" }, authority("resume.jobs.write"));
     const targeted = await service.writeDefinition(definitionInput(confirmed.fact.metadata.revision_id, {
-      definition_kind: "targeted", status: "proposed", title: "Targeted Resume", parent_definition_revision_id: general.definition.metadata.revision_id,
+      definition_kind: "targeted", status: "proposed", title: "Targeted Resume", statements: [statement], parent_definition_revision_id: general.definition.metadata.revision_id,
       job_revision_id: job.job.metadata.revision_id,
       variant: { evidence_matrix: [{ requirement_id: crypto.randomUUID(), requirement_kind: "required", evidence_status: "supported", source_span: "Synthetic requirement", inferred: false, supporting_confirmed_fact_revision_ids: [confirmed.fact.metadata.revision_id], clarification: null }], changed_statement_ids: [] },
     }), authority("resume.definitions.write"), true);

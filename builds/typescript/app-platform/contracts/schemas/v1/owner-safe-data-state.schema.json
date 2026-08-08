@@ -1,0 +1,58 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/owner-safe-data-state.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "state_version": {
+      "type": "number",
+      "const": 1
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "ready",
+        "review_needed",
+        "conflict",
+        "cancelled",
+        "incompatible",
+        "recoverable_failure"
+      ]
+    },
+    "safe_message": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "retryable": {
+      "type": "boolean"
+    },
+    "refresh_required": {
+      "type": "boolean"
+    },
+    "current_revision": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "proposal_preserved": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "state_version",
+    "state",
+    "safe_message",
+    "retryable",
+    "refresh_required",
+    "current_revision",
+    "proposal_preserved"
+  ],
+  "additionalProperties": false
+}

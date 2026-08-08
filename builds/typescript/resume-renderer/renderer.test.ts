@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { ResumeDomainService } from "../resume-domain/service.js";
 import { ResumeDataStore } from "../resume-domain/store.js";
-import { authority, definitionInput, proposalInput, testGrant } from "../resume-domain/test-helpers.js";
+import { authority, definitionInput, ownerDecision, proposalInput, testGrant } from "../resume-domain/test-helpers.js";
 import { ResumeExportBroker } from "./export-broker.js";
 import { parseBackPdf, renderApprovedResume, RESUME_TEMPLATE_ID, RESUME_TEMPLATE_VERSION, sanitizeResumeText } from "./renderer.js";
 
@@ -19,7 +19,8 @@ async function approvedDefinition() {
   await store.initialize(testGrant().owner_id);
   const service = new ResumeDomainService(store, () => new Date("2026-08-07T12:00:00.000Z"));
   const proposed = await service.proposeFact(proposalInput("Built synthetic scheduling application in 2025"), authority("career.facts.propose"));
-  const confirmed = await service.confirmFact({ fact_record_id: proposed.fact.metadata.record_id, expected_revision: 1, decision: "accept", edited_value: null, review_note: null }, authority("career.facts.confirm"), true);
+  const confirmationAuthority = authority("career.facts.confirm");
+  const confirmed = await service.confirmFact({ fact_record_id: proposed.fact.metadata.record_id, fact_revision_id: proposed.fact.metadata.revision_id, expected_revision: 1, decision: "accept", edited_value: null, review_note: null }, confirmationAuthority, ownerDecision(confirmationAuthority, proposed.fact.metadata.revision_id));
   const definition = await service.writeDefinition(definitionInput(confirmed.fact.metadata.revision_id, {
     template_id: RESUME_TEMPLATE_ID,
     template_version: RESUME_TEMPLATE_VERSION,

@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { ResumeDomainService } from "../resume-domain/service.js";
 import { ResumeDataStore } from "../resume-domain/store.js";
-import { authority, proposalInput, testGrant } from "../resume-domain/test-helpers.js";
+import { authority, ownerDecision, proposalInput, testGrant } from "../resume-domain/test-helpers.js";
 import { ImmutableInferenceSnapshotBuilder } from "./snapshot.js";
 
 const roots: string[] = [];
@@ -20,7 +20,8 @@ describe("immutable inference snapshot", () => {
     await store.initialize(grant.owner_id);
     const service = new ResumeDomainService(store);
     const proposal = await service.proposeFact(proposalInput("Built product 20%"), authority("career.facts.propose"));
-    const confirmed = await service.confirmFact({ fact_record_id: proposal.fact.metadata.record_id, expected_revision: 1, decision: "accept", edited_value: null, review_note: null }, authority("career.facts.confirm"), true);
+    const confirmationAuthority = authority("career.facts.confirm");
+    const confirmed = await service.confirmFact({ fact_record_id: proposal.fact.metadata.record_id, fact_revision_id: proposal.fact.metadata.revision_id, expected_revision: 1, decision: "accept", edited_value: null, review_note: null }, confirmationAuthority, ownerDecision(confirmationAuthority, proposal.fact.metadata.revision_id));
     const builder = new ImmutableInferenceSnapshotBuilder(store, () => new Date("2026-08-07T12:00:00.000Z"));
     const request = await builder.build({ purpose: "general_resume_draft", operation_id: crypto.randomUUID(), fact_revision_ids: [confirmed.fact.metadata.revision_id] }, grant);
     expect(request.input_snapshot.record_revision_ids).toEqual([confirmed.fact.metadata.revision_id]);

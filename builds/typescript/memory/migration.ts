@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { auditLog } from "../logger.js";
+import { validateResumeDataTransfer } from "../resume-domain/lifecycle.js";
 import { resolveSecretsPaths, type SecretsPaths, writePrivateFile } from "../secrets/paths.js";
 
 const MIGRATION_SCHEMA_VERSION = 1 as const;
@@ -93,6 +94,7 @@ export async function exportMigrationArchive(
   const payloadMasterKeyPath = path.join(payloadSecretsRoot, MIGRATION_MASTER_KEY_FILE);
 
   try {
+    await validateResumeDataTransfer(memoryRoot);
     await cp(memoryRoot, payloadMemoryRoot, { recursive: true, force: true });
     await mkdir(payloadSecretsRoot, { recursive: true });
 
@@ -126,7 +128,6 @@ export async function exportMigrationArchive(
       includes: manifest.includes,
     };
     auditLog("migration.export", {
-      archive_path: result.archive_path,
       file_name: result.file_name,
       schema_version: result.schema_version,
       includes: result.includes,
@@ -158,6 +159,7 @@ export async function importMigrationArchive(
 
     const layout = await resolveImportLayout(extractedRoot);
     await copyDirectoryContents(layout.memoryRoot, stagedMemoryRoot, { skipGit: true });
+    await validateResumeDataTransfer(stagedMemoryRoot);
     await mkdir(options.memoryRoot, { recursive: true });
     await copyDirectoryContents(options.memoryRoot, rollbackMemoryRoot, { skipGit: true });
 
@@ -173,6 +175,7 @@ export async function importMigrationArchive(
 
     try {
       await replaceDirectoryContents(options.memoryRoot, stagedMemoryRoot);
+      await validateResumeDataTransfer(options.memoryRoot);
       let restoredSecrets = false;
 
       if (layout.secretsRoot) {
@@ -196,7 +199,6 @@ export async function importMigrationArchive(
       };
 
       auditLog("migration.import", {
-        archive_path: archivePath,
         source_format: result.source_format,
         restored: result.restored,
         warnings_count: result.warnings.length,

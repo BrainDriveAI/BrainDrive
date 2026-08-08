@@ -2,7 +2,7 @@
 
 This directory is the Milestone 2 runtime boundary for the accepted Resume Builder specifications. It can install and supervise only the signed repository fixture for `ai.braindrive.resume-builder`; it is not a marketplace, a general plugin SDK, or the Resume Builder workflow.
 
-The gateway enables this boundary only when `BRAINDRIVE_APP_PLATFORM_ENABLED=true`. Docker development selects `docker_linux_x64` and persists host-owned installation state at `BRAINDRIVE_APP_STATE_ROOT=/data/app-platform`. Packaged Windows selects `desktop_windows_x64` and uses its Tauri platform data root. Owner career data remains in the separate logical namespace below the configured memory root. Lifecycle code never enumerates or deletes that namespace, and default uninstall removes executable/cache/grant/token/runtime authority only.
+The gateway enables this boundary only when `BRAINDRIVE_APP_PLATFORM_ENABLED=true`. Docker development selects `docker_linux_x64` and persists host-owned installation state at `BRAINDRIVE_APP_STATE_ROOT=/data/app-platform`. Packaged Windows selects `desktop_windows_x64` and uses its Tauri platform data root. Owner career data remains in the separate logical namespace below the configured memory root. Lifecycle policy reaches it only through the narrow `OwnerDataLifecycle` validation/cleanup interface: default uninstall removes abandoned transient stages but retains every durable owner record.
 
 ## Runtime boundaries
 
@@ -11,7 +11,8 @@ The gateway enables this boundary only when `BRAINDRIVE_APP_PLATFORM_ENABLED=tru
 - `store.ts` persists the version-1 lifecycle record, version-1 operation journal, grants, verified package metadata, and idempotent results with file/directory sync plus atomic rename. Lifecycle updates require an exact generation compare-and-swap.
 - `capability-token.ts` issues random, short-lived, audience/install/package/grant/operation-bound one-use tokens. Only token hashes are retained in process memory; disable, update, uninstall, quarantine, crash recovery, and shutdown rotate or revoke authority.
 - `process-supervisor.ts` is the bounded process adapter shared by Docker and packaged Windows. It launches one verified Node entrypoint per active installation, provides only the five allowlisted environment values, authenticates health/MCP access, caps captured output accounting, uses bounded readiness/stop time, and exhausts after three crash restarts with 1/2/4-second policy defaults. Docker reports container-internal transport; Windows reports random authenticated loopback transport.
-- `service.ts` implements install, disable, enable, update, rollback, uninstall/reinstall, cancellation, quarantine, last-known-good retention, and restart reconciliation. The active registry pointer changes only after readiness succeeds.
+- `service.ts` implements install, disable, enable, update, rollback, uninstall/reinstall, cancellation, quarantine, last-known-good retention, and restart reconciliation. It validates retained-data compatibility before package activation/restart and invokes bounded transient cleanup after runtime authority is revoked. The active registry pointer changes only after readiness succeeds.
+- `owner-data.ts` is the narrow host-owned compatibility/cleanup interface. The Resume Builder adapter is implemented in `resume-domain/lifecycle.ts`; lifecycle code does not gain generic memory traversal or deletion authority.
 - `errors.ts` freezes the lifecycle operation error-code vocabulary as an executable Zod enum; unknown codes fail contract validation.
 - `routes.ts` exposes owner-administration APIs below `/apps/resume-builder`. DTOs omit host paths, connection tokens (except the explicit owner session response), raw package metadata, credentials, and content.
 
@@ -28,6 +29,8 @@ Restart reconciliation applies durable intent:
 - `staged`: compensate to `not_installed`.
 - `updating` or `rollback_pending`: restore the journaled prior `active` or `disabled` intent.
 - `uninstalling`: finish at `not_installed` while retaining owner data.
+
+Install, reinstall, enable, update, rollback, and active restart must first satisfy the verified package manifest's data-schema window. A failed check leaves the lifecycle pointer and retained bytes unchanged. Whole-memory migration/import excludes lifecycle mutation through the gateway's shared in-progress callback. Default uninstall revokes tokens and grants, stops runtime processes, and then removes only abandoned Resume Builder transaction/staged-catalog files; immutable revisions, the active catalog, recovery evidence, completed operation lookup, and owner exports remain for a compatible reinstall under a new installation and grant.
 
 ## Owner API
 

@@ -13,6 +13,7 @@ import { registerAppLifecycleRoutes } from "../app-platform/lifecycle/routes.js"
 import { AppMcpHost } from "../app-platform/mcp-host/app-host.js";
 import { registerAppMcpHostRoutes } from "../app-platform/mcp-host/routes.js";
 import { CareerPlacementAdapter } from "../resume-domain/career.js";
+import { ResumeCapabilityPolicy } from "../resume-domain/capability-policy.js";
 import { ResumeCapabilityRouter } from "../resume-domain/capabilities.js";
 import { ResumeDomainService } from "../resume-domain/service.js";
 import { ResumeDataStore } from "../resume-domain/store.js";
@@ -444,12 +445,14 @@ export async function buildServer(rootDir = process.cwd()) {
     }
   );
 
+  let migrationInProgress = false;
   const appLifecycleService = readBooleanEnv(process.env.BRAINDRIVE_APP_PLATFORM_ENABLED, false)
     ? await createAppLifecycle({
         memoryRoot: runtimeConfig.memory_root,
         hostVersion: appVersion,
         stateRoot: process.env.BRAINDRIVE_APP_STATE_ROOT?.trim() || undefined,
         target: readAppLifecycleTarget(process.env.BRAINDRIVE_APP_PLATFORM_TARGET),
+        isMemoryMigrationInProgress: () => migrationInProgress,
       })
     : null;
   let appMcpHost: AppMcpHost | null = null;
@@ -459,7 +462,11 @@ export async function buildServer(rootDir = process.cwd()) {
     await resumeDataStore.initialize(descriptor.grant?.owner_id ?? "00000000-0000-4000-8000-000000000001");
     const resumeDomain = new ResumeDomainService(resumeDataStore);
     const exportBroker = new ResumeExportBroker(resumeDomain, auditLog);
-    const capabilityRouter = new ResumeCapabilityRouter(resumeDomain, new CareerPlacementAdapter(runtimeConfig.memory_root), auditLog, exportBroker);
+    const capabilityPolicy = new ResumeCapabilityPolicy(async () => {
+      const current = await appLifecycleService.ownerDescriptor();
+      return current.record.state === "active" ? current.grant : null;
+    });
+    const capabilityRouter = new ResumeCapabilityRouter(resumeDomain, new CareerPlacementAdapter(runtimeConfig.memory_root), capabilityPolicy, auditLog, exportBroker);
     // Real provider/model pairs remain fail-closed until a conformance run supplies
     // accepted registry entries. Tests inject synthetic accepted entries.
     const compatibility = new ModelCompatibilityRegistry(VERSIONED_MODEL_COMPATIBILITY_ENTRIES);
@@ -549,7 +556,6 @@ export async function buildServer(rootDir = process.cwd()) {
           persistAuthState,
         })
       : null;
-  let migrationInProgress = false;
   const memoryBackupScheduler = createMemoryBackupScheduler({
     memoryRoot: runtimeConfig.memory_root,
     isMigrationInProgress: () => migrationInProgress,

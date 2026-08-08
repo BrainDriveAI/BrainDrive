@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, open, readFile, rename, rm, stat } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
 
 import { z } from "zod";
@@ -41,7 +41,11 @@ export class CareerPlacementAdapter {
     for (const source of CONTEXT_SOURCES) {
       const filePath = path.join(this.memoryRoot, source.relativePath);
       try {
-        const [content, details] = await Promise.all([readFile(filePath, "utf8"), stat(filePath)]);
+        const details = await lstat(filePath);
+        if (!details.isFile() || details.isSymbolicLink()) {
+          throw new ResumeDomainError("validation_failed", `Accepted ${source.source_kind} context is not a regular owner file`, 409);
+        }
+        const content = await readFile(filePath, "utf8");
         if (Buffer.byteLength(content, "utf8") > 16_384) throw new ResumeDomainError("validation_failed", `Accepted ${source.source_kind} context exceeds its bounded projection`, 413);
         sources.push({
           source_ref: this.sourceRef(source.source_kind), source_kind: source.source_kind, status: "present", content,
@@ -49,7 +53,10 @@ export class CareerPlacementAdapter {
           last_modified_at: details.mtime.toISOString(),
         });
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        if (error instanceof ResumeDomainError) throw error;
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          throw new ResumeDomainError("recoverable_internal_failure", `Accepted ${source.source_kind} context could not be read`, 500);
+        }
         sources.push({ source_ref: this.sourceRef(source.source_kind), source_kind: source.source_kind, status: "missing", content: null, content_digest: null, last_modified_at: null });
       }
     }
@@ -57,7 +64,12 @@ export class CareerPlacementAdapter {
   }
 
   async placeReturn(summaryInput: CareerReturnSummary, operationId: string): Promise<{ placement: "career_journal"; committed: true; reused: boolean }> {
-    return this.serial(() => this.placeReturnSerial(summaryInput, operationId));
+    try {
+      return await this.serial(() => this.placeReturnSerial(summaryInput, operationId));
+    } catch (error) {
+      if (error instanceof ResumeDomainError || error instanceof z.ZodError) throw error;
+      throw new ResumeDomainError("recoverable_internal_failure", "Career return summary placement failed", 500);
+    }
   }
 
   private async placeReturnSerial(summaryInput: CareerReturnSummary, operationId: string): Promise<{ placement: "career_journal"; committed: true; reused: boolean }> {

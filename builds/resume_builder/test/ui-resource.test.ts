@@ -34,4 +34,9 @@ describe("sandboxed Resume Builder owner resource", () => {
     expect(html).not.toContain("provider_profile");
     expect(html).not.toContain("api_key");
   });
+
+  it("binds host fact confirmation to the exact proposed revision", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    expect(html).toContain("fact_revision_id:proposed.fact.metadata.revision_id");
+  });
 });

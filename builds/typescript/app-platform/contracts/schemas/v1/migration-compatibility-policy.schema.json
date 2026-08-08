@@ -1,0 +1,60 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/migration-compatibility-policy.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "policy_version": {
+      "type": "number",
+      "const": 1
+    },
+    "active_schema_version": {
+      "type": "number",
+      "const": 1
+    },
+    "readable_schema_versions": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "number",
+          "const": 1
+        }
+      ]
+    },
+    "writable_schema_versions": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "number",
+          "const": 1
+        }
+      ]
+    },
+    "prior_release_policy": {
+      "type": "string",
+      "const": "read_immediately_prior_when_released"
+    },
+    "writes_require_active_version": {
+      "type": "boolean",
+      "const": true
+    },
+    "unsafe_downgrade": {
+      "type": "string",
+      "const": "block_preserve_data_offer_export_or_upgrade"
+    },
+    "migration_method": {
+      "type": "string",
+      "const": "deterministic_transactional_no_ai"
+    }
+  },
+  "required": [
+    "policy_version",
+    "active_schema_version",
+    "readable_schema_versions",
+    "writable_schema_versions",
+    "prior_release_policy",
+    "writes_require_active_version",
+    "unsafe_downgrade",
+    "migration_method"
+  ],
+  "additionalProperties": false
+}

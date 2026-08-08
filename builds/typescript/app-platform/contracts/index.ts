@@ -2,6 +2,7 @@ export * from "./audit.js";
 export * from "./common.js";
 export * from "./constants.js";
 export * from "./data.js";
+export * from "./data-conformance.js";
 export * from "./errors.js";
 export * from "./inference.js";
 export * from "./lifecycle.js";
