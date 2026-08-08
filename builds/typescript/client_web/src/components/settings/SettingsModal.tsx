@@ -2572,6 +2572,7 @@ function ProviderSection({
                       activationIntentProfiles.delete(profile.id);
                     }}
                     onClick={(event) => {
+                      event.currentTarget.focus();
                       setExpandedProfile((currentProfile) =>
                         currentProfile === profile.id ? "" : profile.id
                       );
