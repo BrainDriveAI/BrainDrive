@@ -151,7 +151,15 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 }
 
 async function main() {
-  const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+  const npmCommand = process.platform === "win32" ? process.execPath : "npm";
+  const npmArgs = [];
+  if (process.platform === "win32") {
+    const npmCli = process.env.npm_execpath?.trim();
+    if (!npmCli) {
+      throw new Error("Windows isolated E2E requires the npm CLI path from npm_execpath");
+    }
+    npmArgs.push(npmCli);
+  }
   await assertMcpPortsAvailable();
   const gatewayPort = await reservePort();
   const webPort = await reservePort();
@@ -169,7 +177,7 @@ async function main() {
 
   await run(
     npmCommand,
-    ["run", "memory:init", "--", "--memory-root", memoryRoot, "--profile", "local-dev"],
+    [...npmArgs, "run", "memory:init", "--", "--memory-root", memoryRoot, "--profile", "local-dev"],
     { cwd: runtimeRoot, env: isolatedEnv }
   );
 
