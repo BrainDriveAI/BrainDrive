@@ -11,7 +11,7 @@
 > - Parent: [docs/developers/README.md](../README.md).
 > - Adjacent topics: [BrainDrive Tauri desktop shell](../../../builds/typescript/src-tauri/README.md); [Native TypeScript and web development](./native.md); [Change verification](../verification.md); [Safe debugging and failure evidence](../debugging.md).
 > - Keywords: `Tauri desktop`, `Rust`, `embedded runtime`, `provider-independent startup`.
-> - Sources: [`builds/typescript/src-tauri/tauri.conf.json`](../../../builds/typescript/src-tauri/tauri.conf.json); [`builds/typescript/src-tauri/src/main.rs`](../../../builds/typescript/src-tauri/src/main.rs); [`builds/typescript/package.json`](../../../builds/typescript/package.json).
+> - Sources: [`builds/typescript/src-tauri/tauri.conf.json`](../../../builds/typescript/src-tauri/tauri.conf.json); [`builds/typescript/src-tauri/src/main.rs`](../../../builds/typescript/src-tauri/src/main.rs); [`builds/typescript/src-tauri/src/process_containment.rs`](../../../builds/typescript/src-tauri/src/process_containment.rs); [`builds/typescript/src-tauri/src/native_export.rs`](../../../builds/typescript/src-tauri/src/native_export.rs); [`builds/typescript/scripts/desktop-stage-runtime.mjs`](../../../builds/typescript/scripts/desktop-stage-runtime.mjs); [`builds/typescript/scripts/desktop-release-aliases.mjs`](../../../builds/typescript/scripts/desktop-release-aliases.mjs); [`builds/typescript/package.json`](../../../builds/typescript/package.json).
 > - Tests: [`tools/docs/test/developer-journeys.test.mjs`](../../../tools/docs/test/developer-journeys.test.mjs).
 <!-- catalog-contract:end tauri-desktop-setup -->
 

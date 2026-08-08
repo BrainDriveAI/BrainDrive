@@ -10,6 +10,7 @@ const execFileAsync = promisify(execFile);
 const scriptRoot = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptRoot, "..");
 const mcpRoot = path.resolve(projectRoot, "..", "mcp_release");
+const resumeBuilderRoot = path.resolve(projectRoot, "..", "resume_builder");
 const outputRoot = path.join(projectRoot, "src-tauri", "desktop-runtime");
 const isWindows = process.platform === "win32";
 const npmExecutable = process.platform === "win32" ? "npm.cmd" : "npm";
@@ -77,6 +78,10 @@ async function main() {
     path.join(projectRoot, "client_web", "dist"),
     "BrainDrive desktop web build",
   );
+  await assertPathExists(
+    path.join(resumeBuilderRoot, "resources", "main.html"),
+    "Resume Builder packaged UI resource",
+  );
 
   await rm(outputRoot, { recursive: true, force: true });
   await mkdir(outputRoot, { recursive: true });
@@ -85,6 +90,7 @@ async function main() {
 
   await copyDirectory(path.join(projectRoot, "dist"), path.join(outputRoot, "typescript", "dist"));
   await copyDirectory(path.join(projectRoot, "client_web", "dist"), path.join(outputRoot, "web"));
+  await copyDirectory(path.join(resumeBuilderRoot, "resources"), path.join(outputRoot, "resume_builder", "resources"));
   await copyDirectory(path.join(projectRoot, "adapters"), path.join(outputRoot, "typescript", "adapters"));
   await copyDirectory(
     path.join(projectRoot, "memory", "starter-pack"),

@@ -9,6 +9,7 @@ Memory and secrets are separate authorities even when one workflow coordinates t
 | State | Default/selected location | Contents and authority |
 |---|---|---|
 | Memory root | `config.json` resolved relative to the runtime, or `PAA_MEMORY_ROOT` | Owner documents, conversations, preferences, auth state, skills, exports, diagnostics, system metadata, and a local Git repository. |
+| Resume Builder owner-data namespace | `apps/resume-builder` below the configured memory root | Versioned immutable owner records, atomic catalog heads, completed operation lookup, migration recovery metadata, and no provider or runtime credentials. Lifecycle uninstall does not traverse or delete it. |
 | Secrets home | `PAA_SECRETS_HOME` or the platform configuration default | Encrypted `vault.json` and, unless supplied by environment, `master-key.json`. Files are written private where the platform supports modes. |
 | Master key environment | `PAA_SECRETS_MASTER_KEY_B64` plus optional key id | Replaces file loading for the active process; never belongs in memory/preferences/docs. |
 
@@ -28,6 +29,7 @@ Preferences may store `secret_ref` and optional environment-reference names, nev
 - Backup restore clones and validates the selected backup commit, then replaces memory content through a staged/rollback workflow. It is destructive to the current memory target and requires explicit owner authority, verified source, and recovery planning.
 - Migration export is the portability implementation behind the current export route. Migration v1 intentionally packages memory plus available encrypted vault and master-key files and requests archive mode `0600` where supported; that mode setting is best effort on platforms that reject it.
 - Migration import stages memory, snapshots current memory and secret files, replaces the targets, and rolls back both on failure. A legacy memory-only archive produces a warning and does not restore secrets.
+- Resume Builder owner data lives below the memory root, so current Git backup, backup restore, and migration export/import include it without a parallel archive mechanism. Its own catalog/schema validation still fails closed after restore or reinstall; whole-memory archive validation does not replace that domain check.
 - Import validates a basic archive layout but has no archive signature/authenticity contract; accept only a trusted archive from an authorized source.
 - Migration export/import excludes `.git` and therefore carries current memory contents, not the memory repository's Git history. Remote backup restore selects content from a validated remote commit, preserves the target `.git` directory, and records the restored content in a new local commit.
 

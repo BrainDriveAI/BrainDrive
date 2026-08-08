@@ -1,0 +1,60 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/bridge-policy.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "policy_version": {
+      "type": "number",
+      "const": 1
+    },
+    "sandbox_same_origin": {
+      "type": "boolean",
+      "const": false
+    },
+    "direct_tauri_authority": {
+      "type": "boolean",
+      "const": false
+    },
+    "ambient_navigation": {
+      "type": "boolean",
+      "const": false
+    },
+    "ambient_clipboard": {
+      "type": "boolean",
+      "const": false
+    },
+    "max_message_bytes": {
+      "type": "number",
+      "const": 65536
+    },
+    "max_messages_per_10_seconds": {
+      "type": "number",
+      "const": 100
+    },
+    "require_origin_and_source_match": {
+      "type": "boolean",
+      "const": true
+    },
+    "require_installation_view_operation_binding": {
+      "type": "boolean",
+      "const": true
+    },
+    "require_same_server_tool_visibility": {
+      "type": "boolean",
+      "const": true
+    }
+  },
+  "required": [
+    "policy_version",
+    "sandbox_same_origin",
+    "direct_tauri_authority",
+    "ambient_navigation",
+    "ambient_clipboard",
+    "max_message_bytes",
+    "max_messages_per_10_seconds",
+    "require_origin_and_source_match",
+    "require_installation_view_operation_binding",
+    "require_same_server_tool_visibility"
+  ],
+  "additionalProperties": false
+}

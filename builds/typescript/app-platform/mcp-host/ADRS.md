@@ -1,0 +1,33 @@
+# Milestone 3 implementation decisions
+
+These records apply the project-owner approvals dated 2026-08-07 in Resume Builder Specs 1–5, the accepted verification plan, and ADR-RB-001 through ADR-RB-013. The source spec remains behavioral authority.
+
+## ADR-RB-014 — Separate modern installed-app transport from the fixed-tool adapter
+
+**Decision:** Keep `mcp/config.ts`, `mcp/registry.ts`, and `tools.ts` as the existing fixed-service path. Preserve rich MCP call results in `mcp/result-envelope.ts`, and invoke the historical lossy projection only from `mcp/client.ts` when an ordinary agent tool expects the old value. Installed apps use `app-platform/mcp-host/modern-client.ts`, which requires MCP `2026-07-28`, `io.modelcontextprotocol/ui` `2026-01-26`, and tools/resources capabilities. The exact workspace evidence pins are SDK `1.30.0` and extension package `1.7.5`.
+
+**Reason:** The fixed services and agent loop have a stable value contract and a documented legacy owner-header window. Reusing that path for installed apps would discard content and inherit ambient authority. A separate adapter makes rollback explicit and prevents legacy behavior from becoming the installed-app default.
+
+## ADR-RB-015 — Preserve complete envelopes internally and expose a validated UI projection
+
+**Decision:** Retain the complete initialization, resource-list, tool-list, resource-read, annotations, and `_meta` envelopes in the modern session. Retain complete accepted tool result blocks and metadata in the version-1 complete-result contract. Return only the validated `McpAppResource` HTML projection and app-visible tool names to the owner web client.
+
+**Reason:** Modern MCP/App behavior needs metadata for compatibility and future host decisions, while raw server envelopes are unnecessary browser authority. The split meets the no-flattening contract without exposing internal connection or package metadata.
+
+## ADR-RB-016 — Opaque-origin `srcDoc` sandbox and parent-mediated bridge
+
+**Decision:** Render the signed `ui://` resource through `srcDoc` with `sandbox="allow-scripts"`, no same-origin/navigation/forms/popups/download flags, no referrer, and a deny-by-default Permissions Policy. Require an inline CSP with `default-src 'none'`, `connect-src 'none'`, and `form-action 'none'`; reject external URLs, executable navigation schemes, nested browsing contexts, forms, network APIs, direct location changes, download markers, and direct Tauri use. The parent validates `event.source`, opaque origin, and encoded size before using its authenticated gateway adapter. The gateway then validates the versioned bridge schema, session/audience/installation/view/operation/token bindings, freshness, replay/rate limits, server identity, and app visibility.
+
+**Reason:** An opaque iframe cannot directly call authenticated BrainDrive APIs. Parent mediation permits an auditable, revocable least-authority channel without trusting UI content or legacy MCP permission headers.
+
+## ADR-RB-017 — Version 3 is the independently signed modern conformance fixture
+
+**Decision:** Preserve versions 1.0.0 and 2.0.0 as the legacy lifecycle/update fixtures under their original generated authority. Add version 3.0.0 under `fixture-source/modern` with a separately generated Ed25519 authority and version-specific trust metadata. It exposes only initialize, tools list/call, resources list/read, the bounded `ui://resume-builder/main` foundation UI, and the app-visible `fixture.status` test tool.
+
+**Reason:** M2 public trust material can survive restarts without persisting private signing keys, so it cannot sign a later package. A narrow independent fixture source is the repository-consistent key-rotation equivalent and avoids weakening or rewriting already verified M2 bytes.
+
+## ADR-RB-018 — One top-level Apps surface, still Docker-dev gated
+
+**Decision:** Implement the accepted top-level Sidebar/SidebarCollapsed `Apps` entry and a combined single-app management/launch page. Register host routes only alongside the existing feature-gated Docker lifecycle. Do not change production/native/desktop enablement or add Career/resume workflow UI.
+
+**Reason:** This follows the M1 placement decision and preserves AppShell/project/chat/settings behavior. Keeping the server feature gate means the UI reports Apps unavailable outside accepted environments rather than silently enabling unfinished runtime support.

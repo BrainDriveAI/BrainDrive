@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "record_type": "career_fact",
+  "metadata": {
+    "record_id": "10000000-0000-4000-8000-000000000001",
+    "revision_id": "10000000-0000-4000-8000-000000000002",
+    "revision": 1,
+    "created_at": "2026-08-07T12:00:00.000Z",
+    "created_by": {
+      "owner_id": "10000000-0000-4000-8000-000000000003",
+      "actor_id": "10000000-0000-4000-8000-000000000003",
+      "app_id": "ai.braindrive.resume-builder",
+      "publisher_id": "ai.braindrive",
+      "package_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "installation_id": "10000000-0000-4000-8000-000000000004"
+    },
+    "prior_revision_id": null,
+    "extensions": {}
+  },
+  "owner_id": "10000000-0000-4000-8000-000000000003",
+  "updated_at": "2026-08-07T12:01:00.000Z",
+  "lifecycle_state": "active",
+  "sensitivity": "standard",
+  "retention_class": "durable_owner_data",
+  "extensions": { "future_display_hint": "preserved but non-authoritative" },
+  "fact_kind": "employment",
+  "state": "confirmed",
+  "value": "Software Engineer at Example Corp from 2020 to 2024",
+  "source_revision_ids": ["10000000-0000-4000-8000-000000000005"],
+  "confirmation": {
+    "confirmation_id": "10000000-0000-4000-8000-000000000006",
+    "owner_id": "10000000-0000-4000-8000-000000000003",
+    "actor_id": "10000000-0000-4000-8000-000000000003",
+    "host_mediated": true,
+    "decision": "accept",
+    "confirmed_at": "2026-08-07T12:01:00.000Z",
+    "operation_id": "10000000-0000-4000-8000-000000000007",
+    "input_revision_id": "10000000-0000-4000-8000-000000000002"
+  },
+  "supersedes_fact_revision_id": null,
+  "review": { "reviewed_at": "2026-08-07T12:01:00.000Z", "review_note": null }
+}

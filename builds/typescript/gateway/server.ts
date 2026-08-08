@@ -8,6 +8,20 @@ import Fastify from "fastify";
 import type { FastifyReply } from "fastify";
 import { z } from "zod";
 
+import { createAppLifecycle, type AppLifecycleRuntimeTarget } from "../app-platform/lifecycle/bootstrap.js";
+import { registerAppLifecycleRoutes } from "../app-platform/lifecycle/routes.js";
+import { AppMcpHost } from "../app-platform/mcp-host/app-host.js";
+import { registerAppMcpHostRoutes } from "../app-platform/mcp-host/routes.js";
+import { CareerPlacementAdapter } from "../resume-domain/career.js";
+import { ResumeCapabilityRouter } from "../resume-domain/capabilities.js";
+import { ResumeDomainService } from "../resume-domain/service.js";
+import { ResumeDataStore } from "../resume-domain/store.js";
+import { ResumeInferenceBroker } from "../resume-inference/broker.js";
+import { createLiveProviderResolver, ModelCompatibilityRegistry, VERSIONED_MODEL_COMPATIBILITY_ENTRIES } from "../resume-inference/compatibility.js";
+import { createResumeE2eFixtureProviderResolver } from "../resume-inference/e2e-fixture.js";
+import { ImmutableInferenceSnapshotBuilder } from "../resume-inference/snapshot.js";
+import { ResumeExportBroker } from "../resume-renderer/export-broker.js";
+
 import { createGatewayAdapter } from "../adapters/gateway.js";
 import {
   createModelAdapter,
@@ -430,6 +444,54 @@ export async function buildServer(rootDir = process.cwd()) {
     }
   );
 
+  const appLifecycleService = readBooleanEnv(process.env.BRAINDRIVE_APP_PLATFORM_ENABLED, false)
+    ? await createAppLifecycle({
+        memoryRoot: runtimeConfig.memory_root,
+        hostVersion: appVersion,
+        stateRoot: process.env.BRAINDRIVE_APP_STATE_ROOT?.trim() || undefined,
+        target: readAppLifecycleTarget(process.env.BRAINDRIVE_APP_PLATFORM_TARGET),
+      })
+    : null;
+  let appMcpHost: AppMcpHost | null = null;
+  if (appLifecycleService) {
+    const resumeDataStore = new ResumeDataStore(runtimeConfig.memory_root, appLifecycleService.dependencies.ownerDataRoot);
+    const descriptor = await appLifecycleService.ownerDescriptor();
+    await resumeDataStore.initialize(descriptor.grant?.owner_id ?? "00000000-0000-4000-8000-000000000001");
+    const resumeDomain = new ResumeDomainService(resumeDataStore);
+    const exportBroker = new ResumeExportBroker(resumeDomain, auditLog);
+    const capabilityRouter = new ResumeCapabilityRouter(resumeDomain, new CareerPlacementAdapter(runtimeConfig.memory_root), auditLog, exportBroker);
+    // Real provider/model pairs remain fail-closed until a conformance run supplies
+    // accepted registry entries. Tests inject synthetic accepted entries.
+    const compatibility = new ModelCompatibilityRegistry(VERSIONED_MODEL_COMPATIBILITY_ENTRIES);
+    const inferenceResolver = process.env.BRAINDRIVE_E2E_RESUME_INFERENCE_FIXTURE === "1"
+      ? createResumeE2eFixtureProviderResolver()
+      : createLiveProviderResolver({
+          adapterName: runtimeConfig.provider_adapter,
+          adapterConfig,
+          loadPreferences: loadLivePreferences,
+          compatibility,
+        });
+    const inferenceBroker = new ResumeInferenceBroker(inferenceResolver, auditLog);
+    appMcpHost = new AppMcpHost(appLifecycleService, {
+      audit: auditLog,
+      capabilityRouter,
+      inferenceBroker,
+      snapshotBuilder: new ImmutableInferenceSnapshotBuilder(resumeDataStore),
+      exportBroker,
+    });
+  }
+  if (appLifecycleService) {
+    auditLog("app_platform.lifecycle.enabled", {
+      app_id: "ai.braindrive.resume-builder",
+      fixture_source: "repository_fixture",
+      supervisor: process.env.BRAINDRIVE_APP_PLATFORM_TARGET === "desktop_windows_x64" ? "desktop_packaged_node" : "docker_process",
+    });
+    app.addHook("onClose", async () => {
+      appMcpHost?.closeAll();
+      await appLifecycleService.dependencies.supervisor.close();
+    });
+  }
+
   app.addHook("onRequest", async (request, reply) => {
     applyDesktopCorsHeaders(request.headers.origin, reply, desktopCorsOrigin, Boolean(desktopApiToken));
 
@@ -700,6 +762,11 @@ export async function buildServer(rootDir = process.cwd()) {
 
     reply.code(423).send({ error: "migration_in_progress" });
   });
+
+  if (appLifecycleService) {
+    registerAppLifecycleRoutes(app, appLifecycleService);
+    registerAppMcpHostRoutes(app, appMcpHost!);
+  }
 
   app.post("/message", async (request, reply) => {
     const normalizedRequest = gatewayAdapter.normalizeMessageRequest(request.body, request.headers["x-conversation-id"]);
@@ -3342,6 +3409,12 @@ function readBooleanEnv(value: string | undefined, defaultValue = false): boolea
   return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
 }
 
+function readAppLifecycleTarget(value: string | undefined): AppLifecycleRuntimeTarget {
+  const target = value?.trim() || "docker_linux_x64";
+  if (target === "docker_linux_x64" || target === "desktop_windows_x64") return target;
+  throw new Error("BRAINDRIVE_APP_PLATFORM_TARGET must name an accepted Resume Builder runtime target");
+}
+
 function applyDesktopCorsHeaders(
   origin: string | undefined,
   reply: import("fastify").FastifyReply,
@@ -4198,6 +4271,17 @@ if (isDirectEntrypoint(process.argv[1], import.meta.url)) {
     .then(async ({ app, runtimeConfig }) => {
       await app.listen({ host: runtimeConfig.bind_address, port: runtimeConfig.port ?? 8787 });
       auditLog("startup.listen", { host: runtimeConfig.bind_address, port: runtimeConfig.port ?? 8787 });
+      let closing = false;
+      const close = () => {
+        if (closing) return;
+        closing = true;
+        void app.close().catch((error) => {
+          auditLog("shutdown.failure", { message: error instanceof Error ? error.message : "Unknown shutdown error" });
+          process.exitCode = 1;
+        });
+      };
+      process.once("SIGTERM", close);
+      process.once("SIGINT", close);
     })
     .catch((error) => {
       auditLog("startup.failure", {

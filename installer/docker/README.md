@@ -100,7 +100,9 @@ How dev mode works:
 - Web client runs Vite dev server with HMR.
 - API calls proxy from Vite to backend (`/api` -> app service).
 - Runtime memory is a host bind mount from `PAA_LIBRARY_HOST_PATH` (defaulting to the repository development memory fixture); secrets use the external `braindrive_secrets` volume. The app and web dependency trees use separate named volumes.
-- App startup recursively changes ownership of the active memory bind, secrets/dependency state, and temporary home to `BRAINDRIVE_DEV_HOST_UID` / `BRAINDRIVE_DEV_HOST_GID` (default `1000`). Authorize the exact bind target and UID/GID before starting. Both containers run `npm install` from bind-mounted workspaces, so review package metadata and lockfiles after a recreate.
+- The feature-gated Resume Builder lifecycle fixture uses the separate `braindrive_dev_app_platform` volume at `/data/app-platform`. It stores only host installation/operation/package/runtime state. It does not install automatically, does not expose another host port, and default uninstall does not traverse the owner-data namespace. Set `BRAINDRIVE_APP_PLATFORM_ENABLED=false` before startup to disable this Milestone 2 developer fixture.
+- The separately buildable `builds/resume_builder` fixture package is mounted read-only at `/app/resume_builder`; the app container may load its declared UI resource but cannot modify package source.
+- App startup recursively changes ownership of the active memory bind, lifecycle host-state volume, secrets/dependency state, and temporary home to `BRAINDRIVE_DEV_HOST_UID` / `BRAINDRIVE_DEV_HOST_GID` (default `1000`). Authorize the exact bind target and UID/GID before starting. Both containers run `npm install` from bind-mounted workspaces, so review package metadata and lockfiles after a recreate.
 - Compose creates or reuses `braindrive_dev_default`; only Vite is host-bound, and its `/api` route proxies to the internal app.
 - Startup update checks are not used in dev mode.
 

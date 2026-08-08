@@ -1,0 +1,102 @@
+import Fastify from "fastify";
+import { describe, expect, it, vi } from "vitest";
+
+import type { PermissionSet } from "../../contracts.js";
+import { AppPlatformError } from "../lifecycle/errors.js";
+import type { AppMcpHost } from "./app-host.js";
+import { registerAppMcpHostRoutes } from "./routes.js";
+
+const permissions: PermissionSet = {
+  memory_access: true,
+  tool_access: true,
+  system_actions: true,
+  delegation: true,
+  approval_authority: true,
+  administration: true,
+};
+
+function createHost() {
+  return {
+    launch: vi.fn(async () => ({ launch_version: 1, session_id: crypto.randomUUID() })),
+    handleBridge: vi.fn(async () => ({ status: "ready" })),
+    handleOwnerCapability: vi.fn(async () => ({ status: "ok" })),
+    placeCareerReturn: vi.fn(async () => ({ placement: "career_journal", committed: true })),
+    close: vi.fn(() => true),
+  } as unknown as AppMcpHost;
+}
+
+describe("owner MCP Apps host gateway routes", () => {
+  it("requires owner administration and accepts only the narrow sandbox marker", async () => {
+    const host = createHost();
+    const app = Fastify();
+    app.addHook("preHandler", async (request) => {
+      request.authContext = {
+        actorId: "owner",
+        actorType: "owner",
+        mode: "local-owner",
+        permissions: request.headers["x-test-denied"] ? { ...permissions, administration: false } : permissions,
+      };
+    });
+    registerAppMcpHostRoutes(app, host);
+
+    expect((await app.inject({ method: "POST", url: "/apps/resume-builder/launch", headers: { "x-test-denied": "1" } })).statusCode).toBe(403);
+    expect((await app.inject({ method: "POST", url: "/apps/resume-builder/launch" })).statusCode).toBe(200);
+
+    const sessionId = crypto.randomUUID();
+    const invalid = await app.inject({
+      method: "POST",
+      url: "/apps/resume-builder/bridge",
+      payload: { session_id: sessionId, origin: "https://host.invalid", source: "window", message: {} },
+    });
+    expect(invalid.json()).toEqual({ error: "invalid_request" });
+    expect(host.handleBridge).not.toHaveBeenCalled();
+
+    const valid = await app.inject({
+      method: "POST",
+      url: "/apps/resume-builder/bridge",
+      payload: { session_id: sessionId, origin: "null", source: "sandbox_iframe", message: {} },
+    });
+    expect(valid.json()).toEqual({ status: "ready" });
+    expect(host.handleBridge).toHaveBeenCalledWith(sessionId, {}, { origin: "null", sourceMatches: true });
+    await app.close();
+  });
+
+  it("returns stable safe errors and closes only the named session", async () => {
+    const host = createHost();
+    vi.mocked(host.launch).mockRejectedValue(new AppPlatformError("protocol_incompatible", "internal protocol detail"));
+    const app = Fastify();
+    app.addHook("preHandler", async (request) => {
+      request.authContext = { actorId: "owner", actorType: "owner", mode: "local-owner", permissions };
+    });
+    registerAppMcpHostRoutes(app, host);
+
+    const launch = await app.inject({ method: "POST", url: "/apps/resume-builder/launch" });
+    expect(launch.json()).toEqual({ error: "protocol_incompatible", retryable: false });
+    expect(launch.body).not.toContain("internal protocol detail");
+
+    const sessionId = crypto.randomUUID();
+    expect((await app.inject({ method: "DELETE", url: `/apps/resume-builder/sessions/${sessionId}` })).statusCode).toBe(204);
+    expect(host.close).toHaveBeenCalledWith(sessionId);
+    await app.close();
+  });
+
+  it("keeps owner-confirmed data and Career return calls behind owner administration", async () => {
+    const host = createHost();
+    const app = Fastify();
+    app.addHook("preHandler", async (request) => {
+      request.authContext = { actorId: "owner", actorType: "owner", mode: "local-owner", permissions: request.headers["x-test-denied"] ? { ...permissions, administration: false } : permissions };
+    });
+    registerAppMcpHostRoutes(app, host);
+    const operationId = crypto.randomUUID();
+    const payload = { capability: "career.facts.confirm", operation_id: operationId, input: {}, owner_confirmed: true };
+    expect((await app.inject({ method: "POST", url: "/apps/resume-builder/data/call", headers: { "x-test-denied": "1" }, payload })).statusCode).toBe(403);
+    expect((await app.inject({ method: "POST", url: "/apps/resume-builder/data/call", payload })).statusCode).toBe(200);
+    expect(host.handleOwnerCapability).toHaveBeenCalledWith("career.facts.confirm", {}, operationId, true);
+
+    const summary = { summary_version: 1, status: "completed", outcome_summary: "Synthetic completion", approved_reference: null, stable_fact_proposals: [], next_career_action: null, updated_at: "2026-08-07T12:00:00.000Z" };
+    const returnOperationId = crypto.randomUUID();
+    expect((await app.inject({ method: "POST", url: "/apps/resume-builder/career-return", payload: { operation_id: returnOperationId, entry_point: "career", summary } })).statusCode).toBe(200);
+    expect(host.placeCareerReturn).toHaveBeenCalledWith(summary, "career", returnOperationId);
+    await app.close();
+  });
+});

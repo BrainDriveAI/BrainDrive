@@ -139,6 +139,30 @@ describe("OpenAICompatibleAdapter prompt audit", () => {
       },
     });
   });
+
+  it("uses a dedicated no-tools structured body and keeps credentials out of it", async () => {
+    let sentBody: Record<string, unknown> | null = null;
+    let authorization = "";
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => {
+      sentBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      authorization = String((init?.headers as Record<string, string> | undefined)?.authorization ?? "");
+      return new Response(JSON.stringify({
+        choices: [{ finish_reason: "stop", message: { content: '{"questions":[]}' } }],
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }));
+    const adapter = new OpenAICompatibleAdapter({
+      base_url: "https://provider.example/v1", model: "test-model", api_key_env: "TEST_API_KEY", provider_id: "test-provider",
+    }, { apiKey: "sk-owner-secret" });
+    await adapter.completeStructuredNoTools({
+      system: "Fixed policy", user: "<data>owner input</data>", schemaName: "resume_test",
+      schema: { type: "object", properties: { questions: { type: "array" } }, required: ["questions"], additionalProperties: false },
+      maxOutputTokens: 128, timeoutMs: 1_000,
+    });
+    expect(sentBody).toMatchObject({ model: "test-model", stream: false, tools: [], max_tokens: 128 });
+    expect(JSON.stringify(sentBody)).not.toContain("sk-owner-secret");
+    expect(authorization).toBe("Bearer sk-owner-secret");
+    expect(sentBody).toHaveProperty("response_format.json_schema.strict", true);
+  });
 });
 
 function fakeRecorder(events: Array<{ event: string; details: Record<string, unknown> }>): PromptAuditRecorder {

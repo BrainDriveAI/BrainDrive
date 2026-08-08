@@ -63,8 +63,10 @@ vi.mock("./Sidebar", () => ({
   default: (props: {
     selectedProjectId: string | null;
     projectFiles: ProjectFile[];
+    onOpenApps: () => void;
   }) => (
     <aside>
+      <button type="button" onClick={props.onOpenApps}>Apps</button>
       <div data-testid="selected-project">{props.selectedProjectId}</div>
       <div data-testid="sidebar-files">
         {props.projectFiles.map((file) => file.path).join(",")}
@@ -72,6 +74,8 @@ vi.mock("./Sidebar", () => ({
     </aside>
   ),
 }));
+
+vi.mock("@/components/apps/AppsPage", () => ({ default: () => <section aria-label="Apps surface">Apps surface</section> }));
 
 vi.mock("@/components/chat/ChatPanel", () => ({
   default: (props: {
@@ -127,6 +131,14 @@ describe("AppShell project file refresh", () => {
 
     expect(screen.queryByText("BrainDrive is up to date.")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Dismiss memory update notice" })).not.toBeInTheDocument();
+  });
+
+  it("opens the single Apps surface without changing the selected project", async () => {
+    const user = userEvent.setup();
+    render(<AppShell />);
+    await user.click(screen.getByRole("button", { name: "Apps" }));
+    expect(screen.getByRole("region", { name: "Apps surface" })).toBeInTheDocument();
+    expect(selectProjectMock).not.toHaveBeenCalled();
   });
 
 });

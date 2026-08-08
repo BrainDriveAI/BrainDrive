@@ -1,0 +1,19 @@
+{
+  "supervisor_protocol_version": 1,
+  "runtime_kind": "container",
+  "app_id": "ai.braindrive.resume-builder",
+  "installation_id": "20000000-0000-4000-8000-000000000001",
+  "package_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "grant_id": "20000000-0000-4000-8000-000000000002",
+  "verified_entrypoint": "payload/server/dist/index.js",
+  "arguments": [],
+  "environment_keys": ["BRAINDRIVE_APP_CONNECTION_TOKEN"],
+  "package_root_ref": "20000000-0000-4000-8000-000000000003",
+  "cache_root_ref": "20000000-0000-4000-8000-000000000004",
+  "endpoint_policy": {
+    "transport": "container_internal",
+    "authentication": "per_installation_token",
+    "public_bind_allowed": false
+  },
+  "resource_policy_version": 1
+}

@@ -1,6 +1,7 @@
 param(
   [string]$ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
   [string]$McpRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\mcp_release")).Path,
+  [string]$ResumeBuilderRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\resume_builder")).Path,
   [string]$OutputRoot = (Join-Path $ProjectRoot "src-tauri\desktop-runtime")
 )
 
@@ -48,6 +49,7 @@ Assert-PathExists -Path (Join-Path $ProjectRoot "node_modules") -Label "BrainDri
 Assert-PathExists -Path (Join-Path $McpRoot "dist\src\index.js") -Label "BrainDrive MCP build"
 Assert-PathExists -Path (Join-Path $McpRoot "node_modules") -Label "BrainDrive MCP dependencies"
 Assert-PathExists -Path (Join-Path $ProjectRoot "client_web\dist") -Label "BrainDrive desktop web build"
+Assert-PathExists -Path (Join-Path $ResumeBuilderRoot "resources\main.html") -Label "Resume Builder packaged UI resource"
 
 if (Test-Path -LiteralPath $OutputRoot) {
   Remove-Item -LiteralPath $OutputRoot -Recurse -Force
@@ -60,6 +62,7 @@ Copy-File -Source $nodePath -Destination (Join-Path $OutputRoot "node\$nodeExeNa
 
 Copy-Directory -Source (Join-Path $ProjectRoot "dist") -Destination (Join-Path $OutputRoot "typescript\dist")
 Copy-Directory -Source (Join-Path $ProjectRoot "client_web\dist") -Destination (Join-Path $OutputRoot "web")
+Copy-Directory -Source (Join-Path $ResumeBuilderRoot "resources") -Destination (Join-Path $OutputRoot "resume_builder\resources")
 Copy-Directory -Source (Join-Path $ProjectRoot "adapters") -Destination (Join-Path $OutputRoot "typescript\adapters")
 Copy-Directory -Source (Join-Path $ProjectRoot "memory\starter-pack") -Destination (Join-Path $OutputRoot "typescript\memory\starter-pack")
 Copy-Directory -Source (Join-Path $ProjectRoot "node_modules") -Destination (Join-Path $OutputRoot "typescript\node_modules")

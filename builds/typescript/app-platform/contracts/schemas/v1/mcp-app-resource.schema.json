@@ -1,0 +1,80 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/mcp-app-resource.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "resource_version": {
+      "type": "number",
+      "const": 1
+    },
+    "app_id": {
+      "type": "string",
+      "const": "ai.braindrive.resume-builder"
+    },
+    "package_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "uri": {
+      "type": "string",
+      "maxLength": 2048,
+      "pattern": "^ui:\\/\\/[A-Za-z0-9._~!$&'()*+,;=:@/-]+$"
+    },
+    "mime_type": {
+      "type": "string",
+      "const": "text/html;profile=mcp-app"
+    },
+    "extension": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "const": "io.modelcontextprotocol/ui"
+        },
+        "version": {
+          "type": "string",
+          "const": "2026-01-26"
+        }
+      },
+      "required": [
+        "id",
+        "version"
+      ],
+      "additionalProperties": false
+    },
+    "content_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "size_bytes": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 2097152
+    },
+    "cache_policy": {
+      "type": "string",
+      "enum": [
+        "immutable_package_digest",
+        "no_store"
+      ]
+    },
+    "html": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2097152
+    }
+  },
+  "required": [
+    "resource_version",
+    "app_id",
+    "package_digest",
+    "uri",
+    "mime_type",
+    "extension",
+    "content_digest",
+    "size_bytes",
+    "cache_policy",
+    "html"
+  ],
+  "additionalProperties": false
+}

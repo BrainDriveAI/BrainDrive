@@ -1,0 +1,110 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/lineage-graph.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "graph_version": {
+      "type": "number",
+      "const": 1
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "revision_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "record_type": {
+            "type": "string",
+            "enum": [
+              "source",
+              "career_fact",
+              "resume_definition",
+              "job_description",
+              "tailored_variant",
+              "artifact",
+              "export_receipt",
+              "migration",
+              "interview_progress"
+            ]
+          },
+          "fact_state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "confirmed",
+                  "imported",
+                  "suggested",
+                  "rejected"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sensitivity": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "sensitive",
+              "highly_sensitive"
+            ]
+          }
+        },
+        "required": [
+          "revision_id",
+          "record_type",
+          "fact_state",
+          "sensitivity"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "from_revision_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "to_revision_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "relation": {
+            "type": "string",
+            "enum": [
+              "derived_from",
+              "supported_by",
+              "parent",
+              "job_snapshot",
+              "rendered_from",
+              "exported_from"
+            ]
+          }
+        },
+        "required": [
+          "from_revision_id",
+          "to_revision_id",
+          "relation"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "graph_version",
+    "nodes",
+    "edges"
+  ],
+  "additionalProperties": false
+}

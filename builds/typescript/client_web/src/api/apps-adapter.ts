@@ -1,0 +1,113 @@
+import { authenticatedFetch } from "./auth-adapter";
+import { GATEWAY_BASE_URL } from "./gateway-adapter";
+import { GatewayError } from "./types";
+
+export type AppLifecycleState = "not_installed" | "staged" | "active" | "disabled" | "updating" | "rollback_pending" | "uninstalling" | "quarantined" | "failed_recoverable";
+
+export type ResumeBuilderAppStatus = {
+  contract_version: 1;
+  app_id: "ai.braindrive.resume-builder";
+  display_name: "Resume Builder";
+  publisher: "BrainDrive";
+  state: AppLifecycleState;
+  generation: number;
+  installation_id: string | null;
+  package_version: string | null;
+  available_version: string;
+  capabilities: string[];
+  inference_disclosure: string;
+  storage_disclosure: string;
+  retained_owner_data: true;
+  updated_at: string;
+};
+
+export type AppLaunch = {
+  launch_version: 1;
+  session_id: string;
+  installation_id: string;
+  view_id: string;
+  operation_id: string;
+  bridge_token_id: string;
+  server_id: string;
+  expires_at: string;
+  protocol: { core: string; apps_extension: string; server_name: string; server_version: string };
+  resource: {
+    uri: string;
+    mime_type: "text/html;profile=mcp-app";
+    content_digest: string;
+    size_bytes: number;
+    html: string;
+  };
+  allowed_tools: string[];
+  allowed_capabilities: string[];
+  entry_point: "direct" | "career";
+};
+
+async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}${path}`, init);
+  if (!response.ok) {
+    let message = `App request failed with status ${response.status}`;
+    try { message = ((await response.json()) as { error?: string }).error ?? message; } catch { /* safe fallback */ }
+    throw new GatewayError(message, response.status, message);
+  }
+  return (await response.json()) as T;
+}
+
+export function getResumeBuilderApp(): Promise<ResumeBuilderAppStatus> {
+  return requestJson("/apps/resume-builder");
+}
+
+export async function mutateResumeBuilderApp(action: "install" | "update" | "disable" | "enable" | "rollback" | "uninstall"): Promise<ResumeBuilderAppStatus> {
+  const packageAction = action === "install" || action === "update";
+  await requestJson(`/apps/resume-builder/${action}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      idempotency_key: crypto.randomUUID(),
+      ...(packageAction ? { version: "3.0.0", approve_capabilities: true } : {}),
+    }),
+  });
+  return getResumeBuilderApp();
+}
+
+export function launchResumeBuilderApp(entryPoint: "direct" | "career" = "direct"): Promise<AppLaunch> {
+  return requestJson("/apps/resume-builder/launch", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ entry_point: entryPoint }),
+  });
+}
+
+export function callResumeBuilderCapability(capability: string, input: unknown, operationId: string, ownerConfirmed = false): Promise<{ result: unknown }> {
+  return requestJson("/apps/resume-builder/data/call", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ capability, operation_id: operationId, input, owner_confirmed: ownerConfirmed }),
+  });
+}
+
+export async function closeResumeBuilderSession(sessionId: string): Promise<void> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/apps/resume-builder/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+  if (!response.ok && response.status !== 404 && response.status !== 410) throw new GatewayError("Unable to close app session", response.status);
+}
+
+export function sendResumeBuilderBridgeMessage(sessionId: string, message: unknown): Promise<unknown> {
+  return requestJson("/apps/resume-builder/bridge", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, origin: "null", source: "sandbox_iframe", message }),
+  });
+}
+
+export function finalizeResumeBuilderExport(input: {
+  artifact_revision_id: string;
+  artifact_digest: string;
+  safe_destination_label: string;
+  outcome: "completed" | "cancelled" | "failed";
+}): Promise<{ receipt_revision_id: string; safe_destination_label: string; outcome: string }> {
+  return requestJson("/apps/resume-builder/exports/finalize", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ operation_id: crypto.randomUUID(), ...input }),
+  });
+}

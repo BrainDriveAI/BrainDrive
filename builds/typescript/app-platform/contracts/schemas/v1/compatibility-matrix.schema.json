@@ -1,0 +1,147 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/compatibility-matrix.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "matrix_version": {
+      "type": "number",
+      "const": 1
+    },
+    "host_contract_versions": {
+      "minItems": 1,
+      "maxItems": 1,
+      "type": "array",
+      "items": {
+        "type": "number",
+        "const": 1
+      }
+    },
+    "data_read_versions": {
+      "minItems": 1,
+      "maxItems": 1,
+      "type": "array",
+      "items": {
+        "type": "number",
+        "const": 1
+      }
+    },
+    "data_write_versions": {
+      "minItems": 1,
+      "maxItems": 1,
+      "type": "array",
+      "items": {
+        "type": "number",
+        "const": 1
+      }
+    },
+    "inference_versions": {
+      "minItems": 1,
+      "maxItems": 1,
+      "type": "array",
+      "items": {
+        "type": "number",
+        "const": 1
+      }
+    },
+    "bridge_versions": {
+      "minItems": 1,
+      "maxItems": 1,
+      "type": "array",
+      "items": {
+        "type": "number",
+        "const": 1
+      }
+    },
+    "dependency_evidence": {
+      "type": "object",
+      "properties": {
+        "typescript_mcp_sdk": {
+          "type": "string",
+          "const": "1.30.0"
+        },
+        "mcp_ext_apps": {
+          "type": "string",
+          "const": "1.7.5"
+        }
+      },
+      "required": [
+        "typescript_mcp_sdk",
+        "mcp_ext_apps"
+      ],
+      "additionalProperties": false
+    },
+    "desktop_release_targets": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "string",
+          "const": "windows"
+        }
+      ]
+    },
+    "docker_dev_required": {
+      "type": "boolean",
+      "const": true
+    },
+    "unknown_fields": {
+      "type": "object",
+      "properties": {
+        "authority_envelopes": {
+          "type": "string",
+          "const": "reject"
+        },
+        "durable_records": {
+          "type": "string",
+          "const": "preserve_extensions_only"
+        },
+        "unrecognized_extensions_are_authoritative": {
+          "type": "boolean",
+          "const": false
+        }
+      },
+      "required": [
+        "authority_envelopes",
+        "durable_records",
+        "unrecognized_extensions_are_authoritative"
+      ],
+      "additionalProperties": false
+    },
+    "downgrade": {
+      "type": "object",
+      "properties": {
+        "newer_schema": {
+          "type": "string",
+          "const": "fail_closed_export_or_upgrade"
+        },
+        "unknown_schema": {
+          "type": "string",
+          "const": "fail_closed"
+        },
+        "destructive_downgrade": {
+          "type": "string",
+          "const": "prohibited"
+        }
+      },
+      "required": [
+        "newer_schema",
+        "unknown_schema",
+        "destructive_downgrade"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "matrix_version",
+    "host_contract_versions",
+    "data_read_versions",
+    "data_write_versions",
+    "inference_versions",
+    "bridge_versions",
+    "dependency_evidence",
+    "desktop_release_targets",
+    "docker_dev_required",
+    "unknown_fields",
+    "downgrade"
+  ],
+  "additionalProperties": false
+}

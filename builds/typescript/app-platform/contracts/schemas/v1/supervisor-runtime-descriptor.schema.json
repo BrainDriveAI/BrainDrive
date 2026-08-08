@@ -1,0 +1,116 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/supervisor-runtime-descriptor.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "supervisor_protocol_version": {
+      "type": "number",
+      "const": 1
+    },
+    "runtime_kind": {
+      "type": "string",
+      "enum": [
+        "container",
+        "packaged_node"
+      ]
+    },
+    "app_id": {
+      "type": "string",
+      "const": "ai.braindrive.resume-builder"
+    },
+    "installation_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "package_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "grant_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "verified_entrypoint": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "arguments": {
+      "type": "array",
+      "prefixItems": []
+    },
+    "environment_keys": {
+      "minItems": 1,
+      "maxItems": 5,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "BRAINDRIVE_APP_CONNECTION_TOKEN",
+          "BRAINDRIVE_APP_ID",
+          "BRAINDRIVE_INSTALLATION_ID",
+          "BRAINDRIVE_PACKAGE_DIGEST",
+          "BRAINDRIVE_ENDPOINT_BIND"
+        ]
+      }
+    },
+    "package_root_ref": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "cache_root_ref": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "endpoint_policy": {
+      "type": "object",
+      "properties": {
+        "transport": {
+          "type": "string",
+          "enum": [
+            "container_internal",
+            "loopback"
+          ]
+        },
+        "authentication": {
+          "type": "string",
+          "const": "per_installation_token"
+        },
+        "public_bind_allowed": {
+          "type": "boolean",
+          "const": false
+        }
+      },
+      "required": [
+        "transport",
+        "authentication",
+        "public_bind_allowed"
+      ],
+      "additionalProperties": false
+    },
+    "resource_policy_version": {
+      "type": "number",
+      "const": 1
+    }
+  },
+  "required": [
+    "supervisor_protocol_version",
+    "runtime_kind",
+    "app_id",
+    "installation_id",
+    "package_digest",
+    "grant_id",
+    "verified_entrypoint",
+    "arguments",
+    "environment_keys",
+    "package_root_ref",
+    "cache_root_ref",
+    "endpoint_policy",
+    "resource_policy_version"
+  ],
+  "additionalProperties": false
+}

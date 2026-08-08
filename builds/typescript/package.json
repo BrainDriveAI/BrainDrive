@@ -16,6 +16,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "contracts:schemas": "tsx app-platform/contracts/generate-json-schemas.ts",
     "dev": "node scripts/dev-runtime.mjs --web",
     "dev:server": "node scripts/dev-runtime.mjs",
     "dev:gateway": "tsx gateway/server.ts",
@@ -46,16 +47,17 @@
     "desktop:dev": "tauri dev",
     "desktop:release-aliases": "node scripts/desktop-release-aliases.mjs",
     "desktop:build": "tauri build && npm run desktop:release-aliases",
-    "desktop:build:mac": "tauri build --bundles dmg && npm run desktop:release-aliases",
+    "desktop:build:mac": "node scripts/desktop-release-aliases.mjs --prepare mac && tauri build --bundles dmg && node scripts/desktop-release-aliases.mjs --require mac",
     "desktop:build:mac:remote": "powershell -ExecutionPolicy Bypass -File scripts/remote-mac-build.ps1",
-    "desktop:build:windows": "tauri build --bundles nsis && npm run desktop:release-aliases",
+    "desktop:build:windows": "node scripts/desktop-release-aliases.mjs --prepare windows && tauri build --bundles nsis && node scripts/desktop-release-aliases.mjs --require windows",
     "desktop:build:linux": "tauri build --bundles deb,appimage",
     "desktop:build:frontend": "npm --prefix client_web run build",
     "desktop:dev:web": "npm --prefix client_web run dev",
     "desktop:test": "npm run desktop:prepare-dev && npm run test && npm --prefix ../mcp_release run build && npm --prefix client_web run test && cargo test --manifest-path src-tauri/Cargo.toml"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/ext-apps": "1.7.5",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "fastify": "^5.10.0",
     "zod": "^4.4.3"
   },
