@@ -23,7 +23,8 @@ describe("Docker development Resume Builder package boundary", () => {
       stat(scriptPath),
     ]);
 
-    expect(metadata.mode & 0o111).not.toBe(0);
+    expect(script.startsWith("#!/usr/bin/env bash\n")).toBe(true);
+    if (process.platform !== "win32") expect(metadata.mode & 0o111).not.toBe(0);
     expect(script).not.toContain("compose-config-rendered.txt");
     for (const replacement of [
       "[MEMORY_ROOT]",

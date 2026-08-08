@@ -26,6 +26,19 @@ export type StoredPackage = {
 
 type StoreHooks = { beforeRename?: (targetPath: string) => Promise<void> };
 
+async function syncDirectoryEntry(directoryPath: string): Promise<void> {
+  const directory = await open(directoryPath, "r");
+  try {
+    await directory.sync();
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (process.platform === "win32" && (code === "EPERM" || code === "EINVAL" || code === "ENOTSUP")) return;
+    throw error;
+  } finally {
+    await directory.close();
+  }
+}
+
 export function initialLifecycleRecord(timestamp = new Date().toISOString()): LifecycleRecord {
   return LifecycleRecordSchema.parse({
     lifecycle_schema_version: 1,
@@ -184,8 +197,7 @@ export class AppLifecycleStore {
     try {
       if (runHook) await this.hooks.beforeRename?.(targetPath);
       await rename(tempPath, targetPath);
-      const directory = await open(path.dirname(targetPath), "r");
-      try { await directory.sync(); } finally { await directory.close(); }
+      await syncDirectoryEntry(path.dirname(targetPath));
     } catch (error) { await rm(tempPath, { force: true }); throw error; }
   }
 }

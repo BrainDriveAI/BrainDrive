@@ -72,6 +72,19 @@ type StoreHooks = {
   migrationTransform?: (legacy: z.infer<typeof LegacyCatalogSchema>) => z.infer<typeof LegacyCatalogSchema>;
 };
 
+async function syncDirectoryEntry(directoryPath: string): Promise<void> {
+  const directory = await open(directoryPath, "r");
+  try {
+    await directory.sync();
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (process.platform === "win32" && (code === "EPERM" || code === "EINVAL" || code === "ENOTSUP")) return;
+    throw error;
+  } finally {
+    await directory.close();
+  }
+}
+
 export class ResumeDataStore {
   private tail = Promise.resolve();
   private readonly catalogPath: string;
@@ -360,8 +373,7 @@ export class ResumeDataStore {
     try { await handle.writeFile(`${canonicalJson(value)}\n`, "utf8"); await handle.sync(); } finally { await handle.close(); }
     try {
       await rename(temporaryPath, targetPath);
-      const directory = await open(path.dirname(targetPath), "r");
-      try { await directory.sync(); } finally { await directory.close(); }
+      await syncDirectoryEntry(path.dirname(targetPath));
     } catch (error) { await rm(temporaryPath, { force: true }); throw error; }
   }
 }
