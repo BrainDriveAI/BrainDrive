@@ -57,7 +57,7 @@ No production/staging configuration, provider choice, owner credential, marketpl
 - Deterministic renderer checks passed sanitization, stable bytes, logical ordering, and exact ATS parse-back.
 - Native Windows desktop preflight/test passed: main 54 files/368 tests, web 21 files/202 tests, MCP build, Rust 54 passed/1 intentional helper ignored, and native containment.
 - Native Windows Playwright passed on mobile Chromium/WebKit (12 passed/8 expected skips) and desktop Chromium (5 passed/5 expected skips), including the Resume Builder owner journey.
-- The exact release binary packaged by NSIS reached `/health` HTTP 200 from isolated `APPDATA`/`LOCALAPPDATA`, reported runtime ready, had five child processes before close, and left zero surviving child PIDs after close (run `c8927ad9b3764687b158dcd41362508f`).
+- The exact release binary packaged by NSIS (SHA-256 `A165C8C03E7C63AA8751833834EE2D2EBCBCC8751D7B1D880C6ABBD7533CD1CF`) reached `/health` HTTP 200 from isolated `APPDATA`/`LOCALAPPDATA`, reported runtime ready, had 14 descendant processes before close, accepted normal window close, and left zero surviving child PIDs.
 - Native NSIS build produced `BrainDrive_26.7.23_x64-setup.exe` at runtime revision `0646088c` (carried to documentation-only candidate `a227ec29`): 28,219,415 bytes, SHA-256 `5AFB289D0AB1428EC5075433A5C29590D7D12D93873CA4B5FBE93E44FE66AA6A`.
 
 ## Blocking Evidence

@@ -1,7 +1,7 @@
 {
   "manifest_version": 1,
   "milestone": 8,
-  "recorded_at": "2026-08-08T03:15:00.000Z",
+  "recorded_at": "2026-08-08T03:25:00.000Z",
   "candidate": {
     "branch": "feature/resume-builder-app",
     "base_revision": "6cc8f0f9a0703f6841df7b7145265c1793d478da",
@@ -26,7 +26,7 @@
     { "id": "CMD-DOCS", "command": "cd builds/typescript && npm run docs:verify; repository root: node tools/docs/sync-generated.mjs --check", "result": "pass: 164 documentation tests (163 passed/1 platform skip), 0 diagnostics, projections current", "environment_id": "ENV-LINUX-SOURCE" },
     { "id": "CMD-WINDOWS-DESKTOP", "command": "native Windows: cd builds\\typescript; npm run desktop:preflight; npm run desktop:test", "result": "pass: preflight; main 54 files/368 tests; web 21 files/202 tests; MCP build; Rust 54 passed/1 helper ignored; native containment", "environment_id": "ENV-WINDOWS-X64-NATIVE" },
     { "id": "CMD-WINDOWS-BUILD", "command": "native Windows: cd builds\\typescript; npm run desktop:build:windows", "result": "pass: BrainDrive_26.7.23_x64-setup.exe, 28219415 bytes, SHA256 5AFB289D0AB1428EC5075433A5C29590D7D12D93873CA4B5FBE93E44FE66AA6A; Authenticode NotSigned", "environment_id": "ENV-WINDOWS-X64-NATIVE" },
-    { "id": "CMD-WINDOWS-LIVE", "command": "native Windows: launch target\\release\\braindrive-desktop.exe with isolated APPDATA/LOCALAPPDATA and close after /health", "result": "pass: run c8927ad9b3764687b158dcd41362508f; /health HTTP 200; runtime ready; 5 child processes before close; 0 surviving child PIDs", "environment_id": "ENV-WINDOWS-X64-NATIVE" },
+    { "id": "CMD-WINDOWS-LIVE", "command": "native Windows: launch target\\release\\braindrive-desktop.exe with isolated APPDATA/LOCALAPPDATA and close after /health", "result": "pass: binary SHA256 A165C8C03E7C63AA8751833834EE2D2EBCBCC8751D7B1D880C6ABBD7533CD1CF; /health HTTP 200; runtime ready; 14 descendant processes before close; 0 surviving child PIDs", "environment_id": "ENV-WINDOWS-X64-NATIVE" },
     { "id": "CMD-WINDOWS-E2E", "command": "native Windows: cd builds\\typescript\\client_web; npm run test:e2e", "result": "pass: mobile Chromium/WebKit 12 passed/8 expected skips; desktop Chromium 5 passed/5 expected skips; Resume Builder owner journey completed", "environment_id": "ENV-WINDOWS-X64-NATIVE" },
     { "id": "CMD-WINDOWS-INSTALL", "command": "native Windows: execute BrainDrive_26.7.23_x64-setup.exe and run installed-package lifecycle/chooser review", "result": "blocked: artifact is unsigned and the machine already has BrainDrive 26.7.14 under the same product identity; execution would replace that installation", "environment_id": "ENV-WINDOWS-X64-NATIVE" }
   ],
