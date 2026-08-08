@@ -485,6 +485,7 @@
     { "path": "builds/typescript/Getting-Started-OpenRouter.md", "classification": "legacy-developer-entry", "status": "legacy", "ownerRole": "runtime-maintainers" },
     { "path": "builds/typescript/New-User-Setup.md", "classification": "legacy-developer-entry", "status": "legacy", "ownerRole": "runtime-maintainers" },
     { "path": "builds/typescript/README.md", "classification": "source-adjacent-developer-authority", "status": "current", "ownerRole": "runtime-maintainers" },
+    { "path": "builds/typescript/app-platform/M8-RELEASE-VERIFICATION.md", "classification": "non-authoritative-evidence-record", "status": "current", "ownerRole": "release-maintainers" },
     { "path": "builds/typescript/app-platform/contracts/ADRS.md", "classification": "source-adjacent-developer-authority", "status": "current", "ownerRole": "runtime-maintainers" },
     { "path": "builds/typescript/app-platform/contracts/README.md", "classification": "source-adjacent-developer-authority", "status": "current", "ownerRole": "runtime-maintainers" },
     { "path": "builds/typescript/app-platform/lifecycle/ADRS.md", "classification": "source-adjacent-developer-authority", "status": "current", "ownerRole": "runtime-maintainers" },
