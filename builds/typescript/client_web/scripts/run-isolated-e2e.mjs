@@ -124,6 +124,21 @@ async function waitForHealth(url, timeoutMs = 60_000) {
 
 async function stopChild(child) {
   if (child.exitCode !== null || child.signalCode !== null) return;
+  if (process.platform === "win32" && child.pid) {
+    await new Promise((resolve) => {
+      const killer = spawn("taskkill.exe", ["/pid", String(child.pid), "/t", "/f"], {
+        stdio: "ignore",
+        windowsHide: true,
+      });
+      killer.once("error", resolve);
+      killer.once("exit", resolve);
+    });
+    await Promise.race([
+      new Promise((resolve) => child.once("exit", resolve)),
+      new Promise((resolve) => setTimeout(resolve, 5_000)),
+    ]);
+    return;
+  }
   if (processGroups.has(child) && child.pid) process.kill(-child.pid, "SIGTERM");
   else child.kill("SIGTERM");
   await Promise.race([
