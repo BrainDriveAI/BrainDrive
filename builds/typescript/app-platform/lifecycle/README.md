@@ -1,5 +1,13 @@
 # Trusted app lifecycle and runtime supervisor
 
+The corrective Spec 04 Milestone 6 owner lifecycle boundary is documented in `M6-OWNER-LIFECYCLE.md`. It exposes the M1–M5 lifecycle decisions through owner-bound DTOs and an accessible direct Apps surface, and adds journaled selective uninstall/fresh reinstall. The M5 transactional update kernel remains documented in `M5-TRANSACTIONAL-UPDATE.md`.
+
+The corrective Spec 04 Milestone 4 supervised-activation kernel is documented in `M4-SUPERVISED-ACTIVATION.md`. It adapts the accepted version-1 `InstalledAppSupervisor` contract to the existing `ProcessAppSupervisor`, adds target-checked Docker and packaged-Windows bindings, persists only opaque reconciliation authority, and implements install/disable/re-enable ordering over the M2/M3 stores. It does not add a gateway route or alter fixed MCP discovery.
+
+The dormant Spec 04 Milestone 3 verified-install kernel is documented in `M3-VERIFIED-INSTALL.md`. Its signed source resolver, strict non-executing verifier, immutable package store, exact grant store, and atomic installer use the M1 supervisor interface with a fake only; they add no gateway, real process, MCP registry, or owner-data wiring.
+
+The dormant Spec 04 Milestone 2 persistence kernel is documented in `M2-DURABLE-STATE.md`. Its `LifecycleStateMachine`, versioned `LifecycleStore`, lease, journal, reconciler, and allowlisted diagnostics have no package-verification, process, gateway, MCP, capability, or owner-memory adapter. The runtime/service material described below is pre-existing later-milestone branch capability and is not imported by that kernel.
+
 This directory is the Milestone 2 runtime boundary for the accepted Resume Builder specifications. It can install and supervise only the signed repository fixture for `ai.braindrive.resume-builder`; it is not a marketplace, a general plugin SDK, or the Resume Builder workflow.
 
 The gateway enables this boundary only when `BRAINDRIVE_APP_PLATFORM_ENABLED=true`. Docker development selects `docker_linux_x64` and persists host-owned installation state at `BRAINDRIVE_APP_STATE_ROOT=/data/app-platform`. Packaged Windows selects `desktop_windows_x64` and uses its Tauri platform data root. Owner career data remains in the separate logical namespace below the configured memory root. Lifecycle policy reaches it only through the narrow `OwnerDataLifecycle` validation/cleanup interface: default uninstall removes abandoned transient stages but retains every durable owner record.
@@ -28,35 +36,42 @@ Restart reconciliation applies durable intent:
 - `disabled`, `quarantined`, and `not_installed`: revoke in-memory authority and stop observed runtime processes.
 - `staged`: compensate to `not_installed`.
 - `updating` or `rollback_pending`: restore the journaled prior `active` or `disabled` intent.
-- `uninstalling`: finish at `not_installed` while retaining owner data.
+- `uninstalling`: resume the uninstall journal, retry missing/partial cleanup safely, and finish at `not_installed` while retaining owner data.
 
-Install, reinstall, enable, update, rollback, and active restart must first satisfy the verified package manifest's data-schema window. A failed check leaves the lifecycle pointer and retained bytes unchanged. Whole-memory migration/import excludes lifecycle mutation through the gateway's shared in-progress callback. Default uninstall revokes tokens and grants, stops runtime processes, and then removes only abandoned Resume Builder transaction/staged-catalog files; immutable revisions, the active catalog, recovery evidence, completed operation lookup, and owner exports remain for a compatible reinstall under a new installation and grant.
+Install, reinstall, enable, update, rollback, and active restart must first satisfy the verified package manifest's data-schema window. A failed check leaves the lifecycle pointer and retained bytes unchanged. Whole-memory migration/import excludes lifecycle mutation through the gateway's shared in-progress callback. Default uninstall stops/unregisters the runtime and revokes session authority before revoking the grant; it then journals cleanup, clears executable references, removes only validated unshared package/cache/runtime roots, and commits `not_installed`. Immutable Resume revisions, the active owner catalog, recovery evidence, completed operation lookup, and owner exports remain for a compatible reinstall under new installation, grant, and operation identities.
 
 ## Owner API
 
 All routes pass through the existing gateway transport and owner authentication hooks, then require `administration` authority:
 
 - `GET /apps/resume-builder`
+- `GET /apps`
+- `GET /apps/resume-builder/status`
+- `GET /apps/resume-builder/inspect`
 - `POST /apps/resume-builder/install`
+- `POST /apps/resume-builder/reinstall`
 - `POST /apps/resume-builder/disable`
 - `POST /apps/resume-builder/enable`
 - `POST /apps/resume-builder/update`
 - `POST /apps/resume-builder/rollback`
 - `POST /apps/resume-builder/uninstall`
+- `POST /apps/resume-builder/recover`
 - `GET /apps/resume-builder/operations/:operationId`
 - `POST /apps/resume-builder/operations/:operationId/cancel`
 - `POST /apps/resume-builder/session`
 
-Mutation bodies carry a 16–256 character `idempotency_key`. Install/update also carry the exact fixture `version` and an explicit `approve_capabilities` decision. Equivalent retries return the stored committed result; reuse with different input fails deterministically.
+Mutation bodies carry an owner-generated UUID `operation_id`, a 16–256 character `idempotency_key`, and `expected_generation`. Installed-state actions also carry the exact `installation_id`; install/reinstall require it to be `null`. Install/update/reinstall carry the exact fixture `version` and an explicit capability decision. Uninstall additionally requires `confirm_retained_data: true`. Equivalent retries return the stored committed result; stale generations, cross-install targets, and identity reuse with different input fail before mutation.
 
 ## Requirement evidence
 
-| Requirement | Milestone 2 executable evidence |
+| Requirement | Executable evidence |
 |---|---|
 | REQ-001–REQ-004 | Signed `.bdapp` fixture, trust/source/revocation verifier, owner lifecycle API, capability delta and explicit approval tests |
 | REQ-010 | Atomic/CAS store, operation journal, equivalent/conflicting retry, duplicate side-effect, cancellation-boundary tests |
 | REQ-021–REQ-022 | Scoped one-use tokens; non-public authenticated process supervisor; readiness, health, stop, crash budget, shutdown and reconciliation tests |
 | REQ-027–REQ-031 | Contract event name, allowlisted content-free fields, safe route errors/DTOs, auth/redaction tests, Docker-first feature gate |
 | REQ-034 | Diff and docs preserve the static MCP path and exclude renderer, data, inference, export, product UI, desktop and marketplace behavior |
+| REQ-015–REQ-021, REQ-024–REQ-027, REQ-030–REQ-031, REQ-034–REQ-038 | `app-lifecycle.m5.test.ts`: explicit update/grant decisions, side-by-side candidate gating, migration compensation, LKG/checkpoint/rollback, signed monotonic revocation/offline behavior, quarantine, lease serialization, and restart-boundary matrix |
+| REQ-002–REQ-003, REQ-010, REQ-022–REQ-030, REQ-035–REQ-038, REQ-040 | `app-lifecycle.m6.test.ts`, `routes.integration.test.ts`, client adapter/component tests: owner/install/generation binding, stable safe DTOs, selective restart-safe cleanup, retained hashes, fresh identities, transport ambiguity, confirmation/focus, and support-bundle redaction |
 
 Focused verification from `builds/typescript` is `npm run test -- app-platform/lifecycle`. `desktop-parity.test.ts` runs the same lifecycle sequence against both accepted runtime targets and checks that no supervised process remains after disable, uninstall, or shutdown. The milestone gate also requires the full runtime/MCP/web/resume package checks, Compose validation, a controlled live Docker lifecycle/restart/shutdown exercise, and actual build/install/live evidence on the selected native Windows target.

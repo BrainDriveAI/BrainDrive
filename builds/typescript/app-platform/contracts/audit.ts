@@ -1,8 +1,10 @@
 import { z } from "zod";
 
-import { OpaqueIdSchema, Sha256DigestSchema, TimestampSchema } from "./common.js";
+import { OpaqueIdSchema, SemverSchema, Sha256DigestSchema, TimestampSchema } from "./common.js";
+import { RESUME_BUILDER_APP_ID, RESUME_BUILDER_PUBLISHER_ID } from "./constants.js";
 import { CapabilityNameSchema } from "./package.js";
-import { ContractViolation } from "./errors.js";
+import { ContractErrorCodeSchema, ContractViolation } from "./errors.js";
+import { LifecycleOperationStageSchema, LifecycleStateSchema } from "./lifecycle.js";
 
 export const AuditEventNameSchema = z.enum([
   "app.package.source_checked",
@@ -85,5 +87,70 @@ export function assertContentFreeAudit(value: unknown): asserts value is z.infer
   const parsed = AuditEventSchema.safeParse(value);
   if (!parsed.success) {
     throw new ContractViolation("invalid_input", "Audit event failed the content-free schema");
+  }
+}
+
+export const LifecycleDiagnosticEventSchema = z
+  .object({
+    diagnostic_version: z.literal(1),
+    event_name: z.enum([
+      "app.lifecycle.operation",
+      "app.lifecycle.transition",
+      "app.package.verify",
+      "app.grant.decision",
+      "app.runtime.action",
+      "app.update.checkpoint",
+      "app.revocation.refresh",
+      "app.cleanup.result",
+    ]),
+    occurred_at: TimestampSchema,
+    correlation_id: OpaqueIdSchema,
+    operation_id: OpaqueIdSchema.nullable(),
+    owner_id: OpaqueIdSchema.nullable(),
+    actor_id: OpaqueIdSchema.nullable(),
+    app_id: z.literal(RESUME_BUILDER_APP_ID),
+    publisher_id: z.literal(RESUME_BUILDER_PUBLISHER_ID),
+    installation_id: OpaqueIdSchema.nullable(),
+    grant_id: OpaqueIdSchema.nullable(),
+    runtime_id: OpaqueIdSchema.nullable(),
+    registration_id: OpaqueIdSchema.nullable(),
+    package_version: SemverSchema.nullable(),
+    package_digest: Sha256DigestSchema.nullable(),
+    prior_state: LifecycleStateSchema.nullable(),
+    target_state: LifecycleStateSchema.nullable(),
+    result_state: LifecycleStateSchema.nullable(),
+    generation: z.number().int().nonnegative().nullable(),
+    step: LifecycleOperationStageSchema.nullable(),
+    attempt: z.number().int().positive(),
+    source_id: z.string().regex(/^[a-z0-9][a-z0-9._-]{2,127}$/).nullable(),
+    trust_policy_version: z.literal(1),
+    revocation_policy_version: z.literal(1),
+    revocation_sequence: z.number().int().positive().nullable(),
+    capability_diff: z.enum(["no_change", "narrowed", "widened"]).nullable(),
+    data_schema_compatibility: z.enum(["not_checked", "compatible", "incompatible", "migration_required", "repair_required"]).nullable(),
+    snapshot_id: OpaqueIdSchema.nullable(),
+    external_status: z.enum(["not_attempted", "verified", "ready", "unhealthy", "stopped", "ambiguous", "unavailable"]).nullable(),
+    outcome: z.enum(["accepted", "reused", "rejected", "completed", "rolled_back", "quarantined", "failed"]),
+    error_class: z.enum(["validation", "trust", "compatibility", "conflict", "persistence", "runtime", "recovery"]).nullable(),
+    error_code: ContractErrorCodeSchema.nullable(),
+    retryable: z.boolean(),
+    recovery: z.enum(["none", "retry", "refresh_metadata", "review_grant", "update_host", "restore_prior", "repair_or_export", "contact_operator"]),
+    elapsed_ms: z.number().int().nonnegative(),
+    item_count: z.number().int().nonnegative(),
+    byte_count: z.number().int().nonnegative(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const hasErrorCode = value.error_code !== null;
+    const hasErrorClass = value.error_class !== null;
+    if (hasErrorCode !== hasErrorClass || (value.outcome === "failed") !== hasErrorCode) {
+      context.addIssue({ code: "custom", message: "diagnostic failure classification is ambiguous" });
+    }
+  });
+
+export function assertLifecycleDiagnostic(value: unknown): asserts value is z.infer<typeof LifecycleDiagnosticEventSchema> {
+  const parsed = LifecycleDiagnosticEventSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new ContractViolation("forbidden_field", "Lifecycle diagnostic contains a non-allowlisted or invalid field");
   }
 }

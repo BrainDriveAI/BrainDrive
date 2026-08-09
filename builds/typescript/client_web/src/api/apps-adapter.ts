@@ -4,22 +4,59 @@ import { GatewayError } from "./types";
 
 export type AppLifecycleState = "not_installed" | "staged" | "active" | "disabled" | "updating" | "rollback_pending" | "uninstalling" | "quarantined" | "failed_recoverable";
 
+export type AppLifecycleAction = "install" | "reinstall" | "update" | "disable" | "enable" | "rollback" | "uninstall" | "recover";
+
+export type AppLifecycleOperationView = {
+  operation_version: 1;
+  operation_id: string;
+  installation_id: string;
+  kind: AppLifecycleAction | "quarantine" | "reconcile";
+  status: "accepted" | "running" | "cancel_requested" | "committed" | "cancelled_before_commit" | "failed";
+  stage: string;
+  completed_stages: string[];
+  commit_outcome: "not_committed" | "committed" | "committed_response_recovered" | "rolled_back_before_commit";
+  prior_state: AppLifecycleState;
+  target_state: AppLifecycleState;
+  result_state: AppLifecycleState | null;
+  error_code: string | null;
+  recovery_action: string;
+  started_at: string;
+  updated_at: string;
+  completed_at: string | null;
+};
+
 export type ResumeBuilderAppStatus = {
   contract_version: 1;
-  app_id: "ai.braindrive.resume-builder";
-  display_name: "Resume Builder";
-  publisher: "BrainDrive";
+  identity: {
+    app_id: "ai.braindrive.resume-builder";
+    display_name: "Resume Builder";
+    publisher_id: "ai.braindrive";
+    publisher_name: "BrainDrive";
+    installation_id: string | null;
+    package_digest: string | null;
+  };
   state: AppLifecycleState;
   generation: number;
-  installation_id: string | null;
-  package_version: string | null;
-  available_version: string;
-  capabilities: string[];
-  inference_disclosure: string;
-  storage_disclosure: string;
-  retained_owner_data: true;
+  version: { installed: string | null; available: string };
+  trust: { status: "verified" | "not_verified" | "quarantined"; policy_version: 1; signing_key_id: string | null; checked_at: string | null; revocation_status: string };
+  source: { kind: "repository_fixture"; label: string };
+  compatibility: { host: boolean | null; app_contract: 1; mcp_protocol: string; data_schema: { read_min: number; read_max: number; write_version: number } };
+  capabilities: { requested: string[]; granted: string[] };
+  retention: {
+    owner_data_preserved: true;
+    retained_data_present: boolean;
+    compatibility: "missing" | "ready" | "incompatible" | "repair_required";
+    safe_message: string;
+    uninstall_removes: string[];
+    uninstall_retains: string[];
+  };
+  progress: AppLifecycleOperationView | null;
+  recovery: { available: boolean; action: string };
   updated_at: string;
+  request_resolution?: "confirmed_response" | "refreshed_after_ambiguous_response";
 };
+
+export type AppCatalog = { catalog_version: 1; apps: ResumeBuilderAppStatus[] };
 
 export type AppLaunch = {
   launch_version: 1;
@@ -76,20 +113,43 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export function getResumeBuilderApp(): Promise<ResumeBuilderAppStatus> {
-  return requestJson("/apps/resume-builder");
+  return requestJson("/apps/resume-builder/status");
 }
 
-export async function mutateResumeBuilderApp(action: "install" | "update" | "disable" | "enable" | "rollback" | "uninstall"): Promise<ResumeBuilderAppStatus> {
-  const packageAction = action === "install" || action === "update";
-  await requestJson(`/apps/resume-builder/${action}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      idempotency_key: crypto.randomUUID(),
-      ...(packageAction ? { version: "3.0.0", approve_capabilities: true } : {}),
-    }),
-  });
-  return getResumeBuilderApp();
+export function getAppCatalog(): Promise<AppCatalog> {
+  return requestJson("/apps");
+}
+
+export function inspectResumeBuilderApp(): Promise<ResumeBuilderAppStatus> {
+  return requestJson("/apps/resume-builder/inspect");
+}
+
+export async function mutateResumeBuilderApp(action: AppLifecycleAction, current: ResumeBuilderAppStatus, operationId = crypto.randomUUID()): Promise<ResumeBuilderAppStatus> {
+  const packageAction = action === "install" || action === "reinstall" || action === "update";
+  const body = {
+    operation_id: operationId,
+    idempotency_key: operationId,
+    expected_generation: current.generation,
+    installation_id: action === "install" || action === "reinstall" ? null : current.identity.installation_id,
+    ...(packageAction ? { version: current.version.available, approve_capabilities: true } : {}),
+    ...(action === "uninstall" ? { confirm_retained_data: true } : {}),
+  };
+  try {
+    const confirmed = await requestJson<ResumeBuilderAppStatus>(`/apps/resume-builder/${action}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return { ...confirmed, request_resolution: "confirmed_response" };
+  } catch (failure) {
+    try {
+      const refreshed = await getResumeBuilderApp();
+      const operationObserved = refreshed.progress?.operation_id === operationId;
+      const stateChanged = refreshed.generation !== current.generation;
+      if (operationObserved || stateChanged) return { ...refreshed, request_resolution: "refreshed_after_ambiguous_response" };
+    } catch { /* preserve the original safe failure */ }
+    throw failure;
+  }
 }
 
 export function launchResumeBuilderApp(entryPoint: "direct" | "career" = "direct"): Promise<AppLaunch> {

@@ -15,4 +15,11 @@ export type OwnerDataActivationRequest = {
 export interface OwnerDataLifecycle {
   prepareActivation(request: OwnerDataActivationRequest): Promise<unknown>;
   cleanupDefaultUninstall(): Promise<unknown>;
+  repairState?(compatibility: OwnerDataSchemaCompatibility): Promise<{
+    state: "missing" | "ready" | "incompatible" | "repair_required";
+    safe_message: string;
+    retained_schema_version: number | null;
+    data_preserved: true;
+    owner_export_available: boolean;
+  }>;
 }

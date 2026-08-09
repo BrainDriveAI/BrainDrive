@@ -14,40 +14,92 @@ afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recur
 
 const permissions: PermissionSet = { memory_access: true, tool_access: true, system_actions: true, delegation: true, approval_authority: true, administration: true };
 
+function installBody(generation = 0, operationId = crypto.randomUUID()) {
+  return { operation_id: operationId, idempotency_key: operationId, expected_generation: generation, installation_id: null, version: "1.0.0", approve_capabilities: true };
+}
+
 describe("owner lifecycle gateway routes", () => {
-  it("requires owner administration and never returns host paths or connection authority", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "bd-app-routes-")); roots.push(root);
+  it("requires exact owner administration and rejects cross-owner requests before mutation", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-app-routes-auth-")); roots.push(root);
     const h = await createLifecycleHarness(root);
     const app = Fastify();
     app.addHook("preHandler", async (request) => {
-      request.authContext = { actorId: "owner", actorType: "owner", mode: "local-owner", permissions: request.headers["x-test-denied"] ? { ...permissions, administration: false } : permissions };
+      if (request.headers["x-test-anonymous"]) return;
+      request.authContext = { actorId: request.headers["x-test-other-owner"] ? "other-owner" : "owner", actorType: "owner", mode: "local-owner", permissions: request.headers["x-test-denied"] ? { ...permissions, administration: false } : permissions };
     });
     registerAppLifecycleRoutes(app, h.service);
 
+    expect((await app.inject({ method: "GET", url: "/apps/resume-builder", headers: { "x-test-anonymous": "1" } })).statusCode).toBe(403);
     expect((await app.inject({ method: "GET", url: "/apps/resume-builder", headers: { "x-test-denied": "1" } })).statusCode).toBe(403);
-    const installed = await app.inject({ method: "POST", url: "/apps/resume-builder/install", payload: { version: "1.0.0", idempotency_key: "route-install-key1", approve_capabilities: true } });
-    expect(installed.statusCode).toBe(200);
-    expect(installed.json()).toMatchObject({ app_id: "ai.braindrive.resume-builder", state: "active", retained_owner_data: true });
-    const serialized = installed.body.toLowerCase();
-    expect(serialized).not.toContain(root.toLowerCase());
-    expect(serialized).not.toContain("connection_token");
-    expect(serialized).not.toContain("private_key");
-
-    const session = await app.inject({ method: "POST", url: "/apps/resume-builder/session", payload: { audience: "app_data", capabilities: ["career.context.read"], operation_id: crypto.randomUUID() } });
-    expect(session.statusCode).toBe(200);
-    expect(session.json().token).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect((await app.inject({ method: "POST", url: "/apps/resume-builder/install", headers: { "x-test-other-owner": "1" }, payload: installBody() })).statusCode).toBe(403);
+    expect((await h.service.status()).state).toBe("not_installed");
     await app.close();
   });
 
-  it("returns stable validation and lifecycle error codes without leaking package metadata", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "bd-app-route-error-")); roots.push(root);
+  it("returns stable owner-safe identity, trust, source, compatibility, capability, and retention DTOs", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-app-routes-safe-")); roots.push(root);
     const h = await createLifecycleHarness(root);
     const app = Fastify();
     app.addHook("preHandler", async (request) => { request.authContext = { actorId: "owner", actorType: "owner", mode: "local-owner", permissions }; });
     registerAppLifecycleRoutes(app, h.service);
-    expect((await app.inject({ method: "POST", url: "/apps/resume-builder/install", payload: { version: "1.0.0" } })).json()).toEqual({ error: "invalid_request" });
-    const denied = await app.inject({ method: "POST", url: "/apps/resume-builder/install", payload: { version: "1.0.0", idempotency_key: "route-install-key1", approve_capabilities: false } });
-    expect(denied.json()).toEqual({ error: "grant_approval_required", retryable: false });
+
+    const body = installBody();
+    const installed = await app.inject({ method: "POST", url: "/apps/resume-builder/install", payload: body });
+    expect(installed.statusCode).toBe(200);
+    expect(installed.json()).toMatchObject({
+      contract_version: 1,
+      identity: { app_id: "ai.braindrive.resume-builder", display_name: "Resume Builder", publisher_name: "BrainDrive" },
+      state: "active",
+      trust: { status: "verified" },
+      source: { kind: "repository_fixture" },
+      compatibility: { host: true },
+      retention: { owner_data_preserved: true },
+      operation: { operation_id: body.operation_id, status: "committed" },
+    });
+    expect((await app.inject({ method: "GET", url: "/apps" })).json().apps).toHaveLength(1);
+    expect((await app.inject({ method: "GET", url: "/apps/resume-builder/inspect" })).statusCode).toBe(200);
+    const serialized = installed.body.toLowerCase();
+    expect(serialized).not.toContain(root.toLowerCase());
+    expect(serialized).not.toContain("connection_token");
+    expect(serialized).not.toContain("private_key");
+    expect(serialized).not.toContain("package_root");
+    await app.close();
+  });
+
+  it("binds installation and generation, returns safe conflicts, and replays one committed operation", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-app-route-binding-")); roots.push(root);
+    const h = await createLifecycleHarness(root);
+    const app = Fastify();
+    app.addHook("preHandler", async (request) => { request.authContext = { actorId: "owner", actorType: "owner", mode: "local-owner", permissions }; });
+    registerAppLifecycleRoutes(app, h.service);
+    const body = installBody();
+    const first = await app.inject({ method: "POST", url: "/apps/resume-builder/install", payload: body });
+    const replay = await app.inject({ method: "POST", url: "/apps/resume-builder/install", payload: body });
+    expect(replay.json().operation.operation_id).toBe(first.json().operation.operation_id);
+    expect(h.supervisor.startCount).toBe(1);
+
+    const status = first.json();
+    const wrongInstall = await app.inject({ method: "POST", url: "/apps/resume-builder/disable", payload: { operation_id: crypto.randomUUID(), idempotency_key: crypto.randomUUID(), expected_generation: status.generation, installation_id: crypto.randomUUID() } });
+    expect(wrongInstall).toMatchObject({ statusCode: 403 });
+    expect(wrongInstall.json()).toMatchObject({ error: "denied", retryable: false });
+    const stale = await app.inject({ method: "POST", url: "/apps/resume-builder/disable", payload: { operation_id: crypto.randomUUID(), idempotency_key: crypto.randomUUID(), expected_generation: 0, installation_id: status.identity.installation_id } });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json()).toMatchObject({ error: "conflict", retryable: true });
+    expect((await h.service.status()).state).toBe("active");
+    await app.close();
+  });
+
+  it("requires explicit install approval and retained-data uninstall confirmation", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-app-route-confirm-")); roots.push(root);
+    const h = await createLifecycleHarness(root);
+    const app = Fastify();
+    app.addHook("preHandler", async (request) => { request.authContext = { actorId: "owner", actorType: "owner", mode: "local-owner", permissions }; });
+    registerAppLifecycleRoutes(app, h.service);
+    expect((await app.inject({ method: "POST", url: "/apps/resume-builder/install", payload: { ...installBody(), approve_capabilities: false } })).json()).toEqual({ error: "invalid_request" });
+    const installed = (await app.inject({ method: "POST", url: "/apps/resume-builder/install", payload: installBody() })).json();
+    const uninstall = { operation_id: crypto.randomUUID(), idempotency_key: crypto.randomUUID(), expected_generation: installed.generation, installation_id: installed.identity.installation_id };
+    expect((await app.inject({ method: "POST", url: "/apps/resume-builder/uninstall", payload: uninstall })).json()).toEqual({ error: "invalid_request" });
+    expect((await h.service.status()).state).toBe("active");
     await app.close();
   });
 });

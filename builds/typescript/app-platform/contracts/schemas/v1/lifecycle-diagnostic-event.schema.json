@@ -1,0 +1,514 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/lifecycle-diagnostic-event.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "diagnostic_version": {
+      "type": "number",
+      "const": 1
+    },
+    "event_name": {
+      "type": "string",
+      "enum": [
+        "app.lifecycle.operation",
+        "app.lifecycle.transition",
+        "app.package.verify",
+        "app.grant.decision",
+        "app.runtime.action",
+        "app.update.checkpoint",
+        "app.revocation.refresh",
+        "app.cleanup.result"
+      ]
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "correlation_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "operation_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "owner_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "actor_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "app_id": {
+      "type": "string",
+      "const": "ai.braindrive.resume-builder"
+    },
+    "publisher_id": {
+      "type": "string",
+      "const": "ai.braindrive"
+    },
+    "installation_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "grant_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "runtime_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "registration_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "package_version": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z.-]+)?$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "package_digest": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "prior_state": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "not_installed",
+            "staged",
+            "active",
+            "disabled",
+            "updating",
+            "rollback_pending",
+            "uninstalling",
+            "quarantined",
+            "failed_recoverable"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "target_state": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "not_installed",
+            "staged",
+            "active",
+            "disabled",
+            "updating",
+            "rollback_pending",
+            "uninstalling",
+            "quarantined",
+            "failed_recoverable"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "result_state": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "not_installed",
+            "staged",
+            "active",
+            "disabled",
+            "updating",
+            "rollback_pending",
+            "uninstalling",
+            "quarantined",
+            "failed_recoverable"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "generation": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "step": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "requested",
+            "verifying_source",
+            "verifying_package",
+            "staging",
+            "granting",
+            "snapshotting",
+            "migrating",
+            "starting",
+            "awaiting_readiness",
+            "switching_active_pointer",
+            "registering",
+            "revoking_tokens",
+            "stopping",
+            "clearing_references",
+            "removing_package_bytes",
+            "removing_disposable_cache",
+            "recording_tombstone",
+            "rolling_back",
+            "removing_runtime_authority",
+            "reconciling",
+            "completed"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "attempt": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "source_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{2,127}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "trust_policy_version": {
+      "type": "number",
+      "const": 1
+    },
+    "revocation_policy_version": {
+      "type": "number",
+      "const": 1
+    },
+    "revocation_sequence": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "capability_diff": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "no_change",
+            "narrowed",
+            "widened"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "data_schema_compatibility": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "not_checked",
+            "compatible",
+            "incompatible",
+            "migration_required",
+            "repair_required"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "snapshot_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "external_status": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "not_attempted",
+            "verified",
+            "ready",
+            "unhealthy",
+            "stopped",
+            "ambiguous",
+            "unavailable"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "accepted",
+        "reused",
+        "rejected",
+        "completed",
+        "rolled_back",
+        "quarantined",
+        "failed"
+      ]
+    },
+    "error_class": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "validation",
+            "trust",
+            "compatibility",
+            "conflict",
+            "persistence",
+            "runtime",
+            "recovery"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "error_code": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "invalid_input",
+            "not_found_within_scope",
+            "denied",
+            "conflict",
+            "idempotency_conflict",
+            "incompatible_schema",
+            "incompatible_version",
+            "invalid_state_transition",
+            "duplicate_identity",
+            "unknown_purpose",
+            "malformed_envelope",
+            "envelope_too_large",
+            "widened_grant",
+            "forbidden_field",
+            "package_source_untrusted",
+            "package_descriptor_invalid",
+            "package_archive_invalid",
+            "package_path_invalid",
+            "package_unsafe_link",
+            "package_duplicate_path",
+            "package_case_collision",
+            "package_oversize",
+            "package_digest_mismatch",
+            "package_signature_invalid",
+            "package_file_mismatch",
+            "signing_key_untrusted",
+            "source_index_rollback",
+            "revocation_metadata_invalid",
+            "revocation_rollback",
+            "package_revoked",
+            "supervisor_descriptor_invalid",
+            "runtime_conflict",
+            "readiness_failed",
+            "runtime_unhealthy",
+            "stop_unacknowledged",
+            "ambiguous_runtime_state",
+            "restart_exhausted",
+            "cancelled",
+            "deadline_exceeded",
+            "provider_unavailable",
+            "model_incompatible",
+            "schema_validation_failed",
+            "validation_failed",
+            "resource_exhausted",
+            "recoverable_internal_failure"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "retryable": {
+      "type": "boolean"
+    },
+    "recovery": {
+      "type": "string",
+      "enum": [
+        "none",
+        "retry",
+        "refresh_metadata",
+        "review_grant",
+        "update_host",
+        "restore_prior",
+        "repair_or_export",
+        "contact_operator"
+      ]
+    },
+    "elapsed_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "item_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "byte_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "diagnostic_version",
+    "event_name",
+    "occurred_at",
+    "correlation_id",
+    "operation_id",
+    "owner_id",
+    "actor_id",
+    "app_id",
+    "publisher_id",
+    "installation_id",
+    "grant_id",
+    "runtime_id",
+    "registration_id",
+    "package_version",
+    "package_digest",
+    "prior_state",
+    "target_state",
+    "result_state",
+    "generation",
+    "step",
+    "attempt",
+    "source_id",
+    "trust_policy_version",
+    "revocation_policy_version",
+    "revocation_sequence",
+    "capability_diff",
+    "data_schema_compatibility",
+    "snapshot_id",
+    "external_status",
+    "outcome",
+    "error_class",
+    "error_code",
+    "retryable",
+    "recovery",
+    "elapsed_ms",
+    "item_count",
+    "byte_count"
+  ],
+  "additionalProperties": false
+}

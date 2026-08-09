@@ -2,6 +2,12 @@
 
 Recorded: 2026-08-08
 
+## 2026-08-09 Spec 04 M7 follow-up
+
+The historical blockers below describe the 2026-08-08 candidate. With explicit owner authorization, the same-identity BrainDrive 26.7.14 installation was subsequently replaced and BrainDrive 26.7.23 passed packaged startup, health, graceful zero-process shutdown, uninstall/runtime removal, owner-data hash retention, reinstall, and final healthy restart. Spec 04's missing immutable-package composition and Windows filesystem parity were also completed and passed native Windows and Docker acceptance.
+
+Production Windows signing is performed by `/home/hex/Project/Release-Bridge/` and is not duplicated in this repository. See [`M7-LIFECYCLE-ACCEPTANCE.md`](M7-LIFECYCLE-ACCEPTANCE.md) for the current development acceptance, artifact evidence, full REQ-001-REQ-040/G0-G6 matrices, and the remaining Release Bridge and human-review handoff.
+
 Candidate branch: `feature/resume-builder-app`
 
 Implementation base: `6cc8f0f9a0703f6841df7b7145265c1793d478da`

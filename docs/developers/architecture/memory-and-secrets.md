@@ -43,4 +43,6 @@ When the in-process first-party memory file tool source is configured, its built
 
 General audit logs default under memory `diagnostics/audit`; optional prompt audits use `diagnostics/prompt-audit`. Both are memory data and can enter exports/backups. Path validation is not a claim of sandbox-grade or symlink-proof filesystem isolation.
 
+Owner-created support bundles are a narrower diagnostic export. Before audit JSONL enters a bundle, `memory/support-bundle.ts` rewrites each event through a metadata allowlist; absolute paths, credentials/tokens, messages, permissions, raw metadata, and content-bearing objects are omitted or redacted. The bundle also includes `metadata/lifecycle-diagnostics.jsonl`, a projection of `app.lifecycle.*` events containing only operation/install/state/decision/deletion/retention/error classes. This sanitization does not make ordinary memory export or remote backup content-safe.
+
 Source evidence: `builds/typescript/memory/{init,paths,history,export,backup,backup-git,backup-restore,migration}.ts`, `builds/typescript/secrets/{paths,key-provider,crypto,vault,resolver}.ts`, gateway backup/import routes and schedulers, in-process first-party memory file tools, and their tests. Safe verification uses unit tests with synthetic temporary roots; it does not read owner state.

@@ -13,7 +13,8 @@ import type { FixtureRepository } from "./fixture-repository.js";
 import type { OwnerDataLifecycle } from "./owner-data.js";
 import { PackageVerifier, type VerifiedPackage } from "./package-verifier.js";
 import type { AppSupervisor, RuntimeIdentity, RuntimeLaunchDescriptor, StopReason } from "./process-supervisor.js";
-import { AppLifecycleStore, type CapabilityGrant, type LifecycleOperation, type LifecycleRecord, type StoredPackage } from "./store.js";
+import { AppLifecycleStore, type CapabilityGrant, type LifecycleOperation, type LifecycleRecord, type StoredPackage, type UninstallJournal } from "./store.js";
+import { ImmutablePackageStore, type PromotableVerifiedPackage } from "./verified-package-store.js";
 
 const OWNER_ID = "00000000-0000-4000-8000-000000000001";
 const ACTOR_ID = "00000000-0000-4000-8000-000000000002";
@@ -25,6 +26,7 @@ export type LifecycleDependencies = {
   supervisor: AppSupervisor;
   tokenBroker: CapabilityTokenBroker;
   runtimeRoot: string;
+  immutablePackages?: ImmutablePackageStore;
   ownerDataRoot: string;
   ownerDataLifecycle?: OwnerDataLifecycle;
   isMemoryMigrationInProgress?: () => boolean;
@@ -34,34 +36,57 @@ export type LifecycleDependencies = {
     transport: "container_internal" | "loopback";
   };
   audit?: (event: string, details: Record<string, unknown>) => void;
+  ownerActorId?: string;
+  beforeUninstallDelete?: (targetClass: "package_bytes" | "disposable_cache", targetPath: string) => Promise<void>;
 };
 
 export type LifecycleResponse = { record: LifecycleRecord; operation: LifecycleOperation; grant: CapabilityGrant | null };
 
-type InstallInput = { version: string; idempotencyKey: string; approveCapabilities: boolean };
-type SimpleInput = { idempotencyKey: string };
+type MutationBinding = {
+  operationId?: string;
+  ownerActorId?: string;
+  installationId?: string | null;
+  expectedGeneration?: number;
+};
+type InstallInput = MutationBinding & { version: string; idempotencyKey: string; approveCapabilities: boolean };
+type SimpleInput = MutationBinding & { idempotencyKey: string };
 
 export class AppLifecycleService {
   private readonly audit: NonNullable<LifecycleDependencies["audit"]>;
+  readonly ownerActorId: string;
+  readonly ownerId = OWNER_ID;
 
   constructor(public readonly dependencies: LifecycleDependencies) {
     this.audit = dependencies.audit ?? (() => undefined);
+    this.ownerActorId = dependencies.ownerActorId ?? "owner";
   }
 
   async initialize(): Promise<void> {
     await this.dependencies.store.initialize();
+    await this.dependencies.immutablePackages?.initialize();
+    await this.migrateReferencedPackagesToImmutableStore();
     await this.reconcile();
   }
 
   status = (): Promise<LifecycleRecord> => this.dependencies.store.readLifecycle();
 
   async install(input: InstallInput): Promise<LifecycleResponse> {
-    return this.dependencies.store.runIdempotent(input.idempotencyKey, { kind: "install", version: input.version, approve_capabilities: input.approveCapabilities }, async () => {
+    return this.installOrReinstall(input, "install");
+  }
+
+  async reinstall(input: InstallInput): Promise<LifecycleResponse> {
+    return this.installOrReinstall(input, "reinstall");
+  }
+
+  private async installOrReinstall(input: InstallInput, kind: "install" | "reinstall"): Promise<LifecycleResponse> {
+    return this.dependencies.store.runIdempotent(input.idempotencyKey, { kind, version: input.version, approve_capabilities: input.approveCapabilities, operation_id: input.operationId ?? null, expected_generation: input.expectedGeneration ?? null }, async () => {
       this.assertMemoryTransferIdle();
       const prior = await this.dependencies.store.readLifecycle();
+      this.assertBinding(prior, input, true);
+      await this.assertOperationIdentityAvailable(input.operationId, input.idempotencyKey);
       if (prior.state !== "not_installed") throw new AppPlatformError("invalid_state_transition", `Install is not allowed from ${prior.state}`);
       const installationId = randomUUID();
-      let operation = this.newOperation("install", prior, installationId, input.idempotencyKey, { version: input.version }, "active", "staged");
+      let operation = this.newOperation(kind, prior, installationId, input.idempotencyKey, { version: input.version }, "active", "staged", input.operationId);
       await this.dependencies.store.saveOperation(operation);
       let verified: VerifiedPackage | null = null;
       let grant: CapabilityGrant | null = null;
@@ -70,11 +95,12 @@ export class AppLifecycleService {
         operation = await this.stage(operation, "verifying_source");
         const packageRoot = path.join(this.dependencies.runtimeRoot, "staging", operation.operation_id);
         verified = await this.dependencies.verifier.verifyAndExtract(this.dependencies.repository, input.version, packageRoot, "candidate_install_or_update");
+        verified = await this.promoteVerifiedPackage(verified);
         operation = await this.stage(operation, "verifying_package");
         await this.ensureNotCancelled(operation);
         if (!input.approveCapabilities) throw new AppPlatformError("grant_approval_required", "Owner approval is required for the initial capability grant", 409);
         grant = this.createGrant(installationId, verified);
-        await this.prepareOwnerData(grant, verified, prior.generation === 0 ? "install" : "reinstall");
+        await this.prepareOwnerData(grant, verified, kind);
         await this.dependencies.store.saveGrant(grant);
         await this.dependencies.store.savePackage(this.storedPackage(verified));
         operation = await this.stage(operation, "granting");
@@ -101,7 +127,7 @@ export class AppLifecycleService {
           const restored = LifecycleRecordSchema.parse({ ...prior, generation: current.generation + 1, updated_at: new Date().toISOString() });
           await this.dependencies.store.compareAndSwapLifecycle(current.generation, restored);
         }
-        if (verified) await rm(verified.packageRoot, { recursive: true, force: true });
+        if (verified) await this.releaseVerifiedPackage(verified);
         await this.fail(operation, failure.code, prior.state === "not_installed" ? "remove_staging_and_restore_prior" : "none");
         this.emit("app.lifecycle.install.failed", prior, prior, operation, failure.code);
         throw failure;
@@ -110,9 +136,11 @@ export class AppLifecycleService {
   }
 
   async disable(input: SimpleInput): Promise<LifecycleResponse> {
-    return this.dependencies.store.runIdempotent(input.idempotencyKey, { kind: "disable" }, async () => {
+    return this.dependencies.store.runIdempotent(input.idempotencyKey, { kind: "disable", operation_id: input.operationId ?? null, installation_id: input.installationId ?? null, expected_generation: input.expectedGeneration ?? null }, async () => {
       const prior = await this.requireState(["active"]);
-      let operation = this.newOperation("disable", prior, prior.installation_id!, input.idempotencyKey, {}, "disabled", "disabled");
+      this.assertBinding(prior, input);
+      await this.assertOperationIdentityAvailable(input.operationId, input.idempotencyKey);
+      let operation = this.newOperation("disable", prior, prior.installation_id!, input.idempotencyKey, {}, "disabled", "disabled", input.operationId);
       await this.dependencies.store.saveOperation(operation);
       operation = await this.stage(operation, "revoking_tokens");
       this.dependencies.tokenBroker.revokeInstallation(prior.installation_id!);
@@ -128,15 +156,17 @@ export class AppLifecycleService {
   }
 
   async enable(input: SimpleInput): Promise<LifecycleResponse> {
-    return this.dependencies.store.runIdempotent(input.idempotencyKey, { kind: "enable" }, async () => {
+    return this.dependencies.store.runIdempotent(input.idempotencyKey, { kind: "enable", operation_id: input.operationId ?? null, installation_id: input.installationId ?? null, expected_generation: input.expectedGeneration ?? null }, async () => {
       this.assertMemoryTransferIdle();
       const prior = await this.requireState(["disabled"]);
-      let operation = this.newOperation("enable", prior, prior.installation_id!, input.idempotencyKey, {}, "active", "active");
+      this.assertBinding(prior, input);
+      await this.assertOperationIdentityAvailable(input.operationId, input.idempotencyKey);
+      let operation = this.newOperation("enable", prior, prior.installation_id!, input.idempotencyKey, {}, "active", "active", input.operationId);
       await this.dependencies.store.saveOperation(operation);
       const stored = await this.requireStoredPackage(prior.active_package_digest!);
       const grant = await this.requireGrant(prior.grant_id!);
       operation = await this.stage(operation, "verifying_package");
-      const verified = await this.dependencies.verifier.verifyAndExtract(this.dependencies.repository, stored.package_version, stored.package_root, "verified_local_recheck");
+      const verified = await this.verifyStoredPackage(stored);
       try {
         await this.prepareOwnerData(grant, verified, "enable");
       } catch (error) {
@@ -158,10 +188,12 @@ export class AppLifecycleService {
   }
 
   async update(input: InstallInput): Promise<LifecycleResponse> {
-    return this.dependencies.store.runIdempotent(input.idempotencyKey, { kind: "update", version: input.version, approve_capabilities: input.approveCapabilities }, async () => {
+    return this.dependencies.store.runIdempotent(input.idempotencyKey, { kind: "update", version: input.version, approve_capabilities: input.approveCapabilities, operation_id: input.operationId ?? null, installation_id: input.installationId ?? null, expected_generation: input.expectedGeneration ?? null }, async () => {
       this.assertMemoryTransferIdle();
       const prior = await this.requireState(["active", "disabled"]);
-      let operation = this.newOperation("update", prior, prior.installation_id!, input.idempotencyKey, { version: input.version }, prior.state, "updating");
+      this.assertBinding(prior, input);
+      await this.assertOperationIdentityAvailable(input.operationId, input.idempotencyKey);
+      let operation = this.newOperation("update", prior, prior.installation_id!, input.idempotencyKey, { version: input.version }, prior.state, "updating", input.operationId);
       await this.dependencies.store.saveOperation(operation);
       let candidate: VerifiedPackage | null = null;
       let candidateGrant: CapabilityGrant | null = null;
@@ -169,6 +201,7 @@ export class AppLifecycleService {
         const candidateRoot = path.join(this.dependencies.runtimeRoot, "staging", operation.operation_id);
         operation = await this.stage(operation, "verifying_package");
         candidate = await this.dependencies.verifier.verifyAndExtract(this.dependencies.repository, input.version, candidateRoot, "candidate_install_or_update");
+        candidate = await this.promoteVerifiedPackage(candidate);
         const priorGrant = await this.requireGrant(prior.grant_id!);
         const diff = capabilityDiff(priorGrant.capabilities, candidate.manifest.requested_capabilities);
         if (diff.decision === "owner_approval_required" && !input.approveCapabilities) throw new AppPlatformError("grant_widening_approval_required", "Update requests additional capabilities");
@@ -208,7 +241,7 @@ export class AppLifecycleService {
           this.dependencies.tokenBroker.permitInstallation(prior.installation_id!);
         }
         if (candidateGrant) await this.dependencies.store.revokeGrant(candidateGrant.grant_id).catch(() => undefined);
-        if (candidate) await rm(candidate.packageRoot, { recursive: true, force: true });
+        if (candidate) await this.releaseVerifiedPackage(candidate);
         await this.fail(operation, failure.code, "stop_candidate_and_restore_prior");
         this.emit("app.lifecycle.update.failed", prior, prior, operation, failure.code);
         throw failure;
@@ -217,14 +250,16 @@ export class AppLifecycleService {
   }
 
   async rollback(input: SimpleInput): Promise<LifecycleResponse> {
-    return this.dependencies.store.runIdempotent(input.idempotencyKey, { kind: "rollback" }, async () => {
+    return this.dependencies.store.runIdempotent(input.idempotencyKey, { kind: "rollback", operation_id: input.operationId ?? null, installation_id: input.installationId ?? null, expected_generation: input.expectedGeneration ?? null }, async () => {
       this.assertMemoryTransferIdle();
       const prior = await this.requireState(["active", "disabled"]);
+      this.assertBinding(prior, input);
+      await this.assertOperationIdentityAvailable(input.operationId, input.idempotencyKey);
       if (!prior.last_known_good_package_digest) throw new AppPlatformError("rollback_unavailable", "No last-known-good package is retained");
-      let operation = this.newOperation("rollback", prior, prior.installation_id!, input.idempotencyKey, {}, prior.state, "rollback_pending");
+      let operation = this.newOperation("rollback", prior, prior.installation_id!, input.idempotencyKey, {}, prior.state, "rollback_pending", input.operationId);
       await this.dependencies.store.saveOperation(operation);
       const stored = await this.requireStoredPackage(prior.last_known_good_package_digest);
-      const verified = await this.dependencies.verifier.verifyAndExtract(this.dependencies.repository, stored.package_version, stored.package_root, "verified_local_recheck");
+      const verified = await this.verifyStoredPackage(stored);
       const grant = this.createGrant(prior.installation_id!, verified);
       try {
         await this.prepareOwnerData(grant, verified, "rollback");
@@ -254,31 +289,52 @@ export class AppLifecycleService {
   }
 
   async uninstall(input: SimpleInput): Promise<LifecycleResponse> {
-    return this.dependencies.store.runIdempotent(input.idempotencyKey, { kind: "uninstall" }, async () => {
+    return this.dependencies.store.runIdempotent(input.idempotencyKey, { kind: "uninstall", operation_id: input.operationId ?? null, installation_id: input.installationId ?? null, expected_generation: input.expectedGeneration ?? null }, async () => {
       this.assertMemoryTransferIdle();
-      const prior = await this.requireState(["active", "disabled", "quarantined", "failed_recoverable"]);
-      let operation = this.newOperation("uninstall", prior, prior.installation_id!, input.idempotencyKey, {}, "not_installed", "uninstalling");
+      const prior = await this.dependencies.store.readLifecycle();
+      if (prior.state === "not_installed") {
+        const existing = (await this.dependencies.store.listOperations()).reverse().find((candidate) => candidate.kind === "uninstall" && candidate.status === "committed");
+        if (!existing || (input.installationId && existing.installation_id !== input.installationId)) throw new AppPlatformError("invalid_state_transition", "Resume Builder is not installed");
+        return { record: prior, operation: existing, grant: null };
+      }
+      if (prior.state === "uninstalling" && prior.pending_operation_id) {
+        const pending = await this.dependencies.store.readOperation(prior.pending_operation_id);
+        if (!pending || pending.kind !== "uninstall") throw new AppPlatformError("store_corrupt", "Uninstall recovery operation is missing");
+        this.assertBinding(prior, input, false, pending.installation_id);
+        return this.finishUninstall(prior, pending);
+      }
+      if (!["active", "disabled", "quarantined", "failed_recoverable"].includes(prior.state)) throw new AppPlatformError("invalid_state_transition", `Operation is not allowed from ${prior.state}`);
+      this.assertBinding(prior, input);
+      await this.assertOperationIdentityAvailable(input.operationId, input.idempotencyKey);
+      const operation = this.newOperation("uninstall", prior, prior.installation_id!, input.idempotencyKey, {}, "not_installed", "uninstalling", input.operationId);
       await this.dependencies.store.saveOperation(operation);
       const uninstalling = LifecycleRecordSchema.parse({ ...prior, state: "uninstalling", generation: prior.generation + 1, pending_operation_id: operation.operation_id, updated_at: new Date().toISOString() });
       await this.dependencies.store.compareAndSwapLifecycle(prior.generation, uninstalling);
-      operation = await this.stage(operation, "revoking_tokens");
-      this.dependencies.tokenBroker.revokeInstallation(prior.installation_id!);
-      if (prior.grant_id) await this.dependencies.store.revokeGrant(prior.grant_id);
-      operation = await this.stage(operation, "stopping");
-      await this.stopInstallation(prior.installation_id!, "uninstall");
-      await this.dependencies.ownerDataLifecycle?.cleanupDefaultUninstall();
-      operation = await this.stage(operation, "removing_runtime_authority");
-      for (const packageDigest of [prior.active_package_digest, prior.last_known_good_package_digest].filter((value): value is string => Boolean(value))) {
-        const stored = await this.dependencies.store.readPackage(packageDigest);
-        if (stored) await rm(stored.package_root, { recursive: true, force: true });
-        await this.dependencies.store.removePackage(packageDigest);
+      return this.finishUninstall(uninstalling, operation);
+    });
+  }
+
+  async recover(input: SimpleInput): Promise<LifecycleResponse> {
+    return this.dependencies.store.runIdempotent(input.idempotencyKey, { kind: "recover", operation_id: input.operationId ?? null, installation_id: input.installationId ?? null, expected_generation: input.expectedGeneration ?? null }, async () => {
+      this.assertMemoryTransferIdle();
+      const prior = await this.requireState(["failed_recoverable"]);
+      this.assertBinding(prior, input);
+      await this.assertOperationIdentityAvailable(input.operationId, input.idempotencyKey);
+      if (!prior.active_package_digest || !prior.grant_id || !prior.installation_id) throw new AppPlatformError("invalid_state_transition", "Recovery requires retained verified package authority");
+      let operation = this.newOperation("recover", prior, prior.installation_id, input.idempotencyKey, {}, "active", "active", input.operationId);
+      await this.dependencies.store.saveOperation(operation);
+      try {
+        await this.restartPrior(prior);
+        const active = LifecycleRecordSchema.parse({ ...prior, state: "active", generation: prior.generation + 1, pending_operation_id: null, updated_at: new Date().toISOString() });
+        await this.dependencies.store.compareAndSwapLifecycle(prior.generation, active);
+        operation = await this.complete(operation, active, "committed", false);
+        this.emit("app.lifecycle.recover.committed", prior, active, operation);
+        return { record: active, operation, grant: await this.requireGrant(active.grant_id!) };
+      } catch (error) {
+        const failure = asAppPlatformError(error);
+        await this.fail(operation, failure.code, "reconcile_committed_pointer");
+        throw failure;
       }
-      if (prior.grant_id) await this.dependencies.store.removeGrant(prior.grant_id);
-      const removed = LifecycleRecordSchema.parse({ lifecycle_schema_version: 1, app_id: "ai.braindrive.resume-builder", installation_id: null, state: "not_installed", generation: uninstalling.generation + 1, active_package_digest: null, last_known_good_package_digest: null, grant_id: null, pending_operation_id: null, successful_use_checkpoint: null, updated_at: new Date().toISOString() });
-      await this.dependencies.store.compareAndSwapLifecycle(uninstalling.generation, removed);
-      operation = await this.complete(operation, removed, "committed", true);
-      this.emit("app.lifecycle.uninstall.committed", prior, removed, operation);
-      return { record: removed, operation, grant: null };
     });
   }
 
@@ -287,7 +343,7 @@ export class AppLifecycleService {
     if (!["active", "disabled"].includes(prior.state)) return prior;
     const stored = await this.requireStoredPackage(prior.active_package_digest!);
     try {
-      await this.dependencies.verifier.verifyAndExtract(this.dependencies.repository, stored.package_version, stored.package_root, "verified_local_recheck");
+      await this.verifyStoredPackage(stored);
       return prior;
     } catch (error) {
       if (!(error instanceof AppPlatformError) || error.code !== "package_revoked") throw error;
@@ -325,19 +381,24 @@ export class AppLifecycleService {
     return this.dependencies.tokenBroker.issue({ grant, audience: input.audience, capabilities: input.capabilities, connectionId: input.connectionId ?? randomUUID(), operationId: input.operationId, viewId: input.viewId, ttlMs: 5 * 60_000 });
   }
 
-  async ownerDescriptor(): Promise<{ record: LifecycleRecord; grant: CapabilityGrant | null; packageVersion: string | null }> {
+  async ownerDescriptor(): Promise<{ record: LifecycleRecord; grant: CapabilityGrant | null; packageVersion: string | null; storedPackage: StoredPackage | null }> {
     const record = await this.dependencies.store.readLifecycle();
     const grant = record.grant_id ? await this.dependencies.store.readGrant(record.grant_id) : null;
     const stored = record.active_package_digest ? await this.dependencies.store.readPackage(record.active_package_digest) : null;
-    return { record, grant, packageVersion: stored?.package_version ?? null };
+    return { record, grant, packageVersion: stored?.package_version ?? null, storedPackage: stored };
   }
 
   private async reconcile(): Promise<void> {
     let record = await this.dependencies.store.readLifecycle();
-    if (["staged", "updating", "rollback_pending", "uninstalling"].includes(record.state)) {
+    if (record.state === "uninstalling" && record.pending_operation_id) {
+      const operation = await this.dependencies.store.readOperation(record.pending_operation_id);
+      if (!operation || operation.kind !== "uninstall") throw new AppPlatformError("store_corrupt", "Pending uninstall operation is unavailable");
+      const resumed = await this.finishUninstall(record, operation);
+      record = resumed.record;
+    } else if (["staged", "updating", "rollback_pending"].includes(record.state)) {
       const operation = record.pending_operation_id ? await this.dependencies.store.readOperation(record.pending_operation_id) : null;
       const priorState = operation?.prior_state ?? "failed_recoverable";
-      const safeState: LifecycleState = record.state === "staged" ? "not_installed" : record.state === "uninstalling" ? "not_installed" : priorState === "active" ? "active" : priorState === "disabled" ? "disabled" : "failed_recoverable";
+      const safeState: LifecycleState = record.state === "staged" ? "not_installed" : priorState === "active" ? "active" : priorState === "disabled" ? "disabled" : "failed_recoverable";
       const next = safeState === "not_installed"
         ? LifecycleRecordSchema.parse({ lifecycle_schema_version: 1, app_id: "ai.braindrive.resume-builder", installation_id: null, state: "not_installed", generation: record.generation + 1, active_package_digest: null, last_known_good_package_digest: null, grant_id: null, pending_operation_id: null, successful_use_checkpoint: null, updated_at: new Date().toISOString() })
         : LifecycleRecordSchema.parse({ ...record, state: safeState, generation: record.generation + 1, pending_operation_id: null, updated_at: new Date().toISOString() });
@@ -355,7 +416,7 @@ export class AppLifecycleService {
   private async restartPrior(record: LifecycleRecord): Promise<void> {
     const stored = await this.requireStoredPackage(record.active_package_digest!);
     const grant = await this.requireGrant(record.grant_id!);
-    const verified = await this.dependencies.verifier.verifyAndExtract(this.dependencies.repository, stored.package_version, stored.package_root, "verified_local_recheck");
+    const verified = await this.verifyStoredPackage(stored);
     await this.prepareOwnerData(grant, verified, "enable");
     const started = await this.dependencies.supervisor.start(this.runtimeDescriptor(record, verified, grant));
     await this.dependencies.supervisor.awaitReadiness(started.runtime!);
@@ -365,10 +426,126 @@ export class AppLifecycleService {
     for (const runtime of this.dependencies.supervisor.inspect(installationId)) await this.dependencies.supervisor.stop(runtime, reason);
   }
 
+  private async finishUninstall(record: LifecycleRecord, initialOperation: LifecycleOperation): Promise<LifecycleResponse> {
+    const installationId = record.installation_id ?? initialOperation.installation_id;
+    let operation = initialOperation;
+    let journal = await this.dependencies.store.readUninstallJournal(operation.operation_id);
+
+    if (!journal || journal.stage === "authority_removed") {
+      operation = await this.stage(operation, "stopping");
+      await this.stopInstallation(installationId, "uninstall");
+      this.dependencies.tokenBroker.revokeInstallation(installationId);
+
+      operation = await this.stage(operation, "revoking_tokens");
+      if (record.grant_id) await this.dependencies.store.revokeGrant(record.grant_id);
+      await this.dependencies.ownerDataLifecycle?.cleanupDefaultUninstall();
+
+      if (!journal) {
+        const digests = [record.active_package_digest, record.last_known_good_package_digest].filter((value, index, all): value is string => Boolean(value) && all.indexOf(value) === index);
+        const packages = await Promise.all(digests.map((digest) => this.dependencies.store.readPackage(digest)));
+        journal = {
+          journal_version: 1,
+          operation_id: operation.operation_id,
+          installation_id: installationId,
+          grant_id: record.grant_id,
+          package_digests: digests,
+          package_roots: packages.map((stored) => stored?.package_root ?? null),
+          stage: "authority_removed",
+          owner_data_preserved: true,
+          removed_classes: ["runtime_registration", "capability_grant"],
+          retained_classes: ["career_data", "resume_history", "job_history", "artifact_metadata", "owner_exports", "lifecycle_tombstone"],
+          updated_at: new Date().toISOString(),
+        };
+        await this.dependencies.store.saveUninstallJournal(journal);
+      }
+    }
+
+    let current = await this.dependencies.store.readLifecycle();
+    if (journal.stage === "authority_removed") {
+      operation = await this.stage(operation, "clearing_references");
+      const cleared = LifecycleRecordSchema.parse({ ...current, installation_id: installationId, state: "uninstalling", generation: current.generation + 1, active_package_digest: null, last_known_good_package_digest: null, grant_id: null, successful_use_checkpoint: null, pending_operation_id: operation.operation_id, updated_at: new Date().toISOString() });
+      await this.dependencies.store.compareAndSwapLifecycle(current.generation, cleared);
+      current = cleared;
+      journal = { ...journal, stage: "references_cleared", removed_classes: [...new Set([...journal.removed_classes, "package_reference"])] as UninstallJournal["removed_classes"], updated_at: new Date().toISOString() };
+      await this.dependencies.store.saveUninstallJournal(journal);
+    }
+
+    if (journal.stage === "references_cleared") {
+      operation = await this.stage(operation, "removing_package_bytes");
+      const allPackages = await this.dependencies.store.listPackages();
+      for (let index = 0; index < journal.package_digests.length; index += 1) {
+        const packageDigest = journal.package_digests[index];
+        const packageRoot = journal.package_roots[index] ?? null;
+        const stored = allPackages.find((candidate) => candidate.package_digest === packageDigest) ?? null;
+        if (this.dependencies.immutablePackages && stored?.package_reference_id) {
+          await this.dependencies.immutablePackages.release(packageDigest, stored.package_reference_id);
+          await this.dependencies.immutablePackages.removeIfUnreferenced(packageDigest);
+        } else {
+          const shared = packageRoot !== null && allPackages.some((candidate) => candidate.package_digest !== packageDigest && path.resolve(candidate.package_root) === path.resolve(packageRoot));
+          if (packageRoot !== null && !shared) await this.removeValidatedRuntimeRoot(packageRoot, "package_bytes");
+        }
+        await this.dependencies.store.removePackage(packageDigest);
+      }
+      if (journal.grant_id) await this.dependencies.store.removeGrant(journal.grant_id);
+
+      operation = await this.stage(operation, "removing_disposable_cache");
+      for (const disposable of [path.join(this.dependencies.runtimeRoot, "cache", installationId), path.join(this.dependencies.runtimeRoot, "instances", installationId)]) {
+        await this.removeValidatedRuntimeRoot(disposable, "disposable_cache");
+      }
+      journal = { ...journal, package_roots: [], stage: "bytes_removed", removed_classes: [...new Set([...journal.removed_classes, "package_bytes", "disposable_cache"])] as UninstallJournal["removed_classes"], updated_at: new Date().toISOString() };
+      await this.dependencies.store.saveUninstallJournal(journal);
+    }
+
+    current = await this.dependencies.store.readLifecycle();
+    if (current.state !== "not_installed") {
+      operation = await this.stage(operation, "recording_tombstone");
+      const removed = LifecycleRecordSchema.parse({ lifecycle_schema_version: 1, app_id: "ai.braindrive.resume-builder", installation_id: null, state: "not_installed", generation: current.generation + 1, active_package_digest: null, last_known_good_package_digest: null, grant_id: null, pending_operation_id: null, successful_use_checkpoint: null, updated_at: new Date().toISOString() });
+      await this.dependencies.store.compareAndSwapLifecycle(current.generation, removed);
+      operation = await this.complete(operation, removed, "committed", true);
+      journal = { ...journal, package_roots: [], stage: "committed", updated_at: new Date().toISOString() };
+      await this.dependencies.store.saveUninstallJournal(journal);
+      this.audit("app.lifecycle.uninstall_summary", { owner_id: operation.owner_id, actor_id: operation.actor_id, app_id: removed.app_id, installation_id: installationId, operation_id: operation.operation_id, prior_state: operation.prior_state, result_state: removed.state, removed_classes: journal.removed_classes, removed_item_count: journal.removed_classes.length, retained_classes: journal.retained_classes, owner_data_preserved: true, outcome: "committed" });
+      this.emit("app.lifecycle.uninstall.committed", record, removed, operation);
+      return { record: removed, operation, grant: null };
+    }
+    return { record: current, operation, grant: null };
+  }
+
+  private async removeValidatedRuntimeRoot(targetPath: string, targetClass: "package_bytes" | "disposable_cache"): Promise<void> {
+    const root = path.resolve(this.dependencies.runtimeRoot);
+    const target = path.resolve(targetPath);
+    if (target === root || !target.startsWith(`${root}${path.sep}`)) throw new AppPlatformError("denied", "Lifecycle cleanup target is outside the app runtime root", 403);
+    await this.dependencies.beforeUninstallDelete?.(targetClass, target);
+    await rm(target, { recursive: true, force: true });
+  }
+
   private assertMemoryTransferIdle(): void {
     if (this.dependencies.isMemoryMigrationInProgress?.()) {
       throw new AppPlatformError("invalid_state_transition", "Memory transfer must finish before changing Resume Builder lifecycle state", 409);
     }
+  }
+
+  private assertBinding(record: LifecycleRecord, input: MutationBinding, installing = false, installationOverride?: string): void {
+    if (input.ownerActorId !== undefined && input.ownerActorId !== this.ownerActorId) {
+      throw new AppPlatformError("denied", "Lifecycle operation is not authorized for this owner", 403);
+    }
+    if (input.expectedGeneration !== undefined && input.expectedGeneration !== record.generation) {
+      throw new AppPlatformError("conflict", "Lifecycle state changed; refresh before retrying", 409);
+    }
+    const authoritativeInstallation = installationOverride ?? record.installation_id;
+    if (installing) {
+      if (input.installationId !== undefined && input.installationId !== null) throw new AppPlatformError("denied", "Install cannot target an existing installation", 403);
+      return;
+    }
+    if (input.installationId !== undefined && input.installationId !== authoritativeInstallation) {
+      throw new AppPlatformError("denied", "Lifecycle operation targets a different installation", 403);
+    }
+  }
+
+  private async assertOperationIdentityAvailable(operationId: string | undefined, idempotencyKey: string): Promise<void> {
+    if (!operationId) return;
+    const existing = await this.dependencies.store.readOperation(operationId);
+    if (existing && existing.idempotency_key !== idempotencyKey) throw new AppPlatformError("idempotency_conflict", "Operation identity was already used with different input", 409);
   }
 
   private async prepareOwnerData(
@@ -399,10 +576,120 @@ export class AppLifecycleService {
     }
   }
 
+  private promotablePackage(verified: VerifiedPackage): PromotableVerifiedPackage {
+    const artifact = verified.manifest.platform_artifacts.find((candidate) => candidate.target === verified.target);
+    if (!artifact) throw new AppPlatformError("host_incompatible", "Verified package target is missing its entrypoint");
+    return {
+      manifest: verified.manifest,
+      packageDigest: verified.packageDigest,
+      descriptorDigest: verified.trust.descriptor_digest as `sha256:${string}`,
+      stageRoot: verified.packageRoot,
+      entrypoint: artifact.entrypoint,
+      target: verified.target,
+    };
+  }
+
+  private async promoteVerifiedPackage(verified: VerifiedPackage, referenceId: string = randomUUID()): Promise<VerifiedPackage> {
+    const packages = this.dependencies.immutablePackages;
+    if (!packages) return verified;
+    const promoted = await packages.promote(this.promotablePackage(verified));
+    await packages.acquire(verified.packageDigest, referenceId);
+    return {
+      ...verified,
+      packageRoot: promoted.contentRoot,
+      entrypoint: path.join(promoted.contentRoot, ...promoted.entrypoint.split("/")),
+      packageReferenceId: referenceId,
+    };
+  }
+
+  private async verifyStoredPackage(stored: StoredPackage): Promise<VerifiedPackage> {
+    const packages = this.dependencies.immutablePackages;
+    if (!packages) {
+      return this.dependencies.verifier.verifyAndExtract(
+        this.dependencies.repository,
+        stored.package_version,
+        stored.package_root,
+        "verified_local_recheck",
+      );
+    }
+    if (!stored.package_reference_id) throw new AppPlatformError("package_cache_missing", "Immutable package reference is missing");
+    const stageRoot = path.join(this.dependencies.runtimeRoot, "staging", `recheck-${randomUUID()}`);
+    const verified = await this.dependencies.verifier.verifyAndExtract(
+      this.dependencies.repository,
+      stored.package_version,
+      stageRoot,
+      "verified_local_recheck",
+    );
+    try {
+      if (verified.packageDigest !== stored.package_digest) {
+        throw new AppPlatformError("package_archive_digest_mismatch", "Stored package identity differs from signed source authority");
+      }
+      const authoritative = await packages.assertStoredIntegrity(this.promotablePackage(verified));
+      await packages.resolveReferencedRuntime(stored.package_digest, stored.package_reference_id);
+      if (path.resolve(authoritative.contentRoot) !== path.resolve(stored.package_root)) {
+        throw new AppPlatformError("package_cache_missing", "Stored package root differs from immutable authority");
+      }
+      return {
+        ...verified,
+        packageRoot: authoritative.contentRoot,
+        entrypoint: path.join(authoritative.contentRoot, ...authoritative.entrypoint.split("/")),
+        packageReferenceId: stored.package_reference_id,
+      };
+    } finally {
+      await rm(stageRoot, { recursive: true, force: true });
+    }
+  }
+
+  private async releaseVerifiedPackage(verified: VerifiedPackage): Promise<void> {
+    const packages = this.dependencies.immutablePackages;
+    if (!packages || !verified.packageReferenceId) {
+      await rm(verified.packageRoot, { recursive: true, force: true });
+      return;
+    }
+    await packages.release(verified.packageDigest, verified.packageReferenceId);
+    await packages.removeIfUnreferenced(verified.packageDigest);
+    const state = await this.dependencies.store.readLifecycle();
+    if (state.active_package_digest !== verified.packageDigest && state.last_known_good_package_digest !== verified.packageDigest) {
+      await this.dependencies.store.removePackage(verified.packageDigest);
+    }
+  }
+
+  private async migrateReferencedPackagesToImmutableStore(): Promise<void> {
+    const packages = this.dependencies.immutablePackages;
+    if (!packages) return;
+    const record = await this.dependencies.store.readLifecycle();
+    const referencedDigests = new Set([record.active_package_digest, record.last_known_good_package_digest].filter((value): value is string => Boolean(value)));
+    for (const stored of await this.dependencies.store.listPackages()) {
+      if (!referencedDigests.has(stored.package_digest)) continue;
+      const packagesRoot = path.resolve(packages.layout.packages);
+      const storedRoot = path.resolve(stored.package_root);
+      if (stored.package_reference_id && storedRoot.startsWith(`${packagesRoot}${path.sep}`)) continue;
+      const priorRoot = stored.package_root;
+      const stageRoot = path.join(this.dependencies.runtimeRoot, "staging", `migration-${randomUUID()}`);
+      const verified = await this.dependencies.verifier.verifyAndExtract(
+        this.dependencies.repository,
+        stored.package_version,
+        stageRoot,
+        "verified_local_recheck",
+      );
+      if (verified.packageDigest !== stored.package_digest) {
+        await rm(stageRoot, { recursive: true, force: true });
+        throw new AppPlatformError("package_archive_digest_mismatch", "Legacy package identity differs from signed source authority");
+      }
+      const promoted = await this.promoteVerifiedPackage(verified, stored.package_reference_id ?? randomUUID());
+      await this.dependencies.store.savePackage(this.storedPackage(promoted));
+      const prior = path.resolve(priorRoot);
+      const runtime = path.resolve(this.dependencies.runtimeRoot);
+      if (prior !== path.resolve(promoted.packageRoot) && prior.startsWith(`${runtime}${path.sep}`)) {
+        await rm(prior, { recursive: true, force: true });
+      }
+    }
+  }
+
   private runtimeDescriptor(record: LifecycleRecord, verified: VerifiedPackage, grant: CapabilityGrant): RuntimeLaunchDescriptor {
     const target = this.dependencies.runtimeTarget ?? { target: "docker_linux_x64", runtimeKind: "container", transport: "container_internal" };
     if (verified.target !== target.target) throw new AppPlatformError("host_incompatible", "Verified package target does not match the lifecycle runtime target");
-    return { ...RuntimeDescriptorSchema.parse({ supervisor_protocol_version: 1, runtime_kind: target.runtimeKind, app_id: "ai.braindrive.resume-builder", installation_id: record.installation_id ?? grant.installation_id, package_digest: verified.packageDigest, grant_id: grant.grant_id, verified_entrypoint: verified.manifest.platform_artifacts.find((artifact) => artifact.target === target.target)!.entrypoint, arguments: [], environment_keys: ["BRAINDRIVE_APP_CONNECTION_TOKEN", "BRAINDRIVE_APP_ID", "BRAINDRIVE_INSTALLATION_ID", "BRAINDRIVE_PACKAGE_DIGEST", "BRAINDRIVE_ENDPOINT_BIND"], package_root_ref: randomUUID(), cache_root_ref: randomUUID(), endpoint_policy: { transport: target.transport, authentication: "per_installation_token", public_bind_allowed: false }, resource_policy_version: 1 }), resolved_entrypoint: verified.entrypoint };
+    return { ...RuntimeDescriptorSchema.parse({ supervisor_protocol_version: 1, runtime_kind: target.runtimeKind, app_id: "ai.braindrive.resume-builder", installation_id: record.installation_id ?? grant.installation_id, package_digest: verified.packageDigest, grant_id: grant.grant_id, verified_entrypoint: verified.manifest.platform_artifacts.find((artifact) => artifact.target === target.target)!.entrypoint, arguments: [], environment_keys: ["BRAINDRIVE_APP_CONNECTION_TOKEN", "BRAINDRIVE_APP_ID", "BRAINDRIVE_INSTALLATION_ID", "BRAINDRIVE_PACKAGE_DIGEST", "BRAINDRIVE_ENDPOINT_BIND"], package_root_ref: verified.packageReferenceId ?? randomUUID(), cache_root_ref: randomUUID(), endpoint_policy: { transport: target.transport, authentication: "per_installation_token", public_bind_allowed: false }, resource_policy_version: 1 }), resolved_entrypoint: verified.entrypoint };
   }
 
   private createGrant(installationId: string, verified: VerifiedPackage): CapabilityGrant {
@@ -410,14 +697,25 @@ export class AppLifecycleService {
     return CapabilityGrantSchema.parse({ grant_version: 1, grant_revision: 1, revocation_generation: 0, grant_id: randomUUID(), owner_id: OWNER_ID, actor_id: ACTOR_ID, app_id: "ai.braindrive.resume-builder", publisher_id: "ai.braindrive", package_digest: verified.packageDigest, installation_id: installationId, capabilities: verified.manifest.requested_capabilities, record_scopes: [], decision: { decision_id: randomUUID(), decided_by_actor_id: ACTOR_ID, decided_at: now, outcome: "approved" }, issued_at: now, expires_at: "2036-01-01T00:00:00.000Z", revoked_at: null });
   }
 
-  private storedPackage(verified: VerifiedPackage): StoredPackage { return { store_version: 1, package_digest: verified.packageDigest, package_version: verified.manifest.package_version, package_root: verified.packageRoot, entrypoint: verified.entrypoint, manifest: verified.manifest, trust: verified.trust }; }
+  private storedPackage(verified: VerifiedPackage): StoredPackage {
+    return {
+      store_version: 1,
+      package_digest: verified.packageDigest,
+      package_version: verified.manifest.package_version,
+      package_root: verified.packageRoot,
+      ...(verified.packageReferenceId ? { package_reference_id: verified.packageReferenceId } : {}),
+      entrypoint: verified.entrypoint,
+      manifest: verified.manifest,
+      trust: verified.trust,
+    };
+  }
   private async requireStoredPackage(packageDigest: string): Promise<StoredPackage> { const stored = await this.dependencies.store.readPackage(packageDigest); if (!stored) throw new AppPlatformError("package_cache_missing", "Verified package cache is missing"); return stored; }
   private async requireGrant(grantId: string): Promise<CapabilityGrant> { const grant = await this.dependencies.store.readGrant(grantId); if (!grant) throw new AppPlatformError("grant_missing", "Capability grant is missing"); return grant; }
   private async requireState(states: LifecycleState[]): Promise<LifecycleRecord> { const record = await this.dependencies.store.readLifecycle(); if (!states.includes(record.state)) throw new AppPlatformError("invalid_state_transition", `Operation is not allowed from ${record.state}`); return record; }
 
-  private newOperation(kind: LifecycleOperation["kind"], prior: LifecycleRecord, installationId: string, idempotencyKey: string, input: unknown, targetState: LifecycleState, nextState: LifecycleState): LifecycleOperation {
+  private newOperation(kind: LifecycleOperation["kind"], prior: LifecycleRecord, installationId: string, idempotencyKey: string, input: unknown, targetState: LifecycleState, nextState: LifecycleState, operationId?: string): LifecycleOperation {
     const now = new Date().toISOString();
-    return LifecycleOperationSchema.parse({ lifecycle_operation_version: 1, operation_id: randomUUID(), idempotency_key: idempotencyKey, canonical_input_digest: canonicalInputDigest(input), owner_id: OWNER_ID, actor_id: ACTOR_ID, app_id: "ai.braindrive.resume-builder", installation_id: installationId, kind, prior_record_digest: canonicalInputDigest(prior), prior_generation: prior.generation, prior_state: prior.state, target_state: targetState, next_state: nextState, stage: "requested", completed_stages: [], compensations: [], status: "running", commit_outcome: "not_committed", recovery: { action: "none", from_stage: "requested", safe_state: prior.state, snapshot_ref: null }, started_at: now, updated_at: now, completed_at: null, result: null, error_code: null });
+    return LifecycleOperationSchema.parse({ lifecycle_operation_version: 1, operation_id: operationId ?? randomUUID(), idempotency_key: idempotencyKey, canonical_input_digest: canonicalInputDigest(input), owner_id: OWNER_ID, actor_id: ACTOR_ID, app_id: "ai.braindrive.resume-builder", installation_id: installationId, kind, prior_record_digest: canonicalInputDigest(prior), prior_generation: prior.generation, prior_state: prior.state, target_state: targetState, next_state: nextState, stage: "requested", completed_stages: [], compensations: [], status: "running", commit_outcome: "not_committed", recovery: { action: "none", from_stage: "requested", safe_state: prior.state, snapshot_ref: null }, started_at: now, updated_at: now, completed_at: null, result: null, error_code: null });
   }
 
   private async stage(operation: LifecycleOperation, stage: LifecycleOperation["stage"]): Promise<LifecycleOperation> {
@@ -440,7 +738,7 @@ export class AppLifecycleService {
   }
 
   private async ensureNotCancelled(operation: LifecycleOperation): Promise<void> { const latest = await this.dependencies.store.readOperation(operation.operation_id); if (latest?.status === "cancel_requested") throw new AppPlatformError("operation_cancelled", "Lifecycle operation was cancelled before commit"); }
-  private emit(transitionEvent: string, prior: LifecycleRecord, next: LifecycleRecord, operation: LifecycleOperation, errorCode?: string): void { this.audit("app.lifecycle.transition_completed", { app_id: prior.app_id, installation_id: prior.installation_id ?? next.installation_id, operation_id: operation.operation_id, transition_event: transitionEvent, lifecycle_action: operation.kind, prior_state: prior.state, next_state: next.state, package_digest: next.active_package_digest, outcome: errorCode ? "failed" : next.state === "quarantined" ? "quarantined" : "committed", error_code: errorCode ?? null }); }
+  private emit(transitionEvent: string, prior: LifecycleRecord, next: LifecycleRecord, operation: LifecycleOperation, errorCode?: string): void { this.audit("app.lifecycle.transition_completed", { owner_id: operation.owner_id, actor_id: operation.actor_id, app_id: prior.app_id, installation_id: prior.installation_id ?? next.installation_id, operation_id: operation.operation_id, transition_event: transitionEvent, lifecycle_action: operation.kind, prior_state: prior.state, next_state: next.state, package_digest: next.active_package_digest, outcome: errorCode ? "failed" : next.state === "quarantined" ? "quarantined" : "committed", error_code: errorCode ?? null }); }
 }
 
 function capabilityDiff(prior: CapabilityGrant["capabilities"], requested: CapabilityGrant["capabilities"]): z.infer<typeof CapabilityDiffSchema> {

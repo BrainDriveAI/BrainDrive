@@ -452,6 +452,7 @@ export async function buildServer(rootDir = process.cwd()) {
         hostVersion: appVersion,
         stateRoot: process.env.BRAINDRIVE_APP_STATE_ROOT?.trim() || undefined,
         target: readAppLifecycleTarget(process.env.BRAINDRIVE_APP_PLATFORM_TARGET),
+        ownerActorId: authState.actor_id,
         isMemoryMigrationInProgress: () => migrationInProgress,
       })
     : null;

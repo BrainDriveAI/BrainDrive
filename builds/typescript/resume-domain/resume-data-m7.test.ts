@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -30,8 +30,21 @@ import { definitionInput, ownerDecision, proposalInput } from "./test-helpers.js
 
 const roots: string[] = [];
 
+async function makeWritable(root: string): Promise<void> {
+  await chmod(root, 0o700).catch(() => undefined);
+  const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+  await Promise.all(entries.map(async (entry) => {
+    const child = path.join(root, entry.name);
+    if (entry.isDirectory()) await makeWritable(child);
+    else await chmod(child, 0o600).catch(() => undefined);
+  }));
+}
+
 afterEach(async () => {
-  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+  for (const root of roots.splice(0)) {
+    await makeWritable(root);
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 type DataCapability = Exclude<CapabilityGrant["capabilities"][number], "app.inference.request">;
@@ -249,7 +262,7 @@ async function exerciseRuntime(target: AppLifecycleRuntimeTarget) {
     expect(serializedBoundary).not.toContain("description_text");
     expect(serializedBoundary).not.toContain("owner_confirmed");
 
-    return {
+    const result = {
       lifecycle_states: [installed.record.state, "not_installed", reinstalled.record.state],
       context_source_count: projected.sources.length,
       fact_state: retained.state,
@@ -259,6 +272,8 @@ async function exerciseRuntime(target: AppLifecycleRuntimeTarget) {
       fresh_installation: liveGrant.installation_id !== oldInstallationId,
       targeted_variant_created: Boolean(targeted.variant.metadata.revision_id),
     };
+    await lifecycle.uninstall({ idempotencyKey: `${target}-m7-final-uninstall` });
+    return result;
   } finally {
     await lifecycle.dependencies.supervisor.close();
   }

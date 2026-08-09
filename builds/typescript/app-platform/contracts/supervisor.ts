@@ -108,6 +108,7 @@ export const SupervisorStartRequestSchema = z
   .object({
     supervisor_protocol_version: SupervisorProtocolVersionSchema,
     operation_id: OpaqueIdSchema,
+    runtime_role: z.enum(["active", "candidate"]).optional(),
     descriptor: RuntimeDescriptorSchema,
     policy: SupervisorPolicySchema,
     requested_at: TimestampSchema,
@@ -342,3 +343,25 @@ export const SupervisorReconcileResultSchema = z
       context.addIssue({ code: "custom", message: "active reconciliation requires exactly one runtime and registration" });
     }
   });
+
+export const INSTALLED_APP_SUPERVISOR_METHODS = [
+  "start",
+  "awaitReady",
+  "health",
+  "register",
+  "stop",
+  "revokeTokens",
+  "cleanup",
+  "reconcile",
+] as const;
+
+export interface InstalledAppSupervisor {
+  start(request: z.infer<typeof SupervisorStartRequestSchema>): Promise<z.infer<typeof SupervisorStartResultSchema>>;
+  awaitReady(request: z.infer<typeof SupervisorReadyRequestSchema>): Promise<z.infer<typeof SupervisorReadyResultSchema>>;
+  health(request: z.infer<typeof SupervisorHealthRequestSchema>): Promise<z.infer<typeof SupervisorHealthResultSchema>>;
+  register(request: z.infer<typeof SupervisorRegistrationRequestSchema>): Promise<z.infer<typeof SupervisorRegistrationResultSchema>>;
+  stop(request: z.infer<typeof SupervisorStopRequestSchema>): Promise<z.infer<typeof SupervisorStopResultSchema>>;
+  revokeTokens(request: z.infer<typeof SupervisorTokenRevocationRequestSchema>): Promise<z.infer<typeof SupervisorTokenRevocationResultSchema>>;
+  cleanup(request: z.infer<typeof SupervisorCleanupRequestSchema>): Promise<z.infer<typeof SupervisorCleanupResultSchema>>;
+  reconcile(request: z.infer<typeof SupervisorReconcileRequestSchema>): Promise<z.infer<typeof SupervisorReconcileResultSchema>>;
+}

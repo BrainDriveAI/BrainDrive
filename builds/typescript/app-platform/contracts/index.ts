@@ -6,6 +6,7 @@ export * from "./data-conformance.js";
 export * from "./errors.js";
 export * from "./inference.js";
 export * from "./lifecycle.js";
+export * from "./lifecycle-foundation.js";
 export * from "./mcp-app.js";
 export * from "./package.js";
 export * from "./supervisor.js";

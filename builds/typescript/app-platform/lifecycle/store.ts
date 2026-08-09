@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, open, readFile, readdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 
-import type { z } from "zod";
+import { z } from "zod";
 import { canonicalInputDigest, canonicalJson } from "../contracts/common.js";
 import { LifecycleOperationSchema, LifecycleRecordSchema } from "../contracts/lifecycle.js";
 import { CapabilityGrantSchema, PackageManifestSchema, PackageTrustSchema } from "../contracts/package.js";
@@ -19,10 +19,27 @@ export type StoredPackage = {
   package_digest: `sha256:${string}`;
   package_version: string;
   package_root: string;
+  package_reference_id?: string;
   entrypoint: string;
   manifest: z.infer<typeof PackageManifestSchema>;
   trust: z.infer<typeof PackageTrustSchema>;
 };
+
+const UninstallJournalSchema = z.object({
+  journal_version: z.literal(1),
+  operation_id: z.string().uuid(),
+  installation_id: z.string().uuid(),
+  grant_id: z.string().uuid().nullable(),
+  package_digests: z.array(z.string().regex(/^sha256:[a-f0-9]{64}$/)).max(2),
+  package_roots: z.array(z.string().min(1).nullable()).max(2),
+  stage: z.enum(["authority_removed", "references_cleared", "bytes_removed", "committed"]),
+  owner_data_preserved: z.literal(true),
+  removed_classes: z.array(z.enum(["runtime_registration", "capability_grant", "package_reference", "package_bytes", "disposable_cache"])),
+  retained_classes: z.array(z.enum(["career_data", "resume_history", "job_history", "artifact_metadata", "owner_exports", "lifecycle_tombstone"])),
+  updated_at: z.string().datetime(),
+}).strict();
+
+export type UninstallJournal = z.infer<typeof UninstallJournalSchema>;
 
 type StoreHooks = { beforeRename?: (targetPath: string) => Promise<void> };
 
@@ -63,6 +80,7 @@ export class AppLifecycleStore {
   private readonly grantsRoot: string;
   private readonly packagesRoot: string;
   private readonly idempotencyRoot: string;
+  private readonly tombstonesRoot: string;
 
   constructor(public readonly root: string, private readonly hooks: StoreHooks = {}) {
     this.lifecyclePath = path.join(root, "registry", "lifecycle.json");
@@ -70,10 +88,11 @@ export class AppLifecycleStore {
     this.grantsRoot = path.join(root, "registry", "grants");
     this.packagesRoot = path.join(root, "registry", "packages");
     this.idempotencyRoot = path.join(root, "registry", "idempotency");
+    this.tombstonesRoot = path.join(root, "registry", "tombstones");
   }
 
   async initialize(): Promise<void> {
-    await Promise.all([this.operationsRoot, this.grantsRoot, this.packagesRoot, this.idempotencyRoot].map((directory) => mkdir(directory, { recursive: true })));
+    await Promise.all([this.operationsRoot, this.grantsRoot, this.packagesRoot, this.idempotencyRoot, this.tombstonesRoot].map((directory) => mkdir(directory, { recursive: true })));
     try { LifecycleRecordSchema.parse(JSON.parse(await readFile(this.lifecyclePath, "utf8"))); }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -154,6 +173,28 @@ export class AppLifecycleStore {
   }
 
   async removePackage(packageDigest: string): Promise<void> { await rm(path.join(this.packagesRoot, `${packageDigest.slice(7)}.json`), { force: true }); }
+
+  async listPackages(): Promise<StoredPackage[]> {
+    const names = (await readdir(this.packagesRoot)).filter((name) => name.endsWith(".json")).sort();
+    return Promise.all(names.map(async (name) => {
+      const value = JSON.parse(await readFile(path.join(this.packagesRoot, name), "utf8")) as StoredPackage;
+      return (await this.readPackage(value.package_digest))!;
+    }));
+  }
+
+  async saveUninstallJournal(journal: UninstallJournal): Promise<void> {
+    const parsed = UninstallJournalSchema.parse(journal);
+    await this.writeAtomic(path.join(this.tombstonesRoot, `${parsed.operation_id}.json`), parsed);
+  }
+
+  async readUninstallJournal(operationId: string): Promise<UninstallJournal | null> {
+    try {
+      return UninstallJournalSchema.parse(JSON.parse(await readFile(path.join(this.tombstonesRoot, `${operationId}.json`), "utf8")));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+  }
 
   async runIdempotent<T>(idempotencyKey: string, input: unknown, action: () => Promise<T>): Promise<T> {
     if (idempotencyKey.length < 16 || idempotencyKey.length > 256) throw new AppPlatformError("idempotency_key_invalid", "Idempotency key length is invalid", 400);

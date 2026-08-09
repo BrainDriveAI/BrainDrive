@@ -30,6 +30,7 @@ export type VerifiedPackage = {
   entrypoint: string;
   target: PackageTarget;
   runtimeKind: "packaged_node";
+  packageReferenceId?: string;
 };
 
 function digest(bytes: Buffer | string): `sha256:${string}` {
@@ -115,6 +116,12 @@ export class PackageVerifier {
 
       await rm(destination, { recursive: true, force: true });
       await mkdir(destination, { recursive: true });
+      const storedManifestPath = path.join(destination, ...manifest.archive.manifest_path.split("/"));
+      if (!path.resolve(storedManifestPath).startsWith(`${path.resolve(destination)}${path.sep}`)) {
+        throw new AppPlatformError("package_path_invalid", "Package manifest path escaped the staging root");
+      }
+      await mkdir(path.dirname(storedManifestPath), { recursive: true });
+      await writeFile(storedManifestPath, manifestEntry.bytes, { mode: 0o400 });
       for (const entry of payloadEntries) {
         const file = declared.get(entry.name)!;
         const target = path.join(destination, ...entry.name.split("/"));

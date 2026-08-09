@@ -20,7 +20,7 @@ export type LifecycleState = z.infer<typeof LifecycleStateSchema>;
 export const ALLOWED_LIFECYCLE_TRANSITIONS: Readonly<Record<LifecycleState, readonly LifecycleState[]>> = {
   not_installed: ["staged"],
   staged: ["active", "not_installed", "quarantined", "failed_recoverable"],
-  active: ["disabled", "updating", "rollback_pending", "uninstalling", "quarantined", "failed_recoverable"],
+  active: ["active", "disabled", "updating", "rollback_pending", "uninstalling", "quarantined", "failed_recoverable"],
   disabled: ["active", "updating", "rollback_pending", "uninstalling", "quarantined", "failed_recoverable"],
   updating: ["active", "disabled", "rollback_pending", "quarantined", "failed_recoverable"],
   rollback_pending: ["active", "disabled", "quarantined", "failed_recoverable"],
@@ -174,11 +174,13 @@ export const OperationRecordSchema = z
 
 export const LifecycleOperationKindSchema = z.enum([
   "install",
+  "reinstall",
   "disable",
   "enable",
   "update",
   "rollback",
   "uninstall",
+  "recover",
   "quarantine",
   "reconcile",
 ]);
@@ -197,6 +199,10 @@ export const LifecycleOperationStageSchema = z.enum([
   "registering",
   "revoking_tokens",
   "stopping",
+  "clearing_references",
+  "removing_package_bytes",
+  "removing_disposable_cache",
+  "recording_tombstone",
   "rolling_back",
   "removing_runtime_authority",
   "reconciling",

@@ -96,6 +96,16 @@ The accepted physical namespace remains `apps/resume-builder` below the configur
 
 Spec 02 uses its own REQ-001–REQ-040 manifest because the accepted cross-spec test plan uses a different REQ-001–REQ-034 namespace. Both remain authoritative within their named scope. The data conformance suite freezes immutable successor transitions, CAS conflicts, actual cancellation outcomes, maximum-support sensitivity inheritance, non-enumerating owner denial, content-free events, deterministic no-AI migration provenance, read-current/write-current first-release compatibility, the future immediately-prior read obligation, and the accepted retention matrix. Native Windows remains the sole claimed packaged desktop target; macOS and Linux remain unclaimed.
 
+## ADR-RB-009 — Spec 04 M1 trust/lifecycle conformance closure
+
+DJJones accepted Spec 04, its verification plan, and OQ-4-1 through OQ-4-6 as the accountable project owner and initial security/release/desktop authority. ADR-RB-003 remains the byte-level decision authority: `.bdapp` stored ZIP, canonical JSON plus LF, SHA-256/Ed25519 with a pinned app root and bounded release-key rotation, signed Docker/release indexes, active plus one LKG and one snapshot through the authenticated successful-use checkpoint, monotonic cached revocations, no retained-data deletion operation, and native Windows as the sole first packaged target.
+
+The exact Spec 05 boundary is the version-1 `InstalledAppSupervisor` interface in `supervisor.ts`; it owns start, readiness, health, registration, stop, token revocation, orphan cleanup, and reconciliation without exposing a shell, raw path, credential, or public endpoint. The exact Spec 02 boundary is the version-1 `ResumeLifecycleDataAdapter` in `lifecycle-foundation.ts`; it owns schema inspection, retained-data discovery, snapshot, deterministic migration, and restore through opaque identities and contains no deletion method.
+
+Spec 04 retains its own REQ-001–REQ-040 namespace. `fixtures/spec-04/requirements.json` maps each requirement to an automated/live/human/release method, G0–G6, and an accountable role. `fixtures/spec-04/m1-evidence.json` freezes gate ownership plus transition/failure evidence. `fixtures/spec-04/package-corpus.json` supplies the public-key-only positive/adversarial corpus. `SPEC-04-M1-VERIFICATION.md` is the accepted source-adjacent verification authority.
+
+This closure changes contract and verification artifacts only. It adds no gateway import, route, fetch, package store, lifecycle persistence, process/container binding, API, UI, marketplace, or retained-data deletion. The current feature branch already contains later-milestone runtime code from prior commits; that baseline is not M1 work and means repository-wide execution is not disabled even though this diff enables no execution path.
+
 ## ADR-RB-018 — Corrective M1 data and Career contract addendum
 
 DJJones approved this addendum on 2026-08-07 after the M4 prerequisite audit found that the original version-1 data schemas did not fully encode accepted Spec 2 or the accepted Career return decision. Because no Resume Builder owner-data runtime had yet been enabled, version 1 is corrected in place before first data activation.

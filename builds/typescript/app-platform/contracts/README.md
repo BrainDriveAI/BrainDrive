@@ -6,9 +6,13 @@ Spec 2's data-specific REQ-001–REQ-040 traceability is recorded separately in 
 
 Contract authority is the project-owner-approved Resume Builder Specs 1–5 in `/home/hex/Reference/Designs/BrainDrive-Tools/Resume-Builder/MVP/`. The accepted verification plan is `/home/hex/Reference/Designs/BrainDrive-Tools/Resume-Builder/MVP/test-plan.md`.
 
+Spec 04's lifecycle-specific REQ-001–REQ-040, G0–G6, transition/failure matrices, and fixture corpus are recorded under `fixtures/spec-04/`. `SPEC-04-M1-VERIFICATION.md` is the accepted lifecycle verification plan and `app-lifecycle.m1.test.ts` is its focused executable audit. Run it with `npm run test -- app-lifecycle` from `builds/typescript`.
+
 All authority-bearing envelopes are strict: unknown fields fail. Durable owner-data records use an explicit `extensions` object so a compatible reader can preserve unknown extension fields without granting them authority. Schema version 1 cannot be silently downgraded.
 
 Package verification authority is split deliberately: `PackageManifestSchema` describes archive identity and contents, `PackageDescriptorSchema` binds canonical manifest and exact archive digests to an Ed25519 signature, `PackageSourceIndexSchema` resolves immutable descriptors, `TrustRootSchema` defines the pinned-root/release-key hierarchy, and `RevocationListSchema` supplies monotonic explicit denials. `supervisor.ts` freezes the runtime-neutral control protocol; it does not implement or start a supervisor.
+
+`lifecycle-foundation.ts` freezes seven separated storage classes, mixed-version fail-closed behavior, and the opaque Spec 02 lifecycle-data adapter. `audit.ts` defines the strict lifecycle diagnostic allowlist. These contract modules expose no downloader, store, process launch, registration, persistence, API, or UI entrypoint.
 
 The valid trust/source/revocation/package-signature fixtures contain mutually verified public keys and signatures. Their one-time private keys were discarded and are not present in the repository, so later runtime fixture generation must use an ephemeral test trust root or release-authority-provided signing material rather than treating conformance vectors as signing credentials.
 

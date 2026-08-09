@@ -8,10 +8,11 @@ import { PackageVerifier } from "./package-verifier.js";
 import { ProcessAppSupervisor } from "./process-supervisor.js";
 import { AppLifecycleService } from "./service.js";
 import { AppLifecycleStore } from "./store.js";
+import { ImmutablePackageStore } from "./verified-package-store.js";
 
 export type AppLifecycleRuntimeTarget = "docker_linux_x64" | "desktop_windows_x64";
 
-export async function createAppLifecycle(input: { memoryRoot: string; hostVersion: string; stateRoot?: string; target?: AppLifecycleRuntimeTarget; isMemoryMigrationInProgress?: () => boolean }): Promise<AppLifecycleService> {
+export async function createAppLifecycle(input: { memoryRoot: string; hostVersion: string; stateRoot?: string; target?: AppLifecycleRuntimeTarget; ownerActorId?: string; isMemoryMigrationInProgress?: () => boolean }): Promise<AppLifecycleService> {
   const stateRoot = path.resolve(input.stateRoot ?? path.join(path.dirname(input.memoryRoot), "app-platform-host"));
   const target = input.target ?? "docker_linux_x64";
   const repository = await createFixtureRepository(path.join(stateRoot, "fixture-source"));
@@ -23,10 +24,12 @@ export async function createAppLifecycle(input: { memoryRoot: string; hostVersio
     repository,
     supervisor,
     tokenBroker: new CapabilityTokenBroker(),
+    immutablePackages: new ImmutablePackageStore(stateRoot),
     runtimeRoot: path.join(stateRoot, "runtime"),
     ownerDataRoot,
     ownerDataLifecycle: new ResumeDataLifecycleAdapter(input.memoryRoot, ownerDataRoot, auditLog),
     isMemoryMigrationInProgress: input.isMemoryMigrationInProgress,
+    ownerActorId: input.ownerActorId,
     runtimeTarget: target === "desktop_windows_x64"
       ? { target, runtimeKind: "packaged_node", transport: "loopback" }
       : { target, runtimeKind: "container", transport: "container_internal" },

@@ -1,11 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { z } from "zod";
 
 import { assertContentFreeAudit, AuditEventSchema } from "../app-platform/contracts/audit.js";
 import { canonicalInputDigest, canonicalJson, OpaqueIdSchema } from "../app-platform/contracts/common.js";
+import {
+  ResumeLifecycleDataAdapterRequestSchema,
+  ResumeLifecycleDataAdapterResultSchema,
+  type ResumeLifecycleDataAdapter,
+} from "../app-platform/contracts/lifecycle-foundation.js";
 import {
   MIGRATION_COMPATIBILITY_POLICY,
   RESUME_DATA_RETENTION_MATRIX,
@@ -23,6 +28,11 @@ const RawCatalogIdentitySchema = z.object({
   owner_id: OpaqueIdSchema,
 }).passthrough();
 
+function opaqueIdFor(seed: string): string {
+  const hex = canonicalInputDigest(seed).slice(7);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
 export type ResumeDataTransferValidation =
   | { state: "missing"; schema_version: null; revision_count: 0 }
   | { state: "verified"; schema_version: 1; revision_count: number };
@@ -35,12 +45,106 @@ export type ResumeDataRepairState = {
   owner_export_available: boolean;
 };
 
-export class ResumeDataLifecycleAdapter implements OwnerDataLifecycle {
+export class ResumeDataLifecycleAdapter implements OwnerDataLifecycle, ResumeLifecycleDataAdapter {
   constructor(
     private readonly memoryRoot: string,
     private readonly namespaceRoot = path.join(memoryRoot, "apps", "resume-builder"),
     private readonly audit: (event: string, details: Record<string, unknown>) => void = () => undefined,
   ) {}
+
+  async inspectSchema(request: Parameters<ResumeLifecycleDataAdapter["inspectSchema"]>[0]): Promise<Awaited<ReturnType<ResumeLifecycleDataAdapter["inspectSchema"]>>> {
+    const parsed = ResumeLifecycleDataAdapterRequestSchema.parse(request);
+    if (parsed.action !== "inspect_schema") throw new ResumeDomainError("invalid_input", "Lifecycle data action is invalid", 400);
+    try {
+      const raw = await this.readIdentity();
+      if (!raw) return ResumeLifecycleDataAdapterResultSchema.parse({ action: "inspect_schema", outcome: "missing", observed_schema_version: null, readable: false, writable: false, content_digest: null }) as Awaited<ReturnType<ResumeLifecycleDataAdapter["inspectSchema"]>>;
+      if (raw.owner_id !== parsed.context.owner_id) throw new ResumeDomainError("denied", "Retained owner data belongs to a different owner", 403);
+      if (raw.data_schema_version !== 1) return ResumeLifecycleDataAdapterResultSchema.parse({ action: "inspect_schema", outcome: "incompatible", observed_schema_version: Math.max(1, raw.data_schema_version), readable: false, writable: false, content_digest: canonicalInputDigest(raw) }) as Awaited<ReturnType<ResumeLifecycleDataAdapter["inspectSchema"]>>;
+      const store = new ResumeDataStore(this.memoryRoot, this.namespaceRoot, {}, false);
+      await store.initialize(raw.owner_id);
+      const catalog = await store.catalog();
+      return ResumeLifecycleDataAdapterResultSchema.parse({ action: "inspect_schema", outcome: "compatible", observed_schema_version: 1, readable: true, writable: true, content_digest: canonicalInputDigest(catalog) }) as Awaited<ReturnType<ResumeLifecycleDataAdapter["inspectSchema"]>>;
+    } catch (error) {
+      if (error instanceof ResumeDomainError && error.code === "denied") throw error;
+      return ResumeLifecycleDataAdapterResultSchema.parse({ action: "inspect_schema", outcome: "repair_required", observed_schema_version: null, readable: false, writable: false, content_digest: null }) as Awaited<ReturnType<ResumeLifecycleDataAdapter["inspectSchema"]>>;
+    }
+  }
+
+  async discoverRetainedData(request: Parameters<ResumeLifecycleDataAdapter["discoverRetainedData"]>[0]): Promise<Awaited<ReturnType<ResumeLifecycleDataAdapter["discoverRetainedData"]>>> {
+    const parsed = ResumeLifecycleDataAdapterRequestSchema.parse(request);
+    if (parsed.action !== "discover_retained_data") throw new ResumeDomainError("invalid_input", "Lifecycle data action is invalid", 400);
+    const inspected = await this.inspectSchema({ action: "inspect_schema", context: parsed.context });
+    const present = inspected.outcome !== "missing";
+    return ResumeLifecycleDataAdapterResultSchema.parse({
+      action: "discover_retained_data",
+      present,
+      schema_version: inspected.observed_schema_version,
+      compatible: inspected.outcome === "compatible",
+      data_ref: present ? opaqueIdFor(`resume-data:${parsed.context.owner_id}`) : null,
+    }) as Awaited<ReturnType<ResumeLifecycleDataAdapter["discoverRetainedData"]>>;
+  }
+
+  async snapshot(request: Parameters<ResumeLifecycleDataAdapter["snapshot"]>[0]): Promise<Awaited<ReturnType<ResumeLifecycleDataAdapter["snapshot"]>>> {
+    const parsed = ResumeLifecycleDataAdapterRequestSchema.parse(request);
+    if (parsed.action !== "snapshot") throw new ResumeDomainError("invalid_input", "Lifecycle data action is invalid", 400);
+    const inspected = await this.inspectSchema({ action: "inspect_schema", context: parsed.context });
+    if (inspected.outcome !== "compatible" || inspected.observed_schema_version !== parsed.from_schema_version) {
+      throw new ResumeDomainError("incompatible_schema", "Retained Resume Builder data cannot be snapshotted for this migration", 409);
+    }
+    const snapshotId = randomUUID();
+    const recoveryRoot = path.join(this.namespaceRoot, "recovery", "lifecycle");
+    await mkdir(recoveryRoot, { recursive: true, mode: 0o700 });
+    const source = path.join(this.namespaceRoot, "catalog.json");
+    const target = path.join(recoveryRoot, `${snapshotId}.catalog.json`);
+    await copyFile(source, target);
+    const raw = JSON.parse(await readFile(target, "utf8")) as unknown;
+    const snapshotDigest = canonicalInputDigest(raw);
+    await writeFile(path.join(recoveryRoot, `${snapshotId}.meta.json`), `${canonicalJson({ snapshot_version: 1, snapshot_id: snapshotId, owner_id: parsed.context.owner_id, schema_version: parsed.from_schema_version, snapshot_digest: snapshotDigest })}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    return ResumeLifecycleDataAdapterResultSchema.parse({ action: "snapshot", snapshot_id: snapshotId, snapshot_digest: snapshotDigest, schema_version: parsed.from_schema_version }) as Awaited<ReturnType<ResumeLifecycleDataAdapter["snapshot"]>>;
+  }
+
+  async migrate(request: Parameters<ResumeLifecycleDataAdapter["migrate"]>[0]): Promise<Awaited<ReturnType<ResumeLifecycleDataAdapter["migrate"]>>> {
+    const parsed = ResumeLifecycleDataAdapterRequestSchema.parse(request);
+    if (parsed.action !== "migrate") throw new ResumeDomainError("invalid_input", "Lifecycle data action is invalid", 400);
+    await this.requireSnapshot(parsed.context.owner_id, parsed.snapshot_id, parsed.from_schema_version);
+    if (parsed.from_schema_version !== parsed.to_schema_version || parsed.to_schema_version !== 1) {
+      throw new ResumeDomainError("incompatible_schema", "No accepted deterministic Resume Builder migration exists for this schema pair", 409);
+    }
+    const inspected = await this.inspectSchema({ action: "inspect_schema", context: parsed.context });
+    if (inspected.outcome !== "compatible" || inspected.content_digest === null) throw new ResumeDomainError("validation_failed", "Migrated Resume Builder data did not validate", 409);
+    return ResumeLifecycleDataAdapterResultSchema.parse({ action: "migrate", migration_id: opaqueIdFor(`migration:${parsed.context.operation_id}:${parsed.snapshot_id}`), snapshot_id: parsed.snapshot_id, from_schema_version: 1, to_schema_version: 1, result_digest: inspected.content_digest }) as Awaited<ReturnType<ResumeLifecycleDataAdapter["migrate"]>>;
+  }
+
+  async restore(request: Parameters<ResumeLifecycleDataAdapter["restore"]>[0]): Promise<Awaited<ReturnType<ResumeLifecycleDataAdapter["restore"]>>> {
+    const parsed = ResumeLifecycleDataAdapterRequestSchema.parse(request);
+    if (parsed.action !== "restore") throw new ResumeDomainError("invalid_input", "Lifecycle data action is invalid", 400);
+    const metadata = await this.requireSnapshot(parsed.context.owner_id, parsed.snapshot_id);
+    const recoveryRoot = path.join(this.namespaceRoot, "recovery", "lifecycle");
+    const source = path.join(recoveryRoot, `${parsed.snapshot_id}.catalog.json`);
+    const temporary = path.join(this.namespaceRoot, `catalog.${parsed.context.operation_id}.restore.json`);
+    await copyFile(source, temporary);
+    const restoredRaw = JSON.parse(await readFile(temporary, "utf8")) as unknown;
+    if (canonicalInputDigest(restoredRaw) !== metadata.snapshot_digest) throw new ResumeDomainError("validation_failed", "Recovery snapshot integrity check failed", 409);
+    await rename(temporary, path.join(this.namespaceRoot, "catalog.json"));
+    const store = new ResumeDataStore(this.memoryRoot, this.namespaceRoot, {}, false);
+    await store.initialize(parsed.context.owner_id);
+    const catalog = await store.catalog();
+    const restoredDigest = canonicalInputDigest(catalog);
+    if (restoredDigest !== metadata.snapshot_digest) throw new ResumeDomainError("validation_failed", "Restored Resume Builder data differs from its recovery snapshot", 409);
+    return ResumeLifecycleDataAdapterResultSchema.parse({ action: "restore", snapshot_id: parsed.snapshot_id, restored_schema_version: metadata.schema_version, restored_digest: restoredDigest }) as Awaited<ReturnType<ResumeLifecycleDataAdapter["restore"]>>;
+  }
+
+  async releaseSnapshot(snapshotId: string): Promise<void> {
+    OpaqueIdSchema.parse(snapshotId);
+    const recoveryRoot = path.join(this.namespaceRoot, "recovery", "lifecycle");
+    await Promise.all(["catalog.json", "meta.json"].map((suffix) => rm(path.join(recoveryRoot, `${snapshotId}.${suffix}`), { force: true })));
+  }
+
+  async listSnapshotIds(): Promise<string[]> {
+    const recoveryRoot = path.join(this.namespaceRoot, "recovery", "lifecycle");
+    return (await readdir(recoveryRoot).catch((error: NodeJS.ErrnoException) => error.code === "ENOENT" ? [] : Promise.reject(error)))
+      .filter((name) => /^[0-9a-f-]{36}\.meta\.json$/i.test(name)).map((name) => name.slice(0, -10)).sort();
+  }
 
   async prepareActivation(request: OwnerDataActivationRequest): Promise<{ state: "ready"; schema_version: 1; migrated: boolean; revision_count: number }> {
     const startedAt = Date.now();
@@ -193,6 +297,19 @@ export class ResumeDataLifecycleAdapter implements OwnerDataLifecycle {
 
   private supportsTarget(compatibility: OwnerDataSchemaCompatibility): boolean {
     return compatibility.read_min <= 1 && compatibility.read_max >= 1 && compatibility.write_version === 1;
+  }
+
+  private async requireSnapshot(ownerId: string, snapshotId: string, schemaVersion?: number): Promise<{ snapshot_version: 1; snapshot_id: string; owner_id: string; schema_version: number; snapshot_digest: string }> {
+    OpaqueIdSchema.parse(snapshotId);
+    const target = path.join(this.namespaceRoot, "recovery", "lifecycle", `${snapshotId}.meta.json`);
+    let candidate: { snapshot_version: 1; snapshot_id: string; owner_id: string; schema_version: number; snapshot_digest: string };
+    try { candidate = JSON.parse(await readFile(target, "utf8")) as typeof candidate; }
+    catch { throw new ResumeDomainError("not_found_within_scope", "Recovery snapshot was not found", 404); }
+    if (candidate.snapshot_version !== 1 || candidate.snapshot_id !== snapshotId || candidate.owner_id !== ownerId || !Number.isInteger(candidate.schema_version) || candidate.schema_version < 1 || !/^sha256:[a-f0-9]{64}$/.test(candidate.snapshot_digest)) {
+      throw new ResumeDomainError("validation_failed", "Recovery snapshot metadata is invalid", 409);
+    }
+    if (schemaVersion !== undefined && candidate.schema_version !== schemaVersion) throw new ResumeDomainError("incompatible_schema", "Recovery snapshot schema does not match the migration request", 409);
+    return candidate;
   }
 
   private async readIdentity(): Promise<z.infer<typeof RawCatalogIdentitySchema> | null> {

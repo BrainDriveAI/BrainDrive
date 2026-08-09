@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdtemp, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -9,7 +9,23 @@ import { MODERN_FIXTURE_VERSION } from "../lifecycle/fixture-repository.js";
 import { AppMcpHost } from "./app-host.js";
 
 const roots: string[] = [];
-afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
+
+async function makeWritable(root: string): Promise<void> {
+  await chmod(root, 0o700).catch(() => undefined);
+  const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+  await Promise.all(entries.map(async (entry) => {
+    const child = path.join(root, entry.name);
+    if (entry.isDirectory()) await makeWritable(child);
+    else await chmod(child, 0o600).catch(() => undefined);
+  }));
+}
+
+afterEach(async () => {
+  for (const root of roots.splice(0)) {
+    await makeWritable(root);
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 describe("live signed modern MCP Apps fixture", () => {
   it("installs, negotiates, reads ui:// HTML, and preserves a complete tool result over the authenticated runtime", async () => {
@@ -39,6 +55,7 @@ describe("live signed modern MCP Apps fixture", () => {
       }
       await lifecycle.disable({ idempotencyKey: "modern-fixture-disable" });
       await expect(host.handleBridge(launch.session_id, {}, { origin: "null", sourceMatches: true })).rejects.toMatchObject({ code: "session_closed" });
+      await lifecycle.uninstall({ idempotencyKey: "modern-fixture-final-uninstall" });
     } finally {
       await lifecycle.dependencies.supervisor.close();
     }

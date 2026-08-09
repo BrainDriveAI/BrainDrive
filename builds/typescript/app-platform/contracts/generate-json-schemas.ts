@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { z, type ZodType } from "zod";
 
-import { AuditEventSchema } from "./audit.js";
+import { AuditEventSchema, LifecycleDiagnosticEventSchema } from "./audit.js";
 import { CompatibilityMatrixSchema } from "./common.js";
 import {
   ArtifactRecordSchema,
@@ -39,12 +39,19 @@ import {
   LifecycleTransitionSchema,
   OperationRecordSchema,
 } from "./lifecycle.js";
+import {
+  AppLifecycleStoragePolicySchema,
+  MixedVersionPolicySchema,
+  ResumeLifecycleDataAdapterRequestSchema,
+  ResumeLifecycleDataAdapterResultSchema,
+} from "./lifecycle-foundation.js";
 import { BridgeMessageSchema, BridgePolicySchema, CompleteMcpResultSchema, McpAppResourceSchema } from "./mcp-app.js";
 import {
   CapabilityGrantSchema,
   CapabilityDiffSchema,
   CapabilityTokenSchema,
   PackageDescriptorSchema,
+  ArchiveEntryContractSchema,
   PackageManifestSchema,
   PackageSourceIndexSchema,
   PackageTrustSchema,
@@ -76,6 +83,8 @@ import {
 } from "./supervisor.js";
 
 export const JSON_SCHEMA_AUTHORITIES = {
+  "app-lifecycle-storage-policy": AppLifecycleStoragePolicySchema,
+  "archive-entry-contract": ArchiveEntryContractSchema,
   "artifact-record": ArtifactRecordSchema,
   "audit-event": AuditEventSchema,
   "bridge-message": BridgeMessageSchema,
@@ -108,6 +117,8 @@ export const JSON_SCHEMA_AUTHORITIES = {
   "lifecycle-record": LifecycleRecordSchema,
   "lifecycle-operation": LifecycleOperationSchema,
   "lifecycle-result": LifecycleResultSchema,
+  "lifecycle-diagnostic-event": LifecycleDiagnosticEventSchema,
+  "mixed-version-policy": MixedVersionPolicySchema,
   "mcp-app-resource": McpAppResourceSchema,
   "migration-record": MigrationRecordSchema,
   "migration-compatibility-policy": MigrationCompatibilityPolicySchema,
@@ -122,6 +133,8 @@ export const JSON_SCHEMA_AUTHORITIES = {
   "revocation-list": RevocationListSchema,
   "revocation-freshness-policy": RevocationFreshnessPolicySchema,
   "resume-definition-record": ResumeDefinitionRecordSchema,
+  "resume-lifecycle-data-adapter-request": ResumeLifecycleDataAdapterRequestSchema,
+  "resume-lifecycle-data-adapter-result": ResumeLifecycleDataAdapterResultSchema,
   "retention-matrix": RetentionMatrixSchema,
   "source-record": SourceRecordSchema,
   "supervisor-policy": SupervisorPolicySchema,

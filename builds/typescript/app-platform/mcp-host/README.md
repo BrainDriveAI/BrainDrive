@@ -28,7 +28,7 @@ When `BRAINDRIVE_APP_PLATFORM_ENABLED=true`, the existing owner-administration l
 - `DELETE /apps/resume-builder/sessions/:sessionId`
 - `POST /apps/resume-builder/data/call` for host-owned owner actions; failures use the M1 content-free `{ error, owner_state }` contract
 
-The web client exposes one top-level `Apps` sidebar entry. Its single Resume Builder card shows publisher, lifecycle state, installed/available version, declared capabilities, AI/storage disclosures, and install/launch/disable/enable/update/uninstall controls. States use readable text in addition to color, controls wrap at narrow widths, and closing the iframe returns focus to Launch.
+The web client exposes one top-level `Apps` sidebar entry. Its single Resume Builder card shows exact app/publisher identity, lifecycle and operation state, installed/available version, signed trust and revocation status, source, host/protocol/data compatibility, requested/granted capabilities, and selective-retention disclosures. It exposes install/reinstall, launch, disable/enable, update, rollback, recovery, and uninstall. Uninstall uses a focus-managed confirmation that names removed authority/code/cache and retained career data/history/exports. Ambiguous transport completion triggers a status refresh before the UI claims an outcome. States use readable text in addition to color, controls wrap at narrow widths, and closing the iframe returns focus to Launch.
 
 ## Verification
 

@@ -58,6 +58,68 @@ export const PackageFileSchema = z
   })
   .strict();
 
+export const ArchiveEntryContractSchema = z
+  .object({
+    archive_entry_version: z.literal(1),
+    path: PackagePathSchema,
+    entry_type: z.literal("file"),
+    mode: z.enum(["read_only", "executable"]),
+    compressed_size_bytes: z.number().int().nonnegative().max(67_108_864),
+    uncompressed_size_bytes: z.number().int().nonnegative().max(67_108_864),
+    crc32: z.string().regex(/^[a-f0-9]{8}$/),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.compressed_size_bytes !== value.uncompressed_size_bytes) {
+      context.addIssue({ code: "custom", message: "braindrive-zip-v1 permits stored entries only" });
+    }
+  });
+
+export function assertArchiveEntrySet(entries: readonly unknown[]): z.infer<typeof ArchiveEntryContractSchema>[] {
+  if (entries.length > 256) {
+    throw new ContractViolation("package_oversize", "Package archive exceeds the file-count ceiling");
+  }
+  const parsed = entries.map((candidate) => {
+    const record = candidate && typeof candidate === "object" ? candidate as Record<string, unknown> : {};
+    if (record.entry_type !== "file") {
+      throw new ContractViolation("package_unsafe_link", "Package archive links and special entries are prohibited");
+    }
+    if (
+      (typeof record.compressed_size_bytes === "number" && record.compressed_size_bytes > 67_108_864) ||
+      (typeof record.uncompressed_size_bytes === "number" && record.uncompressed_size_bytes > 67_108_864)
+    ) {
+      throw new ContractViolation("package_oversize", "Package archive exceeds the byte ceiling");
+    }
+    if (!PackagePathSchema.safeParse(record.path).success) {
+      throw new ContractViolation("package_path_invalid", "Package archive path is unsafe");
+    }
+    const result = ArchiveEntryContractSchema.safeParse(candidate);
+    if (!result.success) {
+      throw new ContractViolation("package_archive_invalid", "Package archive entry violates braindrive-zip-v1");
+    }
+    return result.data;
+  });
+  const exact = new Set<string>();
+  const folded = new Set<string>();
+  let totalBytes = 0;
+  for (const entry of parsed) {
+    if (exact.has(entry.path)) {
+      throw new ContractViolation("package_duplicate_path", "Package archive contains a duplicate path");
+    }
+    const foldedPath = entry.path.toLowerCase();
+    if (folded.has(foldedPath)) {
+      throw new ContractViolation("package_case_collision", "Package archive contains a case-folded path collision");
+    }
+    exact.add(entry.path);
+    folded.add(foldedPath);
+    totalBytes += entry.uncompressed_size_bytes;
+  }
+  if (totalBytes > 67_108_864) {
+    throw new ContractViolation("package_oversize", "Package archive exceeds the aggregate byte ceiling");
+  }
+  return parsed;
+}
+
 export const PlatformArtifactSchema = z
   .object({
     target: z.enum(["docker_linux_x64", "desktop_windows_x64"]),
@@ -113,11 +175,16 @@ export const PackageManifestSchema = z
           .strict(),
         data_schema: z
           .object({
-            read_min: z.literal(1),
-            read_max: z.literal(1),
-            write_version: z.literal(1),
+            read_min: z.number().int().positive(),
+            read_max: z.number().int().positive(),
+            write_version: z.number().int().positive(),
           })
-          .strict(),
+          .strict()
+          .superRefine((value, context) => {
+            if (value.read_min > value.read_max || value.write_version < value.read_min || value.write_version > value.read_max) {
+              context.addIssue({ code: "custom", message: "data schema read/write range is inconsistent" });
+            }
+          }),
       })
       .strict(),
     requested_capabilities: z.array(CapabilityNameSchema).min(1),
@@ -170,6 +237,14 @@ export const PackageManifestSchema = z
       context.addIssue({ code: "custom", message: "package must declare the accepted Docker and Windows targets exactly once" });
     }
   });
+
+export function parsePackageManifest(candidate: unknown): z.infer<typeof PackageManifestSchema> {
+  const result = PackageManifestSchema.safeParse(candidate);
+  if (!result.success) {
+    throw new ContractViolation("package_descriptor_invalid", "Package manifest violates the strict descriptor contract");
+  }
+  return result.data;
+}
 
 function canonicalBase64Schema(pattern: RegExp, byteLength: number) {
   return z.string().regex(pattern).refine((value) => {
@@ -597,6 +672,44 @@ export const PackageTrustSchema = z
       context.addIssue({ code: "custom", message: "executable_allowed must derive from all trust checks" });
     }
   });
+
+export function assertPackageTrustAllowsExecution(trust: z.infer<typeof PackageTrustSchema>): void {
+  if (trust.revocation_status === "revoked") {
+    throw new ContractViolation("package_revoked", "Package is explicitly revoked");
+  }
+  if (!trust.compatibility_valid) {
+    throw new ContractViolation("incompatible_version", "Package is incompatible with this host");
+  }
+  if (!trust.source_index_signature_valid || !trust.source_trusted) {
+    throw new ContractViolation("package_source_untrusted", "Package source is not trusted");
+  }
+  if (!trust.package_signature_valid) {
+    throw new ContractViolation("package_signature_invalid", "Package signature is invalid");
+  }
+  if (!trust.archive_digest_valid) {
+    throw new ContractViolation("package_digest_mismatch", "Package archive digest does not match authority");
+  }
+  if (!trust.file_inventory_valid) {
+    throw new ContractViolation("package_file_mismatch", "Package inventory does not match authority");
+  }
+  if (!trust.executable_allowed) {
+    throw new ContractViolation("revocation_metadata_invalid", "Package execution is not authorized by the current trust state");
+  }
+}
+
+export function assertPackageCompatibility(
+  manifest: z.infer<typeof PackageManifestSchema>,
+  hostVersion: string,
+  target: z.infer<typeof PlatformArtifactSchema>["target"],
+): void {
+  if (
+    !SemverSchema.safeParse(hostVersion).success ||
+    compareSemver(hostVersion, manifest.compatibility.host_min_version) < 0 ||
+    !manifest.platform_artifacts.some((artifact) => artifact.target === target)
+  ) {
+    throw new ContractViolation("incompatible_version", "Package is incompatible with this host version or platform");
+  }
+}
 
 export const CapabilityGrantSchema = z
   .object({
