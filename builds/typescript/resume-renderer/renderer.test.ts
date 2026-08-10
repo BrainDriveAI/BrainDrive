@@ -8,7 +8,7 @@ import { ResumeDomainService } from "../resume-domain/service.js";
 import { ResumeDataStore } from "../resume-domain/store.js";
 import { authority, definitionInput, ownerDecision, proposalInput, testGrant } from "../resume-domain/test-helpers.js";
 import { ResumeExportBroker } from "./export-broker.js";
-import { parseBackPdf, renderApprovedResume, RESUME_TEMPLATE_ID, RESUME_TEMPLATE_VERSION, sanitizeResumeText } from "./renderer.js";
+import { parseBackPdf, renderApprovedResume, renderApprovedResumeMarkdown, RESUME_TEMPLATE_ID, RESUME_TEMPLATE_VERSION, sanitizeResumeText } from "./renderer.js";
 
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
@@ -41,6 +41,24 @@ async function approvedDefinition() {
 }
 
 describe("conservative ATS PDF renderer", () => {
+  it("projects an approved definition into safe readable Markdown", async () => {
+    const { definition } = await approvedDefinition();
+    expect(renderApprovedResumeMarkdown(definition)).toBe([
+      "# Owner Name",
+      "",
+      "owner@example.test",
+      "",
+      "## Summary",
+      "",
+      "Professional & collaborator",
+      "",
+      "## Experience",
+      "",
+      "- Built synthetic scheduling application in 2025",
+      "",
+    ].join("\n"));
+  });
+
   it("sanitizes hostile markup, renders deterministic single-column order, and parses back exactly", async () => {
     const { definition } = await approvedDefinition();
     const rendered = renderApprovedResume(definition);

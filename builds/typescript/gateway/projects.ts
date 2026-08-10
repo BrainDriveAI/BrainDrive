@@ -1,5 +1,6 @@
+import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { cp, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 
 import { commitMemoryChange } from "../git.js";
@@ -26,6 +27,23 @@ export type GatewayProject = {
 export type GatewayProjectFile = {
   name: string;
   path: string;
+  displayName?: string;
+  readOnly?: boolean;
+  sourceLabel?: string;
+  sourceType?: "app_published";
+};
+
+export type PublishedProjectDocument = {
+  publisherId: string;
+  sourceLabel: string;
+  logicalId: string;
+  title: string;
+  markdown: string;
+};
+
+export type PublishedProjectDocumentProvider = {
+  publisherId: string;
+  list(projectId: string): Promise<PublishedProjectDocument[]>;
 };
 
 type ProjectListEnvelope = {
@@ -55,17 +73,28 @@ export class ProtectedProjectError extends Error {
   }
 }
 
+export class PublishedProjectDocumentReadOnlyError extends Error {
+  readonly code = "published_document_read_only";
+
+  constructor() {
+    super("Published app documents are read-only");
+    this.name = "PublishedProjectDocumentReadOnlyError";
+  }
+}
+
 export class GatewayProjectService {
   private readonly rootDir: string;
   private readonly memoryRoot: string;
   private readonly documentsRoot: string;
   private readonly manifestPath: string;
+  private readonly publishedDocumentProviders: PublishedProjectDocumentProvider[];
 
-  constructor(memoryRoot: string, options: { rootDir?: string } = {}) {
+  constructor(memoryRoot: string, options: { rootDir?: string; publishedDocumentProviders?: PublishedProjectDocumentProvider[] } = {}) {
     this.rootDir = path.resolve(options.rootDir ?? process.cwd());
     this.memoryRoot = path.resolve(memoryRoot);
     this.documentsRoot = resolveMemoryPath(this.memoryRoot, "documents");
     this.manifestPath = resolveMemoryPath(this.memoryRoot, PROJECTS_MANIFEST_RELATIVE_PATH);
+    this.publishedDocumentProviders = [...(options.publishedDocumentProviders ?? [])];
   }
 
   async listProjects(): Promise<ProjectListEnvelope> {
@@ -155,9 +184,12 @@ export class GatewayProjectService {
       return { files: [] };
     }
 
+    const published = await this.syncPublishedDocuments(effectiveProjectId);
     const files = await this.listProjectFilesRecursive(effectiveProjectId, root);
 
-    return { files };
+    return {
+      files: files.map((file) => ({ ...file, ...published.get(file.path) })),
+    };
   }
 
   async readProjectFile(projectId: string, requestedPath: string): Promise<string | null> {
@@ -167,6 +199,7 @@ export class GatewayProjectService {
       return null;
     }
 
+    await this.syncPublishedDocuments(effectiveProjectId);
     const resolvedPath = this.resolveProjectScopedPath(projectId, requestedPath);
     if (!resolvedPath) {
       throw new Error("Invalid path");
@@ -182,9 +215,13 @@ export class GatewayProjectService {
       return false;
     }
 
+    await this.syncPublishedDocuments(effectiveProjectId);
     const resolvedPath = this.resolveProjectScopedPath(projectId, requestedPath);
     if (!resolvedPath) {
       throw new Error("Invalid path");
+    }
+    if (this.isPublishedDocumentPath(effectiveProjectId, resolvedPath)) {
+      throw new PublishedProjectDocumentReadOnlyError();
     }
 
     await mkdir(path.dirname(resolvedPath), { recursive: true });
@@ -395,6 +432,81 @@ export class GatewayProjectService {
     };
     await visit(root);
     return files.sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  private async syncPublishedDocuments(projectId: string): Promise<Map<string, Omit<GatewayProjectFile, "name" | "path">>> {
+    const metadata = new Map<string, Omit<GatewayProjectFile, "name" | "path">>();
+    if (this.publishedDocumentProviders.length === 0) return metadata;
+    let changed = false;
+    for (const provider of this.publishedDocumentProviders) {
+      this.validatePublisherId(provider.publisherId);
+      const documents = await provider.list(projectId);
+      const activePaths = new Set<string>();
+      for (const document of documents) {
+        this.validatePublishedDocument(document);
+        if (document.publisherId !== provider.publisherId) throw new Error("Published document provider identity mismatch");
+        const relativePath = `published/${document.publisherId}/${document.logicalId}.md`;
+        const filePath = `documents/${projectId}/${relativePath}`;
+        if (metadata.has(filePath)) throw new Error("Duplicate published document identity");
+        activePaths.add(filePath);
+        const absolutePath = resolveMemoryPath(this.memoryRoot, filePath);
+        const current = await readFile(absolutePath, "utf8").catch((error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT") return null;
+          throw error;
+        });
+        if (current !== document.markdown) {
+          await mkdir(path.dirname(absolutePath), { recursive: true });
+          const stagedPath = path.join(path.dirname(absolutePath), `.${path.basename(absolutePath)}.${randomUUID()}.tmp`);
+          try {
+            await writeFile(stagedPath, document.markdown, "utf8");
+            await rename(stagedPath, absolutePath);
+          } finally {
+            await rm(stagedPath, { force: true }).catch(() => undefined);
+          }
+          changed = true;
+        }
+        metadata.set(filePath, {
+          displayName: document.title,
+          readOnly: true,
+          sourceLabel: document.sourceLabel,
+          sourceType: "app_published",
+        });
+      }
+      const publisherRoot = resolveMemoryPath(this.memoryRoot, `documents/${projectId}/published/${provider.publisherId}`);
+      const existing = await readdir(publisherRoot, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return [];
+        throw error;
+      });
+      for (const entry of existing) {
+        if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+        const filePath = `documents/${projectId}/published/${provider.publisherId}/${entry.name}`;
+        if (!activePaths.has(filePath)) {
+          await rm(resolveMemoryPath(this.memoryRoot, filePath));
+          changed = true;
+        }
+      }
+    }
+    if (changed) {
+      await commitMemoryChange(this.memoryRoot, `Refresh ${projectId} published app documents`).catch(() => {});
+    }
+    return metadata;
+  }
+
+  private validatePublishedDocument(document: PublishedProjectDocument): void {
+    this.validatePublisherId(document.publisherId);
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(document.logicalId)) throw new Error("Invalid published document identity");
+    if (document.sourceLabel.trim().length === 0 || document.sourceLabel.length > 128) throw new Error("Invalid published document source label");
+    if (document.title.trim().length === 0 || document.title.length > 256) throw new Error("Invalid published document title");
+    if (Buffer.byteLength(document.markdown, "utf8") > 512 * 1024) throw new Error("Published document exceeds the accepted byte limit");
+  }
+
+  private validatePublisherId(publisherId: string): void {
+    if (!/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/.test(publisherId)) throw new Error("Invalid published document publisher");
+  }
+
+  private isPublishedDocumentPath(projectId: string, absolutePath: string): boolean {
+    const publishedRoot = resolveMemoryPath(this.memoryRoot, `documents/${projectId}/published`);
+    return absolutePath.startsWith(`${publishedRoot}${path.sep}`);
   }
 }
 

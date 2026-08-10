@@ -4,11 +4,12 @@ import { AlertCircle, ArrowLeft, LoaderCircle, PencilLine, Save, X } from "lucid
 import { readFileContent, writeFileContent } from "@/api/gateway-adapter";
 import { Button } from "@/components/ui/button";
 import MarkdownContent from "@/components/markdown/MarkdownContent";
+import type { ProjectFile } from "@/types/ui";
 
 type DocumentViewProps = {
   projectId: string;
   projectName: string;
-  file: { name: string; path: string };
+  file: ProjectFile;
   onBack: () => void;
 };
 
@@ -85,7 +86,10 @@ export default function DocumentView({
             <div className="text-[11px] uppercase tracking-[0.24em] text-bd-text-muted">
               {projectName}
             </div>
-            <h1 className="truncate font-heading text-lg text-bd-text-heading">{file.name}</h1>
+            <h1 className="truncate font-heading text-lg text-bd-text-heading">{file.displayName ?? file.name}</h1>
+            {file.sourceType === "app_published" && file.sourceLabel ? (
+              <p className="text-xs text-bd-text-secondary">Published by {file.sourceLabel}</p>
+            ) : null}
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
@@ -125,7 +129,7 @@ export default function DocumentView({
                   {isSaving ? "Saving..." : "Save"}
                 </Button>
               </>
-            ) : (
+            ) : file.readOnly ? null : (
               <Button
                 type="button"
                 variant="ghost"

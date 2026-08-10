@@ -39,7 +39,7 @@ const stageCopy: Record<string, string> = {
   completed: "Completed",
 };
 
-export default function AppsPage({ entryPoint = "direct", onOpenSettings }: { entryPoint?: "direct" | "career"; onOpenSettings?: () => void }) {
+export default function AppsPage({ entryPoint = "direct", onOpenSettings, onSessionClosed }: { entryPoint?: "direct" | "career"; onOpenSettings?: () => void; onSessionClosed?: () => void }) {
   const [app, setApp] = useState<ResumeBuilderAppStatus | null>(null);
   const [launch, setLaunch] = useState<AppLaunch | null>(null);
   const [busy, setBusy] = useState<AppLifecycleAction | "launch" | null>(null);
@@ -79,8 +79,9 @@ export default function AppsPage({ entryPoint = "direct", onOpenSettings }: { en
   };
   const closeSession = useCallback(() => {
     setLaunch(null);
+    onSessionClosed?.();
     queueMicrotask(() => launchButtonRef.current?.focus());
-  }, []);
+  }, [onSessionClosed]);
   const reloadSession = useCallback(async () => {
     if (!launch) return;
     const next = await launchResumeBuilderApp(entryPoint, launch);

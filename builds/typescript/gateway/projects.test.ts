@@ -4,9 +4,71 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { GatewayProjectService } from "./projects.js";
+import {
+  GatewayProjectService,
+  PublishedProjectDocumentReadOnlyError,
+  type PublishedProjectDocumentProvider,
+} from "./projects.js";
 
 describe("GatewayProjectService projects", () => {
+  it("materializes app-published Markdown as a current read-only project document", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "gateway-project-published-document-"));
+    const memoryRoot = path.join(tempRoot, "memory");
+    let markdown = "# Synthetic Resume\n\nFirst approved version.\n";
+    let isPublished = true;
+    const provider: PublishedProjectDocumentProvider = {
+      publisherId: "ai.braindrive.resume-builder",
+      async list(projectId) {
+        return projectId === "career" && isPublished
+          ? [{
+              publisherId: "ai.braindrive.resume-builder",
+              sourceLabel: "Resume Builder",
+              logicalId: "general-resume",
+              title: "General Resume",
+              markdown,
+            }]
+          : [];
+      },
+    };
+
+    try {
+      await mkdir(path.join(memoryRoot, "documents", "career"), { recursive: true });
+      await writeFile(
+        path.join(memoryRoot, "documents", "projects.json"),
+        JSON.stringify([{ id: "career", name: "Career", icon: "briefcase" }]),
+        "utf8"
+      );
+      const projects = new GatewayProjectService(memoryRoot, {
+        rootDir: path.resolve("."),
+        publishedDocumentProviders: [provider],
+      });
+
+      const first = await projects.listProjectFiles("career");
+      const publishedFile = first?.files.find((file) => file.path.endsWith("/general-resume.md"));
+      expect(publishedFile).toMatchObject({
+        name: "published/ai.braindrive.resume-builder/general-resume.md",
+        path: "documents/career/published/ai.braindrive.resume-builder/general-resume.md",
+        readOnly: true,
+        sourceLabel: "Resume Builder",
+        sourceType: "app_published",
+      });
+      await expect(projects.readProjectFile("career", publishedFile!.path)).resolves.toBe(markdown);
+
+      markdown = "# Synthetic Resume\n\nSecond approved version.\n";
+      await expect(projects.readProjectFile("career", publishedFile!.path)).resolves.toBe(markdown);
+      await expect(readFile(path.join(memoryRoot, publishedFile!.path), "utf8")).resolves.toBe(markdown);
+      await expect(projects.writeProjectFile("career", publishedFile!.path, "owner edit"))
+        .rejects.toBeInstanceOf(PublishedProjectDocumentReadOnlyError);
+
+      isPublished = false;
+      await expect(projects.listProjectFiles("career")).resolves.toMatchObject({ files: expect.not.arrayContaining([
+        expect.objectContaining({ path: publishedFile!.path }),
+      ]) });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("detaches a project from its stored conversation", async () => {
     const tempRoot = await mkdtemp(path.join(os.tmpdir(), "gateway-project-detach-conversation-"));
     const memoryRoot = path.join(tempRoot, "memory");

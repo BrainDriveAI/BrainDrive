@@ -103,7 +103,8 @@ import {
   decideExplicitProviderActivation,
   normalizeProviderActivationRevision,
 } from "./provider-activation.js";
-import { GatewayProjectService, isProjectMetadata, ProtectedProjectError, type GatewayProjectFile } from "./projects.js";
+import { GatewayProjectService, isProjectMetadata, ProtectedProjectError, PublishedProjectDocumentReadOnlyError, type GatewayProjectFile, type PublishedProjectDocumentProvider } from "./projects.js";
+import { ResumePublishedDocumentProvider } from "./resume-published-document.js";
 import { GatewaySkillService } from "./skills.js";
 import { prepareContextWindow, type PreparedContextWindow } from "./context-window.js";
 
@@ -458,11 +459,13 @@ export async function buildServer(rootDir = process.cwd()) {
       })
     : null;
   let appMcpHost: AppMcpHost | null = null;
+  const publishedDocumentProviders: PublishedProjectDocumentProvider[] = [];
   if (appLifecycleService) {
     const resumeDataStore = new ResumeDataStore(runtimeConfig.memory_root, appLifecycleService.dependencies.ownerDataRoot);
     const descriptor = await appLifecycleService.ownerDescriptor();
     await resumeDataStore.initialize(descriptor.grant?.owner_id ?? "00000000-0000-4000-8000-000000000001");
     const resumeDomain = new ResumeDomainService(resumeDataStore);
+    publishedDocumentProviders.push(new ResumePublishedDocumentProvider(resumeDomain));
     const exportBroker = new ResumeExportBroker(resumeDomain, auditLog);
     const capabilityPolicy = new ResumeCapabilityPolicy(async () => {
       const current = await appLifecycleService.ownerDescriptor();
@@ -540,7 +543,7 @@ export async function buildServer(rootDir = process.cwd()) {
   const approvalStore = new ApprovalStore();
   const toolExecutor = new ToolExecutor(tools);
   const conversations = new GatewayConversationService(createConversationRepository(runtimeConfig));
-  const projects = new GatewayProjectService(runtimeConfig.memory_root, { rootDir });
+  const projects = new GatewayProjectService(runtimeConfig.memory_root, { rootDir, publishedDocumentProviders });
   const skills = new GatewaySkillService(runtimeConfig.memory_root);
   const signupRateLimiter = new FixedWindowRateLimiter(5, 5 * 60 * 1000);
   const loginRateLimiter = new FixedWindowRateLimiter(10, 5 * 60 * 1000);
@@ -3278,6 +3281,10 @@ export async function buildServer(rootDir = process.cwd()) {
     } catch (error) {
       if (error instanceof Error && error.message === "Invalid path") {
         reply.code(400).send({ error: "Invalid path" });
+        return;
+      }
+      if (error instanceof PublishedProjectDocumentReadOnlyError) {
+        reply.code(409).send({ error: "Published app documents are read-only" });
         return;
       }
 

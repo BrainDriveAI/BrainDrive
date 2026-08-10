@@ -8,6 +8,8 @@ Provider inference and wording generation remain in the separate host broker; th
 
 Career return placement requires an operation UUID. Its private operation record captures canonical input plus before/after digests so a retry can distinguish not-written from committed state without putting operation IDs or paths into the owner-facing Career journal.
 
+Career's readable `General Resume` document is separate from that narrow journal return. The gateway's generic published-document provider reads the latest approved general definition, renders a bounded Markdown projection, and refreshes it through the normal Career document tree before listing or reading. The immutable approved definition remains authoritative; this domain does not write the project file or grant the installed app filesystem access.
+
 ## Scoped capability service
 
 The installed Resume Builder reaches this domain through exactly eleven data operations: `career.context.read`, `career.facts.read`, `career.facts.propose`, `career.facts.confirm`, `resume.definitions.read`, `resume.definitions.write`, `resume.jobs.read`, `resume.jobs.write`, `resume.artifacts.register`, `resume.export.request`, and `resume.operations.read`. `app.inference.request` remains a separate no-tools host broker and is rejected by the data router.
@@ -31,6 +33,8 @@ Every catalog read and commit derives and validates a graph across all immutable
 Definition comparison returns opaque statement/fact changes and record digests without changing either input. Selection returns an exact immutable revision. Rollback creates a new coherent child under CAS; a targeted rollback or approval creates its matching variant in the same M2 catalog transaction. Retirement is an immutable lifecycle successor and is allowed only without inbound references. Destructive deletion of durable records is intentionally unavailable.
 
 Accepted artifact metadata must match the approved definition's template and deterministic validation identity/findings digest and retains renderer, font-manifest, format, and artifact digests. Artifact bytes remain outside the record store. Export receipts require a matching accepted artifact and retain only the safe destination label and outcome, never a host path.
+
+The host-managed Career Markdown projection is not an artifact record or export receipt. It is a readable, read-only view of the latest approved general definition, regenerated on project access so a newer approved definition cannot leave Career displaying an older resume.
 
 ## Durable record matrix
 

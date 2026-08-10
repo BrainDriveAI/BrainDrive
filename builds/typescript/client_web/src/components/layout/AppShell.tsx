@@ -218,6 +218,13 @@ export default function AppShell({
     })();
   }
 
+  function handleAppSessionClosed() {
+    if (!selectedProjectId || isRootAgentProjectId(selectedProjectId)) return;
+    void refreshSelectedProjectFiles().then((nextFiles) => {
+      setActiveFile((current) => current ? nextFiles.find((file) => file.path === current.path) ?? null : null);
+    }).catch(() => undefined);
+  }
+
   const documentContent = activeFile && selectedProject ? (
     <DocumentView
       projectId={selectedProject.id}
@@ -346,7 +353,7 @@ export default function AppShell({
         <div
           className="flex min-h-0 flex-1 flex-col overflow-hidden pt-[var(--mobile-header-height)] md:pt-0"
         >
-          {isAppsOpen ? <AppsPage entryPoint={selectedProject?.name.trim().toLowerCase() === "career" ? "career" : "direct"} onOpenSettings={() => setIsSettingsOpen(true)} /> : children ?? (
+          {isAppsOpen ? <AppsPage entryPoint={selectedProject?.name.trim().toLowerCase() === "career" ? "career" : "direct"} onOpenSettings={() => setIsSettingsOpen(true)} onSessionClosed={handleAppSessionClosed} /> : children ?? (
             <ChatPanel
               activeConversationId={activeConversationId}
               activeProjectId={selectedProjectId}

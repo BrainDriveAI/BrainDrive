@@ -118,6 +118,26 @@ export function renderApprovedResume(definition: ResumeDefinition): RenderedResu
   };
 }
 
+export function renderApprovedResumeMarkdown(definition: ResumeDefinition): string {
+  if (definition.status !== "approved" || !definition.approval_evidence) {
+    throw new ResumeDomainError("validation_failed", "Only an approved, validated definition can be published");
+  }
+  const output = [`# ${escapeMarkdownText(definition.title)}`, ""];
+  for (const sectionId of definition.section_order) {
+    const statements = definition.statements.filter((statement) => statement.section_id === sectionId);
+    if (statements.length === 0) continue;
+    if (sectionId !== "contact") output.push(`## ${escapeMarkdownText(sectionLabel(sectionId))}`, "");
+    for (const statement of statements) {
+      const value = sectionId === "contact" ? contactLine(definition.title, statement.text) : statement.text;
+      const text = escapeMarkdownText(value);
+      if (!text) continue;
+      output.push(sectionId === "contact" || sectionId === "summary" ? text : `- ${text}`);
+    }
+    output.push("");
+  }
+  return `${output.join("\n").trimEnd()}\n`;
+}
+
 export function parseBackPdf(bytes: Uint8Array): string[] {
   const source = Buffer.from(bytes).toString("latin1");
   const lines: string[] = [];
@@ -166,6 +186,10 @@ function escapePdfText(value: string): string {
 
 function unescapePdfText(value: string): string {
   return value.replace(/\\([\\()])/g, "$1");
+}
+
+function escapeMarkdownText(value: string): string {
+  return sanitizeResumeText(value).replace(/([\\`*_{}\[\]<>#|])/g, "\\$1");
 }
 
 function sectionLabel(value: string): string {

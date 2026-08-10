@@ -79,7 +79,7 @@ vi.mock("./Sidebar", () => ({
   ),
 }));
 
-vi.mock("@/components/apps/AppsPage", () => ({ default: ({ onOpenSettings }: { onOpenSettings?: () => void }) => <section aria-label="Apps surface">Apps surface<button type="button" onClick={onOpenSettings}>Open model settings recovery</button></section> }));
+vi.mock("@/components/apps/AppsPage", () => ({ default: ({ onOpenSettings, onSessionClosed }: { onOpenSettings?: () => void; onSessionClosed?: () => void }) => <section aria-label="Apps surface">Apps surface<button type="button" onClick={onOpenSettings}>Open model settings recovery</button><button type="button" onClick={onSessionClosed}>Close app session</button></section> }));
 
 vi.mock("@/components/chat/ChatPanel", () => ({
   default: (props: {
@@ -126,6 +126,14 @@ describe("AppShell project file refresh", () => {
     });
     expect(screen.getByTestId("selected-project")).toHaveTextContent("finance");
     expect(selectProjectMock).not.toHaveBeenCalled();
+  });
+
+  it("refreshes project documents after an installed app session closes", async () => {
+    const user = userEvent.setup();
+    render(<AppShell />);
+    await user.click(screen.getByRole("button", { name: "Apps" }));
+    await user.click(screen.getByRole("button", { name: "Close app session" }));
+    await waitFor(() => expect(refreshSelectedProjectFilesMock).toHaveBeenCalled());
   });
 
   it("ignores stale legacy memory update notice state", () => {
