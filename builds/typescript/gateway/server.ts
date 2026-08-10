@@ -621,7 +621,7 @@ export async function buildServer(rootDir = process.cwd()) {
       );
       reply.header(
         "set-cookie",
-        serializeRefreshCookie(tokens.refreshToken, tokens.refreshMaxAgeSeconds, isSecureRequest(request))
+        serializeRefreshCookie(tokens.refreshToken, tokens.refreshMaxAgeSeconds, isSecureRequest(request, internalTransportToken))
       );
       reply.code(201).send({
         access_token: tokens.accessToken,
@@ -666,7 +666,7 @@ export async function buildServer(rootDir = process.cwd()) {
       const tokens = await localJwtAuthService.login(parsed.data);
       reply.header(
         "set-cookie",
-        serializeRefreshCookie(tokens.refreshToken, tokens.refreshMaxAgeSeconds, isSecureRequest(request))
+        serializeRefreshCookie(tokens.refreshToken, tokens.refreshMaxAgeSeconds, isSecureRequest(request, internalTransportToken))
       );
       reply.send({
         access_token: tokens.accessToken,
@@ -704,7 +704,7 @@ export async function buildServer(rootDir = process.cwd()) {
       const tokens = await localJwtAuthService.refresh(refreshToken);
       reply.header(
         "set-cookie",
-        serializeRefreshCookie(tokens.refreshToken, tokens.refreshMaxAgeSeconds, isSecureRequest(request))
+        serializeRefreshCookie(tokens.refreshToken, tokens.refreshMaxAgeSeconds, isSecureRequest(request, internalTransportToken))
       );
       reply.send({
         access_token: tokens.accessToken,
@@ -713,7 +713,7 @@ export async function buildServer(rootDir = process.cwd()) {
       });
     } catch (error) {
       if (error instanceof RefreshReplayDetectedError) {
-        reply.header("set-cookie", serializeRefreshCookieClear(isSecureRequest(request)));
+        reply.header("set-cookie", serializeRefreshCookieClear(isSecureRequest(request, internalTransportToken)));
         reply.code(401).send({ error: "refresh_replay_detected" });
         return;
       }
@@ -730,7 +730,7 @@ export async function buildServer(rootDir = process.cwd()) {
   app.post("/auth/logout", async (request, reply) => {
     if (localJwtAuthService) {
       await localJwtAuthService.logout();
-      reply.header("set-cookie", serializeRefreshCookieClear(isSecureRequest(request)));
+      reply.header("set-cookie", serializeRefreshCookieClear(isSecureRequest(request, internalTransportToken)));
     }
 
     reply.send({ ok: true });
@@ -2587,7 +2587,7 @@ export async function buildServer(rootDir = process.cwd()) {
       let logoutRequired = false;
       if (localJwtAuthService) {
         await localJwtAuthService.logout();
-        reply.header("set-cookie", serializeRefreshCookieClear(isSecureRequest(request)));
+        reply.header("set-cookie", serializeRefreshCookieClear(isSecureRequest(request, internalTransportToken)));
         logoutRequired = true;
       }
       reply.send({
@@ -2967,7 +2967,7 @@ export async function buildServer(rootDir = process.cwd()) {
       let logoutRequired = false;
       if (localJwtAuthService) {
         await localJwtAuthService.logout();
-        reply.header("set-cookie", serializeRefreshCookieClear(isSecureRequest(request)));
+        reply.header("set-cookie", serializeRefreshCookieClear(isSecureRequest(request, internalTransportToken)));
         logoutRequired = true;
       }
 
@@ -3549,13 +3549,40 @@ function supportBundleEndpointsEnabled(runtimeConfig: RuntimeConfig): boolean {
   return runtimeConfig.auth_mode === "local";
 }
 
-function isSecureRequest(request: { headers: Record<string, unknown> }): boolean {
-  const forwardedProto = request.headers["x-forwarded-proto"];
-  if (typeof forwardedProto === "string" && forwardedProto.toLowerCase().includes("https")) {
+function isSecureRequest(
+  request: { headers: Record<string, unknown> },
+  internalTransportToken: string
+): boolean {
+  if (isAuthenticatedLanBrowserHttpRequest(request.headers, internalTransportToken)) {
+    return false;
+  }
+
+  const forwardedProto = firstHeaderValue(request.headers["x-forwarded-proto"]);
+  if (forwardedProto?.trim().toLowerCase() === "https") {
     return true;
   }
 
   return process.env.NODE_ENV === "production";
+}
+
+function isAuthenticatedLanBrowserHttpRequest(
+  headers: Record<string, unknown>,
+  internalTransportToken: string
+): boolean {
+  if (!isBrowserAccessRequest(headers, internalTransportToken)) {
+    return false;
+  }
+
+  const forwardedProto = firstHeaderValue(headers["x-forwarded-proto"]);
+  const browserClientIp = firstHeaderValue(headers["x-braindrive-browser-client-ip"]);
+  const browserClientId = firstHeaderValue(headers["x-braindrive-browser-client-id"]);
+  return (
+    forwardedProto?.trim().toLowerCase() === "http" &&
+    typeof browserClientIp === "string" &&
+    browserClientIp.length > 0 &&
+    browserClientIp.length <= 128 &&
+    browserClientId === undefined
+  );
 }
 
 function toInitials(value: string): string {

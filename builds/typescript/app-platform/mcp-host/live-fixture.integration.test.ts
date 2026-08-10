@@ -28,6 +28,31 @@ afterEach(async () => {
 });
 
 describe("live signed modern MCP Apps fixture", () => {
+  it("updates an active older package before negotiating the current modern release", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-modern-upgrade-")); roots.push(root);
+    const lifecycle = await createDockerAppLifecycle({ memoryRoot: path.join(root, "memory"), stateRoot: path.join(root, "host"), hostVersion: "26.7.23" });
+    try {
+      const prior = await lifecycle.install({ version: "2.0.0", idempotencyKey: "prior-fixture-install", approveCapabilities: true });
+      const updated = await lifecycle.update({
+        version: MODERN_FIXTURE_VERSION,
+        idempotencyKey: "modern-fixture-update",
+        approveCapabilities: true,
+        installationId: prior.record.installation_id,
+        expectedGeneration: prior.record.generation,
+      });
+
+      expect(updated.record).toMatchObject({
+        state: "active",
+        installation_id: prior.record.installation_id,
+        last_known_good_package_digest: prior.record.active_package_digest,
+      });
+      const launch = await new AppMcpHost(lifecycle).launch();
+      expect(launch.protocol.server_version).toBe(MODERN_FIXTURE_VERSION);
+    } finally {
+      await lifecycle.dependencies.supervisor.close();
+    }
+  });
+
   it("installs, negotiates, reads ui:// HTML, and preserves a complete tool result over the authenticated runtime", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-modern-fixture-")); roots.push(root);
     const lifecycle = await createDockerAppLifecycle({ memoryRoot: path.join(root, "memory"), stateRoot: path.join(root, "host"), hostVersion: "26.7.23" });
@@ -35,7 +60,7 @@ describe("live signed modern MCP Apps fixture", () => {
       const installed = await lifecycle.install({ version: MODERN_FIXTURE_VERSION, idempotencyKey: "modern-fixture-install", approveCapabilities: true });
       const host = new AppMcpHost(lifecycle);
       const launch = await host.launch();
-      expect(launch.protocol).toMatchObject({ core: "2026-07-28", apps_extension: "2026-01-26", server_version: "3.0.0" });
+      expect(launch.protocol).toMatchObject({ core: "2026-07-28", apps_extension: "2026-01-26", server_version: MODERN_FIXTURE_VERSION });
       expect(launch.resource).toMatchObject({ uri: "ui://resume-builder/main", mime_type: "text/html;profile=mcp-app" });
       expect(launch.resource.html).toContain("Start with what BrainDrive already knows");
       expect(launch.resource.html).toContain("ATS parse-back passed");
@@ -50,7 +75,7 @@ describe("live signed modern MCP Apps fixture", () => {
       expect(response.status).toBe("completed");
       if (response.status === "completed") {
         expect(response.result.content.map((item) => item.type)).toEqual(["text", "resource_link", "resource"]);
-        expect(response.result.structuredContent).toEqual({ ready: true, version: "3.0.0" });
+        expect(response.result.structuredContent).toEqual({ ready: true, version: MODERN_FIXTURE_VERSION });
         expect(response.result._meta).toMatchObject({ "io.modelcontextprotocol/ui": { visibility: ["app"] } });
       }
       const resumed = await host.launch("direct", {

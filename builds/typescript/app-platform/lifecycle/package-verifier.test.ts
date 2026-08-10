@@ -1,10 +1,10 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createFixtureRepository, revokeFixtureVersion } from "./fixture-repository.js";
+import { createFixtureRepository, MODERN_FIXTURE_VERSION, revokeFixtureVersion } from "./fixture-repository.js";
 import { PackageVerifier } from "./package-verifier.js";
 
 const roots: string[] = [];
@@ -21,6 +21,29 @@ async function setup() {
 }
 
 describe("signed fixture package verification", () => {
+  it("stores each bundled modern release under an immutable version-specific authority", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-package-release-authority-"));
+    roots.push(root);
+    const sourceRoot = path.join(root, "source");
+    const repository = await createFixtureRepository(sourceRoot);
+
+    const authorityRoot = path.join(sourceRoot, "modern", MODERN_FIXTURE_VERSION);
+    await expect(access(path.join(authorityRoot, "source-index.json"))).resolves.toBeUndefined();
+    expect(repository.packages[MODERN_FIXTURE_VERSION]?.archivePath).toBe(path.join(authorityRoot, `${MODERN_FIXTURE_VERSION}.bdapp`));
+    expect(repository.authoritiesByVersion?.[MODERN_FIXTURE_VERSION]?.sourceIndexPath).toBe(path.join(authorityRoot, "source-index.json"));
+  });
+
+  it("fails closed when a persisted prior modern authority is malformed", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-package-prior-authority-"));
+    roots.push(root);
+    const sourceRoot = path.join(root, "source");
+    await mkdir(path.join(sourceRoot, "modern"), { recursive: true });
+    await writeFile(path.join(sourceRoot, "modern", "source-index.json"), "{not-json\n", "utf8");
+
+    await expect(createFixtureRepository(sourceRoot))
+      .rejects.toMatchObject({ code: "source_index_signature_invalid" });
+  });
+
   it("fails closed instead of replacing a corrupt persisted source authority", async () => {
     const { repository } = await setup();
     await writeFile(repository.sourceIndexPath, "{not-json\n", "utf8");

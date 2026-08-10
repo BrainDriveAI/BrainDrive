@@ -12,6 +12,7 @@ import { isTauriRuntime } from "@/api/runtime-api-base";
 import { BrowserActionBroker } from "@/mcp-apps/browser-policy";
 import { McpAppBridgeController, type BridgeStatus } from "@/mcp-apps/bridge";
 import { OUTER_PROXY_SANDBOX, VIEW_PERMISSION_POLICY, createSandboxProxyUrl } from "@/mcp-apps/sandbox-proxy";
+import { secureRandomUuid } from "@/utils/browser-crypto";
 import { openExternalUrl } from "@/utils/external-url";
 
 export function isTrustedSandboxMessage(event: MessageEvent, frame: HTMLIFrameElement | null): boolean {
@@ -106,7 +107,7 @@ export default function SandboxedAppFrame({
     setError(null);
     const frame = frameRef.current;
     if (!frame) return;
-    const proxyNonce = crypto.randomUUID();
+    const proxyNonce = secureRandomUuid();
     const close = () => {
       if (closedRef.current) return;
       closedRef.current = true;
@@ -212,11 +213,11 @@ export default function SandboxedAppFrame({
       proxyNonce,
       sendToProxy: (value) => frame.contentWindow?.postMessage(value, "*"),
       onToolCall: async (name, args, _context, signal) => {
-        const response = await sendResumeBuilderAppsBridgeMessage(launch, { jsonrpc: "2.0", id: crypto.randomUUID(), method: "tools/call", params: { name, arguments: args } }, signal) as { result?: unknown };
+        const response = await sendResumeBuilderAppsBridgeMessage(launch, { jsonrpc: "2.0", id: secureRandomUuid(), method: "tools/call", params: { name, arguments: args } }, signal) as { result?: unknown };
         return response.result;
       },
       onResourceRead: async (uri, _context, signal) => {
-        const response = await sendResumeBuilderAppsBridgeMessage(launch, { jsonrpc: "2.0", id: crypto.randomUUID(), method: "resources/read", params: { uri } }, signal) as { result?: unknown };
+        const response = await sendResumeBuilderAppsBridgeMessage(launch, { jsonrpc: "2.0", id: secureRandomUuid(), method: "resources/read", params: { uri } }, signal) as { result?: unknown };
         return response.result;
       },
       onOpenLink: (url) => requestHostAction("Open external link?", url, () => browserBroker.openLink(url, true, true)),

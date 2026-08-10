@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { chmod, lstat, mkdtemp, readdir, rm } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { chmod, lstat, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -17,8 +18,11 @@ const password = "synthetic-e2e-password-26!";
 const mcpPorts = [8911, 8912, 8913];
 const children = new Set();
 const processGroups = new Set();
+const stoppingChildren = new Set();
 let cleaningUp = false;
 let runtimeStarted = false;
+const browserAccess = process.argv.includes("--browser-access");
+const playwrightArgs = process.argv.slice(2).filter((argument) => argument !== "--browser-access");
 
 function sanitized(text) {
   return String(text).replaceAll(taskRoot, "[task-root]");
@@ -122,8 +126,39 @@ async function waitForHealth(url, timeoutMs = 60_000) {
   throw new Error(`Isolated E2E gateway did not become healthy: ${lastStatus}`);
 }
 
+function nonLoopbackIpv4Addresses() {
+  const addresses = [];
+  for (const interfaces of Object.values(os.networkInterfaces())) {
+    for (const address of interfaces ?? []) {
+      if (address.family === "IPv4" && !address.internal) addresses.push(address.address);
+    }
+  }
+  return [...new Set(addresses)].sort((left, right) => {
+    const privateAddress = (value) => /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(value);
+    return Number(privateAddress(right)) - Number(privateAddress(left));
+  });
+}
+
+async function resolveBrowserAccessBaseUrl(port) {
+  const addresses = nonLoopbackIpv4Addresses();
+  if (addresses.length === 0) {
+    throw new Error("Browser-access E2E requires a non-loopback IPv4 address");
+  }
+  for (const address of addresses) {
+    const baseUrl = `http://${address}:${port}`;
+    try {
+      await waitForHealth(`${baseUrl}/healthz`, 2_000);
+      return baseUrl;
+    } catch {
+      // Try the next host interface. VPN and virtual adapters may not route locally.
+    }
+  }
+  throw new Error("Browser-access E2E could not reach the LAN bridge through a non-loopback IPv4 address");
+}
+
 async function stopChild(child) {
   if (child.exitCode !== null || child.signalCode !== null) return;
+  stoppingChildren.add(child);
   if (process.platform === "win32" && child.pid) {
     await new Promise((resolve) => {
       const killer = spawn("taskkill.exe", ["/pid", String(child.pid), "/t", "/f"], {
@@ -191,6 +226,8 @@ async function main() {
   await assertMcpPortsAvailable();
   const gatewayPort = await reservePort();
   const webPort = await reservePort();
+  const bridgePort = browserAccess ? await reservePort() : null;
+  const transportToken = browserAccess ? randomBytes(32).toString("hex") : "";
   const isolatedEnv = {
     ...process.env,
     PAA_MEMORY_ROOT: memoryRoot,
@@ -201,6 +238,12 @@ async function main() {
     BRAINDRIVE_APP_PLATFORM_ENABLED: "true",
     BRAINDRIVE_E2E_RESUME_INFERENCE_FIXTURE: "1",
     BRAINDRIVE_APP_STATE_ROOT: path.join(taskRoot, "app-platform"),
+    ...(browserAccess
+      ? {
+          BRAINDRIVE_INTERNAL_TRANSPORT_TOKEN: transportToken,
+          NODE_ENV: "production",
+        }
+      : {}),
   };
 
   await run(
@@ -209,22 +252,32 @@ async function main() {
     { cwd: runtimeRoot, env: isolatedEnv }
   );
 
-  const runtime = spawnProcess(process.execPath, ["scripts/dev-runtime.mjs"], {
-    cwd: runtimeRoot,
-    env: isolatedEnv,
-    detached: process.platform !== "win32",
-    killGroup: process.platform !== "win32",
-  });
-  runtimeStarted = true;
-  runtime.once("exit", (code) => {
-    if (!cleaningUp && code !== 0) process.stderr.write("Isolated E2E runtime exited early.\n");
-  });
+  const startRuntime = () => {
+    const child = spawnProcess(process.execPath, ["scripts/dev-runtime.mjs"], {
+      cwd: runtimeRoot,
+      env: isolatedEnv,
+      detached: process.platform !== "win32",
+      killGroup: process.platform !== "win32",
+    });
+    runtimeStarted = true;
+    child.once("exit", (code) => {
+      if (!cleaningUp && !stoppingChildren.has(child) && code !== 0) {
+        process.stderr.write("Isolated E2E runtime exited early.\n");
+      }
+    });
+    return child;
+  };
+
+  let runtime = startRuntime();
 
   const gatewayBaseUrl = `http://127.0.0.1:${gatewayPort}`;
   await waitForHealth(`${gatewayBaseUrl}/health`);
   const signup = await fetch(`${gatewayBaseUrl}/auth/signup`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...(transportToken ? { "x-braindrive-internal-transport-token": transportToken } : {}),
+    },
     body: JSON.stringify({ identifier, password }),
   });
   if (signup.status !== 201) {
@@ -240,6 +293,7 @@ async function main() {
     headers: {
       authorization: `Bearer ${accessToken}`,
       "content-type": "application/json",
+      ...(transportToken ? { "x-braindrive-internal-transport-token": transportToken } : {}),
     },
     body: JSON.stringify({ active_provider_profile: "ollama" }),
   });
@@ -247,8 +301,42 @@ async function main() {
     throw new Error(`Provider-independent shell seed failed with HTTP ${providerBaseline.status}`);
   }
 
+  if (browserAccess) {
+    await stopChild(runtime);
+    await waitForMcpPortsReleased();
+    const authStatePath = path.join(memoryRoot, "preferences", "auth-state.json");
+    const authState = JSON.parse(await readFile(authStatePath, "utf8"));
+    authState.session_policy.access_ttl_seconds = 2;
+    await writeFile(authStatePath, `${JSON.stringify(authState, null, 2)}\n`, "utf8");
+    runtime = startRuntime();
+    await waitForHealth(`${gatewayBaseUrl}/health`);
+  }
+
+  let browserBaseUrl;
+  if (browserAccess && bridgePort) {
+    const tsxCli = path.join(runtimeRoot, "node_modules", "tsx", "dist", "cli.mjs");
+    const bridge = spawnProcess(process.execPath, [tsxCli, "desktop/bridge.ts"], {
+      cwd: runtimeRoot,
+      env: {
+        ...isolatedEnv,
+        BRAINDRIVE_BROWSER_BRIDGE_HOST: "0.0.0.0",
+        BRAINDRIVE_BROWSER_BRIDGE_PORT: String(bridgePort),
+        BRAINDRIVE_BROWSER_BRIDGE_WEB_ROOT: path.join(webRoot, "dist"),
+        BRAINDRIVE_BROWSER_BRIDGE_GATEWAY_URL: gatewayBaseUrl,
+        BRAINDRIVE_BROWSER_BRIDGE_MODE: "lan",
+        BRAINDRIVE_BROWSER_BRIDGE_EXTERNAL_PROTO: "http",
+      },
+      windowsHide: true,
+    });
+    bridge.once("exit", (code) => {
+      if (!cleaningUp && code !== 0) process.stderr.write("Isolated E2E browser bridge exited early.\n");
+    });
+    await waitForHealth(`http://127.0.0.1:${bridgePort}/healthz`);
+    browserBaseUrl = await resolveBrowserAccessBaseUrl(bridgePort);
+  }
+
   const playwrightCli = path.join(webRoot, "node_modules", "@playwright", "test", "cli.js");
-  await run(process.execPath, [playwrightCli, "test", ...process.argv.slice(2)], {
+  await run(process.execPath, [playwrightCli, "test", ...playwrightArgs], {
     cwd: webRoot,
     env: {
       ...isolatedEnv,
@@ -258,6 +346,12 @@ async function main() {
       BRAINDRIVE_E2E_ARTIFACT_ROOT: artifactRoot,
       BRAINDRIVE_E2E_IDENTIFIER: identifier,
       BRAINDRIVE_E2E_PASSWORD: password,
+      ...(browserAccess
+        ? {
+            BRAINDRIVE_E2E_BROWSER_ACCESS: "1",
+            BRAINDRIVE_E2E_BASE_URL: browserBaseUrl,
+          }
+        : {}),
     },
   });
 }

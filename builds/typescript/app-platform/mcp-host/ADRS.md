@@ -22,9 +22,9 @@ These records apply the project-owner approvals dated 2026-08-07 in Resume Build
 
 ## ADR-RB-017 — Version 3 is the independently signed modern conformance fixture
 
-**Decision:** Preserve versions 1.0.0 and 2.0.0 as the legacy lifecycle/update fixtures under their original generated authority. Add version 3.0.0 under `fixture-source/modern` with a separately generated Ed25519 authority and version-specific trust metadata. It exposes only initialize, tools list/call, resources list/read, the bounded `ui://resume-builder/main` foundation UI, and the app-visible `fixture.status` test tool.
+**Decision:** Preserve versions 1.0.0 and 2.0.0 as the legacy lifecycle/update fixtures under their original generated authority. Modern releases use a separately generated Ed25519 authority per immutable package version under `fixture-source/modern/<version>`. Version 3.0.1 is the first patch release on this layout, replacing the incompatible 3.0.0 fixture without rewriting its signed bytes. It exposes only modern `server/discover`, tools list/call, resources list/read, the bounded `ui://resume-builder/main` UI, and the app-visible `fixture.status` test tool.
 
-**Reason:** M2 public trust material can survive restarts without persisting private signing keys, so it cannot sign a later package. A narrow independent fixture source is the repository-consistent key-rotation equivalent and avoids weakening or rewriting already verified M2 bytes.
+**Reason:** Public trust material can survive restarts without persisting private signing keys, so it cannot sign a later package. A narrow authority per release is the repository-consistent key-rotation equivalent, avoids weakening or rewriting already verified bytes, and lets an installed older version surface an explicit owner-approved update.
 
 ## ADR-RB-018 — One top-level Apps surface, still Docker-dev gated
 

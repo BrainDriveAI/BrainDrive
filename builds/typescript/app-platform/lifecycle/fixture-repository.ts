@@ -37,7 +37,7 @@ export type FixtureRepository = {
   releaseKeyId?: string;
 };
 
-export const MODERN_FIXTURE_VERSION = "3.0.0" as const;
+export const MODERN_FIXTURE_VERSION = "3.0.1" as const;
 export const MODERN_FIXTURE_CAPABILITIES = [
   "career.context.read", "career.facts.read", "career.facts.propose", "career.facts.confirm",
   "resume.definitions.read", "resume.definitions.write", "resume.jobs.read", "resume.jobs.write",
@@ -70,7 +70,7 @@ const stop = () => server.close(() => process.exit(0));
 process.on("SIGTERM", stop); process.on("SIGINT", stop);
 `;
 
-function modernFixtureServer(appHtml: string): string {
+function modernFixtureServer(appHtml: string, version: string): string {
   return `import http from "node:http";
 const token = process.env.BRAINDRIVE_APP_CONNECTION_TOKEN;
 const host = "127.0.0.1";
@@ -86,12 +86,12 @@ const server = http.createServer((request, response) => {
   request.on("end", () => {
     let message;
     try { message = JSON.parse(body); } catch { response.writeHead(400).end(); return; }
-    if (message.method === "server/discover") { send(response, message.id, {supportedVersions:["2026-07-28"],capabilities:{tools:{listChanged:false},resources:{listChanged:false},extensions:{"io.modelcontextprotocol/ui":{mimeTypes:["text/html;profile=mcp-app"]}}},_meta:{"io.modelcontextprotocol/ui":{version:"2026-01-26"},"io.modelcontextprotocol/serverInfo":{name:"resume-builder-fixture",version:"3.0.0"}}}); return; }
+    if (message.method === "server/discover") { send(response, message.id, {supportedVersions:["2026-07-28"],capabilities:{tools:{listChanged:false},resources:{listChanged:false},extensions:{"io.modelcontextprotocol/ui":{mimeTypes:["text/html;profile=mcp-app"]}}},_meta:{"io.modelcontextprotocol/ui":{version:"2026-01-26"},"io.modelcontextprotocol/serverInfo":{name:"resume-builder-fixture",version:${JSON.stringify(version)}}}}); return; }
     if (message.method === "resources/list") { send(response, message.id, {resultType:"complete",ttlMs:0,cacheScope:"private",resources:[{uri:"ui://resume-builder/main",name:"Resume Builder",title:"Resume Builder",description:"Sandboxed owner resume workflow",mimeType:"text/html;profile=mcp-app",size:Buffer.byteLength(appHtml),_meta:{"io.modelcontextprotocol/ui":{version:"2026-01-26"},cachePolicy:"immutable_package_digest"}}]}); return; }
     if (message.method === "resources/templates/list") { send(response, message.id, {resultType:"complete",ttlMs:0,cacheScope:"private",resourceTemplates:[]}); return; }
     if (message.method === "resources/read" && message.params?.uri === "ui://resume-builder/main") { send(response, message.id, {resultType:"complete",ttlMs:0,cacheScope:"private",contents:[{uri:"ui://resume-builder/main",mimeType:"text/html;profile=mcp-app",text:appHtml,_meta:{"io.modelcontextprotocol/ui":{version:"2026-01-26"},cachePolicy:"immutable_package_digest"}}]}); return; }
     if (message.method === "tools/list") { send(response, message.id, {resultType:"complete",ttlMs:0,cacheScope:"private",tools:[{name:"fixture.status",description:"Return the fixture host status",inputSchema:{type:"object",properties:{},additionalProperties:false},_meta:{ui:{visibility:["app"]}}}]}); return; }
-    if (message.method === "tools/call" && message.params?.name === "fixture.status") { send(response, message.id, {resultType:"complete",content:[{type:"text",text:"Fixture ready",annotations:{audience:["user"],priority:1}},{type:"resource_link",name:"resume-ui",uri:"ui://resume-builder/main",mimeType:"text/html;profile=mcp-app",size:Buffer.byteLength(appHtml),_meta:{visibility:"app"}},{type:"resource",resource:{uri:"ui://resume-builder/state",mimeType:"application/json",text:"{\\\"ready\\\":true}",_meta:{revision:1}}}],structuredContent:{ready:true,version:"3.0.0"},_meta:{"io.modelcontextprotocol/ui":{resourceUri:"ui://resume-builder/main",visibility:["app"]}},isError:false}); return; }
+    if (message.method === "tools/call" && message.params?.name === "fixture.status") { send(response, message.id, {resultType:"complete",content:[{type:"text",text:"Fixture ready",annotations:{audience:["user"],priority:1}},{type:"resource_link",name:"resume-ui",uri:"ui://resume-builder/main",mimeType:"text/html;profile=mcp-app",size:Buffer.byteLength(appHtml),_meta:{visibility:"app"}},{type:"resource",resource:{uri:"ui://resume-builder/state",mimeType:"application/json",text:"{\\\"ready\\\":true}",_meta:{revision:1}}}],structuredContent:{ready:true,version:${JSON.stringify(version)}},_meta:{"io.modelcontextprotocol/ui":{resourceUri:"ui://resume-builder/main",visibility:["app"]}},isError:false}); return; }
     response.writeHead(404, {"content-type":"application/json"}); response.end(JSON.stringify({jsonrpc:"2.0",id:message.id,error:{code:-32601,message:"Method not found"}}));
   });
 });
@@ -116,11 +116,14 @@ async function writeJson(filePath: string, value: unknown): Promise<void> {
 
 export async function createFixtureRepository(root: string): Promise<FixtureRepository> {
   const legacy = await loadOrCreateFixtureSource(root, ["1.0.0", "2.0.0"], "legacy");
-  const modern = await loadOrCreateFixtureSource(path.join(root, "modern"), [MODERN_FIXTURE_VERSION], "modern");
+  const modernRoot = path.join(root, "modern");
+  const priorModern = await loadPersistedFixtureSource(modernRoot);
+  const modern = await loadOrCreateFixtureSource(path.join(modernRoot, MODERN_FIXTURE_VERSION), [MODERN_FIXTURE_VERSION], "modern");
   return {
     ...legacy,
-    packages: { ...legacy.packages, ...modern.packages },
+    packages: { ...legacy.packages, ...priorModern?.packages, ...modern.packages },
     authoritiesByVersion: {
+      ...authorityEntries(priorModern),
       [MODERN_FIXTURE_VERSION]: {
         trustRootPath: modern.trustRootPath,
         sourceIndexPath: modern.sourceIndexPath,
@@ -128,6 +131,30 @@ export async function createFixtureRepository(root: string): Promise<FixtureRepo
       },
     },
   };
+}
+
+async function loadPersistedFixtureSource(root: string): Promise<FixtureRepository | null> {
+  const sourceIndexPath = path.join(root, "source-index.json");
+  try {
+    const existing = PackageSourceIndexSchema.parse(JSON.parse(await readFile(sourceIndexPath, "utf8")));
+    const packages = Object.fromEntries(existing.payload.entries.map((entry) => [entry.package_version, {
+      archivePath: path.join(root, `${entry.package_version}.bdapp`),
+      descriptorPath: path.join(root, `${entry.package_version}.descriptor.json`),
+    }]));
+    return { root, trustRootPath: path.join(root, "trust-root.json"), sourceIndexPath, revocationListPath: path.join(root, "revocations.json"), packages };
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
+    throw new AppPlatformError("source_index_signature_invalid", "Persisted fixture source index is malformed or unreadable");
+  }
+}
+
+function authorityEntries(repository: FixtureRepository | null): NonNullable<FixtureRepository["authoritiesByVersion"]> {
+  if (!repository) return {};
+  return Object.fromEntries(Object.keys(repository.packages).map((version) => [version, {
+    trustRootPath: repository.trustRootPath,
+    sourceIndexPath: repository.sourceIndexPath,
+    revocationListPath: repository.revocationListPath,
+  }]));
 }
 
 async function loadOrCreateFixtureSource(root: string, versions: string[], authorityLabel: "legacy" | "modern"): Promise<FixtureRepository> {
@@ -187,7 +214,7 @@ async function loadOrCreateFixtureSource(root: string, versions: string[], autho
   const nextUpdateAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
   for (const version of versions) {
     const files = new Map<string, Buffer>([
-      ["payload/docker/index.js", Buffer.from(version === MODERN_FIXTURE_VERSION ? modernFixtureServer(modernFixtureHtml!) : FIXTURE_SERVER.replace('version:"1.0.0"', `version:"${version}"`), "utf8")],
+      ["payload/docker/index.js", Buffer.from(version === MODERN_FIXTURE_VERSION ? modernFixtureServer(modernFixtureHtml!, version) : FIXTURE_SERVER.replace('version:"1.0.0"', `version:"${version}"`), "utf8")],
       ...(version === MODERN_FIXTURE_VERSION ? [["payload/ui/main.html", Buffer.from(modernFixtureHtml!, "utf8")] as [string, Buffer]] : []),
       ["provenance/build.jsonl", Buffer.from(`${canonicalJson({ builder: "braindrive-fixture", version, source: "repository" })}\n`, "utf8")],
       ["sbom/cyclonedx.json", Buffer.from(`${canonicalJson({ bomFormat: "CycloneDX", specVersion: "1.6", version: 1, components: [] })}\n`, "utf8")],

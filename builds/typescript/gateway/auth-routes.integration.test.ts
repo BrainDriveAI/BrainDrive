@@ -753,6 +753,91 @@ describe.sequential("gateway auth route integration", () => {
     expect(lanCookie).not.toContain("Secure");
   });
 
+  it("omits Secure in production only for the authenticated LAN browser bridge", async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    try {
+      context = await createTestServer({ internalTransportToken: "bridge-transport-token" });
+      const credentials = { identifier: "owner", password: "password123" };
+      const internalHeaders = {
+        "x-braindrive-internal-transport-token": "bridge-transport-token",
+      };
+
+      const signupResponse = await context.app.inject({
+        method: "POST",
+        url: "/auth/signup",
+        headers: internalHeaders,
+        payload: credentials,
+      });
+      expect(signupResponse.statusCode).toBe(201);
+
+      const internalHttp = await context.app.inject({
+        method: "POST",
+        url: "/auth/login",
+        headers: { ...internalHeaders, "x-forwarded-proto": "http" },
+        payload: credentials,
+      });
+      expect(String(internalHttp.headers["set-cookie"] ?? "")).toContain("Secure");
+
+      const incompleteBrowserHttp = await context.app.inject({
+        method: "POST",
+        url: "/auth/login",
+        headers: {
+          ...internalHeaders,
+          "x-braindrive-browser-access": "1",
+          "x-forwarded-proto": "http",
+        },
+        payload: credentials,
+      });
+      expect(String(incompleteBrowserHttp.headers["set-cookie"] ?? "")).toContain("Secure");
+
+      const lanLogin = await context.app.inject({
+        method: "POST",
+        url: "/auth/login",
+        headers: {
+          ...internalHeaders,
+          "x-braindrive-browser-access": "1",
+          "x-braindrive-browser-client-ip": "192.168.1.50",
+          "x-forwarded-proto": "http",
+        },
+        payload: credentials,
+      });
+      const lanCookie = String(lanLogin.headers["set-cookie"] ?? "");
+      expect(lanCookie).toContain("HttpOnly");
+      expect(lanCookie).toContain("SameSite=Strict");
+      expect(lanCookie).not.toContain("Secure");
+
+      const tailnetLogin = await context.app.inject({
+        method: "POST",
+        url: "/auth/login",
+        headers: {
+          ...internalHeaders,
+          "x-braindrive-browser-access": "1",
+          "x-braindrive-browser-client-id": `tailnet:${"a".repeat(64)}`,
+          "x-forwarded-proto": "https",
+        },
+        payload: credentials,
+      });
+      expect(String(tailnetLogin.headers["set-cookie"] ?? "")).toContain("Secure");
+
+      const spoofedLan = await context.app.inject({
+        method: "POST",
+        url: "/auth/login",
+        headers: {
+          "x-braindrive-browser-access": "1",
+          "x-braindrive-browser-client-ip": "192.168.1.50",
+          "x-forwarded-proto": "http",
+        },
+        payload: credentials,
+      });
+      expect(spoofedLan.statusCode).toBe(403);
+      expect(spoofedLan.headers["set-cookie"]).toBeUndefined();
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+    }
+  });
+
   it("trusts a strict browser client ID only with the internal token and browser marker", async () => {
     context = await createTestServer({ internalTransportToken: "bridge-transport-token" });
     const internalHeaders = {

@@ -1,6 +1,7 @@
 import { authenticatedFetch } from "./auth-adapter";
 import { GATEWAY_BASE_URL } from "./gateway-adapter";
 import { GatewayError } from "./types";
+import { secureRandomUuid } from "@/utils/browser-crypto";
 
 export type AppLifecycleState = "not_installed" | "staged" | "active" | "disabled" | "updating" | "rollback_pending" | "uninstalling" | "quarantined" | "failed_recoverable";
 
@@ -126,7 +127,7 @@ export function inspectResumeBuilderApp(): Promise<ResumeBuilderAppStatus> {
   return requestJson("/apps/resume-builder/inspect");
 }
 
-export async function mutateResumeBuilderApp(action: AppLifecycleAction, current: ResumeBuilderAppStatus, operationId = crypto.randomUUID()): Promise<ResumeBuilderAppStatus> {
+export async function mutateResumeBuilderApp(action: AppLifecycleAction, current: ResumeBuilderAppStatus, operationId = secureRandomUuid()): Promise<ResumeBuilderAppStatus> {
   const packageAction = action === "install" || action === "reinstall" || action === "update";
   const body = {
     operation_id: operationId,
@@ -213,7 +214,7 @@ export function sendResumeBuilderBridgeMessage(sessionId: string, message: unkno
 }
 
 export function sendResumeBuilderAppsBridgeMessage(launch: AppLaunch, message: unknown, signal?: AbortSignal): Promise<unknown> {
-  const operationId = crypto.randomUUID();
+  const operationId = secureRandomUuid();
   if (signal?.aborted) return Promise.reject(new DOMException("Cancelled", "AbortError"));
   const cancel = () => {
     void authenticatedFetch(`${GATEWAY_BASE_URL}/apps/resume-builder/sessions/${encodeURIComponent(launch.session_id)}/requests/${operationId}`, { method: "DELETE" });
@@ -250,6 +251,6 @@ export function finalizeResumeBuilderExport(input: {
   return requestJson("/apps/resume-builder/exports/finalize", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ operation_id: crypto.randomUUID(), ...input }),
+    body: JSON.stringify({ operation_id: secureRandomUuid(), ...input }),
   });
 }

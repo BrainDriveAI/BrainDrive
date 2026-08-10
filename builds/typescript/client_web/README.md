@@ -90,8 +90,9 @@ Run these from `builds/typescript/client_web/`:
 | `npm run preview` | Serve the production bundle locally |
 | `npm run test:e2e` | Run Playwright across desktop Chrome and mobile browser projects |
 | `npm run test:e2e:mobile` | Run only the mobile Chrome and Safari projects |
+| `npm run test:e2e:browser-access` | Build and test expired-token app launch through the real LAN bridge on non-loopback HTTP |
 
-Playwright commands use `scripts/run-isolated-e2e.mjs`. The runner creates disposable memory, secrets, local-auth, gateway, Vite, and artifact roots; seeds a synthetic local account; selects credential-free Ollama only to suppress provider onboarding; runs the requested projects; and removes only its temporary root. Install the Playwright browsers first, then use `npm run test:e2e` or `npm run test:e2e:mobile`. No provider credential or running model is required for the layout/auth-shell checks. See [change verification](../../../docs/developers/verification.md#open-06-and-browser-e2e); Playwright is not the provider-independent startup baseline.
+Playwright commands use `scripts/run-isolated-e2e.mjs`. The runner creates disposable memory, secrets, local-auth, gateway, web, and artifact roots; seeds a synthetic local account; selects credential-free Ollama only to suppress provider onboarding; runs the requested projects; and removes only its temporary root. The browser-access command serves the production bundle through the real LAN bridge and requires a reachable non-loopback IPv4 interface. Install the Playwright browsers first. No provider credential or running model is required for these checks. See [change verification](../../../docs/developers/verification.md#open-06-and-browser-e2e); Playwright is not the provider-independent startup baseline.
 
 ## Runtime Integration
 
