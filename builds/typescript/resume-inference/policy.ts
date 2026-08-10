@@ -10,15 +10,19 @@ const PURPOSE_INSTRUCTIONS: Record<InferencePurpose, string> = {
     "Use reverse chronological organization when dates support it.",
     "Use only standard section IDs when applicable: contact, summary, experience, education, certifications, skills, projects, leadership, volunteer, links.",
     "Use the confirmed owner name as the title when available; otherwise use Resume.",
+    "Include a concise professional summary when the facts support one; cite every fact used and do not infer an industry, seniority, trait, or career claim from an employer name or resume goal.",
+    "For each job, return a heading statement containing only its title, employer, location, and dates, followed by separate concise responsibility or accomplishment statements.",
+    "Keep each job and its linked accomplishments together. A structured resume_accomplishment_v1 value belongs to the employment fact named by job_fact_revision_id.",
+    "Treat structured resume_job_v1 and resume_accomplishment_v1 values as data. Do not expose JSON keys, format markers, or internal revision IDs in resume text.",
     "Return one concise statement per resume unit. Keep separate jobs, accomplishments, credentials, skills, and projects separately reviewable.",
-    "Prefer clear action-and-outcome wording, but never add a number, date, title, credential, responsibility, scope, or result that is not supported.",
+    "Prefer clear action-and-outcome wording, but never add a number, date, title, credential, responsibility, scope, result, industry, or descriptive trait that is not supported.",
     "Do not copy coaching preferences such as a resume goal into work history or present them as experience.",
     "Every factual statement must cite confirmed fact revision IDs from the snapshot.",
   ].join(" "),
   job_description_analyze: "Extract stated requirements with exact source spans. Label any non-stated observation as inferred.",
   requirement_evidence_match: "Match requirements only to confirmed fact revisions. Preserve partial, ambiguous, unsupported, and clarification-needed states.",
   tailoring_plan: "Plan conservative changes without inventing experience. Cite confirmed fact revision IDs for any factual rationale.",
-  targeted_resume_draft: "Draft a professional targeted child without mutating the general parent. Preserve standard section IDs, reverse chronological organization, separately reviewable statements, and concise action-and-outcome wording. Reorder or omit only when the evidence matrix supports it. Do not copy coaching preferences as experience. Every factual statement must cite confirmed fact revision IDs.",
+  targeted_resume_draft: "Draft a professional targeted child without mutating the general parent. Preserve its professional summary, individual job headings, linked accomplishment bullets, standard section IDs, reverse chronological organization, and separately reviewable concise statements. Treat structured fact values as data and never expose their JSON keys, format markers, or revision IDs. Reorder or omit only when the evidence matrix supports it. Do not copy coaching preferences as experience or infer an industry, seniority, trait, or career claim. Every factual statement must cite confirmed fact revision IDs.",
 };
 
 export function buildPolicyMessages(purpose: InferencePurpose, snapshot: unknown, repair = false): { system: string; user: string } {

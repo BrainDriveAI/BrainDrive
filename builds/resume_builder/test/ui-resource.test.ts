@@ -8,6 +8,9 @@ describe("sandboxed Resume Builder owner resource", () => {
     for (const text of [
       "Start with what BrainDrive already knows",
       "One topic at a time",
+      "One job at a time",
+      "Which job was this for?",
+      "job_fact_revision_id",
       "Review your information",
       "What kind of work would you like this resume to support?",
       "Add another job",
@@ -31,6 +34,12 @@ describe("sandboxed Resume Builder owner resource", () => {
     expect(html).toContain('role="alert"');
     expect(html).toContain('decision:"edit_and_accept"');
     expect(html).toContain('decision:"reject"');
+    expect(html).toContain("confirmedDuplicate(topic,value)");
+    expect(html).toContain('stage="preview"');
+    expect(html).toContain('stage==="history"');
+    expect(html).toContain("normalizeDraftStatements");
+    expect(html).toContain('state.stage="general_review";render();focusPanel()');
+    expect(html).toContain('state.stage="tailored_review";render();focusPanel()');
   });
 
   it("keeps privileged browser/network authority outside the package resource", async () => {

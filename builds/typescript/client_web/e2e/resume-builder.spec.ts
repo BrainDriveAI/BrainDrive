@@ -11,7 +11,7 @@ async function confirmOwnerAction(page: Page, label: RegExp) {
 
 async function answerInterviewTopic(page: Page, frame: FrameLocator, answer: string, nextHeading: string, followUp?: string) {
   await frame.getByLabel("Your answer").fill(answer);
-  await frame.getByRole("button", { name: "Review and confirm" }).click();
+  await frame.getByRole("button", { name: "Save answer" }).click();
   if (followUp) {
     await expect(frame.getByRole("heading", { name: "A quick follow-up" })).toBeVisible();
     await frame.getByLabel("Additional detail").fill(followUp);
@@ -19,6 +19,20 @@ async function answerInterviewTopic(page: Page, frame: FrameLocator, answer: str
   }
   await confirmOwnerAction(page, /Confirm career fact/);
   await expect(frame.getByRole("heading", { name: nextHeading })).toBeVisible({ timeout: 15_000 });
+}
+
+async function answerEmployment(page: Page, frame: FrameLocator) {
+  await expect(frame.getByRole("heading", { name: "One job at a time" })).toBeVisible();
+  await frame.getByLabel("Job title").fill("Customer Service Associate");
+  await frame.getByLabel("Employer").fill("Lakeside Market");
+  await frame.getByLabel(/Location/).fill("Dayton, Ohio");
+  await frame.getByLabel(/Started/).fill("March 2021");
+  await frame.getByLabel(/Ended/).fill("Present");
+  await frame.getByLabel("What did you do?").fill("Help about 60 customers per shift and train new employees.");
+  await frame.getByRole("button", { name: "Save this job" }).click();
+  await confirmOwnerAction(page, /Confirm career fact/);
+  await expect(frame.getByRole("heading", { name: "Something you improved or handled well" })).toBeVisible({ timeout: 15_000 });
+  await expect(frame.getByText(/Customer Service Associate at Lakeside Market/)).toBeVisible();
 }
 
 async function skipInterviewTopic(frame: FrameLocator, nextHeading: string) {
@@ -96,13 +110,7 @@ test.describe("Resume Builder owner journey", () => {
     await frame.getByRole("button", { name: "Continue to interview" }).click();
     await answerInterviewTopic(page, frame, "Synthetic Owner | Dayton, Ohio | owner@example.test | 555-010-0142", "What you want next");
     await answerInterviewTopic(page, frame, "Customer support supervisor roles", "Work experience");
-    await answerInterviewTopic(
-      page,
-      frame,
-      "Customer Service Associate at Lakeside Market in Dayton. Help about 60 customers per shift and train new employees.",
-      "Something you improved or handled well",
-      "March 2021 to present.",
-    );
+    await answerEmployment(page, frame);
     await answerInterviewTopic(
       page,
       frame,
@@ -119,6 +127,11 @@ test.describe("Resume Builder owner journey", () => {
 
     await expect(frame.getByRole("heading", { name: "Review your information" })).toBeVisible();
     await expect(frame.getByText(/Created a new checkout checklist/)).toBeVisible();
+    await frame.getByRole("button", { name: "Add another accomplishment" }).click();
+    await frame.getByLabel("Your answer").fill("Created a new checkout checklist. It reduced checkout errors and helped train 4 new employees.");
+    await frame.getByRole("button", { name: "Save answer" }).click();
+    await expect(page.getByRole("dialog")).toBeHidden();
+    await expect(frame.getByRole("heading", { name: "Review your information" })).toBeVisible({ timeout: 15_000 });
     const contactCard = frame.locator(".card").filter({ hasText: "owner@example.test" });
     await contactCard.getByRole("button", { name: "Edit" }).click();
     await frame.getByLabel("Information").fill("Synthetic Owner | Dayton, Ohio | synthetic.owner@example.test | 555-010-0142");
@@ -141,6 +154,8 @@ test.describe("Resume Builder owner journey", () => {
     await frame.getByRole("button", { name: "Validate and approve" }).click();
     await confirmOwnerAction(page, /Approve resume version/);
 
+    await expect(frame.getByRole("heading", { name: "Preview approved resume" })).toBeVisible({ timeout: 15_000 });
+    await frame.locator('[data-stage="job"]').click();
     await expect(frame.getByRole("heading", { name: "Paste the target job description" })).toBeVisible({ timeout: 15_000 });
     await frame.getByLabel("Role label").fill("Synthetic TypeScript role");
     await frame.getByLabel("Job description").fill("Requires TypeScript delivery and respectful collaboration with product owners.");

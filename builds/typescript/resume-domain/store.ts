@@ -72,13 +72,28 @@ const STORE_MANIFEST = StoreManifestSchema.parse({
   integrity_algorithm: "sha256",
 });
 
-const LeaseSchema = z.object({
+const LegacyLeaseSchema = z.object({
   lease_version: z.literal(1),
   lease_id: OpaqueIdSchema,
   owner_pid: z.number().int().positive(),
   acquired_at: TimestampSchema,
   expires_at: TimestampSchema,
 }).strict();
+
+const LeaseSchema = z.union([
+  LegacyLeaseSchema,
+  z.object({
+    lease_version: z.literal(2),
+    lease_id: OpaqueIdSchema,
+    owner_pid: z.number().int().positive(),
+    owner_instance_id: OpaqueIdSchema,
+    owner_process_start_ticks: z.string().regex(/^\d+$/).nullable(),
+    acquired_at: TimestampSchema,
+    expires_at: TimestampSchema,
+  }).strict(),
+]);
+
+const PROCESS_INSTANCE_ID = randomUUID();
 
 const TransactionSchema = z.object({
   transaction_version: z.literal(1),
@@ -984,9 +999,11 @@ export class ResumeDataStore {
     while (true) {
       const now = Date.now();
       const lease = LeaseSchema.parse({
-        lease_version: 1,
+        lease_version: 2,
         lease_id: randomUUID(),
         owner_pid: process.pid,
+        owner_instance_id: PROCESS_INSTANCE_ID,
+        owner_process_start_ticks: await this.processStartTicks(process.pid),
         acquired_at: new Date(now).toISOString(),
         expires_at: new Date(now + this.leaseTtlMs()).toISOString(),
       });
@@ -1004,7 +1021,7 @@ export class ResumeDataStore {
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
         try {
           const current = LeaseSchema.parse(JSON.parse(await readFile(this.leasePath, "utf8")));
-          if (Date.parse(current.expires_at) <= Date.now() || !this.isProcessAlive(current.owner_pid)) {
+          if (Date.parse(current.expires_at) <= Date.now() || !await this.isLeaseOwnerAlive(current)) {
             const stalePath = path.join(this.namespaceRoot, `.store.lock.stale.${randomUUID()}`);
             try {
               await rename(this.leasePath, stalePath);
@@ -1062,13 +1079,32 @@ export class ResumeDataStore {
     }
   }
 
-  private isProcessAlive(processId: number): boolean {
-    if (processId === process.pid) return true;
+  private async isLeaseOwnerAlive(lease: Lease): Promise<boolean> {
+    if (lease.lease_version === 2) {
+      if (lease.owner_pid === process.pid) return lease.owner_instance_id === PROCESS_INSTANCE_ID;
+      if (lease.owner_process_start_ticks !== null) {
+        const currentStartTicks = await this.processStartTicks(lease.owner_pid);
+        if (currentStartTicks !== null) return currentStartTicks === lease.owner_process_start_ticks;
+      }
+    } else if (lease.owner_pid === process.pid) return true;
     try {
-      process.kill(processId, 0);
+      process.kill(lease.owner_pid, 0);
       return true;
     } catch (error) {
       return (error as NodeJS.ErrnoException).code !== "ESRCH";
+    }
+  }
+
+  private async processStartTicks(processId: number): Promise<string | null> {
+    if (process.platform !== "linux") return null;
+    try {
+      const stat = await readFile(`/proc/${processId}/stat`, "utf8");
+      const commandEnd = stat.lastIndexOf(")");
+      if (commandEnd < 0) return null;
+      const fieldsAfterCommand = stat.slice(commandEnd + 2).trim().split(/\s+/);
+      return /^\d+$/.test(fieldsAfterCommand[19] ?? "") ? fieldsAfterCommand[19]! : null;
+    } catch {
+      return null;
     }
   }
 

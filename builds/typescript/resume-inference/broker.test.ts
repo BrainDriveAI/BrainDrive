@@ -91,6 +91,9 @@ describe("ResumeInferenceBroker", () => {
     expect(system).toContain("reverse chronological");
     expect(system).toContain("standard section IDs");
     expect(system).toContain("one concise statement");
+    expect(system).toContain("job_fact_revision_id");
+    expect(system).toContain("professional summary");
+    expect(system).toContain("job, return a heading statement");
     expect(system).toContain("Do not copy coaching preferences");
   });
 

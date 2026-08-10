@@ -114,6 +114,7 @@ export const ResumeStatementSchema = z
     statement_id: OpaqueIdSchema,
     section_id: NonEmptyStringSchema.default("experience"),
     kind: z.enum(["factual", "presentation"]),
+    display_role: z.enum(["heading", "bullet", "line"]).optional(),
     text: z.string().min(1).max(8_192),
     supporting_confirmed_fact_revision_ids: z.array(OpaqueIdSchema),
   })

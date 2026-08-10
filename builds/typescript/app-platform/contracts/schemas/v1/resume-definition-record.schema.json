@@ -202,6 +202,14 @@
               "presentation"
             ]
           },
+          "display_role": {
+            "type": "string",
+            "enum": [
+              "heading",
+              "bullet",
+              "line"
+            ]
+          },
           "text": {
             "type": "string",
             "minLength": 1,

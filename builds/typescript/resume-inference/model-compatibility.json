@@ -1,4 +1,83 @@
 {
   "registry_version": 1,
-  "entries": []
+  "entries": [
+    {
+      "registry_version": 1,
+      "provider_profile_id": "braindrive-models",
+      "model_id": "braindrive-models-default",
+      "purpose": "interview_assist",
+      "output_schema_id": "resume.interview-assist.v1",
+      "compatible": true,
+      "fixture_corpus_digest": "sha256:473280fb04330d28de54774410e30e07a3e0656d3e45ad5687ab6026663def0c",
+      "tested_at": "2026-08-10T18:45:16.967Z",
+      "zero_unsupported_claim_gate": true,
+      "schema_success_rate": 1,
+      "latency_p95_ms": 16000
+    },
+    {
+      "registry_version": 1,
+      "provider_profile_id": "braindrive-models",
+      "model_id": "braindrive-models-default",
+      "purpose": "general_resume_draft",
+      "output_schema_id": "resume.general-draft.v1",
+      "compatible": true,
+      "fixture_corpus_digest": "sha256:473280fb04330d28de54774410e30e07a3e0656d3e45ad5687ab6026663def0c",
+      "tested_at": "2026-08-10T18:47:18.328Z",
+      "zero_unsupported_claim_gate": true,
+      "schema_success_rate": 1,
+      "latency_p95_ms": 12599
+    },
+    {
+      "registry_version": 1,
+      "provider_profile_id": "braindrive-models",
+      "model_id": "braindrive-models-default",
+      "purpose": "job_description_analyze",
+      "output_schema_id": "resume.job-analysis.v1",
+      "compatible": true,
+      "fixture_corpus_digest": "sha256:473280fb04330d28de54774410e30e07a3e0656d3e45ad5687ab6026663def0c",
+      "tested_at": "2026-08-10T18:45:16.967Z",
+      "zero_unsupported_claim_gate": true,
+      "schema_success_rate": 1,
+      "latency_p95_ms": 6004
+    },
+    {
+      "registry_version": 1,
+      "provider_profile_id": "braindrive-models",
+      "model_id": "braindrive-models-default",
+      "purpose": "requirement_evidence_match",
+      "output_schema_id": "resume.requirement-evidence.v1",
+      "compatible": true,
+      "fixture_corpus_digest": "sha256:473280fb04330d28de54774410e30e07a3e0656d3e45ad5687ab6026663def0c",
+      "tested_at": "2026-08-10T18:45:16.967Z",
+      "zero_unsupported_claim_gate": true,
+      "schema_success_rate": 1,
+      "latency_p95_ms": 4767
+    },
+    {
+      "registry_version": 1,
+      "provider_profile_id": "braindrive-models",
+      "model_id": "braindrive-models-default",
+      "purpose": "tailoring_plan",
+      "output_schema_id": "resume.tailoring-plan.v1",
+      "compatible": true,
+      "fixture_corpus_digest": "sha256:473280fb04330d28de54774410e30e07a3e0656d3e45ad5687ab6026663def0c",
+      "tested_at": "2026-08-10T18:45:16.967Z",
+      "zero_unsupported_claim_gate": true,
+      "schema_success_rate": 1,
+      "latency_p95_ms": 16163
+    },
+    {
+      "registry_version": 1,
+      "provider_profile_id": "braindrive-models",
+      "model_id": "braindrive-models-default",
+      "purpose": "targeted_resume_draft",
+      "output_schema_id": "resume.targeted-draft.v1",
+      "compatible": true,
+      "fixture_corpus_digest": "sha256:473280fb04330d28de54774410e30e07a3e0656d3e45ad5687ab6026663def0c",
+      "tested_at": "2026-08-10T18:45:16.967Z",
+      "zero_unsupported_claim_gate": true,
+      "schema_success_rate": 1,
+      "latency_p95_ms": 4597
+    }
+  ]
 }

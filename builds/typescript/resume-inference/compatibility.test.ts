@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { ModelCompatibilityRegistry, VERSIONED_MODEL_COMPATIBILITY_ENTRIES } from "./compatibility.js";
 import { PURPOSE_OUTPUT_SCHEMAS } from "../app-platform/contracts/inference.js";
+import { RESUME_MODEL_CONFORMANCE_CORPUS_DIGEST } from "./conformance-corpus.js";
 
 function entry(provider: string, model: string) {
   return {
@@ -13,8 +14,22 @@ function entry(provider: string, model: string) {
 }
 
 describe("model compatibility registry", () => {
-  it("keeps real-model transmission fail-closed until conformance entries are versioned", () => {
-    expect(VERSIONED_MODEL_COMPATIBILITY_ENTRIES).toEqual([]);
+  it("admits the effective BrainDrive Models alias only for its conformance-backed purposes", () => {
+    expect(VERSIONED_MODEL_COMPATIBILITY_ENTRIES).toHaveLength(6);
+    expect(VERSIONED_MODEL_COMPATIBILITY_ENTRIES).toEqual(expect.arrayContaining(Object.keys(PURPOSE_OUTPUT_SCHEMAS).map((purpose) => expect.objectContaining({
+      provider_profile_id: "braindrive-models",
+      model_id: "braindrive-models-default",
+      purpose,
+      compatible: true,
+      fixture_corpus_digest: RESUME_MODEL_CONFORMANCE_CORPUS_DIGEST,
+      zero_unsupported_claim_gate: true,
+      schema_success_rate: 1,
+    }))));
+    const registry = new ModelCompatibilityRegistry(VERSIONED_MODEL_COMPATIBILITY_ENTRIES);
+    for (const purpose of Object.keys(PURPOSE_OUTPUT_SCHEMAS) as Array<keyof typeof PURPOSE_OUTPUT_SCHEMAS>) {
+      expect(registry.require("braindrive-models", "braindrive-models-default", purpose).purpose).toBe(purpose);
+    }
+    expect(() => registry.require("openrouter", "braindrive-models-default", "general_resume_draft")).toThrow(/conformance record/);
   });
 
   it("keeps Ollama, BYOK OpenRouter, and BrainDrive Models independent and conformance-derived", () => {

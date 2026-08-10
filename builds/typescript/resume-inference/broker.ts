@@ -156,7 +156,13 @@ export class ResumeInferenceBroker {
       const validation = validateInferenceClaims(request.purpose, result, request.data_blocks);
       if (!validation.accepted) {
         const failure = this.failure(request, startedAt, inputDigest, provider, attempts, "failed", new ResumeInferenceError("validation_failed", "Generated output did not pass deterministic claim validation"));
-        this.audit("app.inference.completed", this.auditFields(request, { status: failure.status, attempt: attempts, error_code: failure.error?.code, model_class: provider.modelClass }));
+        this.audit("app.inference.completed", this.auditFields(request, {
+          status: failure.status,
+          attempt: attempts,
+          error_code: failure.error?.code,
+          model_class: provider.modelClass,
+          validator_findings: validation.findings.map(({ code, statement_id, safe_message }) => ({ code, statement_id, safe_message })),
+        }));
         return { inference: failure, validation };
       }
       const completedAt = this.now().toISOString();

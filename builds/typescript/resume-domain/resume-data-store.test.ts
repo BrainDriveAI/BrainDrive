@@ -103,6 +103,24 @@ describe("Resume data M2 atomic record store", () => {
     expect((await staleRecovered.integrityScan()).status).toBe("verified");
   });
 
+  it("reclaims a lease from an earlier runtime instance even when its PID was reused", async () => {
+    const { root, store } = await setup();
+    const leasePath = path.join(store.namespaceRoot, ".store.lock");
+    await writeFile(leasePath, `${JSON.stringify({
+      lease_version: 2,
+      lease_id: crypto.randomUUID(),
+      owner_pid: process.pid,
+      owner_instance_id: crypto.randomUUID(),
+      owner_process_start_ticks: null,
+      acquired_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 120_000).toISOString(),
+    })}\n`, "utf8");
+
+    const recovered = new ResumeDataStore(root, undefined, { leaseWaitMs: 100, leaseRetryMs: 5 }, false);
+    await recovered.initialize(testGrant().owner_id);
+    expect((await recovered.integrityScan()).status).toBe("verified");
+  });
+
   it.each([
     ["afterTransactionStaged"],
     ["beforeRecordPromote"],

@@ -70,18 +70,27 @@ function wrapLine(text: string): string[] {
   return lines;
 }
 
-export function logicalResumeLines(definition: ResumeDefinition): string[] {
-  const lines = [sanitizeResumeText(definition.title)];
+type LogicalResumeEntry = { text: string; role: "title" | "section" | "heading" | "bullet" | "line" };
+
+function logicalResumeEntries(definition: ResumeDefinition): LogicalResumeEntry[] {
+  const entries: LogicalResumeEntry[] = [{ text: sanitizeResumeText(definition.title), role: "title" }];
   for (const sectionId of definition.section_order) {
     const statements = definition.statements.filter((statement) => statement.section_id === sectionId);
     if (statements.length === 0) continue;
-    if (sectionId !== "contact") lines.push(sectionLabel(sectionId));
-    const prefix = sectionId === "contact" || sectionId === "summary" ? "" : "- ";
+    if (sectionId !== "contact") entries.push({ text: sectionLabel(sectionId), role: "section" });
     for (const statement of statements) {
-      const text = sectionId === "contact" ? contactLine(definition.title, statement.text) : statement.text;
-      if (text) lines.push(...wrapLine(`${prefix}${text}`));
+      const role = statement.display_role ?? (sectionId === "contact" || sectionId === "summary" ? "line" : "bullet");
+      const value = sectionId === "contact" ? contactLine(definition.title, statement.text) : statement.text;
+      if (!value) continue;
+      const prefix = role === "bullet" ? "- " : "";
+      entries.push(...wrapLine(`${prefix}${value}`).map((text) => ({ text, role })));
     }
   }
+  return entries;
+}
+
+export function logicalResumeLines(definition: ResumeDefinition): string[] {
+  const lines = logicalResumeEntries(definition).map((entry) => entry.text);
   if (lines.some((line) => !line)) throw new ResumeDomainError("validation_failed", "Resume contains empty render content");
   if (lines.length > MAX_LINES_PER_PAGE * MAX_PAGES) throw new ResumeDomainError("validation_failed", "Resume exceeds the accepted two-page renderer limit");
   return lines;
@@ -94,8 +103,9 @@ export function renderApprovedResume(definition: ResumeDefinition): RenderedResu
   if (definition.template_id !== RESUME_TEMPLATE_ID || definition.template_version !== RESUME_TEMPLATE_VERSION) {
     throw new ResumeDomainError("incompatible_schema", "Resume template is not compatible with the accepted renderer");
   }
-  const logicalLines = logicalResumeLines(definition);
-  const pages = chunk(logicalLines, MAX_LINES_PER_PAGE);
+  const logicalEntries = logicalResumeEntries(definition);
+  const logicalLines = logicalEntries.map((entry) => entry.text);
+  const pages = chunk(logicalEntries, MAX_LINES_PER_PAGE);
   const bytes = buildPdf(pages);
   const parsedLines = parseBackPdf(bytes);
   if (JSON.stringify(parsedLines) !== JSON.stringify(logicalLines)) {
@@ -131,7 +141,8 @@ export function renderApprovedResumeMarkdown(definition: ResumeDefinition): stri
       const value = sectionId === "contact" ? contactLine(definition.title, statement.text) : statement.text;
       const text = escapeMarkdownText(value);
       if (!text) continue;
-      output.push(sectionId === "contact" || sectionId === "summary" ? text : `- ${text}`);
+      const role = statement.display_role ?? (sectionId === "contact" || sectionId === "summary" ? "line" : "bullet");
+      output.push(role === "bullet" ? `- ${text}` : role === "heading" ? `**${text}**` : text);
     }
     output.push("");
   }
@@ -145,7 +156,7 @@ export function parseBackPdf(bytes: Uint8Array): string[] {
   return lines;
 }
 
-function buildPdf(pages: string[][]): Buffer {
+function buildPdf(pages: LogicalResumeEntry[][]): Buffer {
   const objects: string[] = [];
   const pageObjectIds = pages.map((_, index) => 3 + index * 2);
   const contentObjectIds = pages.map((_, index) => 4 + index * 2);
@@ -154,13 +165,12 @@ function buildPdf(pages: string[][]): Buffer {
   objects[1] = "<< /Type /Catalog /Pages 2 0 R >>";
   objects[2] = `<< /Type /Pages /Kids [${pageObjectIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pages.length} >>`;
   pages.forEach((lines, index) => {
-    const stream = ["BT", "72 760 Td", ...lines.flatMap((line, lineIndex) => {
-      const title = index === 0 && lineIndex === 0;
-      const heading = !title && isSectionLabel(line);
-      const font = title || heading ? "F2" : "F1";
-      const size = title ? 18 : heading ? 11 : 10.5;
-      const leading = title ? 24 : heading ? 18 : 14;
-      return [`/${font} ${size} Tf`, `(${escapePdfText(line)}) Tj`, `0 -${leading} Td`];
+    const stream = ["BT", "72 760 Td", ...lines.flatMap((entry) => {
+      const bold = entry.role === "title" || entry.role === "section" || entry.role === "heading";
+      const font = bold ? "F2" : "F1";
+      const size = entry.role === "title" ? 18 : entry.role === "section" ? 11 : entry.role === "heading" ? 10.5 : 10.5;
+      const leading = entry.role === "title" ? 24 : entry.role === "section" ? 18 : 14;
+      return [`/${font} ${size} Tf`, `(${escapePdfText(entry.text)}) Tj`, `0 -${leading} Td`];
     }), "ET"].join("\n");
     objects[pageObjectIds[index]!] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 ${regularFontObjectId} 0 R /F2 ${boldFontObjectId} 0 R >> >> /Contents ${contentObjectIds[index]} 0 R >>`;
     objects[contentObjectIds[index]!] = `<< /Length ${Buffer.byteLength(stream, "latin1")} >>\nstream\n${stream}\nendstream`;
@@ -194,10 +204,6 @@ function escapeMarkdownText(value: string): string {
 
 function sectionLabel(value: string): string {
   return sanitizeResumeText(value.replace(/[_-]+/g, " ")).replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function isSectionLabel(value: string): boolean {
-  return new Set(["Summary", "Experience", "Education", "Certifications", "Skills", "Projects", "Leadership", "Volunteer", "Links"]).has(value);
 }
 
 function contactLine(title: string, value: string): string {

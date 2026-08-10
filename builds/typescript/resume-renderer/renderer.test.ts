@@ -32,7 +32,7 @@ async function approvedDefinition() {
     statements: [
       { statement_id: crypto.randomUUID(), section_id: "contact", kind: "factual", text: "Owner Name | owner@example.test", supporting_confirmed_fact_revision_ids: [contact.fact.metadata.revision_id] },
       { statement_id: crypto.randomUUID(), section_id: "summary", kind: "presentation", text: "<script>bad()</script>Professional &amp; collaborator", supporting_confirmed_fact_revision_ids: [] },
-      { statement_id: crypto.randomUUID(), section_id: "experience", kind: "factual", text: "Built synthetic scheduling application in 2025", supporting_confirmed_fact_revision_ids: [confirmed.fact.metadata.revision_id] },
+      { statement_id: crypto.randomUUID(), section_id: "experience", kind: "factual", display_role: "heading", text: "Built synthetic scheduling application in 2025", supporting_confirmed_fact_revision_ids: [confirmed.fact.metadata.revision_id] },
     ],
     section_order: ["contact", "summary", "experience"],
   }), authority("resume.definitions.write"), true);
@@ -54,7 +54,7 @@ describe("conservative ATS PDF renderer", () => {
       "",
       "## Experience",
       "",
-      "- Built synthetic scheduling application in 2025",
+      "**Built synthetic scheduling application in 2025**",
       "",
     ].join("\n"));
   });
@@ -70,7 +70,7 @@ describe("conservative ATS PDF renderer", () => {
       "Summary",
       "Professional & collaborator",
       "Experience",
-      "- Built synthetic scheduling application in 2025",
+      "Built synthetic scheduling application in 2025",
     ]);
     expect(parseBackPdf(rendered.bytes)).toEqual(rendered.logical_lines);
     expect(rendered.bytes.toString("latin1")).not.toContain("script");

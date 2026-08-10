@@ -31,6 +31,7 @@ export function validateInferenceClaims(purpose: InferencePurpose, result: unkno
   if (purpose === "general_resume_draft" || purpose === "targeted_resume_draft") {
     const statements = (result as { statements?: GeneratedStatement[] }).statements ?? [];
     for (const statement of statements) findings.push(...validateStatement(statement, facts));
+    findings.push(...validateResumeStructure(statements, dataBlocks));
     if (purpose === "targeted_resume_draft") findings.push(...validateTargetedLineage(result, dataBlocks));
   }
   if (purpose === "job_description_analyze") findings.push(...validateJobAnalysis(result, dataBlocks));
@@ -50,6 +51,42 @@ export function validateInferenceClaims(purpose: InferencePurpose, result: unkno
   };
 }
 
+function validateResumeStructure(statements: GeneratedStatement[], blocks: DataBlock[]): Finding[] {
+  const findings: Finding[] = [];
+  const factRows = blocks.flatMap((block) => block.category === "confirmed_fact_snapshot"
+    ? ((block.data as { facts?: Array<{ revision_id?: unknown; fact_kind?: unknown; value?: unknown }> } | null)?.facts ?? [])
+    : []);
+  const structured = factRows.flatMap((fact) => {
+    if (typeof fact.revision_id !== "string" || typeof fact.value !== "string") return [];
+    try {
+      const value = JSON.parse(fact.value) as Record<string, unknown>;
+      return value && typeof value === "object" ? [{ revisionId: fact.revision_id, value }] : [];
+    } catch {
+      return [];
+    }
+  });
+  const jobs = structured.filter((fact) => fact.value.format === "resume_job_v1");
+  if (jobs.length === 0) return findings;
+  if (!statements.some((statement) => statement.section_id === "summary")) {
+    findings.push(finding("schema_invalid", null, "A resume with work experience requires a supported professional summary"));
+  }
+  for (const job of jobs) {
+    const title = typeof job.value.title === "string" ? normalize(job.value.title) : "";
+    const employer = typeof job.value.employer === "string" ? normalize(job.value.employer) : "";
+    const heading = statements.find((statement) => statement.section_id === "experience"
+      && statement.supporting_confirmed_fact_revision_ids.includes(job.revisionId)
+      && (!title || normalize(statement.text).includes(title))
+      && (!employer || normalize(statement.text).includes(employer)));
+    if (!heading) findings.push(finding("schema_invalid", null, "Each confirmed job requires an individual experience heading"));
+  }
+  for (const accomplishment of structured.filter((fact) => fact.value.format === "resume_accomplishment_v1")) {
+    const candidate = statements.find((statement) => statement.section_id === "experience" && statement.supporting_confirmed_fact_revision_ids.includes(accomplishment.revisionId));
+    if (!candidate) findings.push(finding("missing_provenance", null, "Each confirmed accomplishment requires its own supported experience statement"));
+    else if (candidate.text.length > 320) findings.push(finding("schema_invalid", candidate.statement_id, "Accomplishment bullets must remain concise"));
+  }
+  return findings;
+}
+
 function confirmedFacts(blocks: DataBlock[]): Map<string, string> {
   const map = new Map<string, string>();
   for (const block of blocks.filter((candidate) => candidate.category === "confirmed_fact_snapshot")) {
@@ -67,11 +104,21 @@ function validateStatement(statement: GeneratedStatement, facts: Map<string, str
     return findings;
   }
   const source = normalize(support.join(" "));
+  if (/resume_(?:job|accomplishment)_v1|job_fact_revision_id|[{}]/i.test(statement.text)) {
+    findings.push(finding("unsupported_claim", statement.statement_id, "Internal structured fact markers cannot appear in resume text"));
+  }
   const protectedValues = statement.text.match(PROTECTED_TOKEN) ?? [];
   if (protectedValues.some((value) => !source.includes(normalize(value)))) {
     findings.push(finding("protected_field_changed", statement.statement_id, "A protected metric, date, or URL is absent from supporting facts"));
   }
-  const unsupported = significantTokens(statement.text).filter((token) => !source.includes(token));
+  const sourceTokens = new Set(significantTokens(source).map(claimTokenRoot));
+  const unsupported = significantTokens(statement.text).filter((token) => {
+    const root = claimTokenRoot(token);
+    if (sourceTokens.has(root)) return false;
+    if (root === "experienc" && support.length > 0) return false;
+    if (root === "multipl" && /\bacross\s+(?:[2-9]|\d{2,})\s+\w+s\b/.test(source)) return false;
+    return true;
+  });
   if (statement.kind === "factual" && unsupported.length > 0) {
     findings.push(finding("unsupported_claim", statement.statement_id, "Factual wording exceeds its confirmed supporting facts"));
   }
@@ -112,6 +159,18 @@ function validateTargetedLineage(result: unknown, blocks: DataBlock[]): Finding[
 
 function significantTokens(text: string): string[] {
   return [...new Set(normalize(text).split(/[^a-z0-9%]+/).filter((token) => token.length >= 3 && !STOP_WORDS.has(token)))];
+}
+
+function claimTokenRoot(token: string): string {
+  let value = token;
+  if (value.endsWith("ies") && value.length > 5) value = `${value.slice(0, -3)}y`;
+  else if (value.endsWith("ing") && value.length > 6) value = value.slice(0, -3);
+  else if (value.endsWith("ed") && value.length > 5) value = value.slice(0, -2);
+  else if (value.endsWith("es") && value.length > 5) value = value.slice(0, -2);
+  else if (value.endsWith("s") && value.length > 4) value = value.slice(0, -1);
+  if (value.endsWith("e") && value.length > 5) value = value.slice(0, -1);
+  if (/^(?:maintain|manag)/.test(value)) return "manage";
+  return value;
 }
 
 function normalize(value: string): string { return value.normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim(); }
