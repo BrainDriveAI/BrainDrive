@@ -8,7 +8,13 @@ const parentId = "10000000-0000-4000-8000-000000000002";
 const jobId = "10000000-0000-4000-8000-000000000003";
 const requirementId = "10000000-0000-4000-8000-000000000004";
 const statementId = "10000000-0000-4000-8000-000000000005";
-const facts = { category: "confirmed_fact_snapshot", data: { facts: [{ revision_id: factId, value: "Delivered synthetic TypeScript systems" }] } };
+const contactId = "10000000-0000-4000-8000-000000000006";
+const educationId = "10000000-0000-4000-8000-000000000007";
+const facts = { category: "confirmed_fact_snapshot", data: { facts: [
+  { revision_id: factId, fact_kind: "employment", value: "Delivered synthetic TypeScript systems" },
+  { revision_id: contactId, fact_kind: "contact", value: "Synthetic Owner | owner@example.test" },
+  { revision_id: educationId, fact_kind: "education", value: "Synthetic University, 2025" },
+] } };
 const parent = { category: "general_resume_definition", data: { metadata: { revision_id: parentId }, title: "General Resume", statements: [{ statement_id: statementId, section_id: "experience", kind: "factual", text: "Delivered synthetic TypeScript systems", supporting_confirmed_fact_revision_ids: [factId] }], section_order: ["experience"] } };
 const job = { category: "job_description", data: { metadata: { revision_id: jobId }, description_text: "Requires TypeScript delivery." } };
 
@@ -25,5 +31,16 @@ describe("Resume Builder isolated E2E inference fixture", () => {
     for (const [purpose, blocks] of Object.entries(cases)) {
       expect(() => PURPOSE_RESULT_SCHEMAS[purpose as keyof typeof cases].parse(synthesizeResumeE2eResult(purpose as keyof typeof cases, [...blocks]))).not.toThrow();
     }
+  });
+
+  it("builds a readable general-resume section structure from fact kinds", () => {
+    const draft = synthesizeResumeE2eResult("general_resume_draft", [facts]) as {
+      title: string;
+      statements: Array<{ section_id: string }>;
+      section_order: string[];
+    };
+    expect(draft.title).toBe("Synthetic Owner");
+    expect(draft.section_order).toEqual(["contact", "experience", "education"]);
+    expect(draft.statements.map((statement) => statement.section_id)).toEqual(["experience", "contact", "education"]);
   });
 });

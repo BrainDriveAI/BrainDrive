@@ -263,6 +263,12 @@ export default function SandboxedAppFrame({
   const confirmationRecord = (() => {
     const input = pendingConfirmation?.message.payload?.input;
     const recordId = typeof input?.fact_record_id === "string" ? input.fact_record_id : typeof input?.definition_record_id === "string" ? input.definition_record_id : "";
+    if (input?.decision === "edit_and_accept" && typeof input.edited_value === "string") {
+      return { label: "Confirm corrected career information", detail: input.edited_value };
+    }
+    if (input?.decision === "reject") {
+      return { label: "Remove this career information?", detail: "BrainDrive will stop using this item in new resume drafts. Its earlier confirmed version remains in history." };
+    }
     return ownerRecordsRef.current.get(recordId) ?? { label: "Confirm this owner action", detail: "BrainDrive will validate the saved record and reject stale or unsupported content." };
   })();
 

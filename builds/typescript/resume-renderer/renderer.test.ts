@@ -21,14 +21,20 @@ async function approvedDefinition() {
   const proposed = await service.proposeFact(proposalInput("Built synthetic scheduling application in 2025"), authority("career.facts.propose"));
   const confirmationAuthority = authority("career.facts.confirm");
   const confirmed = await service.confirmFact({ fact_record_id: proposed.fact.metadata.record_id, fact_revision_id: proposed.fact.metadata.revision_id, expected_revision: 1, decision: "accept", edited_value: null, review_note: null }, confirmationAuthority, ownerDecision(confirmationAuthority, proposed.fact.metadata.revision_id));
+  const contactInput = proposalInput("Owner Name | owner@example.test");
+  const contactProposal = await service.proposeFact({ ...contactInput, fact: { ...contactInput.fact, fact_kind: "contact" } }, authority("career.facts.propose"));
+  const contactAuthority = authority("career.facts.confirm");
+  const contact = await service.confirmFact({ fact_record_id: contactProposal.fact.metadata.record_id, fact_revision_id: contactProposal.fact.metadata.revision_id, expected_revision: 1, decision: "accept", edited_value: null, review_note: null }, contactAuthority, ownerDecision(contactAuthority, contactProposal.fact.metadata.revision_id));
   const definition = await service.writeDefinition(definitionInput(confirmed.fact.metadata.revision_id, {
+    title: "Owner Name",
     template_id: RESUME_TEMPLATE_ID,
     template_version: RESUME_TEMPLATE_VERSION,
     statements: [
+      { statement_id: crypto.randomUUID(), section_id: "contact", kind: "factual", text: "Owner Name | owner@example.test", supporting_confirmed_fact_revision_ids: [contact.fact.metadata.revision_id] },
       { statement_id: crypto.randomUUID(), section_id: "summary", kind: "presentation", text: "<script>bad()</script>Professional &amp; collaborator", supporting_confirmed_fact_revision_ids: [] },
       { statement_id: crypto.randomUUID(), section_id: "experience", kind: "factual", text: "Built synthetic scheduling application in 2025", supporting_confirmed_fact_revision_ids: [confirmed.fact.metadata.revision_id] },
     ],
-    section_order: ["summary", "experience"],
+    section_order: ["contact", "summary", "experience"],
   }), authority("resume.definitions.write"), true);
   if (definition.definition.record_type !== "resume_definition") throw new Error("expected definition");
   return { root, store, service, definition: definition.definition };
@@ -41,9 +47,10 @@ describe("conservative ATS PDF renderer", () => {
     expect(rendered.bytes.subarray(0, 8).toString("latin1")).toBe("%PDF-1.4");
     expect(rendered.page_count).toBe(1);
     expect(rendered.logical_lines).toEqual([
-      "General Resume",
+      "Owner Name",
+      "owner@example.test",
       "Summary",
-      "- Professional & collaborator",
+      "Professional & collaborator",
       "Experience",
       "- Built synthetic scheduling application in 2025",
     ]);

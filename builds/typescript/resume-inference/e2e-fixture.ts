@@ -21,17 +21,33 @@ function blockData<T>(blocks: DataBlock[], category: string): T {
 }
 
 export function synthesizeResumeE2eResult(purpose: InferencePurpose, blocks: DataBlock[]): unknown {
-  const facts = blockData<{ facts: Array<{ revision_id: string; value: string }> }>(blocks, "confirmed_fact_snapshot").facts;
+  const facts = blockData<{ facts: Array<{ revision_id: string; fact_kind?: string; value: string }> }>(blocks, "confirmed_fact_snapshot").facts;
   const firstFact = facts[0];
   switch (purpose) {
     case "interview_assist":
       return { questions: [{ question_id: randomUUID(), topic: "experience", prompt: "What confirmed experience should be included?", rationale: "Collect owner-provided support." }] };
     case "general_resume_draft":
-      return {
-        title: "General Resume",
-        statements: facts.map((fact) => ({ statement_id: randomUUID(), section_id: "experience", kind: "factual", text: fact.value, supporting_confirmed_fact_revision_ids: [fact.revision_id] })),
-        section_order: ["experience"],
+      {
+      const sectionFor = (fact: { fact_kind?: string; value: string }) => {
+        if (fact.fact_kind === "contact") return fact.value.startsWith("Professional link:") ? "links" : "contact";
+        if (fact.fact_kind === "employment" || fact.fact_kind === "accomplishment") return "experience";
+        if (fact.fact_kind === "education") return "education";
+        if (fact.fact_kind === "credential") return "certifications";
+        if (fact.fact_kind === "skill") return "skills";
+        if (fact.fact_kind === "project") return fact.value.startsWith("Leadership or volunteer:") ? "leadership" : "projects";
+        return "experience";
       };
+      const resumeFacts = facts.filter((fact) => fact.fact_kind !== "preference");
+      const statements = resumeFacts.map((fact) => ({ statement_id: randomUUID(), section_id: sectionFor(fact), kind: "factual", text: fact.value, supporting_confirmed_fact_revision_ids: [fact.revision_id] }));
+      const acceptedOrder = ["contact", "summary", "experience", "education", "certifications", "skills", "projects", "leadership", "volunteer", "links"];
+      const sections = new Set(statements.map((statement) => statement.section_id));
+      const contact = facts.find((fact) => fact.fact_kind === "contact" && !fact.value.startsWith("Professional link:"));
+      return {
+        title: contact?.value.split("|")[0]?.trim() || "Resume",
+        statements,
+        section_order: acceptedOrder.filter((section) => sections.has(section)),
+      };
+      }
     case "job_description_analyze": {
       const job = blockData<{ description_text: string }>(blocks, "job_description");
       const sourceSpan = job.description_text.slice(0, 4_096);

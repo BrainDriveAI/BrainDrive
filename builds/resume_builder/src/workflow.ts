@@ -1,9 +1,14 @@
 export const INTERVIEW_TOPICS = [
   "contact",
+  "direction",
   "employment",
   "accomplishments",
   "education",
+  "credentials",
   "skills",
+  "projects",
+  "leadership_volunteer",
+  "links",
 ] as const;
 
 export type InterviewTopic = (typeof INTERVIEW_TOPICS)[number];

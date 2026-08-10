@@ -12,7 +12,10 @@ export const RESUME_TEMPLATE_ID = "resume.single-column" as const;
 export const RESUME_TEMPLATE_VERSION = "1" as const;
 export const RESUME_RENDERER_ID = "braindrive.ats-pdf" as const;
 export const RESUME_RENDERER_VERSION = "1" as const;
-export const RESUME_FONT_MANIFEST_DIGEST = canonicalInputDigest({ fonts: [{ family: "Helvetica", source: "pdf-core-font", version: "PDF-1.4" }] });
+export const RESUME_FONT_MANIFEST_DIGEST = canonicalInputDigest({ fonts: [
+  { family: "Helvetica", weight: "regular", source: "pdf-core-font", version: "PDF-1.4" },
+  { family: "Helvetica", weight: "bold", source: "pdf-core-font", version: "PDF-1.4" },
+] });
 
 const MAX_LINE_LENGTH = 88;
 const MAX_LINES_PER_PAGE = 48;
@@ -72,8 +75,12 @@ export function logicalResumeLines(definition: ResumeDefinition): string[] {
   for (const sectionId of definition.section_order) {
     const statements = definition.statements.filter((statement) => statement.section_id === sectionId);
     if (statements.length === 0) continue;
-    lines.push(sectionLabel(sectionId));
-    for (const statement of statements) lines.push(...wrapLine(`- ${statement.text}`));
+    if (sectionId !== "contact") lines.push(sectionLabel(sectionId));
+    const prefix = sectionId === "contact" || sectionId === "summary" ? "" : "- ";
+    for (const statement of statements) {
+      const text = sectionId === "contact" ? contactLine(definition.title, statement.text) : statement.text;
+      if (text) lines.push(...wrapLine(`${prefix}${text}`));
+    }
   }
   if (lines.some((line) => !line)) throw new ResumeDomainError("validation_failed", "Resume contains empty render content");
   if (lines.length > MAX_LINES_PER_PAGE * MAX_PAGES) throw new ResumeDomainError("validation_failed", "Resume exceeds the accepted two-page renderer limit");
@@ -122,15 +129,24 @@ function buildPdf(pages: string[][]): Buffer {
   const objects: string[] = [];
   const pageObjectIds = pages.map((_, index) => 3 + index * 2);
   const contentObjectIds = pages.map((_, index) => 4 + index * 2);
-  const fontObjectId = 3 + pages.length * 2;
+  const regularFontObjectId = 3 + pages.length * 2;
+  const boldFontObjectId = regularFontObjectId + 1;
   objects[1] = "<< /Type /Catalog /Pages 2 0 R >>";
   objects[2] = `<< /Type /Pages /Kids [${pageObjectIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pages.length} >>`;
   pages.forEach((lines, index) => {
-    const stream = ["BT", "/F1 11 Tf", "72 760 Td", ...lines.flatMap((line) => [`(${escapePdfText(line)}) Tj`, "0 -15 Td"]), "ET"].join("\n");
-    objects[pageObjectIds[index]!] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 ${fontObjectId} 0 R >> >> /Contents ${contentObjectIds[index]} 0 R >>`;
+    const stream = ["BT", "72 760 Td", ...lines.flatMap((line, lineIndex) => {
+      const title = index === 0 && lineIndex === 0;
+      const heading = !title && isSectionLabel(line);
+      const font = title || heading ? "F2" : "F1";
+      const size = title ? 18 : heading ? 11 : 10.5;
+      const leading = title ? 24 : heading ? 18 : 14;
+      return [`/${font} ${size} Tf`, `(${escapePdfText(line)}) Tj`, `0 -${leading} Td`];
+    }), "ET"].join("\n");
+    objects[pageObjectIds[index]!] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 ${regularFontObjectId} 0 R /F2 ${boldFontObjectId} 0 R >> >> /Contents ${contentObjectIds[index]} 0 R >>`;
     objects[contentObjectIds[index]!] = `<< /Length ${Buffer.byteLength(stream, "latin1")} >>\nstream\n${stream}\nendstream`;
   });
-  objects[fontObjectId] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>";
+  objects[regularFontObjectId] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>";
+  objects[boldFontObjectId] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>";
   let output = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
   const offsets = [0];
   for (let id = 1; id < objects.length; id += 1) {
@@ -154,6 +170,17 @@ function unescapePdfText(value: string): string {
 
 function sectionLabel(value: string): string {
   return sanitizeResumeText(value.replace(/[_-]+/g, " ")).replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function isSectionLabel(value: string): boolean {
+  return new Set(["Summary", "Experience", "Education", "Certifications", "Skills", "Projects", "Leadership", "Volunteer", "Links"]).has(value);
+}
+
+function contactLine(title: string, value: string): string {
+  const normalizedTitle = title.trim().toLocaleLowerCase();
+  const parts = value.split("|").map((part) => part.trim()).filter(Boolean);
+  if (parts[0]?.toLocaleLowerCase() === normalizedTitle) parts.shift();
+  return parts.join(" | ");
 }
 
 function chunk<T>(values: T[], size: number): T[][] {

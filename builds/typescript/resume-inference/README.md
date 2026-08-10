@@ -10,6 +10,8 @@ Cancellation is checked before and after provider resolution, before each bounde
 
 The deterministic gate resolves every cited fact identity to the immutable confirmed snapshot, requires exact job source spans, validates targeted lineage, and conservatively rejects lexical/protected numeric, date, title, and URL drift. Any error finding blocks approval. M4 definitions record validator, policy, input, output, and findings digests atomically with the approved revision.
 
+Resume-generation policy asks compatible models for a professional reverse-chronological document with standard section identifiers, one concise statement per output unit, and a clear separation between jobs, accomplishments, education, credentials, projects, volunteering, and links. Coaching preferences can guide the draft but cannot be copied into experience. The deterministic browser fixture mirrors that section mapping, excludes preference facts from resume claims, and uses confirmed contact information for the displayed name when available.
+
 ## Compatibility gate
 
 `ModelCompatibilityRegistry` accepts only version-1 conformance records that already passed 100% schema success and the zero-unsupported-claim gate. The versioned `model-compatibility.json` intentionally starts with no real-model entries: project-owner approval is not model conformance evidence. Consequently, a real provider request fails closed as `model_incompatible` until a separately reviewed conformance run supplies entries to that registry. Tests use synthetic accepted entries to prove Ollama and BYOK profile independence and the complete execution path; no production provider profile or recommendation is added here.

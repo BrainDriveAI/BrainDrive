@@ -634,8 +634,8 @@ export class ResumeDomainService {
         throw new ResumeDomainError("conflict", "Rejected facts cannot transition again", 409);
       }
       if (current.state === "confirmed") {
-        if (input.decision !== "edit_and_accept" || input.edited_value === current.value) {
-          throw new ResumeDomainError("conflict", "Confirmed facts require a material owner correction", 409);
+        if (input.decision === "accept" || (input.decision === "edit_and_accept" && input.edited_value === current.value)) {
+          throw new ResumeDomainError("conflict", "Confirmed facts require a material owner correction or removal", 409);
         }
       }
       const sourceRecords = await this.sources.requireMany(current.source_revision_ids, authority.grant.record_scopes);

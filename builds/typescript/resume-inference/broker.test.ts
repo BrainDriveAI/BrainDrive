@@ -84,6 +84,16 @@ describe("ResumeInferenceBroker", () => {
     }
   });
 
+  it("gives the model concrete professional resume-writing rules", async () => {
+    const model = adapter(() => JSON.stringify(outputs.general_resume_draft));
+    await new ResumeInferenceBroker(async () => provider(model.value)).execute(request("general_resume_draft"));
+    const system = model.captured[0]?.system ?? "";
+    expect(system).toContain("reverse chronological");
+    expect(system).toContain("standard section IDs");
+    expect(system).toContain("one concise statement");
+    expect(system).toContain("Do not copy coaching preferences");
+  });
+
   it("rejects invalid input and digest mismatch before provider resolution", async () => {
     const resolve = vi.fn();
     const broker = new ResumeInferenceBroker(resolve);

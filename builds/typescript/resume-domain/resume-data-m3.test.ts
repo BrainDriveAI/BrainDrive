@@ -150,6 +150,32 @@ describe("Resume data M3 career facts, sources, and placement", () => {
     expect((await service.sourcesForFact(corrected.fact.metadata.revision_id, authority("career.facts.read")))[0]?.metadata.revision_id).toBe(proposed.source.metadata.revision_id);
   });
 
+  it("lets the owner remove a previously confirmed fact while preserving its history", async () => {
+    const { service, store } = await setup();
+    const proposed = await service.proposeFact(proposalInput("Owner-approved fact to remove"), authority("career.facts.propose"));
+    const acceptAuthority = authority("career.facts.confirm");
+    const accepted = await service.confirmFact(
+      decision(proposed.fact, "accept"),
+      acceptAuthority,
+      decisionEvidence(acceptAuthority, proposed.fact.metadata.revision_id, "accept"),
+    );
+    const rejectAuthority = authority("career.facts.confirm");
+    const rejected = await service.confirmFact(
+      decision(accepted.fact, "reject"),
+      rejectAuthority,
+      decisionEvidence(rejectAuthority, accepted.fact.metadata.revision_id, "reject"),
+    );
+
+    expect(rejected.fact).toMatchObject({
+      state: "rejected",
+      value: accepted.fact.value,
+      supersedes_fact_revision_id: accepted.fact.metadata.revision_id,
+      metadata: { revision: 3 },
+    });
+    expect((await service.factHistory(proposed.fact.metadata.record_id, authority("career.facts.read"))).map((fact) => fact.state)).toEqual(["suggested", "confirmed", "rejected"]);
+    expect(await store.readRevision(accepted.fact.metadata.revision_id)).toEqual(accepted.fact);
+  });
+
   it("records grouped partial review as independent atomic decisions", async () => {
     const { service, store } = await setup();
     const first = await service.proposeFact(proposalInput("First grouped fact"), authority("career.facts.propose"));

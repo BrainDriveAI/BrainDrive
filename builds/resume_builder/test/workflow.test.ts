@@ -29,20 +29,20 @@ describe("Resume Builder durable workflow reducer", () => {
       type: "durable.loaded",
       snapshot: snapshot({ known_topics: ["contact", "employment"] }),
     });
-    expect(loaded.currentTopic).toBe("accomplishments");
-    expect(progressSummary(loaded)).toEqual({ completed: 2, skipped: 0, remaining: 3, total: 5 });
-    expect(nextInterviewTopic(["contact"], ["employment"], ["accomplishments"])).toBe("education");
+    expect(loaded.currentTopic).toBe("direction");
+    expect(progressSummary(loaded)).toEqual({ completed: 2, skipped: 0, remaining: 8, total: 10 });
+    expect(nextInterviewTopic(["contact", "direction"], ["employment"], ["accomplishments"])).toBe("education");
   });
 
   it("persists the visible meaning of complete, skip, pause, resume, correct, and reject actions", () => {
     let state = resumeBuilderWorkflowReducer(initialWorkflowState, { type: "durable.loaded", snapshot: snapshot() });
     state = resumeBuilderWorkflowReducer(state, { type: "interview.completed_topic", topic: "contact" });
     state = resumeBuilderWorkflowReducer(state, { type: "interview.skipped_topic", topic: "employment" });
-    expect(state.currentTopic).toBe("accomplishments");
+    expect(state.currentTopic).toBe("direction");
     state = resumeBuilderWorkflowReducer(state, { type: "interview.paused" });
     expect(state.currentTopic).toBeNull();
     state = resumeBuilderWorkflowReducer(state, { type: "interview.resumed" });
-    expect(state.currentTopic).toBe("accomplishments");
+    expect(state.currentTopic).toBe("direction");
 
     state = resumeBuilderWorkflowReducer(state, { type: "rewrite.proposed", proposal: { id: "rw-1", original_text: "Original", text: "Proposal" } });
     expect(resumeBuilderWorkflowReducer(state, { type: "rewrite.accepted" }).rewrite?.status).toBe("accepted");

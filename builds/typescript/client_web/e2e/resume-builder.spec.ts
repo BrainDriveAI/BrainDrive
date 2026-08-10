@@ -9,6 +9,23 @@ async function confirmOwnerAction(page: Page, label: RegExp) {
   await expect(dialog).toBeHidden();
 }
 
+async function answerInterviewTopic(page: Page, frame: FrameLocator, answer: string, nextHeading: string, followUp?: string) {
+  await frame.getByLabel("Your answer").fill(answer);
+  await frame.getByRole("button", { name: "Review and confirm" }).click();
+  if (followUp) {
+    await expect(frame.getByRole("heading", { name: "A quick follow-up" })).toBeVisible();
+    await frame.getByLabel("Additional detail").fill(followUp);
+    await frame.getByRole("button", { name: "Add this detail" }).click();
+  }
+  await confirmOwnerAction(page, /Confirm career fact/);
+  await expect(frame.getByRole("heading", { name: nextHeading })).toBeVisible({ timeout: 15_000 });
+}
+
+async function skipInterviewTopic(frame: FrameLocator, nextHeading: string) {
+  await frame.getByRole("button", { name: "I’m not sure" }).click();
+  await expect(frame.getByRole("heading", { name: nextHeading })).toBeVisible({ timeout: 15_000 });
+}
+
 async function openCareerApps(page: Page) {
   await page.getByRole("button", { name: "Career", exact: true }).click();
   await page.getByRole("button", { name: "Apps", exact: true }).click();
@@ -77,16 +94,50 @@ test.describe("Resume Builder owner journey", () => {
     await page.waitForTimeout(100);
     expect(forgedSideEffects).toBe(0);
     await frame.getByRole("button", { name: "Continue to interview" }).click();
-    await frame.getByLabel("Your answer").fill("Delivered synthetic TypeScript systems for owners");
-    await frame.getByRole("button", { name: "Review and confirm" }).click();
-    await confirmOwnerAction(page, /Confirm career fact/);
-    for (let remaining = 0; remaining < 4; remaining += 1) {
-      await frame.getByRole("button", { name: "Skip for now" }).click();
-    }
+    await answerInterviewTopic(page, frame, "Synthetic Owner | Dayton, Ohio | owner@example.test | 555-010-0142", "What you want next");
+    await answerInterviewTopic(page, frame, "Customer support supervisor roles", "Work experience");
+    await answerInterviewTopic(
+      page,
+      frame,
+      "Customer Service Associate at Lakeside Market in Dayton. Help about 60 customers per shift and train new employees.",
+      "Something you improved or handled well",
+      "March 2021 to present.",
+    );
+    await answerInterviewTopic(
+      page,
+      frame,
+      "Created a new checkout checklist.",
+      "Education and training",
+      "It reduced checkout errors and helped train 4 new employees.",
+    );
+    await answerInterviewTopic(page, frame, "Associate of Applied Science in Business Administration, Sinclair Community College, 2018", "Licenses and certifications");
+    await skipInterviewTopic(frame, "Skills, tools, and languages");
+    await answerInterviewTopic(page, frame, "Customer service, Microsoft Excel, appointment scheduling, and employee training", "Projects");
+    await skipInterviewTopic(frame, "Leadership and volunteering");
+    await skipInterviewTopic(frame, "Professional links");
+    await answerInterviewTopic(page, frame, "linkedin.com/in/synthetic-owner", "Review your information");
 
-    await expect(frame.getByRole("heading", { name: "Review confirmed facts" })).toBeVisible();
+    await expect(frame.getByRole("heading", { name: "Review your information" })).toBeVisible();
+    await expect(frame.getByText(/Created a new checkout checklist/)).toBeVisible();
+    const contactCard = frame.locator(".card").filter({ hasText: "owner@example.test" });
+    await contactCard.getByRole("button", { name: "Edit" }).click();
+    await frame.getByLabel("Information").fill("Synthetic Owner | Dayton, Ohio | synthetic.owner@example.test | 555-010-0142");
+    await frame.getByRole("button", { name: "Save change" }).click();
+    await confirmOwnerAction(page, /Confirm corrected career information/);
+    await expect(frame.getByText(/synthetic\.owner@example\.test/)).toBeVisible();
+    const linkCard = frame.locator(".card").filter({ hasText: "Professional link:" });
+    await linkCard.getByRole("button", { name: "Remove" }).click();
+    await confirmOwnerAction(page, /Remove this career information/);
+    await expect(frame.getByText(/1 removed item is preserved in history/)).toBeVisible();
     await frame.getByRole("button", { name: "Create general draft" }).click();
     await expect(frame.getByRole("heading", { name: "General resume" })).toBeVisible({ timeout: 15_000 });
+    const generalDraft = (await frame.locator("textarea[data-index]").evaluateAll((elements) =>
+      elements.map((element) => (element as HTMLTextAreaElement).value).join("\n"),
+    ));
+    expect(generalDraft).toContain("synthetic.owner@example.test");
+    expect(generalDraft).toContain("Customer Service Associate");
+    expect(generalDraft).toContain("Sinclair Community College");
+    expect(generalDraft).toContain("Microsoft Excel");
     await frame.getByRole("button", { name: "Validate and approve" }).click();
     await confirmOwnerAction(page, /Approve resume version/);
 
@@ -103,6 +154,14 @@ test.describe("Resume Builder owner journey", () => {
     await expect(frame.getByRole("heading", { name: "Preview approved resume" })).toBeVisible({ timeout: 15_000 });
     await frame.getByRole("button", { name: "Create preview" }).click();
     await expect(frame.getByText("ATS parse-back passed")).toBeVisible();
+    const resumePreview = frame.getByLabel("Resume preview");
+    await expect(resumePreview).toContainText("Synthetic Owner");
+    await expect(resumePreview).toContainText("synthetic.owner@example.test");
+    await expect(resumePreview).toContainText("Experience");
+    await expect(resumePreview).toContainText("Education");
+    await expect(resumePreview).toContainText("Skills");
+    await expect(resumePreview).not.toContainText("Resume goal:");
+    await expect(resumePreview).not.toContainText("Professional link:");
     await page.screenshot({ path: testInfo.outputPath("resume-builder-career-preview.png"), fullPage: true });
     const download = page.waitForEvent("download");
     await frame.getByRole("button", { name: "Export PDF" }).click();

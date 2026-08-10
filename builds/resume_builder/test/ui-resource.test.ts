@@ -8,7 +8,13 @@ describe("sandboxed Resume Builder owner resource", () => {
     for (const text of [
       "Start with what BrainDrive already knows",
       "One topic at a time",
-      "Review confirmed facts",
+      "Review your information",
+      "What kind of work would you like this resume to support?",
+      "Add another job",
+      "Add another accomplishment",
+      "Edit",
+      "Remove",
+      "I’m not sure",
       "General resume",
       "Requirement evidence",
       "Baseline comparison",
@@ -19,9 +25,12 @@ describe("sandboxed Resume Builder owner resource", () => {
       "Document warnings",
       "Role evidence gaps",
     ]) expect(html).toContain(text);
-    expect(html).toContain("@media(max-width:720px)");
+    expect(html).toContain("@media(max-width:820px)");
+    expect(html).toContain("@media(max-width:520px)");
     expect(html).toContain('aria-live="polite"');
     expect(html).toContain('role="alert"');
+    expect(html).toContain('decision:"edit_and_accept"');
+    expect(html).toContain('decision:"reject"');
   });
 
   it("keeps privileged browser/network authority outside the package resource", async () => {
