@@ -13,7 +13,7 @@ const base: appsApi.ResumeBuilderAppStatus = {
   contract_version: 1,
   identity: { app_id: "ai.braindrive.resume-builder", display_name: "Resume Builder", publisher_id: "ai.braindrive", publisher_name: "BrainDrive", installation_id: null, package_digest: null },
   state: "not_installed", generation: 0,
-  version: { installed: null, available: "3.0.1" },
+  version: { installed: null, available: "3.0.2" },
   trust: { status: "not_verified", policy_version: 1, signing_key_id: null, checked_at: null, revocation_status: "not_checked" },
   source: { kind: "repository_fixture", label: "Bundled BrainDrive app source" },
   compatibility: { host: null, app_contract: 1, mcp_protocol: "2026-07-28", data_schema: { read_min: 1, read_max: 1, write_version: 1 } },
@@ -23,7 +23,7 @@ const base: appsApi.ResumeBuilderAppStatus = {
 };
 
 function installed(overrides: Partial<appsApi.ResumeBuilderAppStatus> = {}): appsApi.ResumeBuilderAppStatus {
-  return { ...base, state: "active", generation: 2, identity: { ...base.identity, installation_id: crypto.randomUUID(), package_digest: `sha256:${"a".repeat(64)}` }, version: { installed: "3.0.1", available: "3.0.1" }, trust: { ...base.trust, status: "verified", signing_key_id: "braindrive-app-release-fixture-2026", checked_at: "2026-08-07T00:00:00.000Z", revocation_status: "not_revoked_fresh" }, compatibility: { ...base.compatibility, host: true }, capabilities: { ...base.capabilities, granted: [...base.capabilities.requested] }, retention: { ...base.retention, compatibility: "ready" }, ...overrides };
+  return { ...base, state: "active", generation: 2, identity: { ...base.identity, installation_id: crypto.randomUUID(), package_digest: `sha256:${"a".repeat(64)}` }, version: { installed: "3.0.2", available: "3.0.2" }, trust: { ...base.trust, status: "verified", signing_key_id: "braindrive-app-release-fixture-2026", checked_at: "2026-08-07T00:00:00.000Z", revocation_status: "not_revoked_fresh" }, compatibility: { ...base.compatibility, host: true }, capabilities: { ...base.capabilities, granted: [...base.capabilities.requested] }, retention: { ...base.retention, compatibility: "ready" }, ...overrides };
 }
 
 const launch = {
@@ -53,14 +53,14 @@ describe("owner lifecycle Apps surface", () => {
   });
 
   it("offers an explicit owner-approved update for an installed older package", async () => {
-    const prior = installed({ version: { installed: "3.0.0", available: "3.0.1" } });
+    const prior = installed({ version: { installed: "3.0.1", available: "3.0.2" } });
     vi.mocked(appsApi.getResumeBuilderApp).mockResolvedValue(prior);
     vi.mocked(appsApi.mutateResumeBuilderApp).mockResolvedValue(installed());
     const user = userEvent.setup(); render(<AppsPage />);
 
     await user.click(await screen.findByRole("button", { name: "Update" }));
     expect(appsApi.mutateResumeBuilderApp).toHaveBeenCalledWith("update", prior);
-    expect(await screen.findByText("Version 3.0.1")).toBeInTheDocument();
+    expect(await screen.findByText("Version 3.0.2")).toBeInTheDocument();
   });
 
   it("uses a focused confirmation that states exact removal and retention, supports Escape, and restores focus", async () => {

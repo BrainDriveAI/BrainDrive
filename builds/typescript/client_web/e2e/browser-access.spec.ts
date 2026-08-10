@@ -52,5 +52,30 @@ test.describe("LAN browser access", () => {
       .frameLocator('iframe[title="Resume Builder sandbox proxy"]')
       .frameLocator('iframe[title="Resume Builder"]');
     await expect(frame.getByRole("heading", { name: "Start with what BrainDrive already knows" })).toBeVisible({ timeout: 15_000 });
+
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    const wideLayout = await frame.locator("body").evaluate(() => {
+      const shell = document.querySelector<HTMLElement>(".shell")!.getBoundingClientRect();
+      const steps = document.querySelector<HTMLElement>(".steps")!.getBoundingClientRect();
+      const panel = document.querySelector<HTMLElement>(".panel")!.getBoundingClientRect();
+      return { shellWidth: shell.width, stepsTop: steps.top, panelTop: panel.top, panelWidth: panel.width };
+    });
+    expect(wideLayout.shellWidth).toBeGreaterThan(1_100);
+    expect(Math.abs(wideLayout.stepsTop - wideLayout.panelTop)).toBeLessThan(2);
+    expect(wideLayout.panelWidth).toBeGreaterThan(800);
+
+    await page.setViewportSize({ width: 760, height: 900 });
+    await expect.poll(() => frame.locator("body").evaluate(() => {
+      const steps = document.querySelector<HTMLElement>(".steps")!.getBoundingClientRect();
+      const panel = document.querySelector<HTMLElement>(".panel")!.getBoundingClientRect();
+      return panel.top >= steps.bottom;
+    })).toBe(true);
+
+    await page.setViewportSize({ width: 430, height: 900 });
+    await expect.poll(() => frame.getByRole("button", { name: "Continue to interview" }).evaluate((button) => {
+      const buttonWidth = button.getBoundingClientRect().width;
+      const panelWidth = button.closest<HTMLElement>(".panel")!.getBoundingClientRect().width;
+      return buttonWidth / panelWidth;
+    })).toBeGreaterThan(0.85);
   });
 });

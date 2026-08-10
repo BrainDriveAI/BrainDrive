@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -31,6 +31,27 @@ describe("signed fixture package verification", () => {
     await expect(access(path.join(authorityRoot, "source-index.json"))).resolves.toBeUndefined();
     expect(repository.packages[MODERN_FIXTURE_VERSION]?.archivePath).toBe(path.join(authorityRoot, `${MODERN_FIXTURE_VERSION}.bdapp`));
     expect(repository.authoritiesByVersion?.[MODERN_FIXTURE_VERSION]?.sourceIndexPath).toBe(path.join(authorityRoot, "source-index.json"));
+  });
+
+  it("discovers retained version-specific modern authorities across app patch releases", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-package-retained-authorities-"));
+    roots.push(root);
+    const sourceRoot = path.join(root, "source");
+    await createFixtureRepository(sourceRoot);
+
+    const currentRoot = path.join(sourceRoot, "modern", MODERN_FIXTURE_VERSION);
+    const priorVersion = "3.0.1";
+    const priorRoot = path.join(sourceRoot, "modern", priorVersion);
+    await cp(currentRoot, priorRoot, { recursive: true });
+    const priorIndex = JSON.parse(await readFile(path.join(priorRoot, "source-index.json"), "utf8"));
+    priorIndex.payload.entries[0].package_version = priorVersion;
+    await writeFile(path.join(priorRoot, "source-index.json"), `${JSON.stringify(priorIndex)}\n`, "utf8");
+    await cp(path.join(currentRoot, `${MODERN_FIXTURE_VERSION}.bdapp`), path.join(priorRoot, `${priorVersion}.bdapp`));
+    await cp(path.join(currentRoot, `${MODERN_FIXTURE_VERSION}.descriptor.json`), path.join(priorRoot, `${priorVersion}.descriptor.json`));
+
+    const repository = await createFixtureRepository(sourceRoot);
+    expect(repository.packages[priorVersion]?.archivePath).toBe(path.join(priorRoot, `${priorVersion}.bdapp`));
+    expect(repository.authoritiesByVersion?.[priorVersion]?.sourceIndexPath).toBe(path.join(priorRoot, "source-index.json"));
   });
 
   it("fails closed when a persisted prior modern authority is malformed", async () => {

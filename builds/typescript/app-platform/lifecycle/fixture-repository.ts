@@ -1,6 +1,6 @@
 import { createHash, generateKeyPairSync, sign, type KeyObject } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -37,7 +37,7 @@ export type FixtureRepository = {
   releaseKeyId?: string;
 };
 
-export const MODERN_FIXTURE_VERSION = "3.0.1" as const;
+export const MODERN_FIXTURE_VERSION = "3.0.2" as const;
 export const MODERN_FIXTURE_CAPABILITIES = [
   "career.context.read", "career.facts.read", "career.facts.propose", "career.facts.confirm",
   "resume.definitions.read", "resume.definitions.write", "resume.jobs.read", "resume.jobs.write",
@@ -117,13 +117,14 @@ async function writeJson(filePath: string, value: unknown): Promise<void> {
 export async function createFixtureRepository(root: string): Promise<FixtureRepository> {
   const legacy = await loadOrCreateFixtureSource(root, ["1.0.0", "2.0.0"], "legacy");
   const modernRoot = path.join(root, "modern");
-  const priorModern = await loadPersistedFixtureSource(modernRoot);
+  const priorModern = await loadPersistedFixtureSources(modernRoot, MODERN_FIXTURE_VERSION);
+  const retainedModern = mergePersistedFixtureSources(priorModern);
   const modern = await loadOrCreateFixtureSource(path.join(modernRoot, MODERN_FIXTURE_VERSION), [MODERN_FIXTURE_VERSION], "modern");
   return {
     ...legacy,
-    packages: { ...legacy.packages, ...priorModern?.packages, ...modern.packages },
+    packages: { ...legacy.packages, ...retainedModern.packages, ...modern.packages },
     authoritiesByVersion: {
-      ...authorityEntries(priorModern),
+      ...retainedModern.authorities,
       [MODERN_FIXTURE_VERSION]: {
         trustRootPath: modern.trustRootPath,
         sourceIndexPath: modern.sourceIndexPath,
@@ -131,6 +132,49 @@ export async function createFixtureRepository(root: string): Promise<FixtureRepo
       },
     },
   };
+}
+
+async function loadPersistedFixtureSources(root: string, currentVersion: string): Promise<FixtureRepository[]> {
+  const repositories: FixtureRepository[] = [];
+  const flatSource = await loadPersistedFixtureSource(root);
+  if (flatSource) repositories.push(flatSource);
+  let entries;
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return repositories;
+    throw error;
+  }
+  const versionDirectories = entries
+    .filter((entry) => entry.isDirectory() && entry.name !== currentVersion && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/.test(entry.name))
+    .sort((left, right) => left.name.localeCompare(right.name));
+  for (const entry of versionDirectories) {
+    const repository = await loadPersistedFixtureSource(path.join(root, entry.name));
+    if (repository) repositories.push(repository);
+  }
+  return repositories;
+}
+
+function mergePersistedFixtureSources(repositories: FixtureRepository[]): {
+  packages: FixtureRepository["packages"];
+  authorities: NonNullable<FixtureRepository["authoritiesByVersion"]>;
+} {
+  const packages: FixtureRepository["packages"] = {};
+  const authorities: NonNullable<FixtureRepository["authoritiesByVersion"]> = {};
+  for (const repository of repositories) {
+    for (const [version, packagePaths] of Object.entries(repository.packages)) {
+      if (packages[version]) {
+        throw new AppPlatformError("source_index_signature_invalid", `Duplicate persisted fixture authority for Resume Builder ${version}`);
+      }
+      packages[version] = packagePaths;
+      authorities[version] = {
+        trustRootPath: repository.trustRootPath,
+        sourceIndexPath: repository.sourceIndexPath,
+        revocationListPath: repository.revocationListPath,
+      };
+    }
+  }
+  return { packages, authorities };
 }
 
 async function loadPersistedFixtureSource(root: string): Promise<FixtureRepository | null> {
@@ -146,15 +190,6 @@ async function loadPersistedFixtureSource(root: string): Promise<FixtureReposito
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
     throw new AppPlatformError("source_index_signature_invalid", "Persisted fixture source index is malformed or unreadable");
   }
-}
-
-function authorityEntries(repository: FixtureRepository | null): NonNullable<FixtureRepository["authoritiesByVersion"]> {
-  if (!repository) return {};
-  return Object.fromEntries(Object.keys(repository.packages).map((version) => [version, {
-    trustRootPath: repository.trustRootPath,
-    sourceIndexPath: repository.sourceIndexPath,
-    revocationListPath: repository.revocationListPath,
-  }]));
 }
 
 async function loadOrCreateFixtureSource(root: string, versions: string[], authorityLabel: "legacy" | "modern"): Promise<FixtureRepository> {
