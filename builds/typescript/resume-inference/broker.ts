@@ -6,11 +6,12 @@ import {
 } from "../app-platform/contracts/inference.js";
 import type { StructuredCompletionResponse } from "../adapters/base.js";
 import type { z } from "zod";
-import { RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION, buildPolicyMessages } from "./policy.js";
+import { RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION, buildPolicyMessages, type ResumeRepairContext } from "./policy.js";
 import { classifyInferenceError, ResumeInferenceError } from "./errors.js";
 import { parsePurposeResult, purposeJsonSchema } from "./results.js";
 import { validateInferenceClaims, type ValidationReport } from "./validators.js";
 import type { ResolvedInferenceProvider } from "./compatibility.js";
+import { repairResumeDraftFromConfirmedFacts } from "./repair.js";
 
 type InferenceRequest = z.infer<typeof InferenceRequestSchema>;
 type InferenceResult = z.infer<typeof InferenceResultSchema>;
@@ -118,11 +119,14 @@ export class ResumeInferenceBroker {
       if (!provider.adapter.completeStructuredNoTools) throw new ResumeInferenceError("model_incompatible", "Active provider lacks the no-tools structured adapter path");
       let result: unknown;
       let response: StructuredCompletionResponse | null = null;
-      let lastSchemaError: unknown;
+      let validation: ValidationReport | null = null;
+      let repairContext: ResumeRepairContext | undefined;
+      let repair: "provider_validation_repair" | "deterministic_fact_fallback" | null = null;
       for (let attempt = 1; attempt <= request.limits.attempts; attempt += 1) {
         throwIfAborted(signal);
         attempts = attempt;
-        const messages = buildPolicyMessages(request.purpose, request.data_blocks, attempt === 2);
+        const currentRepair = repairContext;
+        const messages = buildPolicyMessages(request.purpose, request.data_blocks, currentRepair);
         response = await provider.adapter.completeStructuredNoTools({
           system: messages.system,
           user: messages.user,
@@ -142,18 +146,42 @@ export class ResumeInferenceBroker {
         try {
           if (response.text.trim().length === 0) throw new Error("empty structured result");
           result = parsePurposeResult(request.purpose, request.output_schema_id, JSON.parse(response.text));
-          lastSchemaError = undefined;
-          break;
-        } catch (error) {
-          lastSchemaError = error;
-          if (attempt === request.limits.attempts) break;
+          validation = validateInferenceClaims(request.purpose, result, request.data_blocks);
+          if (validation.accepted) {
+            if (currentRepair?.kind === "validation") repair = "provider_validation_repair";
+            break;
+          }
+          if (attempt < request.limits.attempts) {
+            repairContext = {
+              kind: "validation",
+              priorResult: result,
+              findings: validation.findings.map(({ code, statement_id, safe_message }) => ({ code, statement_id, safe_message })),
+            };
+          }
+        } catch {
+          if (attempt < request.limits.attempts) repairContext = { kind: "structural" };
         }
       }
-      if (lastSchemaError !== undefined || response === null || result === undefined) {
+      if (response === null || result === undefined || validation === null) {
         throw new ResumeInferenceError("schema_validation_failed", "Provider output failed the accepted schema after one structural repair");
       }
       throwIfAborted(signal);
-      const validation = validateInferenceClaims(request.purpose, result, request.data_blocks);
+      if (!validation.accepted) {
+        try {
+          const repaired = repairResumeDraftFromConfirmedFacts(request.purpose, result, validation, request.data_blocks);
+          if (repaired !== null) {
+            const repairedResult = parsePurposeResult(request.purpose, request.output_schema_id, repaired);
+            const repairedValidation = validateInferenceClaims(request.purpose, repairedResult, request.data_blocks);
+            if (repairedValidation.accepted) {
+              result = repairedResult;
+              validation = repairedValidation;
+              repair = "deterministic_fact_fallback";
+            }
+          }
+        } catch {
+          // The original deterministic rejection remains authoritative when the bounded fallback cannot produce a valid result.
+        }
+      }
       if (!validation.accepted) {
         const failure = this.failure(request, startedAt, inputDigest, provider, attempts, "failed", new ResumeInferenceError("validation_failed", "Generated output did not pass deterministic claim validation"));
         this.audit("app.inference.completed", this.auditFields(request, {
@@ -187,7 +215,7 @@ export class ResumeInferenceBroker {
         started_at: startedAt,
         completed_at: completedAt,
       });
-      this.audit("app.inference.completed", this.auditFields(request, { status: "completed", attempt: attempts, model_class: provider.modelClass, usage_available: inference.usage.available }));
+      this.audit("app.inference.completed", this.auditFields(request, { status: "completed", attempt: attempts, model_class: provider.modelClass, usage_available: inference.usage.available, ...(repair ? { repair } : {}) }));
       return { inference, validation };
     } catch (error) {
       const classified = classifyInferenceError(error, signal);

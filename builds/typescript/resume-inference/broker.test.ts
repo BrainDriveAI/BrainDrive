@@ -121,13 +121,51 @@ describe("ResumeInferenceBroker", () => {
     expect(repaired.inference).toMatchObject({ status: "completed", attempt_count: 2 });
   });
 
-  it("does not repair deterministic validation, auth, or ambiguous provider failures", async () => {
-    const unsupported = { ...outputs.general_resume_draft as object, statements: [{ statement_id: randomUUID(), kind: "factual", text: "Invented metric 99%", supporting_confirmed_fact_revision_ids: [FACT_ID] }] };
+  it("repairs deterministic validation once while preserving valid resume statements", async () => {
+    const preserved = { statement_id: randomUUID(), section_id: "experience", kind: "factual", text: "Built product 20%", supporting_confirmed_fact_revision_ids: [FACT_ID] };
+    const rejected = { statement_id: randomUUID(), section_id: "experience", kind: "factual", text: "Invented metric 99%", supporting_confirmed_fact_revision_ids: [FACT_ID] };
+    const repaired = { ...rejected, text: "Built product 20%" };
+    const validationModel = adapter((_input, call) => JSON.stringify({
+      ...outputs.general_resume_draft as object,
+      statements: call === 1 ? [preserved, rejected] : [preserved, repaired],
+    }));
+    const validation = await new ResumeInferenceBroker(async () => provider(validationModel.value)).execute(request("general_resume_draft"));
+    expect(validation.inference).toMatchObject({ status: "completed", attempt_count: 2, result: { statements: [preserved, repaired] } });
+    expect(validation.validation?.accepted).toBe(true);
+    expect(validationModel.calls()).toBe(2);
+    expect(validationModel.captured[1]?.system).toContain("evidence-validation repair");
+    expect(validationModel.captured[1]?.system).toContain("Preserve every statement not named by a finding");
+    expect(validationModel.captured[1]?.user).toContain(rejected.statement_id);
+    expect(validationModel.captured[1]?.user).toContain("Factual wording exceeds its confirmed supporting facts");
+  });
+
+  it("uses fact-only deterministic repair when structural repair consumes the second provider call", async () => {
+    const rejected = { ...outputs.general_resume_draft as object, statements: [{ statement_id: randomUUID(), kind: "factual", text: "Invented metric 99%", supporting_confirmed_fact_revision_ids: [FACT_ID] }] };
+    const validationModel = adapter((_input, call) => call === 1 ? "{}" : JSON.stringify(rejected));
+    const events: Array<{ event: string; details: Record<string, unknown> }> = [];
+    const validation = await new ResumeInferenceBroker(async () => provider(validationModel.value), (event, details) => events.push({ event, details })).execute(request("general_resume_draft"));
+    expect(validation.inference).toMatchObject({
+      status: "completed",
+      attempt_count: 2,
+      result: { statements: [{ text: "Built product 20%", supporting_confirmed_fact_revision_ids: [FACT_ID] }] },
+    });
+    expect(validation.validation?.accepted).toBe(true);
+    expect(validationModel.calls()).toBe(2);
+    expect(events.at(-1)?.details).toMatchObject({ repair: "deterministic_fact_fallback" });
+    expect(JSON.stringify(events)).not.toContain("Built product");
+  });
+
+  it("remains fail-closed when cited support cannot be repaired from the immutable snapshot", async () => {
+    const outsideSnapshot = randomUUID();
+    const unsupported = { ...outputs.general_resume_draft as object, statements: [{ statement_id: randomUUID(), kind: "factual", text: "Invented work", supporting_confirmed_fact_revision_ids: [outsideSnapshot] }] };
     const validationModel = adapter(() => JSON.stringify(unsupported));
     const validation = await new ResumeInferenceBroker(async () => provider(validationModel.value)).execute(request("general_resume_draft"));
-    expect(validation.inference).toMatchObject({ status: "failed", attempt_count: 1, error: { code: "validation_failed" } });
-    expect(validationModel.calls()).toBe(1);
+    expect(validation.inference).toMatchObject({ status: "failed", attempt_count: 2, result: null, error: { code: "validation_failed" } });
+    expect(validation.validation).toMatchObject({ accepted: false, findings: [{ code: "missing_provenance" }] });
+    expect(validationModel.calls()).toBe(2);
+  });
 
+  it("does not retry auth or ambiguous provider failures", async () => {
     const authModel = adapter(() => { throw new Error("401 invalid API key"); });
     const auth = await new ResumeInferenceBroker(async () => provider(authModel.value)).execute(request("interview_assist"));
     expect(auth.inference).toMatchObject({ status: "failed", attempt_count: 1, error: { code: "denied" } });

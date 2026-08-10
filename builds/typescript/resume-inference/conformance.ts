@@ -25,7 +25,7 @@ export async function runResumeModelConformance(input: {
     let schemaSuccess = false;
     let validationAccepted = false;
     for (let attempt = 1; attempt <= 2; attempt += 1) {
-      const messages = buildPolicyMessages(purpose, blocks, attempt === 2);
+      const messages = buildPolicyMessages(purpose, blocks, attempt === 2 ? { kind: "structural" } : undefined);
       const response = await input.adapter.completeStructuredNoTools({
         system: messages.system,
         user: messages.user,
