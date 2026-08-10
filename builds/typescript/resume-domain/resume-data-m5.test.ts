@@ -199,6 +199,8 @@ describe("M5 scoped Resume Builder capability policy", () => {
 
     await denied({ ...base, token_audience: "app_export" });
     await denied({ ...base, operation_id: crypto.randomUUID() });
+    await expect(policy.authorize(capability, base, operationId, { connectionId: crypto.randomUUID() })).rejects.toMatchObject({ code: "denied" });
+    await expect(policy.authorize(capability, base, operationId, { viewId: crypto.randomUUID() })).rejects.toMatchObject({ code: "denied" });
     await denied({ ...base, context: { ...base.context, actor_id: crypto.randomUUID() } });
     await denied({ ...base, context: { ...base.context, installation_id: crypto.randomUUID() } });
     await denied({ ...base, context: { ...base.context, package_digest: `sha256:${"f".repeat(64)}` } });

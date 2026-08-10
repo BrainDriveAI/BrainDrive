@@ -16,14 +16,19 @@ export async function createAppLifecycle(input: { memoryRoot: string; hostVersio
   const stateRoot = path.resolve(input.stateRoot ?? path.join(path.dirname(input.memoryRoot), "app-platform-host"));
   const target = input.target ?? "docker_linux_x64";
   const repository = await createFixtureRepository(path.join(stateRoot, "fixture-source"));
-  const supervisor = new ProcessAppSupervisor({ audit: auditLog });
+  const tokenBroker = new CapabilityTokenBroker();
+  const supervisor = new ProcessAppSupervisor({
+    audit: auditLog,
+    beforeRestart: async (runtime) => tokenBroker.revokeInstallation(runtime.installation_id),
+    afterRestart: async (runtime) => tokenBroker.permitInstallation(runtime.installation_id),
+  });
   const ownerDataRoot = path.join(input.memoryRoot, "apps", "resume-builder");
   const service = new AppLifecycleService({
     store: new AppLifecycleStore(path.join(stateRoot, "state")),
     verifier: new PackageVerifier(input.hostVersion, target),
     repository,
     supervisor,
-    tokenBroker: new CapabilityTokenBroker(),
+    tokenBroker,
     immutablePackages: new ImmutablePackageStore(stateRoot),
     runtimeRoot: path.join(stateRoot, "runtime"),
     ownerDataRoot,

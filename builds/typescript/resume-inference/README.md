@@ -1,10 +1,12 @@
 # Resume Builder brokered inference
 
-This directory is the Milestone 5 host boundary for all six accepted Resume Builder generation purposes. It is deliberately separate from `engine/loop.ts`: requests cannot discover or call tools, cannot enter the chat retry loop, and cannot select a provider, model, credential, or capability.
+This directory is the accepted Spec 03 broker for all six Resume Builder generation purposes. Spec 05 M5 exposes it through the thin [protected app capability adapter](../app-inference/README.md). Both remain deliberately separate from `engine/loop.ts`: requests cannot discover or call tools, cannot enter the chat retry loop, and cannot select a provider, model, credential, or capability.
 
 `ImmutableInferenceSnapshotBuilder` resolves only exact, scoped M4 revision IDs and admits only confirmed facts. `ResumeInferenceBroker` validates the request and every data-block digest before resolving the owner's live provider. It then uses the dedicated adapter `completeStructuredNoTools` path with `tools: []`, a fixed policy, a strict purpose schema, the accepted token/time budgets, and the caller's abort signal.
 
 Empty or schema-invalid output receives one structural repair on the same provider, model, policy, snapshot, and operation. Auth, quota, rate-limit, policy, cancellation, network, deterministic validation, and visible/ambiguous failures do not fall back or retry. Raw failed output is not retained. Standard audit callbacks receive only opaque operation/request IDs, purpose/schema/policy IDs, model class, attempt, bounded usage availability, status, timing class, and typed error code.
+
+Cancellation is checked before and after provider resolution, before each bounded attempt, immediately after every provider response, and before validation/commit. A provider response that arrives after abort is projected as cancelled and cannot become a completed result. Broker idempotency hashes the immutable semantic request rather than host-generated request/timestamp fields, so a reconnect rebuild reuses the same completed operation while any snapshot, policy, schema, identity, or budget change conflicts.
 
 The deterministic gate resolves every cited fact identity to the immutable confirmed snapshot, requires exact job source spans, validates targeted lineage, and conservatively rejects lexical/protected numeric, date, title, and URL drift. Any error finding blocks approval. M4 definitions record validator, policy, input, output, and findings digests atomically with the approved revision.
 

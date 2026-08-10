@@ -198,12 +198,12 @@ async function copyAuditDiagnostics(
 }
 
 const SUPPORT_DETAIL_ALLOWLIST = new Set([
-  "action", "actor_id", "app_id", "attempt", "byte_count", "capability_diff", "checked_at", "decision",
+  "action", "actor_id", "app_id", "attempt", "byte_count", "capability_diff", "capability_version", "checked_at", "connection_id", "decision",
   "deletion_class", "elapsed_ms", "error_class", "error_code", "generation", "grant_id", "installation_id",
-  "item_count", "lifecycle_action", "next_state", "operation_id", "outcome", "owner_data_preserved", "owner_id",
+  "idempotency_decision", "item_count", "lifecycle_action", "next_state", "operation_id", "outcome", "owner_data_preserved", "owner_id",
   "package_digest", "package_version", "prior_state", "publisher_id", "recovery", "removed_classes",
   "removed_item_count", "result_state", "retained_classes", "retryable", "revocation_sequence", "stage", "step",
-  "target_state", "timestamp", "transition_event",
+  "revocation_generation", "grant_revision", "target_state", "timestamp", "transition_event", "view_id",
 ]);
 
 function sanitizeSupportAuditEvent(event: Record<string, unknown>): Record<string, unknown> {

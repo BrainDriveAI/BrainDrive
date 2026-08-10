@@ -17,10 +17,16 @@ describe("model compatibility registry", () => {
     expect(VERSIONED_MODEL_COMPATIBILITY_ENTRIES).toEqual([]);
   });
 
-  it("keeps Ollama and BYOK profiles independent and conformance-derived", () => {
-    const registry = new ModelCompatibilityRegistry([entry("ollama", "local-model"), entry("openrouter-byok", "remote-model")]);
+  it("keeps Ollama, BYOK OpenRouter, and BrainDrive Models independent and conformance-derived", () => {
+    const registry = new ModelCompatibilityRegistry([
+      entry("ollama", "local-model"),
+      entry("openrouter-byok", "remote-model"),
+      entry("braindrive-models", "managed-model"),
+    ]);
     expect(registry.require("ollama", "local-model", "interview_assist").provider_profile_id).toBe("ollama");
     expect(registry.require("openrouter-byok", "remote-model", "interview_assist").provider_profile_id).toBe("openrouter-byok");
+    expect(registry.require("braindrive-models", "managed-model", "interview_assist").provider_profile_id).toBe("braindrive-models");
     expect(() => registry.require("ollama", "remote-model", "interview_assist")).toThrow(/conformance record/);
+    expect(() => registry.require("openrouter-byok", "managed-model", "interview_assist")).toThrow(/conformance record/);
   });
 });

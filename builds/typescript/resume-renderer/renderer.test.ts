@@ -31,7 +31,7 @@ async function approvedDefinition() {
     section_order: ["summary", "experience"],
   }), authority("resume.definitions.write"), true);
   if (definition.definition.record_type !== "resume_definition") throw new Error("expected definition");
-  return { store, service, definition: definition.definition };
+  return { root, store, service, definition: definition.definition };
 }
 
 describe("conservative ATS PDF renderer", () => {
@@ -86,6 +86,29 @@ describe("conservative ATS PDF renderer", () => {
     const cancelled = await broker.finalize({ artifact_revision_id: prepared.artifact_revision_id, artifact_digest: prepared.artifact_digest, safe_destination_label: "resume.pdf", outcome: "cancelled" }, authority("resume.export.request"));
     expect(cancelled.outcome).toBe("cancelled");
     expect((await store.list("export_receipt"))[0]).toMatchObject({ outcome: "cancelled", safe_destination_label: "resume.pdf" });
+    expect(await store.readRevision(definition.metadata.revision_id)).toEqual(definition);
+  });
+
+  it("reconciles an ambiguous prepared export after restart without duplicating artifact or receipt side effects", async () => {
+    const { root, store, service, definition } = await approvedDefinition();
+    const operationId = crypto.randomUUID();
+    const exportAuthority = authority("resume.export.request", operationId, { idempotencyKey: "m4-export-restart-reconciliation" });
+    const broker = new ResumeExportBroker(service, () => undefined, () => new Date("2026-08-07T12:01:00.000Z"));
+    const prepared = await broker.export({ action: "export", definition_revision_id: definition.metadata.revision_id, safe_filename: "resume.pdf", destination_intent: "new_download", overwrite_confirmed: false }, exportAuthority);
+
+    const restartedStore = new ResumeDataStore(root, undefined, {}, false);
+    await restartedStore.initialize(exportAuthority.grant.owner_id);
+    const restartedBroker = new ResumeExportBroker(new ResumeDomainService(restartedStore, () => new Date("2026-08-07T12:02:00.000Z")));
+    const replayed = await restartedBroker.export({ action: "export", definition_revision_id: definition.metadata.revision_id, safe_filename: "resume.pdf", destination_intent: "new_download", overwrite_confirmed: false }, exportAuthority);
+    expect(replayed.artifact_revision_id).toBe(prepared.artifact_revision_id);
+    expect(await restartedStore.list("artifact")).toHaveLength(1);
+
+    const finalizeInput = { artifact_revision_id: prepared.artifact_revision_id, artifact_digest: prepared.artifact_digest, safe_destination_label: "chosen-resume.pdf", outcome: "completed" as const };
+    const finalized = await restartedBroker.finalize(finalizeInput, exportAuthority);
+    const finalizedReplay = await restartedBroker.finalize(finalizeInput, exportAuthority);
+    expect(finalizedReplay.receipt_revision_id).toBe(finalized.receipt_revision_id);
+    await expect(restartedBroker.finalize({ ...finalizeInput, safe_destination_label: "different-resume.pdf" }, exportAuthority)).rejects.toMatchObject({ code: "idempotency_conflict" });
+    expect(await restartedStore.list("export_receipt")).toHaveLength(1);
     expect(await store.readRevision(definition.metadata.revision_id)).toEqual(definition);
   });
 });

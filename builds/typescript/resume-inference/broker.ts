@@ -32,7 +32,7 @@ export class ResumeInferenceBroker {
 
   async execute(raw: unknown, signal?: AbortSignal): Promise<BrokerCompletion> {
     const request = this.parseAndValidate(raw);
-    const digest = canonicalInputDigest(request);
+    const digest = operationInputDigest(request);
     const prior = this.completed.get(request.operation_id);
     if (prior) {
       if (prior.digest !== digest) throw new ResumeInferenceError("invalid_request", "Inference operation identity was reused with different input");
@@ -112,12 +112,15 @@ export class ResumeInferenceBroker {
     let attempts = 0;
     this.audit("app.inference.started", this.auditFields(request, { status: "running", attempt: attempts }));
     try {
+      throwIfAborted(signal);
       provider = await this.resolveProvider(request.purpose);
+      throwIfAborted(signal);
       if (!provider.adapter.completeStructuredNoTools) throw new ResumeInferenceError("model_incompatible", "Active provider lacks the no-tools structured adapter path");
       let result: unknown;
       let response: StructuredCompletionResponse | null = null;
       let lastSchemaError: unknown;
-      for (let attempt = 1; attempt <= 2; attempt += 1) {
+      for (let attempt = 1; attempt <= request.limits.attempts; attempt += 1) {
+        throwIfAborted(signal);
         attempts = attempt;
         const messages = buildPolicyMessages(request.purpose, request.data_blocks, attempt === 2);
         response = await provider.adapter.completeStructuredNoTools({
@@ -129,6 +132,7 @@ export class ResumeInferenceBroker {
           timeoutMs: Math.min(request.limits.duration_ms, Math.max(1, Date.parse(request.deadline_at) - this.now().getTime())),
           signal,
         });
+        throwIfAborted(signal);
         if (["length", "content_filter", "tool_calls"].includes(response.finishReason)) {
           throw new ResumeInferenceError("validation_failed", "Provider ended with an ambiguous or incomplete structured outcome");
         }
@@ -142,12 +146,13 @@ export class ResumeInferenceBroker {
           break;
         } catch (error) {
           lastSchemaError = error;
-          if (attempt === 2) break;
+          if (attempt === request.limits.attempts) break;
         }
       }
       if (lastSchemaError !== undefined || response === null || result === undefined) {
         throw new ResumeInferenceError("schema_validation_failed", "Provider output failed the accepted schema after one structural repair");
       }
+      throwIfAborted(signal);
       const validation = validateInferenceClaims(request.purpose, result, request.data_blocks);
       if (!validation.accepted) {
         const failure = this.failure(request, startedAt, inputDigest, provider, attempts, "failed", new ResumeInferenceError("validation_failed", "Generated output did not pass deterministic claim validation"));
@@ -209,6 +214,30 @@ export class ResumeInferenceBroker {
       ...extra,
     };
   }
+}
+
+function operationInputDigest(request: InferenceRequest): `sha256:${string}` {
+  return canonicalInputDigest({
+    owner_id: request.owner_id,
+    actor_id: request.actor_id,
+    app_id: request.app_id,
+    installation_id: request.installation_id,
+    operation_id: request.operation_id,
+    grant_id: request.grant_id,
+    purpose: request.purpose,
+    input_snapshot: request.input_snapshot,
+    data_blocks: request.data_blocks,
+    prompt_policy_id: request.prompt_policy_id,
+    prompt_policy_version: request.prompt_policy_version,
+    output_schema_id: request.output_schema_id,
+    output_schema_version: request.output_schema_version,
+    capability_requirements: request.capability_requirements,
+    limits: request.limits,
+  });
+}
+
+function throwIfAborted(signal: AbortSignal): void {
+  if (signal.aborted) throw signal.reason ?? new Error("cancelled");
 }
 
 function usage(response: StructuredCompletionResponse): InferenceResult["usage"] {

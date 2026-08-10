@@ -7,6 +7,8 @@ services:
       dockerfile: installer/docker/Dockerfile.app
     image: ${BRAINDRIVE_APP_IMAGE_LOCAL:-braindrive-app:local}
     user: "0:0"
+    security_opt:
+      - no-new-privileges:true
     entrypoint: ["/bin/bash"]
     command:
       - "-lc"
@@ -84,6 +86,7 @@ services:
       PAA_AUDIT_MAX_FILE_BYTES: ${PAA_AUDIT_MAX_FILE_BYTES:-5242880}
       PAA_AUDIT_RETENTION_DAYS: ${PAA_AUDIT_RETENTION_DAYS:-14}
       BRAINDRIVE_APP_PLATFORM_ENABLED: ${BRAINDRIVE_APP_PLATFORM_ENABLED:-true}
+      BRAINDRIVE_APP_PLATFORM_TARGET: docker_linux_x64
       BRAINDRIVE_APP_STATE_ROOT: /data/app-platform
       BRAINDRIVE_DESKTOP_API_TOKEN: ${BRAINDRIVE_DESKTOP_API_TOKEN:-}
       TZ: ${TZ:-UTC}

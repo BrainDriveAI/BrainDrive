@@ -17,9 +17,19 @@ import { ResumeInferenceError } from "./errors.js";
 import { RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION } from "./policy.js";
 
 export const InferenceInvocationSchema = z.object({
+  inference_contract_version: z.literal(1),
   purpose: InferencePurposeSchema,
   request_id: OpaqueIdSchema.optional(),
   operation_id: OpaqueIdSchema,
+  intent: z.enum(["quality", "balanced", "speed"]).default("balanced"),
+  stream: z.boolean().default(true),
+  budget: z.object({
+    input_bytes: z.number().int().positive().optional(),
+    input_tokens: z.number().int().positive().optional(),
+    output_tokens: z.number().int().positive().optional(),
+    duration_ms: z.number().int().positive().optional(),
+    attempts: z.number().int().min(1).max(2).optional(),
+  }).strict().optional(),
   fact_revision_ids: z.array(OpaqueIdSchema).max(500),
   record_revision_ids: z.array(OpaqueIdSchema).max(64).default([]),
   presentation_preferences: z.record(z.string(), z.string().max(2_048)).default({}),
@@ -46,7 +56,9 @@ export class ImmutableInferenceSnapshotBuilder {
   constructor(private readonly store: ResumeDataStore, private readonly now = () => new Date()) {}
 
   async build(raw: unknown, grant: CapabilityGrant): Promise<z.infer<typeof InferenceRequestSchema>> {
-    const input = InferenceInvocationSchema.parse(raw);
+    const parsed = InferenceInvocationSchema.safeParse(raw);
+    if (!parsed.success) throw new ResumeInferenceError("invalid_request", "Inference invocation failed the versioned app contract");
+    const input = parsed.data;
     this.authorize(grant);
     const factRecords = await Promise.all(input.fact_revision_ids.map((id) => this.store.readRevision(id, grant.record_scopes)));
     for (const record of factRecords) {
@@ -72,7 +84,15 @@ export class ImmutableInferenceSnapshotBuilder {
     for (const record of related) dataBlocks.push(this.recordBlock(record));
     for (const derived of input.derived_blocks) dataBlocks.push(block(derived.category, derived.schema_id, derived.data));
     const ceiling = PURPOSE_LIMITS[input.purpose];
-    if (encodedByteLength(dataBlocks) > ceiling.input_bytes) {
+    const limits = {
+      input_bytes: Math.min(ceiling.input_bytes, input.budget?.input_bytes ?? ceiling.input_bytes),
+      input_tokens: Math.min(ceiling.input_tokens, input.budget?.input_tokens ?? ceiling.input_tokens),
+      output_tokens: Math.min(ceiling.output_tokens, input.budget?.output_tokens ?? ceiling.output_tokens),
+      duration_ms: Math.min(ceiling.duration_ms, input.budget?.duration_ms ?? ceiling.duration_ms),
+      attempts: Math.min(ceiling.attempts, input.budget?.attempts ?? ceiling.attempts),
+      concurrency: 1 as const,
+    };
+    if (encodedByteLength(dataBlocks) > limits.input_bytes) {
       throw new ResumeInferenceError("invalid_request", "Inference snapshot exceeds the purpose byte budget");
     }
     const requestedAt = this.now();
@@ -99,12 +119,12 @@ export class ImmutableInferenceSnapshotBuilder {
       capability_requirements: {
         text_generation: true,
         complete_structured_json: true,
-        minimum_context_tokens: ceiling.input_tokens,
+        minimum_context_tokens: limits.input_tokens,
         model_tools: false,
       },
-      limits: ceiling,
+      limits,
       requested_at: requestedAt.toISOString(),
-      deadline_at: new Date(requestedAt.getTime() + ceiling.duration_ms).toISOString(),
+      deadline_at: new Date(requestedAt.getTime() + limits.duration_ms).toISOString(),
     });
     return request;
   }

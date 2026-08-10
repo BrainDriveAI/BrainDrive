@@ -53,8 +53,46 @@ describe("live signed modern MCP Apps fixture", () => {
         expect(response.result.structuredContent).toEqual({ ready: true, version: "3.0.0" });
         expect(response.result._meta).toMatchObject({ "io.modelcontextprotocol/ui": { visibility: ["app"] } });
       }
+      const resumed = await host.launch("direct", {
+        sessionId: launch.session_id,
+        viewId: launch.view_id,
+        operationId: launch.operation_id,
+        bridgeGeneration: launch.bridge_generation,
+      });
+      expect(resumed).toMatchObject({
+        view_id: launch.view_id,
+        operation_id: launch.operation_id,
+        bridge_generation: 2,
+        resumed: true,
+      });
+      await expect(host.handleAppsBridge(launch.session_id, {})).rejects.toMatchObject({ code: "session_closed" });
+      const currentResource = {
+        bridge_envelope_version: 1,
+        message_id: crypto.randomUUID(),
+        installation_id: resumed.installation_id,
+        view_id: resumed.view_id,
+        operation_id: resumed.operation_id,
+        bridge_generation: resumed.bridge_generation,
+        direction: "app_to_host",
+        provenance: { source_window_match: true, opaque_origin: "null", same_server_id: resumed.server_id },
+        sent_at: new Date().toISOString(),
+        message: { jsonrpc: "2.0", id: "live-resource-after-resume", method: "resources/read", params: { uri: resumed.resource.uri } },
+      };
+      await expect(host.handleAppsBridge(resumed.session_id, currentResource)).resolves.toMatchObject({ id: "live-resource-after-resume" });
+
+      const concurrent = await host.launch("career");
+      expect(concurrent.view_id).not.toBe(resumed.view_id);
+      expect(concurrent.operation_id).not.toBe(resumed.operation_id);
+      await expect(host.handleAppsBridge(concurrent.session_id, {
+        ...currentResource,
+        message_id: crypto.randomUUID(),
+        message: { jsonrpc: "2.0", id: "cross-view-live", method: "resources/read", params: { uri: concurrent.resource.uri } },
+      })).rejects.toMatchObject({ code: "bridge_denied" });
+      expect(host.close(concurrent.session_id)).toBe(true);
+      expect(host.sessionCountForTest()).toBe(1);
+
       await lifecycle.disable({ idempotencyKey: "modern-fixture-disable" });
-      await expect(host.handleBridge(launch.session_id, {}, { origin: "null", sourceMatches: true })).rejects.toMatchObject({ code: "session_closed" });
+      await expect(host.handleBridge(resumed.session_id, {}, { origin: "null", sourceMatches: true })).rejects.toMatchObject({ code: "session_closed" });
       await lifecycle.uninstall({ idempotencyKey: "modern-fixture-final-uninstall" });
     } finally {
       await lifecycle.dependencies.supervisor.close();

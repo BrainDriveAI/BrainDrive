@@ -159,6 +159,10 @@ describe("OpenAICompatibleAdapter prompt audit", () => {
       maxOutputTokens: 128, timeoutMs: 1_000,
     });
     expect(sentBody).toMatchObject({ model: "test-model", stream: false, tools: [], max_tokens: 128 });
+    expect(Object.keys(sentBody!).sort()).toEqual(["max_tokens", "messages", "model", "response_format", "stream", "tools"]);
+    expect(sentBody).not.toHaveProperty("tool_choice");
+    expect(sentBody).not.toHaveProperty("provider");
+    expect(sentBody).not.toHaveProperty("allow_provider_fallback");
     expect(JSON.stringify(sentBody)).not.toContain("sk-owner-secret");
     expect(authorization).toBe("Bearer sk-owner-secret");
     expect(sentBody).toHaveProperty("response_format.json_schema.strict", true);

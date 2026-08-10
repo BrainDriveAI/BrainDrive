@@ -20,6 +20,9 @@ function createHost() {
   return {
     launch: vi.fn(async () => ({ launch_version: 1, session_id: crypto.randomUUID() })),
     handleBridge: vi.fn(async () => ({ status: "ready" })),
+    handleAppsBridge: vi.fn(async () => ({ jsonrpc: "2.0", id: "request", result: {} })),
+    cancelAppsBridgeRequest: vi.fn(() => true),
+    handleServerCapability: vi.fn(async () => ({ status: "completed" })),
     handleOwnerCapability: vi.fn(async () => ({ status: "ok" })),
     placeCareerReturn: vi.fn(async () => ({ placement: "career_journal", committed: true })),
     close: vi.fn(() => true),
@@ -42,6 +45,14 @@ describe("owner MCP Apps host gateway routes", () => {
 
     expect((await app.inject({ method: "POST", url: "/apps/resume-builder/launch", headers: { "x-test-denied": "1" } })).statusCode).toBe(403);
     expect((await app.inject({ method: "POST", url: "/apps/resume-builder/launch" })).statusCode).toBe(200);
+    const resume = { session_id: crypto.randomUUID(), view_id: crypto.randomUUID(), operation_id: crypto.randomUUID(), bridge_generation: 4 };
+    expect((await app.inject({ method: "POST", url: "/apps/resume-builder/launch", payload: { entry_point: "career", resume } })).statusCode).toBe(200);
+    expect(host.launch).toHaveBeenLastCalledWith("career", {
+      sessionId: resume.session_id,
+      viewId: resume.view_id,
+      operationId: resume.operation_id,
+      bridgeGeneration: 4,
+    });
 
     const sessionId = crypto.randomUUID();
     const invalid = await app.inject({
@@ -59,6 +70,46 @@ describe("owner MCP Apps host gateway routes", () => {
     });
     expect(valid.json()).toEqual({ status: "ready" });
     expect(host.handleBridge).toHaveBeenCalledWith(sessionId, {}, { origin: "null", sourceMatches: true });
+
+    const envelope = { bridge_envelope_version: 1 };
+    const apps = await app.inject({ method: "POST", url: "/apps/resume-builder/apps-bridge", payload: { session_id: sessionId, envelope } });
+    expect(apps.json()).toMatchObject({ jsonrpc: "2.0", id: "request" });
+    expect(host.handleAppsBridge).toHaveBeenCalledWith(sessionId, envelope);
+
+    const requestId = crypto.randomUUID();
+    expect((await app.inject({ method: "DELETE", url: `/apps/resume-builder/sessions/${sessionId}/requests/${requestId}` })).statusCode).toBe(204);
+    expect(host.cancelAppsBridgeRequest).toHaveBeenCalledWith(sessionId, requestId);
+    await app.close();
+  });
+
+  it("keeps app-server capability calls behind a bearer token instead of owner auth", async () => {
+    const host = createHost();
+    const app = Fastify();
+    registerAppMcpHostRoutes(app, host);
+    const operationId = crypto.randomUUID();
+    const payload = {
+      request_version: 1, capability: "career.context.read", capability_version: 1,
+      operation_id: operationId, idempotency_key: "m4-server-operation-0001", input: { entry_point: "direct" },
+    };
+    expect((await app.inject({ method: "POST", url: "/internal/apps/resume-builder/capabilities", payload })).statusCode).toBe(401);
+    const response = await app.inject({
+      method: "POST", url: "/internal/apps/resume-builder/capabilities",
+      headers: { authorization: `Bearer ${"a".repeat(43)}` }, payload,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(host.handleServerCapability).toHaveBeenCalledWith(
+      "a".repeat(43), "career.context.read", 1, { entry_point: "direct" }, operationId, "m4-server-operation-0001",
+    );
+
+    vi.mocked(host.handleServerCapability).mockRejectedValueOnce(new AppPlatformError("token_scope_invalid", "private grant and record detail", 403));
+    const denied = await app.inject({
+      method: "POST", url: "/internal/apps/resume-builder/capabilities",
+      headers: { authorization: `Bearer ${"b".repeat(43)}` }, payload,
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json()).toMatchObject({ error: { code: "denied", correlation_id: operationId } });
+    expect(denied.json()).not.toHaveProperty("owner_state");
+    expect(denied.body).not.toContain("private grant and record detail");
     await app.close();
   });
 

@@ -165,7 +165,7 @@ export class ImmutablePackageStore {
       await chmodTree(contentRoot, executablePaths);
       promotionStep = "publish_metadata";
       await writeAtomic(metadataPath, metadata, 0o400);
-    } catch (error) {
+    } catch {
       if (renamed) {
         await makeTreeRemovable(contentRoot).catch(() => undefined);
         await rm(contentRoot, { recursive: true, force: true }).catch(() => undefined);

@@ -346,7 +346,7 @@ export default function AppShell({
         <div
           className="flex min-h-0 flex-1 flex-col overflow-hidden pt-[var(--mobile-header-height)] md:pt-0"
         >
-          {isAppsOpen ? <AppsPage entryPoint={selectedProject?.name.trim().toLowerCase() === "career" ? "career" : "direct"} /> : children ?? (
+          {isAppsOpen ? <AppsPage entryPoint={selectedProject?.name.trim().toLowerCase() === "career" ? "career" : "direct"} onOpenSettings={() => setIsSettingsOpen(true)} /> : children ?? (
             <ChatPanel
               activeConversationId={activeConversationId}
               activeProjectId={selectedProjectId}

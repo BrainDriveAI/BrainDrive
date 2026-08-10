@@ -34,13 +34,14 @@ export const RESUME_INFERENCE_MCP_TOOLS = RESUME_INFERENCE_PURPOSES.map((purpose
   inputSchema: {
     type: "object",
     properties: {
+      inference_contract_version: { const: 1 },
       operation_id: { type: "string", format: "uuid" },
       fact_revision_ids: { type: "array", items: { type: "string", format: "uuid" }, maxItems: 500 },
       record_revision_ids: { type: "array", items: { type: "string", format: "uuid" }, maxItems: 64 },
       presentation_preferences: { type: "object", additionalProperties: { type: "string", maxLength: 2048 } },
       derived_blocks: { type: "array", maxItems: 8 },
     },
-    required: ["operation_id", "fact_revision_ids"],
+    required: ["inference_contract_version", "operation_id", "fact_revision_ids"],
     additionalProperties: false,
   },
   _meta: { "io.modelcontextprotocol/ui": { visibility: ["app"] } },
@@ -55,6 +56,7 @@ export const RESUME_INFERENCE_MCP_RESOURCES = [{
 
 export type HostInferenceClient = {
   request(input: {
+    inference_contract_version: 1;
     purpose: ResumeInferencePurpose;
     operation_id: string;
     fact_revision_ids: string[];

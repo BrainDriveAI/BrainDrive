@@ -1,5 +1,7 @@
 # Trusted app lifecycle and runtime supervisor
 
+The Spec 05 Milestone 6 dynamic Docker/desktop supervisor, M2 negotiation gate, bounded recovery, exact process-group cleanup, and redacted evidence are documented in `SPEC-05-M6-SUPERVISOR.md`.
+
 The corrective Spec 04 Milestone 6 owner lifecycle boundary is documented in `M6-OWNER-LIFECYCLE.md`. It exposes the M1–M5 lifecycle decisions through owner-bound DTOs and an accessible direct Apps surface, and adds journaled selective uninstall/fresh reinstall. The M5 transactional update kernel remains documented in `M5-TRANSACTIONAL-UPDATE.md`.
 
 The corrective Spec 04 Milestone 4 supervised-activation kernel is documented in `M4-SUPERVISED-ACTIVATION.md`. It adapts the accepted version-1 `InstalledAppSupervisor` contract to the existing `ProcessAppSupervisor`, adds target-checked Docker and packaged-Windows bindings, persists only opaque reconciliation authority, and implements install/disable/re-enable ordering over the M2/M3 stores. It does not add a gateway route or alter fixed MCP discovery.

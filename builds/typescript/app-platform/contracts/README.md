@@ -8,6 +8,10 @@ Contract authority is the project-owner-approved Resume Builder Specs 1–5 in `
 
 Spec 04's lifecycle-specific REQ-001–REQ-040, G0–G6, transition/failure matrices, and fixture corpus are recorded under `fixtures/spec-04/`. `SPEC-04-M1-VERIFICATION.md` is the accepted lifecycle verification plan and `app-lifecycle.m1.test.ts` is its focused executable audit. Run it with `npm run test -- app-lifecycle` from `builds/typescript`.
 
+Spec 05's REQ-001–REQ-045 traceability, OQ-1–OQ-7 decisions, adversarial corpus, and M1 gate evidence are recorded under `fixtures/spec-05/`. `spec-05-foundation.ts` is the dormant version-1 wire/security authority and `SPEC-05-M1-VERIFICATION.md` records the accepted evidence plan. Run the focused proof with `npm run test -- app-platform/contracts/spec-05-m1.test.ts` from `builds/typescript`.
+
+The Spec 05 modern profile uses the split MCP v2 packages at `2.0.0` and targets stateless MCP `2026-07-28`; the bounded fixed-tool profile keeps the monolithic SDK `1.30.0` at MCP `2025-11-25`. Apps remains `io.modelcontextprotocol/ui` `2026-01-26` through `@modelcontextprotocol/ext-apps` `1.7.5`. These contracts do not connect to a server or expose app authority merely by being imported.
+
 All authority-bearing envelopes are strict: unknown fields fail. Durable owner-data records use an explicit `extensions` object so a compatible reader can preserve unknown extension fields without granting them authority. Schema version 1 cannot be silently downgraded.
 
 Package verification authority is split deliberately: `PackageManifestSchema` describes archive identity and contents, `PackageDescriptorSchema` binds canonical manifest and exact archive digests to an Ed25519 signature, `PackageSourceIndexSchema` resolves immutable descriptors, `TrustRootSchema` defines the pinned-root/release-key hierarchy, and `RevocationListSchema` supplies monotonic explicit denials. `supervisor.ts` freezes the runtime-neutral control protocol; it does not implement or start a supervisor.

@@ -15,9 +15,9 @@ describe("Resume Builder inference MCP surface", () => {
     const cancel = vi.fn(async () => true);
     const operations = createResumeInferenceMcpOperations({ request, cancel });
     const operationId = crypto.randomUUID();
-    await expect(operations.callTool("resume.interview_assist", { operation_id: operationId, fact_revision_ids: [] })).resolves.toMatchObject({ status: "completed", purpose: "interview_assist" });
-    expect(request).toHaveBeenCalledWith({ purpose: "interview_assist", operation_id: operationId, fact_revision_ids: [] }, undefined);
-    await expect(operations.callTool("resume.override_provider", { operation_id: operationId, fact_revision_ids: [] })).rejects.toThrow("tool_not_found");
+    await expect(operations.callTool("resume.interview_assist", { inference_contract_version: 1, operation_id: operationId, fact_revision_ids: [] })).resolves.toMatchObject({ status: "completed", purpose: "interview_assist" });
+    expect(request).toHaveBeenCalledWith({ inference_contract_version: 1, purpose: "interview_assist", operation_id: operationId, fact_revision_ids: [] }, undefined);
+    await expect(operations.callTool("resume.override_provider", { inference_contract_version: 1, operation_id: operationId, fact_revision_ids: [] })).rejects.toThrow("tool_not_found");
     await expect(operations.cancel(operationId)).resolves.toBe(true);
     expect(operations.readResource("resource://resume-builder/inference/purposes").text).toContain("targeted_resume_draft");
   });

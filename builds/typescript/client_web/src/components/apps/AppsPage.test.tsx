@@ -28,6 +28,7 @@ function installed(overrides: Partial<appsApi.ResumeBuilderAppStatus> = {}): app
 
 const launch = {
   launch_version: 1 as const, session_id: crypto.randomUUID(), installation_id: crypto.randomUUID(), view_id: crypto.randomUUID(), operation_id: crypto.randomUUID(),
+  bridge_generation: 1, resumed: false,
   bridge_token_id: crypto.randomUUID(), server_id: crypto.randomUUID(), expires_at: "2030-01-01T00:00:00.000Z",
   protocol: { core: "2026-07-28", apps_extension: "2026-01-26", server_name: "fixture", server_version: "3.0.0" },
   resource: { uri: "ui://resume-builder/main", mime_type: "text/html;profile=mcp-app" as const, content_digest: `sha256:${"a".repeat(64)}`, size_bytes: 32, html: "<!doctype html><main>Fixture</main>" },
@@ -116,6 +117,19 @@ describe("owner lifecycle Apps surface", () => {
     expect(appsApi.launchResumeBuilderApp).toHaveBeenCalledWith("career");
     await user.click(await screen.findByRole("button", { name: "Close app" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Continue from Career" })).toHaveFocus());
+  });
+
+  it("reloads through the bounded reconnect handshake before the old session is torn down", async () => {
+    vi.mocked(appsApi.getResumeBuilderApp).mockResolvedValue(installed());
+    const resumed = { ...launch, session_id: crypto.randomUUID(), bridge_generation: 2, resumed: true };
+    vi.mocked(appsApi.launchResumeBuilderApp).mockResolvedValueOnce(launch).mockResolvedValueOnce(resumed);
+    const user = userEvent.setup(); render(<AppsPage />);
+    await user.click(await screen.findByRole("button", { name: "Launch" }));
+    await user.click(await screen.findByRole("button", { name: "Reload app" }));
+    await waitFor(() => expect(appsApi.launchResumeBuilderApp).toHaveBeenLastCalledWith("direct", launch));
+    const reconnectOrder = vi.mocked(appsApi.launchResumeBuilderApp).mock.invocationCallOrder[1]!;
+    const closeIndex = vi.mocked(appsApi.closeResumeBuilderSession).mock.calls.findIndex(([sessionId]) => sessionId === launch.session_id);
+    if (closeIndex >= 0) expect(vi.mocked(appsApi.closeResumeBuilderSession).mock.invocationCallOrder[closeIndex]).toBeGreaterThan(reconnectOrder);
   });
 
   it("keeps a single-column base layout with responsive enhancement classes", async () => {

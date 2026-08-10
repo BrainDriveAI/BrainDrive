@@ -9,9 +9,10 @@ class FixtureTransport implements McpWireTransport {
   constructor(private readonly overrides: Record<string, unknown> = {}) {}
   async request(method: string): Promise<unknown> {
     if (method in this.overrides) return this.overrides[method];
-    if (method === "initialize") return { protocolVersion: "2026-07-28", capabilities: { tools: {}, resources: {} }, serverInfo: { name: "fixture", version: "3.0.0" }, _meta: { "io.modelcontextprotocol/ui": { version: "2026-01-26" } } };
+    if (method === "server/discover") return { supportedVersions: ["2026-07-28"], capabilities: { tools: {}, resources: {}, extensions: { "io.modelcontextprotocol/ui": { mimeTypes: [MCP_APP_MEDIA_TYPE] } } }, _meta: { "io.modelcontextprotocol/ui": { version: "2026-01-26" }, "io.modelcontextprotocol/serverInfo": { name: "fixture", version: "3.0.0" } } };
     if (method === "resources/list") return { resources: [{ uri: "ui://resume-builder/main", name: "Resume Builder", mimeType: MCP_APP_MEDIA_TYPE, size: Buffer.byteLength(safeHtml), annotations: { audience: ["user"] }, _meta: { retainedDescriptor: true } }], _meta: { retainedList: true } };
-    if (method === "tools/list") return { tools: [{ name: "fixture.status", inputSchema: { type: "object" }, _meta: { "io.modelcontextprotocol/ui": { visibility: ["app"] } } }, { name: "model.only", _meta: { "io.modelcontextprotocol/ui": { visibility: ["model"] } } }] };
+    if (method === "resources/templates/list") return { resourceTemplates: [] };
+    if (method === "tools/list") return { tools: [{ name: "fixture.status", inputSchema: { type: "object" }, _meta: { ui: { visibility: ["app"] } } }, { name: "model.only", _meta: { ui: { visibility: ["model"] } } }] };
     if (method === "resources/read") return { contents: [{ uri: "ui://resume-builder/main", mimeType: MCP_APP_MEDIA_TYPE, text: safeHtml, annotations: { priority: 1 }, _meta: { retainedRead: true } }], _meta: { retainedEnvelope: true } };
     if (method === "tools/call") return { content: [{ type: "text", text: "one" }, { type: "resource_link", name: "ui", uri: "ui://resume-builder/main" }], structuredContent: { ready: true }, _meta: { retained: true }, isError: false };
     throw new Error(method);
@@ -32,21 +33,27 @@ describe("modern installed-app MCP client", () => {
   });
 
   it.each([
-    ["legacy protocol", { initialize: { protocolVersion: "2025-11-25", capabilities: { tools: {}, resources: {} }, serverInfo: { name: "legacy", version: "1" } } }, "protocol_incompatible"],
-    ["missing Apps extension", { initialize: { protocolVersion: "2026-07-28", capabilities: { tools: {}, resources: {} }, serverInfo: { name: "partial", version: "1" }, _meta: {} } }, "extension_incompatible"],
+    ["legacy protocol", { "server/discover": { supportedVersions: ["2025-11-25"], capabilities: { tools: {}, resources: {} }, _meta: { "io.modelcontextprotocol/serverInfo": { name: "legacy", version: "1" } } } }, "protocol_incompatible"],
+    ["missing Apps extension", { "server/discover": { supportedVersions: ["2026-07-28"], capabilities: { tools: {}, resources: {} }, _meta: { "io.modelcontextprotocol/serverInfo": { name: "partial", version: "1" } } } }, "extension_incompatible"],
   ])("rejects %s before resource reads", async (_label, overrides, code) => {
     await expect(new ModernMcpAppsClient(new FixtureTransport(overrides)).negotiate()).rejects.toMatchObject({ code });
   });
 
   it.each([
     ["wrong mime", { "resources/list": { resources: [{ uri: "ui://resume-builder/main", name: "bad", mimeType: "text/html", size: 4 }] } }, "resource_invalid"],
-    ["oversized declaration", { "resources/list": { resources: [{ uri: "ui://resume-builder/main", name: "large", mimeType: MCP_APP_MEDIA_TYPE, size: 2_097_153 }] } }, "resource_oversized"],
-    ["malicious network content", { "resources/read": { contents: [{ uri: "ui://resume-builder/main", mimeType: MCP_APP_MEDIA_TYPE, text: safeHtml.replace("</main>", "<script>fetch('https://bad.invalid')</script></main>") }] } }, "resource_oversized"],
+    ["malicious network content", { "resources/read": { contents: [{ uri: "ui://resume-builder/main", mimeType: MCP_APP_MEDIA_TYPE, text: safeHtml.replace("</main>", "<script>fetch('https://bad.invalid')</script></main>") }] } }, "resource_invalid"],
     ["missing resource", { "resources/list": { resources: [] } }, "resource_missing"],
   ])("fails safely for %s", async (_label, overrides, code) => {
     const client = new ModernMcpAppsClient(new FixtureTransport(overrides));
     const session = await client.negotiate();
-    await expect(client.readAppResource(session, "ui://resume-builder/main", `sha256:${"b".repeat(64)}`)).rejects.toMatchObject({ code });
+    await expect(client.readAppResource(session, "ui://resume-builder/main", `sha256:${"a".repeat(64)}`)).rejects.toMatchObject({ code });
+  });
+
+  it("rejects oversized resource declarations before partial catalog registration", async () => {
+    const client = new ModernMcpAppsClient(new FixtureTransport({
+      "resources/list": { resources: [{ uri: "ui://resume-builder/main", name: "large", mimeType: MCP_APP_MEDIA_TYPE, size: 2_097_153 }] },
+    }));
+    await expect(client.negotiate()).rejects.toMatchObject({ code: "resource_invalid" });
   });
 
   it("returns a complete unflattened tool result", async () => {

@@ -793,6 +793,7 @@ export const CapabilityDiffSchema = z
 export const CapabilityTokenSchema = z
   .object({
     token_version: z.literal(1),
+    token_generation: z.number().int().positive(),
     grant_revision: z.number().int().positive(),
     revocation_generation: z.number().int().nonnegative(),
     token_id: OpaqueIdSchema,
@@ -807,6 +808,7 @@ export const CapabilityTokenSchema = z
     connection_id: OpaqueIdSchema,
     view_id: OpaqueIdSchema.nullable(),
     operation_id: OpaqueIdSchema,
+    idempotency_key: z.string().min(16).max(256),
     capabilities: z.array(CapabilityNameSchema).min(1),
     record_scopes: z.array(OpaqueIdSchema),
     issued_at: TimestampSchema,

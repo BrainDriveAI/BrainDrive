@@ -31,3 +31,11 @@ These records apply the project-owner approvals dated 2026-08-07 in Resume Build
 **Decision:** Implement the accepted top-level Sidebar/SidebarCollapsed `Apps` entry and a combined single-app management/launch page. Register host routes only alongside the existing feature-gated Docker lifecycle. Do not change production/native/desktop enablement or add Career/resume workflow UI.
 
 **Reason:** This follows the M1 placement decision and preserves AppShell/project/chat/settings behavior. Keeping the server feature gate means the UI reports Apps unavailable outside accepted environments rather than silently enabling unfinished runtime support.
+
+## ADR-RB-019 — Resume rotates transport authority, not durable work identity
+
+**Decision:** `AppViewRegistry` owns an atomic plan/commit reconnect boundary. An exact current resume retains `view_id` and durable `operation_id`, rotates `session_id`, increments `bridge_generation`, and invalidates the superseded session. New and concurrent views receive distinct host-generated identities. Close and cancellation use exact current-session lookup and never scan other sessions or views. The host performs lifecycle, readiness, MCP, resource, and sandbox checks before committing either a new or resumed view.
+
+Docker/packaged-desktop parity is compared through the version-1 Spec 05 parity contract. Only transport, process isolation, package-root reference, cache-root reference, and diagnostic platform are separated as permitted runtime differences; protocol, policy, state, error, and outcome semantics are not. Missing native-target observations are blocked evidence.
+
+**Reason:** Reload is a transport replacement, while Spec 02 operations and M4/M5 idempotency survive it. Keeping durable identities stable prevents duplicate writes, exports, and provider spend; rotating session and bridge generations makes late messages incapable of committing or rendering. Exact lookup prevents cancellation, close, and focus authority from crossing concurrent views. Refusing to synthesize a missing target keeps release claims grounded in executable evidence.

@@ -13,6 +13,17 @@ describe("Docker development Resume Builder package boundary", () => {
     expect(compose).toContain("../../builds/resume_builder:/app/resume_builder:ro");
   });
 
+  it("selects the Docker adapter without publishing an app endpoint, Docker socket, host secret, or extra privilege", async () => {
+    const compose = await readFile(resolve(process.cwd(), "../../installer/docker/compose.dev.yml"), "utf8");
+    const appService = compose.slice(compose.indexOf("  app:"), compose.indexOf("\n  web:"));
+
+    expect(appService).toContain("BRAINDRIVE_APP_PLATFORM_TARGET: docker_linux_x64");
+    expect(appService).toContain("no-new-privileges:true");
+    expect(appService).not.toMatch(/^\s{4}ports:/m);
+    expect(appService).not.toMatch(/docker\.sock|BRAINDRIVE_APP_CONNECTION_TOKEN|BRAINDRIVE_ENDPOINT_BIND/);
+    expect(appService).not.toMatch(/\/home\/|\/Users\/|[A-Za-z]:\\/);
+  });
+
   it("keeps the documented support bundle executable and path-redacted", async () => {
     const scriptPath = resolve(
       process.cwd(),

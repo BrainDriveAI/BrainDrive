@@ -115,11 +115,40 @@ export class ResumeExportBroker {
     if (artifact.record_type !== "artifact" || artifact.artifact_digest !== input.artifact_digest || artifact.format !== "pdf" || !artifact.accepted) {
       throw new ResumeDomainError("not_found_within_scope", "Prepared export artifact was not found", 404);
     }
-    const receiptResult = await this.domain.recordExportReceipt({ artifact_revision_id: artifact.metadata.revision_id, artifact_digest: artifact.artifact_digest, format: "pdf", outcome: input.outcome, exported_at: this.now().toISOString(), safe_destination_label: input.safe_destination_label }, { ...authority, operationId: derivedUuid(authority.operationId, `receipt-${input.outcome}`), idempotencyKey: `${authority.idempotencyKey}:${input.outcome}` });
+    const receiptAuthority = { ...authority, operationId: derivedUuid(authority.operationId, `receipt-${input.outcome}`), idempotencyKey: `${authority.idempotencyKey}:${input.outcome}` };
+    const reconciled = await this.reconcileReceipt(input, receiptAuthority);
+    if (reconciled) return reconciled;
+    const receiptResult = await this.domain.recordExportReceipt({ artifact_revision_id: artifact.metadata.revision_id, artifact_digest: artifact.artifact_digest, format: "pdf", outcome: input.outcome, exported_at: this.now().toISOString(), safe_destination_label: input.safe_destination_label }, receiptAuthority);
     const receipt = receiptResult.receipt;
     if (receipt.record_type !== "export_receipt") throw new ResumeDomainError("recoverable_internal_failure", "Export receipt registration failed");
     this.audit("app.export.completed", { app_id: authority.grant.app_id, installation_id: authority.grant.installation_id, operation_id: authority.operationId, target_category: "artifact", target_id: artifact.metadata.record_id, outcome: input.outcome, item_count: 1, error_code: input.outcome === "failed" ? "export_failed" : null });
     return { status: "completed", receipt_revision_id: receipt.metadata.revision_id, safe_destination_label: receipt.safe_destination_label, outcome: receipt.outcome };
+  }
+
+  private async reconcileReceipt(
+    input: z.infer<typeof FinalizeExportRequestSchema>,
+    authority: DataAuthority,
+  ): Promise<{ status: "completed"; receipt_revision_id: string; safe_destination_label: string; outcome: "completed" | "cancelled" | "failed" } | null> {
+    try {
+      const existing = await this.domain.store.operation(authority.operationId, authority.grant.installation_id, {
+        ownerId: authority.grant.owner_id,
+        actorId: authority.grant.actor_id,
+        grantedCapabilities: authority.grant.capabilities,
+        recordScopes: authority.grant.record_scopes,
+      });
+      const receipt = existing.results.find((record) => record.record_type === "export_receipt");
+      if (!receipt || receipt.record_type !== "export_receipt") throw new ResumeDomainError("recoverable_internal_failure", "Export receipt reconciliation failed");
+      if (
+        receipt.artifact_revision_id !== input.artifact_revision_id ||
+        receipt.artifact_digest !== input.artifact_digest ||
+        receipt.outcome !== input.outcome ||
+        receipt.safe_destination_label !== input.safe_destination_label
+      ) throw new ResumeDomainError("idempotency_conflict", "Export completion identity was already used for a different outcome");
+      return { status: "completed", receipt_revision_id: receipt.metadata.revision_id, safe_destination_label: receipt.safe_destination_label, outcome: receipt.outcome };
+    } catch (error) {
+      if (error instanceof ResumeDomainError && error.code === "not_found_within_scope") return null;
+      throw error;
+    }
   }
 }
 

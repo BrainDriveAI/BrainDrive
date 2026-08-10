@@ -26,6 +26,11 @@ import {
 import type { CapabilityTokenBroker } from "./capability-token.js";
 import type { InstallationGrantStore } from "./install-grants.js";
 import type { AppSupervisor, RuntimeIdentity } from "./process-supervisor.js";
+import {
+  M2RuntimeRegistrationNegotiator,
+  type NegotiatedRuntimeRegistration,
+  type RuntimeRegistrationNegotiator,
+} from "./runtime-negotiator.js";
 import type { ImmutablePackageStore } from "./verified-package-store.js";
 
 type Registration = {
@@ -33,6 +38,7 @@ type Registration = {
   runtime: RuntimeIdentity;
   endpointId: string;
   connectionId: string;
+  negotiated: NegotiatedRuntimeRegistration;
 };
 
 export type InstalledAppSupervisorAdapterOptions = {
@@ -44,6 +50,7 @@ export type InstalledAppSupervisorAdapterOptions = {
   ids?: { next(): string };
   clock?: () => Date;
   audit?: (event: string, details: Record<string, unknown>) => void;
+  negotiator?: RuntimeRegistrationNegotiator;
 };
 
 const SAFE_ERROR_CODES = new Set([
@@ -58,16 +65,19 @@ const SAFE_ERROR_CODES = new Set([
  */
 export class InstalledAppSupervisorAdapter implements InstalledAppSupervisor {
   private readonly registrations = new Map<string, Registration>();
+  private readonly readyEndpoints = new Map<string, z.infer<typeof SupervisorRegistrationRequestSchema>["endpoint"]>();
   private readonly candidateRuntimeIds = new Set<string>();
   private readonly tokenGenerations = new Map<string, number>();
   private readonly ids: { next(): string };
   private readonly audit: NonNullable<InstalledAppSupervisorAdapterOptions["audit"]>;
   private readonly clock: () => Date;
+  private readonly negotiator: RuntimeRegistrationNegotiator;
 
   constructor(private readonly options: InstalledAppSupervisorAdapterOptions) {
     this.ids = options.ids ?? { next: () => randomUUID() };
     this.clock = options.clock ?? (() => new Date());
     this.audit = options.audit ?? (() => undefined);
+    this.negotiator = options.negotiator ?? new M2RuntimeRegistrationNegotiator(this.audit);
   }
 
   async start(raw: z.infer<typeof SupervisorStartRequestSchema>): Promise<z.infer<typeof SupervisorStartResultSchema>> {
@@ -108,7 +118,6 @@ export class InstalledAppSupervisorAdapter implements InstalledAppSupervisor {
       if (!resolvedEntrypoint.startsWith(`${path.resolve(stored.contentRoot)}${path.sep}`)) {
         throw new ContractViolation("package_path_invalid", "Runtime entrypoint escaped immutable package authority");
       }
-      if ((request.runtime_role ?? "active") === "active") this.options.tokenAuthority?.permitInstallation(request.descriptor.installation_id);
       const result = await this.options.processSupervisor.start({
         ...request.descriptor,
         resolved_entrypoint: resolvedEntrypoint,
@@ -133,7 +142,12 @@ export class InstalledAppSupervisorAdapter implements InstalledAppSupervisor {
     const request = SupervisorReadyRequestSchema.parse(raw);
     try {
       if (Date.parse(request.deadline_at) <= this.clock().getTime()) return this.readyFailure(request.runtime, "readiness_failed", "timeout");
-      const result = await this.options.processSupervisor.awaitReadiness(request.runtime);
+      const remainingMs = Math.max(0, Date.parse(request.deadline_at) - this.clock().getTime());
+      const result = await this.options.processSupervisor.awaitReadiness(
+        request.runtime,
+        new Date(Date.now() + remainingMs).toISOString(),
+      );
+      if (result.endpoint) this.readyEndpoints.set(request.runtime.runtime_id, result.endpoint);
       this.emit("readiness", request.runtime.installation_id, request.runtime.runtime_id, result.outcome, result.error_code);
       return SupervisorReadyResultSchema.parse(result);
     } catch (error) {
@@ -162,31 +176,15 @@ export class InstalledAppSupervisorAdapter implements InstalledAppSupervisor {
     const request = SupervisorRegistrationRequestSchema.parse(raw);
     const observed = this.options.processSupervisor.inspect(request.runtime.installation_id);
     const exact = observed.length === 1 && observed[0]?.runtime_id === request.runtime.runtime_id;
+    const readyEndpoint = this.readyEndpoints.get(request.runtime.runtime_id);
     if (!exact || request.endpoint.endpoint_token_generation !== request.runtime.endpoint_token_generation) {
       return SupervisorRegistrationResultSchema.parse({ supervisor_protocol_version: 1, outcome: "rejected", registration_id: null, error_code: "registration_failed" });
     }
-    try {
-      if (this.candidateRuntimeIds.has(request.runtime.runtime_id)) {
-        if (!this.options.processSupervisor.promoteCandidate) throw new Error("candidate promotion unavailable");
-        this.options.processSupervisor.promoteCandidate(request.runtime);
-        this.candidateRuntimeIds.delete(request.runtime.runtime_id);
-        this.options.tokenAuthority?.permitInstallation(request.runtime.installation_id);
-      }
-    } catch {
-      return SupervisorRegistrationResultSchema.parse({ supervisor_protocol_version: 1, outcome: "rejected", registration_id: null, error_code: "runtime_conflict" });
-    }
-    try {
-      const health = await this.options.processSupervisor.health(request.runtime);
-      const connection = this.options.processSupervisor.connectionFor(request.runtime.installation_id);
-      if (
-        health.state !== "ready"
-        || connection.runtime.runtime_id !== request.runtime.runtime_id
-        || new URL(connection.url).port !== new URL(request.endpoint.address).port
-      ) {
-        return SupervisorRegistrationResultSchema.parse({ supervisor_protocol_version: 1, outcome: "rejected", registration_id: null, error_code: "registration_failed" });
-      }
-    } catch {
+    if (!readyEndpoint) {
       return SupervisorRegistrationResultSchema.parse({ supervisor_protocol_version: 1, outcome: "failed", registration_id: null, error_code: "registration_failed" });
+    }
+    if (!sameEndpoint(request.endpoint, readyEndpoint)) {
+      return SupervisorRegistrationResultSchema.parse({ supervisor_protocol_version: 1, outcome: "rejected", registration_id: null, error_code: "registration_failed" });
     }
     const existing = this.registrations.get(request.runtime.installation_id);
     if (existing) {
@@ -200,11 +198,45 @@ export class InstalledAppSupervisorAdapter implements InstalledAppSupervisor {
         error_code: identical ? null : "registration_failed",
       });
     }
+    let connection: ReturnType<AppSupervisor["connectionFor"]>;
+    try {
+      const health = await this.options.processSupervisor.health(request.runtime);
+      connection = this.options.processSupervisor.connectionForRuntime
+        ? this.options.processSupervisor.connectionForRuntime(request.runtime)
+        : this.options.processSupervisor.connectionFor(request.runtime.installation_id);
+      if (
+        health.state !== "ready"
+        || connection.runtime.runtime_id !== request.runtime.runtime_id
+        || new URL(connection.url).port !== new URL(request.endpoint.address).port
+      ) {
+        return SupervisorRegistrationResultSchema.parse({ supervisor_protocol_version: 1, outcome: "rejected", registration_id: null, error_code: "registration_failed" });
+      }
+    } catch {
+      return SupervisorRegistrationResultSchema.parse({ supervisor_protocol_version: 1, outcome: "failed", registration_id: null, error_code: "registration_failed" });
+    }
+    let negotiated: NegotiatedRuntimeRegistration | null = null;
+    try {
+      negotiated = await this.negotiator.negotiate(connection, request.connection_id);
+      if (negotiated.connectionId !== request.connection_id || negotiated.runtimeId !== request.runtime.runtime_id) {
+        await this.negotiator.close(negotiated);
+        throw new Error("negotiated authority mismatch");
+      }
+      if (this.candidateRuntimeIds.has(request.runtime.runtime_id)) {
+        if (!this.options.processSupervisor.promoteCandidate) throw new Error("candidate promotion unavailable");
+        this.options.processSupervisor.promoteCandidate(request.runtime);
+        this.candidateRuntimeIds.delete(request.runtime.runtime_id);
+      }
+      this.options.tokenAuthority?.permitInstallation(request.runtime.installation_id);
+    } catch {
+      if (negotiated) await this.negotiator.close(negotiated).catch(() => undefined);
+      return SupervisorRegistrationResultSchema.parse({ supervisor_protocol_version: 1, outcome: "failed", registration_id: null, error_code: "registration_failed" });
+    }
     const registration: Registration = {
       registrationId: this.ids.next(),
       runtime: request.runtime,
       endpointId: request.endpoint.endpoint_id,
       connectionId: request.connection_id,
+      negotiated: negotiated!,
     };
     this.registrations.set(request.runtime.installation_id, registration);
     this.emit("register", request.runtime.installation_id, request.runtime.runtime_id, "registered", null, registration.registrationId);
@@ -214,11 +246,18 @@ export class InstalledAppSupervisorAdapter implements InstalledAppSupervisor {
   async stop(raw: z.infer<typeof SupervisorStopRequestSchema>): Promise<z.infer<typeof SupervisorStopResultSchema>> {
     const request = SupervisorStopRequestSchema.parse(raw);
     try {
-      const result = SupervisorStopResultSchema.parse(await this.options.processSupervisor.stop(request.runtime, request.reason));
-      if (result.termination_acknowledged && this.registrations.get(request.runtime.installation_id)?.runtime.runtime_id === request.runtime.runtime_id) {
-        this.registrations.delete(request.runtime.installation_id);
+      this.options.tokenAuthority?.revokeInstallation(request.runtime.installation_id);
+      await this.removeRegistration(request.runtime.installation_id, request.runtime.runtime_id);
+      const remainingMs = Math.max(0, Date.parse(request.grace_deadline_at) - this.clock().getTime());
+      const result = SupervisorStopResultSchema.parse(await this.options.processSupervisor.stop(
+        request.runtime,
+        request.reason,
+        new Date(Date.now() + remainingMs).toISOString(),
+      ));
+      if (result.termination_acknowledged) {
+        this.candidateRuntimeIds.delete(request.runtime.runtime_id);
+        this.readyEndpoints.delete(request.runtime.runtime_id);
       }
-      if (result.termination_acknowledged) this.candidateRuntimeIds.delete(request.runtime.runtime_id);
       this.emit("stop", request.runtime.installation_id, request.runtime.runtime_id, result.outcome, result.error_code);
       return result;
     } catch (error) {
@@ -233,6 +272,7 @@ export class InstalledAppSupervisorAdapter implements InstalledAppSupervisor {
       const current = Math.max(request.prior_token_generation, this.tokenGenerations.get(request.installation_id) ?? 1);
       const already = this.options.tokenAuthority?.isRevoked(request.installation_id) ?? false;
       this.options.tokenAuthority?.revokeInstallation(request.installation_id);
+      await this.removeRegistration(request.installation_id, request.runtime_id);
       const next = current + 1;
       this.tokenGenerations.set(request.installation_id, next);
       this.emit("revoke_tokens", request.installation_id, request.runtime_id, already ? "already_revoked" : "revoked", null);
@@ -246,6 +286,8 @@ export class InstalledAppSupervisorAdapter implements InstalledAppSupervisor {
     const request = SupervisorCleanupRequestSchema.parse(raw);
     const cleaned: string[] = [];
     try {
+      this.options.tokenAuthority?.revokeInstallation(request.installation_id);
+      await this.removeRegistration(request.installation_id, null);
       const observed = this.options.processSupervisor.inspect(request.installation_id);
       const candidates = new Map(observed.map((runtime) => [runtime.runtime_id, runtime]));
       for (const runtimeId of request.observed_runtime_ids) {
@@ -260,10 +302,9 @@ export class InstalledAppSupervisorAdapter implements InstalledAppSupervisor {
         if (!stopped.termination_acknowledged) throw new Error("ambiguous stop");
         cleaned.push(runtime.runtime_id);
       }
-      this.options.tokenAuthority?.revokeInstallation(request.installation_id);
-      this.registrations.delete(request.installation_id);
       const remaining = this.options.processSupervisor.inspect(request.installation_id).length;
       if (remaining !== 0) throw new Error("runtime remains");
+      for (const runtimeId of cleaned) this.readyEndpoints.delete(runtimeId);
       this.emit("cleanup", request.installation_id, request.expected_runtime_id, cleaned.length ? "cleaned" : "no_orphans", null);
       return SupervisorCleanupResultSchema.parse({
         supervisor_protocol_version: 1,
@@ -343,6 +384,30 @@ export class InstalledAppSupervisorAdapter implements InstalledAppSupervisor {
     return connection;
   }
 
+  /** Process-core recovery hook: remove stale connection authority before any backoff. */
+  async runtimeLost(runtime: RuntimeIdentity): Promise<void> {
+    this.options.tokenAuthority?.revokeInstallation(runtime.installation_id);
+    await this.removeRegistration(runtime.installation_id, runtime.runtime_id);
+    this.readyEndpoints.delete(runtime.runtime_id);
+    this.emit("runtime_lost", runtime.installation_id, runtime.runtime_id, "revoked", null);
+  }
+
+  /** Process-core recovery hook: negotiate and register the rotated generation before reuse. */
+  async runtimeRecovered(runtime: RuntimeIdentity, endpoint: z.infer<typeof SupervisorRegistrationRequestSchema>["endpoint"]): Promise<void> {
+    this.readyEndpoints.set(runtime.runtime_id, endpoint);
+    const result = await this.register({
+      supervisor_protocol_version: 1,
+      operation_id: this.ids.next(),
+      runtime,
+      endpoint,
+      connection_id: this.ids.next(),
+    });
+    if (!result.registration_id || !["registered", "already_registered"].includes(result.outcome)) {
+      throw new ContractViolation("ambiguous_runtime_state", "Recovered runtime could not pass M2 registration");
+    }
+    this.emit("runtime_recovered", runtime.installation_id, runtime.runtime_id, "registered", null, result.registration_id);
+  }
+
   private startFailure(errorCode: string): z.infer<typeof SupervisorStartResultSchema> {
     return SupervisorStartResultSchema.parse({ supervisor_protocol_version: 1, outcome: "failed", state: "failed_recoverable", runtime: null, error_code: errorCode });
   }
@@ -367,4 +432,23 @@ export class InstalledAppSupervisorAdapter implements InstalledAppSupervisor {
       error_code: errorCode,
     });
   }
+
+  private async removeRegistration(installationId: string, runtimeId: string | null): Promise<void> {
+    const registration = this.registrations.get(installationId);
+    if (!registration || (runtimeId !== null && registration.runtime.runtime_id !== runtimeId)) return;
+    this.registrations.delete(installationId);
+    await this.negotiator.close(registration.negotiated);
+  }
+}
+
+function sameEndpoint(
+  left: z.infer<typeof SupervisorRegistrationRequestSchema>["endpoint"],
+  right: z.infer<typeof SupervisorRegistrationRequestSchema>["endpoint"],
+): boolean {
+  return left.endpoint_id === right.endpoint_id
+    && left.transport === right.transport
+    && left.address === right.address
+    && left.authentication === right.authentication
+    && left.endpoint_token_generation === right.endpoint_token_generation
+    && left.public_bind === right.public_bind;
 }

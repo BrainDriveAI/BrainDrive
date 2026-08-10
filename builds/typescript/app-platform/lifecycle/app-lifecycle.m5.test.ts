@@ -17,6 +17,7 @@ import { InstallationGrantStore } from "./install-grants.js";
 import { PackageVerifier as LegacyFixturePackageVerifier } from "./package-verifier.js";
 import { InMemoryAppSupervisor, ProcessAppSupervisor, type RuntimeLaunchDescriptor } from "./process-supervisor.js";
 import { RuntimeAuthorityStore } from "./runtime-authority-store.js";
+import { InMemoryRuntimeRegistrationNegotiator } from "./runtime-negotiator.js";
 import { MonotonicRevocationAuthority } from "./revocation-authority.js";
 import { capabilityDiff, SimulatedUpdateInterruption, TransactionalUpdateService, type TransactionalUpdateStep } from "./transactional-update.js";
 import { FileVerifiedPackageAuthorityCache } from "./verified-feed-cache.js";
@@ -61,7 +62,13 @@ function runtime(packageDigest: typeof OLD_DIGEST | typeof NEW_DIGEST): RuntimeL
     grant_id: GRANT_ID,
     verified_entrypoint: "payload/server.js",
     arguments: [],
-    environment_keys: ["BRAINDRIVE_APP_CONNECTION_TOKEN"],
+    environment_keys: [
+      "BRAINDRIVE_APP_CONNECTION_TOKEN",
+      "BRAINDRIVE_APP_ID",
+      "BRAINDRIVE_INSTALLATION_ID",
+      "BRAINDRIVE_PACKAGE_DIGEST",
+      "BRAINDRIVE_ENDPOINT_BIND",
+    ],
     package_root_ref: "50000000-0000-4000-8000-000000000005",
     cache_root_ref: "50000000-0000-4000-8000-000000000006",
     endpoint_policy: { transport: "container_internal", authentication: "per_installation_token", public_bind_allowed: false },
@@ -272,7 +279,7 @@ async function updateHarness(failStep?: string, options: { data?: ResumeLifecycl
   await lifecycle.executeTransition({ operationId: deterministicFixtureId("m5-active"), idempotencyKey: "m5-active-idempotency", canonicalInput: { active: true }, ownerId: OWNER_ID, actorId: OWNER_ID, kind: "install", to: "active", authority: { installation_id: INSTALLATION_ID, active_package_digest: OLD_DIGEST, grant_id: oldGrantId }, packageReferences: [oldReference] });
   const core = new InMemoryAppSupervisor();
   const tokenAuthority = new CapabilityTokenBroker();
-  const adapter = new InstalledAppSupervisorAdapter({ packages: packages as unknown as ImmutablePackageStore, processSupervisor: core, tokenAuthority, clock: () => new Date("2026-08-09T12:00:00.000Z"), ids: { next: (() => { let n = 0; return () => deterministicFixtureId(`m5-adapter-${++n}`); })() } });
+  const adapter = new InstalledAppSupervisorAdapter({ packages: packages as unknown as ImmutablePackageStore, processSupervisor: core, tokenAuthority, clock: () => new Date("2026-08-09T12:00:00.000Z"), ids: { next: (() => { let n = 0; return () => deterministicFixtureId(`m5-adapter-${++n}`); })() }, negotiator: new InMemoryRuntimeRegistrationNegotiator() });
   const { resolved_entrypoint: _resolved, ...oldDescriptor } = runtime(OLD_DIGEST);
   const started = await adapter.start({ supervisor_protocol_version: 1, operation_id: deterministicFixtureId("m5-old-start"), descriptor: { ...oldDescriptor, package_root_ref: oldRef }, policy: SUPERVISOR_POLICY, requested_at: "2026-08-09T12:00:00.000Z" });
   if (!started.runtime) throw new Error(`old runtime start failed: ${JSON.stringify(started)}`);

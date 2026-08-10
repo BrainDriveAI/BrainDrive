@@ -32,9 +32,12 @@ export type CapabilityExecutionContext = {
   operationId: string;
   correlationId: string;
   idempotencyKey: string;
+  connectionId?: string;
+  viewId?: string | null;
   ownerDecision?: HostOwnerDecisionEvidence;
   hostOwnerConfirmed?: boolean;
   isCancelled?: () => boolean;
+  idempotencyDecision?: "created" | "resumed" | "reused" | "conflict";
 };
 
 export class ResumeCapabilityRouter {
@@ -55,7 +58,10 @@ export class ResumeCapabilityRouter {
       this.assertBoundedInput(input);
       this.assertNoAppAuthority(input);
       if (!OpaqueIdSchema.safeParse(context.correlationId).success) throw new ResumeDomainError("invalid_input", "Capability correlation identity is invalid", 400);
-      grant = await this.policy.authorize(capability, context.authority, context.operationId);
+      grant = await this.policy.authorize(capability, context.authority, context.operationId, {
+        connectionId: context.connectionId,
+        viewId: context.viewId,
+      });
       const restrictedGrant: CapabilityGrant = {
         ...grant,
         capabilities: [capability],
@@ -113,7 +119,17 @@ export class ResumeCapabilityRouter {
           result = await this.exportBroker.preview(input, authority);
           break;
       }
-      this.emitAudit(capability, context, grant, input, this.isMutation(capability) ? "committed" : "allowed", null, Date.now() - startedAt, Array.isArray(result) ? result.length : 1);
+      this.emitAudit(
+        capability,
+        context,
+        grant,
+        input,
+        this.isMutation(capability) ? "committed" : "allowed",
+        null,
+        Date.now() - startedAt,
+        Array.isArray(result) ? result.length : 1,
+        this.resultWasReused(result) ? "reused" : context.idempotencyDecision ?? "created",
+      );
       return result;
     } catch (error) {
       const failure = error instanceof ResumeDomainError
@@ -219,6 +235,7 @@ export class ResumeCapabilityRouter {
     errorCode: string | null,
     durationMs: number,
     itemCount: number | null,
+    idempotencyDecision: "created" | "resumed" | "reused" | "conflict" = "created",
   ): void {
     const binding = RestrictedCapabilityAuthoritySchema.safeParse(context.authority);
     if (!binding.success || !OpaqueIdSchema.safeParse(context.correlationId).success) return;
@@ -236,8 +253,14 @@ export class ResumeCapabilityRouter {
       publisher_id: source.publisher_id,
       package_digest: source.package_digest,
       installation_id: source.installation_id,
+      connection_id: binding.data.connection_id,
+      view_id: binding.data.view_id,
       operation_id: context.operationId,
       capability,
+      capability_version: 1,
+      grant_revision: binding.data.grant_revision,
+      revocation_generation: binding.data.revocation_generation,
+      idempotency_decision: idempotencyDecision,
       target_category: target.category,
       target_id: target.id,
       input_revision: target.inputRevision,
@@ -250,6 +273,10 @@ export class ResumeCapabilityRouter {
     assertContentFreeAudit(event);
     const { event_name: eventName, ...details } = event;
     this.audit(eventName, details);
+  }
+
+  private resultWasReused(result: unknown): boolean {
+    return Boolean(result && typeof result === "object" && !Array.isArray(result) && (result as { reused?: unknown }).reused === true);
   }
 
   private auditTarget(capability: string, input: unknown): { category: string; id: string | null; inputRevision: number | null } {

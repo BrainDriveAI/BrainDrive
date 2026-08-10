@@ -1,0 +1,21 @@
+{
+  "corpus_version": 1,
+  "cases": [
+    { "id": "modern-stateless", "boundary": "protocol", "accepted": true, "expected_code": "accepted" },
+    { "id": "bounded-legacy", "boundary": "protocol", "accepted": true, "expected_code": "accepted" },
+    { "id": "unknown-critical-version", "boundary": "protocol", "accepted": false, "expected_code": "protocol_incompatible" },
+    { "id": "malformed-envelope", "boundary": "envelope", "accepted": false, "expected_code": "malformed" },
+    { "id": "oversized-envelope", "boundary": "envelope", "accepted": false, "expected_code": "oversized" },
+    { "id": "rich-complete-result", "boundary": "projection", "accepted": true, "expected_code": "accepted" },
+    { "id": "ui-resource-traversal", "boundary": "resource", "accepted": false, "expected_code": "resource_invalid" },
+    { "id": "resource-redirect-domain", "boundary": "resource", "accepted": false, "expected_code": "resource_invalid" },
+    { "id": "forged-bridge-source", "boundary": "bridge", "accepted": false, "expected_code": "bridge_provenance_invalid" },
+    { "id": "cross-view-message", "boundary": "bridge", "accepted": false, "expected_code": "view_binding_invalid" },
+    { "id": "replayed-capability", "boundary": "capability", "accepted": false, "expected_code": "idempotency_conflict" },
+    { "id": "cancellation-late-result", "boundary": "inference", "accepted": false, "expected_code": "late_result_discarded" },
+    { "id": "provider-unavailable", "boundary": "inference", "accepted": false, "expected_code": "provider_unavailable" },
+    { "id": "supervisor-restart-exhausted", "boundary": "supervisor", "accepted": false, "expected_code": "restart_exhausted" },
+    { "id": "diagnostic-redaction", "boundary": "diagnostic", "accepted": true, "expected_code": "redacted" }
+  ],
+  "prohibited_material": ["private keys", "provider credentials", "app bearer tokens", "executable app entrypoints", "app HTML"]
+}

@@ -375,10 +375,10 @@ export class AppLifecycleService {
     return cancelled;
   }
 
-  async issueSession(input: { audience: "app_data" | "app_inference" | "app_export" | "app_bridge"; capabilities: CapabilityGrant["capabilities"]; operationId: string; viewId?: string; connectionId?: string }): Promise<ReturnType<CapabilityTokenBroker["issue"]>> {
+  async issueSession(input: { audience: "app_data" | "app_inference" | "app_export" | "app_bridge"; capabilities: CapabilityGrant["capabilities"]; operationId: string; idempotencyKey?: string; viewId?: string; connectionId?: string }): Promise<ReturnType<CapabilityTokenBroker["issue"]>> {
     const record = await this.requireState(["active"]);
     const grant = await this.requireGrant(record.grant_id!);
-    return this.dependencies.tokenBroker.issue({ grant, audience: input.audience, capabilities: input.capabilities, connectionId: input.connectionId ?? randomUUID(), operationId: input.operationId, viewId: input.viewId, ttlMs: 5 * 60_000 });
+    return this.dependencies.tokenBroker.issue({ grant, audience: input.audience, capabilities: input.capabilities, connectionId: input.connectionId ?? randomUUID(), operationId: input.operationId, idempotencyKey: input.idempotencyKey ?? `capability-${input.operationId}`, tokenGeneration: Math.max(1, record.generation), viewId: input.viewId, ttlMs: 5 * 60_000 });
   }
 
   async ownerDescriptor(): Promise<{ record: LifecycleRecord; grant: CapabilityGrant | null; packageVersion: string | null; storedPackage: StoredPackage | null }> {

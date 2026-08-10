@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, lstat, mkdtemp, readdir, rm } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -156,7 +156,20 @@ async function cleanup() {
   cleaningUp = true;
   await Promise.all([...children].map(stopChild));
   if (runtimeStarted) await waitForMcpPortsReleased();
+  await makeTreeWritable(taskRoot);
   await rm(taskRoot, { recursive: true, force: true });
+}
+
+async function makeTreeWritable(root) {
+  const metadata = await lstat(root).catch(() => null);
+  if (!metadata) return;
+  if (!metadata.isDirectory()) {
+    await chmod(root, 0o600).catch(() => undefined);
+    return;
+  }
+  await chmod(root, 0o700).catch(() => undefined);
+  const children = await readdir(root).catch(() => []);
+  await Promise.all(children.map((child) => makeTreeWritable(path.join(root, child))));
 }
 
 for (const signal of ["SIGINT", "SIGTERM"]) {

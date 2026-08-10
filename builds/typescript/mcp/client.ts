@@ -76,7 +76,7 @@ export function mapMcpToolToDefinition(server: McpServerConfig, tool: McpListToo
           `Timed out calling MCP tool ${tool.name} on server ${server.id}`
         );
 
-        const normalized = normalizeCallResult(response as McpCallToolResult);
+        const normalized = normalizeLegacyCallResult(response as McpCallToolResult);
         auditLog("mcp.tool.result", {
           server_id: server.id,
           tool: tool.name,
@@ -98,7 +98,7 @@ export function mapMcpToolToDefinition(server: McpServerConfig, tool: McpListToo
   };
 }
 
-function normalizeCallResult(result: McpCallToolResult): unknown {
+export function normalizeLegacyCallResult(result: McpCallToolResult): unknown {
   if (result.isError) {
     const errorPayload = extractErrorPayload(result);
     throw new ToolExecutionFailure(errorPayload.code, errorPayload.message, errorPayload.recoverable);

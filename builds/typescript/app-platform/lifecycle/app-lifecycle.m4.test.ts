@@ -13,6 +13,7 @@ import { InstalledAppSupervisorAdapter } from "./installed-app-supervisor-adapte
 import { InstallationGrantStore } from "./install-grants.js";
 import { InMemoryAppSupervisor, ProcessAppSupervisor, type AppSupervisor } from "./process-supervisor.js";
 import { RuntimeAuthorityStore } from "./runtime-authority-store.js";
+import { InMemoryRuntimeRegistrationNegotiator } from "./runtime-negotiator.js";
 import { SupervisedLifecycleService } from "./supervised-activation.js";
 import { createSupervisedRuntimeBinding } from "./supervised-runtime-binding.js";
 import { ImmutablePackageStore } from "./verified-package-store.js";
@@ -102,6 +103,7 @@ async function createHarness(target: "docker_linux_x64" | "desktop_windows_x64")
     clock,
     ids: { next: (() => { let index = 0; return () => deterministicFixtureId(`m4-adapter-${target}-${++index}`); })() },
     audit: (event, details) => adapterEvents.push({ event, details }),
+    negotiator: new InMemoryRuntimeRegistrationNegotiator(),
     process: { startupTimeoutMs: 5_000, stopGraceMs: 1_000, automaticRecovery: false },
   });
   const { processSupervisor, supervisor: adapter } = binding;
@@ -214,7 +216,7 @@ describe("M4 failure and restart reconciliation", () => {
     await harness.processSupervisor.close();
     supervisors.splice(supervisors.indexOf(harness.processSupervisor), 1);
     const fakeCore = new InMemoryAppSupervisor();
-    const fakeAdapter = new InstalledAppSupervisorAdapter({ packages: harness.packages, processSupervisor: fakeCore, tokenAuthority: harness.tokenAuthority, clock: () => FIXED_TIME });
+    const fakeAdapter = new InstalledAppSupervisorAdapter({ packages: harness.packages, processSupervisor: fakeCore, tokenAuthority: harness.tokenAuthority, clock: () => FIXED_TIME, negotiator: new InMemoryRuntimeRegistrationNegotiator() });
     const snapshot = await harness.lifecycle.readConsistentSnapshot();
     const descriptor: Parameters<InstalledAppSupervisorAdapter["start"]>[0]["descriptor"] = {
       supervisor_protocol_version: 1 as const,
@@ -251,7 +253,7 @@ describe("M4 failure and restart reconciliation", () => {
       permitInstallation: () => undefined,
       isRevoked: () => false,
     };
-    const adapter = new InstalledAppSupervisorAdapter({ packages: harness.packages, processSupervisor: harness.processSupervisor, tokenAuthority: failingAuthority });
+    const adapter = new InstalledAppSupervisorAdapter({ packages: harness.packages, processSupervisor: harness.processSupervisor, tokenAuthority: failingAuthority, negotiator: new InMemoryRuntimeRegistrationNegotiator() });
     const result = await adapter.revokeTokens({ supervisor_protocol_version: 1, operation_id: deterministicFixtureId("m4-token-failure"), installation_id: installed.installationId!, runtime_id: authority.runtime.runtime_id, operation_scope_id: null, prior_token_generation: 1 });
     expect(result).toMatchObject({ outcome: "failed", error_code: "token_revocation_failed" });
     expect(JSON.stringify(result)).not.toContain("failure-canary");
@@ -304,7 +306,6 @@ describe("M4 failure and restart reconciliation", () => {
     await writeFile(script, source, "utf8");
     const core = new ProcessAppSupervisor({ startupTimeoutMs: 200, stopGraceMs: 500, automaticRecovery: false });
     supervisors.push(core);
-    const stored = await harness.packages.read(installed.packageDigest);
     const snapshot = await harness.lifecycle.readConsistentSnapshot();
     const started = await core.start({
       supervisor_protocol_version: 1,
@@ -313,7 +314,7 @@ describe("M4 failure and restart reconciliation", () => {
       installation_id: installed.installationId!,
       package_digest: installed.packageDigest,
       grant_id: installed.grantId!,
-      verified_entrypoint: stored.entrypoint,
+      verified_entrypoint: path.basename(script),
       arguments: [],
       environment_keys: ["BRAINDRIVE_APP_CONNECTION_TOKEN", "BRAINDRIVE_APP_ID", "BRAINDRIVE_INSTALLATION_ID", "BRAINDRIVE_PACKAGE_DIGEST", "BRAINDRIVE_ENDPOINT_BIND"],
       package_root_ref: snapshot.active.package_ref_id!,
@@ -333,7 +334,7 @@ describe("M4 failure and restart reconciliation", () => {
     supervisors.splice(supervisors.indexOf(harness.processSupervisor), 1);
     const restartedCore = new ProcessAppSupervisor({ automaticRecovery: false });
     supervisors.push(restartedCore);
-    const restartedAdapter = new InstalledAppSupervisorAdapter({ packages: harness.packages, processSupervisor: restartedCore, tokenAuthority: harness.tokenAuthority });
+    const restartedAdapter = new InstalledAppSupervisorAdapter({ packages: harness.packages, processSupervisor: restartedCore, tokenAuthority: harness.tokenAuthority, negotiator: new InMemoryRuntimeRegistrationNegotiator() });
     const restartedService = new SupervisedLifecycleService({
       lifecycle: harness.lifecycle,
       grants: harness.grants,
@@ -404,7 +405,7 @@ describe("M4 failure and restart reconciliation", () => {
     })).toMatchObject({
       outcome: "ambiguous",
       remaining_runtime_count: 1,
-      tokens_revoked: false,
+      tokens_revoked: true,
       error_code: "orphan_cleanup_failed",
     });
     expect(harness.processSupervisor.inspect(installed.installationId!)).toEqual([authority.runtime]);

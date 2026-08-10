@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CareerPlacementAdapter } from "../../resume-domain/career.js";
 import { ResumeCapabilityRouter } from "../../resume-domain/capabilities.js";
@@ -16,13 +16,14 @@ import type { ModelAdapter } from "../../adapters/base.js";
 import { MODERN_FIXTURE_VERSION } from "../lifecycle/fixture-repository.js";
 import { createLifecycleHarness } from "../lifecycle/test-helpers.js";
 import { AppMcpHost } from "./app-host.js";
-import { ModernMcpAppsClient, type McpWireTransport } from "./modern-client.js";
+import { ModernMcpAppsClient, identityForRuntime, type McpWireTransport } from "./modern-client.js";
 
 const html = "<!doctype html><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; connect-src 'none'; form-action 'none'\"><main>Fixture</main>";
 class FixtureTransport implements McpWireTransport {
   async request(method: string): Promise<unknown> {
-    if (method === "initialize") return { protocolVersion: "2026-07-28", capabilities: { tools: {}, resources: {} }, serverInfo: { name: "fixture", version: "3.0.0" }, _meta: { "io.modelcontextprotocol/ui": { version: "2026-01-26" } } };
+    if (method === "server/discover") return { supportedVersions: ["2026-07-28"], capabilities: { tools: {}, resources: {}, extensions: { "io.modelcontextprotocol/ui": { mimeTypes: ["text/html;profile=mcp-app"] } } }, _meta: { "io.modelcontextprotocol/ui": { version: "2026-01-26" }, "io.modelcontextprotocol/serverInfo": { name: "fixture", version: "3.0.0" } } };
     if (method === "resources/list") return { resources: [{ uri: "ui://resume-builder/main", name: "Resume Builder", mimeType: "text/html;profile=mcp-app", size: Buffer.byteLength(html) }] };
+    if (method === "resources/templates/list") return { resourceTemplates: [] };
     if (method === "resources/read") return { contents: [{ uri: "ui://resume-builder/main", mimeType: "text/html;profile=mcp-app", text: html }] };
     if (method === "tools/list") return { tools: [] };
     throw new Error(method);
@@ -55,7 +56,7 @@ describe("M4 capability bridge", () => {
       },
     };
     const broker = new ResumeInferenceBroker(async () => ({ providerProfileId: "owner-profile", providerId: "ollama", modelId: "local-model", modelClass: "owner_active_compatible", adapter }));
-    const host = new AppMcpHost(harness.service, { capabilityRouter: router, inferenceBroker: broker, snapshotBuilder: new ImmutableInferenceSnapshotBuilder(store), clientFactory: () => new ModernMcpAppsClient(new FixtureTransport()) });
+    const host = new AppMcpHost(harness.service, { capabilityRouter: router, inferenceBroker: broker, snapshotBuilder: new ImmutableInferenceSnapshotBuilder(store), clientFactory: (connection) => new ModernMcpAppsClient(new FixtureTransport(), identityForRuntime(connection)) });
     const ownerAuthorization = issueHostOwnerCapabilityAuthorization("owner");
     const launch = await host.launch();
     expect(launch.allowed_capabilities).not.toContain("career.facts.confirm");
@@ -69,11 +70,42 @@ describe("M4 capability bridge", () => {
       payload: { capability, input, token_id: launch.bridge_token_id },
     });
     await expect(host.handleBridge(launch.session_id, message("career.context.read", { entry_point: "direct" }), { origin: "null", sourceMatches: true })).resolves.toMatchObject({ status: "capability_completed", result: { context_version: 1 } });
+    const serverOperationId = crypto.randomUUID();
+    const serverIdempotencyKey = "m4-server-context-operation";
+    const projectSpy = vi.spyOn(router.career, "project");
+    const firstServerAuthority = await host.issueServerCapabilityAuthority(launch.session_id, "career.context.read", serverOperationId, serverIdempotencyKey);
+    const firstServerResult = await host.handleServerCapability(firstServerAuthority.token, "career.context.read", 1, { entry_point: "direct" }, serverOperationId, serverIdempotencyKey);
+    const retryServerAuthority = await host.issueServerCapabilityAuthority(launch.session_id, "career.context.read", serverOperationId, serverIdempotencyKey);
+    const retryServerResult = await host.handleServerCapability(retryServerAuthority.token, "career.context.read", 1, { entry_point: "direct" }, serverOperationId, serverIdempotencyKey);
+    expect(retryServerResult).toEqual(firstServerResult);
+    expect(projectSpy).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(firstServerResult)).not.toContain(firstServerAuthority.token);
+    await expect(host.handleServerCapability(firstServerAuthority.token, "career.context.read", 1, { entry_point: "direct" }, serverOperationId, serverIdempotencyKey)).rejects.toMatchObject({ code: "token_replayed" });
     const inferenceOperationId = crypto.randomUUID();
-    const inference = await host.handleBridge(launch.session_id, message("app.inference.request", { purpose: "interview_assist", operation_id: inferenceOperationId, fact_revision_ids: [] }), { origin: "null", sourceMatches: true });
-    expect(inference).toMatchObject({ status: "capability_completed", result: { status: "completed", model_class: "owner_active_compatible" } });
+    const inferenceInput = { inference_contract_version: 1, purpose: "interview_assist", operation_id: inferenceOperationId, fact_revision_ids: [] };
+    const inference = await host.handleBridge(launch.session_id, message("app.inference.request", inferenceInput), { origin: "null", sourceMatches: true });
+    expect(inference).toMatchObject({ status: "capability_completed", result: { inference_contract_version: 1, status: "completed", model_class: "owner_active_compatible", events: [{ event: "progress" }, { event: "completed" }] } });
     expect(JSON.stringify(inference)).not.toContain("owner-profile");
     expect(JSON.stringify(inference)).not.toContain("local-model");
+    const serverInferenceOperationId = crypto.randomUUID();
+    const serverInferenceKey = `m5-server-inference-${serverInferenceOperationId}`;
+    const serverInferenceAuthority = await host.issueServerCapabilityAuthority(launch.session_id, "app.inference.request", serverInferenceOperationId, serverInferenceKey);
+    await expect(host.handleServerCapability(serverInferenceAuthority.token, "app.inference.request", 1, { ...inferenceInput, operation_id: serverInferenceOperationId }, serverInferenceOperationId, serverInferenceKey)).resolves.toMatchObject({ inference_contract_version: 1, status: "completed" });
+    const reconnectProviderCall = vi.fn(async () => { throw new Error("reconnect must reuse the durable inference result"); });
+    const reconnectBroker = new ResumeInferenceBroker(async () => ({
+      providerProfileId: "different-profile", providerId: "openrouter", modelId: "different-model",
+      modelClass: "owner_active_compatible", adapter: { async complete() { throw new Error("agent path prohibited"); }, completeStructuredNoTools: reconnectProviderCall },
+    }));
+    const reconnectHost = new AppMcpHost(harness.service, { capabilityRouter: router, inferenceBroker: reconnectBroker, snapshotBuilder: new ImmutableInferenceSnapshotBuilder(store), clientFactory: (connection) => new ModernMcpAppsClient(new FixtureTransport(), identityForRuntime(connection)) });
+    const reconnectLaunch = await reconnectHost.launch();
+    const reconnectMessage = {
+      bridge_version: 1, message_id: crypto.randomUUID(), app_id: "ai.braindrive.resume-builder",
+      installation_id: state.installation_id, view_id: reconnectLaunch.view_id, operation_id: reconnectLaunch.operation_id,
+      sent_at: new Date().toISOString(), type: "capability.call",
+      payload: { capability: "app.inference.request", input: inferenceInput, token_id: reconnectLaunch.bridge_token_id },
+    };
+    await expect(reconnectHost.handleBridge(reconnectLaunch.session_id, reconnectMessage, { origin: "null", sourceMatches: true })).resolves.toEqual(inference);
+    expect(reconnectProviderCall).not.toHaveBeenCalled();
     const cancel = (target: string) => ({
       bridge_version: 1, message_id: crypto.randomUUID(), app_id: "ai.braindrive.resume-builder",
       installation_id: state.installation_id, view_id: launch.view_id, operation_id: launch.operation_id,

@@ -30,14 +30,18 @@ const initialProjectFiles: ProjectFile[] = [
   },
 ];
 
-vi.mock("@/api/gateway-adapter", () => ({
-  getOnboardingStatus: vi.fn(async () => ({
-    onboarding_required: false,
-    active_provider_profile: null,
-    default_provider_profile: null,
-    providers: [],
-  })),
-}));
+vi.mock("@/api/gateway-adapter", async () => {
+  const actual = await vi.importActual<typeof import("@/api/gateway-adapter")>("@/api/gateway-adapter");
+  return {
+    ...actual,
+    getOnboardingStatus: vi.fn(async () => ({
+      onboarding_required: false,
+      active_provider_profile: null,
+      default_provider_profile: null,
+      providers: [],
+    })),
+  };
+});
 
 vi.mock("@/hooks/useProjects", () => ({
   useProjects: () => ({
@@ -75,7 +79,7 @@ vi.mock("./Sidebar", () => ({
   ),
 }));
 
-vi.mock("@/components/apps/AppsPage", () => ({ default: () => <section aria-label="Apps surface">Apps surface</section> }));
+vi.mock("@/components/apps/AppsPage", () => ({ default: ({ onOpenSettings }: { onOpenSettings?: () => void }) => <section aria-label="Apps surface">Apps surface<button type="button" onClick={onOpenSettings}>Open model settings recovery</button></section> }));
 
 vi.mock("@/components/chat/ChatPanel", () => ({
   default: (props: {
@@ -139,6 +143,15 @@ describe("AppShell project file refresh", () => {
     await user.click(screen.getByRole("button", { name: "Apps" }));
     expect(screen.getByRole("region", { name: "Apps surface" })).toBeInTheDocument();
     expect(selectProjectMock).not.toHaveBeenCalled();
+  });
+
+  it("routes app model recovery into the existing settings modal", async () => {
+    const user = userEvent.setup();
+    render(<AppShell />);
+    await user.click(screen.getByRole("button", { name: "Apps" }));
+    await user.click(screen.getByRole("button", { name: "Open model settings recovery" }));
+    expect(screen.getAllByText("Settings").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Close settings" }).length).toBeGreaterThan(0);
   });
 
 });

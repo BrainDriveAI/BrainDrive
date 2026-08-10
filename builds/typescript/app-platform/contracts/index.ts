@@ -10,3 +10,4 @@ export * from "./lifecycle-foundation.js";
 export * from "./mcp-app.js";
 export * from "./package.js";
 export * from "./supervisor.js";
+export * from "./spec-05-foundation.js";

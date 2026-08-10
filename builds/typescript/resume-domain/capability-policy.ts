@@ -96,6 +96,7 @@ export class ResumeCapabilityPolicy {
     rawCapability: unknown,
     rawAuthority: unknown,
     expectedOperationId: string,
+    expectedBinding: { connectionId?: string; viewId?: string | null } = {},
   ): Promise<CapabilityGrant> {
     const capability = ResumeDataCapabilityNameSchema.safeParse(rawCapability);
     const authority = RestrictedCapabilityAuthoritySchema.safeParse(rawAuthority);
@@ -107,6 +108,8 @@ export class ResumeCapabilityPolicy {
     const expectedAudience = capability.data === "resume.export.request" ? "app_export" : "app_data";
     if (
       binding.operation_id !== expectedOperationId ||
+      (expectedBinding.connectionId !== undefined && binding.connection_id !== expectedBinding.connectionId) ||
+      (expectedBinding.viewId !== undefined && binding.view_id !== expectedBinding.viewId) ||
       binding.token_audience !== expectedAudience ||
       Date.parse(context.issued_at) > currentTime ||
       Date.parse(context.expires_at) <= currentTime ||

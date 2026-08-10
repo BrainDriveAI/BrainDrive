@@ -72,6 +72,7 @@ describe("grant, token, and trust security", () => {
   it("rejects ambient or unknown authority on scoped tokens", () => {
     const token = {
       token_version: 1,
+      token_generation: 1,
       grant_revision: 1,
       revocation_generation: 0,
       token_id: "a0000000-0000-4000-8000-000000000001",
@@ -86,6 +87,7 @@ describe("grant, token, and trust security", () => {
       connection_id: "a0000000-0000-4000-8000-000000000006",
       view_id: null,
       operation_id: "a0000000-0000-4000-8000-000000000005",
+      idempotency_key: "security-token-operation-0001",
       capabilities: ["career.facts.read"],
       record_scopes: [],
       issued_at: "2026-08-07T12:00:00.000Z",

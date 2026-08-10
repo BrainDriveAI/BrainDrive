@@ -642,6 +642,39 @@ describe.sequential("gateway auth route integration", () => {
     expect(response.statusCode).toBe(401);
   });
 
+  it("requires the internal transport boundary before app-server capability authentication", async () => {
+    context = await createTestServer({ internalTransportToken: "bridge-transport-token" });
+    const operationId = crypto.randomUUID();
+    const payload = {
+      request_version: 1,
+      capability: "career.context.read",
+      capability_version: 1,
+      operation_id: operationId,
+      idempotency_key: "m4-internal-transport-0001",
+      input: { entry_point: "direct" },
+    };
+
+    const transportDenied = await context.app.inject({
+      method: "POST",
+      url: "/internal/apps/resume-builder/capabilities",
+      headers: { authorization: `Bearer ${"a".repeat(43)}` },
+      payload,
+    });
+    expect(transportDenied.statusCode).toBe(403);
+    expect(transportDenied.json()).toEqual({ error: "gateway_transport_token_required" });
+
+    const transportAccepted = await context.app.inject({
+      method: "POST",
+      url: "/internal/apps/resume-builder/capabilities",
+      headers: {
+        authorization: `Bearer ${"a".repeat(43)}`,
+        "x-braindrive-internal-transport-token": "bridge-transport-token",
+      },
+      payload,
+    });
+    expect(transportAccepted.statusCode).toBe(404);
+  });
+
   it("keeps tailnet identity transport-only and issues secure refresh cookies for trusted HTTPS", async () => {
     context = await createTestServer({ internalTransportToken: "bridge-transport-token" });
     const transportHeaders = {

@@ -100,13 +100,16 @@ describe("named Resume Builder data capabilities", () => {
     const events: Array<{ event: string; details: Record<string, unknown> }> = [];
     const router = new ResumeCapabilityRouter(new ResumeDomainService(store), new CareerPlacementAdapter(root), new ResumeCapabilityPolicy(async () => grant), (event, details) => events.push({ event, details }));
     const sentinel = "PRIVATE_RESUME_SENTINEL";
-    await router.execute("career.facts.propose", proposalInput(sentinel), context(grant, undefined, "career.facts.propose"));
+    const capabilityContext = context(grant, undefined, "career.facts.propose");
+    await router.execute("career.facts.propose", proposalInput(sentinel), { ...capabilityContext, idempotencyDecision: "created" });
+    await router.execute("career.facts.propose", proposalInput(sentinel), { ...capabilityContext, idempotencyDecision: "created" });
     const serialized = JSON.stringify(events);
     expect(serialized).not.toContain(sentinel);
     expect(serialized).not.toContain(root);
     expect(serialized).not.toContain("content_digest");
-    expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({ event: "app.capability.completed", details: { capability: "career.facts.propose", outcome: "committed" } });
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({ event: "app.capability.completed", details: { capability: "career.facts.propose", outcome: "committed", idempotency_decision: "created" } });
+    expect(events[1]).toMatchObject({ event: "app.capability.completed", details: { capability: "career.facts.propose", outcome: "committed", idempotency_decision: "reused" } });
   });
 
   it("places only confirmed stable-fact references into a Career return", async () => {

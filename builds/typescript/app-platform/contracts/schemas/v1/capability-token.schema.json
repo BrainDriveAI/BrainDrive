@@ -7,6 +7,11 @@
       "type": "number",
       "const": 1
     },
+    "token_generation": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
     "grant_revision": {
       "type": "integer",
       "exclusiveMinimum": 0,
@@ -85,6 +90,11 @@
       "format": "uuid",
       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
     },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 256
+    },
     "capabilities": {
       "minItems": 1,
       "type": "array",
@@ -132,6 +142,7 @@
   },
   "required": [
     "token_version",
+    "token_generation",
     "grant_revision",
     "revocation_generation",
     "token_id",
@@ -146,6 +157,7 @@
     "connection_id",
     "view_id",
     "operation_id",
+    "idempotency_key",
     "capabilities",
     "record_scopes",
     "issued_at",

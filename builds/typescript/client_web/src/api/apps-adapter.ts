@@ -64,6 +64,8 @@ export type AppLaunch = {
   installation_id: string;
   view_id: string;
   operation_id: string;
+  bridge_generation: number;
+  resumed: boolean;
   bridge_token_id: string;
   server_id: string;
   expires_at: string;
@@ -152,11 +154,21 @@ export async function mutateResumeBuilderApp(action: AppLifecycleAction, current
   }
 }
 
-export function launchResumeBuilderApp(entryPoint: "direct" | "career" = "direct"): Promise<AppLaunch> {
+export function launchResumeBuilderApp(entryPoint: "direct" | "career" = "direct", resume?: AppLaunch): Promise<AppLaunch> {
   return requestJson("/apps/resume-builder/launch", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ entry_point: entryPoint }),
+    body: JSON.stringify({
+      entry_point: entryPoint,
+      ...(resume ? {
+        resume: {
+          session_id: resume.session_id,
+          view_id: resume.view_id,
+          operation_id: resume.operation_id,
+          bridge_generation: resume.bridge_generation,
+        },
+      } : {}),
+    }),
   });
 }
 
@@ -198,6 +210,35 @@ export function sendResumeBuilderBridgeMessage(sessionId: string, message: unkno
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ session_id: sessionId, origin: "null", source: "sandbox_iframe", message }),
   });
+}
+
+export function sendResumeBuilderAppsBridgeMessage(launch: AppLaunch, message: unknown, signal?: AbortSignal): Promise<unknown> {
+  const operationId = crypto.randomUUID();
+  if (signal?.aborted) return Promise.reject(new DOMException("Cancelled", "AbortError"));
+  const cancel = () => {
+    void authenticatedFetch(`${GATEWAY_BASE_URL}/apps/resume-builder/sessions/${encodeURIComponent(launch.session_id)}/requests/${operationId}`, { method: "DELETE" });
+  };
+  signal?.addEventListener("abort", cancel, { once: true });
+  return requestJson("/apps/resume-builder/apps-bridge", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    signal,
+    body: JSON.stringify({
+      session_id: launch.session_id,
+      envelope: {
+        bridge_envelope_version: 1,
+        message_id: operationId,
+        installation_id: launch.installation_id,
+        view_id: launch.view_id,
+        operation_id: launch.operation_id,
+        bridge_generation: launch.bridge_generation,
+        direction: "app_to_host",
+        provenance: { source_window_match: true, opaque_origin: "null", same_server_id: launch.server_id },
+        sent_at: new Date().toISOString(),
+        message,
+      },
+    }),
+  }).finally(() => signal?.removeEventListener("abort", cancel));
 }
 
 export function finalizeResumeBuilderExport(input: {

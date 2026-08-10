@@ -271,6 +271,7 @@ const BASE_PUBLIC_ROUTES = new Set([
   "/auth/signup",
   "/auth/login",
   "/auth/refresh",
+  "/internal/apps/resume-builder/capabilities",
 ]);
 
 const MANAGED_PROXY_ROUTES = new Set([
@@ -495,7 +496,7 @@ export async function buildServer(rootDir = process.cwd()) {
       supervisor: process.env.BRAINDRIVE_APP_PLATFORM_TARGET === "desktop_windows_x64" ? "desktop_packaged_node" : "docker_process",
     });
     app.addHook("onClose", async () => {
-      appMcpHost?.closeAll();
+      await appMcpHost?.closeAll();
       await appLifecycleService.dependencies.supervisor.close();
     });
   }

@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
 
 import { closeResumeBuilderSession } from "@/api/apps-adapter";
-import SandboxedAppFrame, { isTrustedSandboxMessage, saveHostPdfExport } from "./SandboxedAppFrame";
+import SandboxedAppFrame, { isModelSettingsAction, isTrustedSandboxMessage, saveHostPdfExport } from "./SandboxedAppFrame";
 
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
@@ -14,6 +14,7 @@ vi.mock("@/api/apps-adapter", async () => {
 
 const launch = {
   launch_version: 1 as const, session_id: crypto.randomUUID(), installation_id: crypto.randomUUID(), view_id: crypto.randomUUID(), operation_id: crypto.randomUUID(),
+  bridge_generation: 1, resumed: false,
   bridge_token_id: crypto.randomUUID(), server_id: crypto.randomUUID(), expires_at: "2030-01-01T00:00:00.000Z",
   protocol: { core: "2026-07-28", apps_extension: "2026-01-26", server_name: "fixture", server_version: "3.0.0" },
   resource: { uri: "ui://resume-builder/main", mime_type: "text/html;profile=mcp-app" as const, content_digest: `sha256:${"a".repeat(64)}`, size_bytes: 32, html: "<!doctype html><main>Fixture</main>" },
@@ -27,13 +28,20 @@ describe("sandboxed MCP App frame", () => {
 
   it("grants scripts only, denies same-origin/navigation/download/device authority, and closes on unmount", async () => {
     const rendered = render(<SandboxedAppFrame launch={launch} onSessionClosed={() => {}} />);
-    const frame = screen.getByTitle("Resume Builder");
-    expect(frame).toHaveAttribute("sandbox", "allow-scripts");
-    expect(frame.getAttribute("sandbox")).not.toContain("allow-same-origin");
+    const frame = screen.getByTitle("Resume Builder sandbox proxy");
+    expect(frame).toHaveAttribute("sandbox", "allow-scripts allow-same-origin");
     expect(frame.getAttribute("sandbox")).not.toContain("allow-top-navigation");
     expect(frame.getAttribute("sandbox")).not.toContain("allow-downloads");
     expect(frame).toHaveAttribute("referrerpolicy", "no-referrer");
     expect(frame.getAttribute("allow")).toContain("camera 'none'");
+    expect(frame).not.toHaveAttribute("srcdoc");
+    expect(frame.getAttribute("src")).toMatch(/^data:text\/html/);
+    const proxyHtml = decodeURIComponent(frame.getAttribute("src")!.split(",", 2)[1]!);
+    expect(proxyHtml).toContain('view.setAttribute("sandbox","allow-scripts")');
+    expect(proxyHtml).not.toContain(launch.session_id);
+    expect(proxyHtml).not.toContain(launch.installation_id);
+    expect(proxyHtml).not.toContain(launch.bridge_token_id);
+    expect(proxyHtml).not.toContain(launch.resource.html);
     rendered.unmount();
     await waitFor(() => expect(closeResumeBuilderSession).toHaveBeenCalledWith(launch.session_id));
   });
@@ -52,6 +60,12 @@ describe("sandboxed MCP App frame", () => {
     expect(isTrustedSandboxMessage({ source: contentWindow, origin: "null" } as unknown as MessageEvent, frame)).toBe(true);
     expect(isTrustedSandboxMessage({ source: window, origin: "null" } as unknown as MessageEvent, frame)).toBe(false);
     expect(isTrustedSandboxMessage({ source: contentWindow, origin: "https://host.invalid" } as unknown as MessageEvent, frame)).toBe(false);
+  });
+
+  it("allowlists only the existing model-settings recovery action", () => {
+    expect(isModelSettingsAction("navigate_settings", "models")).toBe(true);
+    expect(isModelSettingsAction("navigate_settings", "providers/new")).toBe(false);
+    expect(isModelSettingsAction("open_link", "models")).toBe(false);
   });
 
   it("validates browser export bytes and returns only a safe receipt projection to the app", async () => {

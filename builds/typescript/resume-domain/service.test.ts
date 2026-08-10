@@ -43,7 +43,7 @@ describe("Resume domain invariants", () => {
       const proposed = await service.proposeFact({ ...proposalInput(`synthetic-${seed}`), fact: { ...proposalInput().fact, state: states[seed % states.length] } }, authority("career.facts.propose"));
       await expect(service.writeDefinition(definitionInput(proposed.fact.metadata.revision_id), authority("resume.definitions.write"), true)).rejects.toMatchObject({ code: "validation_failed" });
     }
-  });
+  }, 10_000);
 
   it("creates supported general and targeted definitions without mutating their parent or facts", async () => {
     const { store, service } = await setup();

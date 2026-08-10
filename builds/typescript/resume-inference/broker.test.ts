@@ -174,6 +174,41 @@ describe("ResumeInferenceBroker", () => {
     expect(auditText).not.toContain("http");
   });
 
+  it("discards a provider result that arrives after cancellation even when the adapter ignores abort", async () => {
+    let release!: (value: string) => void;
+    const model = adapter(() => new Promise<string>((resolve) => { release = resolve; }));
+    const broker = new ResumeInferenceBroker(async () => provider(model.value));
+    const invocation = request("interview_assist");
+    const pending = broker.execute(invocation);
+    await vi.waitFor(() => expect(model.calls()).toBe(1));
+    expect(broker.cancel(invocation.operation_id)).toBe(true);
+    release(JSON.stringify(outputs.interview_assist));
+    await expect(pending).resolves.toMatchObject({ inference: { status: "cancelled", result: null, error: { code: "cancelled" } } });
+    expect(broker.status(invocation.operation_id)).toBe("completed");
+  });
+
+  it("reuses one provider spend when a reconnect rebuilds host timestamps and request identity", async () => {
+    const model = adapter(() => JSON.stringify(outputs.interview_assist));
+    const broker = new ResumeInferenceBroker(async () => provider(model.value));
+    const first = request("interview_assist");
+    const initial = await broker.execute(first);
+    const rebuilt = request("interview_assist", {
+      operation_id: first.operation_id,
+      owner_id: first.owner_id,
+      actor_id: first.actor_id,
+      installation_id: first.installation_id,
+      grant_id: first.grant_id,
+      input_snapshot: first.input_snapshot,
+      data_blocks: first.data_blocks,
+    });
+    const reconnect = await broker.execute(rebuilt);
+    expect(reconnect).toEqual(initial);
+    expect(model.calls()).toBe(1);
+    const changed = { ...rebuilt, limits: { ...rebuilt.limits, output_tokens: rebuilt.limits.output_tokens - 1 } };
+    await expect(broker.execute(changed)).rejects.toMatchObject({ code: "invalid_request" });
+    expect(model.calls()).toBe(1);
+  });
+
   it("delimits prompt injection as data and never exposes a provider selector", async () => {
     const model = adapter(() => JSON.stringify(outputs.interview_assist));
     const raw = request("interview_assist");

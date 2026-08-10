@@ -1,0 +1,72 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/mcp-apps-tool.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 2048
+    },
+    "inputSchema": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {}
+    },
+    "outputSchema": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {}
+    },
+    "_meta": {
+      "type": "object",
+      "properties": {
+        "ui": {
+          "type": "object",
+          "properties": {
+            "resourceUri": {
+              "type": "string",
+              "maxLength": 2048,
+              "pattern": "^ui:\\/\\/[A-Za-z0-9._~!$&'()*+,;=:@/-]+$"
+            },
+            "visibility": {
+              "default": [
+                "model",
+                "app"
+              ],
+              "minItems": 1,
+              "maxItems": 2,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "model",
+                  "app"
+                ]
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "ui"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "name",
+    "inputSchema",
+    "_meta"
+  ],
+  "additionalProperties": false
+}

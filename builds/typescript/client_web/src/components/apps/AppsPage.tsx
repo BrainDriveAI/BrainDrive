@@ -39,7 +39,7 @@ const stageCopy: Record<string, string> = {
   completed: "Completed",
 };
 
-export default function AppsPage({ entryPoint = "direct" }: { entryPoint?: "direct" | "career" }) {
+export default function AppsPage({ entryPoint = "direct", onOpenSettings }: { entryPoint?: "direct" | "career"; onOpenSettings?: () => void }) {
   const [app, setApp] = useState<ResumeBuilderAppStatus | null>(null);
   const [launch, setLaunch] = useState<AppLaunch | null>(null);
   const [busy, setBusy] = useState<AppLifecycleAction | "launch" | null>(null);
@@ -81,6 +81,11 @@ export default function AppsPage({ entryPoint = "direct" }: { entryPoint?: "dire
     setLaunch(null);
     queueMicrotask(() => launchButtonRef.current?.focus());
   }, []);
+  const reloadSession = useCallback(async () => {
+    if (!launch) return;
+    const next = await launchResumeBuilderApp(entryPoint, launch);
+    setLaunch(next);
+  }, [entryPoint, launch]);
   const closeConfirmation = () => {
     setConfirmUninstall(false);
     queueMicrotask(() => uninstallButtonRef.current?.focus());
@@ -90,7 +95,7 @@ export default function AppsPage({ entryPoint = "direct" }: { entryPoint?: "dire
     await mutate("uninstall");
   };
 
-  if (launch) return <SandboxedAppFrame launch={launch} onSessionClosed={closeSession} />;
+  if (launch) return <SandboxedAppFrame launch={launch} onSessionClosed={closeSession} onReload={reloadSession} onOpenSettings={onOpenSettings} />;
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8" data-testid="apps-page">

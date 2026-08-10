@@ -1,5 +1,5 @@
 import { authenticatedFetch } from "./auth-adapter";
-import { callResumeBuilderCapability, closeResumeBuilderSession, finalizeResumeBuilderExport, getResumeBuilderApp, launchResumeBuilderApp, mutateResumeBuilderApp, ResumeCapabilityError, sendResumeBuilderBridgeMessage, type ResumeBuilderAppStatus } from "./apps-adapter";
+import { callResumeBuilderCapability, closeResumeBuilderSession, finalizeResumeBuilderExport, getResumeBuilderApp, launchResumeBuilderApp, mutateResumeBuilderApp, ResumeCapabilityError, sendResumeBuilderAppsBridgeMessage, sendResumeBuilderBridgeMessage, type AppLaunch, type ResumeBuilderAppStatus } from "./apps-adapter";
 
 vi.mock("./auth-adapter", () => ({ authenticatedFetch: vi.fn() }));
 const fetchMock = vi.mocked(authenticatedFetch);
@@ -40,6 +40,47 @@ describe("Apps gateway adapter", () => {
       "/api/apps/resume-builder/sessions/00000000-0000-4000-8000-000000000001",
     ]);
     expect(JSON.parse(String(fetchMock.mock.calls[1]![1]?.body))).toEqual({ entry_point: "career" });
+  });
+
+  it("sends an official session-bound Apps envelope without serializing the bridge credential", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ jsonrpc: "2.0", id: "host", result: {} }), { status: 200 }));
+    const launch = {
+      launch_version: 1, session_id: crypto.randomUUID(), installation_id: crypto.randomUUID(), view_id: crypto.randomUUID(), operation_id: crypto.randomUUID(),
+      bridge_generation: 3, resumed: true,
+      bridge_token_id: crypto.randomUUID(), server_id: crypto.randomUUID(), expires_at: "2030-01-01T00:00:00.000Z",
+      protocol: { core: "2026-07-28", apps_extension: "2026-01-26", server_name: "fixture", server_version: "3.0.0" },
+      resource: { uri: "ui://resume-builder/main", mime_type: "text/html;profile=mcp-app", content_digest: `sha256:${"a".repeat(64)}`, size_bytes: 1, html: "x" },
+      allowed_tools: ["fixture.status"], allowed_capabilities: [], entry_point: "direct",
+    } satisfies AppLaunch;
+    await sendResumeBuilderAppsBridgeMessage(launch, { jsonrpc: "2.0", id: "view-request", method: "tools/call", params: { name: "fixture.status", arguments: {} } });
+    const [url, init] = fetchMock.mock.calls[0]!;
+    const serialized = String(init?.body);
+    expect(url).toBe("/api/apps/resume-builder/apps-bridge");
+    expect(JSON.parse(serialized)).toMatchObject({
+      session_id: launch.session_id,
+      envelope: { installation_id: launch.installation_id, view_id: launch.view_id, operation_id: launch.operation_id, bridge_generation: 3, provenance: { source_window_match: true, opaque_origin: "null", same_server_id: launch.server_id } },
+    });
+    expect(serialized).not.toContain(launch.bridge_token_id);
+  });
+
+  it("requests bounded reconnect with stable identities and no resource or bridge credential", async () => {
+    const prior = {
+      launch_version: 1, session_id: crypto.randomUUID(), installation_id: crypto.randomUUID(), view_id: crypto.randomUUID(), operation_id: crypto.randomUUID(),
+      bridge_generation: 2, resumed: false, bridge_token_id: crypto.randomUUID(), server_id: crypto.randomUUID(), expires_at: "2030-01-01T00:00:00.000Z",
+      protocol: { core: "2026-07-28", apps_extension: "2026-01-26", server_name: "fixture", server_version: "3.0.0" },
+      resource: { uri: "ui://resume-builder/main", mime_type: "text/html;profile=mcp-app", content_digest: `sha256:${"a".repeat(64)}`, size_bytes: 14, html: "private-html" },
+      allowed_tools: ["fixture.status"], allowed_capabilities: [], entry_point: "career",
+    } satisfies AppLaunch;
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ...prior, session_id: crypto.randomUUID(), bridge_generation: 3, resumed: true }), { status: 200 }));
+    await launchResumeBuilderApp("career", prior);
+    const body = String(fetchMock.mock.calls[0]![1]?.body);
+    expect(JSON.parse(body)).toEqual({
+      entry_point: "career",
+      resume: { session_id: prior.session_id, view_id: prior.view_id, operation_id: prior.operation_id, bridge_generation: 2 },
+    });
+    expect(body).not.toContain(prior.bridge_token_id);
+    expect(body).not.toContain(prior.resource.html);
+    expect(body).not.toContain(prior.server_id);
   });
 
   it("refreshes authoritative status after a lost committed response without declaring request failure", async () => {

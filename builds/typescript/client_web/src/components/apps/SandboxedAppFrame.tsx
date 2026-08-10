@@ -1,18 +1,46 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { callResumeBuilderCapability, closeResumeBuilderSession, finalizeResumeBuilderExport, sendResumeBuilderBridgeMessage, type AppLaunch } from "@/api/apps-adapter";
+import {
+  callResumeBuilderCapability,
+  closeResumeBuilderSession,
+  finalizeResumeBuilderExport,
+  sendResumeBuilderAppsBridgeMessage,
+  sendResumeBuilderBridgeMessage,
+  type AppLaunch,
+} from "@/api/apps-adapter";
 import { isTauriRuntime } from "@/api/runtime-api-base";
-
-const MAX_BRIDGE_MESSAGE_BYTES = 65_536;
+import { BrowserActionBroker } from "@/mcp-apps/browser-policy";
+import { McpAppBridgeController, type BridgeStatus } from "@/mcp-apps/bridge";
+import { OUTER_PROXY_SANDBOX, VIEW_PERMISSION_POLICY, createSandboxProxyUrl } from "@/mcp-apps/sandbox-proxy";
+import { openExternalUrl } from "@/utils/external-url";
 
 export function isTrustedSandboxMessage(event: MessageEvent, frame: HTMLIFrameElement | null): boolean {
   return Boolean(frame?.contentWindow && event.source === frame.contentWindow && event.origin === "null");
 }
 
+export function isModelSettingsAction(action: unknown, value: unknown): boolean {
+  return action === "navigate_settings" && value === "models";
+}
+
 type BridgeEnvelope = {
+  bridge_version: 1;
   message_id: string;
   type: string;
   payload?: { capability?: string; input?: Record<string, unknown> } & Record<string, unknown>;
+};
+
+type PendingOwnerConfirmation = {
+  message: BridgeEnvelope;
+  resolve: (value: unknown) => void;
+  reject: (reason: Error) => void;
+};
+
+type PendingHostAction = {
+  title: string;
+  detail: string;
+  run: () => Promise<unknown>;
+  resolve: (value: unknown) => void;
+  reject: (reason: Error) => void;
 };
 
 export async function saveHostPdfExport(result: unknown): Promise<{ safe_destination_label: string; definition: unknown; parse_back: unknown }> {
@@ -42,95 +70,197 @@ export async function saveHostPdfExport(result: unknown): Promise<{ safe_destina
   return { safe_destination_label: safeDestinationLabel, definition: value.definition, parse_back: value.parse_back };
 }
 
-export default function SandboxedAppFrame({ launch, onSessionClosed }: { launch: AppLaunch; onSessionClosed: () => void }) {
+export default function SandboxedAppFrame({
+  launch,
+  onSessionClosed,
+  onReload,
+  onOpenSettings,
+}: {
+  launch: AppLaunch;
+  onSessionClosed: () => void;
+  onReload?: () => Promise<void>;
+  onOpenSettings?: () => void;
+}) {
   const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const controllerRef = useRef<McpAppBridgeController | null>(null);
   const closedRef = useRef(false);
-  const cleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cleanupAbortRef = useRef<AbortController | null>(null);
   const ownerRecordsRef = useRef(new Map<string, { label: string; detail: string }>());
   const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [status, setStatus] = useState<BridgeStatus>("loading");
   const [error, setError] = useState<string | null>(null);
-  const [pendingConfirmation, setPendingConfirmation] = useState<BridgeEnvelope | null>(null);
-
-  const postToApp = useCallback((message: unknown) => frameRef.current?.contentWindow?.postMessage(message, "*"), []);
-
-  useEffect(() => {
-    if (pendingConfirmation) confirmButtonRef.current?.focus();
-  }, [pendingConfirmation]);
+  const [frameHeight, setFrameHeight] = useState(720);
+  const [pendingConfirmation, setPendingConfirmation] = useState<PendingOwnerConfirmation | null>(null);
+  const [pendingHostAction, setPendingHostAction] = useState<PendingHostAction | null>(null);
 
   useEffect(() => {
-    if (cleanupTimerRef.current) {
-      clearTimeout(cleanupTimerRef.current);
-      cleanupTimerRef.current = null;
-    }
+    if (pendingConfirmation || pendingHostAction) confirmButtonRef.current?.focus();
+  }, [pendingConfirmation, pendingHostAction]);
+
+  useEffect(() => {
+    cleanupAbortRef.current?.abort();
+    const cleanupAbort = new AbortController();
+    cleanupAbortRef.current = cleanupAbort;
+    closedRef.current = false;
+    setStatus("loading");
+    setError(null);
+    const frame = frameRef.current;
+    if (!frame) return;
+    const proxyNonce = crypto.randomUUID();
     const close = () => {
       if (closedRef.current) return;
       closedRef.current = true;
+      controllerRef.current?.requestTeardown();
+      controllerRef.current?.close("unmount");
       void closeResumeBuilderSession(launch.session_id);
     };
-    const onMessage = (event: MessageEvent) => {
-      if (!isTrustedSandboxMessage(event, frameRef.current)) return;
-      let encoded: string;
-      try { encoded = JSON.stringify(event.data); }
-      catch { setStatus("error"); setError("The app sent an unreadable message."); return; }
-      if (new TextEncoder().encode(encoded).byteLength > MAX_BRIDGE_MESSAGE_BYTES) {
-        setStatus("error"); setError("The app sent a message that was too large."); close(); return;
-      }
-      const message = event.data as BridgeEnvelope;
+    const browserBroker = new BrowserActionBroker({
+      allowedLinkOrigins: ["https://docs.braindrive.ai"],
+      clipboardWrite: true,
+      exportMimeTypes: ["application/pdf"],
+      maxClipboardBytes: 16_384,
+      maxExportBytes: 2_097_152,
+    }, {
+      openExternal: openExternalUrl,
+      writeClipboard: async (value) => navigator.clipboard.writeText(value),
+    });
+    const requestHostAction = (title: string, detail: string, run: () => Promise<unknown>) => new Promise<unknown>((resolve, reject) => {
+      setPendingHostAction({ title, detail, run, resolve, reject });
+    });
+    const hydrate = (message: BridgeEnvelope): BridgeEnvelope & {
+      app_id: "ai.braindrive.resume-builder";
+      installation_id: string;
+      view_id: string;
+      operation_id: string;
+      sent_at: string;
+    } => ({
+      bridge_version: 1,
+      message_id: message.message_id,
+      app_id: "ai.braindrive.resume-builder",
+      installation_id: launch.installation_id,
+      view_id: launch.view_id,
+      operation_id: launch.operation_id,
+      sent_at: new Date().toISOString(),
+      type: message.type,
+      payload: message.type === "bridge.ready"
+        ? (message.payload ?? {})
+        : { ...(message.payload ?? {}), token_id: launch.bridge_token_id },
+    });
+    const handleLegacyMessage = async (message: BridgeEnvelope, signal: AbortSignal): Promise<unknown> => {
       const isFactConfirmation = message.type === "capability.call" && message.payload?.capability === "career.facts.confirm";
       const isDefinitionApproval = message.type === "capability.call" && message.payload?.capability === "resume.definitions.write" && message.payload.input?.kind === "approve_definition";
       if (isFactConfirmation || isDefinitionApproval) {
-        setPendingConfirmation(message);
-        return;
+        return await new Promise((resolve, reject) => setPendingConfirmation({ message, resolve, reject }));
       }
-      void sendResumeBuilderBridgeMessage(launch.session_id, message).then(async (response) => {
-        const result = (response as { result?: unknown }).result;
-        if (message.type === "capability.call" && message.payload?.capability === "career.facts.propose") {
-          const fact = (result as { fact?: { metadata?: { record_id?: unknown }; value?: unknown; fact_kind?: unknown } } | undefined)?.fact;
-          if (typeof fact?.metadata?.record_id === "string" && typeof fact.value === "string") ownerRecordsRef.current.set(fact.metadata.record_id, { label: "Confirm career fact", detail: fact.value });
+      if (signal.aborted) throw new DOMException("Cancelled", "AbortError");
+      if (message.type === "host.action") {
+        const action = message.payload?.action;
+        const value = message.payload?.value;
+        if (action === "open_link" && typeof value === "string") {
+          return await requestHostAction("Open external link?", value, () => browserBroker.openLink(value, true, true));
         }
-        if (message.type === "capability.call" && message.payload?.capability === "resume.definitions.write") {
-          const definition = (result as { definition?: { metadata?: { record_id?: unknown }; title?: unknown; statements?: unknown[] } } | undefined)?.definition;
-          if (typeof definition?.metadata?.record_id === "string" && typeof definition.title === "string") ownerRecordsRef.current.set(definition.metadata.record_id, { label: "Approve resume version", detail: `${definition.title} · ${definition.statements?.length ?? 0} statements` });
+        if (action === "copy_to_clipboard" && typeof value === "string") {
+          return await requestHostAction("Copy app content?", "BrainDrive will copy only the displayed app value.", () => browserBroker.writeClipboard(value, true, true));
         }
-        if (message.type === "export.request") {
+        if (isModelSettingsAction(action, value) && onOpenSettings) {
+          onOpenSettings();
+          return { status: "opened" };
+        }
+        throw new Error("browser_action_denied");
+      }
+      if (message.type === "export.request") {
+        return await requestHostAction("Export resume PDF?", "BrainDrive will prepare the approved PDF and initiate the host save flow. The app receives only a safe file label.", async () => {
+          const response = await sendResumeBuilderBridgeMessage(launch.session_id, hydrate(message));
+          const result = (response as { result?: unknown }).result;
           const prepared = result as { artifact_revision_id?: unknown; artifact_digest?: unknown; safe_destination_label?: unknown };
           if (typeof prepared.artifact_revision_id !== "string" || typeof prepared.artifact_digest !== "string" || typeof prepared.safe_destination_label !== "string") {
-            postToApp({ type: "host.result", request_message_id: message.message_id, error: { error: "recoverable_internal_failure" } });
-            return;
+            throw new Error("recoverable_internal_failure");
           }
           try {
+            const exportPayload = result as { filename?: unknown; mime_type?: unknown; bytes_base64?: unknown };
+            if (typeof exportPayload.filename !== "string" || typeof exportPayload.mime_type !== "string" || typeof exportPayload.bytes_base64 !== "string") {
+              throw new Error("invalid_export_result");
+            }
+            const padding = exportPayload.bytes_base64.endsWith("==") ? 2 : exportPayload.bytes_base64.endsWith("=") ? 1 : 0;
+            const sizeBytes = Math.floor(exportPayload.bytes_base64.length * 3 / 4) - padding;
+            const exportDecision = browserBroker.validateExport({ safeFilename: exportPayload.filename, mimeType: exportPayload.mime_type, sizeBytes }, true, true);
+            if (!exportDecision.allowed) throw new Error(exportDecision.code);
             const projection = await saveHostPdfExport(result);
             const receipt = await finalizeResumeBuilderExport({ artifact_revision_id: prepared.artifact_revision_id, artifact_digest: prepared.artifact_digest, safe_destination_label: projection.safe_destination_label, outcome: "completed" });
-            postToApp({ type: "host.result", request_message_id: message.message_id, response: { ...projection, safe_destination_label: receipt.safe_destination_label } });
+            return { ...projection, safe_destination_label: receipt.safe_destination_label };
           } catch (exportError) {
             const outcome = exportError instanceof Error && exportError.message === "cancelled" ? "cancelled" : "failed";
             await finalizeResumeBuilderExport({ artifact_revision_id: prepared.artifact_revision_id, artifact_digest: prepared.artifact_digest, safe_destination_label: prepared.safe_destination_label, outcome }).catch(() => undefined);
-            postToApp({ type: "host.result", request_message_id: message.message_id, error: { error: outcome === "cancelled" ? "cancelled" : "recoverable_internal_failure" } });
+            throw new Error(outcome === "cancelled" ? "cancelled" : "recoverable_internal_failure");
           }
-          return;
-        }
-        postToApp({ type: "host.result", request_message_id: message.message_id, response });
-      }).catch((requestError) => {
-        const code = requestError instanceof Error ? requestError.message : "recoverable_internal_failure";
-        postToApp({ type: "host.result", request_message_id: message.message_id, error: { error: code } });
-        if (["session_closed", "session_expired"].includes(code)) { setStatus("error"); setError("The app connection was closed. Return to Apps and launch it again."); close(); }
-      });
+        });
+      }
+      const response = await sendResumeBuilderBridgeMessage(launch.session_id, hydrate(message));
+      const result = (response as { result?: unknown }).result;
+      if (message.type === "capability.call" && message.payload?.capability === "career.facts.propose") {
+        const fact = (result as { fact?: { metadata?: { record_id?: unknown }; value?: unknown } } | undefined)?.fact;
+        if (typeof fact?.metadata?.record_id === "string" && typeof fact.value === "string") ownerRecordsRef.current.set(fact.metadata.record_id, { label: "Confirm career fact", detail: fact.value });
+      }
+      if (message.type === "capability.call" && message.payload?.capability === "resume.definitions.write") {
+        const definition = (result as { definition?: { metadata?: { record_id?: unknown }; title?: unknown; statements?: unknown[] } } | undefined)?.definition;
+        if (typeof definition?.metadata?.record_id === "string" && typeof definition.title === "string") ownerRecordsRef.current.set(definition.metadata.record_id, { label: "Approve resume version", detail: `${definition.title} · ${definition.statements?.length ?? 0} statements` });
+      }
+      return response;
     };
+    const controller = new McpAppBridgeController({
+      launch,
+      proxyNonce,
+      sendToProxy: (value) => frame.contentWindow?.postMessage(value, "*"),
+      onToolCall: async (name, args, _context, signal) => {
+        const response = await sendResumeBuilderAppsBridgeMessage(launch, { jsonrpc: "2.0", id: crypto.randomUUID(), method: "tools/call", params: { name, arguments: args } }, signal) as { result?: unknown };
+        return response.result;
+      },
+      onResourceRead: async (uri, _context, signal) => {
+        const response = await sendResumeBuilderAppsBridgeMessage(launch, { jsonrpc: "2.0", id: crypto.randomUUID(), method: "resources/read", params: { uri } }, signal) as { result?: unknown };
+        return response.result;
+      },
+      onOpenLink: (url) => requestHostAction("Open external link?", url, () => browserBroker.openLink(url, true, true)),
+      onDownloadFile: async () => ({ isError: true, code: "export_requires_host_flow" }),
+      onLegacyMessage: handleLegacyMessage,
+      onResize: ({ height }) => setFrameHeight(height),
+      onRequestTeardown: onSessionClosed,
+      onStatus: setStatus,
+      onViolation: (code) => {
+        if (["message_oversized", "message_too_deep", "rate_limited"].includes(code)) {
+          setStatus("error");
+          setError("The app exceeded the secure bridge limits. Reload the app to reconnect.");
+        }
+      },
+    });
+    controllerRef.current = controller;
+    const onMessage = (event: MessageEvent) => { void controller.receive(event, frame.contentWindow!); };
     const onVisibility = () => {
       if (document.visibilityState === "hidden") { close(); onSessionClosed(); }
     };
     window.addEventListener("message", onMessage);
     document.addEventListener("visibilitychange", onVisibility);
+    frame.src = createSandboxProxyUrl(proxyNonce);
+    const connectionTimeout = window.setTimeout(() => {
+      if (controller.state === "ready" || controller.state === "closed") return;
+      setStatus("error");
+      setError("The app did not complete its secure connection. Reload the app to try again.");
+      controller.close("revoked");
+    }, 10_000);
     return () => {
+      window.clearTimeout(connectionTimeout);
       window.removeEventListener("message", onMessage);
       document.removeEventListener("visibilitychange", onVisibility);
-      cleanupTimerRef.current = setTimeout(close, 0);
+      controller.requestTeardown();
+      controller.close("unmount");
+      if (controllerRef.current === controller) controllerRef.current = null;
+      queueMicrotask(() => {
+        if (!cleanupAbort.signal.aborted) close();
+      });
     };
-  }, [launch.session_id, onSessionClosed, postToApp]);
+  }, [launch, onOpenSettings, onSessionClosed]);
 
   const confirmationRecord = (() => {
-    const input = pendingConfirmation?.payload?.input;
+    const input = pendingConfirmation?.message.payload?.input;
     const recordId = typeof input?.fact_record_id === "string" ? input.fact_record_id : typeof input?.definition_record_id === "string" ? input.definition_record_id : "";
     return ownerRecordsRef.current.get(recordId) ?? { label: "Confirm this owner action", detail: "BrainDrive will validate the saved record and reject stale or unsupported content." };
   })();
@@ -138,25 +268,58 @@ export default function SandboxedAppFrame({ launch, onSessionClosed }: { launch:
   const completeConfirmation = async (confirmed: boolean) => {
     const message = pendingConfirmation;
     setPendingConfirmation(null);
-    if (!message?.payload?.capability || !message.payload.input) return;
+    if (!message?.message.payload?.capability || !message.message.payload.input) return;
     if (!confirmed) {
-      postToApp({ type: "host.result", request_message_id: message.message_id, error: { error: "cancelled" } });
+      message.reject(new Error("cancelled"));
       frameRef.current?.focus();
       return;
     }
     try {
-      const response = await callResumeBuilderCapability(message.payload.capability, message.payload.input, message.message_id, true);
-      postToApp({ type: "host.result", request_message_id: message.message_id, response });
+      const response = await callResumeBuilderCapability(message.message.payload.capability, message.message.payload.input, message.message.message_id, true);
+      message.resolve(response);
     } catch (requestError) {
-      postToApp({ type: "host.result", request_message_id: message.message_id, error: { error: requestError instanceof Error ? requestError.message : "recoverable_internal_failure" } });
+      message.reject(requestError instanceof Error ? requestError : new Error("recoverable_internal_failure"));
     } finally { frameRef.current?.focus(); }
+  };
+
+  const completeHostAction = async (confirmed: boolean) => {
+    const action = pendingHostAction;
+    setPendingHostAction(null);
+    if (!action) return;
+    if (!confirmed) {
+      action.reject(new Error("cancelled"));
+      frameRef.current?.focus();
+      return;
+    }
+    try { action.resolve(await action.run()); }
+    catch (failure) { action.reject(failure instanceof Error ? failure : new Error("recoverable_internal_failure")); }
+    finally { frameRef.current?.focus(); }
+  };
+
+  const closeAndReturn = useCallback(() => {
+    controllerRef.current?.requestTeardown();
+    onSessionClosed();
+  }, [onSessionClosed]);
+
+  const reload = async () => {
+    if (!onReload) return;
+    setStatus("reconnecting");
+    setError(null);
+    controllerRef.current?.requestTeardown();
+    controllerRef.current?.close("reload");
+    try { await onReload(); }
+    catch { setStatus("error"); setError("The app could not reconnect. Your saved work is preserved."); }
   };
 
   return (
     <section className="flex min-h-0 flex-1 flex-col" aria-label="Resume Builder app session">
       <div className="flex items-center justify-between border-b border-bd-border px-4 py-3 text-sm">
-        <span aria-live="polite">{status === "loading" ? "Connecting securely…" : status === "ready" ? "App ready" : "App unavailable"}</span>
-        <button type="button" onClick={onSessionClosed} className="rounded-md px-3 py-2 text-bd-text-secondary hover:bg-bd-bg-hover">Close app</button>
+        <span role="status" aria-live="polite">{status === "loading" ? "Connecting securely…" : status === "ready" ? "App ready" : status === "reconnecting" ? "Reconnecting securely…" : status === "disabled" ? "App disabled" : status === "stopped" ? "App stopped" : "App unavailable"}</span>
+        <div className="flex gap-2">
+          <button type="button" onClick={() => frameRef.current?.focus()} className="rounded-md px-3 py-2 text-bd-text-secondary hover:bg-bd-bg-hover">Enter app</button>
+          {onReload ? <button type="button" onClick={() => void reload()} className="rounded-md px-3 py-2 text-bd-text-secondary hover:bg-bd-bg-hover">Reload app</button> : null}
+          <button type="button" onClick={closeAndReturn} className="rounded-md px-3 py-2 text-bd-text-secondary hover:bg-bd-bg-hover">Close app</button>
+        </div>
       </div>
       {error ? <div role="alert" className="m-4 rounded-lg border border-bd-danger px-4 py-3 text-sm text-bd-text-primary">{error}</div> : null}
       {pendingConfirmation ? (
@@ -170,17 +333,24 @@ export default function SandboxedAppFrame({ launch, onSessionClosed }: { launch:
           </div>
         </div>
       ) : null}
+      {pendingHostAction ? (
+        <div role="dialog" aria-modal="true" aria-labelledby="app-host-action-title" className="m-4 rounded-xl border border-bd-amber bg-bd-bg-secondary p-4 shadow-xl">
+          <h2 id="app-host-action-title" className="font-heading text-lg font-semibold text-bd-text-heading">{pendingHostAction.title}</h2>
+          <p className="mt-2 break-words text-sm text-bd-text-primary">{pendingHostAction.detail}</p>
+          <p className="mt-2 text-xs text-bd-text-secondary">This action is performed by BrainDrive. The app receives only a safe outcome and no host path or runtime credential.</p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button ref={confirmButtonRef} type="button" onClick={() => void completeHostAction(true)} className="rounded-lg bg-bd-amber px-4 py-2 font-semibold text-bd-bg-primary">Confirm</button>
+            <button type="button" onClick={() => void completeHostAction(false)} className="rounded-lg border border-bd-border px-4 py-2 text-bd-text-primary">Cancel</button>
+          </div>
+        </div>
+      ) : null}
       <iframe
         ref={frameRef}
-        title="Resume Builder"
-        srcDoc={launch.resource.html}
-        sandbox="allow-scripts"
+        title="Resume Builder sandbox proxy"
+        sandbox={OUTER_PROXY_SANDBOX}
         referrerPolicy="no-referrer"
-        allow="camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'; fullscreen 'none'"
-        onLoad={() => {
-          setStatus("ready");
-          postToApp({ type: "host.bootstrap", launch });
-        }}
+        allow={VIEW_PERMISSION_POLICY}
+        style={{ height: `${frameHeight}px`, maxHeight: "100%" }}
         className="min-h-[24rem] w-full flex-1 border-0 bg-bd-bg-primary"
       />
     </section>

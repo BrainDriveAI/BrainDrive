@@ -1,65 +1,35 @@
-import { createHash, randomUUID } from "node:crypto";
-
 import { z } from "zod";
 
 import {
+  CONTRACT_SIZE_LIMITS,
   MCP_APPS_EXTENSION_ID,
   MCP_APPS_EXTENSION_VERSION,
   MCP_APP_MEDIA_TYPE,
-  MCP_LEGACY_PROTOCOL_VERSION,
   MCP_MODERN_PROTOCOL_VERSION,
-  CONTRACT_SIZE_LIMITS,
+  RESUME_BUILDER_APP_ID,
+  RESUME_BUILDER_PUBLISHER_ID,
 } from "../contracts/constants.js";
 import { McpAppResourceSchema } from "../contracts/mcp-app.js";
 import type { AppRuntimeConnection } from "../lifecycle/process-supervisor.js";
 import { AppPlatformError } from "../lifecycle/errors.js";
-import { preserveMcpResult, type CompleteMcpResult, type RawMcpCallResult } from "../../mcp/result-envelope.js";
+import type { CompleteMcpResult } from "../../mcp/result-envelope.js";
+import {
+  McpConnectionManager,
+  type McpCatalogResource,
+  type McpCatalogs,
+  type McpCatalogTool,
+  type McpConnectionHandle,
+  type McpConnectionIdentity,
+  type McpPeer,
+  type McpPeerNegotiation,
+  type McpRequestOptions,
+} from "../../mcp/host/connection-manager.js";
+import { McpHostError } from "../../mcp/host/errors.js";
 
-const InitializeResultSchema = z.object({
-  protocolVersion: z.string(),
-  capabilities: z.object({ tools: z.record(z.string(), z.unknown()).optional(), resources: z.record(z.string(), z.unknown()).optional() }).passthrough(),
-  serverInfo: z.object({ name: z.string().min(1), version: z.string().min(1) }).strict(),
-  _meta: z.record(z.string(), z.unknown()).optional(),
-}).passthrough();
-
-const ResourceListSchema = z.object({
-  resources: z.array(z.object({
-    uri: z.string(),
-    name: z.string().min(1),
-    title: z.string().optional(),
-    description: z.string().optional(),
-    mimeType: z.string().optional(),
-    size: z.number().int().nonnegative().optional(),
-    _meta: z.record(z.string(), z.unknown()).optional(),
-  }).passthrough()).max(1_000),
-}).passthrough();
-
-const ResourceReadSchema = z.object({
-  contents: z.array(z.object({
-    uri: z.string(),
-    mimeType: z.string().optional(),
-    text: z.string().optional(),
-    blob: z.string().optional(),
-    _meta: z.record(z.string(), z.unknown()).optional(),
-  }).passthrough()).min(1).max(16),
-}).passthrough();
-
-const ToolListSchema = z.object({
-  tools: z.array(z.object({
-    name: z.string().min(1),
-    description: z.string().optional(),
-    inputSchema: z.record(z.string(), z.unknown()).optional(),
-    _meta: z.record(z.string(), z.unknown()).optional(),
-  }).passthrough()).max(1_000),
-}).passthrough();
-
-export type ModernMcpTool = z.infer<typeof ToolListSchema>["tools"][number];
+export type ModernMcpTool = McpCatalogTool;
 export type LoadedAppResource = {
   resource: z.infer<typeof McpAppResourceSchema>;
-  envelope: {
-    descriptor: z.infer<typeof ResourceListSchema>["resources"][number];
-    read: z.infer<typeof ResourceReadSchema>;
-  };
+  envelope: { descriptor: McpCatalogResource; read: unknown };
 };
 export type ModernMcpSession = {
   connectionId: string;
@@ -67,137 +37,159 @@ export type ModernMcpSession = {
   extensionVersion: typeof MCP_APPS_EXTENSION_VERSION;
   serverName: string;
   serverVersion: string;
-  resources: z.infer<typeof ResourceListSchema>["resources"];
+  resources: McpCatalogResource[];
+  resourceTemplates: McpCatalogs["resourceTemplates"];
   tools: ModernMcpTool[];
-  initializeEnvelope: z.infer<typeof InitializeResultSchema>;
-  resourceListEnvelope: z.infer<typeof ResourceListSchema>;
-  toolListEnvelope: z.infer<typeof ToolListSchema>;
+  discoverEnvelope: McpConnectionHandle["negotiated"];
+  resourceListEnvelope: unknown;
+  resourceTemplateListEnvelope: unknown;
+  toolListEnvelope: unknown;
+  handle: McpConnectionHandle;
 };
 
 export interface McpWireTransport {
-  request(method: string, params?: Record<string, unknown>): Promise<unknown>;
+  request(method: string, params?: Record<string, unknown>, options?: McpRequestOptions): Promise<unknown>;
+  close?(): Promise<void>;
 }
 
+/** Test seam for deterministic JSON-RPC peers; production uses the official SDK peer. */
 export class HttpMcpWireTransport implements McpWireTransport {
   private nextRequestId = 1;
 
   constructor(private readonly connection: AppRuntimeConnection, private readonly timeoutMs = 10_000) {}
 
-  async request(method: string, params?: Record<string, unknown>): Promise<unknown> {
+  async request(method: string, params?: Record<string, unknown>, options?: McpRequestOptions): Promise<unknown> {
+    const id = this.nextRequestId++;
     const response = await fetch(this.connection.url, {
       method: "POST",
+      redirect: "manual",
       headers: { authorization: `Bearer ${this.connection.authorization}`, "content-type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: this.nextRequestId++, method, ...(params ? { params } : {}) }),
-      signal: AbortSignal.timeout(this.timeoutMs),
+      body: JSON.stringify({ jsonrpc: "2.0", id, method, ...(params ? { params } : {}) }),
+      signal: options?.signal ?? AbortSignal.timeout(this.timeoutMs),
     });
+    if (response.redirected || (response.status >= 300 && response.status < 400)) {
+      throw new McpHostError("resource_redirect_denied", "Installed app MCP redirects are not permitted");
+    }
     const text = await response.text();
     if (Buffer.byteLength(text, "utf8") > CONTRACT_SIZE_LIMITS.authorityEnvelopeBytes) {
-      throw new AppPlatformError("resource_oversized", "MCP response exceeds the accepted envelope limit");
+      throw new McpHostError("envelope_oversized", "MCP response exceeds the accepted envelope limit");
     }
-    if (!response.ok) throw new AppPlatformError("lifecycle_failed", "Installed app MCP request failed", 502);
-    let payload: { result?: unknown; error?: { code?: unknown; message?: unknown } };
+    if (!response.ok) throw new McpHostError("connection_unavailable", "Installed app MCP request failed", true);
+    let payload: { jsonrpc?: unknown; id?: unknown; result?: unknown; error?: { code?: unknown; message?: unknown } };
     try { payload = JSON.parse(text) as typeof payload; }
-    catch { throw new AppPlatformError("resource_invalid", "Installed app returned malformed MCP JSON", 502); }
-    if (payload.error) throw new AppPlatformError("resource_missing", "Installed app MCP method or resource is unavailable", 404);
+    catch { throw new McpHostError("envelope_malformed", "Installed app returned malformed MCP JSON"); }
+    if (payload.jsonrpc !== "2.0" || payload.id !== id) throw new McpHostError("envelope_malformed", "Installed app returned a mismatched MCP response");
+    if (payload.error) throw new McpHostError("connection_unavailable", "Installed app MCP method is unavailable", true);
     return payload.result;
   }
 }
 
+type ManagedClientSource = { manager: McpConnectionManager; identity: McpConnectionIdentity };
+
 export class ModernMcpAppsClient {
-  constructor(private readonly transport: McpWireTransport) {}
+  private readonly manager: McpConnectionManager;
+  private readonly identity: McpConnectionIdentity;
+
+  constructor(source: McpWireTransport | ManagedClientSource, identity?: McpConnectionIdentity) {
+    if (isManagedSource(source)) {
+      this.manager = source.manager;
+      this.identity = source.identity;
+      return;
+    }
+    this.identity = identity ?? fixtureIdentity();
+    this.manager = new McpConnectionManager({
+      peerFactory: () => new WireMcpPeer(source),
+      maxReadOnlyRetries: 0,
+    });
+  }
 
   async negotiate(): Promise<ModernMcpSession> {
-    const initializedResult = InitializeResultSchema.safeParse(await this.transport.request("initialize", {
-      protocolVersion: MCP_MODERN_PROTOCOL_VERSION,
-      capabilities: {},
-      clientInfo: { name: "braindrive-app-host", version: "1.0.0" },
-      _meta: { [MCP_APPS_EXTENSION_ID]: { version: MCP_APPS_EXTENSION_VERSION } },
-    }));
-    if (!initializedResult.success) throw new AppPlatformError("protocol_incompatible", "Installed app returned an invalid initialization envelope");
-    const initialized = initializedResult.data;
-    if (initialized.protocolVersion === MCP_LEGACY_PROTOCOL_VERSION) {
-      throw new AppPlatformError("protocol_incompatible", "Legacy MCP servers cannot launch interactive Apps");
+    try {
+      const handle = await this.manager.connect(this.identity);
+      const catalogs = await this.manager.discover(handle);
+      return {
+        connectionId: handle.connectionId,
+        protocolVersion: MCP_MODERN_PROTOCOL_VERSION,
+        extensionVersion: MCP_APPS_EXTENSION_VERSION,
+        serverName: handle.negotiated.server_name,
+        serverVersion: handle.negotiated.server_version,
+        resources: catalogs.resources,
+        resourceTemplates: catalogs.resourceTemplates,
+        tools: catalogs.tools,
+        discoverEnvelope: handle.negotiated,
+        resourceListEnvelope: catalogs.envelopes.resources,
+        resourceTemplateListEnvelope: catalogs.envelopes.resourceTemplates,
+        toolListEnvelope: catalogs.envelopes.tools,
+        handle,
+      };
+    } catch (error) {
+      throw toAppPlatformError(error);
     }
-    if (initialized.protocolVersion !== MCP_MODERN_PROTOCOL_VERSION || !initialized.capabilities.resources || !initialized.capabilities.tools) {
-      throw new AppPlatformError("protocol_incompatible", "Installed app MCP protocol or capabilities are incompatible");
-    }
-    const extension = initialized._meta?.[MCP_APPS_EXTENSION_ID] as { version?: unknown } | undefined;
-    if (extension?.version !== MCP_APPS_EXTENSION_VERSION) {
-      throw new AppPlatformError("extension_incompatible", "Installed app UI extension is incompatible");
-    }
-    const listedResourcesResult = ResourceListSchema.safeParse(await this.transport.request("resources/list"));
-    if (!listedResourcesResult.success) throw new AppPlatformError("resource_invalid", "Installed app returned an invalid resource list");
-    const listedToolsResult = ToolListSchema.safeParse(await this.transport.request("tools/list"));
-    if (!listedToolsResult.success) throw new AppPlatformError("protocol_incompatible", "Installed app returned an invalid tool list");
-    const listedResources = listedResourcesResult.data;
-    const listedTools = listedToolsResult.data;
-    return {
-      connectionId: randomUUID(),
-      protocolVersion: MCP_MODERN_PROTOCOL_VERSION,
-      extensionVersion: MCP_APPS_EXTENSION_VERSION,
-      serverName: initialized.serverInfo.name,
-      serverVersion: initialized.serverInfo.version,
-      resources: listedResources.resources,
-      tools: listedTools.tools,
-      initializeEnvelope: initialized,
-      resourceListEnvelope: listedResources,
-      toolListEnvelope: listedTools,
-    };
   }
 
   async readAppResource(session: ModernMcpSession, uri: string, packageDigest: `sha256:${string}`): Promise<LoadedAppResource> {
-    const descriptor = session.resources.find((resource) => resource.uri === uri);
-    if (!descriptor) throw new AppPlatformError("resource_missing", "Declared app UI resource is unavailable", 404);
-    if (descriptor.uri !== uri || !uri.startsWith("ui://") || descriptor.mimeType !== MCP_APP_MEDIA_TYPE) {
-      throw new AppPlatformError("resource_invalid", "App UI resource declaration is incompatible");
+    try {
+      const verified = await this.manager.readResource(session.handle, {
+        serverConnectionId: session.connectionId,
+        uri,
+        packageDigest,
+        mimeType: MCP_APP_MEDIA_TYPE,
+      });
+      if (typeof verified.text !== "string") {
+        throw new McpHostError("resource_mime_invalid", "MCP App HTML resources must use text content");
+      }
+      validateSandboxHtml(verified.text);
+      const resource = McpAppResourceSchema.parse({
+        resource_version: 1,
+        app_id: RESUME_BUILDER_APP_ID,
+        package_digest: packageDigest,
+        uri,
+        mime_type: MCP_APP_MEDIA_TYPE,
+        extension: { id: MCP_APPS_EXTENSION_ID, version: MCP_APPS_EXTENSION_VERSION },
+        content_digest: verified.contentDigest,
+        size_bytes: verified.sizeBytes,
+        cache_policy: verified.cachePolicy,
+        html: verified.text,
+      });
+      return { resource, envelope: { descriptor: verified.descriptor, read: verified.envelope } };
+    } catch (error) {
+      throw toAppPlatformError(error);
     }
-    if ((descriptor.size ?? 0) > CONTRACT_SIZE_LIMITS.resourceBytes) {
-      throw new AppPlatformError("resource_oversized", "App UI resource exceeds the accepted byte limit");
-    }
-    const readResult = ResourceReadSchema.safeParse(await this.transport.request("resources/read", { uri }));
-    if (!readResult.success) throw new AppPlatformError("resource_invalid", "Installed app returned an invalid resource envelope");
-    const read = readResult.data;
-    const exact = read.contents.filter((content) => content.uri === uri);
-    if (exact.length !== 1 || exact[0]!.mimeType !== MCP_APP_MEDIA_TYPE || typeof exact[0]!.text !== "string" || exact[0]!.blob !== undefined) {
-      throw new AppPlatformError("resource_invalid", "App UI resource response is missing or ambiguous");
-    }
-    const html = exact[0]!.text;
-    const sizeBytes = Buffer.byteLength(html, "utf8");
-    if (sizeBytes === 0 || sizeBytes > CONTRACT_SIZE_LIMITS.resourceBytes || (descriptor.size !== undefined && descriptor.size !== sizeBytes)) {
-      throw new AppPlatformError("resource_oversized", "App UI resource size does not match its declaration");
-    }
-    validateSandboxHtml(html);
-    const resource = McpAppResourceSchema.parse({
-      resource_version: 1,
-      app_id: "ai.braindrive.resume-builder",
-      package_digest: packageDigest,
-      uri,
-      mime_type: MCP_APP_MEDIA_TYPE,
-      extension: { id: MCP_APPS_EXTENSION_ID, version: MCP_APPS_EXTENSION_VERSION },
-      content_digest: `sha256:${createHash("sha256").update(html).digest("hex")}`,
-      size_bytes: sizeBytes,
-      cache_policy: exact[0]!._meta?.cachePolicy === "no_store" ? "no_store" : "immutable_package_digest",
-      html,
-    });
-    return { resource, envelope: { descriptor, read } };
   }
 
   async callTool(session: ModernMcpSession, toolName: string, args: Record<string, unknown>, operationId: string): Promise<CompleteMcpResult> {
-    const raw = await this.transport.request("tools/call", { name: toolName, arguments: args }) as RawMcpCallResult;
-    return preserveMcpResult(raw, {
-      protocolVersion: session.protocolVersion,
-      connectionId: session.connectionId,
-      requestId: randomUUID(),
-      operationId,
-    });
+    try {
+      return await this.manager.callTool(session.handle, {
+        serverConnectionId: session.connectionId,
+        toolName,
+        arguments: args,
+        consumer: "app",
+        operationId,
+      });
+    } catch (error) {
+      throw toAppPlatformError(error);
+    }
+  }
+
+  cancel(operationId: string): boolean {
+    return this.manager.cancel(operationId);
   }
 }
 
+export function identityForRuntime(connection: AppRuntimeConnection): McpConnectionIdentity {
+  return {
+    appId: RESUME_BUILDER_APP_ID,
+    publisherId: RESUME_BUILDER_PUBLISHER_ID,
+    packageDigest: connection.runtime.package_digest as `sha256:${string}`,
+    installationId: connection.runtime.installation_id,
+    runtimeId: connection.runtime.runtime_id,
+    serverId: "resume-builder",
+    generation: connection.runtime.runtime_generation,
+  };
+}
+
 export function appVisibleToolNames(tools: ModernMcpTool[]): string[] {
-  return tools.filter((tool) => {
-    const ui = tool._meta?.[MCP_APPS_EXTENSION_ID] as { visibility?: unknown } | undefined;
-    return Array.isArray(ui?.visibility) && ui.visibility.includes("app");
-  }).map((tool) => tool.name);
+  return tools.filter((tool) => tool.visibility.includes("app")).map((tool) => tool.name);
 }
 
 export function validateSandboxHtml(html: string): void {
@@ -207,4 +199,74 @@ export function validateSandboxHtml(html: string): void {
   if (!requiredCsp || prohibited.test(html)) {
     throw new AppPlatformError("resource_invalid", "App UI resource violates the sandbox content policy");
   }
+}
+
+class WireMcpPeer implements McpPeer {
+  constructor(private readonly transport: McpWireTransport) {}
+
+  async connect(options: McpRequestOptions): Promise<McpPeerNegotiation> {
+    const discover = await this.transport.request("server/discover", {
+      _meta: {
+        "io.modelcontextprotocol/protocolVersion": MCP_MODERN_PROTOCOL_VERSION,
+        "io.modelcontextprotocol/clientInfo": { name: "braindrive-app-host", version: "1.0.0" },
+        "io.modelcontextprotocol/clientCapabilities": {
+          extensions: { [MCP_APPS_EXTENSION_ID]: { mimeTypes: [MCP_APP_MEDIA_TYPE] } },
+        },
+      },
+    }, options) as McpPeerNegotiation["discover"];
+    const serverInfo = discover?._meta?.["io.modelcontextprotocol/serverInfo"];
+    return {
+      protocolVersion: MCP_MODERN_PROTOCOL_VERSION,
+      era: "modern",
+      capabilities: isRecord(discover?.capabilities) ? discover.capabilities : {},
+      ...(isServerInfo(serverInfo) ? { serverInfo } : {}),
+      discover,
+    };
+  }
+
+  listTools(options: McpRequestOptions): Promise<unknown> { return this.transport.request("tools/list", undefined, options); }
+  listResources(options: McpRequestOptions): Promise<unknown> { return this.transport.request("resources/list", undefined, options); }
+  listResourceTemplates(options: McpRequestOptions): Promise<unknown> { return this.transport.request("resources/templates/list", undefined, options); }
+  readResource(params: { uri: string }, options: McpRequestOptions): Promise<unknown> { return this.transport.request("resources/read", params, options); }
+  callTool(params: { name: string; arguments: Record<string, unknown> }, options: McpRequestOptions): Promise<unknown> { return this.transport.request("tools/call", params, options); }
+  async close(): Promise<void> { await this.transport.close?.(); }
+}
+
+function fixtureIdentity(): McpConnectionIdentity {
+  return {
+    appId: RESUME_BUILDER_APP_ID,
+    publisherId: RESUME_BUILDER_PUBLISHER_ID,
+    packageDigest: `sha256:${"a".repeat(64)}`,
+    installationId: "20000000-0000-4000-8000-000000000001",
+    runtimeId: "20000000-0000-4000-8000-000000000002",
+    serverId: "resume-builder-fixture",
+    generation: 1,
+  };
+}
+
+function isManagedSource(source: McpWireTransport | ManagedClientSource): source is ManagedClientSource {
+  return "manager" in source && "identity" in source;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isServerInfo(value: unknown): value is { name: string; version: string } {
+  return isRecord(value) && typeof value.name === "string" && value.name.length > 0 && typeof value.version === "string" && value.version.length > 0;
+}
+
+function toAppPlatformError(error: unknown): AppPlatformError {
+  if (error instanceof AppPlatformError) return error;
+  if (!(error instanceof McpHostError)) return new AppPlatformError("lifecycle_failed", "Installed app MCP operation failed", 502);
+  if (error.code === "protocol_incompatible" || error.code === "extension_incompatible") {
+    return new AppPlatformError(error.code, error.message, 409);
+  }
+  if (error.code === "resource_not_found") return new AppPlatformError("resource_missing", error.message, 404);
+  if (error.code === "resource_oversized" || error.code === "envelope_oversized") return new AppPlatformError("resource_oversized", error.message, 413);
+  if (error.code.startsWith("resource_") || error.code === "catalog_invalid" || error.code === "envelope_malformed") {
+    return new AppPlatformError("resource_invalid", error.message, 409);
+  }
+  if (error.code === "request_cancelled") return new AppPlatformError("operation_cancelled", error.message, 409);
+  return new AppPlatformError("lifecycle_failed", "Installed app server could not complete the declared operation", 502);
 }

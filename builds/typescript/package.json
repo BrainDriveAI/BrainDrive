@@ -56,12 +56,17 @@
     "desktop:test": "npm run desktop:prepare-dev && npm run test && npm --prefix ../mcp_release run build && npm --prefix client_web run test && cargo test --manifest-path src-tauri/Cargo.toml"
   },
   "dependencies": {
+    "@modelcontextprotocol/client": "2.0.0",
+    "@modelcontextprotocol/core": "2.0.0",
     "@modelcontextprotocol/ext-apps": "1.7.5",
     "@modelcontextprotocol/sdk": "1.30.0",
     "fastify": "^5.10.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@modelcontextprotocol/conformance": "0.2.0-alpha.11",
+    "@modelcontextprotocol/node": "2.0.0",
+    "@modelcontextprotocol/server": "2.0.0",
     "@tauri-apps/cli": "^2.11.4",
     "@types/node": "^26.1.1",
     "eslint": "^9.39.5",
