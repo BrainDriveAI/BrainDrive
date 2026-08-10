@@ -3,6 +3,13 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("sandboxed Resume Builder owner resource", () => {
+  it("contains syntactically valid inline application code", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+    expect(script).toBeTruthy();
+    expect(() => new Function(script!)).not.toThrow();
+  });
+
   it("contains the complete bounded journey and required text states", async () => {
     const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
     for (const text of [
@@ -35,6 +42,10 @@ describe("sandboxed Resume Builder owner resource", () => {
     expect(html).toContain('decision:"edit_and_accept"');
     expect(html).toContain('decision:"reject"');
     expect(html).toContain("confirmedDuplicate(topic,value)");
+    expect(html).toContain('prompt_version:"resume-interview-3.2.2"');
+    expect(html).toContain("interview_turn:turn");
+    expect(html).toContain('kind:"interview_turn"');
+    expect(html).toContain('interviewTurn(topic,question,null,null,"skipped")');
     expect(html).toContain('stage="preview"');
     expect(html).toContain('stage==="history"');
     expect(html).toContain("normalizeDraftStatements");

@@ -37,7 +37,7 @@ export type FixtureRepository = {
   releaseKeyId?: string;
 };
 
-export const MODERN_FIXTURE_VERSION = "3.2.1" as const;
+export const MODERN_FIXTURE_VERSION = "3.2.2" as const;
 export const MODERN_FIXTURE_CAPABILITIES = [
   "career.context.read", "career.facts.read", "career.facts.propose", "career.facts.confirm",
   "resume.definitions.read", "resume.definitions.write", "resume.jobs.read", "resume.jobs.write",

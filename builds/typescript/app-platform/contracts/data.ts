@@ -339,6 +339,36 @@ export const CareerContextProjectionSchema = z.object({
   }
 });
 
+export const InterviewTurnAuditSchema = z.object({
+  transcript_version: z.literal(1),
+  turn_id: OpaqueIdSchema,
+  session_id: OpaqueIdSchema,
+  prompt_version: z.string().min(1).max(128),
+  topic: z.string().min(1).max(128),
+  question: z.string().min(1).max(8_192),
+  answer: z.string().min(1).max(16_384).nullable(),
+  follow_up: z.object({
+    question: z.string().min(1).max(8_192),
+    answer: z.string().min(1).max(8_192).nullable(),
+    outcome: z.enum(["answered", "continued_without_answer"]),
+  }).strict().nullable(),
+  action: z.enum(["answered", "skipped"]),
+  occurred_at: TimestampSchema,
+}).strict().superRefine((value, context) => {
+  if ((value.action === "answered") !== (value.answer !== null)) {
+    context.addIssue({ code: "custom", message: "answered interview turns require an answer and skipped turns cannot contain one" });
+  }
+  if (value.action === "skipped" && value.follow_up !== null) {
+    context.addIssue({ code: "custom", message: "skipped interview turns cannot contain a follow-up" });
+  }
+  if (value.follow_up?.outcome === "answered" && value.follow_up.answer === null) {
+    context.addIssue({ code: "custom", message: "answered follow-ups require an answer" });
+  }
+  if (value.follow_up?.outcome === "continued_without_answer" && value.follow_up.answer !== null) {
+    context.addIssue({ code: "custom", message: "unanswered follow-ups cannot contain an answer" });
+  }
+});
+
 export const InterviewProgressRecordSchema = RecordEnvelopeSchema.extend({
   record_type: z.literal("interview_progress"),
   status: z.enum(["not_started", "in_progress", "paused", "review_needed", "completed"]),

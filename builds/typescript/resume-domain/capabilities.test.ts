@@ -112,6 +112,38 @@ describe("named Resume Builder data capabilities", () => {
     expect(events[1]).toMatchObject({ event: "app.capability.completed", details: { capability: "career.facts.propose", outcome: "committed", idempotency_decision: "reused" } });
   });
 
+  it("routes owner-visible interview turns into durable provenance without exposing their content in audit events", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-resume-turn-audit-")); roots.push(root);
+    const store = new ResumeDataStore(root, undefined, {}, false);
+    const grant = testGrant();
+    await store.initialize(grant.owner_id);
+    const events: Array<{ event: string; details: Record<string, unknown> }> = [];
+    const router = new ResumeCapabilityRouter(new ResumeDomainService(store), new CareerPlacementAdapter(root), new ResumeCapabilityPolicy(async () => grant), (event, details) => events.push({ event, details }));
+    const sentinel = "PRIVATE_INTERVIEW_ANSWER_SENTINEL";
+    const turn = {
+      transcript_version: 1,
+      turn_id: crypto.randomUUID(),
+      session_id: crypto.randomUUID(),
+      prompt_version: "resume-interview-3.2.2",
+      topic: "education",
+      question: "What education or training would you like to include?",
+      answer: sentinel,
+      follow_up: null,
+      action: "answered",
+      occurred_at: "2026-08-07T12:00:00.000Z",
+    };
+    const result = await router.execute("resume.definitions.write", {
+      kind: "interview_turn",
+      turn,
+      sensitivity: "standard",
+      linked_confirmed_fact_revision_id: null,
+    }, context(grant, undefined, "resume.definitions.write")) as { turn: { extensions: { interview_turn: unknown } } };
+
+    expect(result.turn.extensions.interview_turn).toEqual(turn);
+    expect(JSON.stringify(events)).not.toContain(sentinel);
+    expect(events.at(-1)).toMatchObject({ event: "app.capability.completed", details: { capability: "resume.definitions.write", outcome: "committed" } });
+  });
+
   it("places only confirmed stable-fact references into a Career return", async () => {
     const { root, grant, router } = await setup();
     const proposed = await router.execute("career.facts.propose", proposalInput(), context(grant, undefined, "career.facts.propose")) as { fact: { metadata: { record_id: string; revision_id: string } } };

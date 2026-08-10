@@ -25,6 +25,12 @@ const DefinitionReadInputSchema = z.union([
 ]);
 const OperationInputSchema = z.object({ queried_operation_id: z.string().uuid() }).strict();
 const InterviewCapabilityInputSchema = z.object({ kind: z.literal("interview_progress"), progress: z.record(z.string(), z.unknown()) }).strict();
+const InterviewTurnCapabilityInputSchema = z.object({
+  kind: z.literal("interview_turn"),
+  turn: z.record(z.string(), z.unknown()),
+  sensitivity: z.enum(["standard", "sensitive", "highly_sensitive"]),
+  linked_confirmed_fact_revision_id: z.string().uuid().nullable(),
+}).strict();
 const DefinitionApprovalCapabilityInputSchema = z.object({ kind: z.literal("approve_definition"), definition_record_id: z.string().uuid(), expected_revision: z.number().int().positive() }).strict();
 
 export type CapabilityExecutionContext = {
@@ -87,8 +93,11 @@ export class ResumeCapabilityRouter {
           break;
         case "resume.definitions.write": {
           const interview = InterviewCapabilityInputSchema.safeParse(input);
+          const interviewTurn = InterviewTurnCapabilityInputSchema.safeParse(input);
           const approval = DefinitionApprovalCapabilityInputSchema.safeParse(input);
-          result = interview.success
+          result = interviewTurn.success
+            ? await this.domain.recordInterviewTurn(interviewTurn.data, authority)
+            : interview.success
             ? await this.domain.saveInterviewProgress(interview.data.progress, authority)
             : approval.success
               ? await this.domain.approveDefinition(approval.data, authority, context.hostOwnerConfirmed === true)

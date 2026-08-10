@@ -27,6 +27,83 @@ async function confirmedFact(service: ResumeDomainService) {
 }
 
 describe("Resume domain invariants", () => {
+  it("retains the exact owner-visible interview turn as durable fact provenance", async () => {
+    const { store, service } = await setup();
+    const turn = {
+      transcript_version: 1 as const,
+      turn_id: crypto.randomUUID(),
+      session_id: crypto.randomUUID(),
+      prompt_version: "resume-interview-3.2.2",
+      topic: "accomplishments",
+      question: "What became better because of your work?",
+      answer: "I trained four new employees and reduced checkout errors.",
+      follow_up: {
+        question: "Do you remember how many people you trained?",
+        answer: "Four new employees.",
+        outcome: "answered" as const,
+      },
+      action: "answered" as const,
+      occurred_at: "2026-08-07T12:00:00.000Z",
+    };
+    const proposed = await service.proposeFact({
+      ...proposalInput(turn.answer),
+      source: { ...proposalInput().source, interview_turn: turn },
+    }, authority("career.facts.propose"));
+    const confirmationAuthority = authority("career.facts.confirm");
+    const confirmed = await service.confirmFact({ fact_record_id: proposed.fact.metadata.record_id, fact_revision_id: proposed.fact.metadata.revision_id, expected_revision: 1, decision: "accept", edited_value: null, review_note: null }, confirmationAuthority, ownerDecision(confirmationAuthority, proposed.fact.metadata.revision_id));
+
+    expect(proposed.source.extensions.interview_turn).toEqual(turn);
+    expect(confirmed.fact.source_revision_ids).toEqual([proposed.source.metadata.revision_id]);
+
+    const reopened = new ResumeDataStore(store.memoryRoot, undefined, {}, false);
+    await reopened.initialize(testGrant().owner_id);
+    const retained = await reopened.readRevision(proposed.source.metadata.revision_id);
+    expect(retained).toMatchObject({ record_type: "source", extensions: { interview_turn: turn } });
+  });
+
+  it("retains skipped and duplicate-answer turns without creating false career facts", async () => {
+    const { store, service } = await setup();
+    const confirmed = await confirmedFact(service);
+    const sessionId = crypto.randomUUID();
+    const skipped = await service.recordInterviewTurn({
+      turn: {
+        transcript_version: 1,
+        turn_id: crypto.randomUUID(),
+        session_id: sessionId,
+        prompt_version: "resume-interview-3.2.2",
+        topic: "education",
+        question: "What education or training would you like to include?",
+        answer: null,
+        follow_up: null,
+        action: "skipped",
+        occurred_at: "2026-08-07T12:00:00.000Z",
+      },
+      sensitivity: "standard",
+      linked_confirmed_fact_revision_id: null,
+    }, authority("resume.definitions.write"));
+    const duplicate = await service.recordInterviewTurn({
+      turn: {
+        transcript_version: 1,
+        turn_id: crypto.randomUUID(),
+        session_id: sessionId,
+        prompt_version: "resume-interview-3.2.2",
+        topic: "accomplishments",
+        question: "What is one result or accomplishment you are proud of?",
+        answer: "Synthetic supported statement",
+        follow_up: null,
+        action: "answered",
+        occurred_at: "2026-08-07T12:00:00.000Z",
+      },
+      sensitivity: "standard",
+      linked_confirmed_fact_revision_id: confirmed.fact.metadata.revision_id,
+    }, authority("resume.definitions.write"));
+
+    expect(skipped.turn).toMatchObject({ record_type: "source", retention_class: "durable_owner_data", extensions: { interview_turn: { action: "skipped", answer: null } } });
+    expect(duplicate.turn).toMatchObject({ extensions: { linked_confirmed_fact_revision_id: confirmed.fact.metadata.revision_id } });
+    expect(await store.list("career_fact")).toHaveLength(1);
+    expect(await store.list("source")).toHaveLength(3);
+  });
+
   it("does not allow app or model-shaped input to confirm facts", async () => {
     const { service } = await setup();
     const proposed = await service.proposeFact(proposalInput(), authority("career.facts.propose"));
@@ -92,6 +169,49 @@ describe("Resume domain invariants", () => {
     const second = await service.saveInterviewProgress({ record_id: first.progress.metadata.record_id, expected_revision: 1, status: "paused", current_topic: "education", completed_topics: ["experience"], skipped_topics: [], draft_state: "declared_draft" }, authority("resume.definitions.write"));
     expect(second.progress).toMatchObject({ record_type: "interview_progress", status: "paused", draft_state: "declared_draft", metadata: { revision: 2 } });
     await expect(service.saveInterviewProgress({ record_id: first.progress.metadata.record_id, expected_revision: 1, status: "completed", current_topic: null, completed_topics: [], skipped_topics: [], draft_state: "complete" }, authority("resume.definitions.write"))).rejects.toMatchObject({ code: "conflict" });
+  });
+
+  it("commits a skipped user-visible turn atomically with interview progress", async () => {
+    const { store, service } = await setup();
+    const sessionId = crypto.randomUUID();
+    const turn = {
+      transcript_version: 1 as const,
+      turn_id: crypto.randomUUID(),
+      session_id: sessionId,
+      prompt_version: "resume-interview-3.2.2",
+      topic: "education",
+      question: "What education or training would you like to include?",
+      answer: null,
+      follow_up: null,
+      action: "skipped" as const,
+      occurred_at: "2026-08-07T12:00:00.000Z",
+    };
+    const saved = await service.saveInterviewProgress({
+      expected_revision: null,
+      status: "in_progress",
+      current_topic: "credentials",
+      completed_topics: [],
+      skipped_topics: ["education"],
+      draft_state: "declared_draft",
+      session_id: sessionId,
+      audit_turn: turn,
+    }, authority("resume.definitions.write"));
+
+    expect(saved.progress.extensions.interview_session_id).toBe(sessionId);
+    expect(await store.list("source")).toEqual([
+      expect.objectContaining({ metadata: expect.objectContaining({ record_id: turn.turn_id }), extensions: expect.objectContaining({ interview_turn: turn }) }),
+    ]);
+    await expect(service.saveInterviewProgress({
+      record_id: saved.progress.metadata.record_id,
+      expected_revision: 1,
+      status: "paused",
+      current_topic: "credentials",
+      completed_topics: [],
+      skipped_topics: ["education"],
+      draft_state: "declared_draft",
+      session_id: crypto.randomUUID(),
+    }, authority("resume.definitions.write"))).rejects.toMatchObject({ code: "validation_failed" });
+    expect((await store.readHead(saved.progress.metadata.record_id)).metadata.revision).toBe(1);
   });
 
   it("atomically records validation, policy, input, and output digests on approval", async () => {

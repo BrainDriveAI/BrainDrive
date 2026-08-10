@@ -7,6 +7,7 @@ import {
   CareerFactRecordSchema,
   ExportReceiptRecordSchema,
   InterviewProgressRecordSchema,
+  InterviewTurnAuditSchema,
   JobDescriptionRecordSchema,
   RequirementEvidenceSchema,
   ResumeDataRecordSchema,
@@ -58,6 +59,7 @@ const ProposalInputSchema = z.object({
     safe_label: z.string().min(1).max(256),
     content_digest: Sha256DigestSchema,
     captured_at: TimestampSchema,
+    interview_turn: InterviewTurnAuditSchema.optional(),
   }).strict(),
   fact: z.object({
     fact_kind: z.enum(["identity", "contact", "employment", "education", "skill", "credential", "accomplishment", "project", "preference"]),
@@ -65,7 +67,11 @@ const ProposalInputSchema = z.object({
     value: z.string().min(1).max(16_384),
     sensitivity: z.enum(["standard", "sensitive", "highly_sensitive"]),
   }).strict(),
-}).strict();
+}).strict().superRefine((value, context) => {
+  if (value.source.interview_turn && value.source.source_kind !== "owner_interview") {
+    context.addIssue({ code: "custom", path: ["source", "interview_turn"], message: "Interview turns require owner-interview provenance" });
+  }
+});
 
 const LinkedProposalInputSchema = z.object({
   source_revision_ids: z.array(OpaqueIdSchema).min(1).max(25),
@@ -125,6 +131,15 @@ const InterviewInputSchema = z.object({
   completed_topics: z.array(z.string().min(1).max(128)).max(100),
   skipped_topics: z.array(z.string().min(1).max(128)).max(100),
   draft_state: z.enum(["declared_draft", "owner_reviewed", "complete"]),
+  session_id: OpaqueIdSchema.optional(),
+  audit_turn: InterviewTurnAuditSchema.optional(),
+}).strict();
+
+const InterviewTurnInputSchema = z.object({
+  kind: z.literal("interview_turn").optional(),
+  turn: InterviewTurnAuditSchema,
+  sensitivity: z.enum(["standard", "sensitive", "highly_sensitive"]),
+  linked_confirmed_fact_revision_id: OpaqueIdSchema.nullable(),
 }).strict();
 
 const DefinitionApprovalInputSchema = z.object({
@@ -182,6 +197,7 @@ export class ResumeDomainService {
       ...this.envelope("source", sourceId, sourceRevisionId, 1, null, input.fact.sensitivity, "durable_provenance_while_referenced", authority, timestamp),
       source_kind: input.source.source_kind, safe_label: input.source.safe_label, content_digest: input.source.content_digest,
       captured_at: input.source.captured_at, source_ref: randomUUID(), untrusted_content: true,
+      extensions: input.source.interview_turn ? { interview_turn: input.source.interview_turn } : {},
     });
     const fact = CareerFactRecordSchema.parse({
       ...this.envelope("career_fact", factId, factRevisionId, 1, null, input.fact.sensitivity, "durable_owner_data", authority, timestamp),
@@ -595,12 +611,57 @@ export class ResumeDomainService {
     const current = input.record_id ? await this.store.readHead(input.record_id, authority.grant.record_scopes) : null;
     if (current && current.record_type !== "interview_progress") throw new ResumeDomainError("not_found_within_scope", "Record was not found within the granted scope", 404);
     const timestamp = this.now().toISOString();
+    const retainedSession = OpaqueIdSchema.safeParse(current?.extensions.interview_session_id);
+    const sessionId = input.session_id ?? input.audit_turn?.session_id ?? (retainedSession.success ? retainedSession.data : randomUUID());
+    if ((retainedSession.success && retainedSession.data !== sessionId) || (input.audit_turn && input.audit_turn.session_id !== sessionId)) {
+      throw new ResumeDomainError("validation_failed", "Interview progress and audit turn session identities do not match");
+    }
     const progress = InterviewProgressRecordSchema.parse({
       ...this.envelope("interview_progress", current?.metadata.record_id ?? randomUUID(), randomUUID(), current ? current.metadata.revision + 1 : 1, current?.metadata.revision_id ?? null, "sensitive", "durable_owner_data", authority, timestamp),
       status: input.status, current_topic: input.current_topic, completed_topics: input.completed_topics, skipped_topics: input.skipped_topics, draft_state: input.draft_state,
+      extensions: { ...current?.extensions, interview_session_id: sessionId },
     });
-    const result = await this.store.commit([progress], this.mutation(authority, input, "interview_progress", current?.metadata.record_id ?? null, current ? input.expected_revision : null));
+    const auditTurn = input.audit_turn ? SourceRecordSchema.parse({
+      ...this.envelope("source", input.audit_turn.turn_id, randomUUID(), 1, null, "standard", "durable_owner_data", authority, timestamp),
+      source_kind: "owner_interview",
+      safe_label: "Resume interview turn",
+      content_digest: canonicalInputDigest(input.audit_turn),
+      captured_at: input.audit_turn.occurred_at,
+      source_ref: randomUUID(),
+      untrusted_content: true,
+      extensions: { interview_turn: input.audit_turn, linked_confirmed_fact_revision_id: null },
+    }) : null;
+    const result = await this.store.commit(auditTurn ? [progress, auditTurn] : [progress], this.mutation(authority, input, "interview_progress", current?.metadata.record_id ?? null, current ? input.expected_revision : null));
     return { progress: result.records[0]!, reused: result.reused };
+  }
+
+  async recordInterviewTurn(raw: unknown, authority: DataAuthority): Promise<{ turn: z.infer<typeof SourceRecordSchema>; reused: boolean }> {
+    this.authorize(authority, "resume.definitions.write");
+    const input = InterviewTurnInputSchema.parse(raw);
+    let sensitivity = input.sensitivity;
+    if (input.linked_confirmed_fact_revision_id) {
+      const linked = await this.store.readRevision(input.linked_confirmed_fact_revision_id, authority.grant.record_scopes);
+      if (linked.record_type !== "career_fact" || linked.state !== "confirmed") {
+        throw new ResumeDomainError("validation_failed", "Interview turn link must resolve to a confirmed career fact");
+      }
+      sensitivity = this.maxSensitivity([sensitivity, linked.sensitivity]);
+    }
+    const timestamp = this.now().toISOString();
+    const turn = SourceRecordSchema.parse({
+      ...this.envelope("source", input.turn.turn_id, randomUUID(), 1, null, sensitivity, "durable_owner_data", authority, timestamp),
+      source_kind: "owner_interview",
+      safe_label: "Resume interview turn",
+      content_digest: canonicalInputDigest(input.turn),
+      captured_at: input.turn.occurred_at,
+      source_ref: randomUUID(),
+      untrusted_content: true,
+      extensions: {
+        interview_turn: input.turn,
+        linked_confirmed_fact_revision_id: input.linked_confirmed_fact_revision_id,
+      },
+    });
+    const result = await this.store.commit([turn], this.mutation(authority, input, "interview_turn", null, null));
+    return { turn: SourceRecordSchema.parse(result.records[0]), reused: result.reused };
   }
 
   async readRecords(recordType: ResumeDataRecord["record_type"], authority: DataAuthority): Promise<ResumeDataRecord[]> {
