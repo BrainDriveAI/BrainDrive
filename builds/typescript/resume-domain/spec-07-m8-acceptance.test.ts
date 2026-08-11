@@ -32,7 +32,8 @@ describe("Spec 07 Milestone 8 acceptance manifest", () => {
 
     expect(report).toContain("Disposition: **HOLD — not release-ready**");
     expect(report).toContain("release_ready=false");
-    expect(report).toContain("dirty/non-immutable");
+    expect(report).toContain("63d8a838a3b7aa89895b0759e7ad9e94e1ed7da0");
+    expect(report).toContain("immutable implementation candidate");
     expect(report).toContain("Docker dev verification");
     expect(report).toContain("native Windows verification");
     expect(report).toContain("three-generation/provider conformance");

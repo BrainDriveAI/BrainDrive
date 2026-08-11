@@ -3,18 +3,18 @@
 Recorded: 2026-08-11
 Disposition: **HOLD — not release-ready**
 
-This is the sanitized, source-adjacent requirement/story/gate-to-evidence manifest for Spec 07. It records checks independently rerun on the current worktree and distinguishes useful local evidence from release evidence. It does not treat a dirty worktree as an immutable candidate, deterministic fixtures as provider or human evidence, WSL/Linux as native Windows, or local browser execution as Docker dev verification.
+This is the sanitized, source-adjacent requirement/story/gate-to-evidence manifest for Spec 07. It records checks independently rerun on a committed implementation candidate and distinguishes useful local evidence from release evidence. It does not treat deterministic fixtures as provider or human evidence, WSL/Linux as native Windows, or local browser execution as Docker dev verification.
 
 ## Candidate, authority, and environment
 
 - Branch: `feature/resume-builder-app`
-- Checked-out base revision: `7ba4e8abebdc0032c9c2f8021321585b85397811`
-- Candidate state before M8 reporting: 87 tracked files changed and 34 untracked status entries across cumulative M1–M7 work; 5,197 insertions and 342 deletions in the tracked diff. The worktree is dirty/non-immutable, so the revision above identifies only the checked-out base, not the verified source candidate.
+- Immutable implementation candidate: `63d8a838a3b7aa89895b0759e7ad9e94e1ed7da0`
+- Candidate state: the cumulative Spec 07 implementation, generated schemas, frozen fixtures, tests, and initial M8 record were committed as 125 files with 11,960 insertions and 342 deletions. Package/runtime/quality/web/MCP checks were rerun from its clean worktree. The subsequent catalog declaration and evidence corrections are documentation/evidence-only changes and do not alter product runtime behavior.
 - Spec/authority state: Spec 07 is Draft; `RB7-OQ-1` through `RB7-OQ-4` remain open; no accepted Spec 07 verification plan, M1–M7 acceptance chain, provider/model authority, human-review attribution, Docker target/cleanup contract, or native-Windows synchronization authority was present.
 - Local platform: WSL2 Linux x86_64, kernel `6.6.87.2-microsoft-standard-WSL2`.
 - Local tools: Node `v20.20.1`, npm `10.8.2`, Rust/Cargo `1.95.0`, Docker `29.2.0`, Compose `v5.0.2`. Repository CI specifies Node 22, so the Node-version difference remains a release risk.
 - Read-only Docker inspection found a pre-existing stateful `braindrive_dev` project: app container running but unhealthy, web container running, and three named project volumes. No Docker state or volume was mutated.
-- Isolated browser runners used task-owned temporary roots and synthetic data, stopped their services, and returned success. No provider credentials, owner content, external publication, commit, push, or release action was used.
+- Isolated browser runners used task-owned temporary roots and synthetic data, stopped their services, and returned success. No provider credentials, owner content, external publication, provider call, or release action was used.
 
 ## Evidence groups
 
@@ -26,18 +26,18 @@ This is the sanitized, source-adjacent requirement/story/gate-to-evidence manife
 | CRAFT | Craft evaluator/repair, validator, service, quality, mutation, clean-case, and owner E2E evidence covers statement/criterion findings, one bounded repair, mandatory-gate precedence, non-regression, evidence-limited handling, and separate approval. |
 | OWNER | Capability, host-decision, workflow/UI, component, desktop, mobile, and browser-access evidence covers confirmation groups, semantic action separation, focus, retry/recovery, reload/reopen, token refresh, and preserved controls. |
 | ART | Renderer/parity/export/Career publication, Rust native-export, and owner E2E evidence covers one-definition preview, clean text, exact clipboard bytes, `.txt`, PDF extraction/export, Career projection, history, comparison, and failure/recovery behavior. |
-| QUALITY | `npm run resume:quality` passed the credential-free deterministic scope with `release_ready=false`: 15 fixtures, F1–F12, 12/12 mutations caught, 0/2 clean blockers, seven personas, successor checks, and anti-overfit/corpus-integrity checks. Report digest: `sha256:67f03fa088553d650659b148ce3a77558a7e94f9cbee277e30840289f83c505c`. |
+| QUALITY | `npm run resume:quality` passed the credential-free deterministic scope on the committed candidate with `release_ready=false`: 15 fixtures, F1–F12, 12/12 mutations caught, 0/2 clean blockers, seven personas, successor checks, and anti-overfit/corpus-integrity checks. Frozen corpus digest: `sha256:ec7cfc641ab404b8bb42140f58df3645a31f3758b4e6285b4879f08184e470c4`; deterministic foundation digest: `sha256:fac01839cda8be2be3dd3b0c7890565b174cc395b030fa32fb91eca9e92a49b9`; candidate-bound report digest: `sha256:39977e0d157bbc6cb0482cffaf9a68742294631a5c89748ca66b858e4573cc73`. |
 | LIFE | Contract/schema drift, schema-3 migration, persistence/store, lifecycle, capability, recovery, restart, retry, response-loss, stale-input, compatibility, and downgrade/refusal cases passed in the full suites. |
 | SEC | Authorization, sandbox isolation, no-tools/purpose-minimum inference, target-injection, canary/content-free diagnostic, fixture anti-gaming, and secret-scan checks passed locally; provider configuration files were unchanged. |
 | LIVE | Isolated desktop owner journey, mobile projects, and non-loopback HTTP browser access passed on WSL/Linux. Docker dev verification, authorized live providers, independent human calibration, retention review, and native Windows verification were not run. |
 
-“Local automated pass” below is useful worktree evidence only. It is not release acceptance where a row also depends on blocked authority, human judgment, provider execution, Docker, native Windows, or an immutable source revision.
+“Local automated pass” below is useful immutable-candidate evidence. It is not release acceptance where a row also depends on blocked authority, human judgment, provider execution, Docker, or native Windows.
 
 ## Functional and model requirement matrix
 
 | Requirement | Evidence | M8 status |
 |---|---|---|
-| RB7-REQ-001 | COV, LIFE | Local automated pass; immutable-candidate runtime evidence blocked |
+| RB7-REQ-001 | COV, LIFE | Local immutable-candidate pass; Docker/native runtime evidence blocked |
 | RB7-REQ-002 | COV, contract/property tests | Local automated pass |
 | RB7-REQ-003 | COV, owner E2E reopen | Local automated pass; Docker/native restart evidence blocked |
 | RB7-REQ-004 | COV, opportunity and quality tests | Deterministic pass; human interview-quality calibration blocked |
@@ -117,7 +117,7 @@ This is the sanitized, source-adjacent requirement/story/gate-to-evidence manife
 | RB7-OBS-005 | QUALITY separates automated and human timing | Schema pass; human timing absent |
 | RB7-OBS-006 | SEC prohibited-content/canary checks | Local automated pass |
 | RB7-OBS-007 | SEC content-free failed-run evidence | Local automated pass; provider failure run blocked |
-| RB7-SEC-001 | Specs 2/3/5/6 boundary regression and authorization | Local automated pass; immutable-candidate live proof blocked |
+| RB7-SEC-001 | Specs 2/3/5/6 boundary regression and authorization | Local immutable-candidate pass; controlled live proof blocked |
 | RB7-SEC-002 | Independent evaluation/extraction paths | Local automated pass; human independence blocked |
 | RB7-SEC-003 | Visible evidence/change reasoning and owner actions | Local automated pass |
 | RB7-SEC-004 | Synthetic-only quality corpus and privacy scans | Local automated pass; bounded retention review blocked |
@@ -144,7 +144,7 @@ This is the sanitized, source-adjacent requirement/story/gate-to-evidence manife
 
 | Gate | Disposition | Evidence or blocker |
 |---|---|---|
-| RB7-G1 | Blocked | Spec 07 is Draft, OQ-1–OQ-4 are open, and no accepted M1–M7 evidence chain or immutable candidate exists. |
+| RB7-G1 | Blocked | An immutable implementation candidate now exists, but Spec 07 is Draft, OQ-1–OQ-4 are open, and no accepted M1–M7 evidence chain exists. |
 | RB7-G2 | Partial | COV passes locally; exact Docker/native restart and accepted authority evidence are absent. |
 | RB7-G3 | Partial | Yield/refusal/metric behavior passes deterministic tests; accepted thresholds and human interview review are absent. |
 | RB7-G4 | Blocked | QUALITY deterministic gates pass, but authorized three-generation output and independent craft review are absent. |
@@ -155,7 +155,7 @@ This is the sanitized, source-adjacent requirement/story/gate-to-evidence manife
 | RB7-G9 | Blocked | `release_ready=false`; three-generation/provider conformance was not authorized and the compatibility registry cannot be promoted. |
 | RB7-G10 | Blocked | No named independent resume reviewer or non-technical owner review exists. |
 | RB7-G11 | Partial | Local security/privacy/lifecycle suites and zero-finding secret scan pass; controlled runtime and retention evidence are absent. |
-| RB7-G12 | Blocked | The worktree is not an immutable candidate; Docker-first and exact native Windows evidence are absent despite green local regressions and this matrix. |
+| RB7-G12 | Blocked | Local regressions pass on an immutable candidate, but Docker-first and exact native Windows evidence remain absent. |
 
 ## Exact command results
 
@@ -166,7 +166,7 @@ This is the sanitized, source-adjacent requirement/story/gate-to-evidence manife
 | `cd builds/typescript && npm run resume:quality` | Deterministic scope pass; 15 fixtures; 12/12 caught mutations; 0/2 clean blockers; `release_ready=false`; digest listed in QUALITY. |
 | `cd builds/typescript && npm run web:lint && npm run web:typecheck && npm run web:test && npm run web:build` | Pass: lint/typecheck; 26 files/235 tests; production build. Unresolved build-time font references and a greater-than-500-kB chunk were warnings, not failures. |
 | `cd builds/mcp_release && npm run test && npm run build` | Pass: 2 files/6 tests; TypeScript build pass. |
-| `cd builds/typescript && npm run docs:verify` | Pass: 164 tests, 163 passed/1 expected platform skip; 253 scoped candidates; zero diagnostics. |
+| `cd builds/typescript && npm run docs:verify` | Initial committed-candidate run failed DA-01 because this newly tracked record was absent from the document inventory. After the focused catalog topic/route/inventory fix: pass, 164 tests with 163 passed/1 expected platform skip, 254 scoped candidates, zero diagnostics. |
 | `cd builds/typescript && npm run desktop:preflight && npm run desktop:test` | Pass on WSL/Linux only: preflight; runtime 100 files/778 tests; web 26 files/235 tests; Rust 55 passed/1 ignored. This is not native Windows evidence. |
 | isolated desktop Resume Builder owner E2E | Pass: 1 passed/1 expected mobile-only skip; full synthetic owner journey, artifact export, history, reload/reopen, and recovery. |
 | `cd builds/typescript/client_web && npm run test:e2e:mobile` | Pass: 12 passed/10 expected project skips. |
@@ -176,7 +176,7 @@ This is the sanitized, source-adjacent requirement/story/gate-to-evidence manife
 | `npx vitest run resume-domain/spec-07-m8-acceptance.test.ts` | Expected red phase failed because this manifest did not yet exist; post-creation rerun passed: 1 file/1 test. |
 | `git diff --check` | Pass at initial, post-manifest, and final handoff checkpoints. |
 | Docker dev verification | Not run: explicit target/start-state/cleanup authority was absent and the pre-existing stateful project was unhealthy. |
-| `npm run resume:conformance` and three-generation/provider conformance | Not run: no accepted provider/model class, explicit synthetic-only call authority, compatible immutable candidate, or retention contract. |
+| `npm run resume:conformance` and three-generation/provider conformance | Not run: no accepted provider/model class, explicit synthetic-only call authority, or retention contract. |
 | independent human calibration | Not run: no named resume-quality reviewer, non-technical owner reviewer, accepted rubric/defaults, or retention/deletion contract. |
 | native Windows verification | Not run: Docker-first gate did not pass, exact-candidate synchronization was impossible, and explicit authority was absent. |
 
@@ -184,20 +184,20 @@ This is the sanitized, source-adjacent requirement/story/gate-to-evidence manife
 
 - The pre-fix cosmetic TypeScript-target behavior was not executed from a preserved baseline: no clean preserved worktree or authority to create/synchronize one was available, and disturbing the cumulative worktree would invalidate rather than strengthen the evidence. The current suites directly assert that cosmetic-only or threshold-failing target operations persist a score-free no-change result and create no targeted child; the isolated current TypeScript target journey also completed through the guarded target path. These observations do not substitute for a controlled before/after reproduction.
 - Schema/config/migration review found versioned Spec 07 contracts and generated schemas, schema-3 migration and compatibility coverage, content-free audit additions, provisional target-threshold labeling, and paired source/generated-schema changes. Schema drift and migration/lifecycle tests passed. Provider profile/config files, installer packaging, and release workflow files were unchanged.
-- No focused product defect was discovered in authorized local verification, so no product fix was made. The only M8 additions are this acceptance record and its focused completeness/sanitization test.
+- The clean committed-candidate run exposed one focused documentation-integration defect: this tracked record was missing its required catalog declaration. Adding the catalog topic, task route, and non-authoritative evidence inventory entry fixed DA-01. No product-runtime fix was required.
 - One combined final-check invocation called the root-relative secret scanner while the shell was still in `builds/typescript`; the focused manifest test passed first, then the scanner path failed with exit 127. The scanner was immediately rerun from the repository root and passed with zero findings. No source or environment intervention was needed.
-- The isolated E2E runners stopped their processes and used task-owned temporary roots. Pre-existing Docker containers/volumes and external environments were not changed. No publication, commit, push, provider call, reviewer simulation, or release action occurred.
-- Rollback/containment for this milestone is removal of the two M8 report/test files. Product-runtime behavior is unchanged.
+- The isolated E2E runners stopped their processes and used task-owned temporary roots. Pre-existing Docker containers/volumes and external environments were not changed. No publication, provider call, reviewer simulation, or release action occurred.
+- Rollback/containment for the M8 evidence integration is removal of this record, its focused test, and its three catalog declarations. Product-runtime behavior is unchanged.
 
-Final status inspection reported 87 tracked modifications and 36 untracked status entries, of which this milestone added two source-adjacent files. The tracked `git diff --stat` is `87 files changed, 5197 insertions(+), 342 deletions(-)`; Git does not include the two untracked M8 files in that statistic. Path and scope review found the cumulative changes confined to Resume Builder/package, app contracts/runtime/host, resume domain/inference/renderer, the Resume Builder web E2E/host frame, migration coverage, and the developer catalog. No unrelated top-level feature, future-scope implementation, provider profile, installer/release workflow, or publish change was introduced by M8. The cumulative dirty state still prevents a reviewable release-candidate claim.
+The implementation-candidate commit is `125 files changed, 11960 insertions(+), 342 deletions(-)`. Path and scope review found the cumulative changes confined to Resume Builder/package, app contracts/runtime/host, resume domain/inference/renderer, the Resume Builder web E2E/host frame, migration coverage, and the developer catalog. No unrelated top-level feature, future-scope implementation, provider profile, installer/release workflow, or publication change was introduced. The frozen rerun reproduced the prior pass counts and stable deterministic foundation; because the harness is pass/fail and the source-bound report digest necessarily changed, it proves reproducibility rather than a numeric improvement delta.
 
 ## Required follow-up
 
-Release remains blocked until all work is rerun on one clean committed full SHA after:
+Release remains blocked despite the clean committed implementation candidate until:
 
 1. Spec 07, the verification plan, Resume Quality Standard/defaults, OQ-1–OQ-4, and attributable M1–M7 acceptance are approved and versioned.
 2. An authorized synthetic provider/model matrix completes three fresh generations per required fixture without lowering gates; only passing evidence may populate compatibility claims.
 3. Named independent resume-craft and non-technical owner reviewers complete calibrated, sanitized review under an accepted retention/deletion contract.
 4. The owner authorizes a Docker target, starting-state handling, cleanup, and restore contract; Docker dev then passes without compromising pre-existing data.
 5. After Docker passes, the owner authorizes exact synchronization of the same immutable candidate to native Windows; build/package, owner journey, Copy/`.txt`/PDF, recovery/lifecycle, and normalized parity then pass.
-6. All invalidated local checks, secret/diff/status review, and the matrix are rerun against that exact source/package identity.
+6. All controlled checks, secret/diff/status review, and the matrix are completed against the authorized exact source/package identity.
