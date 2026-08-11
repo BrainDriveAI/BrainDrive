@@ -115,7 +115,7 @@ describe("ResumeDataStore atomic catalog and operations", () => {
 
     const newerRoot = await mkdtemp(path.join(os.tmpdir(), "bd-resume-newer-")); roots.push(newerRoot);
     await mkdir(path.join(newerRoot, "apps", "resume-builder"), { recursive: true });
-    await writeFile(path.join(newerRoot, "apps", "resume-builder", "catalog.json"), JSON.stringify({ data_schema_version: 2 }), "utf8");
+    await writeFile(path.join(newerRoot, "apps", "resume-builder", "catalog.json"), JSON.stringify({ data_schema_version: 3 }), "utf8");
     await expect(new ResumeDataStore(newerRoot, undefined, {}, false).initialize(testGrant().owner_id)).rejects.toMatchObject({ code: "incompatible_schema" });
     expect(root).not.toBe(newerRoot);
   });

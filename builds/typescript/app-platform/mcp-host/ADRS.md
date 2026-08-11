@@ -39,3 +39,9 @@ These records apply the project-owner approvals dated 2026-08-07 in Resume Build
 Docker/packaged-desktop parity is compared through the version-1 Spec 05 parity contract. Only transport, process isolation, package-root reference, cache-root reference, and diagnostic platform are separated as permitted runtime differences; protocol, policy, state, error, and outcome semantics are not. Missing native-target observations are blocked evidence.
 
 **Reason:** Reload is a transport replacement, while Spec 02 operations and M4/M5 idempotency survive it. Keeping durable identities stable prevents duplicate writes, exports, and provider spend; rotating session and bridge generations makes late messages incapable of committing or rendering. Exact lookup prevents cancellation, close, and focus authority from crossing concurrent views. Refusing to synthesize a missing target keeps release claims grounded in executable evidence.
+
+## ADR-RB-020 — Separate transport replay identity from durable request identity
+
+**Decision:** Every sandbox message keeps a fresh `message_id`, subject to the existing session replay check. A data `capability.call` may additionally carry `request_operation_id`. The host validates it as an opaque UUID and uses it for restricted token operation and idempotency identity, while message ID remains correlation. Inference and other call types retain their existing operation rules.
+
+**Reason:** A recovery save whose response is lost must be retried under the same durable identity, but replaying the original bridge envelope would weaken transport freshness. Two identities preserve both guarantees and let the operation journal distinguish equivalent retry, mismatched retry, and not-found outcomes.

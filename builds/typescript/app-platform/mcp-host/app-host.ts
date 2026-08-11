@@ -346,7 +346,7 @@ export class AppMcpHost {
         const claims = this.consumeIssuedAuthority(issued, session.grant, "resume.export.request", {
           connectionId: session.mcp.connectionId, viewId: session.viewId, operationId: message.message_id, idempotencyKey,
         });
-        const exportInput = { action: "export" as const, definition_revision_id: message.payload.definition_revision_id, safe_filename: message.payload.safe_filename, destination_intent: message.payload.destination_intent, overwrite_confirmed: message.payload.overwrite_confirmed };
+        const exportInput = { action: "export" as const, format: message.payload.format, definition_revision_id: message.payload.definition_revision_id, safe_filename: message.payload.safe_filename, destination_intent: message.payload.destination_intent, overwrite_confirmed: message.payload.overwrite_confirmed };
         const result = await this.capabilityOperations.execute({
           installationId: session.installationId, connectionId: session.mcp.connectionId, viewId: session.viewId,
           capability: "resume.export.request", capabilityVersion: 1, operationId: message.message_id,
@@ -380,14 +380,15 @@ export class AppMcpHost {
         }
         if (!this.capabilityRouter) throw new AppPlatformError("bridge_denied", "Data capabilities are not available for this app session", 403);
         const audience = parsedCapability.data === "resume.export.request" ? "app_export" : "app_data";
-        const idempotencyKey = `bridge-${message.message_id}`;
-        const issued = await this.lifecycle.issueSession({ audience, capabilities: [parsedCapability.data], operationId: message.message_id, idempotencyKey, viewId: session.viewId, connectionId: session.mcp.connectionId });
+        const operationId = message.payload.request_operation_id ?? message.message_id;
+        const idempotencyKey = `bridge-${operationId}`;
+        const issued = await this.lifecycle.issueSession({ audience, capabilities: [parsedCapability.data], operationId, idempotencyKey, viewId: session.viewId, connectionId: session.mcp.connectionId });
         const claims = this.consumeIssuedAuthority(issued, session.grant, parsedCapability.data, {
-          connectionId: session.mcp.connectionId, viewId: session.viewId, operationId: message.message_id, idempotencyKey,
+          connectionId: session.mcp.connectionId, viewId: session.viewId, operationId, idempotencyKey,
         });
         const result = await this.executeDataCapability(parsedCapability.data, message.payload.input, {
           authority: restrictedAuthorityFromTokenClaims(claims), installationId: session.installationId,
-          connectionId: session.mcp.connectionId, viewId: session.viewId, operationId: message.message_id,
+          connectionId: session.mcp.connectionId, viewId: session.viewId, operationId,
           correlationId: message.message_id, idempotencyKey, deadlineAt: Math.min(Date.parse(claims.expires_at), this.now() + 120_000),
         });
         return { status: "capability_completed", result };

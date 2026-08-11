@@ -25,10 +25,23 @@
         "job_description_analyze",
         "requirement_evidence_match",
         "tailoring_plan",
-        "targeted_resume_draft"
+        "targeted_resume_draft",
+        "resume_revision_classify",
+        "resume_revision_draft",
+        "resume_guidance"
       ]
     },
     "output_schema_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "prompt_policy_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "prompt_policy_version": {
       "type": "string",
       "minLength": 1,
       "maxLength": 512
@@ -65,6 +78,8 @@
     "model_id",
     "purpose",
     "output_schema_id",
+    "prompt_policy_id",
+    "prompt_policy_version",
     "compatible",
     "fixture_corpus_digest",
     "tested_at",

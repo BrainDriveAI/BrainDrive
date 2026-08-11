@@ -16,6 +16,9 @@ export const InferencePurposeSchema = z.enum([
   "requirement_evidence_match",
   "tailoring_plan",
   "targeted_resume_draft",
+  "resume_revision_classify",
+  "resume_revision_draft",
+  "resume_guidance",
 ]);
 
 export type InferencePurpose = z.infer<typeof InferencePurposeSchema>;
@@ -27,6 +30,9 @@ export const PURPOSE_OUTPUT_SCHEMAS = {
   requirement_evidence_match: "resume.requirement-evidence.v1",
   tailoring_plan: "resume.tailoring-plan.v1",
   targeted_resume_draft: "resume.targeted-draft.v1",
+  resume_revision_classify: "resume.revision-classify.v1",
+  resume_revision_draft: "resume.revision-draft.v1",
+  resume_guidance: "resume.guidance.v1",
 } as const satisfies Record<InferencePurpose, string>;
 
 export const PURPOSE_LIMITS = {
@@ -36,6 +42,9 @@ export const PURPOSE_LIMITS = {
   requirement_evidence_match: { input_bytes: 262_144, input_tokens: 65_536, output_tokens: 8_192, duration_ms: 120_000, attempts: 2, concurrency: 1 },
   tailoring_plan: { input_bytes: 262_144, input_tokens: 65_536, output_tokens: 6_144, duration_ms: 90_000, attempts: 2, concurrency: 1 },
   targeted_resume_draft: { input_bytes: 327_680, input_tokens: 81_920, output_tokens: 8_192, duration_ms: 120_000, attempts: 2, concurrency: 1 },
+  resume_revision_classify: { input_bytes: 65_536, input_tokens: 16_384, output_tokens: 2_048, duration_ms: 60_000, attempts: 2, concurrency: 1 },
+  resume_revision_draft: { input_bytes: 327_680, input_tokens: 81_920, output_tokens: 8_192, duration_ms: 120_000, attempts: 2, concurrency: 1 },
+  resume_guidance: { input_bytes: 196_608, input_tokens: 49_152, output_tokens: 4_096, duration_ms: 90_000, attempts: 2, concurrency: 1 },
 } as const satisfies Record<InferencePurpose, {
   input_bytes: number;
   input_tokens: number;
@@ -66,6 +75,10 @@ export const InferenceDataBlockSchema = z
       "job_analysis",
       "evidence_matrix",
       "owner_edit",
+      "revision_instruction",
+      "definition_comparison",
+      "deterministic_findings",
+      "job_evidence_summary",
     ]),
     content_digest: Sha256DigestSchema,
     schema_id: NonEmptyStringSchema,
@@ -206,6 +219,8 @@ export const ModelCompatibilityEntrySchema = z
     model_id: NonEmptyStringSchema,
     purpose: InferencePurposeSchema,
     output_schema_id: NonEmptyStringSchema,
+    prompt_policy_id: NonEmptyStringSchema,
+    prompt_policy_version: NonEmptyStringSchema,
     compatible: z.boolean(),
     fixture_corpus_digest: Sha256DigestSchema,
     tested_at: TimestampSchema,

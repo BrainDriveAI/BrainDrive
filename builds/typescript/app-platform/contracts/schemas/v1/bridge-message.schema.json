@@ -771,6 +771,11 @@
               "type": "string",
               "format": "uuid",
               "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "request_operation_id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
             }
           },
           "required": [
@@ -930,11 +935,19 @@
               "format": "uuid",
               "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
             },
+            "format": {
+              "default": "pdf",
+              "type": "string",
+              "enum": [
+                "pdf",
+                "text"
+              ]
+            },
             "safe_filename": {
               "type": "string",
               "minLength": 1,
               "maxLength": 128,
-              "pattern": "^[^/\\\\]+\\.pdf$"
+              "pattern": "^[^/\\\\]+\\.(?:pdf|txt)$"
             },
             "destination_intent": {
               "type": "string",
@@ -1036,7 +1049,7 @@
             },
             "value": {
               "type": "string",
-              "maxLength": 2048
+              "maxLength": 16384
             },
             "token_id": {
               "type": "string",

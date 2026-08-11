@@ -1,0 +1,68 @@
+{
+  "fixture_schema_version": 1,
+  "fixture_id": "m4-remembered-successor-synthetic",
+  "synthetic": true,
+  "persona": "metric_poor",
+  "canary_literals": ["RB6_M4_SYNTHETIC_CANARY_D42E"],
+  "approved_definition": {
+    "sections": ["Summary", "Experience", "Skills"],
+    "logical_lines": [
+      "Synthetic Candidate",
+      "Summary",
+      "Operations support professional with scheduling experience.",
+      "Experience",
+      "Operations Coordinator — Synthetic Health",
+      "Coordinated staff schedules across several locations.",
+      "Prepared weekly inventory reports in spreadsheet software.",
+      "Built a reusable inventory checklist for weekly reviews.",
+      "Skills",
+      "Spreadsheet records management; staff scheduling"
+    ]
+  },
+  "expected_recovery": {
+    "section_count": 3,
+    "line_count": 10
+  },
+  "m4_successor": {
+    "source_logical_lines": [
+      "Synthetic Candidate",
+      "Summary",
+      "Operations support professional with scheduling experience.",
+      "Experience",
+      "Operations Coordinator — Synthetic Health",
+      "Coordinated staff schedules across several locations.",
+      "Prepared weekly inventory reports.",
+      "Skills",
+      "Spreadsheet records management; staff scheduling"
+    ],
+    "successor_logical_lines": [
+      "Synthetic Candidate",
+      "Summary",
+      "Operations support professional with scheduling experience.",
+      "Experience",
+      "Operations Coordinator — Synthetic Health",
+      "Coordinated staff schedules across several locations.",
+      "Prepared weekly inventory reports in spreadsheet software.",
+      "Built a reusable inventory checklist for weekly reviews.",
+      "Skills",
+      "Spreadsheet records management; staff scheduling"
+    ],
+    "expected_preserved_lines": [
+      "Synthetic Candidate",
+      "Summary",
+      "Experience",
+      "Operations Coordinator — Synthetic Health",
+      "Coordinated staff schedules across several locations.",
+      "Skills",
+      "Spreadsheet records management; staff scheduling",
+      "Operations support professional with scheduling experience."
+    ],
+    "corrected_lines": [
+      {
+        "before": "Prepared weekly inventory reports.",
+        "after": "Prepared weekly inventory reports in spreadsheet software."
+      }
+    ],
+    "added_lines": ["Built a reusable inventory checklist for weekly reviews."]
+  }
+}

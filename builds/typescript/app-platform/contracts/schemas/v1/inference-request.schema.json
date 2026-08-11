@@ -49,7 +49,10 @@
         "job_description_analyze",
         "requirement_evidence_match",
         "tailoring_plan",
-        "targeted_resume_draft"
+        "targeted_resume_draft",
+        "resume_revision_classify",
+        "resume_revision_draft",
+        "resume_guidance"
       ]
     },
     "input_snapshot": {
@@ -96,7 +99,11 @@
               "job_description",
               "job_analysis",
               "evidence_matrix",
-              "owner_edit"
+              "owner_edit",
+              "revision_instruction",
+              "definition_comparison",
+              "deterministic_findings",
+              "job_evidence_summary"
             ]
           },
           "content_digest": {

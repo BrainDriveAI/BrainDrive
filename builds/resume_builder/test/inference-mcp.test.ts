@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import { createResumeInferenceMcpOperations, RESUME_INFERENCE_MCP_RESOURCES, RESUME_INFERENCE_MCP_TOOLS, RESUME_INFERENCE_PURPOSES } from "../src/index.js";
 
 describe("Resume Builder inference MCP surface", () => {
-  it("declares exactly six app-visible operations and one policy resource", () => {
+  it("declares the six preserved and three purpose-minimum app-visible operations", () => {
+    expect(RESUME_INFERENCE_PURPOSES).toHaveLength(9);
+    expect(RESUME_INFERENCE_PURPOSES).toEqual(expect.arrayContaining(["resume_revision_classify", "resume_revision_draft", "resume_guidance"]));
     expect(RESUME_INFERENCE_MCP_TOOLS.map((tool) => tool.name)).toEqual(RESUME_INFERENCE_PURPOSES.map((purpose) => `resume.${purpose}`));
     expect(RESUME_INFERENCE_MCP_RESOURCES).toHaveLength(1);
     expect(JSON.stringify(RESUME_INFERENCE_MCP_TOOLS)).not.toContain("api_key");

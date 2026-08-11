@@ -5,6 +5,7 @@ import type { z } from "zod";
 import { canonicalInputDigest } from "../app-platform/contracts/common.js";
 import type { ResumeDefinitionRecordSchema } from "../app-platform/contracts/data.js";
 import { ResumeDomainError } from "../resume-domain/errors.js";
+import { assertBoundQualityReport } from "../resume-inference/quality-runtime.js";
 
 type ResumeDefinition = z.infer<typeof ResumeDefinitionRecordSchema>;
 
@@ -35,6 +36,16 @@ export type RenderedResume = {
   renderer_id: typeof RESUME_RENDERER_ID;
   renderer_version: typeof RESUME_RENDERER_VERSION;
   font_manifest_digest: typeof RESUME_FONT_MANIFEST_DIGEST;
+};
+
+export type RenderedCleanText = {
+  format: "text";
+  mime_type: "text/plain";
+  text: string;
+  bytes: Buffer;
+  artifact_digest: `sha256:${string}`;
+  input_digest: `sha256:${string}`;
+  logical_lines: string[];
 };
 
 export function sanitizeResumeText(value: string): string {
@@ -70,20 +81,21 @@ function wrapLine(text: string): string[] {
   return lines;
 }
 
-type LogicalResumeEntry = { text: string; role: "title" | "section" | "heading" | "bullet" | "line" };
+export type LogicalResumeEntry = { text: string; role: "title" | "section" | "heading" | "bullet" | "line"; section_id: string | null; statement_id: string | null };
 
-function logicalResumeEntries(definition: ResumeDefinition): LogicalResumeEntry[] {
-  const entries: LogicalResumeEntry[] = [{ text: sanitizeResumeText(definition.title), role: "title" }];
+export function logicalResumeEntries(definition: ResumeDefinition): LogicalResumeEntry[] {
+  const entries: LogicalResumeEntry[] = [{ text: sanitizeResumeText(definition.title), role: "title", section_id: null, statement_id: null }];
   for (const sectionId of definition.section_order) {
     const statements = definition.statements.filter((statement) => statement.section_id === sectionId);
     if (statements.length === 0) continue;
-    if (sectionId !== "contact") entries.push({ text: sectionLabel(sectionId), role: "section" });
+    if (sectionId !== "contact") entries.push({ text: sectionLabel(sectionId), role: "section", section_id: sectionId, statement_id: null });
     for (const statement of statements) {
       const role = statement.display_role ?? (sectionId === "contact" || sectionId === "summary" ? "line" : "bullet");
       const value = sectionId === "contact" ? contactLine(definition.title, statement.text) : statement.text;
       if (!value) continue;
       const prefix = role === "bullet" ? "- " : "";
-      entries.push(...wrapLine(`${prefix}${value}`).map((text) => ({ text, role })));
+      const text = sanitizeResumeText(`${prefix}${value}`);
+      if (text) entries.push({ text, role, section_id: sectionId, statement_id: statement.statement_id });
     }
   }
   return entries;
@@ -97,15 +109,15 @@ export function logicalResumeLines(definition: ResumeDefinition): string[] {
 }
 
 export function renderApprovedResume(definition: ResumeDefinition): RenderedResume {
-  if (definition.status !== "approved" || !definition.approval_evidence) {
-    throw new ResumeDomainError("validation_failed", "Only an approved, validated definition can be rendered");
-  }
+  assertRenderable(definition);
   if (definition.template_id !== RESUME_TEMPLATE_ID || definition.template_version !== RESUME_TEMPLATE_VERSION) {
     throw new ResumeDomainError("incompatible_schema", "Resume template is not compatible with the accepted renderer");
   }
   const logicalEntries = logicalResumeEntries(definition);
-  const logicalLines = logicalEntries.map((entry) => entry.text);
-  const pages = chunk(logicalEntries, MAX_LINES_PER_PAGE);
+  const wrappedEntries = logicalEntries.flatMap((entry) => wrapLine(entry.text).map((text) => ({ ...entry, text })));
+  const logicalLines = wrappedEntries.map((entry) => entry.text);
+  if (logicalLines.length > MAX_LINES_PER_PAGE * MAX_PAGES) throw new ResumeDomainError("validation_failed", "Resume exceeds the accepted two-page renderer limit");
+  const pages = chunk(wrappedEntries, MAX_LINES_PER_PAGE);
   const bytes = buildPdf(pages);
   const parsedLines = parseBackPdf(bytes);
   if (JSON.stringify(parsedLines) !== JSON.stringify(logicalLines)) {
@@ -128,23 +140,36 @@ export function renderApprovedResume(definition: ResumeDefinition): RenderedResu
   };
 }
 
+export function renderApprovedResumeCleanText(definition: ResumeDefinition): RenderedCleanText {
+  assertRenderable(definition);
+  const logicalLines = logicalResumeEntries(definition).map((entry) => entry.text);
+  const text = `${logicalLines.join("\n")}\n`;
+  const bytes = Buffer.from(text, "utf8");
+  return {
+    format: "text",
+    mime_type: "text/plain",
+    text,
+    bytes,
+    artifact_digest: `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
+    input_digest: canonicalInputDigest({ definition: definitionQualityIdentity(definition), representation: "resume.clean-text.v1" }),
+    logical_lines: logicalLines,
+  };
+}
+
 export function renderApprovedResumeMarkdown(definition: ResumeDefinition): string {
-  if (definition.status !== "approved" || !definition.approval_evidence) {
-    throw new ResumeDomainError("validation_failed", "Only an approved, validated definition can be published");
-  }
-  const output = [`# ${escapeMarkdownText(definition.title)}`, ""];
-  for (const sectionId of definition.section_order) {
-    const statements = definition.statements.filter((statement) => statement.section_id === sectionId);
-    if (statements.length === 0) continue;
-    if (sectionId !== "contact") output.push(`## ${escapeMarkdownText(sectionLabel(sectionId))}`, "");
-    for (const statement of statements) {
-      const value = sectionId === "contact" ? contactLine(definition.title, statement.text) : statement.text;
-      const text = escapeMarkdownText(value);
-      if (!text) continue;
-      const role = statement.display_role ?? (sectionId === "contact" || sectionId === "summary" ? "line" : "bullet");
-      output.push(role === "bullet" ? `- ${text}` : role === "heading" ? `**${text}**` : text);
-    }
-    output.push("");
+  assertRenderable(definition);
+  const output: string[] = [];
+  for (const entry of logicalResumeEntries(definition)) {
+    const text = entry.role === "bullet" && entry.text.startsWith("- ") ? entry.text.slice(2) : entry.text;
+    const escaped = escapeMarkdownText(text);
+    output.push(
+      entry.role === "title" ? `# ${escaped}`
+        : entry.role === "section" ? `## ${escaped}`
+          : entry.role === "heading" ? `**${escaped}**`
+            : entry.role === "bullet" ? `- ${escaped}`
+              : escaped,
+      "",
+    );
   }
   return `${output.join("\n").trimEnd()}\n`;
 }
@@ -191,11 +216,24 @@ function buildPdf(pages: LogicalResumeEntry[][]): Buffer {
 }
 
 function escapePdfText(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)").replace(/[^\x20-\x7E]/g, (character) => character === "•" ? "-" : "?");
+  return [...Buffer.from(value, "utf8")].map((byte) => {
+    const character = String.fromCharCode(byte);
+    if (character === "\\" || character === "(" || character === ")") return `\\${character}`;
+    if (byte >= 0x20 && byte <= 0x7e) return character;
+    return `\\${byte.toString(8).padStart(3, "0")}`;
+  }).join("");
 }
 
 function unescapePdfText(value: string): string {
-  return value.replace(/\\([\\()])/g, "$1");
+  const bytes: number[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] === "\\" && /^[0-7]{3}$/.test(value.slice(index + 1, index + 4))) {
+      bytes.push(Number.parseInt(value.slice(index + 1, index + 4), 8)); index += 3; continue;
+    }
+    if (value[index] === "\\" && "\\()".includes(value[index + 1] ?? "")) index += 1;
+    bytes.push(value.charCodeAt(index));
+  }
+  return Buffer.from(bytes).toString("utf8");
 }
 
 function escapeMarkdownText(value: string): string {
@@ -215,4 +253,25 @@ function contactLine(title: string, value: string): string {
 
 function chunk<T>(values: T[], size: number): T[][] {
   return Array.from({ length: Math.ceil(values.length / size) }, (_, index) => values.slice(index * size, (index + 1) * size));
+}
+
+function assertRenderable(definition: ResumeDefinition): void {
+  if (definition.status !== "approved" || !definition.approval_evidence) {
+    throw new ResumeDomainError("validation_failed", "Only an approved, validated definition can be rendered");
+  }
+  try { assertBoundQualityReport(definition); }
+  catch { throw new ResumeDomainError("validation_failed", "Resume quality report is missing, stale, or failing"); }
+}
+
+function definitionQualityIdentity(definition: ResumeDefinition): Record<string, unknown> {
+  return {
+    title: definition.title,
+    statements: definition.statements,
+    section_order: definition.section_order,
+    selected_fact_revision_ids: definition.selected_fact_revision_ids,
+    locale: definition.locale,
+    page_intent: definition.page_intent,
+    template_id: definition.template_id,
+    template_version: definition.template_version,
+  };
 }

@@ -93,4 +93,171 @@ describe("deterministic claim gate", () => {
     const rejected = validateInferenceClaims("requirement_evidence_match", { evidence: [{ requirement_id: randomUUID(), evidence_status: "supported", supporting_confirmed_fact_revision_ids: [randomUUID()], explanation: "Unknown", clarification: null }] }, blocks("Relevant experience"));
     expect(rejected.accepted).toBe(false);
   });
+
+  it("keeps interview assistance on the active job and dimension without metric pressure", () => {
+    const summary = {
+      active_job_fact_revision_id: JOB_ID,
+      active_job_revision: 2,
+      requested_dimension: "outcomes",
+      dimensions: [{ dimension: "responsibilities", outcome: "answered", evidence_revision_ids: [JOB_ID] }],
+    };
+    const data = { facts: [{ revision_id: JOB_ID, fact_kind: "employment", value: JSON.stringify({ format: "resume_job_v1", title: "Coordinator", employer: "Synthetic Org" }), source_revision_ids: [randomUUID()] }] };
+    const assistBlocks = [
+      { category: "confirmed_fact_snapshot" as const, content_digest: canonicalInputDigest(data), schema_id: "resume.confirmed-facts.v1", schema_version: 1 as const, data },
+      { category: "job_evidence_summary" as const, content_digest: canonicalInputDigest(summary), schema_id: "resume.job-evidence-summary.v1", schema_version: 1 as const, data: summary },
+    ];
+    const result = (overrides: Record<string, unknown> = {}) => ({ questions: [{
+      question_id: randomUUID(),
+      job_fact_revision_id: JOB_ID,
+      dimension: "outcomes",
+      selection_method: "broker_ranked",
+      prompt: "What became better or easier because of your work? A qualitative result is enough.",
+      rationale: "A supported outcome could make this role clearer.",
+      ...overrides,
+    }] });
+    expect(validateInferenceClaims("interview_assist", result(), assistBlocks).accepted).toBe(true);
+    expect(validateInferenceClaims("interview_assist", result({ job_fact_revision_id: randomUUID() }), assistBlocks).accepted).toBe(false);
+    expect(validateInferenceClaims("interview_assist", result({ dimension: "tools" }), assistBlocks).accepted).toBe(false);
+    expect(validateInferenceClaims("interview_assist", result({ prompt: "What exact percentage did you improve? You must provide a number." }), assistBlocks).accepted).toBe(false);
+  });
+
+  it("uses answered job evidence without padding sparse roles or exposing unknowns", () => {
+    const evidence = (id: string, dimension: string, outcome: string, ownerText: string) => ({
+      revision_id: id,
+      fact_kind: "job_evidence",
+      value: JSON.stringify({ value_version: 1, association: "job", job_fact_revision_id: JOB_ID, dimension, outcome, owner_text: ownerText }),
+      source_revision_ids: [randomUUID()],
+    });
+    const responsibilityId = "72000000-0000-4000-8000-000000000011";
+    const toolId = "72000000-0000-4000-8000-000000000012";
+    const outcomeId = "72000000-0000-4000-8000-000000000013";
+    const unknownId = "72000000-0000-4000-8000-000000000014";
+    const data = { facts: [
+      { revision_id: JOB_ID, fact_kind: "employment", value: JSON.stringify({ format: "resume_job_v1", title: "Coordinator", employer: "Synthetic Org" }), source_revision_ids: [randomUUID()] },
+      evidence(responsibilityId, "responsibilities", "answered", "Coordinated daily service requests."),
+      evidence(toolId, "tools", "answered", "Used a scheduling system to coordinate coverage."),
+      evidence(outcomeId, "outcomes", "answered", "Made handoffs clearer for the next shift."),
+      evidence(unknownId, "scope", "unknown", ""),
+    ] };
+    const evidenceBlocks = [{ category: "confirmed_fact_snapshot" as const, content_digest: canonicalInputDigest(data), schema_id: "resume.confirmed-facts.v1", schema_version: 1 as const, data }];
+    const statements = [
+      { statement_id: randomUUID(), section_id: "summary", kind: "factual", text: "Coordinator", supporting_confirmed_fact_revision_ids: [JOB_ID] },
+      { statement_id: randomUUID(), section_id: "experience", kind: "factual", text: "Coordinator | Synthetic Org", supporting_confirmed_fact_revision_ids: [JOB_ID] },
+      { statement_id: randomUUID(), section_id: "experience", kind: "factual", text: "Coordinated daily service requests.", supporting_confirmed_fact_revision_ids: [responsibilityId] },
+      { statement_id: randomUUID(), section_id: "experience", kind: "factual", text: "Used a scheduling system to coordinate coverage.", supporting_confirmed_fact_revision_ids: [toolId] },
+      { statement_id: randomUUID(), section_id: "experience", kind: "factual", text: "Made handoffs clearer for the next shift.", supporting_confirmed_fact_revision_ids: [outcomeId] },
+    ];
+    expect(validateInferenceClaims("general_resume_draft", { statements }, evidenceBlocks).accepted).toBe(true);
+    expect(validateInferenceClaims("general_resume_draft", { statements: [...statements, {
+      statement_id: randomUUID(), section_id: "experience", kind: "factual", text: "Unknown scope", supporting_confirmed_fact_revision_ids: [unknownId],
+    }] }, evidenceBlocks).accepted).toBe(false);
+    expect(validateInferenceClaims("general_resume_draft", { statements: [...statements, ...Array.from({ length: 4 }, () => ({
+      statement_id: randomUUID(), section_id: "experience", kind: "factual" as const, text: "Coordinated daily service requests.", supporting_confirmed_fact_revision_ids: [responsibilityId],
+    }))] }, evidenceBlocks).accepted).toBe(false);
+  });
+
+  it("validates revision classification against the persisted scope and permits clarification only for ambiguity", () => {
+    const sourceId = randomUUID();
+    const requestId = randomUUID();
+    const source = { metadata: { revision_id: sourceId }, statements: [], section_order: ["summary"] };
+    const request = {
+      metadata: { revision_id: requestId },
+      source_definition_revision_id: sourceId,
+      target: { scope: "resume", target_id: null },
+      request_text: "Make it shorter.",
+      request_digest: canonicalInputDigest("Make it shorter."),
+      classification: null,
+      state: "submitted",
+    };
+    const revisionBlocks = [
+      ...blocks("Supported evidence"),
+      { category: "general_resume_definition" as const, content_digest: canonicalInputDigest(source), schema_id: "resume.definition.v1", schema_version: 1 as const, data: source },
+      { category: "revision_instruction" as const, content_digest: canonicalInputDigest(request), schema_id: "resume.revision-request.v1", schema_version: 1 as const, data: request },
+    ];
+    expect(validateInferenceClaims("resume_revision_classify", {
+      classification: "presentation", target: request.target, clarification: null, proposed_fact_changes: [],
+    }, revisionBlocks).accepted).toBe(true);
+    expect(validateInferenceClaims("resume_revision_classify", {
+      classification: "presentation", target: { scope: "section", target_id: "summary" }, clarification: null, proposed_fact_changes: [],
+    }, revisionBlocks).accepted).toBe(false);
+    expect(validateInferenceClaims("resume_revision_classify", {
+      classification: "ambiguous", target: request.target, clarification: "Which section should change?", proposed_fact_changes: [],
+    }, revisionBlocks).accepted).toBe(true);
+  });
+
+  it("rejects revision drafts with wrong lineage, unstable unchanged IDs, or unsupported factual inflation", () => {
+    const sourceId = randomUUID();
+    const requestId = randomUUID();
+    const statementId = randomUUID();
+    const source = {
+      metadata: { revision_id: sourceId },
+      title: "Resume",
+      statements: [{ statement_id: statementId, section_id: "experience", kind: "factual", text: "Built product 20%", supporting_confirmed_fact_revision_ids: [FACT_ID] }],
+      section_order: ["experience"],
+    };
+    const request = {
+      metadata: { revision_id: requestId },
+      source_definition_revision_id: sourceId,
+      target: { scope: "resume", target_id: null },
+      request_text: "Shorten the wording.",
+      request_digest: canonicalInputDigest("Shorten the wording."),
+      classification: "presentation",
+      state: "generating",
+    };
+    const revisionBlocks = [
+      ...blocks("Built product 20%"),
+      { category: "general_resume_definition" as const, content_digest: canonicalInputDigest(source), schema_id: "resume.definition.v1", schema_version: 1 as const, data: source },
+      { category: "revision_instruction" as const, content_digest: canonicalInputDigest(request), schema_id: "resume.revision-request.v1", schema_version: 1 as const, data: request },
+    ];
+    const valid = {
+      source_definition_revision_id: sourceId,
+      revision_request_revision_id: requestId,
+      title: "Resume",
+      statements: [{ ...source.statements[0], text: "Product built 20%" }],
+      changed_statement_ids: [statementId],
+      section_order: ["experience"],
+    };
+    expect(validateInferenceClaims("resume_revision_draft", valid, revisionBlocks).accepted).toBe(true);
+    expect(validateInferenceClaims("resume_revision_draft", { ...valid, source_definition_revision_id: randomUUID() }, revisionBlocks).accepted).toBe(false);
+    expect(validateInferenceClaims("resume_revision_draft", { ...valid, statements: [{ ...source.statements[0], statement_id: randomUUID() }], changed_statement_ids: [] }, revisionBlocks).accepted).toBe(false);
+    expect(validateInferenceClaims("resume_revision_draft", { ...valid, statements: [{ ...source.statements[0], text: "Led product 99%" }] }, revisionBlocks).accepted).toBe(false);
+    const unsupportedLeadership = validateInferenceClaims("resume_revision_draft", {
+      ...valid,
+      statements: [{ ...source.statements[0], text: "Senior leader who directed product strategy" }],
+    }, revisionBlocks);
+    expect(unsupportedLeadership.accepted).toBe(false);
+    expect(unsupportedLeadership.findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "unsupported_claim" }),
+    ]));
+  });
+
+  it("accepts only grounded, neutral five-category guidance with owner-readable evidence labels", () => {
+    const definitionId = randomUUID();
+    const definition = { metadata: { revision_id: definitionId }, status: "approved", statements: [] };
+    const findings = { findings: [{ code: "missing_detail", evidence_revision_ids: [FACT_ID], safe_message: "A result could use more detail." }] };
+    const guidanceBlocks = [
+      ...blocks("Coordinated schedules across four sites"),
+      { category: "general_resume_definition" as const, content_digest: canonicalInputDigest(definition), schema_id: "resume.definition.v1", schema_version: 1 as const, data: definition },
+      { category: "deterministic_findings" as const, content_digest: canonicalInputDigest(findings), schema_id: "resume.quality-findings.v1", schema_version: 1 as const, data: findings },
+    ];
+    const valid = {
+      guidance_version: 1,
+      items: [
+        { category: "strong_evidence", evidence_revision_ids: [FACT_ID], evidence_labels: ["Confirmed scheduling evidence"], message: "The resume has confirmed multi-site scheduling evidence." },
+        { category: "missing_detail", evidence_revision_ids: [FACT_ID], evidence_labels: ["Scheduling result"], message: "More detail about the result could improve specificity." },
+        { category: "unresolved_conflict", evidence_revision_ids: [], evidence_labels: ["No unresolved conflicts"], message: "No unresolved conflict is identified in the available evidence." },
+        { category: "unsupported_requirement", evidence_revision_ids: [], evidence_labels: ["No target requirement supplied"], message: "No unsupported target requirement is currently identified." },
+        { category: "intentional_omission", evidence_revision_ids: [], evidence_labels: ["Owner choices"], message: "Intentionally omitted content remains outside the resume." },
+      ],
+      optional_questions: [{ question_id: randomUUID(), prompt: "What became easier because of the scheduling work?", evidence_revision_ids: [FACT_ID] }],
+    };
+    expect(validateInferenceClaims("resume_guidance", valid, guidanceBlocks).accepted).toBe(true);
+    for (const message of [
+      "ATS score 95 guarantees interviews.",
+      "You are a strong candidate for this role.",
+      "This is likely to get an interview offer.",
+      "Your chance of getting hired is high.",
+    ]) expect(validateInferenceClaims("resume_guidance", { ...valid, items: [{ ...valid.items[0], message }] }, guidanceBlocks).accepted).toBe(false);
+    expect(validateInferenceClaims("resume_guidance", { ...valid, items: [{ ...valid.items[0], evidence_revision_ids: [randomUUID()] }] }, guidanceBlocks).accepted).toBe(false);
+  });
 });

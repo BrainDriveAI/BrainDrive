@@ -180,6 +180,135 @@ describe("Resume data M4 lineage and reference retention", () => {
     expect(() => validateResumeLineageRecords(records)).not.toThrow();
   });
 
+  it("creates one remembered successor and derives exact supersession impacts without mutating source or tailored siblings", async () => {
+    const { store, service } = await setup();
+    const original = await confirmedFact(service, "Managed weekly inventory reporting");
+    const correctedId = "50000000-0000-4000-8000-000000000041";
+    const removedId = "50000000-0000-4000-8000-000000000042";
+    const rewordedId = "50000000-0000-4000-8000-000000000043";
+    const unchangedId = "50000000-0000-4000-8000-000000000044";
+    const addedId = "50000000-0000-4000-8000-000000000045";
+    const sourceStatements = [
+      { statement_id: correctedId, section_id: "experience", kind: "factual" as const, text: original.accepted.value, supporting_confirmed_fact_revision_ids: [original.accepted.metadata.revision_id] },
+      { statement_id: removedId, section_id: "experience", kind: "factual" as const, text: `${original.accepted.value}.`, supporting_confirmed_fact_revision_ids: [original.accepted.metadata.revision_id] },
+      { statement_id: rewordedId, section_id: "summary", kind: "presentation" as const, text: "Operations summary", supporting_confirmed_fact_revision_ids: [] },
+      { statement_id: unchangedId, section_id: "experience", kind: "presentation" as const, text: "Experience", supporting_confirmed_fact_revision_ids: [] },
+    ];
+    const source = await service.writeDefinition(definitionInput(original.accepted.metadata.revision_id, {
+      statements: sourceStatements,
+      section_order: ["summary", "experience"],
+    }), authority("resume.definitions.write"), true);
+    const job = await service.writeJob(jobInput(), authority("resume.jobs.write"));
+    const tailored = await service.writeDefinition(definitionInput(original.accepted.metadata.revision_id, {
+      definition_kind: "targeted",
+      title: "Tailored sibling",
+      statements: sourceStatements,
+      section_order: ["summary", "experience"],
+      parent_definition_revision_id: source.definition.metadata.revision_id,
+      job_revision_id: job.job.metadata.revision_id,
+      variant: { evidence_matrix: [evidence(original.accepted.metadata.revision_id)], changed_statement_ids: [] },
+    }), authority("resume.definitions.write"), true);
+    if (!tailored.variant) throw new Error("expected tailored variant");
+    const sourceDigest = canonicalInputDigest(source.definition);
+    const tailoredDefinitionDigest = canonicalInputDigest(tailored.definition);
+    const tailoredVariantDigest = canonicalInputDigest(tailored.variant);
+
+    const correctionAuthority = authority("career.facts.confirm");
+    const correction = await service.confirmFact({
+      fact_record_id: original.accepted.metadata.record_id,
+      fact_revision_id: original.accepted.metadata.revision_id,
+      expected_revision: original.accepted.metadata.revision,
+      decision: "edit_and_accept",
+      edited_value: "Managed weekly inventory reporting in Excel",
+      review_note: "Owner remembered the tool used",
+    }, correctionAuthority, ownerDecision(correctionAuthority, original.accepted.metadata.revision_id, "edit_and_accept"));
+
+    const successorInput = definitionInput(correction.fact.metadata.revision_id, {
+      status: "proposed",
+      title: "Remembered detail proposal",
+      statements: [
+        { statement_id: correctedId, section_id: "experience", kind: "factual", text: correction.fact.value, supporting_confirmed_fact_revision_ids: [correction.fact.metadata.revision_id] },
+        { statement_id: rewordedId, section_id: "summary", kind: "presentation", text: "Operations and inventory summary", supporting_confirmed_fact_revision_ids: [] },
+        sourceStatements[3],
+        { statement_id: addedId, section_id: "experience", kind: "factual", text: correction.fact.value, supporting_confirmed_fact_revision_ids: [correction.fact.metadata.revision_id] },
+      ],
+      section_order: ["summary", "experience"],
+      parent_definition_revision_id: source.definition.metadata.revision_id,
+      successor_context: {
+        successor_version: 1,
+        kind: "remembered_information",
+        source_definition_revision_id: source.definition.metadata.revision_id,
+        revision_request_revision_id: null,
+        changed_fact_revision_ids: [correction.fact.metadata.revision_id],
+        stale_tailored_variant_revision_ids: [tailored.variant.metadata.revision_id],
+        quality_report_digest: null,
+      },
+    });
+    const successor = await service.writeDefinition(successorInput, authority("resume.definitions.write"), false);
+    const retried = await service.writeDefinition(successorInput, authority("resume.definitions.write"), false);
+    expect(retried.reused).toBe(true);
+    expect(retried.definition.metadata.revision_id).toBe(successor.definition.metadata.revision_id);
+
+    const impact = await service.analyzeImpact({
+      source_definition_revision_id: source.definition.metadata.revision_id,
+      changed_fact_revision_ids: [correction.fact.metadata.revision_id],
+    }, authority("resume.definitions.read"));
+    expect(impact.affected_statements).toEqual([
+      { statement_id: correctedId, change: "corrected" },
+      { statement_id: removedId, change: "removed" },
+      { statement_id: rewordedId, change: "reworded" },
+      { statement_id: addedId, change: "added" },
+    ]);
+    expect(impact.stale_tailored_variants).toEqual([{
+      variant_revision_id: tailored.variant.metadata.revision_id,
+      status: "based_on_older_evidence",
+      rebuild: "explicit_owner_action",
+    }]);
+    expect(canonicalInputDigest(await store.readRevision(source.definition.metadata.revision_id))).toBe(sourceDigest);
+    expect(canonicalInputDigest(await store.readRevision(tailored.definition.metadata.revision_id))).toBe(tailoredDefinitionDigest);
+    expect(canonicalInputDigest(await store.readRevision(tailored.variant.metadata.revision_id))).toBe(tailoredVariantDigest);
+    if (process.env.BRAINDRIVE_M4_EVIDENCE === "1") {
+      process.stdout.write(`${JSON.stringify({
+        milestone: 4,
+        facts: {
+          original: { revision_id: original.accepted.metadata.revision_id, digest: canonicalInputDigest(original.accepted) },
+          corrected: { revision_id: correction.fact.metadata.revision_id, digest: canonicalInputDigest(correction.fact), supersedes_revision_id: correction.fact.supersedes_fact_revision_id },
+        },
+        definitions: {
+          source: { revision_id: source.definition.metadata.revision_id, before_digest: sourceDigest, after_digest: canonicalInputDigest(await store.readRevision(source.definition.metadata.revision_id)) },
+          successor: { revision_id: successor.definition.metadata.revision_id, digest: canonicalInputDigest(successor.definition), parent_revision_id: source.definition.metadata.revision_id, status: "proposed" },
+          retry: { reused: retried.reused, revision_id: retried.definition.metadata.revision_id },
+        },
+        tailored: {
+          definition: { revision_id: tailored.definition.metadata.revision_id, before_digest: tailoredDefinitionDigest, after_digest: canonicalInputDigest(await store.readRevision(tailored.definition.metadata.revision_id)) },
+          variant: { revision_id: tailored.variant.metadata.revision_id, before_digest: tailoredVariantDigest, after_digest: canonicalInputDigest(await store.readRevision(tailored.variant.metadata.revision_id)) },
+        },
+        impact,
+      })}\n`);
+    }
+  });
+
+  it("rejects a remembered successor that changes the identity of unchanged predecessor content", async () => {
+    const { service } = await setup();
+    const fact = await confirmedFact(service);
+    const sourceStatement = { statement_id: "50000000-0000-4000-8000-000000000051", section_id: "experience", kind: "factual" as const, text: fact.accepted.value, supporting_confirmed_fact_revision_ids: [fact.accepted.metadata.revision_id] };
+    const source = await service.writeDefinition(definitionInput(fact.accepted.metadata.revision_id, { statements: [sourceStatement] }), authority("resume.definitions.write"), true);
+    await expect(service.writeDefinition(definitionInput(fact.accepted.metadata.revision_id, {
+      status: "proposed",
+      statements: [{ ...sourceStatement, statement_id: "50000000-0000-4000-8000-000000000052" }],
+      parent_definition_revision_id: source.definition.metadata.revision_id,
+      successor_context: {
+        successor_version: 1,
+        kind: "remembered_information",
+        source_definition_revision_id: source.definition.metadata.revision_id,
+        revision_request_revision_id: null,
+        changed_fact_revision_ids: [fact.accepted.metadata.revision_id],
+        stale_tailored_variant_revision_ids: [],
+        quality_report_digest: null,
+      },
+    }), authority("resume.definitions.write"), false)).rejects.toMatchObject({ code: "validation_failed" });
+  });
+
   it("rejects broken and cyclic graphs deterministically", async () => {
     const { store, service } = await setup();
     const fact = await confirmedFact(service);
@@ -210,7 +339,7 @@ describe("Resume data M4 lineage and reference retention", () => {
       status: "proposed",
     }), authority("resume.definitions.write"), false);
     const compared = await service.compareDefinitions({ left_revision_id: first.definition.metadata.revision_id, right_revision_id: second.definition.metadata.revision_id }, authority("resume.definitions.read"));
-    expect(compared.changed_statement_ids).toEqual([firstStatementId]);
+    expect(compared.changed.map((change) => change.statement_id)).toEqual([firstStatementId]);
     await expect(service.compareDefinitions({ left_revision_id: first.definition.metadata.revision_id, right_revision_id: second.definition.metadata.revision_id, left_expected_revision: 2 }, authority("resume.definitions.read"))).rejects.toMatchObject({ code: "conflict" });
     expect((await service.selectDefinition(first.definition.metadata.revision_id, authority("resume.definitions.read"))).metadata.revision_id).toBe(first.definition.metadata.revision_id);
 
@@ -219,6 +348,85 @@ describe("Resume data M4 lineage and reference retention", () => {
     expect(rolledBack.definition).toMatchObject({ title: "First General", parent_definition_revision_id: first.definition.metadata.revision_id, status: "approved" });
     expect(await store.readRevision(second.definition.metadata.revision_id)).toEqual(second.definition);
     await expect(service.rollbackDefinition({ current_definition_record_id: second.definition.metadata.record_id, current_expected_revision: 2, target_definition_revision_id: first.definition.metadata.revision_id }, authority("resume.definitions.write"), true)).rejects.toMatchObject({ code: "conflict" });
+  });
+
+  it("compares exact adjacent and non-adjacent revisions with safe unavailable and retired outcomes without mutation", async () => {
+    const { store, service } = await setup();
+    const firstFact = await confirmedFact(service, "Original supported comparison fact");
+    const secondFact = await confirmedFact(service, "Corrected supported comparison fact");
+    const statementIds = {
+      changed: "50000000-0000-4000-8000-000000000071",
+      moved: "50000000-0000-4000-8000-000000000072",
+      unchanged: "50000000-0000-4000-8000-000000000073",
+      removed: "50000000-0000-4000-8000-000000000074",
+      added: "50000000-0000-4000-8000-000000000075",
+    };
+    const source = await service.writeDefinition(definitionInput(firstFact.accepted.metadata.revision_id, {
+      statements: [
+        { statement_id: statementIds.changed, section_id: "experience", kind: "factual", text: firstFact.accepted.value, supporting_confirmed_fact_revision_ids: [firstFact.accepted.metadata.revision_id] },
+        { statement_id: statementIds.moved, section_id: "experience", kind: "presentation", text: "Movable statement", supporting_confirmed_fact_revision_ids: [] },
+        { statement_id: statementIds.unchanged, section_id: "summary", kind: "presentation", text: "Unchanged statement", supporting_confirmed_fact_revision_ids: [] },
+        { statement_id: statementIds.removed, section_id: "experience", kind: "presentation", text: "Removed statement", supporting_confirmed_fact_revision_ids: [] },
+      ],
+      section_order: ["summary", "experience"],
+    }), authority("resume.definitions.write"), true);
+    const successor = await service.writeDefinition(definitionInput(secondFact.accepted.metadata.revision_id, {
+      status: "proposed",
+      parent_definition_revision_id: source.definition.metadata.revision_id,
+      statements: [
+        { statement_id: statementIds.moved, section_id: "experience", kind: "presentation", text: "Movable statement", supporting_confirmed_fact_revision_ids: [] },
+        { statement_id: statementIds.changed, section_id: "experience", kind: "factual", text: secondFact.accepted.value, supporting_confirmed_fact_revision_ids: [secondFact.accepted.metadata.revision_id] },
+        { statement_id: statementIds.unchanged, section_id: "summary", kind: "presentation", text: "Unchanged statement", supporting_confirmed_fact_revision_ids: [] },
+        { statement_id: statementIds.added, section_id: "experience", kind: "presentation", text: "Added statement", supporting_confirmed_fact_revision_ids: [] },
+      ],
+      section_order: ["summary", "experience"],
+    }), authority("resume.definitions.write"), false);
+    const nonAdjacent = await service.writeDefinition(definitionInput(secondFact.accepted.metadata.revision_id, {
+      status: "proposed",
+      parent_definition_revision_id: successor.definition.metadata.revision_id,
+      statements: successor.definition.record_type === "resume_definition" ? successor.definition.statements : [],
+      section_order: ["summary", "experience"],
+    }), authority("resume.definitions.write"), false);
+    const unrelated = await service.writeDefinition(definitionInput(firstFact.accepted.metadata.revision_id, {
+      title: "Unrelated general version",
+      statements: source.definition.record_type === "resume_definition" ? source.definition.statements : [],
+      section_order: ["summary", "experience"],
+    }), authority("resume.definitions.write"), true);
+    const job = await service.writeJob(jobInput(), authority("resume.jobs.write"));
+    const targeted = await service.writeDefinition(definitionInput(firstFact.accepted.metadata.revision_id, {
+      definition_kind: "targeted",
+      status: "proposed",
+      title: "Incompatible targeted version",
+      parent_definition_revision_id: source.definition.metadata.revision_id,
+      job_revision_id: job.job.metadata.revision_id,
+      statements: source.definition.record_type === "resume_definition" ? source.definition.statements : [],
+      section_order: ["summary", "experience"],
+      variant: { evidence_matrix: [evidence(firstFact.accepted.metadata.revision_id)], changed_statement_ids: [] },
+    }), authority("resume.definitions.write"), false);
+    const retired = await service.retireRecord({ record_id: unrelated.definition.metadata.record_id, expected_revision: unrelated.definition.metadata.revision }, authority("resume.definitions.write"));
+    const stateDigest = canonicalInputDigest(await store.allRevisions());
+
+    const compared = await service.compareDefinitions({
+      left_revision_id: source.definition.metadata.revision_id,
+      right_revision_id: successor.definition.metadata.revision_id,
+      left_expected_revision: source.definition.metadata.revision,
+      right_expected_revision: successor.definition.metadata.revision,
+    }, authority("resume.definitions.read"));
+    expect(compared).toMatchObject({ result: "available", compatibility: "compatible", relation: "related", unavailable_reason: null, unchanged_count: 1 });
+    expect(compared.added.map((change) => change.statement_id)).toEqual([statementIds.added]);
+    expect(compared.removed.map((change) => change.statement_id)).toEqual([statementIds.removed]);
+    expect(compared.changed.map((change) => change.statement_id)).toEqual([statementIds.changed]);
+    expect(compared.moved.map((change) => change.statement_id)).toEqual([statementIds.changed, statementIds.moved]);
+    expect(compared.evidence_changed.map((change) => change.statement_id)).toEqual([statementIds.changed]);
+    expect(compared.unchanged.map((change) => change.statement_id)).toEqual([statementIds.unchanged]);
+    await expect(service.compareDefinitions({ left_revision_id: source.definition.metadata.revision_id, right_revision_id: nonAdjacent.definition.metadata.revision_id }, authority("resume.definitions.read"))).resolves.toMatchObject({ result: "available", relation: "related" });
+    await expect(service.compareDefinitions({ left_revision_id: source.definition.metadata.revision_id, right_revision_id: source.definition.metadata.revision_id }, authority("resume.definitions.read"))).resolves.toMatchObject({ relation: "identical", observable_summary: ["No observable changes."] });
+    await expect(service.compareDefinitions({ left_revision_id: source.definition.metadata.revision_id, right_revision_id: unrelated.definition.metadata.revision_id }, authority("resume.definitions.read"))).resolves.toMatchObject({ result: "unavailable", relation: "unrelated", unavailable_reason: "unrelated" });
+    await expect(service.compareDefinitions({ left_revision_id: source.definition.metadata.revision_id, right_revision_id: targeted.definition.metadata.revision_id }, authority("resume.definitions.read"))).resolves.toMatchObject({ result: "unavailable", relation: "related", compatibility: "incompatible", unavailable_reason: "incompatible" });
+    await expect(service.compareDefinitions({ left_revision_id: unrelated.definition.metadata.revision_id, right_revision_id: retired.record.metadata.revision_id }, authority("resume.definitions.read"))).resolves.toMatchObject({ result: "available", relation: "related", observable_summary: ["No observable changes."] });
+    await expect(service.compareDefinitions({ left_revision_id: crypto.randomUUID(), right_revision_id: source.definition.metadata.revision_id }, authority("resume.definitions.read"))).rejects.toMatchObject({ code: "not_found_within_scope", statusCode: 404 });
+    await expect(service.compareDefinitions({ left_revision_id: source.definition.metadata.revision_id, right_revision_id: successor.definition.metadata.revision_id, left_expected_revision: 99 }, authority("resume.definitions.read"))).rejects.toMatchObject({ code: "conflict" });
+    expect(canonicalInputDigest(await store.allRevisions())).toBe(stateDigest);
   });
 
   it("creates a new variant for a targeted approval successor", async () => {

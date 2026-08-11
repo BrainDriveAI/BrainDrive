@@ -44,11 +44,19 @@ type PendingHostAction = {
   reject: (reason: Error) => void;
 };
 
-export async function saveHostPdfExport(result: unknown): Promise<{ safe_destination_label: string; definition: unknown; parse_back: unknown }> {
+export async function saveHostResumeExport(result: unknown): Promise<{ safe_destination_label: string; definition: unknown; parse_back: unknown }> {
   const value = result as { filename?: unknown; mime_type?: unknown; bytes_base64?: unknown; safe_destination_label?: unknown; definition?: unknown; parse_back?: unknown };
-  if (typeof value.filename !== "string" || !/^[^/\\]+\.pdf$/i.test(value.filename) || value.mime_type !== "application/pdf" || typeof value.bytes_base64 !== "string" || typeof value.safe_destination_label !== "string") {
+  if (typeof value.filename !== "string" || typeof value.mime_type !== "string" || typeof value.bytes_base64 !== "string" || typeof value.safe_destination_label !== "string") {
     throw new Error("invalid_export_result");
   }
+  const isPdf = value.mime_type === "application/pdf" && /^[^/\\]+\.pdf$/i.test(value.filename);
+  const isText = value.mime_type === "text/plain" && /^[^/\\]+\.txt$/i.test(value.filename);
+  if (!isPdf && !isText) throw new Error("invalid_export_result");
+  const bytes = Uint8Array.from(atob(value.bytes_base64), (character) => character.charCodeAt(0));
+  let textPayload = "";
+  try { if (isText) textPayload = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+  catch { throw new Error("invalid_export_result"); }
+  if ((isPdf && new TextDecoder("latin1").decode(bytes.subarray(0, 8)) !== "%PDF-1.4") || (isText && (!textPayload || bytes.includes(0)))) throw new Error("invalid_export_result");
   let safeDestinationLabel = value.safe_destination_label;
   if (isTauriRuntime()) {
     const { invoke } = await import("@tauri-apps/api/core");
@@ -56,11 +64,10 @@ export async function saveHostPdfExport(result: unknown): Promise<{ safe_destina
       request: { safeFilename: value.filename, mimeType: value.mime_type, bytesBase64: value.bytes_base64 },
     });
     if (native.outcome === "cancelled") throw new Error("cancelled");
-    if (!/^[^/\\]+\.pdf$/i.test(native.safeDestinationLabel)) throw new Error("invalid_export_result");
+    if (!(isPdf ? /^[^/\\]+\.pdf$/i : /^[^/\\]+\.txt$/i).test(native.safeDestinationLabel)) throw new Error("invalid_export_result");
     safeDestinationLabel = native.safeDestinationLabel;
   } else {
-    const bytes = Uint8Array.from(atob(value.bytes_base64), (character) => character.charCodeAt(0));
-    const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+    const url = URL.createObjectURL(new Blob([bytes], { type: value.mime_type }));
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = value.filename;
@@ -70,6 +77,8 @@ export async function saveHostPdfExport(result: unknown): Promise<{ safe_destina
   }
   return { safe_destination_label: safeDestinationLabel, definition: value.definition, parse_back: value.parse_back };
 }
+
+export const saveHostPdfExport = saveHostResumeExport;
 
 export default function SandboxedAppFrame({
   launch,
@@ -118,7 +127,7 @@ export default function SandboxedAppFrame({
     const browserBroker = new BrowserActionBroker({
       allowedLinkOrigins: ["https://docs.braindrive.ai"],
       clipboardWrite: true,
-      exportMimeTypes: ["application/pdf"],
+      exportMimeTypes: ["application/pdf", "text/plain"],
       maxClipboardBytes: 16_384,
       maxExportBytes: 2_097_152,
     }, {
@@ -150,7 +159,14 @@ export default function SandboxedAppFrame({
     const handleLegacyMessage = async (message: BridgeEnvelope, signal: AbortSignal): Promise<unknown> => {
       const isFactConfirmation = message.type === "capability.call" && message.payload?.capability === "career.facts.confirm";
       const isDefinitionApproval = message.type === "capability.call" && message.payload?.capability === "resume.definitions.write" && message.payload.input?.kind === "approve_definition";
-      if (isFactConfirmation || isDefinitionApproval) {
+      const isRevisionOwnerAction = message.type === "capability.call" && message.payload?.capability === "resume.definitions.write" && (
+        message.payload.input?.kind === "revision_proposal" && message.payload.input?.owner_outcome === "edit" ||
+        message.payload.input?.kind === "revision_outcome" && (
+          ["accepted", "rejected", "regenerate"].includes(String(message.payload.input?.state)) ||
+          message.payload.input?.state === "generating" && ["factual", "mixed"].includes(String(message.payload.input?.classification))
+        )
+      );
+      if (isFactConfirmation || isDefinitionApproval || isRevisionOwnerAction) {
         return await new Promise((resolve, reject) => setPendingConfirmation({ message, resolve, reject }));
       }
       if (signal.aborted) throw new DOMException("Cancelled", "AbortError");
@@ -161,7 +177,11 @@ export default function SandboxedAppFrame({
           return await requestHostAction("Open external link?", value, () => browserBroker.openLink(value, true, true));
         }
         if (action === "copy_to_clipboard" && typeof value === "string") {
-          return await requestHostAction("Copy app content?", "BrainDrive will copy only the displayed app value.", () => browserBroker.writeClipboard(value, true, true));
+          return await requestHostAction("Copy app content?", "BrainDrive will copy only the displayed app value.", async () => {
+            const decision = await browserBroker.writeClipboard(value, true, true);
+            if (!decision.allowed) throw new Error(decision.code);
+            return decision;
+          });
         }
         if (isModelSettingsAction(action, value) && onOpenSettings) {
           onOpenSettings();
@@ -170,7 +190,8 @@ export default function SandboxedAppFrame({
         throw new Error("browser_action_denied");
       }
       if (message.type === "export.request") {
-        return await requestHostAction("Export resume PDF?", "BrainDrive will prepare the approved PDF and initiate the host save flow. The app receives only a safe file label.", async () => {
+        const requestedFormat = message.payload?.format === "text" ? "text" : "pdf";
+        return await requestHostAction(requestedFormat === "text" ? "Export clean resume text?" : "Export resume PDF?", `BrainDrive will prepare the approved ${requestedFormat === "text" ? "clean text" : "PDF"} and initiate the host save flow. The app receives only a safe file label.`, async () => {
           const response = await sendResumeBuilderBridgeMessage(launch.session_id, hydrate(message));
           const result = (response as { result?: unknown }).result;
           const prepared = result as { artifact_revision_id?: unknown; artifact_digest?: unknown; safe_destination_label?: unknown };
@@ -186,7 +207,7 @@ export default function SandboxedAppFrame({
             const sizeBytes = Math.floor(exportPayload.bytes_base64.length * 3 / 4) - padding;
             const exportDecision = browserBroker.validateExport({ safeFilename: exportPayload.filename, mimeType: exportPayload.mime_type, sizeBytes }, true, true);
             if (!exportDecision.allowed) throw new Error(exportDecision.code);
-            const projection = await saveHostPdfExport(result);
+            const projection = await saveHostResumeExport(result);
             const receipt = await finalizeResumeBuilderExport({ artifact_revision_id: prepared.artifact_revision_id, artifact_digest: prepared.artifact_digest, safe_destination_label: projection.safe_destination_label, outcome: "completed" });
             return { ...projection, safe_destination_label: receipt.safe_destination_label };
           } catch (exportError) {
@@ -262,7 +283,12 @@ export default function SandboxedAppFrame({
 
   const confirmationRecord = (() => {
     const input = pendingConfirmation?.message.payload?.input;
-    const recordId = typeof input?.fact_record_id === "string" ? input.fact_record_id : typeof input?.definition_record_id === "string" ? input.definition_record_id : "";
+    const recordId = typeof input?.fact_record_id === "string" ? input.fact_record_id : typeof input?.definition_record_id === "string" ? input.definition_record_id : typeof input?.request_record_id === "string" ? input.request_record_id : "";
+    if (input?.kind === "revision_outcome" && input.state === "generating") return { label: "Confirm factual resume revision", detail: "BrainDrive will generate a proposal from the confirmed fact snapshot. This does not approve a resume version." };
+    if (input?.kind === "revision_outcome" && input.state === "accepted") return { label: "Accept revision proposal", detail: "The proposal will remain unapproved until you separately validate and approve the resume version." };
+    if (input?.kind === "revision_outcome" && input.state === "rejected") return { label: "Reject revision proposal", detail: "The approved source remains unchanged and the rejected proposal stays in owner history." };
+    if (input?.kind === "revision_outcome" && input.state === "regenerate") return { label: "Regenerate revision proposal", detail: "BrainDrive will keep the source and request, then make one bounded retry." };
+    if (input?.kind === "revision_proposal" && input.owner_outcome === "edit") return { label: "Save edited revision proposal", detail: "BrainDrive will validate the complete edited successor. Approval remains a separate owner action." };
     if (input?.decision === "edit_and_accept" && typeof input.edited_value === "string") {
       return { label: "Confirm corrected career information", detail: input.edited_value };
     }

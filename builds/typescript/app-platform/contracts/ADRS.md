@@ -56,7 +56,7 @@ Default uninstall retains durable owner facts, provenance needed by retained rec
 
 App authority uses named capabilities, opaque IDs, and short-lived tokens bound to owner actor, app, package, installation, audience, view/operation where applicable, and an explicit grant set. Requested grants must be a subset of installed grants; data never supplies authority.
 
-The inference surface supports exactly six purposes: `interview_assist`, `general_resume_draft`, `job_description_analyze`, `requirement_evidence_match`, `tailoring_plan`, and `targeted_resume_draft`. Each purpose binds a host-selected prompt policy, output schema, strict budget, immutable input snapshot, and no-tools capability requirement. Model compatibility is conformance-derived, never inferred from a marketing name. The accepted M1 conformance ceilings are versioned in `inference.ts`; an app may only request lower values. Later live fixture evidence may justify a versioned policy revision, never an unversioned widening.
+The inference surface supports exactly nine purposes: `interview_assist`, `general_resume_draft`, `job_description_analyze`, `requirement_evidence_match`, `tailoring_plan`, `targeted_resume_draft`, `resume_revision_classify`, `resume_revision_draft`, and `resume_guidance`. Each purpose binds a host-selected prompt policy, output schema, strict budget, immutable input snapshot, and no-tools capability requirement. Model compatibility is conformance-derived, never inferred from a marketing name; the three Spec 06 additions remain incompatible until later conformance evidence is accepted. The accepted M1 conformance ceilings are versioned in `inference.ts`; an app may only request lower values. Later live fixture evidence may justify a versioned policy revision, never an unversioned widening.
 
 ### Milestone 5 implementation record
 
@@ -77,6 +77,8 @@ The future Apps entry belongs under a top-level sidebar `Apps` item, not inside 
 Career returns only a concise M-11 result/status summary. Detailed facts, job text, resume definitions, variants, and generation traces remain Resume Builder-owned durable data. Export uses a host-mediated chooser/download contract; the app receives a safe destination label/receipt, never a raw path.
 
 Ordinary audit is content-free. It may contain identities, opaque references, versions, hashes, timings, counts, lifecycle/operation outcomes, capability name, and error category. It may not contain resume, career, job, prompt, completion, HTML, source body, credentials, internal permission objects, raw paths, or unsafe destinations.
+
+Spec 06 Milestone 2 adds named recovery save/restore/discard/conflict events without changing that allowlist, and separates a capability call's optional durable `request_operation_id` from its unique bridge `message_id`. The former may be retried with identical canonical input; the latter may never replay in a live bridge session.
 
 ## ADR-RB-006 — Repository evidence deviations
 

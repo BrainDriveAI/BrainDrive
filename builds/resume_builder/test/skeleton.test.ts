@@ -10,7 +10,7 @@ describe("Resume Builder Milestone 1 package skeleton", () => {
     expect(RESUME_BUILDER_PACKAGE_ID).toBe("ai.braindrive.resume-builder");
     expect(CONTRACT_BINDING).toEqual({
       appContractSchemaVersion: 1,
-      resumeDataSchemaVersion: 1,
+      resumeDataSchemaVersion: 2,
       resumeInferenceSchemaVersion: 1,
       appBridgeSchemaVersion: 1,
     });
@@ -23,6 +23,7 @@ describe("Resume Builder Milestone 1 package skeleton", () => {
       braindrive: { runtimeEnabled: boolean };
     };
     expect(packageJson.scripts).toEqual({ test: "vitest run", build: "tsc -p tsconfig.json" });
+    expect(packageJson.braindrive.resumeDataSchemaVersion).toBe(2);
     expect(packageJson.braindrive.runtimeEnabled).toBe(false);
   });
 });

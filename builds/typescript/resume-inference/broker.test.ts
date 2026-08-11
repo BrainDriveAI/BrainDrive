@@ -12,21 +12,35 @@ import { RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION } from "./policy.
 const FACT_ID = "71000000-0000-4000-8000-000000000001";
 const PARENT_ID = "71000000-0000-4000-8000-000000000002";
 const JOB_ID = "71000000-0000-4000-8000-000000000003";
-const FACTS = [{ revision_id: FACT_ID, fact_kind: "accomplishment", value: "Built product 20%", source_revision_ids: [randomUUID()] }];
+const INTERVIEW_JOB_ID = "71000000-0000-4000-8000-000000000004";
+const REVISION_REQUEST_ID = "71000000-0000-4000-8000-000000000005";
+const REVISION_STATEMENT_ID = "71000000-0000-4000-8000-000000000006";
+const GUIDANCE_DEFINITION_ID = "71000000-0000-4000-8000-000000000007";
+const FACTS = [
+  { revision_id: FACT_ID, fact_kind: "accomplishment", value: "Built product 20%", source_revision_ids: [randomUUID()] },
+  { revision_id: INTERVIEW_JOB_ID, fact_kind: "employment", value: "Product Builder at Synthetic Company", source_revision_ids: [randomUUID()] },
+];
 
 const outputs: Record<InferencePurpose, unknown> = {
-  interview_assist: { questions: [{ question_id: randomUUID(), topic: "experience", prompt: "What did you build?", rationale: "Collect an owner fact" }] },
+  interview_assist: { questions: [{ question_id: randomUUID(), job_fact_revision_id: INTERVIEW_JOB_ID, dimension: "accomplishments", selection_method: "broker_ranked", prompt: "What did you build in this role? A qualitative answer is enough.", rationale: "Collect the highest-value unanswered evidence for the active job." }] },
   general_resume_draft: { title: "Resume", statements: [{ statement_id: randomUUID(), kind: "factual", text: "Built product 20%", supporting_confirmed_fact_revision_ids: [FACT_ID] }], section_order: ["experience"] },
   job_description_analyze: { requirements: [{ requirement_id: randomUUID(), requirement_kind: "required", source_span: "Build products", inferred: false, normalized_requirement: "Build products" }] },
   requirement_evidence_match: { evidence: [{ requirement_id: randomUUID(), evidence_status: "supported", supporting_confirmed_fact_revision_ids: [FACT_ID], explanation: "Confirmed fact", clarification: null }] },
   tailoring_plan: { changes: [{ change_id: randomUUID(), statement_id: null, action: "retain", rationale: "Supported", supporting_confirmed_fact_revision_ids: [FACT_ID] }] },
   targeted_resume_draft: { parent_general_definition_revision_id: PARENT_ID, job_revision_id: JOB_ID, title: "Targeted", statements: [{ statement_id: randomUUID(), kind: "factual", text: "Built product 20%", supporting_confirmed_fact_revision_ids: [FACT_ID] }], changed_statement_ids: [], section_order: ["experience"] },
+  resume_revision_classify: { classification: "presentation", target: { scope: "resume", target_id: null }, clarification: null, proposed_fact_changes: [] },
+  resume_revision_draft: { source_definition_revision_id: PARENT_ID, revision_request_revision_id: REVISION_REQUEST_ID, title: "Revised", statements: [{ statement_id: REVISION_STATEMENT_ID, section_id: "experience", kind: "factual", text: "Product built 20%", supporting_confirmed_fact_revision_ids: [FACT_ID] }], changed_statement_ids: [REVISION_STATEMENT_ID], section_order: ["experience"] },
+  resume_guidance: { guidance_version: 1, items: [{ category: "strong_evidence", evidence_revision_ids: [FACT_ID], evidence_labels: ["Confirmed result"], message: "This confirmed result is specific." }], optional_questions: [] },
 };
 
 function dataBlocks(purpose: InferencePurpose) {
   const blocks: Array<z.infer<typeof InferenceDataBlockSchema>> = [];
   const facts = { facts: FACTS };
   blocks.push({ category: "confirmed_fact_snapshot", content_digest: canonicalInputDigest(facts), schema_id: "resume.confirmed-facts.v1", schema_version: 1, data: facts });
+  if (purpose === "interview_assist") {
+    const data = { active_job_fact_revision_id: INTERVIEW_JOB_ID, active_job_revision: 1, requested_dimension: "accomplishments", dimensions: [] };
+    blocks.push({ category: "job_evidence_summary", content_digest: canonicalInputDigest(data), schema_id: "resume.job-evidence-summary.v1", schema_version: 1, data });
+  }
   if (purpose === "job_description_analyze" || purpose === "targeted_resume_draft") {
     const data = { metadata: { revision_id: JOB_ID }, description_text: "Build products" };
     blocks.push({ category: "job_description", content_digest: canonicalInputDigest(data), schema_id: "resume.job-description.v1", schema_version: 1, data });
@@ -35,12 +49,33 @@ function dataBlocks(purpose: InferencePurpose) {
     const data = { metadata: { revision_id: PARENT_ID }, statements: [] };
     blocks.push({ category: "general_resume_definition", content_digest: canonicalInputDigest(data), schema_id: "resume.definition.v1", schema_version: 1, data });
   }
+  if (purpose === "resume_revision_classify" || purpose === "resume_revision_draft") {
+    const definition = { metadata: { revision_id: PARENT_ID }, title: "Resume", statements: [{ statement_id: REVISION_STATEMENT_ID, section_id: "experience", kind: "factual", text: "Built product 20%", supporting_confirmed_fact_revision_ids: [FACT_ID] }], section_order: ["experience"] };
+    const request = {
+      metadata: { revision_id: REVISION_REQUEST_ID },
+      source_definition_revision_id: PARENT_ID,
+      target: { scope: "resume", target_id: null },
+      request_text: "Shorten the wording without changing facts.",
+      request_digest: canonicalInputDigest("Shorten the wording without changing facts."),
+      classification: purpose === "resume_revision_draft" ? "presentation" : null,
+      state: purpose === "resume_revision_draft" ? "generating" : "submitted",
+    };
+    blocks.push({ category: "general_resume_definition", content_digest: canonicalInputDigest(definition), schema_id: "resume.definition.v1", schema_version: 1, data: definition });
+    blocks.push({ category: "revision_instruction", content_digest: canonicalInputDigest(request), schema_id: "resume.revision-request.v1", schema_version: 1, data: request });
+  }
+  if (purpose === "resume_guidance") {
+    const definition = { metadata: { revision_id: GUIDANCE_DEFINITION_ID }, status: "approved", statements: [] };
+    const findings = { findings: [] };
+    blocks.push({ category: "general_resume_definition", content_digest: canonicalInputDigest(definition), schema_id: "resume.definition.v1", schema_version: 1, data: definition });
+    blocks.push({ category: "deterministic_findings", content_digest: canonicalInputDigest(findings), schema_id: "resume.quality-findings.v1", schema_version: 1, data: findings });
+  }
   return blocks;
 }
 
 function request(purpose: InferencePurpose, overrides: Record<string, unknown> = {}): z.infer<typeof InferenceRequestSchema> {
   const now = new Date();
-  const recordRevisionIds = [FACT_ID, ...(purpose === "job_description_analyze" || purpose === "targeted_resume_draft" ? [JOB_ID] : []), ...(purpose === "targeted_resume_draft" ? [PARENT_ID] : [])];
+  const revisionPurpose = purpose === "resume_revision_classify" || purpose === "resume_revision_draft";
+  const recordRevisionIds = [FACT_ID, INTERVIEW_JOB_ID, ...(purpose === "job_description_analyze" || purpose === "targeted_resume_draft" ? [JOB_ID] : []), ...(purpose === "targeted_resume_draft" ? [PARENT_ID] : []), ...(revisionPurpose ? [PARENT_ID, REVISION_REQUEST_ID] : []), ...(purpose === "resume_guidance" ? [GUIDANCE_DEFINITION_ID] : [])];
   return InferenceRequestSchema.parse({
     inference_schema_version: 1,
     request_id: randomUUID(), owner_id: randomUUID(), actor_id: randomUUID(), app_id: "ai.braindrive.resume-builder",
@@ -73,7 +108,7 @@ function provider(modelAdapter: ModelAdapter) {
 }
 
 describe("ResumeInferenceBroker", () => {
-  it("binds all six purposes to strict result schemas", async () => {
+  it("binds all nine purposes to strict result schemas", async () => {
     for (const purpose of Object.keys(outputs) as InferencePurpose[]) {
       const model = adapter(() => JSON.stringify(outputs[purpose]));
       const broker = new ResumeInferenceBroker(async () => provider(model.value));
@@ -177,6 +212,19 @@ describe("ResumeInferenceBroker", () => {
     const oversized = await new ResumeInferenceBroker(async () => provider(oversizedModel.value)).execute(limited);
     expect(oversized.inference).toMatchObject({ status: "failed", attempt_count: 1, error: { code: "validation_failed" } });
     expect(oversizedModel.calls()).toBe(1);
+  });
+
+  it("replaces malformed or unavailable guidance with a neutral deterministic fallback", async () => {
+    const malformed = adapter(() => JSON.stringify({ guidance_version: 1, items: [{ category: "strong_evidence", evidence_revision_ids: [FACT_ID], evidence_labels: ["Evidence"], message: "ATS score 99 guarantees interviews." }], optional_questions: [] }));
+    const events: Array<{ event: string; details: Record<string, unknown> }> = [];
+    const rejected = await new ResumeInferenceBroker(async () => provider(malformed.value), (event, details) => events.push({ event, details })).execute(request("resume_guidance"));
+    expect(rejected.inference).toMatchObject({ status: "completed", result: { guidance_version: 1 } });
+    expect(JSON.stringify(rejected.inference.result)).not.toMatch(/score|guarantee|competence/i);
+    expect(events.at(-1)?.details).toMatchObject({ repair: "deterministic_guidance_fallback" });
+
+    const unavailable = await new ResumeInferenceBroker(async () => { throw new Error("provider unavailable"); }).execute(request("resume_guidance"));
+    expect(unavailable.inference).toMatchObject({ status: "completed", provider_profile_id: null, model_id: null, attempt_count: 0 });
+    expect(unavailable.validation?.accepted).toBe(true);
   });
 
   it("classifies quota, rate, network, timeout, and ambiguous transport outcomes without fallback", async () => {

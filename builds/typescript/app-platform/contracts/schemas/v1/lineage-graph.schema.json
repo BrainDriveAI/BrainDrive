@@ -28,7 +28,8 @@
               "artifact",
               "export_receipt",
               "migration",
-              "interview_progress"
+              "interview_progress",
+              "resume_revision_request"
             ]
           },
           "fact_state": {
@@ -88,7 +89,9 @@
               "parent",
               "job_snapshot",
               "rendered_from",
-              "exported_from"
+              "exported_from",
+              "revision_source",
+              "resulted_in"
             ]
           }
         },

@@ -1,0 +1,484 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/resume-quality-report.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "report_schema_version": {
+      "type": "number",
+      "const": 1
+    },
+    "standard_revision": {
+      "type": "number",
+      "const": 3
+    },
+    "harness_mode": {
+      "type": "string",
+      "const": "complete_m7"
+    },
+    "outcome_scope": {
+      "type": "string",
+      "const": "credential_free_deterministic_checks"
+    },
+    "credential_mode": {
+      "type": "string",
+      "const": "none"
+    },
+    "fixture_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "fixture_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "fixture_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{2,63}$"
+          },
+          "fixture_digest": {
+            "type": "string",
+            "pattern": "^sha256:[a-f0-9]{64}$"
+          },
+          "extractor_boundary": {
+            "type": "string",
+            "const": "independent_clean_text_extractor_v1"
+          },
+          "section_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "line_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "passed",
+              "failed"
+            ]
+          },
+          "error_codes": {
+            "maxItems": 2,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "section_count_mismatch",
+                "line_count_mismatch"
+              ]
+            }
+          },
+          "job_evidence_checks": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "role_count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "role_bullet_count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "contextual_skill_count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "summary_statement_count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "question_count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "outcome": {
+                    "type": "string",
+                    "enum": [
+                      "passed",
+                      "failed"
+                    ]
+                  },
+                  "error_codes": {
+                    "maxItems": 5,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "unsupported_support",
+                        "role_density",
+                        "padding",
+                        "metric_pressure",
+                        "history_shape"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "role_count",
+                  "role_bullet_count",
+                  "contextual_skill_count",
+                  "summary_statement_count",
+                  "question_count",
+                  "outcome",
+                  "error_codes"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "successor_checks": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "preserved_line_count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "corrected_line_count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "added_line_count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "outcome": {
+                    "type": "string",
+                    "enum": [
+                      "passed",
+                      "failed"
+                    ]
+                  },
+                  "error_codes": {
+                    "maxItems": 7,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "preservation",
+                        "correction",
+                        "addition",
+                        "structure_regression",
+                        "repetition_regression",
+                        "generic_language",
+                        "support_regression"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "preserved_line_count",
+                  "corrected_line_count",
+                  "added_line_count",
+                  "outcome",
+                  "error_codes"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "fixture_id",
+          "fixture_digest",
+          "extractor_boundary",
+          "section_count",
+          "line_count",
+          "outcome",
+          "error_codes",
+          "job_evidence_checks",
+          "successor_checks"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "anti_overfit": {
+      "type": "object",
+      "properties": {
+        "scanner_version": {
+          "type": "number",
+          "const": 1
+        },
+        "files_scanned": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "literal_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "passed",
+            "failed"
+          ]
+        }
+      },
+      "required": [
+        "scanner_version",
+        "files_scanned",
+        "literal_count",
+        "outcome"
+      ],
+      "additionalProperties": false
+    },
+    "suite_summary": {
+      "type": "object",
+      "properties": {
+        "f1_f12_fixture_ids": {
+          "minItems": 12,
+          "maxItems": 12,
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "mutation": {
+          "type": "object",
+          "properties": {
+            "total": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "caught": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "catch_rate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "outcome": {
+              "type": "string",
+              "enum": [
+                "passed",
+                "failed"
+              ]
+            }
+          },
+          "required": [
+            "total",
+            "caught",
+            "catch_rate",
+            "outcome"
+          ],
+          "additionalProperties": false
+        },
+        "clean": {
+          "type": "object",
+          "properties": {
+            "total": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "blocking_false_positives": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "outcome": {
+              "type": "string",
+              "enum": [
+                "passed",
+                "failed"
+              ]
+            }
+          },
+          "required": [
+            "total",
+            "blocking_false_positives",
+            "outcome"
+          ],
+          "additionalProperties": false
+        },
+        "personas": {
+          "type": "object",
+          "properties": {
+            "covered": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "thresholds_passed": {
+              "type": "boolean"
+            },
+            "outcome": {
+              "type": "string",
+              "enum": [
+                "passed",
+                "failed"
+              ]
+            }
+          },
+          "required": [
+            "covered",
+            "thresholds_passed",
+            "outcome"
+          ],
+          "additionalProperties": false
+        },
+        "successor_no_regression": {
+          "type": "object",
+          "properties": {
+            "fixture_id": {
+              "type": "string",
+              "const": "f9-strong-successor-synthetic"
+            },
+            "outcome": {
+              "type": "string",
+              "enum": [
+                "passed",
+                "failed"
+              ]
+            }
+          },
+          "required": [
+            "fixture_id",
+            "outcome"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "f1_f12_fixture_ids",
+        "mutation",
+        "clean",
+        "personas",
+        "successor_no_regression"
+      ],
+      "additionalProperties": false
+    },
+    "authorized_generation": {
+      "type": "object",
+      "properties": {
+        "required_runs_per_generative_fixture": {
+          "type": "number",
+          "const": 3
+        },
+        "completed_runs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "awaiting_authorization",
+            "completed"
+          ]
+        }
+      },
+      "required": [
+        "required_runs_per_generative_fixture",
+        "completed_runs",
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "release_gate": {
+      "type": "object",
+      "properties": {
+        "tier_1_generation": {
+          "type": "string",
+          "enum": [
+            "awaiting_authorization",
+            "passed",
+            "failed"
+          ]
+        },
+        "tier_2_artifacts": {
+          "type": "string",
+          "enum": [
+            "passed",
+            "failed"
+          ]
+        },
+        "tier_3_craft": {
+          "type": "string",
+          "enum": [
+            "awaiting_authorized_generation",
+            "awaiting_calibration",
+            "passed",
+            "failed"
+          ]
+        },
+        "human_calibration": {
+          "type": "string",
+          "enum": [
+            "awaiting_review",
+            "passed",
+            "failed"
+          ]
+        },
+        "release_ready": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "tier_1_generation",
+        "tier_2_artifacts",
+        "tier_3_craft",
+        "human_calibration",
+        "release_ready"
+      ],
+      "additionalProperties": false
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "passed",
+        "failed"
+      ]
+    },
+    "report_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  },
+  "required": [
+    "report_schema_version",
+    "standard_revision",
+    "harness_mode",
+    "outcome_scope",
+    "credential_mode",
+    "fixture_count",
+    "fixture_results",
+    "anti_overfit",
+    "suite_summary",
+    "authorized_generation",
+    "release_gate",
+    "outcome",
+    "report_digest"
+  ],
+  "additionalProperties": false
+}

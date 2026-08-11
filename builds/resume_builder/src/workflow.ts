@@ -21,12 +21,88 @@ export type ResumeBuilderStage =
   | "evidence"
   | "tailored_review"
   | "preview"
-  | "history";
+  | "history"
+  | "revision";
 
 export type WarningBuckets = {
   factual: string[];
   document: string[];
   evidence_gaps: string[];
+};
+
+export type RecoverySlot = {
+  session_id: string;
+  job_fact_revision_id: string | null;
+  question_id: string;
+  field_id: string;
+};
+
+export type RecoverySaveStatus = "idle" | "saving" | "saved" | "error" | "conflict";
+
+export const JOB_EVIDENCE_DIMENSIONS = [
+  "responsibilities",
+  "accomplishments",
+  "outcomes",
+  "tools",
+  "scope",
+  "progression",
+] as const;
+
+export type JobEvidenceDimension = (typeof JOB_EVIDENCE_DIMENSIONS)[number];
+export type JobEvidenceOutcome = "answered" | "skipped" | "unknown" | "not_applicable" | "complete_for_now";
+export type JobEvidenceOutcomes = Partial<Record<JobEvidenceDimension, JobEvidenceOutcome>>;
+
+export type JobInterviewState = {
+  activeJobRevisionId: string | null;
+  currentDimension: JobEvidenceDimension | null;
+  outcomes: JobEvidenceOutcomes;
+  history: JobEvidenceDimension[];
+};
+
+export type RememberedJobCandidate = { revision_id: string; label: string };
+export type RememberedJobMatch = {
+  kind: "matched" | "ambiguous" | "none";
+  method: "explicit_revision" | "exact_label" | "none";
+  matches: RememberedJobCandidate[];
+};
+
+type ConfirmedFactCandidate = { revision_id: string; fact_kind: string; value: string };
+type SuccessorStatement = {
+  statement_id: string;
+  section_id: string;
+  kind: "factual" | "presentation";
+  display_role?: "heading" | "bullet" | "line";
+  text: string;
+  supporting_confirmed_fact_revision_ids: string[];
+};
+
+export type RecoveryState = {
+  slot: RecoverySlot | null;
+  value: string;
+  valueDigest: string | null;
+  acknowledgedRevision: number | null;
+  acknowledgedAt: string | null;
+  status: RecoverySaveStatus;
+  serverValue: string | null;
+  serverValueDigest: string | null;
+};
+
+export type ComparisonState = {
+  selectedRevisionIds: string[];
+  status: "idle" | "loading" | "ready" | "unavailable";
+  expandedUnchanged: boolean;
+};
+
+export type RevisionClassification = "presentation" | "factual" | "mixed" | "ambiguous";
+export type RevisionWorkflowState = {
+  requestRecordId: string | null;
+  requestRevisionId: string | null;
+  sourceRevisionId: string | null;
+  scope: "statement" | "section" | "resume" | null;
+  classification: RevisionClassification | null;
+  clarification: string | null;
+  proposalRevisionId: string | null;
+  status: "idle" | "submitted" | "clarification_needed" | "awaiting_confirmation" | "generating" | "proposed" | "accepted" | "edited" | "rejected" | "regenerate" | "failed";
 };
 
 export type DurableWorkflowSnapshot = {
@@ -38,6 +114,17 @@ export type DurableWorkflowSnapshot = {
     current_topic: string | null;
     completed_topics: string[];
     skipped_topics: string[];
+    active_job_fact_revision_id?: string | null;
+    current_question_id?: string | null;
+    current_field_id?: string | null;
+    job_dimension?: JobEvidenceDimension | "identity" | null;
+    recovery_draft?: null | {
+      slot: RecoverySlot;
+      value: string;
+      value_digest: string;
+      saved_at: string;
+      acknowledged_revision: number;
+    };
   };
   general_definitions: Array<{ revision_id: string; status: "draft" | "proposed" | "approved" }>;
   jobs: Array<{ revision_id: string }>;
@@ -63,6 +150,10 @@ export type ResumeBuilderWorkflowState = {
   warnings: WarningBuckets;
   connection: "connected" | "lost";
   error: null | { code: string; message: string; recoverable: boolean };
+  recovery: RecoveryState;
+  jobInterview: JobInterviewState;
+  comparison: ComparisonState;
+  revision: RevisionWorkflowState;
 };
 
 export type ResumeBuilderWorkflowAction =
@@ -81,7 +172,54 @@ export type ResumeBuilderWorkflowAction =
   | { type: "connection.lost" }
   | { type: "connection.recovered" }
   | { type: "operation.failed"; code: string; message: string; recoverable: boolean }
-  | { type: "operation.cleared" };
+  | { type: "operation.cleared" }
+  | { type: "recovery.changed"; slot: RecoverySlot; value: string; valueDigest: string }
+  | { type: "recovery.acknowledged"; slot: RecoverySlot; value: string; valueDigest: string; revision: number; savedAt: string }
+  | { type: "recovery.failed"; code: string }
+  | { type: "recovery.conflicted"; serverValue: string; serverValueDigest: string; serverRevision: number; serverSavedAt: string }
+  | { type: "recovery.server_selected" }
+  | { type: "recovery.local_selected" }
+  | { type: "recovery.discarded" }
+  | { type: "job.selected"; jobRevisionId: string; knownDimensions: JobEvidenceDimension[] }
+  | { type: "job.dimension_recorded"; dimension: JobEvidenceDimension; outcome: JobEvidenceOutcome }
+  | { type: "job.back" }
+  | { type: "job.completed_for_now" }
+  | { type: "job.reopened"; jobRevisionId: string }
+  | { type: "comparison.selection_toggled"; revisionId: string }
+  | { type: "comparison.started" }
+  | { type: "comparison.completed"; available: boolean }
+  | { type: "comparison.unchanged_toggled" }
+  | { type: "comparison.cleared" }
+  | { type: "revision.submitted"; requestRecordId: string; requestRevisionId: string; sourceRevisionId: string; scope: "statement" | "section" | "resume" }
+  | { type: "revision.classified"; classification: RevisionClassification; clarification: string | null }
+  | { type: "revision.proposed"; proposalRevisionId: string }
+  | { type: "revision.outcome"; outcome: "accept" | "edit" | "reject" | "regenerate" }
+  | { type: "revision.failed" }
+  | { type: "revision.cleared" };
+
+const idleRecovery = (): RecoveryState => ({
+  slot: null,
+  value: "",
+  valueDigest: null,
+  acknowledgedRevision: null,
+  acknowledgedAt: null,
+  status: "idle",
+  serverValue: null,
+  serverValueDigest: null,
+});
+
+const idleComparison = (): ComparisonState => ({ selectedRevisionIds: [], status: "idle", expandedUnchanged: false });
+const idleRevision = (): RevisionWorkflowState => ({ requestRecordId: null, requestRevisionId: null, sourceRevisionId: null, scope: null, classification: null, clarification: null, proposalRevisionId: null, status: "idle" });
+
+export function revisionRoute(classification: RevisionClassification): RevisionWorkflowState["status"] {
+  if (classification === "ambiguous") return "clarification_needed";
+  if (classification === "factual" || classification === "mixed") return "awaiting_confirmation";
+  return "generating";
+}
+
+export function comparisonSelectionLabel(selectedRevisionIds: readonly string[]): string {
+  return `${selectedRevisionIds.length} version${selectedRevisionIds.length === 1 ? "" : "s"} selected`;
+}
 
 export const initialWorkflowState: ResumeBuilderWorkflowState = {
   stage: "preflight",
@@ -94,7 +232,80 @@ export const initialWorkflowState: ResumeBuilderWorkflowState = {
   warnings: { factual: [], document: [], evidence_gaps: [] },
   connection: "connected",
   error: null,
+  recovery: idleRecovery(),
+  jobInterview: { activeJobRevisionId: null, currentDimension: null, outcomes: {}, history: [] },
+  comparison: idleComparison(),
+  revision: idleRevision(),
 };
+
+export function nextJobEvidenceDimension(outcomes: JobEvidenceOutcomes): JobEvidenceDimension | null {
+  return JOB_EVIDENCE_DIMENSIONS.find((dimension) => outcomes[dimension] === undefined) ?? null;
+}
+
+function normalizeRememberedValue(value: string): string {
+  return value.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US");
+}
+
+export function matchRememberedJob(
+  jobs: readonly RememberedJobCandidate[],
+  input: { explicit_revision_id: string | null; description: string },
+): RememberedJobMatch {
+  if (input.explicit_revision_id) {
+    const selected = jobs.find((job) => job.revision_id === input.explicit_revision_id);
+    return selected
+      ? { kind: "matched", method: "explicit_revision", matches: [selected] }
+      : { kind: "none", method: "none", matches: [] };
+  }
+  const description = normalizeRememberedValue(input.description);
+  if (!description) return { kind: "none", method: "none", matches: [] };
+  const matches = jobs.filter((job) => normalizeRememberedValue(job.label) === description);
+  if (matches.length === 1) return { kind: "matched", method: "exact_label", matches };
+  if (matches.length > 1) return { kind: "ambiguous", method: "exact_label", matches };
+  return { kind: "none", method: "none", matches: [] };
+}
+
+export function confirmedFactDuplicate<T extends ConfirmedFactCandidate>(
+  facts: readonly T[],
+  factKind: string,
+  value: string,
+): T | null {
+  const normalizedValue = normalizeRememberedValue(value);
+  return facts.find((fact) => fact.fact_kind === factKind && normalizeRememberedValue(fact.value) === normalizedValue) ?? null;
+}
+
+function statementMeaning(statement: SuccessorStatement): string {
+  return JSON.stringify({
+    section_id: statement.section_id,
+    kind: statement.kind,
+    display_role: statement.display_role ?? null,
+    text: statement.text,
+    supporting_confirmed_fact_revision_ids: [...statement.supporting_confirmed_fact_revision_ids],
+  });
+}
+
+export function prepareRememberedSuccessorStatements<T extends SuccessorStatement>(
+  predecessor: readonly T[],
+  generated: readonly T[],
+): T[] {
+  const usedIds = new Set<string>();
+  return generated.map((statement) => {
+    const exactId = predecessor.find((candidate) => candidate.statement_id === statement.statement_id && statementMeaning(candidate) === statementMeaning(statement));
+    const unchanged = exactId ?? predecessor.find((candidate) => !usedIds.has(candidate.statement_id) && statementMeaning(candidate) === statementMeaning(statement));
+    if (!unchanged) return statement;
+    usedIds.add(unchanged.statement_id);
+    return { ...statement, statement_id: unchanged.statement_id };
+  });
+}
+
+export function jobEvidenceProgress(outcomes: JobEvidenceOutcomes): { answered: number; deferred: number; remaining: number; total: number } {
+  const values = Object.values(outcomes);
+  return {
+    answered: values.filter((outcome) => outcome === "answered").length,
+    deferred: values.filter((outcome) => outcome !== "answered").length,
+    remaining: JOB_EVIDENCE_DIMENSIONS.filter((dimension) => outcomes[dimension] === undefined).length,
+    total: JOB_EVIDENCE_DIMENSIONS.length,
+  };
+}
 
 function uniqueTopics(topics: readonly string[]): InterviewTopic[] {
   return INTERVIEW_TOPICS.filter((topic) => topics.includes(topic));
@@ -131,6 +342,7 @@ export function resumeBuilderWorkflowReducer(
     case "durable.loaded": {
       const completedTopics = uniqueTopics(action.snapshot.interview?.completed_topics ?? []);
       const skippedTopics = uniqueTopics(action.snapshot.interview?.skipped_topics ?? []);
+      const durableRecovery = action.snapshot.interview?.recovery_draft;
       return {
         ...state,
         stage: deriveStage(action.snapshot),
@@ -140,9 +352,28 @@ export function resumeBuilderWorkflowReducer(
         skippedTopics,
         currentTopic: action.snapshot.interview?.status === "paused"
           ? null
-          : nextInterviewTopic(action.snapshot.known_topics, completedTopics, skippedTopics),
+          : uniqueTopics([action.snapshot.interview?.current_topic ?? ""])[0]
+            ?? nextInterviewTopic(action.snapshot.known_topics, completedTopics, skippedTopics),
+        recovery: durableRecovery ? {
+          slot: durableRecovery.slot,
+          value: durableRecovery.value,
+          valueDigest: durableRecovery.value_digest,
+          acknowledgedRevision: durableRecovery.acknowledged_revision,
+          acknowledgedAt: durableRecovery.saved_at,
+          status: "saved",
+          serverValue: null,
+          serverValueDigest: null,
+        } : idleRecovery(),
         connection: "connected",
         error: null,
+        jobInterview: action.snapshot.interview?.active_job_fact_revision_id ? {
+          activeJobRevisionId: action.snapshot.interview.active_job_fact_revision_id,
+          currentDimension: JOB_EVIDENCE_DIMENSIONS.includes(action.snapshot.interview.job_dimension as JobEvidenceDimension)
+            ? action.snapshot.interview.job_dimension as JobEvidenceDimension
+            : null,
+          outcomes: {},
+          history: [],
+        } : state.jobInterview,
       };
     }
     case "interview.completed_topic": {
@@ -187,7 +418,167 @@ export function resumeBuilderWorkflowReducer(
       return { ...state, error: { code: action.code, message: action.message, recoverable: action.recoverable } };
     case "operation.cleared":
       return { ...state, error: null };
+    case "recovery.changed":
+      return {
+        ...state,
+        recovery: {
+          ...state.recovery,
+          slot: action.slot,
+          value: action.value,
+          valueDigest: action.valueDigest,
+          status: "saving",
+          serverValue: null,
+          serverValueDigest: null,
+        },
+      };
+    case "recovery.acknowledged": {
+      const stillCurrent = state.recovery.valueDigest === action.valueDigest;
+      return {
+        ...state,
+        recovery: {
+          ...state.recovery,
+          slot: stillCurrent ? action.slot : state.recovery.slot,
+          value: stillCurrent ? action.value : state.recovery.value,
+          valueDigest: stillCurrent ? action.valueDigest : state.recovery.valueDigest,
+          acknowledgedRevision: action.revision,
+          acknowledgedAt: action.savedAt,
+          status: stillCurrent ? "saved" : "saving",
+          serverValue: null,
+          serverValueDigest: null,
+        },
+      };
+    }
+    case "recovery.failed":
+      return { ...state, recovery: { ...state.recovery, status: "error" } };
+    case "recovery.conflicted":
+      return {
+        ...state,
+        recovery: {
+          ...state.recovery,
+          acknowledgedRevision: action.serverRevision,
+          acknowledgedAt: action.serverSavedAt,
+          status: "conflict",
+          serverValue: action.serverValue,
+          serverValueDigest: action.serverValueDigest,
+        },
+      };
+    case "recovery.server_selected":
+      return state.recovery.serverValue === null ? state : {
+        ...state,
+        recovery: {
+          ...state.recovery,
+          value: state.recovery.serverValue,
+          valueDigest: state.recovery.serverValueDigest,
+          status: "saved",
+          serverValue: null,
+          serverValueDigest: null,
+        },
+      };
+    case "recovery.local_selected":
+      return { ...state, recovery: { ...state.recovery, status: "saving", serverValue: null, serverValueDigest: null } };
+    case "recovery.discarded":
+      return { ...state, recovery: idleRecovery() };
+    case "job.selected": {
+      const outcomes = Object.fromEntries(action.knownDimensions.map((dimension) => [dimension, "answered"])) as JobEvidenceOutcomes;
+      return {
+        ...state,
+        jobInterview: {
+          activeJobRevisionId: action.jobRevisionId,
+          currentDimension: nextJobEvidenceDimension(outcomes),
+          outcomes,
+          history: [],
+        },
+      };
+    }
+    case "job.dimension_recorded": {
+      if (state.jobInterview.activeJobRevisionId === null || state.jobInterview.currentDimension !== action.dimension) return state;
+      const outcomes = { ...state.jobInterview.outcomes, [action.dimension]: action.outcome };
+      return {
+        ...state,
+        jobInterview: {
+          ...state.jobInterview,
+          currentDimension: nextJobEvidenceDimension(outcomes),
+          outcomes,
+          history: [...state.jobInterview.history, action.dimension],
+        },
+      };
+    }
+    case "job.back": {
+      const history = [...state.jobInterview.history];
+      const dimension = history.pop();
+      if (!dimension) return state;
+      return { ...state, jobInterview: { ...state.jobInterview, currentDimension: dimension, history } };
+    }
+    case "job.completed_for_now": {
+      const outcomes = { ...state.jobInterview.outcomes };
+      if (state.jobInterview.currentDimension) outcomes[state.jobInterview.currentDimension] = "complete_for_now";
+      return { ...state, jobInterview: { activeJobRevisionId: null, currentDimension: null, outcomes, history: state.jobInterview.history } };
+    }
+    case "job.reopened": {
+      const outcomes = { ...state.jobInterview.outcomes };
+      const deferred = JOB_EVIDENCE_DIMENSIONS.find((dimension) => outcomes[dimension] === "complete_for_now");
+      return {
+        ...state,
+        jobInterview: {
+          activeJobRevisionId: action.jobRevisionId,
+          currentDimension: deferred ?? nextJobEvidenceDimension(outcomes),
+          outcomes,
+          history: state.jobInterview.history.filter((dimension) => dimension !== deferred),
+        },
+      };
+    }
+    case "comparison.selection_toggled": {
+      const selected = state.comparison.selectedRevisionIds;
+      const selectedRevisionIds = selected.includes(action.revisionId)
+        ? selected.filter((revisionId) => revisionId !== action.revisionId)
+        : selected.length < 2
+          ? [...selected, action.revisionId]
+          : selected;
+      return { ...state, comparison: { selectedRevisionIds, status: "idle", expandedUnchanged: false } };
+    }
+    case "comparison.started":
+      return state.comparison.selectedRevisionIds.length === 2
+        ? { ...state, comparison: { ...state.comparison, status: "loading", expandedUnchanged: false } }
+        : state;
+    case "comparison.completed":
+      return { ...state, comparison: { ...state.comparison, status: action.available ? "ready" : "unavailable", expandedUnchanged: false } };
+    case "comparison.unchanged_toggled":
+      return { ...state, comparison: { ...state.comparison, expandedUnchanged: !state.comparison.expandedUnchanged } };
+    case "comparison.cleared":
+      return { ...state, comparison: idleComparison() };
+    case "revision.submitted":
+      return { ...state, revision: { requestRecordId: action.requestRecordId, requestRevisionId: action.requestRevisionId, sourceRevisionId: action.sourceRevisionId, scope: action.scope, classification: null, clarification: null, proposalRevisionId: null, status: "submitted" } };
+    case "revision.classified":
+      return { ...state, revision: { ...state.revision, classification: action.classification, clarification: action.clarification, status: revisionRoute(action.classification) } };
+    case "revision.proposed":
+      return { ...state, revision: { ...state.revision, proposalRevisionId: action.proposalRevisionId, status: "proposed" } };
+    case "revision.outcome":
+      return { ...state, revision: { ...state.revision, status: action.outcome === "accept" ? "accepted" : action.outcome === "edit" ? "edited" : action.outcome === "reject" ? "rejected" : "regenerate" } };
+    case "revision.failed":
+      return { ...state, revision: { ...state.revision, status: "failed" } };
+    case "revision.cleared":
+      return { ...state, revision: idleRevision() };
   }
+}
+
+export function recoveryOperationId(slot: RecoverySlot, valueDigest: string, expectedRevision: number | null): string {
+  const input = `${slot.session_id}|${slot.job_fact_revision_id ?? ""}|${slot.question_id}|${slot.field_id}|${valueDigest}|${expectedRevision ?? "new"}`;
+  let seed = 0x811c9dc5;
+  const words: string[] = [];
+  for (let round = 0; round < 4; round += 1) {
+    let hash = (seed ^ round) >>> 0;
+    for (let index = 0; index < input.length; index += 1) {
+      hash ^= input.charCodeAt(index);
+      hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+    words.push(hash.toString(16).padStart(8, "0"));
+    seed = hash;
+  }
+  const hex = words.join("").slice(0, 32).split("");
+  hex[12] = "4";
+  hex[16] = ["8", "9", "a", "b"][Number.parseInt(hex[16] ?? "0", 16) % 4]!;
+  const value = hex.join("");
+  return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
 }
 
 export function progressSummary(state: ResumeBuilderWorkflowState): {

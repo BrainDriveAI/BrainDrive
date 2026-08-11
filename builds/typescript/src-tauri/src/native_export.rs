@@ -31,10 +31,15 @@ pub fn save_resume_export(
     request: NativeExportRequest,
 ) -> Result<NativeExportResult, String> {
     let bytes = validate_request(&request)?;
+    let (filter_label, extension) = if request.mime_type == "text/plain" {
+        ("Text document", "txt")
+    } else {
+        ("PDF document", "pdf")
+    };
     let selection = app
         .dialog()
         .file()
-        .add_filter("PDF document", &["pdf"])
+        .add_filter(filter_label, &[extension])
         .set_file_name(&request.safe_filename)
         .blocking_save_file();
     let Some(selection) = selection else {
@@ -61,7 +66,12 @@ pub fn save_resume_export(
 }
 
 fn validate_request(request: &NativeExportRequest) -> Result<Vec<u8>, String> {
-    if request.mime_type != "application/pdf" || !valid_safe_filename(&request.safe_filename) {
+    let accepted_pair = match request.mime_type.as_str() {
+        "application/pdf" => request.safe_filename.to_ascii_lowercase().ends_with(".pdf"),
+        "text/plain" => request.safe_filename.to_ascii_lowercase().ends_with(".txt"),
+        _ => false,
+    };
+    if !accepted_pair || !valid_safe_filename(&request.safe_filename) {
         return Err("native export request is invalid".to_string());
     }
     if request.bytes_base64.len() > MAX_EXPORT_BYTES.saturating_mul(2) {
@@ -70,8 +80,18 @@ fn validate_request(request: &NativeExportRequest) -> Result<Vec<u8>, String> {
     let bytes = STANDARD
         .decode(&request.bytes_base64)
         .map_err(|_| "native export payload is invalid".to_string())?;
-    if bytes.is_empty() || bytes.len() > MAX_EXPORT_BYTES || !bytes.starts_with(b"%PDF-1.4") {
+    if bytes.is_empty() || bytes.len() > MAX_EXPORT_BYTES {
+        return Err("native export payload is not accepted".to_string());
+    }
+    if request.mime_type == "application/pdf" && !bytes.starts_with(b"%PDF-1.4") {
         return Err("native export payload is not an accepted PDF".to_string());
+    }
+    if request.mime_type == "text/plain"
+        && (std::str::from_utf8(&bytes).is_err()
+            || bytes.contains(&0)
+            || bytes.iter().any(|byte| *byte < 0x20 && !matches!(*byte, b'\n' | b'\r' | b'\t')))
+    {
+        return Err("native export payload is not accepted UTF-8 text".to_string());
     }
     Ok(bytes)
 }
@@ -79,7 +99,7 @@ fn validate_request(request: &NativeExportRequest) -> Result<Vec<u8>, String> {
 fn valid_safe_filename(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
-        && value.to_ascii_lowercase().ends_with(".pdf")
+        && (value.to_ascii_lowercase().ends_with(".pdf") || value.to_ascii_lowercase().ends_with(".txt"))
         && !value.contains(['/', '\\'])
         && !value.chars().any(char::is_control)
         && value.trim() == value
@@ -159,7 +179,6 @@ mod tests {
         for filename in [
             "../resume.pdf",
             "folder/resume.pdf",
-            "resume.txt",
             " resume.pdf",
         ] {
             assert!(!valid_safe_filename(filename));
@@ -176,6 +195,26 @@ mod tests {
     }
 
     #[test]
+    fn text_export_requires_matching_mime_extension_and_strict_utf8() {
+        let request = NativeExportRequest {
+            safe_filename: "resume.txt".to_string(),
+            mime_type: "text/plain".to_string(),
+            bytes_base64: STANDARD.encode("Zoë 李\nExperience\n"),
+        };
+        assert_eq!(validate_request(&request).unwrap(), "Zoë 李\nExperience\n".as_bytes());
+        let wrong_extension = NativeExportRequest { safe_filename: "resume.pdf".to_string(), ..request };
+        assert_eq!(validate_request(&wrong_extension).unwrap_err(), "native export request is invalid");
+        for invalid in [vec![0xc3, 0x28], b"safe\0text".to_vec(), b"safe\x07text".to_vec()] {
+            let invalid_request = NativeExportRequest {
+                safe_filename: "resume.txt".to_string(),
+                mime_type: "text/plain".to_string(),
+                bytes_base64: STANDARD.encode(invalid),
+            };
+            assert_eq!(validate_request(&invalid_request).unwrap_err(), "native export payload is not accepted UTF-8 text");
+        }
+    }
+
+    #[test]
     fn export_commit_is_atomic_and_replaces_only_the_selected_file() {
         let root = std::env::temp_dir().join(format!("bd-native-export-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).unwrap();
@@ -184,6 +223,9 @@ mod tests {
         write_export_atomic(&destination, b"%PDF-1.4\nnew\n%%EOF").unwrap();
         assert_eq!(fs::read(&destination).unwrap(), b"%PDF-1.4\nnew\n%%EOF");
         assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        let text_destination = root.join("resume.txt");
+        write_export_atomic(&text_destination, "Zoë 李\n".as_bytes()).unwrap();
+        assert_eq!(fs::read(&text_destination).unwrap(), "Zoë 李\n".as_bytes());
         fs::remove_dir_all(root).unwrap();
     }
 

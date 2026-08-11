@@ -77,5 +77,21 @@ test.describe("LAN browser access", () => {
       const panelWidth = button.closest<HTMLElement>(".panel")!.getBoundingClientRect().width;
       return buttonWidth / panelWidth;
     })).toBeGreaterThan(0.85);
+
+    await frame.getByRole("button", { name: "Continue to interview" }).click();
+    const recoveryValue = "Exact browser recovery\nRésumé 東京 🚀";
+    const answer = frame.getByLabel("Your answer");
+    await answer.fill(recoveryValue);
+    await expect(frame.getByRole("status").filter({ hasText: "Saved at" })).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole("button", { name: "Reload app" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "App ready" })).toBeVisible({ timeout: 15_000 });
+    const recoveredFrame = page
+      .frameLocator('iframe[title="Resume Builder sandbox proxy"]')
+      .frameLocator('iframe[title="Resume Builder"]');
+    const recoveredAnswer = recoveredFrame.getByLabel("Your answer");
+    await expect(recoveredAnswer).toHaveValue(recoveryValue, { timeout: 15_000 });
+    await expect(recoveredAnswer).toBeFocused();
+    await expect(recoveredFrame.getByRole("status").filter({ hasText: "Saved at" })).toBeVisible();
   });
 });

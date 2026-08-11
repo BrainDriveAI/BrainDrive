@@ -5,11 +5,12 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CareerPlacementAdapter } from "../../resume-domain/career.js";
+import { canonicalInputDigest } from "../contracts/common.js";
 import { ResumeCapabilityRouter } from "../../resume-domain/capabilities.js";
 import { issueHostOwnerCapabilityAuthorization, ResumeCapabilityPolicy } from "../../resume-domain/capability-policy.js";
 import { ResumeDomainService } from "../../resume-domain/service.js";
 import { ResumeDataStore } from "../../resume-domain/store.js";
-import { proposalInput } from "../../resume-domain/test-helpers.js";
+import { authority, ownerDecision, proposalInput } from "../../resume-domain/test-helpers.js";
 import { ResumeInferenceBroker } from "../../resume-inference/broker.js";
 import { ImmutableInferenceSnapshotBuilder } from "../../resume-inference/snapshot.js";
 import type { ModelAdapter } from "../../adapters/base.js";
@@ -41,18 +42,33 @@ describe("M4 capability bridge", () => {
     const descriptor = await harness.service.ownerDescriptor();
     const store = new ResumeDataStore(root, path.join(root, "owner-data"), {}, false);
     await store.initialize(descriptor.grant!.owner_id);
+    const domain = new ResumeDomainService(store);
     const router = new ResumeCapabilityRouter(
-      new ResumeDomainService(store),
+      domain,
       new CareerPlacementAdapter(root),
       new ResumeCapabilityPolicy(async () => {
         const current = await harness.service.ownerDescriptor();
         return current.record.state === "active" ? current.grant : null;
       }),
     );
+    const proposedJobAuthority = authority("career.facts.propose", crypto.randomUUID(), { grant: descriptor.grant! });
+    const proposedJob = await domain.proposeFact({
+      ...proposalInput("Product Builder at Synthetic Company"),
+      fact: { fact_kind: "employment", state: "suggested", value: "Product Builder at Synthetic Company", sensitivity: "standard" },
+    }, proposedJobAuthority);
+    const confirmedJobAuthority = authority("career.facts.confirm", crypto.randomUUID(), { grant: descriptor.grant! });
+    const confirmedJob = await domain.confirmFact({
+      fact_record_id: proposedJob.fact.metadata.record_id,
+      fact_revision_id: proposedJob.fact.metadata.revision_id,
+      expected_revision: 1,
+      decision: "accept",
+      edited_value: null,
+      review_note: null,
+    }, confirmedJobAuthority, ownerDecision(confirmedJobAuthority, proposedJob.fact.metadata.revision_id));
     const adapter: ModelAdapter = {
       async complete() { throw new Error("agent path prohibited"); },
       async completeStructuredNoTools() {
-        return { text: JSON.stringify({ questions: [{ question_id: crypto.randomUUID(), topic: "experience", prompt: "What did you build?", rationale: "Collect an owner fact" }] }), finishReason: "stop" };
+        return { text: JSON.stringify({ questions: [{ question_id: crypto.randomUUID(), job_fact_revision_id: confirmedJob.fact.metadata.revision_id, dimension: "accomplishments", selection_method: "broker_ranked", prompt: "What did you build in this role? A qualitative answer is enough.", rationale: "Collect the highest-value unanswered evidence for the active job." }] }), finishReason: "stop" };
       },
     };
     const broker = new ResumeInferenceBroker(async () => ({ providerProfileId: "owner-profile", providerId: "ollama", modelId: "local-model", modelClass: "owner_active_compatible", adapter }));
@@ -63,13 +79,54 @@ describe("M4 capability bridge", () => {
     expect(launch.allowed_capabilities).toContain("resume.export.request");
     expect(launch.allowed_capabilities).toContain("app.inference.request");
     const state = await harness.service.status();
-    const message = (capability: string, input: Record<string, unknown>) => ({
+    const message = (capability: string, input: Record<string, unknown>, requestOperationId?: string) => ({
       bridge_version: 1, message_id: crypto.randomUUID(), app_id: "ai.braindrive.resume-builder",
       installation_id: state.installation_id, view_id: launch.view_id, operation_id: launch.operation_id,
       sent_at: new Date().toISOString(), type: "capability.call",
-      payload: { capability, input, token_id: launch.bridge_token_id },
+      payload: { capability, input, token_id: launch.bridge_token_id, ...(requestOperationId ? { request_operation_id: requestOperationId } : {}) },
     });
     await expect(host.handleBridge(launch.session_id, message("career.context.read", { entry_point: "direct" }), { origin: "null", sourceMatches: true })).resolves.toMatchObject({ status: "capability_completed", result: { context_version: 1 } });
+    const recoveryOperationId = crypto.randomUUID();
+    const recoverySessionId = crypto.randomUUID();
+    const recoveryValue = "bridge response-loss recovery value résumé 🚀";
+    const recoveryInput = {
+      kind: "interview_recovery_save",
+      recovery: {
+        expected_revision: null,
+        session_id: recoverySessionId,
+        current_topic: "contact",
+        completed_topics: [],
+        skipped_topics: [],
+        slot: { session_id: recoverySessionId, job_fact_revision_id: null, question_id: "contact-question", field_id: "answer" },
+        value: recoveryValue,
+        value_digest: canonicalInputDigest(recoveryValue),
+      },
+    };
+    const firstRecovery = await host.handleBridge(
+      launch.session_id,
+      message("resume.definitions.write", recoveryInput, recoveryOperationId),
+      { origin: "null", sourceMatches: true },
+    );
+    const replayedRecovery = await host.handleBridge(
+      launch.session_id,
+      message("resume.definitions.write", recoveryInput, recoveryOperationId),
+      { origin: "null", sourceMatches: true },
+    );
+    expect(firstRecovery).toMatchObject({ status: "capability_completed", result: { reused: false, acknowledgement: { revision: 1 } } });
+    expect(replayedRecovery).toMatchObject({ status: "capability_completed", result: { reused: true, acknowledgement: { revision: 1 } } });
+    await expect(host.handleBridge(
+      launch.session_id,
+      message("resume.definitions.write", {
+        ...recoveryInput,
+        recovery: { ...recoveryInput.recovery, value: "different", value_digest: canonicalInputDigest("different") },
+      }, recoveryOperationId),
+      { origin: "null", sourceMatches: true },
+    )).rejects.toMatchObject({ code: "idempotency_conflict" });
+    await expect(host.handleBridge(
+      launch.session_id,
+      message("resume.operations.read", { queried_operation_id: recoveryOperationId }),
+      { origin: "null", sourceMatches: true },
+    )).resolves.toMatchObject({ status: "capability_completed", result: { record: { operation_id: recoveryOperationId, status: "committed" }, results: [expect.objectContaining({ record_type: "interview_progress" })] } });
     const serverOperationId = crypto.randomUUID();
     const serverIdempotencyKey = "m4-server-context-operation";
     const projectSpy = vi.spyOn(router.career, "project");
@@ -82,7 +139,8 @@ describe("M4 capability bridge", () => {
     expect(JSON.stringify(firstServerResult)).not.toContain(firstServerAuthority.token);
     await expect(host.handleServerCapability(firstServerAuthority.token, "career.context.read", 1, { entry_point: "direct" }, serverOperationId, serverIdempotencyKey)).rejects.toMatchObject({ code: "token_replayed" });
     const inferenceOperationId = crypto.randomUUID();
-    const inferenceInput = { inference_contract_version: 1, purpose: "interview_assist", operation_id: inferenceOperationId, fact_revision_ids: [] };
+    const jobEvidenceSummary = { active_job_fact_revision_id: confirmedJob.fact.metadata.revision_id, active_job_revision: confirmedJob.fact.metadata.revision, requested_dimension: "accomplishments", dimensions: [] };
+    const inferenceInput = { inference_contract_version: 1, purpose: "interview_assist", operation_id: inferenceOperationId, fact_revision_ids: [confirmedJob.fact.metadata.revision_id], derived_blocks: [{ category: "job_evidence_summary", schema_id: "resume.job-evidence-summary.v1", data: jobEvidenceSummary }] };
     const inference = await host.handleBridge(launch.session_id, message("app.inference.request", inferenceInput), { origin: "null", sourceMatches: true });
     expect(inference).toMatchObject({ status: "capability_completed", result: { inference_contract_version: 1, status: "completed", model_class: "owner_active_compatible", events: [{ event: "progress" }, { event: "completed" }] } });
     expect(JSON.stringify(inference)).not.toContain("owner-profile");

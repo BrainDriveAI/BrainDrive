@@ -31,8 +31,25 @@ async function answerEmployment(page: Page, frame: FrameLocator) {
   await frame.getByLabel("What did you do?").fill("Help about 60 customers per shift and train new employees.");
   await frame.getByRole("button", { name: "Save this job" }).click();
   await confirmOwnerAction(page, /Confirm career fact/);
-  await expect(frame.getByRole("heading", { name: "Something you improved or handled well" })).toBeVisible({ timeout: 15_000 });
-  await expect(frame.getByText(/Customer Service Associate at Lakeside Market/)).toBeVisible();
+  await expect(frame.getByRole("heading", { name: "Customer Service Associate at Lakeside Market" })).toBeVisible({ timeout: 15_000 });
+  await expect(frame.getByRole("heading", { name: "Known evidence for this job" })).toBeVisible();
+  await expect(frame.getByLabel("Job progress")).toBeVisible();
+}
+
+async function completeJobEvidence(page: Page, frame: FrameLocator) {
+  await frame.getByLabel("Your answer").fill("Created a checkout checklist that reduced errors and helped train new employees.");
+  await frame.getByRole("button", { name: /Add this to Customer Service Associate at Lakeside Market/ }).click();
+  await confirmOwnerAction(page, /Confirm career fact/);
+  await expect(frame.getByText("Outcomes", { exact: true })).toBeVisible();
+  await frame.getByRole("button", { name: "I don’t know" }).click();
+  await confirmOwnerAction(page, /Confirm career fact/);
+  await expect(frame.getByText("Tools and technologies", { exact: true })).toBeVisible();
+  await frame.getByRole("button", { name: "Not applicable" }).click();
+  await confirmOwnerAction(page, /Confirm career fact/);
+  await expect(frame.getByText("Scope and scale", { exact: true })).toBeVisible();
+  await frame.getByRole("button", { name: "Complete for now" }).click();
+  await confirmOwnerAction(page, /Confirm career fact/);
+  await expect(frame.getByRole("heading", { name: "Education and training" })).toBeVisible({ timeout: 15_000 });
 }
 
 async function skipInterviewTopic(frame: FrameLocator, nextHeading: string) {
@@ -41,20 +58,28 @@ async function skipInterviewTopic(frame: FrameLocator, nextHeading: string) {
 }
 
 async function openCareerApps(page: Page) {
-  await page.getByRole("button", { name: "Career", exact: true }).click();
-  await page.getByRole("button", { name: "Apps", exact: true }).click();
+  const career = page.getByRole("button", { name: "Career", exact: true });
+  const navigationMenu = page.getByRole("button", { name: "Open navigation menu" });
+  await expect(career.or(navigationMenu)).toBeVisible({ timeout: 15_000 });
+  if (!await career.isVisible()) await navigationMenu.click();
+  await expect(career).toBeVisible();
+  await career.click();
+  const apps = page.getByRole("button", { name: "Apps", exact: true });
+  if (!await apps.isVisible()) await navigationMenu.click();
+  await expect(apps).toBeVisible();
+  await apps.click();
   await expect(page.getByTestId("apps-page")).toBeVisible();
 }
 
 async function installAndLaunchCareer(page: Page): Promise<FrameLocator> {
   const install = page.getByRole("button", { name: "Install Resume Builder" });
-  await expect(install).toBeVisible({ timeout: 15_000 });
-  await install.click();
   const launch = page.getByRole("button", { name: "Continue from Career" });
+  await expect(install.or(launch)).toBeVisible({ timeout: 15_000 });
+  if (await install.isVisible()) await install.click();
   await expect(launch).toBeVisible({ timeout: 15_000 });
   await launch.click();
   const frame = resumeBuilderFrame(page);
-  await expect(frame.getByRole("heading", { name: "Start with what BrainDrive already knows" })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("button", { name: "Enter app" })).toBeVisible({ timeout: 15_000 });
   return frame;
 }
 
@@ -69,7 +94,7 @@ test.describe("Resume Builder owner journey", () => {
   });
 
   test("completes Career entry, owner approvals, PDF export, history, and direct reopen", async ({ page }, testInfo) => {
-    test.setTimeout(90_000);
+    test.setTimeout(120_000);
     await openCareerApps(page);
     let frame = await installAndLaunchCareer(page);
     const proxy = page.locator('iframe[title="Resume Builder sandbox proxy"]');
@@ -111,13 +136,7 @@ test.describe("Resume Builder owner journey", () => {
     await answerInterviewTopic(page, frame, "Synthetic Owner | Dayton, Ohio | owner@example.test | 555-010-0142", "What you want next");
     await answerInterviewTopic(page, frame, "Customer support supervisor roles", "Work experience");
     await answerEmployment(page, frame);
-    await answerInterviewTopic(
-      page,
-      frame,
-      "Created a new checkout checklist.",
-      "Education and training",
-      "It reduced checkout errors and helped train 4 new employees.",
-    );
+    await completeJobEvidence(page, frame);
     await answerInterviewTopic(page, frame, "Associate of Applied Science in Business Administration, Sinclair Community College, 2018", "Licenses and certifications");
     await skipInterviewTopic(frame, "Skills, tools, and languages");
     await answerInterviewTopic(page, frame, "Customer service, Microsoft Excel, appointment scheduling, and employee training", "Projects");
@@ -126,12 +145,8 @@ test.describe("Resume Builder owner journey", () => {
     await answerInterviewTopic(page, frame, "linkedin.com/in/synthetic-owner", "Review your information");
 
     await expect(frame.getByRole("heading", { name: "Review your information" })).toBeVisible();
-    await expect(frame.getByText(/Created a new checkout checklist/)).toBeVisible();
-    await frame.getByRole("button", { name: "Add another accomplishment" }).click();
-    await frame.getByLabel("Your answer").fill("Created a new checkout checklist. It reduced checkout errors and helped train 4 new employees.");
-    await frame.getByRole("button", { name: "Save answer" }).click();
-    await expect(page.getByRole("dialog")).toBeHidden();
-    await expect(frame.getByRole("heading", { name: "Review your information" })).toBeVisible({ timeout: 15_000 });
+    await expect(frame.getByText(/Created a checkout checklist/)).toBeVisible();
+    await expect(frame.getByRole("button", { name: "Reopen interview" })).toBeVisible();
     const contactCard = frame.locator(".card").filter({ hasText: "owner@example.test" });
     await contactCard.getByRole("button", { name: "Edit" }).click();
     await frame.getByLabel("Information").fill("Synthetic Owner | Dayton, Ohio | synthetic.owner@example.test | 555-010-0142");
@@ -155,6 +170,38 @@ test.describe("Resume Builder owner journey", () => {
     await confirmOwnerAction(page, /Approve resume version/);
 
     await expect(frame.getByRole("heading", { name: "Preview approved resume" })).toBeVisible({ timeout: 15_000 });
+    await frame.getByRole("button", { name: "Revise in your own words" }).click();
+    await expect(frame.getByRole("heading", { name: "Revise this resume in your own words" })).toBeFocused();
+    await frame.getByLabel("What should change?").fill("Shorten the summary without changing facts.");
+    await frame.getByRole("button", { name: "Save request and review route" }).click();
+    await expect(frame.getByRole("heading", { name: "Review revision proposal" })).toBeFocused({ timeout: 15_000 });
+    await expect(frame.getByText(/presentation request.*resume scope/i)).toBeVisible();
+    await frame.getByRole("button", { name: "Accept", exact: true }).click();
+    await confirmOwnerAction(page, /Accept revision proposal/);
+    await expect(frame.getByRole("heading", { name: "General resume" })).toBeVisible({ timeout: 15_000 });
+    await expect(frame.getByRole("alert")).toContainText("Validate and approve this resume version separately");
+    await frame.getByRole("button", { name: "Validate and approve" }).click();
+    await confirmOwnerAction(page, /Approve resume version/);
+
+    await expect(frame.getByRole("heading", { name: "Preview approved resume" })).toBeVisible({ timeout: 15_000 });
+    await frame.getByRole("button", { name: "Revise in your own words" }).click();
+    await frame.getByLabel("What should change?").fill("Make it better.");
+    await frame.getByRole("button", { name: "Save request and review route" }).click();
+    await expect(frame.getByRole("heading", { name: "One clarification is needed" })).toBeVisible({ timeout: 15_000 });
+    await expect(frame.getByText("No proposal or factual change was created.")).toBeVisible();
+    await frame.getByRole("button", { name: "Return to approved resume" }).click();
+
+    await frame.getByRole("button", { name: "Revise in your own words" }).click();
+    await frame.getByLabel("What should change?").fill("Change my title to manager.");
+    await frame.getByRole("button", { name: "Save request and review route" }).click();
+    await expect(frame.getByRole("heading", { name: "Confirm factual meaning before generation" })).toBeVisible({ timeout: 15_000 });
+    await frame.getByRole("button", { name: "Confirm and generate proposal" }).click();
+    await confirmOwnerAction(page, /Confirm factual resume revision/);
+    await expect(frame.getByRole("heading", { name: "Review revision proposal" })).toBeVisible({ timeout: 15_000 });
+    await frame.getByRole("button", { name: "Reject", exact: true }).click();
+    await confirmOwnerAction(page, /Reject revision proposal/);
+    await expect(frame.getByRole("heading", { name: "Preview approved resume" })).toBeVisible({ timeout: 15_000 });
+
     await frame.locator('[data-stage="job"]').click();
     await expect(frame.getByRole("heading", { name: "Paste the target job description" })).toBeVisible({ timeout: 15_000 });
     await frame.getByLabel("Role label").fill("Synthetic TypeScript role");
@@ -167,9 +214,35 @@ test.describe("Resume Builder owner journey", () => {
     await confirmOwnerAction(page, /Approve resume version/);
 
     await expect(frame.getByRole("heading", { name: "Preview approved resume" })).toBeVisible({ timeout: 15_000 });
+    const rememberedDetail = "Built a reusable customer handoff checklist for weekly team reviews.";
+    await frame.getByRole("button", { name: "Add remembered detail" }).click();
+    await expect(frame.getByRole("heading", { name: "Add remembered detail" })).toBeVisible();
+    await frame.getByRole("button", { name: "Use general career context" }).click();
+    await frame.getByLabel("Information type").selectOption("accomplishment");
+    await frame.getByLabel("What did you remember?").fill(rememberedDetail);
+    await frame.getByRole("button", { name: "Review and confirm" }).click();
+    await confirmOwnerAction(page, /Confirm career fact/);
+    await expect(frame.getByRole("heading", { name: "General resume" })).toBeVisible({ timeout: 15_000 });
+    await expect(frame.getByRole("heading", { name: "What this proposal changes" })).toBeVisible();
+    await expect(frame.getByText(rememberedDetail).first()).toBeVisible();
+    await expect(frame.getByText(/based on older evidence/)).toBeVisible();
+    await frame.getByRole("button", { name: "Validate and approve" }).click();
+    await confirmOwnerAction(page, /Approve resume version/);
+
+    await expect(frame.getByRole("heading", { name: "Preview approved resume" })).toBeVisible({ timeout: 15_000 });
+    await frame.getByRole("button", { name: "Add remembered detail" }).click();
+    await frame.getByRole("button", { name: "Use general career context" }).click();
+    await frame.getByLabel("Information type").selectOption("accomplishment");
+    await frame.getByLabel("What did you remember?").fill(rememberedDetail);
+    await frame.getByRole("button", { name: "Review and confirm" }).click();
+    await expect(frame.getByRole("heading", { name: "This information is already confirmed" })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("dialog")).toBeHidden();
+    await frame.getByRole("button", { name: "Return to approved resume" }).click();
+
     await frame.getByRole("button", { name: "Create preview" }).click();
-    await expect(frame.getByText("ATS parse-back passed")).toBeVisible();
+    await expect(frame.getByText("Local extraction passed")).toBeVisible();
     const resumePreview = frame.getByLabel("Resume preview");
+    const cleanText = frame.getByLabel(/Clean resume text/);
     await expect(resumePreview).toContainText("Synthetic Owner");
     await expect(resumePreview).toContainText("synthetic.owner@example.test");
     await expect(resumePreview).toContainText("Experience");
@@ -177,16 +250,50 @@ test.describe("Resume Builder owner journey", () => {
     await expect(resumePreview).toContainText("Skills");
     await expect(resumePreview).not.toContainText("Resume goal:");
     await expect(resumePreview).not.toContainText("Professional link:");
+    await expect(cleanText).toContainText("Synthetic Owner");
+    await expect(cleanText).toContainText("synthetic.owner@example.test");
     await page.screenshot({ path: testInfo.outputPath("resume-builder-career-preview.png"), fullPage: true });
+
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: new URL(page.url()).origin });
+    await frame.getByRole("button", { name: "Copy clean text" }).click();
+    await confirmOwnerAction(page, /Copy app content/);
+    await expect(frame.getByRole("alert")).toContainText("Clean text copied");
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(await cleanText.inputValue());
+
+    const textDownload = page.waitForEvent("download");
+    await frame.getByRole("button", { name: "Export .txt" }).click();
+    await confirmOwnerAction(page, /Export clean resume text/);
+    expect((await textDownload).suggestedFilename()).toBe("resume.txt");
+    await expect(frame.getByRole("alert")).toContainText("Text export ready: resume.txt");
+
     const download = page.waitForEvent("download");
     await frame.getByRole("button", { name: "Export PDF" }).click();
     await confirmOwnerAction(page, /Export resume PDF/);
     expect((await download).suggestedFilename()).toBe("resume.pdf");
     await expect(frame.getByRole("alert")).toContainText("Export ready: resume.pdf");
 
+    await frame.getByRole("button", { name: "Review strengths and gaps" }).click();
+    await expect(frame.getByRole("heading", { name: "Strengths and evidence gaps" })).toBeVisible();
+    await expect(frame.getByRole("heading", { name: "Strong evidence" })).toBeVisible();
+    await expect(frame.getByText(/does not score or predict outcomes/i)).toBeVisible();
+
     await frame.locator("#history").click();
     await expect(frame.getByRole("heading", { name: "Resume history" })).toBeVisible();
-    await expect(frame.getByText(/targeted · approved/)).toBeVisible();
+    await expect(frame.getByText(/targeted.*approved/)).toBeVisible();
+    const historyVersions = frame.getByRole("checkbox", { name: /Select .* general version/i });
+    expect(await historyVersions.count()).toBeGreaterThanOrEqual(4);
+    await historyVersions.first().check();
+    await historyVersions.last().check();
+    await expect(frame.getByRole("status").filter({ hasText: "2 versions selected" })).toBeVisible();
+    await frame.getByRole("button", { name: "Compare selected versions" }).click();
+    await expect(frame.getByRole("heading", { name: "Compare resume versions" })).toBeFocused();
+    await expect(frame.getByText(/Added statement|Removed statement|Changed statement|Moved statement|Evidence references changed/).first()).toBeVisible();
+    const unchanged = frame.getByRole("button", { name: /Unchanged statements/ });
+    await expect(unchanged).toHaveAttribute("aria-expanded", "false");
+    await unchanged.click();
+    await expect(unchanged).toHaveAttribute("aria-expanded", "true");
+    await page.screenshot({ path: testInfo.outputPath("resume-builder-version-comparison.png"), fullPage: true });
+    await frame.getByRole("button", { name: "Back to history" }).click();
 
     const reconnectEvents: Array<{ kind: "launch" | "close"; body?: unknown }> = [];
     page.on("request", (request) => {
@@ -223,5 +330,70 @@ test.describe("Resume Builder owner journey", () => {
     const reopened = resumeBuilderFrame(page);
     await expect(reopened.getByText("Direct resume workspace")).toBeVisible({ timeout: 15_000 });
     await expect(reopened.getByRole("heading", { name: "Preview approved resume" })).toBeVisible();
+  });
+});
+
+test.describe("Resume Builder responsive job interview", () => {
+  test.beforeEach(async ({ page, isMobile }) => {
+    test.skip(!isMobile, "Responsive job identity and controls run in the mobile projects.");
+    await loginAsLocalUser(page);
+  });
+
+  test("keeps current-job identity, progress, and optional controls usable without horizontal overflow", async ({ page }) => {
+    test.setTimeout(150_000);
+    await openCareerApps(page);
+    const frame = await installAndLaunchCareer(page);
+    await page.getByRole("button", { name: "Enter app" }).click();
+    const continueInterview = frame.getByRole("button", { name: "Continue to interview" });
+    const currentJob = frame.getByLabel("Current job");
+    const historyStep = frame.locator('[data-stage="history"]');
+    await expect.poll(async () =>
+      await continueInterview.isVisible() || await currentJob.isVisible() || await historyStep.isEnabled(),
+    { timeout: 15_000 }).toBe(true);
+    if (await continueInterview.isVisible()) {
+      await continueInterview.click();
+      await answerInterviewTopic(page, frame, "Mobile Owner | Dayton, Ohio | mobile@example.test | 555-010-0101", "What you want next");
+      await answerInterviewTopic(page, frame, "Customer support roles", "Work experience");
+      await answerEmployment(page, frame);
+    }
+    if (await currentJob.isVisible()) {
+      await expect(currentJob).toContainText("Customer Service Associate at Lakeside Market");
+      for (const name of ["Back", "Skip for now", "I don’t know", "Not applicable", "Save and pause", "Complete for now"]) {
+        await expect(frame.getByRole("button", { name })).toBeVisible();
+      }
+      expect(await frame.locator("html").evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
+
+      await completeJobEvidence(page, frame);
+      await skipInterviewTopic(frame, "Licenses and certifications");
+      await skipInterviewTopic(frame, "Skills, tools, and languages");
+      await skipInterviewTopic(frame, "Projects");
+      await skipInterviewTopic(frame, "Leadership and volunteering");
+      await skipInterviewTopic(frame, "Professional links");
+      await skipInterviewTopic(frame, "Review your information");
+      await frame.getByRole("button", { name: "Create general draft" }).click();
+      await expect(frame.getByRole("heading", { name: "General resume" })).toBeVisible({ timeout: 15_000 });
+      await frame.getByRole("button", { name: "Validate and approve" }).click();
+      await confirmOwnerAction(page, /Approve resume version/);
+    }
+    await expect(historyStep).toBeEnabled();
+    await historyStep.click();
+    let versions = frame.getByRole("checkbox", { name: /Select .* general version/i });
+    if (await versions.count() < 2) {
+      await page.getByRole("button", { name: "Reload app" }).click();
+      await expect(page.getByRole("status").filter({ hasText: "App ready" })).toBeVisible({ timeout: 15_000 });
+      await expect(historyStep).toBeEnabled({ timeout: 15_000 });
+      await historyStep.click();
+      versions = frame.getByRole("checkbox", { name: /Select .* general version/i });
+    }
+    expect(await versions.count()).toBeGreaterThanOrEqual(2);
+    await versions.nth(0).check();
+    await versions.last().check();
+    await frame.getByRole("button", { name: "Compare selected versions" }).click();
+    await expect(frame.getByRole("heading", { name: "Compare resume versions" })).toBeFocused();
+    await expect(frame.getByText(/No observable changes|Added statement|Removed statement|Changed statement|Moved statement|Evidence references changed/).first()).toBeVisible();
+    const unchanged = frame.getByRole("button", { name: /Unchanged statements/ });
+    await expect(unchanged).toHaveAttribute("aria-expanded", "false");
+    await frame.locator("html").evaluate((element) => { (element as HTMLElement).style.zoom = "2"; });
+    expect(await frame.locator("html").evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
   });
 });

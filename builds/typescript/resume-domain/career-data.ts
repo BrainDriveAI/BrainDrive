@@ -103,6 +103,13 @@ export type ProposalClassification = {
   related_fact_revision_ids: string[];
 };
 
+export type RememberedEmploymentMatch = {
+  match_version: 1;
+  method: "explicit_revision" | "exact_label" | "none";
+  result_class: "matched" | "ambiguous" | "none";
+  matches: Array<{ fact_revision_id: string; safe_label: string }>;
+};
+
 export class CareerSourceRepository {
   constructor(private readonly store: ResumeDataStore) {}
 
@@ -177,6 +184,31 @@ export class CareerFactRepository {
     }
     return { kind: "new", related_fact_revision_ids: [] };
   }
+
+  async matchRememberedEmployment(
+    input: { explicit_job_fact_revision_id: string | null; description: string },
+    scopes: readonly string[] = [],
+  ): Promise<RememberedEmploymentMatch> {
+    const jobs = (await this.store.list("career_fact", scopes))
+      .map((fact) => CareerFactRecordSchema.parse(fact))
+      .filter((fact) => fact.state === "confirmed" && fact.fact_kind === "employment")
+      .map((fact) => ({ fact_revision_id: fact.metadata.revision_id, safe_label: employmentSafeLabel(fact.value) }));
+    if (input.explicit_job_fact_revision_id) {
+      const selected = jobs.find((job) => job.fact_revision_id === input.explicit_job_fact_revision_id);
+      return selected
+        ? { match_version: 1, method: "explicit_revision", result_class: "matched", matches: [selected] }
+        : { match_version: 1, method: "none", result_class: "none", matches: [] };
+    }
+    const description = normalizeComparisonValue(input.description);
+    if (!description) return { match_version: 1, method: "none", result_class: "none", matches: [] };
+    const matches = jobs.filter((job) => normalizeComparisonValue(job.safe_label) === description);
+    return {
+      match_version: 1,
+      method: matches.length > 0 ? "exact_label" : "none",
+      result_class: matches.length === 1 ? "matched" : matches.length > 1 ? "ambiguous" : "none",
+      matches,
+    };
+  }
 }
 
 export function proposalClassificationFromFact(fact: CareerFactRecord): ProposalClassification {
@@ -210,4 +242,19 @@ function employmentIdentity(value: string): { employer: string; title: string; s
   } catch {
     return null;
   }
+}
+
+function employmentSafeLabel(value: string): string {
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    if (parsed && !Array.isArray(parsed) && typeof parsed === "object") {
+      const title = typeof parsed.title === "string" ? parsed.title.trim() : typeof parsed.role === "string" ? parsed.role.trim() : "";
+      const employer = typeof parsed.employer === "string" ? parsed.employer.trim() : typeof parsed.company === "string" ? parsed.company.trim() : "";
+      if (title && employer) return `${title} at ${employer}`;
+      if (title || employer) return title || employer;
+    }
+  } catch {
+    // Fall through to a bounded owner-visible label from the saved value.
+  }
+  return value.trim().split(/[.;\n]/, 1)[0]!.slice(0, 256) || "Saved job";
 }

@@ -5,12 +5,13 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ensureGitReady } from "../git.js";
+import { canonicalInputDigest } from "../app-platform/contracts/common.js";
 import { CareerPlacementAdapter } from "./career.js";
 import { ResumeCapabilityPolicy, type ResumeDataCapability } from "./capability-policy.js";
 import { ResumeCapabilityRouter } from "./capabilities.js";
 import { ResumeDomainService } from "./service.js";
 import { ResumeDataStore } from "./store.js";
-import { authority, ownerDecision, proposalInput, testGrant } from "./test-helpers.js";
+import { authority, definitionInput, ownerDecision, proposalInput, testGrant } from "./test-helpers.js";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
@@ -64,6 +65,66 @@ function context(grant: ReturnType<typeof testGrant>, operationId = crypto.rando
 }
 
 describe("named Resume Builder data capabilities", () => {
+  it("routes the revision transaction and keeps request content out of capability diagnostics", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-resume-revision-capability-")); roots.push(root);
+    const store = new ResumeDataStore(root, undefined, {}, false);
+    const grant = testGrant();
+    await store.initialize(grant.owner_id);
+    const events: Array<{ event: string; details: Record<string, unknown> }> = [];
+    const router = new ResumeCapabilityRouter(
+      new ResumeDomainService(store, () => new Date("2026-08-10T12:00:00.000Z")),
+      new CareerPlacementAdapter(root),
+      new ResumeCapabilityPolicy(async () => grant),
+      (event, details) => events.push({ event, details }),
+    );
+    const proposed = await router.domain.proposeFact(proposalInput(), authority("career.facts.propose"));
+    const confirmAuthority = authority("career.facts.confirm");
+    const confirmed = await router.domain.confirmFact({ fact_record_id: proposed.fact.metadata.record_id, fact_revision_id: proposed.fact.metadata.revision_id, expected_revision: 1, decision: "accept", edited_value: null, review_note: null }, confirmAuthority, ownerDecision(confirmAuthority, proposed.fact.metadata.revision_id));
+    const source = await router.domain.writeDefinition(definitionInput(confirmed.fact.metadata.revision_id), authority("resume.definitions.write"), true);
+    await expect(router.execute("resume.definitions.write", {
+      kind: "revision_request",
+      source_definition_revision_id: source.definition.metadata.revision_id,
+      target: { scope: "resume", target_id: null },
+      request_text: "x".repeat(8_193),
+    }, context(grant, undefined, "resume.definitions.write"))).rejects.toMatchObject({ code: "invalid_input" });
+    const sentinel = "PRIVATE_REVISION_REQUEST_SENTINEL";
+    const submitted = await router.execute("resume.definitions.write", {
+      kind: "revision_request",
+      source_definition_revision_id: source.definition.metadata.revision_id,
+      target: { scope: "resume", target_id: null },
+      request_text: `Shorten wording ${sentinel}`,
+    }, context(grant, undefined, "resume.definitions.write")) as { request: { metadata: { record_id: string; revision_id: string; revision: number } } };
+    const classified = await router.execute("resume.definitions.write", {
+      kind: "revision_outcome",
+      request_record_id: submitted.request.metadata.record_id,
+      expected_revision: 1,
+      classification: "presentation",
+      state: "generating",
+      clarification: null,
+      resulting_definition_revision_id: null,
+      owner_outcome: null,
+    }, context(grant, undefined, "resume.definitions.write")) as { request: { metadata: { record_id: string; revision_id: string; revision: number } } };
+    const statement = source.definition.record_type === "resume_definition" ? source.definition.statements[0]! : null;
+    if (!statement) throw new Error("expected source statement");
+    const result = await router.execute("resume.definitions.write", {
+      kind: "revision_proposal",
+      request_record_id: classified.request.metadata.record_id,
+      expected_revision: classified.request.metadata.revision,
+      draft: {
+        source_definition_revision_id: source.definition.metadata.revision_id,
+        revision_request_revision_id: classified.request.metadata.revision_id,
+        title: source.definition.record_type === "resume_definition" ? source.definition.title : "Resume",
+        statements: [{ ...statement, text: "Statement: Synthetic supported" }],
+        changed_statement_ids: [statement.statement_id],
+        section_order: ["experience"],
+      },
+    }, context(grant, undefined, "resume.definitions.write")) as { definition: { status: string }; request: { state: string } };
+    expect(result).toMatchObject({ definition: { status: "proposed" }, request: { state: "proposed" } });
+    expect(JSON.stringify(events)).not.toContain(sentinel);
+    expect(JSON.stringify(events)).not.toContain("x".repeat(128));
+    expect(events[0]).toMatchObject({ event: "app.resume_revision.submitted", details: { outcome: "failed", error_code: "invalid_input" } });
+    expect(events).toHaveLength(4);
+  });
   it("returns a bounded path-free context through the declared read capability", async () => {
     const { root, grant, router } = await setup();
     const result = await router.execute("career.context.read", { entry_point: "direct" }, context(grant, undefined, "career.context.read"));
@@ -92,6 +153,153 @@ describe("named Resume Builder data capabilities", () => {
     await expect(router.execute("resume.export.request", { action: "preview", definition_revision_id: crypto.randomUUID() }, context(grant, undefined, "resume.export.request"))).rejects.toMatchObject({ code: "recoverable_internal_failure" });
   });
 
+  it("routes read-only remembered impact through the bounded definition-read operation", async () => {
+    const { grant, router } = await setup();
+    const proposed = await router.domain.proposeFact(proposalInput("Original supported detail"), authority("career.facts.propose"));
+    const confirmationAuthority = authority("career.facts.confirm");
+    const confirmed = await router.domain.confirmFact({
+      fact_record_id: proposed.fact.metadata.record_id,
+      fact_revision_id: proposed.fact.metadata.revision_id,
+      expected_revision: 1,
+      decision: "accept",
+      edited_value: null,
+      review_note: null,
+    }, confirmationAuthority, ownerDecision(confirmationAuthority, proposed.fact.metadata.revision_id));
+    const statementId = "50000000-0000-4000-8000-000000000061";
+    const source = await router.domain.writeDefinition(definitionInput(confirmed.fact.metadata.revision_id, {
+      statements: [{ statement_id: statementId, section_id: "experience", kind: "factual", text: confirmed.fact.value, supporting_confirmed_fact_revision_ids: [confirmed.fact.metadata.revision_id] }],
+    }), authority("resume.definitions.write"), true);
+    const correctionAuthority = authority("career.facts.confirm");
+    const correction = await router.domain.confirmFact({
+      fact_record_id: confirmed.fact.metadata.record_id,
+      fact_revision_id: confirmed.fact.metadata.revision_id,
+      expected_revision: confirmed.fact.metadata.revision,
+      decision: "edit_and_accept",
+      edited_value: "Corrected supported detail",
+      review_note: null,
+    }, correctionAuthority, ownerDecision(correctionAuthority, confirmed.fact.metadata.revision_id, "edit_and_accept"));
+    await router.domain.writeDefinition(definitionInput(correction.fact.metadata.revision_id, {
+      status: "proposed",
+      statements: [{ statement_id: statementId, section_id: "experience", kind: "factual", text: correction.fact.value, supporting_confirmed_fact_revision_ids: [correction.fact.metadata.revision_id] }],
+      parent_definition_revision_id: source.definition.metadata.revision_id,
+      successor_context: {
+        successor_version: 1,
+        kind: "remembered_information",
+        source_definition_revision_id: source.definition.metadata.revision_id,
+        revision_request_revision_id: null,
+        changed_fact_revision_ids: [correction.fact.metadata.revision_id],
+        stale_tailored_variant_revision_ids: [],
+        quality_report_digest: null,
+      },
+    }), authority("resume.definitions.write"), false);
+
+    await expect(router.execute("resume.definitions.read", {
+      kind: "impact_analysis",
+      source_definition_revision_id: source.definition.metadata.revision_id,
+      changed_fact_revision_ids: [correction.fact.metadata.revision_id],
+    }, context(grant, undefined, "resume.definitions.read"))).resolves.toMatchObject({
+      affected_statements: [{ statement_id: statementId, change: "corrected" }],
+      stale_tailored_variants: [],
+    });
+  });
+
+  it("authorizes before comparison lookup and routes an exact read-only comparison with content-free diagnostics", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-resume-compare-audit-")); roots.push(root);
+    await mkdir(path.join(root, "documents", "career"), { recursive: true });
+    await writeFile(path.join(root, "documents", "career", "spec.md"), "# Unchanged comparison spec\n", "utf8");
+    await writeFile(path.join(root, "documents", "career", "plan.md"), "# Unchanged comparison plan\n", "utf8");
+    const store = new ResumeDataStore(root, undefined, {}, false);
+    const grant = testGrant();
+    await store.initialize(grant.owner_id);
+    const events: Array<{ event: string; details: Record<string, unknown> }> = [];
+    const router = new ResumeCapabilityRouter(
+      new ResumeDomainService(store, () => new Date("2026-08-10T12:00:00.000Z")),
+      new CareerPlacementAdapter(root),
+      new ResumeCapabilityPolicy(async () => grant),
+      (event, details) => events.push({ event, details }),
+    );
+    const proposed = await router.domain.proposeFact(proposalInput("Comparison-safe supported statement"), authority("career.facts.propose"));
+    const confirmationAuthority = authority("career.facts.confirm");
+    const confirmed = await router.domain.confirmFact({
+      fact_record_id: proposed.fact.metadata.record_id,
+      fact_revision_id: proposed.fact.metadata.revision_id,
+      expected_revision: 1,
+      decision: "accept",
+      edited_value: null,
+      review_note: null,
+    }, confirmationAuthority, ownerDecision(confirmationAuthority, proposed.fact.metadata.revision_id));
+    const first = await router.domain.writeDefinition(definitionInput(confirmed.fact.metadata.revision_id, {
+      statements: [{
+        statement_id: crypto.randomUUID(),
+        section_id: "experience",
+        kind: "factual",
+        text: confirmed.fact.value,
+        supporting_confirmed_fact_revision_ids: [confirmed.fact.metadata.revision_id],
+      }],
+    }), authority("resume.definitions.write"), true);
+    const second = await router.domain.writeDefinition(definitionInput(confirmed.fact.metadata.revision_id, {
+      status: "proposed",
+      parent_definition_revision_id: first.definition.metadata.revision_id,
+      statements: first.definition.record_type === "resume_definition" ? first.definition.statements : [],
+    }), authority("resume.definitions.write"), false);
+    const before = canonicalInputDigest(await store.allRevisions());
+    const careerBefore = await Promise.all([
+      readFile(path.join(root, "documents", "career", "spec.md"), "utf8"),
+      readFile(path.join(root, "documents", "career", "plan.md"), "utf8"),
+    ]);
+
+    await expect(router.execute("resume.definitions.read", {
+      kind: "compare_definitions",
+      left_revision_id: first.definition.metadata.revision_id,
+      right_revision_id: second.definition.metadata.revision_id,
+    }, context(grant, undefined, "resume.definitions.read"))).resolves.toMatchObject({
+      result: "available",
+      relation: "related",
+      observable_summary: ["No observable changes."],
+    });
+    await expect(router.execute("resume.definitions.read", { view: "workspace" }, context(grant, undefined, "resume.definitions.read"))).resolves.toMatchObject({
+      definition_history: expect.arrayContaining([
+        expect.objectContaining({ metadata: expect.objectContaining({ revision_id: first.definition.metadata.revision_id }) }),
+        expect.objectContaining({ metadata: expect.objectContaining({ revision_id: second.definition.metadata.revision_id }) }),
+      ]),
+      job_history: [],
+    });
+    expect(canonicalInputDigest(await store.allRevisions())).toBe(before);
+    await expect(Promise.all([
+      readFile(path.join(root, "documents", "career", "spec.md"), "utf8"),
+      readFile(path.join(root, "documents", "career", "plan.md"), "utf8"),
+    ])).resolves.toEqual(careerBefore);
+    expect(events.filter((event) => event.event === "app.resume_comparison.completed").at(-1)).toMatchObject({
+      event: "app.resume_comparison.completed",
+      details: expect.objectContaining({
+        left_definition_revision_id: first.definition.metadata.revision_id,
+        right_definition_revision_id: second.definition.metadata.revision_id,
+        comparison_relation: "related",
+        comparison_result: "available",
+        added_count: 0,
+        removed_count: 0,
+        changed_count: 0,
+        moved_count: 0,
+        evidence_change_count: 0,
+      }),
+    });
+    expect(JSON.stringify(events)).not.toContain("Comparison-safe supported statement");
+
+    await expect(router.execute("resume.definitions.read", {
+      kind: "compare_definitions",
+      left_revision_id: "not-a-revision",
+      right_revision_id: first.definition.metadata.revision_id,
+    }, context(grant, undefined, "resume.definitions.read"))).rejects.toMatchObject({ code: "invalid_input", statusCode: 400 });
+
+    const deniedGrant = testGrant({ capabilities: grant.capabilities.filter((capability) => capability !== "resume.definitions.read") });
+    const deniedRouter = new ResumeCapabilityRouter(router.domain, router.career, new ResumeCapabilityPolicy(async () => deniedGrant));
+    await expect(deniedRouter.execute("resume.definitions.read", {
+      kind: "compare_definitions",
+      left_revision_id: crypto.randomUUID(),
+      right_revision_id: crypto.randomUUID(),
+    }, context(deniedGrant, undefined, "resume.definitions.read"))).rejects.toMatchObject({ code: "denied", statusCode: 403 });
+  });
+
   it("emits content-free capability diagnostics", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-resume-audit-")); roots.push(root);
     const store = new ResumeDataStore(root, undefined, {}, false);
@@ -110,6 +318,27 @@ describe("named Resume Builder data capabilities", () => {
     expect(events).toHaveLength(2);
     expect(events[0]).toMatchObject({ event: "app.capability.completed", details: { capability: "career.facts.propose", outcome: "committed", idempotency_decision: "created" } });
     expect(events[1]).toMatchObject({ event: "app.capability.completed", details: { capability: "career.facts.propose", outcome: "committed", idempotency_decision: "reused" } });
+  });
+
+  it("emits a content-free remembered-match diagnostic without persisting the owner description", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-resume-remembered-audit-")); roots.push(root);
+    const store = new ResumeDataStore(root, undefined, {}, false);
+    const grant = testGrant();
+    await store.initialize(grant.owner_id);
+    const events: Array<{ event: string; details: Record<string, unknown> }> = [];
+    const router = new ResumeCapabilityRouter(new ResumeDomainService(store), new CareerPlacementAdapter(root), new ResumeCapabilityPolicy(async () => grant), (event, details) => events.push({ event, details }));
+    const sentinel = "PRIVATE_REMEMBERED_DESCRIPTION_SENTINEL";
+    await router.execute("resume.definitions.read", {
+      kind: "remembered_match",
+      explicit_job_fact_revision_id: null,
+      description: sentinel,
+    }, context(grant, undefined, "resume.definitions.read"));
+
+    expect(JSON.stringify(events)).not.toContain(sentinel);
+    expect(events).toEqual([expect.objectContaining({
+      event: "app.resume_remembered.match",
+      details: expect.objectContaining({ match_method: "none", result_class: "none", fact_revision_id: null }),
+    })]);
   });
 
   it("routes owner-visible interview turns into durable provenance without exposing their content in audit events", async () => {
@@ -142,6 +371,62 @@ describe("named Resume Builder data capabilities", () => {
     expect(result.turn.extensions.interview_turn).toEqual(turn);
     expect(JSON.stringify(events)).not.toContain(sentinel);
     expect(events.at(-1)).toMatchObject({ event: "app.capability.completed", details: { capability: "resume.definitions.write", outcome: "committed" } });
+  });
+
+  it("routes recovery save, restore, conflict, and discard with content-free state-change events", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-resume-recovery-audit-")); roots.push(root);
+    const store = new ResumeDataStore(root, undefined, {}, false);
+    const grant = testGrant();
+    await store.initialize(grant.owner_id);
+    const events: Array<{ event: string; details: Record<string, unknown> }> = [];
+    const router = new ResumeCapabilityRouter(
+      new ResumeDomainService(store, () => new Date("2026-08-10T12:00:00.000Z")),
+      new CareerPlacementAdapter(root),
+      new ResumeCapabilityPolicy(async () => grant),
+      (event, details) => events.push({ event, details }),
+    );
+    const sentinel = "PRIVATE_RECOVERY_SENTINEL résumé 東京 🚀";
+    const sessionId = crypto.randomUUID();
+    const save = {
+      expected_revision: null,
+      session_id: sessionId,
+      current_topic: "contact",
+      completed_topics: [],
+      skipped_topics: [],
+      slot: { session_id: sessionId, job_fact_revision_id: null, question_id: "contact-question", field_id: "answer" },
+      value: sentinel,
+      value_digest: canonicalInputDigest(sentinel),
+    };
+    const saved = await router.execute("resume.definitions.write", {
+      kind: "interview_recovery_save",
+      recovery: save,
+    }, context(grant, undefined, "resume.definitions.write")) as { progress: { metadata: { record_id: string } } };
+
+    const workspace = await router.execute("resume.definitions.read", { view: "workspace" }, context(grant, undefined, "resume.definitions.read")) as { interview: unknown[] };
+    expect(workspace.interview).toHaveLength(1);
+
+    await expect(router.execute("resume.definitions.write", {
+      kind: "interview_recovery_save",
+      recovery: { ...save, record_id: saved.progress.metadata.record_id, expected_revision: 99 },
+    }, context(grant, undefined, "resume.definitions.write"))).rejects.toMatchObject({ code: "conflict" });
+
+    await router.execute("resume.definitions.write", {
+      kind: "interview_recovery_discard",
+      progress: { record_id: saved.progress.metadata.record_id, expected_revision: 1 },
+    }, context(grant, undefined, "resume.definitions.write"));
+
+    expect(events.map(({ event }) => event)).toEqual([
+      "app.resume_recovery.save",
+      "app.resume_recovery.restore",
+      "app.resume_recovery.conflict",
+      "app.resume_recovery.discard",
+    ]);
+    const serialized = JSON.stringify(events);
+    expect(serialized).not.toContain(sentinel);
+    expect(serialized).not.toContain(root);
+    expect(serialized).not.toContain("value_digest");
+    expect(events[0]).toMatchObject({ details: { target_category: "resume_recovery", outcome: "committed" } });
+    expect(events[2]).toMatchObject({ details: { target_category: "resume_recovery", outcome: "conflict", error_code: "conflict" } });
   });
 
   it("places only confirmed stable-fact references into a Career return", async () => {

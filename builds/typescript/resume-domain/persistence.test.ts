@@ -5,7 +5,9 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createLifecycleHarness } from "../app-platform/lifecycle/test-helpers.js";
+import { AppLifecycleService } from "../app-platform/lifecycle/service.js";
 import { MODERN_FIXTURE_VERSION } from "../app-platform/lifecycle/fixture-repository.js";
+import { canonicalInputDigest } from "../app-platform/contracts/common.js";
 import { exportMigrationArchive, importMigrationArchive } from "../memory/migration.js";
 import { ResumeDomainService } from "./service.js";
 import { ResumeDataStore } from "./store.js";
@@ -38,7 +40,7 @@ describe("Resume Builder migration, backup participation, and retained reopen", 
     await migrated.initialize(testGrant().owner_id);
     expect((await migrated.catalog()).extensions).toEqual({ future_namespace_hint: true });
     expect(await migrated.list("career_fact")).toHaveLength(1);
-    expect((await readFile(path.join(namespace, "catalog.json"), "utf8")).includes('"data_schema_version":1')).toBe(true);
+    expect((await readFile(path.join(namespace, "catalog.json"), "utf8")).includes('"data_schema_version":2')).toBe(true);
   });
 
   it("restores the pre-migration catalog when deterministic transformation fails", async () => {
@@ -70,7 +72,7 @@ describe("Resume Builder migration, backup participation, and retained reopen", 
 
     const reopened = new ResumeDataStore(target, namespace, {}, false);
     await reopened.initialize(testGrant().owner_id);
-    expect((await reopened.catalog()).data_schema_version).toBe(1);
+    expect((await reopened.catalog()).data_schema_version).toBe(2);
     await expect(readFile(path.join(namespace, "migration-transaction.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 
@@ -106,5 +108,49 @@ describe("Resume Builder migration, backup participation, and retained reopen", 
     const reopened = new ResumeDataStore(root, harness.ownerDataRoot, {}, false);
     await reopened.initialize(reinstalled.grant!.owner_id);
     expect((await reopened.readHead(proposed.fact.metadata.record_id)).metadata.revision_id).toBe(proposed.fact.metadata.revision_id);
+  });
+
+  it("retains an exact recovery draft across uninstall and a newly granted installation", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-resume-recovery-reinstall-")); roots.push(root);
+    const harness = await createLifecycleHarness(root);
+    const installed = await harness.service.install({ version: MODERN_FIXTURE_VERSION, idempotencyKey: "m2-recovery-install", approveCapabilities: true });
+    const store = new ResumeDataStore(root, harness.ownerDataRoot, {}, false);
+    await store.initialize(installed.grant!.owner_id);
+    const service = new ResumeDomainService(store, () => new Date("2026-08-10T12:00:00.000Z"));
+    const sessionId = crypto.randomUUID();
+    const value = "Exact retained multiline value\nRésumé 東京 🚀";
+    const operationId = crypto.randomUUID();
+    const saved = await service.saveInterviewRecovery({
+      expected_revision: null,
+      session_id: sessionId,
+      current_topic: "contact",
+      completed_topics: [],
+      skipped_topics: [],
+      slot: { session_id: sessionId, job_fact_revision_id: null, question_id: "contact-question", field_id: "answer" },
+      value,
+      value_digest: canonicalInputDigest(value),
+    }, { grant: installed.grant!, capability: "resume.definitions.write", operationId, idempotencyKey: `recovery-${operationId}` });
+
+    await harness.supervisor.stop(harness.supervisor.inspect(installed.record.installation_id!)[0]!, "reconcile");
+    const restartedLifecycle = new AppLifecycleService(harness.dependencies);
+    await restartedLifecycle.initialize();
+    expect(harness.supervisor.inspect(installed.record.installation_id!)).toHaveLength(1);
+    const afterRuntimeRestart = new ResumeDataStore(root, harness.ownerDataRoot, {}, false);
+    await afterRuntimeRestart.initialize(installed.grant!.owner_id);
+    expect(await afterRuntimeRestart.readHead(saved.progress.metadata.record_id)).toMatchObject({ recovery_draft: { value } });
+
+    await restartedLifecycle.uninstall({ idempotencyKey: "m2-recovery-uninstall" });
+    const reinstalled = await restartedLifecycle.install({ version: MODERN_FIXTURE_VERSION, idempotencyKey: "m2-recovery-reinstall", approveCapabilities: true });
+    const reopened = new ResumeDataStore(root, harness.ownerDataRoot, {}, false);
+    await reopened.initialize(reinstalled.grant!.owner_id);
+
+    expect(await reopened.readHead(saved.progress.metadata.record_id)).toMatchObject({
+      current_topic: "contact",
+      current_question_id: "contact-question",
+      current_field_id: "answer",
+      recovery_draft: { value, value_digest: canonicalInputDigest(value), saved_at: "2026-08-10T12:00:00.000Z", acknowledged_revision: 1 },
+    });
+    expect(await reopened.list("source")).toHaveLength(0);
+    expect(await reopened.list("career_fact")).toHaveLength(0);
   });
 });

@@ -1,9 +1,9 @@
 import { ModelCompatibilityEntrySchema, PURPOSE_OUTPUT_SCHEMAS, type InferencePurpose } from "../app-platform/contracts/inference.js";
 import type { ModelAdapter } from "../adapters/base.js";
-import { buildPolicyMessages } from "./policy.js";
+import { buildPolicyMessages, RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION } from "./policy.js";
 import { parsePurposeResult, purposeJsonSchema } from "./results.js";
 import { validateInferenceClaims } from "./validators.js";
-import { conformanceBlocks, RESUME_MODEL_CONFORMANCE_CORPUS_DIGEST } from "./conformance-corpus.js";
+import { conformanceBlocks, conformanceCorpusDigest } from "./conformance-corpus.js";
 
 const PURPOSES = Object.keys(PURPOSE_OUTPUT_SCHEMAS) as InferencePurpose[];
 
@@ -52,8 +52,10 @@ export async function runResumeModelConformance(input: {
       model_id: input.modelId,
       purpose,
       output_schema_id: PURPOSE_OUTPUT_SCHEMAS[purpose],
+      prompt_policy_id: RESUME_PROMPT_POLICY_ID,
+      prompt_policy_version: RESUME_PROMPT_POLICY_VERSION,
       compatible,
-      fixture_corpus_digest: RESUME_MODEL_CONFORMANCE_CORPUS_DIGEST,
+      fixture_corpus_digest: conformanceCorpusDigest(purpose),
       tested_at: testedAt,
       zero_unsupported_claim_gate: validationAccepted,
       schema_success_rate: schemaSuccess ? 1 : 0,

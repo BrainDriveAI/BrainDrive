@@ -68,7 +68,7 @@ export const CompatibilityMatrixSchema = z
   .object({
     matrix_version: z.literal(1),
     host_contract_versions: z.array(z.literal(APP_CONTRACT_SCHEMA_VERSION)).length(1),
-    data_read_versions: z.array(z.literal(RESUME_DATA_SCHEMA_VERSION)).length(1),
+    data_read_versions: z.tuple([z.literal(1), z.literal(RESUME_DATA_SCHEMA_VERSION)]),
     data_write_versions: z.array(z.literal(RESUME_DATA_SCHEMA_VERSION)).length(1),
     inference_versions: z.array(z.literal(RESUME_INFERENCE_SCHEMA_VERSION)).length(1),
     bridge_versions: z.array(z.literal(APP_BRIDGE_SCHEMA_VERSION)).length(1),
@@ -90,8 +90,8 @@ export type CompatibilityMatrix = z.infer<typeof CompatibilityMatrixSchema>;
 export const COMPATIBILITY_MATRIX: CompatibilityMatrix = {
   matrix_version: 1,
   host_contract_versions: [1],
-  data_read_versions: [1],
-  data_write_versions: [1],
+  data_read_versions: [1, 2],
+  data_write_versions: [2],
   inference_versions: [1],
   bridge_versions: [1],
   dependency_evidence: {

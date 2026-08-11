@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { assertContentFreeAudit, AuditEventSchema } from "../app-platform/contracts/audit.js";
 import { OpaqueIdSchema } from "../app-platform/contracts/common.js";
+import { JobEvidenceValueSchema } from "../app-platform/contracts/data.js";
 import { CapabilityNameSchema } from "../app-platform/contracts/package.js";
 import type { CapabilityGrant } from "../app-platform/lifecycle/store.js";
 import { CareerPlacementAdapter, type CareerReturnSummary } from "./career.js";
@@ -22,6 +23,9 @@ const ReadInputSchema = z.object({ record_id: z.string().uuid().optional() }).st
 const DefinitionReadInputSchema = z.union([
   ReadInputSchema,
   z.object({ view: z.literal("workspace") }).strict(),
+  z.object({ kind: z.literal("remembered_match"), explicit_job_fact_revision_id: z.string().uuid().nullable(), description: z.string().max(512) }).strict(),
+  z.object({ kind: z.literal("compare_definitions"), left_revision_id: z.string().uuid(), right_revision_id: z.string().uuid(), left_expected_revision: z.number().int().positive().optional(), right_expected_revision: z.number().int().positive().optional() }).strict(),
+  z.object({ kind: z.literal("impact_analysis"), source_definition_revision_id: z.string().uuid(), changed_fact_revision_ids: z.array(z.string().uuid()).max(500) }).strict(),
 ]);
 const OperationInputSchema = z.object({ queried_operation_id: z.string().uuid() }).strict();
 const InterviewCapabilityInputSchema = z.object({ kind: z.literal("interview_progress"), progress: z.record(z.string(), z.unknown()) }).strict();
@@ -31,7 +35,28 @@ const InterviewTurnCapabilityInputSchema = z.object({
   sensitivity: z.enum(["standard", "sensitive", "highly_sensitive"]),
   linked_confirmed_fact_revision_id: z.string().uuid().nullable(),
 }).strict();
+const InterviewRecoverySaveCapabilityInputSchema = z.object({
+  kind: z.literal("interview_recovery_save"),
+  recovery: z.record(z.string(), z.unknown()),
+}).strict();
+const InterviewRecoveryDiscardCapabilityInputSchema = z.object({
+  kind: z.literal("interview_recovery_discard"),
+  progress: z.record(z.string(), z.unknown()),
+}).strict();
+const InterviewProgressSubmitCapabilityInputSchema = z.object({
+  kind: z.literal("interview_progress_submit"),
+  progress: z.record(z.string(), z.unknown()),
+}).strict();
 const DefinitionApprovalCapabilityInputSchema = z.object({ kind: z.literal("approve_definition"), definition_record_id: z.string().uuid(), expected_revision: z.number().int().positive() }).strict();
+const RevisionRequestCapabilityInputSchema = z.object({ kind: z.literal("revision_request"), source_definition_revision_id: z.string().uuid(), target: z.object({ scope: z.enum(["statement", "section", "resume"]), target_id: z.string().min(1).max(256).nullable() }).strict(), request_text: z.string().min(1).max(8_192) }).strict();
+const RevisionOutcomeCapabilityInputSchema = z.object({ kind: z.literal("revision_outcome"), request_record_id: z.string().uuid(), expected_revision: z.number().int().positive(), classification: z.enum(["presentation", "factual", "mixed", "ambiguous"]).nullable(), state: z.enum(["submitted", "clarification_needed", "awaiting_confirmation", "generating", "proposed", "accepted", "edited", "rejected", "regenerate", "failed"]), clarification: z.string().max(2_048).nullable(), resulting_definition_revision_id: z.string().uuid().nullable(), owner_outcome: z.enum(["accept", "edit", "reject", "regenerate"]).nullable() }).strict();
+const RevisionProposalCapabilityInputSchema = z.object({
+  kind: z.literal("revision_proposal"),
+  request_record_id: z.string().uuid(),
+  expected_revision: z.number().int().positive(),
+  draft: z.record(z.string(), z.unknown()),
+  owner_outcome: z.literal("edit").nullable().optional(),
+}).strict();
 
 export type CapabilityExecutionContext = {
   authority: RestrictedCapabilityAuthority;
@@ -94,11 +119,29 @@ export class ResumeCapabilityRouter {
         case "resume.definitions.write": {
           const interview = InterviewCapabilityInputSchema.safeParse(input);
           const interviewTurn = InterviewTurnCapabilityInputSchema.safeParse(input);
+          const recoverySave = InterviewRecoverySaveCapabilityInputSchema.safeParse(input);
+          const recoveryDiscard = InterviewRecoveryDiscardCapabilityInputSchema.safeParse(input);
+          const progressSubmit = InterviewProgressSubmitCapabilityInputSchema.safeParse(input);
           const approval = DefinitionApprovalCapabilityInputSchema.safeParse(input);
-          result = interviewTurn.success
+          const revisionRequest = RevisionRequestCapabilityInputSchema.safeParse(input);
+          const revisionOutcome = RevisionOutcomeCapabilityInputSchema.safeParse(input);
+          const revisionProposal = RevisionProposalCapabilityInputSchema.safeParse(input);
+          result = recoverySave.success
+            ? await this.domain.saveInterviewRecovery(recoverySave.data.recovery, authority)
+            : recoveryDiscard.success
+              ? await this.domain.discardInterviewRecovery(recoveryDiscard.data.progress, authority)
+              : progressSubmit.success
+                ? await this.domain.submitInterviewProgress(progressSubmit.data.progress, authority)
+          : interviewTurn.success
             ? await this.domain.recordInterviewTurn(interviewTurn.data, authority)
             : interview.success
             ? await this.domain.saveInterviewProgress(interview.data.progress, authority)
+            : revisionRequest.success
+              ? await this.domain.submitRevisionRequest(revisionRequest.data, authority)
+              : revisionProposal.success
+                ? await this.domain.createRevisionProposal(revisionProposal.data, authority, context.hostOwnerConfirmed === true)
+              : revisionOutcome.success
+                ? await this.domain.recordRevisionOutcome(revisionOutcome.data, authority, context.hostOwnerConfirmed === true)
             : approval.success
               ? await this.domain.approveDefinition(approval.data, authority, context.hostOwnerConfirmed === true)
               : await this.domain.writeDefinition(input, authority, context.hostOwnerConfirmed === true);
@@ -138,6 +181,7 @@ export class ResumeCapabilityRouter {
         Date.now() - startedAt,
         Array.isArray(result) ? result.length : 1,
         this.resultWasReused(result) ? "reused" : context.idempotencyDecision ?? "created",
+        result,
       );
       return result;
     } catch (error) {
@@ -146,7 +190,7 @@ export class ResumeCapabilityRouter {
         : error instanceof z.ZodError
           ? new ResumeDomainError("invalid_input", "Capability input failed schema validation", 400)
           : new ResumeDomainError("recoverable_internal_failure", "Resume Builder data operation failed safely", 500);
-      this.emitAudit(capability, context, grant, input, this.auditOutcome(failure), failure.code, Date.now() - startedAt, null);
+      this.emitAudit(capability, context, grant, input, this.auditOutcome(failure), failure.code, Date.now() - startedAt, null, "created", undefined);
       throw failure;
     }
   }
@@ -181,6 +225,18 @@ export class ResumeCapabilityRouter {
   }
 
   private async readDefinitions(input: z.infer<typeof DefinitionReadInputSchema>, authority: DataAuthority): Promise<unknown> {
+    if ("kind" in input && input.kind === "remembered_match") {
+      const { kind: _kind, ...matchInput } = input;
+      return this.domain.matchRememberedJob(matchInput, authority);
+    }
+    if ("kind" in input && input.kind === "compare_definitions") {
+      const { kind: _kind, ...comparisonInput } = input;
+      return this.domain.compareDefinitions(comparisonInput, authority);
+    }
+    if ("kind" in input && input.kind === "impact_analysis") {
+      const { kind: _kind, ...impactInput } = input;
+      return this.domain.analyzeImpact(impactInput, authority);
+    }
     if ("record_id" in input && input.record_id) {
       const record = await this.domain.store.readHead(input.record_id, authority.grant.record_scopes);
       if (record.record_type !== "resume_definition" && record.record_type !== "tailored_variant") {
@@ -189,15 +245,28 @@ export class ResumeCapabilityRouter {
       return record;
     }
     if ("view" in input) {
-      const [definitions, variants, artifacts, exports, interview, jobs] = await Promise.all([
+      const [definitions, allHistory, variants, artifacts, exports, interview, jobs, revisionRequests] = await Promise.all([
         this.domain.store.list("resume_definition", authority.grant.record_scopes),
+        this.domain.store.allRevisions(authority.grant.record_scopes),
         this.domain.store.list("tailored_variant", authority.grant.record_scopes),
         this.domain.store.list("artifact", authority.grant.record_scopes),
         this.domain.store.list("export_receipt", authority.grant.record_scopes),
         this.domain.store.list("interview_progress", authority.grant.record_scopes),
         this.domain.store.list("job_description", authority.grant.record_scopes),
+        this.domain.store.list("resume_revision_request", authority.grant.record_scopes),
       ]);
-      return { workspace_version: 1, definitions, variants, artifacts, exports, interview, jobs };
+      return {
+        workspace_version: 2,
+        definitions,
+        definition_history: allHistory.filter((record) => record.record_type === "resume_definition"),
+        variants,
+        artifacts,
+        exports,
+        interview,
+        jobs,
+        job_history: allHistory.filter((record) => record.record_type === "job_description"),
+        revision_requests: revisionRequests,
+      };
     }
     return this.domain.readRecords("resume_definition", authority);
   }
@@ -245,15 +314,18 @@ export class ResumeCapabilityRouter {
     durationMs: number,
     itemCount: number | null,
     idempotencyDecision: "created" | "resumed" | "reused" | "conflict" = "created",
+    result?: unknown,
   ): void {
     const binding = RestrictedCapabilityAuthoritySchema.safeParse(context.authority);
     if (!binding.success || !OpaqueIdSchema.safeParse(context.correlationId).success) return;
     const source = grant ?? binding.data.context;
     const target = this.auditTarget(capability, input);
+    const eventName = this.recoveryAuditEvent(capability, input, outcome, result);
+    if (eventName === null) return;
     const event = AuditEventSchema.parse({
       event_version: 1,
       event_id: randomUUID(),
-      event_name: "app.capability.completed",
+      event_name: eventName,
       occurred_at: new Date().toISOString(),
       correlation_id: context.correlationId,
       actor_id: source.actor_id,
@@ -278,10 +350,11 @@ export class ResumeCapabilityRouter {
       schema_version: 1,
       duration_ms: Math.max(0, Math.floor(durationMs)),
       item_count: itemCount,
+      ...this.interviewAuditDetails(eventName, input, result),
     });
     assertContentFreeAudit(event);
-    const { event_name: eventName, ...details } = event;
-    this.audit(eventName, details);
+    const { event_name: emittedEventName, ...details } = event;
+    this.audit(emittedEventName, details);
   }
 
   private resultWasReused(result: unknown): boolean {
@@ -290,19 +363,159 @@ export class ResumeCapabilityRouter {
 
   private auditTarget(capability: string, input: unknown): { category: string; id: string | null; inputRevision: number | null } {
     const value = input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
+    const nested = value.kind === "interview_recovery_save"
+      ? value.recovery
+      : value.kind === "interview_recovery_discard" || value.kind === "interview_progress_submit"
+        ? value.progress
+        : null;
+    const nestedValue = nested && typeof nested === "object" && !Array.isArray(nested) ? nested as Record<string, unknown> : {};
     const candidate = [
       value.record_id,
+      nestedValue.record_id,
       value.fact_record_id,
       value.definition_record_id,
       value.artifact_revision_id,
       value.queried_operation_id,
       value.current_definition_record_id,
       value.target_definition_revision_id,
+      value.source_definition_revision_id,
+      value.request_record_id,
+      value.explicit_job_fact_revision_id,
     ].find((item) => OpaqueIdSchema.safeParse(item).success);
-    const revision = typeof value.expected_revision === "number" && Number.isSafeInteger(value.expected_revision) && value.expected_revision > 0
-      ? value.expected_revision
+    const expectedRevision = value.expected_revision ?? nestedValue.expected_revision;
+    const revision = typeof expectedRevision === "number" && Number.isSafeInteger(expectedRevision) && expectedRevision > 0
+      ? expectedRevision
       : null;
-    return { category: capability.split(".").slice(0, 2).join("_"), id: typeof candidate === "string" ? candidate : null, inputRevision: revision };
+    const category = typeof value.kind === "string" && value.kind.startsWith("interview_recovery_") ? "resume_recovery" : capability.split(".").slice(0, 2).join("_");
+    return { category, id: typeof candidate === "string" ? candidate : null, inputRevision: revision };
+  }
+
+  private recoveryAuditEvent(capability: string, input: unknown, outcome: string, result: unknown): z.infer<typeof AuditEventSchema>["event_name"] | null {
+    const value = input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
+    const resultValue = result && typeof result === "object" && !Array.isArray(result) ? result as Record<string, unknown> : {};
+    const resultFact = resultValue.fact && typeof resultValue.fact === "object" && !Array.isArray(resultValue.fact) ? resultValue.fact as Record<string, unknown> : {};
+    if (capability === "resume.definitions.read" && value.kind === "remembered_match") return "app.resume_remembered.match";
+    if (capability === "resume.definitions.read" && value.kind === "impact_analysis") return "app.resume_impact.analyzed";
+    if (capability === "resume.definitions.read" && value.kind === "compare_definitions") return "app.resume_comparison.completed";
+    if (capability === "resume.definitions.write" && value.kind === "revision_request") return "app.resume_revision.submitted";
+    if (capability === "resume.definitions.write" && value.kind === "revision_proposal") return "app.resume_revision.proposed";
+    if (capability === "resume.definitions.write" && value.kind === "revision_outcome") {
+      return ["accepted", "edited", "rejected", "regenerate"].includes(String(value.state))
+        ? "app.resume_revision.outcome"
+        : "app.resume_revision.classified";
+    }
+    const successorContext = value.successor_context && typeof value.successor_context === "object" && !Array.isArray(value.successor_context)
+      ? value.successor_context as Record<string, unknown>
+      : {};
+    if (capability === "resume.definitions.write" && successorContext.kind === "remembered_information") return "app.resume_remembered.successor";
+    if (resultFact.fact_kind === "job_evidence" && resultFact.state === "confirmed") return "app.resume_interview.question_outcome";
+    if (value.kind === "interview_progress" || value.kind === "interview_progress_submit") {
+      const progress = value.progress && typeof value.progress === "object" && !Array.isArray(value.progress) ? value.progress as Record<string, unknown> : {};
+      if (progress.active_job_fact_revision_id && progress.job_dimension && progress.selection_method) return "app.resume_interview.question_selected";
+    }
+    if (value.kind === "interview_recovery_save") return outcome === "conflict" ? "app.resume_recovery.conflict" : "app.resume_recovery.save";
+    if (value.kind === "interview_recovery_discard") return outcome === "conflict" ? "app.resume_recovery.conflict" : "app.resume_recovery.discard";
+    if (capability === "resume.definitions.read" && value.view === "workspace") {
+      const interview = result && typeof result === "object" && !Array.isArray(result) ? (result as { interview?: unknown }).interview : null;
+      if (Array.isArray(interview) && interview.some((record) => record && typeof record === "object" && (record as { recovery_draft?: unknown }).recovery_draft)) {
+        return "app.resume_recovery.restore";
+      }
+    }
+    return "app.capability.completed";
+  }
+
+  private interviewAuditDetails(eventName: z.infer<typeof AuditEventSchema>["event_name"], input: unknown, result: unknown): Record<string, unknown> {
+    if (eventName.startsWith("app.resume_revision.")) {
+      const rawInput = input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
+      const rawResult = result && typeof result === "object" && !Array.isArray(result) ? result as Record<string, unknown> : {};
+      const request = rawResult.request && typeof rawResult.request === "object" && !Array.isArray(rawResult.request) ? rawResult.request as Record<string, unknown> : {};
+      const target = request.target && typeof request.target === "object" && !Array.isArray(request.target) ? request.target as Record<string, unknown> : rawInput.target && typeof rawInput.target === "object" && !Array.isArray(rawInput.target) ? rawInput.target as Record<string, unknown> : {};
+      const draft = rawInput.draft && typeof rawInput.draft === "object" && !Array.isArray(rawInput.draft) ? rawInput.draft as Record<string, unknown> : {};
+      return {
+        revision_classification: request.classification ?? rawInput.classification ?? null,
+        revision_state: request.state ?? rawInput.state ?? null,
+        revision_scope: target.scope ?? null,
+        attempt: request.attempt ?? null,
+        change_count: Array.isArray(draft.changed_statement_ids) ? draft.changed_statement_ids.length : null,
+      };
+    }
+    if (eventName === "app.resume_comparison.completed") {
+      const rawInput = input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
+      const value = result && typeof result === "object" && !Array.isArray(result) ? result as Record<string, unknown> : {};
+      const leftRevision = OpaqueIdSchema.safeParse(rawInput.left_revision_id);
+      const rightRevision = OpaqueIdSchema.safeParse(rawInput.right_revision_id);
+      return {
+        left_definition_revision_id: leftRevision.success ? leftRevision.data : null,
+        right_definition_revision_id: rightRevision.success ? rightRevision.data : null,
+        left_definition_digest: value.left_digest ?? null,
+        right_definition_digest: value.right_digest ?? null,
+        comparison_relation: value.relation ?? null,
+        comparison_result: value.result ?? null,
+        added_count: Array.isArray(value.added) ? value.added.length : null,
+        removed_count: Array.isArray(value.removed) ? value.removed.length : null,
+        changed_count: Array.isArray(value.changed) ? value.changed.length : null,
+        moved_count: Array.isArray(value.moved) ? value.moved.length : null,
+        evidence_change_count: Array.isArray(value.evidence_changed) ? value.evidence_changed.length : null,
+      };
+    }
+    if (eventName === "app.resume_remembered.match") {
+      const value = result && typeof result === "object" && !Array.isArray(result) ? result as Record<string, unknown> : {};
+      const matches = Array.isArray(value.matches) ? value.matches : [];
+      const first = matches[0] && typeof matches[0] === "object" && !Array.isArray(matches[0]) ? matches[0] as Record<string, unknown> : {};
+      return {
+        match_method: value.method ?? null,
+        result_class: value.result_class ?? null,
+        fact_revision_id: matches.length === 1 ? first.fact_revision_id ?? null : null,
+        change_count: null,
+        variant_count: null,
+      };
+    }
+    if (eventName === "app.resume_impact.analyzed") {
+      const value = result && typeof result === "object" && !Array.isArray(result) ? result as Record<string, unknown> : {};
+      return {
+        definition_revision_id: value.source_definition_revision_id ?? null,
+        change_count: Array.isArray(value.affected_statements) ? value.affected_statements.length : null,
+        variant_count: Array.isArray(value.stale_tailored_variants) ? value.stale_tailored_variants.length : null,
+      };
+    }
+    if (eventName === "app.resume_remembered.successor") {
+      const value = result && typeof result === "object" && !Array.isArray(result) ? result as Record<string, unknown> : {};
+      const definition = value.definition && typeof value.definition === "object" && !Array.isArray(value.definition) ? value.definition as Record<string, unknown> : {};
+      const metadata = definition.metadata && typeof definition.metadata === "object" && !Array.isArray(definition.metadata) ? definition.metadata as Record<string, unknown> : {};
+      const rawInput = input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
+      const context = rawInput.successor_context && typeof rawInput.successor_context === "object" && !Array.isArray(rawInput.successor_context) ? rawInput.successor_context as Record<string, unknown> : {};
+      return {
+        definition_revision_id: metadata.revision_id ?? null,
+        change_count: Array.isArray(context.changed_fact_revision_ids) ? context.changed_fact_revision_ids.length : null,
+        variant_count: Array.isArray(context.stale_tailored_variant_revision_ids) ? context.stale_tailored_variant_revision_ids.length : null,
+      };
+    }
+    if (eventName === "app.resume_interview.question_selected") {
+      const value = input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
+      const progress = value.progress && typeof value.progress === "object" && !Array.isArray(value.progress) ? value.progress as Record<string, unknown> : {};
+      return {
+        job_revision_id: progress.active_job_fact_revision_id ?? null,
+        job_dimension: progress.job_dimension ?? null,
+        selection_method: progress.selection_method ?? null,
+        question_outcome: null,
+      };
+    }
+    if (eventName === "app.resume_interview.question_outcome") {
+      const value = result && typeof result === "object" && !Array.isArray(result) ? result as Record<string, unknown> : {};
+      const fact = value.fact && typeof value.fact === "object" && !Array.isArray(value.fact) ? value.fact as Record<string, unknown> : {};
+      let parsed: ReturnType<typeof JobEvidenceValueSchema.safeParse> | null = null;
+      if (typeof fact.value === "string") {
+        try { parsed = JobEvidenceValueSchema.safeParse(JSON.parse(fact.value)); } catch { parsed = null; }
+      }
+      if (!parsed?.success) return {};
+      return {
+        job_revision_id: parsed.data.job_fact_revision_id,
+        job_dimension: parsed.data.dimension === "identity" ? null : parsed.data.dimension,
+        selection_method: null,
+        question_outcome: parsed.data.outcome,
+      };
+    }
+    return {};
   }
 
   private isMutation(capability: string): boolean {

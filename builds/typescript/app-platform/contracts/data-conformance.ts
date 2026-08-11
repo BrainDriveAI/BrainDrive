@@ -41,6 +41,7 @@ const FactKindSchema = z.enum([
   "accomplishment",
   "project",
   "preference",
+  "job_evidence",
 ]);
 
 export const ResumeDataCapabilityContextSchema = z
@@ -107,6 +108,15 @@ const FactConfirmationPayloadSchema = z
     }
   });
 const DefinitionWritePayloadSchema = z.object({ kind: z.literal("definition_write"), candidate_digest: Sha256DigestSchema }).strict();
+const WorkspaceReadPayloadSchema = z.object({ kind: z.literal("workspace_read") }).strict();
+const RememberedMatchPayloadSchema = z.object({ kind: z.literal("remembered_match"), explicit_job_fact_revision_id: OpaqueIdSchema.nullable(), description: z.string().max(512) }).strict();
+const CompareDefinitionsPayloadSchema = z.object({ kind: z.literal("compare_definitions"), left_revision_id: OpaqueIdSchema, right_revision_id: OpaqueIdSchema }).strict();
+const ImpactAnalysisPayloadSchema = z.object({ kind: z.literal("impact_analysis"), source_definition_revision_id: OpaqueIdSchema, changed_fact_revision_ids: z.array(OpaqueIdSchema).max(500) }).strict();
+const InterviewProgressWritePayloadSchema = z.object({ kind: z.literal("interview_progress_write"), candidate_digest: Sha256DigestSchema }).strict();
+const InterviewTurnWritePayloadSchema = z.object({ kind: z.literal("interview_turn_write"), candidate_digest: Sha256DigestSchema }).strict();
+const RevisionRequestWritePayloadSchema = z.object({ kind: z.literal("revision_request_write"), candidate_digest: Sha256DigestSchema }).strict();
+const RevisionOutcomeWritePayloadSchema = z.object({ kind: z.literal("revision_outcome_write"), request_revision_id: OpaqueIdSchema, candidate_digest: Sha256DigestSchema }).strict();
+const RevisionProposalWritePayloadSchema = z.object({ kind: z.literal("revision_proposal_write"), request_revision_id: OpaqueIdSchema, candidate_digest: Sha256DigestSchema }).strict();
 const JobWritePayloadSchema = z.object({ kind: z.literal("job_write"), candidate_digest: Sha256DigestSchema }).strict();
 const ArtifactRegisterPayloadSchema = z.object({ kind: z.literal("artifact_register"), artifact_digest: Sha256DigestSchema }).strict();
 const ExportRequestPayloadSchema = z.object({ kind: z.literal("export_request"), artifact_revision_id: OpaqueIdSchema }).strict();
@@ -118,6 +128,15 @@ export const ResumeDataCapabilityPayloadSchema = z.discriminatedUnion("kind", [
   FactProposalPayloadSchema,
   FactConfirmationPayloadSchema,
   DefinitionWritePayloadSchema,
+  WorkspaceReadPayloadSchema,
+  RememberedMatchPayloadSchema,
+  CompareDefinitionsPayloadSchema,
+  ImpactAnalysisPayloadSchema,
+  InterviewProgressWritePayloadSchema,
+  InterviewTurnWritePayloadSchema,
+  RevisionRequestWritePayloadSchema,
+  RevisionOutcomeWritePayloadSchema,
+  RevisionProposalWritePayloadSchema,
   JobWritePayloadSchema,
   ArtifactRegisterPayloadSchema,
   ExportRequestPayloadSchema,
@@ -129,8 +148,8 @@ const CAPABILITY_PAYLOAD_KINDS: Readonly<Record<z.infer<typeof ResumeDataCapabil
   "career.facts.read": ["record_read"],
   "career.facts.propose": ["fact_proposal"],
   "career.facts.confirm": ["fact_confirmation"],
-  "resume.definitions.read": ["record_read"],
-  "resume.definitions.write": ["definition_write"],
+  "resume.definitions.read": ["record_read", "workspace_read", "remembered_match", "compare_definitions", "impact_analysis"],
+  "resume.definitions.write": ["definition_write", "interview_progress_write", "interview_turn_write", "revision_request_write", "revision_outcome_write", "revision_proposal_write"],
   "resume.jobs.read": ["record_read"],
   "resume.jobs.write": ["job_write"],
   "resume.artifacts.register": ["artifact_register"],
@@ -221,9 +240,9 @@ export const ResumeDataCapabilityResultSchema = z
 export const MigrationCompatibilityPolicySchema = z
   .object({
     policy_version: z.literal(1),
-    active_schema_version: z.literal(1),
-    readable_schema_versions: z.tuple([z.literal(1)]),
-    writable_schema_versions: z.tuple([z.literal(1)]),
+    active_schema_version: z.literal(2),
+    readable_schema_versions: z.tuple([z.literal(1), z.literal(2)]),
+    writable_schema_versions: z.tuple([z.literal(2)]),
     prior_release_policy: z.literal("read_immediately_prior_when_released"),
     writes_require_active_version: z.literal(true),
     unsafe_downgrade: z.literal("block_preserve_data_offer_export_or_upgrade"),
@@ -255,9 +274,9 @@ export const MigrationProvenanceSchema = z
 
 export const MIGRATION_COMPATIBILITY_POLICY = {
   policy_version: 1,
-  active_schema_version: 1,
-  readable_schema_versions: [1],
-  writable_schema_versions: [1],
+  active_schema_version: 2,
+  readable_schema_versions: [1, 2],
+  writable_schema_versions: [2],
   prior_release_policy: "read_immediately_prior_when_released",
   writes_require_active_version: true,
   unsafe_downgrade: "block_preserve_data_offer_export_or_upgrade",

@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
 
 import { closeResumeBuilderSession } from "@/api/apps-adapter";
-import SandboxedAppFrame, { isModelSettingsAction, isTrustedSandboxMessage, saveHostPdfExport } from "./SandboxedAppFrame";
+import SandboxedAppFrame, { isModelSettingsAction, isTrustedSandboxMessage, saveHostPdfExport, saveHostResumeExport } from "./SandboxedAppFrame";
 
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
@@ -76,6 +76,19 @@ describe("sandboxed MCP App frame", () => {
     expect(projected).toEqual({ safe_destination_label: "resume.pdf", definition: { kind: "general" }, parse_back: "passed" });
     expect(JSON.stringify(projected)).not.toContain("bytes_base64");
     expect(click).toHaveBeenCalled();
+    create.mockRestore(); revoke.mockRestore(); click.mockRestore();
+  });
+
+  it("downloads only strict UTF-8 text with a .txt label and keeps bytes and paths out of the projection", async () => {
+    const create = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:synthetic-text");
+    const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    const payload = btoa(String.fromCharCode(...new TextEncoder().encode("Zoë 李\nExperience\n")));
+    await expect(saveHostResumeExport({ filename: "resume.txt", mime_type: "text/plain", bytes_base64: payload, safe_destination_label: "resume.txt", definition: { kind: "general" }, parse_back: "passed" }))
+      .resolves.toEqual({ safe_destination_label: "resume.txt", definition: { kind: "general" }, parse_back: "passed" });
+    await expect(saveHostResumeExport({ filename: "resume.pdf", mime_type: "text/plain", bytes_base64: payload, safe_destination_label: "resume.pdf" })).rejects.toThrow("invalid_export_result");
+    await expect(saveHostResumeExport({ filename: "resume.txt", mime_type: "text/plain", bytes_base64: btoa("safe\0text"), safe_destination_label: "resume.txt" })).rejects.toThrow("invalid_export_result");
+    await expect(saveHostResumeExport({ filename: "resume.txt", mime_type: "text/plain", bytes_base64: btoa(String.fromCharCode(0xc3, 0x28)), safe_destination_label: "resume.txt" })).rejects.toThrow("invalid_export_result");
     create.mockRestore(); revoke.mockRestore(); click.mockRestore();
   });
 

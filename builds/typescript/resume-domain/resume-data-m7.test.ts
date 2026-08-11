@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { MODERN_FIXTURE_VERSION } from "../app-platform/lifecycle/fixture-repository.js";
 import {
   createAppLifecycle,
   type AppLifecycleRuntimeTarget,
@@ -68,7 +69,7 @@ async function exerciseRuntime(target: AppLifecycleRuntimeTarget) {
 
   try {
     const installed = await lifecycle.install({
-      version: "1.0.0",
+      version: MODERN_FIXTURE_VERSION,
       idempotencyKey: `${target}-m7-install`,
       approveCapabilities: true,
     });
@@ -241,7 +242,7 @@ async function exerciseRuntime(target: AppLifecycleRuntimeTarget) {
     )).rejects.toMatchObject({ code: "denied" });
 
     const reinstalled = await lifecycle.install({
-      version: "1.0.0",
+      version: MODERN_FIXTURE_VERSION,
       idempotencyKey: `${target}-m7-reinstall`,
       approveCapabilities: true,
     });

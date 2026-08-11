@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { NonEmptyStringSchema, OpaqueIdSchema } from "../app-platform/contracts/common.js";
-import { EvidenceStatusSchema, RequirementKindSchema } from "../app-platform/contracts/data.js";
+import { EvidenceStatusSchema, GuidanceResultSchema, JobEvidenceDimensionSchema, RequirementKindSchema, RevisionIntentClassSchema } from "../app-platform/contracts/data.js";
 import { type InferencePurpose, PURPOSE_OUTPUT_SCHEMAS } from "../app-platform/contracts/inference.js";
 
 const SupportIdsSchema = z.array(OpaqueIdSchema).max(32);
@@ -10,6 +10,7 @@ export const GeneratedStatementSchema = z.object({
   statement_id: OpaqueIdSchema,
   section_id: NonEmptyStringSchema.default("experience"),
   kind: z.enum(["factual", "presentation"]),
+  display_role: z.enum(["heading", "bullet", "line"]).optional(),
   text: z.string().min(1).max(8_192),
   supporting_confirmed_fact_revision_ids: SupportIdsSchema,
 }).strict().superRefine((value, context) => {
@@ -21,10 +22,12 @@ export const GeneratedStatementSchema = z.object({
 export const InterviewAssistResultSchema = z.object({
   questions: z.array(z.object({
     question_id: OpaqueIdSchema,
-    topic: NonEmptyStringSchema,
+    job_fact_revision_id: OpaqueIdSchema,
+    dimension: JobEvidenceDimensionSchema.exclude(["identity"]),
+    selection_method: z.literal("broker_ranked"),
     prompt: z.string().min(1).max(2_048),
     rationale: z.string().min(1).max(1_024),
-  }).strict()).min(1).max(8),
+  }).strict()).length(1),
 }).strict();
 
 export const GeneralResumeDraftResultSchema = z.object({
@@ -78,6 +81,31 @@ export const TargetedResumeDraftResultSchema = z.object({
   section_order: z.array(NonEmptyStringSchema).min(1).max(32),
 }).strict();
 
+export const ResumeRevisionClassifyResultSchema = z.object({
+  classification: RevisionIntentClassSchema,
+  target: z.object({ scope: z.enum(["statement", "section", "resume"]), target_id: z.string().min(1).max(256).nullable() }).strict(),
+  clarification: z.string().min(1).max(2_048).nullable(),
+  proposed_fact_changes: z.array(z.object({
+    fact_revision_id: OpaqueIdSchema.nullable(),
+    change_kind: z.enum(["add", "correct", "remove"]),
+    owner_visible_summary: z.string().min(1).max(1_024),
+  }).strict()).max(25),
+}).strict().superRefine((value, context) => {
+  if ((value.classification === "ambiguous") !== (value.clarification !== null)) context.addIssue({ code: "custom", message: "only ambiguous revisions require clarification" });
+  if (value.classification === "presentation" && value.proposed_fact_changes.length > 0) context.addIssue({ code: "custom", message: "presentation revisions cannot propose fact changes" });
+});
+
+export const ResumeRevisionDraftResultSchema = z.object({
+  source_definition_revision_id: OpaqueIdSchema,
+  revision_request_revision_id: OpaqueIdSchema,
+  title: z.string().min(1).max(256),
+  statements: z.array(GeneratedStatementSchema).min(1).max(500),
+  section_order: z.array(NonEmptyStringSchema).min(1).max(32),
+  changed_statement_ids: z.array(OpaqueIdSchema).max(500),
+}).strict();
+
+export const ResumeGuidanceResultSchema = GuidanceResultSchema;
+
 export const PURPOSE_RESULT_SCHEMAS = {
   interview_assist: InterviewAssistResultSchema,
   general_resume_draft: GeneralResumeDraftResultSchema,
@@ -85,6 +113,9 @@ export const PURPOSE_RESULT_SCHEMAS = {
   requirement_evidence_match: RequirementEvidenceMatchResultSchema,
   tailoring_plan: TailoringPlanResultSchema,
   targeted_resume_draft: TargetedResumeDraftResultSchema,
+  resume_revision_classify: ResumeRevisionClassifyResultSchema,
+  resume_revision_draft: ResumeRevisionDraftResultSchema,
+  resume_guidance: ResumeGuidanceResultSchema,
 } as const satisfies Record<InferencePurpose, z.ZodType>;
 
 export function parsePurposeResult(purpose: InferencePurpose, schemaId: string, value: unknown): unknown {

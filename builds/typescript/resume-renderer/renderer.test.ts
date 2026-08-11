@@ -4,11 +4,14 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { canonicalInputDigest } from "../app-platform/contracts/common.js";
 import { ResumeDomainService } from "../resume-domain/service.js";
 import { ResumeDataStore } from "../resume-domain/store.js";
 import { authority, definitionInput, ownerDecision, proposalInput, testGrant } from "../resume-domain/test-helpers.js";
 import { ResumeExportBroker } from "./export-broker.js";
-import { parseBackPdf, renderApprovedResume, renderApprovedResumeMarkdown, RESUME_TEMPLATE_ID, RESUME_TEMPLATE_VERSION, sanitizeResumeText } from "./renderer.js";
+import { parseBackPdf, renderApprovedResume, renderApprovedResumeCleanText, renderApprovedResumeMarkdown, RESUME_TEMPLATE_ID, RESUME_TEMPLATE_VERSION, sanitizeResumeText } from "./renderer.js";
+import { evaluateResumeQuality } from "../resume-inference/quality-runtime.js";
+import { extractCleanTextFields } from "../resume-inference/clean-text-extractor.js";
 
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
@@ -62,6 +65,7 @@ describe("conservative ATS PDF renderer", () => {
   it("sanitizes hostile markup, renders deterministic single-column order, and parses back exactly", async () => {
     const { definition } = await approvedDefinition();
     const rendered = renderApprovedResume(definition);
+    const clean = renderApprovedResumeCleanText(definition);
     expect(rendered.bytes.subarray(0, 8).toString("latin1")).toBe("%PDF-1.4");
     expect(rendered.page_count).toBe(1);
     expect(rendered.logical_lines).toEqual([
@@ -73,8 +77,56 @@ describe("conservative ATS PDF renderer", () => {
       "Built synthetic scheduling application in 2025",
     ]);
     expect(parseBackPdf(rendered.bytes)).toEqual(rendered.logical_lines);
+    expect(clean.logical_lines).toEqual(rendered.logical_lines);
     expect(rendered.bytes.toString("latin1")).not.toContain("script");
     expect(sanitizeResumeText("<img src=x onerror=bad()>Safe\u202E text")).toBe("Safe text");
+    if (process.env.BRAINDRIVE_M7_EVIDENCE === "1") process.stdout.write(`${JSON.stringify({
+      definition_digest: canonicalInputDigest(definition),
+      pdf_digest: rendered.artifact_digest,
+      text_digest: clean.artifact_digest,
+      quality_report_digest: definition.approval_evidence?.quality_report_digest,
+    })}\n`);
+  });
+
+  it("derives exact selectable UTF-8 clean text from the same unwrapped logical order", async () => {
+    const { definition } = await approvedDefinition();
+    const unicodeDefinition = {
+      ...definition,
+      title: "Zoë 李",
+      statements: definition.statements.map((statement, index) => index === 0
+        ? { ...statement, text: "Zoë 李 | owner@example.test" }
+        : index === 2 ? { ...statement, text: "Engineer | Acmé 工房 | 2024–Present | https://example.test/作品" } : statement),
+    };
+    const quality = evaluateResumeQuality(unicodeDefinition);
+    const clean = renderApprovedResumeCleanText({ ...unicodeDefinition, approval_evidence: { ...unicodeDefinition.approval_evidence!, quality_report_digest: quality.report_digest, quality_input_digest: quality.input_digest, quality_validator_id: quality.validator_id, quality_validator_version: quality.validator_version } });
+    expect(clean.mime_type).toBe("text/plain");
+    expect(clean.text).toBe([
+      "Zoë 李",
+      "owner@example.test",
+      "Summary",
+      "Professional & collaborator",
+      "Experience",
+      "Engineer | Acmé 工房 | 2024–Present | https://example.test/作品",
+      "",
+    ].join("\n"));
+    expect(Buffer.from(clean.bytes).toString("utf8")).toBe(clean.text);
+    expect(clean.logical_lines).toEqual(clean.text.trimEnd().split("\n"));
+    expect(extractCleanTextFields(clean.text)).toMatchObject({
+      headings: ["Summary", "Experience"],
+      emails: ["owner@example.test"],
+      urls: ["https://example.test/作品"],
+      role_associations: [{ title: "Engineer", employer: "Acmé 工房", dates: "2024–Present | https://example.test/作品" }],
+      readable_unicode: true,
+    });
+  });
+
+  it("returns clean text when PDF preparation fails", async () => {
+    const { service, definition } = await approvedDefinition();
+    const broker = new ResumeExportBroker(service, () => undefined, () => new Date(), () => { throw new Error("forced_pdf_failure"); });
+    const preview = await broker.preview({ action: "preview", definition_revision_id: definition.metadata.revision_id }, authority("resume.export.request"));
+    expect(preview).toMatchObject({ status: "clean_text_only", pdf: { status: "unavailable", error_code: "pdf_render_failed" } });
+    expect(preview.clean_text.text).toContain("Owner Name");
+    expect(preview.clean_text.instructions).toMatch(/select.*copy/i);
   });
 
   it("exports only approved lineage, records safe receipts, and leaves the definition immutable", async () => {
@@ -93,6 +145,18 @@ describe("conservative ATS PDF renderer", () => {
     const receipts = await store.list("export_receipt");
     expect(artifacts).toHaveLength(1);
     expect(receipts).toHaveLength(1);
+  });
+
+  it("prepares and finalizes a strict UTF-8 text export without exposing a path", async () => {
+    const { store, service, definition } = await approvedDefinition();
+    const broker = new ResumeExportBroker(service);
+    const exported = await broker.export({ action: "export", format: "text", definition_revision_id: definition.metadata.revision_id, safe_filename: "synthetic-resume.txt", destination_intent: "new_download", overwrite_confirmed: false }, authority("resume.export.request"));
+    expect(exported).toMatchObject({ mime_type: "text/plain", format: "text", safe_destination_label: "synthetic-resume.txt" });
+    expect(Buffer.from(exported.bytes_base64, "base64").toString("utf8")).toContain("Owner Name");
+    const finalized = await broker.finalize({ artifact_revision_id: exported.artifact_revision_id, artifact_digest: exported.artifact_digest, safe_destination_label: "chosen-resume.txt", outcome: "completed" }, authority("resume.export.request"));
+    expect(finalized.safe_destination_label).toBe("chosen-resume.txt");
+    expect(JSON.stringify(finalized)).not.toContain("/");
+    expect((await store.list("export_receipt"))[0]).toMatchObject({ format: "text" });
   });
 
   it("requires explicit overwrite and cancellation never damages approved work", async () => {

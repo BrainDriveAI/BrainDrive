@@ -9,8 +9,14 @@ import { canonicalInputDigest, canonicalJson, COMPATIBILITY_MATRIX, Compatibilit
 import {
   ArtifactRecordSchema,
   CareerFactRecordSchema,
+  DefinitionComparisonResultSchema,
   ExportReceiptRecordSchema,
+  GuidanceResultSchema,
+  ImpactAnalysisResultSchema,
+  InterviewProgressRecordSchema,
+  JobEvidenceValueSchema,
   LineageGraphSchema,
+  ResumeRevisionRequestRecordSchema,
   ResumeStatementSchema,
   RETENTION_MATRIX,
 } from "./data.js";
@@ -32,6 +38,91 @@ async function fixture(path: string): Promise<unknown> {
 }
 
 describe("versioned contract authorities", () => {
+  const ownerId = "60000000-0000-4000-8000-000000000003";
+  const envelope = (recordType: string) => ({
+    schema_version: 2,
+    record_type: recordType,
+    metadata: {
+      record_id: crypto.randomUUID(), revision_id: crypto.randomUUID(), revision: 1,
+      created_at: "2026-08-10T12:00:00.000Z",
+      created_by: {
+        owner_id: ownerId, actor_id: ownerId, app_id: "ai.braindrive.resume-builder",
+        publisher_id: "ai.braindrive", package_digest: `sha256:${"a".repeat(64)}`,
+        installation_id: "60000000-0000-4000-8000-000000000004",
+      },
+      prior_revision_id: null, extensions: {},
+    },
+    owner_id: ownerId, updated_at: "2026-08-10T12:00:00.000Z", lifecycle_state: "active",
+    sensitivity: "sensitive", retention_class: "durable_owner_data", extensions: {},
+  });
+
+  it("defines strict schema-v2 recovery, job evidence, revision, compare, impact, and guidance contracts", () => {
+    const slot = {
+      session_id: crypto.randomUUID(), job_fact_revision_id: crypto.randomUUID(),
+      question_id: "responsibilities", field_id: "answer",
+    };
+    const progress = {
+      ...envelope("interview_progress"), status: "in_progress", current_topic: "experience",
+      completed_topics: [], skipped_topics: [], draft_state: "declared_draft",
+      active_job_fact_revision_id: slot.job_fact_revision_id, current_question_id: slot.question_id,
+      current_field_id: slot.field_id, job_dimension: "responsibilities",
+      recovery_draft: {
+        slot, value: "Synthetic private draft", value_digest: canonicalInputDigest("Synthetic private draft"),
+        saved_at: "2026-08-10T12:00:00.000Z", acknowledged_revision: 1,
+      },
+      last_submitted_turn_revision_id: null,
+    };
+    expect(InterviewProgressRecordSchema.parse(progress).schema_version).toBe(2);
+    expect(InterviewProgressRecordSchema.safeParse({ ...progress, recovery_draft: { ...progress.recovery_draft, value: "x".repeat(16_385) } }).success).toBe(false);
+    expect(InterviewProgressRecordSchema.safeParse({ ...progress, owner_id: crypto.randomUUID() }).success).toBe(false);
+    expect(InterviewProgressRecordSchema.safeParse({ ...progress, schema_version: 1 }).success).toBe(false);
+
+    const jobEvidence = {
+      value_version: 1, association: "job", job_fact_revision_id: slot.job_fact_revision_id,
+      dimension: "outcomes", outcome: "answered", owner_text: "Synthetic qualitative outcome",
+    };
+    expect(JobEvidenceValueSchema.safeParse(jobEvidence).success).toBe(true);
+    expect(JobEvidenceValueSchema.safeParse({ ...jobEvidence, association: "general" }).success).toBe(false);
+    const jobEvidenceFact = {
+      ...envelope("career_fact"), fact_kind: "job_evidence", state: "suggested",
+      value: JSON.stringify(jobEvidence), source_revision_ids: [crypto.randomUUID()],
+      supersedes_fact_revision_id: null, confirmation: null, review: { reviewed_at: null, review_note: null },
+    };
+    expect(CareerFactRecordSchema.safeParse(jobEvidenceFact).success).toBe(true);
+    expect(CareerFactRecordSchema.safeParse({ ...jobEvidenceFact, schema_version: 1 }).success).toBe(false);
+
+    const revision = {
+      ...envelope("resume_revision_request"), source_definition_revision_id: crypto.randomUUID(),
+      target: { scope: "section", target_id: "experience" }, request_text: "Shorten this section.",
+      request_digest: canonicalInputDigest("Shorten this section."), classification: null,
+      state: "submitted", clarification: null, attempt: 0, resulting_definition_revision_id: null,
+      owner_outcome: null, submitted_at: "2026-08-10T12:00:00.000Z", completed_at: null,
+    };
+    expect(ResumeRevisionRequestRecordSchema.safeParse(revision).success).toBe(true);
+    expect(ResumeRevisionRequestRecordSchema.safeParse({ ...revision, request_text: "x".repeat(8_193) }).success).toBe(false);
+    expect(ResumeRevisionRequestRecordSchema.safeParse({ ...revision, schema_version: 1 }).success).toBe(false);
+    expect(ResumeRevisionRequestRecordSchema.safeParse({ ...revision, owner_id: crypto.randomUUID() }).success).toBe(false);
+    expect(ResumeRevisionRequestRecordSchema.safeParse({ ...revision, state: "accepted", resulting_definition_revision_id: crypto.randomUUID(), completed_at: revision.submitted_at }).success).toBe(false);
+
+    const comparison = {
+      comparison_version: 2, left_revision_id: crypto.randomUUID(), right_revision_id: crypto.randomUUID(),
+      left_digest: `sha256:${"b".repeat(64)}`, right_digest: `sha256:${"c".repeat(64)}`,
+      result: "available", compatibility: "compatible", relation: "related", unavailable_reason: null,
+      added: [], removed: [], changed: [], moved: [], evidence_changed: [], unchanged: [], unchanged_count: 0,
+      evidence_changes: { added_revision_ids: [], removed_revision_ids: [] }, observable_summary: [],
+    };
+    expect(DefinitionComparisonResultSchema.safeParse(comparison).success).toBe(true);
+    expect(DefinitionComparisonResultSchema.safeParse({ ...comparison, owner_resume_text: "forbidden" }).success).toBe(false);
+    expect(ImpactAnalysisResultSchema.safeParse({
+      impact_version: 1, source_definition_revision_id: comparison.left_revision_id,
+      changed_fact_revision_ids: [], affected_statements: [], stale_tailored_variants: [],
+    }).success).toBe(true);
+    expect(GuidanceResultSchema.safeParse({
+      guidance_version: 1, items: [{ category: "strong_evidence", evidence_revision_ids: [slot.job_fact_revision_id], evidence_labels: ["Confirmed job evidence"], message: "Supported evidence is available." }],
+      optional_questions: [],
+    }).success).toBe(true);
+  });
+
   it("accepts the valid package, owner-confirmed fact, and complete MCP result fixtures", async () => {
     expect(PackageManifestSchema.safeParse(await fixture("valid/package-manifest.json")).success).toBe(true);
     expect(CareerFactRecordSchema.safeParse(await fixture("valid/career-fact.json")).success).toBe(true);
@@ -413,5 +504,15 @@ describe("JSON Schema and traceability artifacts", () => {
     };
     expect(AuditEventSchema.safeParse(event).success).toBe(true);
     expect(() => assertContentFreeAudit(event)).not.toThrow();
+    const interviewEvent = {
+      ...event,
+      event_name: "app.resume_interview.question_outcome",
+      job_revision_id: "80000000-0000-4000-8000-000000000007",
+      job_dimension: "outcomes",
+      selection_method: null,
+      question_outcome: "unknown",
+    };
+    expect(() => assertContentFreeAudit(interviewEvent)).not.toThrow();
+    expect(() => assertContentFreeAudit({ ...interviewEvent, prompt: "private answer" })).toThrow(/prohibited/);
   });
 });

@@ -63,7 +63,7 @@ describe("live signed modern MCP Apps fixture", () => {
       expect(launch.protocol).toMatchObject({ core: "2026-07-28", apps_extension: "2026-01-26", server_version: MODERN_FIXTURE_VERSION });
       expect(launch.resource).toMatchObject({ uri: "ui://resume-builder/main", mime_type: "text/html;profile=mcp-app" });
       expect(launch.resource.html).toContain("Start with what BrainDrive already knows");
-      expect(launch.resource.html).toContain("ATS parse-back passed");
+      expect(launch.resource.html).toContain("Local extraction passed");
       expect(launch.resource.html).not.toMatch(/https?:|tauri:|fetch\s*\(/i);
 
       const response = await host.handleBridge(launch.session_id, {

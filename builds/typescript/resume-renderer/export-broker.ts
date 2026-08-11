@@ -6,17 +6,20 @@ import { OpaqueIdSchema } from "../app-platform/contracts/common.js";
 import type { DataAuthority } from "../resume-domain/service.js";
 import { ResumeDomainService } from "../resume-domain/service.js";
 import { ResumeDomainError } from "../resume-domain/errors.js";
-import { renderApprovedResume } from "./renderer.js";
+import { renderApprovedResume, renderApprovedResumeCleanText, RESUME_FONT_MANIFEST_DIGEST, type RenderedResume } from "./renderer.js";
 
 const PreviewRequestSchema = z.object({ action: z.literal("preview"), definition_revision_id: OpaqueIdSchema }).strict();
 const ExportRequestSchema = z.object({
   action: z.literal("export"),
+  format: z.enum(["pdf", "text"]).default("pdf"),
   definition_revision_id: OpaqueIdSchema,
-  safe_filename: z.string().min(1).max(128).regex(/^[^/\\]+\.pdf$/i),
+  safe_filename: z.string().min(1).max(128).regex(/^[^/\\]+\.(?:pdf|txt)$/i),
   destination_intent: z.enum(["new_download", "replace_existing"]),
   overwrite_confirmed: z.boolean(),
 }).strict().superRefine((value, context) => {
   if (value.destination_intent === "replace_existing" && !value.overwrite_confirmed) context.addIssue({ code: "custom", message: "replacement requires explicit overwrite confirmation" });
+  if (value.format === "pdf" && !value.safe_filename.toLocaleLowerCase().endsWith(".pdf")) context.addIssue({ code: "custom", path: ["safe_filename"], message: "PDF exports require a .pdf filename" });
+  if (value.format === "text" && !value.safe_filename.toLocaleLowerCase().endsWith(".txt")) context.addIssue({ code: "custom", path: ["safe_filename"], message: "Text exports require a .txt filename" });
 });
 const FinalizeExportRequestSchema = z.object({
   artifact_revision_id: OpaqueIdSchema,
@@ -26,18 +29,21 @@ const FinalizeExportRequestSchema = z.object({
 }).strict();
 
 export type ResumePreview = {
-  status: "ready";
+  status: "ready" | "clean_text_only";
   definition: { kind: "general" | "targeted"; safe_label: string; revision_label: string };
   format: "pdf";
   page_count: number;
   lines: string[];
-  renderer: { template: string; renderer: string; input_digest: string; parse_back: "passed" };
+  renderer: { template: string; renderer: string; input_digest: string; parse_back: "passed" | "unavailable" };
+  pdf: { status: "ready" | "unavailable"; error_code: null | "pdf_render_failed" };
+  clean_text: { text: string; digest: string; input_digest: string; mime_type: "text/plain"; selectable: true; instructions: string };
 };
 
 export type PreparedResumeExport = {
   status: "completed";
+  format: "pdf" | "text";
   filename: string;
-  mime_type: "application/pdf";
+  mime_type: "application/pdf" | "text/plain";
   bytes_base64: string;
   artifact_revision_id: string;
   artifact_digest: string;
@@ -51,21 +57,27 @@ export class ResumeExportBroker {
     private readonly domain: ResumeDomainService,
     private readonly audit: (event: string, details: Record<string, unknown>) => void = () => undefined,
     private readonly now = () => new Date(),
+    private readonly renderPdf: (definition: Parameters<typeof renderApprovedResume>[0]) => RenderedResume = renderApprovedResume,
   ) {}
 
   async preview(raw: unknown, authority: DataAuthority): Promise<ResumePreview> {
     const input = PreviewRequestSchema.parse(raw);
     const definition = await this.domain.store.readRevision(input.definition_revision_id, authority.grant.record_scopes);
     if (definition.record_type !== "resume_definition") throw new ResumeDomainError("not_found_within_scope", "Resume version was not found", 404);
-    const rendered = renderApprovedResume(definition);
-    this.audit("app.validation.completed", { app_id: authority.grant.app_id, installation_id: authority.grant.installation_id, operation_id: authority.operationId, target_category: "resume_definition", target_id: definition.metadata.record_id, outcome: "allowed", item_count: rendered.logical_lines.length, error_code: null });
+    const clean = renderApprovedResumeCleanText(definition);
+    let rendered: RenderedResume | null = null;
+    try { rendered = this.renderPdf(definition); }
+    catch { /* Clean text is deliberately prepared before the fallible PDF path. */ }
+    this.audit("app.validation.completed", { app_id: authority.grant.app_id, installation_id: authority.grant.installation_id, operation_id: authority.operationId, target_category: "resume_definition", target_id: definition.metadata.record_id, outcome: rendered ? "allowed" : "clean_text_only", item_count: clean.logical_lines.length, error_code: rendered ? null : "pdf_render_failed" });
     return {
-      status: "ready",
+      status: rendered ? "ready" : "clean_text_only",
       definition: { kind: definition.definition_kind, safe_label: definition.title, revision_label: `Version ${definition.metadata.revision}` },
       format: "pdf",
-      page_count: rendered.page_count,
-      lines: rendered.logical_lines,
-      renderer: { template: `${rendered.template_id}@${rendered.template_version}`, renderer: `${rendered.renderer_id}@${rendered.renderer_version}`, input_digest: rendered.input_digest, parse_back: "passed" },
+      page_count: rendered?.page_count ?? 0,
+      lines: rendered?.logical_lines ?? clean.logical_lines,
+      renderer: { template: `${definition.template_id}@${definition.template_version}`, renderer: rendered ? `${rendered.renderer_id}@${rendered.renderer_version}` : "unavailable", input_digest: rendered?.input_digest ?? clean.input_digest, parse_back: rendered ? "passed" : "unavailable" },
+      pdf: { status: rendered ? "ready" : "unavailable", error_code: rendered ? null : "pdf_render_failed" },
+      clean_text: { text: clean.text, digest: clean.artifact_digest, input_digest: clean.input_digest, mime_type: "text/plain", selectable: true, instructions: "Select the clean text and copy it manually if Copy or text export is unavailable." },
     };
   }
 
@@ -73,33 +85,36 @@ export class ResumeExportBroker {
     const input = ExportRequestSchema.parse(raw);
     const definition = await this.domain.store.readRevision(input.definition_revision_id, authority.grant.record_scopes);
     if (definition.record_type !== "resume_definition") throw new ResumeDomainError("not_found_within_scope", "Resume version was not found", 404);
-    const rendered = renderApprovedResume(definition);
+    const pdf = input.format === "pdf" ? this.renderPdf(definition) : null;
+    const text = input.format === "text" ? renderApprovedResumeCleanText(definition) : null;
+    const rendered = pdf ?? text!;
     if (authority.isCancelled?.()) throw new ResumeDomainError("cancelled", "Export was cancelled before creating a file");
     const artifactAuthority: DataAuthority = { ...authority, capability: "resume.artifacts.register", operationId: derivedUuid(authority.operationId, "artifact"), idempotencyKey: `${authority.idempotencyKey}:artifact` };
     const artifactResult = await this.domain.registerArtifact({
       definition_revision_id: definition.metadata.revision_id,
-      template_id: rendered.template_id,
-      template_version: rendered.template_version,
-      renderer_id: rendered.renderer_id,
-      renderer_version: rendered.renderer_version,
-      font_manifest_digest: rendered.font_manifest_digest,
+      template_id: definition.template_id,
+      template_version: definition.template_version,
+      renderer_id: pdf?.renderer_id ?? "braindrive.ats-text",
+      renderer_version: pdf?.renderer_version ?? "1",
+      font_manifest_digest: pdf?.font_manifest_digest ?? RESUME_FONT_MANIFEST_DIGEST,
       validation_run_id: definition.approval_evidence!.validation_run_id,
       findings: [],
       artifact_digest: rendered.artifact_digest,
-      format: "pdf",
+      format: input.format,
       accepted: true,
     }, artifactAuthority);
     const artifact = artifactResult.artifact;
     if (artifact.record_type !== "artifact") throw new ResumeDomainError("recoverable_internal_failure", "Export artifact registration failed");
     if (authority.isCancelled?.()) {
-      await this.domain.recordExportReceipt({ artifact_revision_id: artifact.metadata.revision_id, artifact_digest: artifact.artifact_digest, format: "pdf", outcome: "cancelled", exported_at: this.now().toISOString(), safe_destination_label: input.safe_filename }, { ...authority, operationId: derivedUuid(authority.operationId, "cancelled-receipt"), idempotencyKey: `${authority.idempotencyKey}:cancelled` });
+      await this.domain.recordExportReceipt({ artifact_revision_id: artifact.metadata.revision_id, artifact_digest: artifact.artifact_digest, format: input.format, outcome: "cancelled", exported_at: this.now().toISOString(), safe_destination_label: input.safe_filename }, { ...authority, operationId: derivedUuid(authority.operationId, "cancelled-receipt"), idempotencyKey: `${authority.idempotencyKey}:cancelled` });
       throw new ResumeDomainError("cancelled", "Export was cancelled. The approved resume was preserved.");
     }
     this.audit("app.export.prepared", { app_id: authority.grant.app_id, installation_id: authority.grant.installation_id, operation_id: authority.operationId, target_category: "artifact", target_id: artifact.metadata.record_id, outcome: "prepared", item_count: rendered.bytes.length, error_code: null });
     return {
       status: "completed",
+      format: input.format,
       filename: input.safe_filename,
-      mime_type: "application/pdf",
+      mime_type: input.format === "pdf" ? "application/pdf" : "text/plain",
       bytes_base64: rendered.bytes.toString("base64"),
       artifact_revision_id: artifact.metadata.revision_id,
       artifact_digest: artifact.artifact_digest,
@@ -112,13 +127,15 @@ export class ResumeExportBroker {
   async finalize(raw: unknown, authority: DataAuthority): Promise<{ status: "completed"; receipt_revision_id: string; safe_destination_label: string; outcome: "completed" | "cancelled" | "failed" }> {
     const input = FinalizeExportRequestSchema.parse(raw);
     const artifact = await this.domain.store.readRevision(input.artifact_revision_id, authority.grant.record_scopes);
-    if (artifact.record_type !== "artifact" || artifact.artifact_digest !== input.artifact_digest || artifact.format !== "pdf" || !artifact.accepted) {
+    if (artifact.record_type !== "artifact" || artifact.artifact_digest !== input.artifact_digest || !["pdf", "text"].includes(artifact.format) || !artifact.accepted) {
       throw new ResumeDomainError("not_found_within_scope", "Prepared export artifact was not found", 404);
     }
     const receiptAuthority = { ...authority, operationId: derivedUuid(authority.operationId, `receipt-${input.outcome}`), idempotencyKey: `${authority.idempotencyKey}:${input.outcome}` };
     const reconciled = await this.reconcileReceipt(input, receiptAuthority);
     if (reconciled) return reconciled;
-    const receiptResult = await this.domain.recordExportReceipt({ artifact_revision_id: artifact.metadata.revision_id, artifact_digest: artifact.artifact_digest, format: "pdf", outcome: input.outcome, exported_at: this.now().toISOString(), safe_destination_label: input.safe_destination_label }, receiptAuthority);
+    const expectedExtension = artifact.format === "pdf" ? ".pdf" : ".txt";
+    if (!input.safe_destination_label.toLocaleLowerCase().endsWith(expectedExtension)) throw new ResumeDomainError("validation_failed", "Export destination label does not match the prepared artifact format");
+    const receiptResult = await this.domain.recordExportReceipt({ artifact_revision_id: artifact.metadata.revision_id, artifact_digest: artifact.artifact_digest, format: artifact.format, outcome: input.outcome, exported_at: this.now().toISOString(), safe_destination_label: input.safe_destination_label }, receiptAuthority);
     const receipt = receiptResult.receipt;
     if (receipt.record_type !== "export_receipt") throw new ResumeDomainError("recoverable_internal_failure", "Export receipt registration failed");
     this.audit("app.export.completed", { app_id: authority.grant.app_id, installation_id: authority.grant.installation_id, operation_id: authority.operationId, target_category: "artifact", target_id: artifact.metadata.record_id, outcome: input.outcome, item_count: 1, error_code: input.outcome === "failed" ? "export_failed" : null });

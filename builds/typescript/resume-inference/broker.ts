@@ -12,6 +12,7 @@ import { parsePurposeResult, purposeJsonSchema } from "./results.js";
 import { validateInferenceClaims, type ValidationReport } from "./validators.js";
 import type { ResolvedInferenceProvider } from "./compatibility.js";
 import { repairResumeDraftFromConfirmedFacts } from "./repair.js";
+import { deterministicGuidanceFallback } from "./guidance.js";
 
 type InferenceRequest = z.infer<typeof InferenceRequestSchema>;
 type InferenceResult = z.infer<typeof InferenceResultSchema>;
@@ -98,9 +99,16 @@ export class ResumeInferenceBroker {
     if (new Set(revisionIds).size !== revisionIds.length) throw new ResumeInferenceError("invalid_request", "Inference snapshot contains duplicate revision identities");
     const factRevisionIds = (((facts[0] as { facts?: Array<{ revision_id?: unknown }> } | undefined)?.facts) ?? []).map((fact) => fact.revision_id);
     if (factRevisionIds.some((id) => typeof id !== "string" || !revisionIds.includes(id))) throw new ResumeInferenceError("invalid_request", "Confirmed fact identity is absent from the immutable revision set");
-    for (const block of request.data_blocks.filter((candidate) => ["general_resume_definition", "job_description"].includes(candidate.category))) {
+    for (const block of request.data_blocks.filter((candidate) => ["general_resume_definition", "job_description", "revision_instruction"].includes(candidate.category))) {
       const id = (block.data as { metadata?: { revision_id?: unknown } } | null)?.metadata?.revision_id;
       if (typeof id !== "string" || !revisionIds.includes(id)) throw new ResumeInferenceError("invalid_request", "Record data block identity is absent from the immutable revision set");
+    }
+    if (request.purpose === "resume_guidance") {
+      const categories = request.data_blocks.map((block) => block.category);
+      const allowed = new Set(["confirmed_fact_snapshot", "general_resume_definition", "deterministic_findings", "job_evidence_summary"]);
+      if (categories.some((category) => !allowed.has(category)) || categories.filter((category) => category === "confirmed_fact_snapshot").length !== 1 || categories.filter((category) => category === "general_resume_definition").length !== 1 || categories.filter((category) => category === "deterministic_findings").length !== 1) {
+        throw new ResumeInferenceError("invalid_request", "Resume guidance requires only the bounded confirmed, definition, finding, and optional job-evidence blocks");
+      }
     }
     if (Date.parse(request.deadline_at) <= this.now().getTime()) throw new ResumeInferenceError("deadline_exceeded", "Inference request deadline has elapsed");
     return request;
@@ -121,7 +129,7 @@ export class ResumeInferenceBroker {
       let response: StructuredCompletionResponse | null = null;
       let validation: ValidationReport | null = null;
       let repairContext: ResumeRepairContext | undefined;
-      let repair: "provider_validation_repair" | "deterministic_fact_fallback" | null = null;
+      let repair: "provider_validation_repair" | "deterministic_fact_fallback" | "deterministic_guidance_fallback" | null = null;
       for (let attempt = 1; attempt <= request.limits.attempts; attempt += 1) {
         throwIfAborted(signal);
         attempts = attempt;
@@ -161,6 +169,11 @@ export class ResumeInferenceBroker {
         } catch {
           if (attempt < request.limits.attempts) repairContext = { kind: "structural" };
         }
+      }
+      if (request.purpose === "resume_guidance" && (result === undefined || validation === null || !validation.accepted)) {
+        result = deterministicGuidanceFallback(request.data_blocks);
+        validation = validateInferenceClaims(request.purpose, result, request.data_blocks);
+        repair = "deterministic_guidance_fallback";
       }
       if (response === null || result === undefined || validation === null) {
         throw new ResumeInferenceError("schema_validation_failed", "Provider output failed the accepted schema after one structural repair");
@@ -219,6 +232,22 @@ export class ResumeInferenceBroker {
       return { inference, validation };
     } catch (error) {
       const classified = classifyInferenceError(error, signal);
+      if (request.purpose === "resume_guidance" && !["cancelled", "denied"].includes(classified.code)) {
+        const result = deterministicGuidanceFallback(request.data_blocks);
+        const validation = validateInferenceClaims(request.purpose, result, request.data_blocks);
+        if (validation.accepted) {
+          const completedAt = this.now().toISOString();
+          const inference = InferenceResultSchema.parse({
+            inference_schema_version: 1, request_id: request.request_id, operation_id: request.operation_id, purpose: request.purpose,
+            status: "completed", prompt_policy_id: request.prompt_policy_id, prompt_policy_version: request.prompt_policy_version,
+            output_schema_id: request.output_schema_id, output_schema_version: 1, input_digest: inputDigest,
+            output_digest: canonicalInputDigest(result), result, provider_profile_id: null, model_id: null, attempt_count: attempts,
+            usage: { available: false, input_tokens: null, output_tokens: null }, error: null, started_at: startedAt, completed_at: completedAt,
+          });
+          this.audit("app.inference.completed", this.auditFields(request, { status: "completed", attempt: attempts, repair: "deterministic_guidance_fallback", error_code: classified.code }));
+          return { inference, validation };
+        }
+      }
       const status = classified.code === "cancelled" ? "cancelled" : classified.code === "deadline_exceeded" ? "deadline_exceeded" : classified.code === "model_incompatible" ? "rejected_incompatible" : "failed";
       const inference = this.failure(request, startedAt, inputDigest, provider, attempts, status, classified);
       this.audit("app.inference.completed", this.auditFields(request, { status, attempt: attempts, error_code: classified.code, ...(provider ? { model_class: provider.modelClass } : {}) }));

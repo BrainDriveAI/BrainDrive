@@ -61,7 +61,7 @@ Web changes also run typecheck/build even when a focused unit test passes. Provi
 
 `tauri.conf.json` configures Windows, macOS, and Linux bundle targets. The V1 development-support claim is narrower: native Windows for J-05. macOS and Linux remain configured targets without a V1 J-05 claim. WSL/Linux may supply preflight, test, build, and launch diagnostics, but cannot substitute for native Windows evidence.
 
-The native Windows report is `DEFERRED — REQUIRED BEFORE MILESTONE 7` until integrated. Final readiness must fail closed while it is absent, failed, or incompatible. The earlier WSL dynamic-gateway handoff failure remains a failed diagnostic artifact; it is not a passing journey and is not a waiver.
+The prior Specs 1–5 native Windows report does not prove later source changes. Spec 06 Milestone 8 requires fresh native Windows evidence from the exact candidate after Docker acceptance. Final readiness must fail closed while that evidence is absent, failed, incompatible, or stale. WSL/Linux and browser results are useful diagnostics, but they are not native Windows evidence or a waiver.
 
 ## OPEN-06 and browser E2E
 

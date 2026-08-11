@@ -13,7 +13,7 @@ import {
 } from "./lifecycle.js";
 import { ResumeDomainService } from "./service.js";
 import { ResumeDataStore, type MigrationFaultPoint } from "./store.js";
-import { authority, proposalInput, testGrant } from "./test-helpers.js";
+import { authority, definitionInput, ownerDecision, proposalInput, testGrant } from "./test-helpers.js";
 
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
@@ -24,10 +24,23 @@ async function root(prefix: string) {
   return value;
 }
 
-const compatibility = { read_min: 1, read_max: 1, write_version: 1 } as const;
+const compatibility = { read_min: 1, read_max: 2, write_version: 2 } as const;
+
+function schemaOneCatalog(ownerId: string, extensions: Record<string, unknown> = {}) {
+  const body = {
+    catalog_version: 1 as const,
+    data_schema_version: 1 as const,
+    owner_id: ownerId,
+    generation: 0,
+    created_at: "2026-08-10T12:00:00.000Z",
+    updated_at: "2026-08-10T12:00:00.000Z",
+    heads: {}, revisions: {}, operations: {}, extensions,
+  };
+  return { ...body, integrity_digest: canonicalInputDigest(body) };
+}
 
 describe("M6 migration, retention, and retained-data lifecycle", () => {
-  it("runs the deterministic 0-to-1 step with recovery and exact provenance while preserving extensions", async () => {
+  it("runs deterministic 0-to-1-to-2 steps with exact provenance while preserving extensions", async () => {
     const memoryRoot = await root("bd-resume-m6-migrate-");
     const namespace = path.join(memoryRoot, "apps", "resume-builder");
     await mkdir(namespace, { recursive: true });
@@ -43,22 +56,76 @@ describe("M6 migration, retention, and retained-data lifecycle", () => {
     const store = new ResumeDataStore(memoryRoot, namespace, {}, false);
     await store.initialize(testGrant().owner_id);
     const catalog = await store.catalog();
-    expect(catalog).toMatchObject({ data_schema_version: 1, extensions: legacy.extensions });
-    const migrations = await store.list("migration");
-    expect(migrations).toHaveLength(1);
-    expect(migrations[0]).toMatchObject({
-      from_schema_version: 0,
-      to_schema_version: 1,
-      status: "committed",
-      extensions: {
-        migration_provenance: {
-          provenance_version: 1,
-          transformer_id: "resume-data.schema-0-to-1",
-          method: "deterministic_no_ai",
-        },
-      },
-    });
+    expect(catalog).toMatchObject({ data_schema_version: 2, extensions: legacy.extensions });
+    const migrations = (await store.list("migration")).filter((record) => record.record_type === "migration");
+    expect(migrations).toHaveLength(2);
+    const orderedMigrations = [...migrations].sort((left, right) => left.from_schema_version - right.from_schema_version);
+    expect(orderedMigrations.map((migration) => [migration.from_schema_version, migration.to_schema_version])).toEqual([[0, 1], [1, 2]]);
+    expect(orderedMigrations[1]).toMatchObject({ status: "committed", extensions: { migration_provenance: {
+      provenance_version: 1, transformer_id: "resume-data.schema-1-to-2", method: "deterministic_no_ai",
+    } } });
     expect((await store.integrityScan()).status).toBe("verified");
+  });
+
+  it("restores schema 1 byte-for-byte for every injected 1-to-2 interruption and succeeds on restart", async () => {
+    const faultPoints: MigrationFaultPoint[] = ["after_snapshot", "after_records", "after_staged_catalog", "after_marker", "after_catalog_switch"];
+    for (const faultPoint of faultPoints) {
+      const memoryRoot = await root(`bd-resume-m1-v2-fault-${faultPoint}-`);
+      const namespace = path.join(memoryRoot, "apps", "resume-builder");
+      await mkdir(namespace, { recursive: true });
+      const schemaOne = schemaOneCatalog(testGrant().owner_id, { retained_fault_marker: faultPoint });
+      const bytes = `${JSON.stringify(schemaOne, null, 2)}\n`;
+      await writeFile(path.join(namespace, "catalog.json"), bytes, "utf8");
+      await expect(new ResumeDataStore(memoryRoot, namespace, { migrationFaultPoint: faultPoint }, false).initialize(testGrant().owner_id))
+        .rejects.toMatchObject({ code: "recoverable_internal_failure" });
+      expect(await readFile(path.join(namespace, "catalog.json"), "utf8")).toBe(bytes);
+      const restarted = new ResumeDataStore(memoryRoot, namespace, {}, false);
+      await restarted.initialize(testGrant().owner_id);
+      expect(await restarted.catalog()).toMatchObject({ data_schema_version: 2, extensions: schemaOne.extensions });
+    }
+  });
+
+  it("preserves schema-1 record bytes, locators, digests, operations, and extensions through 1-to-2", async () => {
+    const sourceRoot = await root("bd-resume-m1-v2-retained-source-");
+    const sourceStore = new ResumeDataStore(sourceRoot, undefined, {}, false);
+    await sourceStore.initialize(testGrant().owner_id);
+    await new ResumeDomainService(sourceStore).proposeFact(proposalInput(), authority("career.facts.propose"));
+    const sourceCatalog = await sourceStore.catalog();
+
+    const targetRoot = await root("bd-resume-m1-v2-retained-target-");
+    const targetNamespace = path.join(targetRoot, "apps", "resume-builder");
+    const retainedRevisions: Record<string, (typeof sourceCatalog.revisions)[string]> = {};
+    const retainedBytes = new Map<string, string>();
+    for (const [revisionId, locator] of Object.entries(sourceCatalog.revisions)) {
+      const record = JSON.parse(await readFile(path.join(sourceStore.namespaceRoot, locator.relative_path), "utf8"));
+      const schemaOneRecord = { ...record, schema_version: 1 };
+      const bytes = `${JSON.stringify(schemaOneRecord)}\n`;
+      const targetPath = path.join(targetNamespace, locator.relative_path);
+      await mkdir(path.dirname(targetPath), { recursive: true });
+      await writeFile(targetPath, bytes, "utf8");
+      retainedBytes.set(revisionId, bytes);
+      retainedRevisions[revisionId] = { ...locator, content_digest: canonicalInputDigest(schemaOneRecord) };
+    }
+    const { integrity_digest: _sourceIntegrity, ...sourceBody } = sourceCatalog;
+    const schemaOneBody = {
+      ...sourceBody,
+      data_schema_version: 1 as const,
+      revisions: retainedRevisions,
+      extensions: { ...sourceBody.extensions, retained_v2_test: { exact: true } },
+    };
+    const schemaOne = { ...schemaOneBody, integrity_digest: canonicalInputDigest(schemaOneBody) };
+    await mkdir(targetNamespace, { recursive: true });
+    await writeFile(path.join(targetNamespace, "catalog.json"), `${JSON.stringify(schemaOne)}\n`, "utf8");
+
+    const migrated = new ResumeDataStore(targetRoot, targetNamespace, {}, false);
+    await migrated.initialize(testGrant().owner_id);
+    const result = await migrated.catalog();
+    expect(result.extensions).toEqual(schemaOne.extensions);
+    expect(result.operations).toEqual(schemaOne.operations);
+    for (const [revisionId, locator] of Object.entries(retainedRevisions)) {
+      expect(result.revisions[revisionId]).toEqual(locator);
+      expect(await readFile(path.join(targetNamespace, locator.relative_path), "utf8")).toBe(retainedBytes.get(revisionId));
+    }
   });
 
   it("restores the prior readable catalog for every injected migration failure and succeeds on restart", async () => {
@@ -76,7 +143,7 @@ describe("M6 migration, retention, and retained-data lifecycle", () => {
 
       const restarted = new ResumeDataStore(memoryRoot, namespace, {}, false);
       await restarted.initialize(testGrant().owner_id);
-      expect((await restarted.catalog()).data_schema_version).toBe(1);
+      expect((await restarted.catalog()).data_schema_version).toBe(2);
       expect((await restarted.integrityScan()).staged_transaction_count).toBe(0);
     }
   });
@@ -86,7 +153,7 @@ describe("M6 migration, retention, and retained-data lifecycle", () => {
     const store = new ResumeDataStore(memoryRoot, undefined, {}, false);
     await store.initialize(testGrant().owner_id);
     const catalogPath = path.join(store.namespaceRoot, "catalog.json");
-    const newer = { ...JSON.parse(await readFile(catalogPath, "utf8")), data_schema_version: 2 };
+    const newer = { ...JSON.parse(await readFile(catalogPath, "utf8")), data_schema_version: 3 };
     const retained = `${JSON.stringify(newer)}\n`;
     await writeFile(catalogPath, retained, "utf8");
     const adapter = new ResumeDataLifecycleAdapter(memoryRoot, store.namespaceRoot);
@@ -94,7 +161,7 @@ describe("M6 migration, retention, and retained-data lifecycle", () => {
     expect(await readFile(catalogPath, "utf8")).toBe(retained);
     await expect(adapter.repairState(compatibility)).resolves.toMatchObject({
       state: "incompatible",
-      retained_schema_version: 2,
+      retained_schema_version: 3,
       data_preserved: true,
       owner_export_available: true,
     });
@@ -117,9 +184,50 @@ describe("M6 migration, retention, and retained-data lifecycle", () => {
     const { export_digest: exportDigest, ...exportBody } = exported;
     expect(exported.records).toHaveLength(2);
     expect(exportDigest).toBe(canonicalInputDigest(exportBody));
-    expect(prepared.receipt).toMatchObject({ export_version: 1, record_count: 2, schema_version: 1 });
+    expect(prepared.receipt).toMatchObject({ export_version: 1, record_count: 2, schema_version: 2 });
     expect(JSON.stringify(prepared.receipt)).not.toContain(memoryRoot);
     expect(JSON.stringify(prepared.receipt)).not.toContain("path");
+  });
+
+  it("exports and reconstructs exact natural-language request-to-successor lineage without operational exposure", async () => {
+    const memoryRoot = await root("bd-resume-m6-revision-export-");
+    const store = new ResumeDataStore(memoryRoot, undefined, {}, false);
+    await store.initialize(testGrant().owner_id);
+    const service = new ResumeDomainService(store, () => new Date("2026-08-10T12:00:00.000Z"));
+    const proposedFact = await service.proposeFact(proposalInput(), authority("career.facts.propose"));
+    const confirmationAuthority = authority("career.facts.confirm");
+    const confirmed = await service.confirmFact({ fact_record_id: proposedFact.fact.metadata.record_id, fact_revision_id: proposedFact.fact.metadata.revision_id, expected_revision: 1, decision: "accept", edited_value: null, review_note: null }, confirmationAuthority, ownerDecision(confirmationAuthority, proposedFact.fact.metadata.revision_id));
+    const source = await service.writeDefinition(definitionInput(confirmed.fact.metadata.revision_id), authority("resume.definitions.write"), true);
+    const submitted = await service.submitRevisionRequest({ kind: "revision_request", source_definition_revision_id: source.definition.metadata.revision_id, target: { scope: "resume", target_id: null }, request_text: "Reorder the supported wording." }, authority("resume.definitions.write"));
+    const generating = await service.recordRevisionOutcome({ kind: "revision_outcome", request_record_id: submitted.request.metadata.record_id, expected_revision: 1, classification: "presentation", state: "generating", clarification: null, resulting_definition_revision_id: null, owner_outcome: null }, authority("resume.definitions.write"));
+    const statement = source.definition.record_type === "resume_definition" ? source.definition.statements[0]! : null;
+    if (!statement) throw new Error("expected source statement");
+    const result = await service.createRevisionProposal({
+      kind: "revision_proposal",
+      request_record_id: generating.request.metadata.record_id,
+      expected_revision: generating.request.metadata.revision,
+      draft: {
+        source_definition_revision_id: source.definition.metadata.revision_id,
+        revision_request_revision_id: generating.request.metadata.revision_id,
+        title: "General Resume",
+        statements: [{ ...statement, text: "Statement: Synthetic supported" }],
+        changed_statement_ids: [statement.statement_id],
+        section_order: ["experience"],
+      },
+    }, authority("resume.definitions.write"));
+
+    const graph = await service.referenceGraph(authority("resume.definitions.read"));
+    expect(graph.edges).toEqual(expect.arrayContaining([
+      { from_revision_id: result.definition.metadata.revision_id, to_revision_id: generating.request.metadata.revision_id, relation: "derived_from" },
+      { from_revision_id: result.request.metadata.revision_id, to_revision_id: result.definition.metadata.revision_id, relation: "resulted_in" },
+    ]));
+    const prepared = await new ResumeDataLifecycleAdapter(memoryRoot, store.namespaceRoot).prepareOwnerExport();
+    const exported = JSON.parse(await readFile(prepared.internalArchivePath, "utf8"));
+    expect(exported.records).toEqual(expect.arrayContaining([
+      expect.objectContaining({ record_type: "resume_revision_request", request_text: "Reorder the supported wording.", resulting_definition_revision_id: result.definition.metadata.revision_id }),
+      expect.objectContaining({ record_type: "resume_definition", metadata: expect.objectContaining({ revision_id: result.definition.metadata.revision_id }), successor_context: expect.objectContaining({ revision_request_revision_id: generating.request.metadata.revision_id }) }),
+    ]));
+    expect(JSON.stringify(prepared.receipt)).not.toContain("Reorder the supported wording");
   });
 
   it("validates retained data on lifecycle activation, preserves it on uninstall, removes transients, and rejects old authority after reinstall", async () => {
@@ -165,7 +273,7 @@ describe("M6 migration, retention, and retained-data lifecycle", () => {
     const dataRoot = await root("bd-resume-m6-valid-transfer-");
     const store = new ResumeDataStore(dataRoot, undefined, {}, false);
     await store.initialize(testGrant().owner_id);
-    await expect(validateResumeDataTransfer(dataRoot)).resolves.toMatchObject({ state: "verified", schema_version: 1 });
+    await expect(validateResumeDataTransfer(dataRoot)).resolves.toMatchObject({ state: "verified", schema_version: 2 });
   });
 
   it("blocks lifecycle changes while a whole-memory transfer is active", async () => {
@@ -207,9 +315,8 @@ describe("M6 migration, retention, and retained-data lifecycle", () => {
     await harness.service.install({ version: "1.0.0", idempotencyKey: "m6-rollback-install-v1", approveCapabilities: true });
     const updated = await harness.service.update({ version: "2.0.0", idempotencyKey: "m6-rollback-update-v2", approveCapabilities: true });
     const catalogPath = path.join(harness.ownerDataRoot, "catalog.json");
-    const catalog = JSON.parse(await readFile(catalogPath, "utf8"));
-    const newerBytes = `${JSON.stringify({ ...catalog, data_schema_version: 2 })}\n`;
-    await writeFile(catalogPath, newerBytes, "utf8");
+    await new ResumeDataStore(lifecycleRoot, harness.ownerDataRoot, {}, false).initialize(testGrant().owner_id);
+    const newerBytes = await readFile(catalogPath, "utf8");
 
     await expect(harness.service.rollback({ idempotencyKey: "m6-rollback-incompatible" }))
       .rejects.toMatchObject({ code: "incompatible_schema" });
@@ -246,6 +353,7 @@ describe("M6 migration, retention, and retained-data lifecycle", () => {
     const installed = await harness.service.install({ version: "1.0.0", idempotencyKey: "m6-corrupt-uninstall-install", approveCapabilities: true });
     const catalogPath = path.join(harness.ownerDataRoot, "catalog.json");
     const corruptBytes = "{corrupt-retained-data\n";
+    await mkdir(harness.ownerDataRoot, { recursive: true });
     await writeFile(catalogPath, corruptBytes, "utf8");
 
     await expect(harness.service.uninstall({ idempotencyKey: "m6-corrupt-uninstall-action" }))

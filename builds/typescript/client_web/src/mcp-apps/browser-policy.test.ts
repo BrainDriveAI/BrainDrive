@@ -6,7 +6,7 @@ import {
 const policy: BrowserActionPolicy = {
   allowedLinkOrigins: ["https://docs.braindrive.ai"],
   clipboardWrite: true,
-  exportMimeTypes: ["application/pdf"],
+  exportMimeTypes: ["application/pdf", "text/plain"],
   maxClipboardBytes: 16_384,
   maxExportBytes: 2_097_152,
 };
@@ -51,6 +51,12 @@ describe("MCP App privileged browser policy", () => {
       .toMatchObject({ allowed: false, code: "export_name_denied" });
     expect(broker.validateExport({ safeFilename: "resume.pdf", mimeType: "text/html", sizeBytes: 8_000 }, true, true))
       .toMatchObject({ allowed: false, code: "export_type_denied" });
+    expect(broker.validateExport({ safeFilename: "resume.txt", mimeType: "text/plain", sizeBytes: 8_000 }, true, true))
+      .toMatchObject({ allowed: true });
+    expect(broker.validateExport({ safeFilename: "resume.pdf", mimeType: "text/plain", sizeBytes: 8_000 }, true, true))
+      .toMatchObject({ allowed: false, code: "export_name_denied" });
+    expect(broker.validateExport({ safeFilename: "resume.txt", mimeType: "text/plain", sizeBytes: 2_097_153 }, true, true))
+      .toMatchObject({ allowed: false, code: "export_oversized" });
     expect(JSON.stringify(broker.validateExport({ safeFilename: "resume.pdf", mimeType: "application/pdf", sizeBytes: 8_000 }, true, true)))
       .not.toMatch(/\/(?:home|Users|tmp|var)\//);
   });

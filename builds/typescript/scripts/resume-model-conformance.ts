@@ -15,7 +15,17 @@ if (!profileId) throw new Error("No active provider profile");
 const credential = await resolveProviderCredentialForStartup("openai-compatible", effective, preferences);
 const adapter = createModelAdapter("openai-compatible", adapterConfig, preferences, { apiKey: credential?.apiKey });
 const requestedPurposes = process.env.BRAINDRIVE_RESUME_CONFORMANCE_PURPOSES?.split(",").map((value) => value.trim()).filter(Boolean);
-const allowedPurposes = ["interview_assist", "general_resume_draft", "job_description_analyze", "requirement_evidence_match", "tailoring_plan", "targeted_resume_draft"] as const;
+const allowedPurposes = [
+  "interview_assist",
+  "general_resume_draft",
+  "job_description_analyze",
+  "requirement_evidence_match",
+  "tailoring_plan",
+  "targeted_resume_draft",
+  "resume_revision_classify",
+  "resume_revision_draft",
+  "resume_guidance",
+] as const;
 if (requestedPurposes?.some((purpose) => !allowedPurposes.includes(purpose as typeof allowedPurposes[number]))) throw new Error("Unknown Resume Builder conformance purpose");
 const diagnostics: unknown[] = [];
 const result = await runResumeModelConformance({

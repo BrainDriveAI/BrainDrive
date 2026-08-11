@@ -22,6 +22,7 @@ import type {
 } from "../app-platform/lifecycle/owner-data.js";
 import { ResumeDomainError } from "./errors.js";
 import { ResumeDataStore } from "./store.js";
+import { RESUME_DATA_SCHEMA_VERSION } from "../app-platform/contracts/constants.js";
 
 const RawCatalogIdentitySchema = z.object({
   data_schema_version: z.number().int().nonnegative(),
@@ -35,7 +36,7 @@ function opaqueIdFor(seed: string): string {
 
 export type ResumeDataTransferValidation =
   | { state: "missing"; schema_version: null; revision_count: 0 }
-  | { state: "verified"; schema_version: 1; revision_count: number };
+  | { state: "verified"; schema_version: 2; revision_count: number };
 
 export type ResumeDataRepairState = {
   state: "missing" | "ready" | "incompatible" | "repair_required";
@@ -59,11 +60,11 @@ export class ResumeDataLifecycleAdapter implements OwnerDataLifecycle, ResumeLif
       const raw = await this.readIdentity();
       if (!raw) return ResumeLifecycleDataAdapterResultSchema.parse({ action: "inspect_schema", outcome: "missing", observed_schema_version: null, readable: false, writable: false, content_digest: null }) as Awaited<ReturnType<ResumeLifecycleDataAdapter["inspectSchema"]>>;
       if (raw.owner_id !== parsed.context.owner_id) throw new ResumeDomainError("denied", "Retained owner data belongs to a different owner", 403);
-      if (raw.data_schema_version !== 1) return ResumeLifecycleDataAdapterResultSchema.parse({ action: "inspect_schema", outcome: "incompatible", observed_schema_version: Math.max(1, raw.data_schema_version), readable: false, writable: false, content_digest: canonicalInputDigest(raw) }) as Awaited<ReturnType<ResumeLifecycleDataAdapter["inspectSchema"]>>;
+      if (raw.data_schema_version > RESUME_DATA_SCHEMA_VERSION) return ResumeLifecycleDataAdapterResultSchema.parse({ action: "inspect_schema", outcome: "incompatible", observed_schema_version: raw.data_schema_version, readable: false, writable: false, content_digest: canonicalInputDigest(raw) }) as Awaited<ReturnType<ResumeLifecycleDataAdapter["inspectSchema"]>>;
       const store = new ResumeDataStore(this.memoryRoot, this.namespaceRoot, {}, false);
       await store.initialize(raw.owner_id);
       const catalog = await store.catalog();
-      return ResumeLifecycleDataAdapterResultSchema.parse({ action: "inspect_schema", outcome: "compatible", observed_schema_version: 1, readable: true, writable: true, content_digest: canonicalInputDigest(catalog) }) as Awaited<ReturnType<ResumeLifecycleDataAdapter["inspectSchema"]>>;
+      return ResumeLifecycleDataAdapterResultSchema.parse({ action: "inspect_schema", outcome: "compatible", observed_schema_version: RESUME_DATA_SCHEMA_VERSION, readable: true, writable: true, content_digest: canonicalInputDigest(catalog) }) as Awaited<ReturnType<ResumeLifecycleDataAdapter["inspectSchema"]>>;
     } catch (error) {
       if (error instanceof ResumeDomainError && error.code === "denied") throw error;
       return ResumeLifecycleDataAdapterResultSchema.parse({ action: "inspect_schema", outcome: "repair_required", observed_schema_version: null, readable: false, writable: false, content_digest: null }) as Awaited<ReturnType<ResumeLifecycleDataAdapter["inspectSchema"]>>;
@@ -107,12 +108,14 @@ export class ResumeDataLifecycleAdapter implements OwnerDataLifecycle, ResumeLif
     const parsed = ResumeLifecycleDataAdapterRequestSchema.parse(request);
     if (parsed.action !== "migrate") throw new ResumeDomainError("invalid_input", "Lifecycle data action is invalid", 400);
     await this.requireSnapshot(parsed.context.owner_id, parsed.snapshot_id, parsed.from_schema_version);
-    if (parsed.from_schema_version !== parsed.to_schema_version || parsed.to_schema_version !== 1) {
+    if (!((parsed.from_schema_version === 1 && parsed.to_schema_version === RESUME_DATA_SCHEMA_VERSION) || (parsed.from_schema_version === RESUME_DATA_SCHEMA_VERSION && parsed.to_schema_version === RESUME_DATA_SCHEMA_VERSION))) {
       throw new ResumeDomainError("incompatible_schema", "No accepted deterministic Resume Builder migration exists for this schema pair", 409);
     }
+    const identity = await this.requireIdentity();
+    await new ResumeDataStore(this.memoryRoot, this.namespaceRoot, {}, false).initialize(identity.owner_id);
     const inspected = await this.inspectSchema({ action: "inspect_schema", context: parsed.context });
     if (inspected.outcome !== "compatible" || inspected.content_digest === null) throw new ResumeDomainError("validation_failed", "Migrated Resume Builder data did not validate", 409);
-    return ResumeLifecycleDataAdapterResultSchema.parse({ action: "migrate", migration_id: opaqueIdFor(`migration:${parsed.context.operation_id}:${parsed.snapshot_id}`), snapshot_id: parsed.snapshot_id, from_schema_version: 1, to_schema_version: 1, result_digest: inspected.content_digest }) as Awaited<ReturnType<ResumeLifecycleDataAdapter["migrate"]>>;
+    return ResumeLifecycleDataAdapterResultSchema.parse({ action: "migrate", migration_id: opaqueIdFor(`migration:${parsed.context.operation_id}:${parsed.snapshot_id}`), snapshot_id: parsed.snapshot_id, from_schema_version: parsed.from_schema_version, to_schema_version: RESUME_DATA_SCHEMA_VERSION, result_digest: inspected.content_digest }) as Awaited<ReturnType<ResumeLifecycleDataAdapter["migrate"]>>;
   }
 
   async restore(request: Parameters<ResumeLifecycleDataAdapter["restore"]>[0]): Promise<Awaited<ReturnType<ResumeLifecycleDataAdapter["restore"]>>> {
@@ -126,10 +129,18 @@ export class ResumeDataLifecycleAdapter implements OwnerDataLifecycle, ResumeLif
     const restoredRaw = JSON.parse(await readFile(temporary, "utf8")) as unknown;
     if (canonicalInputDigest(restoredRaw) !== metadata.snapshot_digest) throw new ResumeDomainError("validation_failed", "Recovery snapshot integrity check failed", 409);
     await rename(temporary, path.join(this.namespaceRoot, "catalog.json"));
-    const store = new ResumeDataStore(this.memoryRoot, this.namespaceRoot, {}, false);
-    await store.initialize(parsed.context.owner_id);
-    const catalog = await store.catalog();
-    const restoredDigest = canonicalInputDigest(catalog);
+    const restoredSchemaVersion = z.union([z.literal(1), z.literal(RESUME_DATA_SCHEMA_VERSION)]).parse(metadata.schema_version);
+    const manifestTemporary = path.join(this.namespaceRoot, `manifest.${parsed.context.operation_id}.restore.json`);
+    await writeFile(manifestTemporary, `${canonicalJson({
+      manifest_version: 1,
+      data_schema_version: restoredSchemaVersion,
+      active_catalog: "catalog.json",
+      records_directory: "records",
+      transactions_directory: "transactions",
+      integrity_algorithm: "sha256",
+    })}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    await rename(manifestTemporary, path.join(this.namespaceRoot, "manifest.json"));
+    const restoredDigest = canonicalInputDigest(restoredRaw);
     if (restoredDigest !== metadata.snapshot_digest) throw new ResumeDomainError("validation_failed", "Restored Resume Builder data differs from its recovery snapshot", 409);
     return ResumeLifecycleDataAdapterResultSchema.parse({ action: "restore", snapshot_id: parsed.snapshot_id, restored_schema_version: metadata.schema_version, restored_digest: restoredDigest }) as Awaited<ReturnType<ResumeLifecycleDataAdapter["restore"]>>;
   }
@@ -146,7 +157,7 @@ export class ResumeDataLifecycleAdapter implements OwnerDataLifecycle, ResumeLif
       .filter((name) => /^[0-9a-f-]{36}\.meta\.json$/i.test(name)).map((name) => name.slice(0, -10)).sort();
   }
 
-  async prepareActivation(request: OwnerDataActivationRequest): Promise<{ state: "ready"; schema_version: 1; migrated: boolean; revision_count: number }> {
+  async prepareActivation(request: OwnerDataActivationRequest): Promise<{ state: "ready"; schema_version: number; migrated: boolean; revision_count: number }> {
     const startedAt = Date.now();
     let raw: z.infer<typeof RawCatalogIdentitySchema> | null;
     try {
@@ -159,7 +170,11 @@ export class ResumeDataLifecycleAdapter implements OwnerDataLifecycle, ResumeLif
       throw failure;
     }
     const sourceVersion = raw?.data_schema_version ?? null;
-    if (!this.supportsTarget(request.compatibility) || (sourceVersion !== null && sourceVersion > 1)) {
+    if (!raw && request.compatibility.read_min <= request.compatibility.write_version && request.compatibility.read_max >= request.compatibility.write_version) {
+      this.emitMigrationAudit(request, null, "committed", null, Date.now() - startedAt, 0);
+      return { state: "ready", schema_version: request.compatibility.write_version, migrated: false, revision_count: 0 };
+    }
+    if (!this.supportsTarget(request.compatibility) || (sourceVersion !== null && sourceVersion > RESUME_DATA_SCHEMA_VERSION)) {
       this.emitMigrationAudit(request, sourceVersion, "denied", "incompatible_schema", Date.now() - startedAt, 0);
       throw new ResumeDomainError("incompatible_schema", "Retained Resume Builder data requires a compatible app version", 409);
     }
@@ -170,7 +185,7 @@ export class ResumeDataLifecycleAdapter implements OwnerDataLifecycle, ResumeLif
       await store.initialize(request.ownerId);
       const scan = await store.integrityScan();
       this.emitMigrationAudit(request, sourceVersion, "committed", null, Date.now() - startedAt, scan.revision_count);
-      return { state: "ready", schema_version: 1, migrated: sourceVersion === 0, revision_count: scan.revision_count };
+      return { state: "ready", schema_version: RESUME_DATA_SCHEMA_VERSION, migrated: sourceVersion !== null && sourceVersion < RESUME_DATA_SCHEMA_VERSION, revision_count: scan.revision_count };
     } catch (error) {
       const failure = error instanceof ResumeDomainError
         ? error
@@ -222,7 +237,7 @@ export class ResumeDataLifecycleAdapter implements OwnerDataLifecycle, ResumeLif
     try {
       const raw = await this.readIdentity();
       if (!raw) return { state: "missing", safe_message: "No retained Resume Builder data is present.", retained_schema_version: null, data_preserved: true, owner_export_available: false };
-      if (!this.supportsTarget(compatibility) || raw.data_schema_version > 1) {
+      if (!this.supportsTarget(compatibility) || raw.data_schema_version > RESUME_DATA_SCHEMA_VERSION) {
         return { state: "incompatible", safe_message: "The retained data is intact but requires a compatible Resume Builder version.", retained_schema_version: raw.data_schema_version, data_preserved: true, owner_export_available: true };
       }
       const validated = await validateResumeDataTransfer(this.memoryRoot, this.namespaceRoot);
@@ -259,7 +274,7 @@ export class ResumeDataLifecycleAdapter implements OwnerDataLifecycle, ResumeLif
   }
 
   async prepareOwnerExport(): Promise<{
-    receipt: { export_version: 1; safe_file_name: string; schema_version: 1; record_count: number; operation_count: number; export_digest: string };
+    receipt: { export_version: 1; safe_file_name: string; schema_version: 2; record_count: number; operation_count: number; export_digest: string };
     internalArchivePath: string;
   }> {
     const identity = await this.requireIdentity();
@@ -273,7 +288,7 @@ export class ResumeDataLifecycleAdapter implements OwnerDataLifecycle, ResumeLif
       export_version: 1,
       app_id: "ai.braindrive.resume-builder",
       owner_id: identity.owner_id,
-      data_schema_version: 1,
+      data_schema_version: RESUME_DATA_SCHEMA_VERSION,
       catalog_generation: catalog.generation,
       exported_at: exportedAt,
       compatibility_policy: MIGRATION_COMPATIBILITY_POLICY,
@@ -290,13 +305,13 @@ export class ResumeDataLifecycleAdapter implements OwnerDataLifecycle, ResumeLif
     const internalArchivePath = path.join(exportRoot, safeFileName);
     await writeFile(internalArchivePath, `${canonicalJson(payload)}\n`, { encoding: "utf8", mode: 0o600 });
     return {
-      receipt: { export_version: 1, safe_file_name: safeFileName, schema_version: 1, record_count: records.length, operation_count: operations.length, export_digest: exportDigest },
+      receipt: { export_version: 1, safe_file_name: safeFileName, schema_version: RESUME_DATA_SCHEMA_VERSION, record_count: records.length, operation_count: operations.length, export_digest: exportDigest },
       internalArchivePath,
     };
   }
 
   private supportsTarget(compatibility: OwnerDataSchemaCompatibility): boolean {
-    return compatibility.read_min <= 1 && compatibility.read_max >= 1 && compatibility.write_version === 1;
+    return compatibility.read_min <= RESUME_DATA_SCHEMA_VERSION && compatibility.read_max >= RESUME_DATA_SCHEMA_VERSION && compatibility.write_version === RESUME_DATA_SCHEMA_VERSION;
   }
 
   private async requireSnapshot(ownerId: string, snapshotId: string, schemaVersion?: number): Promise<{ snapshot_version: 1; snapshot_id: string; owner_id: string; schema_version: number; snapshot_digest: string }> {
@@ -382,9 +397,9 @@ export async function validateResumeDataTransfer(
   } catch {
     throw new ResumeDomainError("validation_failed", "Resume Builder retained catalog is invalid", 409);
   }
-  if (identity.data_schema_version > 1) throw new ResumeDomainError("incompatible_schema", "Retained Resume Builder data requires a compatible app version", 409);
+  if (identity.data_schema_version > RESUME_DATA_SCHEMA_VERSION) throw new ResumeDomainError("incompatible_schema", "Retained Resume Builder data requires a compatible app version", 409);
   const store = new ResumeDataStore(memoryRoot, namespaceRoot, {}, false);
   await store.initialize(identity.owner_id);
   const scan = await store.integrityScan();
-  return { state: "verified", schema_version: 1, revision_count: scan.revision_count };
+  return { state: "verified", schema_version: RESUME_DATA_SCHEMA_VERSION, revision_count: scan.revision_count };
 }

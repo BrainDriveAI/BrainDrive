@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ensureGitReady } from "../git.js";
+import { canonicalInputDigest } from "../app-platform/contracts/common.js";
 import { ResumeDomainService } from "./service.js";
 import { ResumeDataStore } from "./store.js";
 import { authority, proposalInput, testGrant } from "./test-helpers.js";
@@ -29,6 +30,26 @@ async function setup(hooks: ConstructorParameters<typeof ResumeDataStore>[2] = {
   return { root, store, service };
 }
 
+function recoveryInput(value: string, overrides: Record<string, unknown> = {}) {
+  const sessionId = "11000000-0000-4000-8000-000000000001";
+  return {
+    expected_revision: null,
+    session_id: sessionId,
+    current_topic: "contact",
+    completed_topics: [],
+    skipped_topics: [],
+    slot: {
+      session_id: sessionId,
+      job_fact_revision_id: null,
+      question_id: "contact-question",
+      field_id: "answer",
+    },
+    value,
+    value_digest: canonicalInputDigest(value),
+    ...overrides,
+  };
+}
+
 function runWorker(root: string, operationId: string, value: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = fork(workerPath, [root, operationId, value], {
@@ -47,7 +68,7 @@ describe("Resume data M2 atomic record store", () => {
     const { store } = await setup();
     expect(JSON.parse(await readFile(path.join(store.namespaceRoot, "manifest.json"), "utf8"))).toEqual({
       active_catalog: "catalog.json",
-      data_schema_version: 1,
+      data_schema_version: 2,
       integrity_algorithm: "sha256",
       manifest_version: 1,
       records_directory: "records",
@@ -165,6 +186,55 @@ describe("Resume data M2 atomic record store", () => {
     expect(replay.reused).toBe(true);
     expect((await store.catalog()).generation).toBe(1);
     expect(await store.list("career_fact")).toHaveLength(1);
+  });
+
+  it("reconciles a response-lost recovery save to exactly one acknowledged revision", async () => {
+    let fail = true;
+    const { store, service } = await setup({
+      afterCatalogCommit: async () => {
+        if (fail) {
+          fail = false;
+          throw new Error("synthetic recovery response loss");
+        }
+      },
+    });
+    const operationId = crypto.randomUUID();
+    const operationAuthority = authority("resume.definitions.write", operationId);
+    const input = recoveryInput("exact response-lost value\nRésumé 🚀");
+
+    await expect(service.saveInterviewRecovery(input, operationAuthority)).rejects.toMatchObject({ code: "recoverable_internal_failure" });
+    const queried = await store.operation(operationId, testGrant().installation_id);
+    const replay = await service.saveInterviewRecovery(input, operationAuthority);
+
+    expect(queried).toMatchObject({ record: { status: "committed", result_ref: replay.progress.metadata.revision_id } });
+    expect(replay).toMatchObject({ reused: true, acknowledgement: { revision: 1, value_digest: canonicalInputDigest(input.value) } });
+    expect(await store.list("interview_progress")).toHaveLength(1);
+    expect((await store.catalog()).generation).toBe(1);
+  });
+
+  it("preserves the prior acknowledged recovery snapshot when a replacement fails before the switch", async () => {
+    let failReplacement = false;
+    const { root, store, service } = await setup({
+      beforeCatalogCommit: async () => {
+        if (failReplacement) throw new Error("synthetic recovery pre-switch crash");
+      },
+    });
+    const first = await service.saveInterviewRecovery(recoveryInput("prior acknowledged value"), authority("resume.definitions.write"));
+    failReplacement = true;
+
+    await expect(service.saveInterviewRecovery(recoveryInput("uncommitted replacement", {
+      record_id: first.progress.metadata.record_id,
+      expected_revision: 1,
+    }), authority("resume.definitions.write"))).rejects.toMatchObject({ code: "recoverable_internal_failure" });
+
+    const reopened = new ResumeDataStore(root, undefined, {}, false);
+    await reopened.initialize(testGrant().owner_id);
+    expect(await reopened.readHead(first.progress.metadata.record_id)).toMatchObject({
+      metadata: { revision: 1 },
+      recovery_draft: { value: "prior acknowledged value", acknowledged_revision: 1 },
+    });
+    expect((await reopened.catalog()).generation).toBe(1);
+    expect(await store.list("interview_progress")).toHaveLength(1);
   });
 
   it("binds a committed operation identity to its installation", async () => {

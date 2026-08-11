@@ -4,8 +4,16 @@
   "type": "object",
   "properties": {
     "schema_version": {
-      "type": "number",
-      "const": 1
+      "anyOf": [
+        {
+          "type": "number",
+          "const": 1
+        },
+        {
+          "type": "number",
+          "const": 2
+        }
+      ]
     },
     "record_type": {
       "type": "string",
@@ -390,6 +398,24 @@
               "minLength": 1,
               "maxLength": 512
             },
+            "quality_report_digest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "quality_input_digest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "quality_validator_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "quality_validator_version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
             "validated_at": {
               "type": "string",
               "format": "date-time",
@@ -407,7 +433,92 @@
             "prompt_policy_id",
             "prompt_policy_version",
             "provider_policy_id",
+            "quality_report_digest",
+            "quality_input_digest",
+            "quality_validator_id",
+            "quality_validator_version",
             "validated_at"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "successor_context": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "successor_version": {
+              "type": "number",
+              "const": 1
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "remembered_information",
+                "natural_language_revision",
+                "regeneration",
+                "rollback"
+              ]
+            },
+            "source_definition_revision_id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "revision_request_revision_id": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "changed_fact_revision_ids": {
+              "maxItems": 500,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              }
+            },
+            "stale_tailored_variant_revision_ids": {
+              "maxItems": 500,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              }
+            },
+            "quality_report_digest": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "successor_version",
+            "kind",
+            "source_definition_revision_id",
+            "revision_request_revision_id",
+            "changed_fact_revision_ids",
+            "stale_tailored_variant_revision_ids",
+            "quality_report_digest"
           ],
           "additionalProperties": false
         },

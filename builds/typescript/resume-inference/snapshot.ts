@@ -11,6 +11,7 @@ import {
   PURPOSE_OUTPUT_SCHEMAS,
   type InferencePurpose,
 } from "../app-platform/contracts/inference.js";
+import { JobEvidenceDimensionSchema, JobEvidenceValueSchema, ResumeDefinitionRecordSchema, ResumeRevisionRequestRecordSchema } from "../app-platform/contracts/data.js";
 import type { CapabilityGrant } from "../app-platform/lifecycle/store.js";
 import type { ResumeDataRecord, ResumeDataStore } from "../resume-domain/store.js";
 import { ResumeInferenceError } from "./errors.js";
@@ -34,13 +35,24 @@ export const InferenceInvocationSchema = z.object({
   record_revision_ids: z.array(OpaqueIdSchema).max(64).default([]),
   presentation_preferences: z.record(z.string(), z.string().max(2_048)).default({}),
   derived_blocks: z.array(z.object({
-    category: z.enum(["job_analysis", "evidence_matrix", "owner_edit"]),
+    category: z.enum(["job_analysis", "evidence_matrix", "owner_edit", "revision_instruction", "definition_comparison", "deterministic_findings", "job_evidence_summary"]),
     schema_id: z.string().min(1).max(512),
     data: z.unknown(),
   }).strict()).max(8).default([]),
 }).strict();
 
 export type InferenceInvocation = z.infer<typeof InferenceInvocationSchema>;
+
+const JobEvidenceSummarySchema = z.object({
+  active_job_fact_revision_id: OpaqueIdSchema,
+  active_job_revision: z.number().int().positive(),
+  requested_dimension: JobEvidenceDimensionSchema.exclude(["identity"]),
+  dimensions: z.array(z.object({
+    dimension: JobEvidenceDimensionSchema,
+    outcome: z.enum(["answered", "skipped", "unknown", "not_applicable", "complete_for_now"]),
+    evidence_revision_ids: z.array(OpaqueIdSchema).max(32),
+  }).strict()).max(7),
+}).strict();
 
 function block(category: z.infer<typeof InferenceDataBlockSchema>["category"], schemaId: string, data: unknown) {
   return InferenceDataBlockSchema.parse({
@@ -77,6 +89,9 @@ export class ImmutableInferenceSnapshotBuilder {
       value: record.record_type === "career_fact" ? record.value : "",
       source_revision_ids: record.record_type === "career_fact" ? record.source_revision_ids : [],
     }));
+    if (input.purpose === "interview_assist") this.validateInterviewAssist(input, factRecords);
+    this.validateRevisionPurpose(input.purpose, related);
+    this.validateGuidancePurpose(input, related);
     const dataBlocks: Array<z.infer<typeof InferenceDataBlockSchema>> = [block("confirmed_fact_snapshot", "resume.confirmed-facts.v1", { facts })];
     if (Object.keys(input.presentation_preferences).length > 0) {
       dataBlocks.push(block("presentation_preferences", "resume.presentation-preferences.v1", input.presentation_preferences));
@@ -135,6 +150,38 @@ export class ImmutableInferenceSnapshotBuilder {
     }
   }
 
+  private validateInterviewAssist(input: InferenceInvocation, factRecords: ResumeDataRecord[]): void {
+    const candidates = input.derived_blocks.filter((candidate) => candidate.category === "job_evidence_summary");
+    if (candidates.length !== 1 || candidates[0]?.schema_id !== "resume.job-evidence-summary.v1") {
+      throw new ResumeInferenceError("invalid_request", "Interview assistance requires one active-job evidence summary");
+    }
+    const summary = JobEvidenceSummarySchema.parse(candidates[0].data);
+    const byRevision = new Map(factRecords.map((record) => [record.metadata.revision_id, record]));
+    const activeJob = byRevision.get(summary.active_job_fact_revision_id);
+    if (
+      activeJob?.record_type !== "career_fact" || activeJob.fact_kind !== "employment" || activeJob.state !== "confirmed" ||
+      activeJob.metadata.revision !== summary.active_job_revision
+    ) {
+      throw new ResumeInferenceError("validation_failed", "Interview assistance active job does not match the confirmed snapshot");
+    }
+    for (const dimension of summary.dimensions) {
+      for (const revisionId of dimension.evidence_revision_ids) {
+        const record = byRevision.get(revisionId);
+        if (!record || record.record_type !== "career_fact" || record.state !== "confirmed") {
+          throw new ResumeInferenceError("validation_failed", "Interview evidence summary cites an unavailable confirmed revision");
+        }
+        if (record.fact_kind === "job_evidence") {
+          const evidence = JobEvidenceValueSchema.parse(JSON.parse(record.value));
+          if (evidence.association !== "job" || evidence.job_fact_revision_id !== summary.active_job_fact_revision_id || evidence.dimension !== dimension.dimension || evidence.outcome !== dimension.outcome) {
+            throw new ResumeInferenceError("validation_failed", "Interview evidence summary does not match the active job evidence");
+          }
+        } else if (record.metadata.revision_id !== summary.active_job_fact_revision_id || dimension.dimension !== "responsibilities") {
+          throw new ResumeInferenceError("validation_failed", "Interview evidence summary contains a cross-job or mismatched revision");
+        }
+      }
+    }
+  }
+
   private recordBlock(record: ResumeDataRecord): z.infer<typeof InferenceDataBlockSchema> {
     switch (record.record_type) {
       case "resume_definition":
@@ -143,8 +190,50 @@ export class ImmutableInferenceSnapshotBuilder {
         return block("job_description", "resume.job-description.v1", record);
       case "tailored_variant":
         return block("evidence_matrix", "resume.requirement-evidence.v1", record.evidence_matrix);
+      case "resume_revision_request":
+        return block("revision_instruction", "resume.revision-request.v1", record);
       default:
         throw new ResumeInferenceError("invalid_request", "Record type is not allowed in an inference snapshot");
+    }
+  }
+
+  private validateRevisionPurpose(purpose: InferencePurpose, related: ResumeDataRecord[]): void {
+    if (purpose !== "resume_revision_classify" && purpose !== "resume_revision_draft") {
+      if (related.some((record) => record.record_type === "resume_revision_request")) {
+        throw new ResumeInferenceError("invalid_request", "Revision instructions are allowed only for revision purposes");
+      }
+      return;
+    }
+    const definitions = related.filter((record) => record.record_type === "resume_definition").map((record) => ResumeDefinitionRecordSchema.parse(record));
+    const requests = related.filter((record) => record.record_type === "resume_revision_request").map((record) => ResumeRevisionRequestRecordSchema.parse(record));
+    if (definitions.length !== 1 || requests.length !== 1 || related.length !== 2) {
+      throw new ResumeInferenceError("invalid_request", "Revision inference requires one immutable source and one persisted request");
+    }
+    const source = definitions[0]!;
+    const request = requests[0]!;
+    if (request.source_definition_revision_id !== source.metadata.revision_id) {
+      throw new ResumeInferenceError("validation_failed", "Revision request source does not match the immutable definition");
+    }
+    if (purpose === "resume_revision_classify" && request.state !== "submitted") {
+      throw new ResumeInferenceError("validation_failed", "Revision classification requires a newly submitted request");
+    }
+    if (purpose === "resume_revision_draft" && (request.state !== "generating" || request.classification === null || request.classification === "ambiguous")) {
+      throw new ResumeInferenceError("validation_failed", "Revision drafting requires an authorized non-ambiguous generating request");
+    }
+  }
+
+  private validateGuidancePurpose(input: InferenceInvocation, related: ResumeDataRecord[]): void {
+    if (input.purpose !== "resume_guidance") return;
+    const definitions = related.filter((record) => record.record_type === "resume_definition");
+    if (definitions.length !== 1 || related.length !== 1) {
+      throw new ResumeInferenceError("invalid_request", "Resume guidance requires exactly one selected resume definition");
+    }
+    const findings = input.derived_blocks.filter((candidate) => candidate.category === "deterministic_findings");
+    if (findings.length !== 1 || findings[0]?.schema_id !== "resume.quality-findings.v1") {
+      throw new ResumeInferenceError("invalid_request", "Resume guidance requires one deterministic findings block");
+    }
+    if (input.derived_blocks.some((candidate) => !["deterministic_findings", "job_evidence_summary"].includes(candidate.category))) {
+      throw new ResumeInferenceError("invalid_request", "Resume guidance contains a block outside its purpose-minimum contract");
     }
   }
 }

@@ -36,6 +36,20 @@
         "app.update.checkpoint_completed",
         "app.cleanup.completed",
         "app.capability.completed",
+        "app.resume_recovery.save",
+        "app.resume_recovery.restore",
+        "app.resume_recovery.discard",
+        "app.resume_recovery.conflict",
+        "app.resume_interview.question_selected",
+        "app.resume_interview.question_outcome",
+        "app.resume_remembered.match",
+        "app.resume_remembered.successor",
+        "app.resume_impact.analyzed",
+        "app.resume_comparison.completed",
+        "app.resume_revision.submitted",
+        "app.resume_revision.classified",
+        "app.resume_revision.proposed",
+        "app.resume_revision.outcome",
         "app.inference.completed",
         "app.export.completed",
         "app.validation.completed",
@@ -297,6 +311,345 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "job_revision_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "job_dimension": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "responsibilities",
+            "tools",
+            "accomplishments",
+            "outcomes",
+            "scope",
+            "progression"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "selection_method": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "deterministic_gap",
+            "broker_ranked"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "question_outcome": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "answered",
+            "skipped",
+            "unknown",
+            "not_applicable",
+            "complete_for_now"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "match_method": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "explicit_revision",
+            "exact_label",
+            "none"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "result_class": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "matched",
+            "ambiguous",
+            "none"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "fact_revision_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "definition_revision_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "change_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "variant_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "left_definition_revision_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "right_definition_revision_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "left_definition_digest": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "right_definition_digest": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "comparison_relation": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "identical",
+            "related",
+            "unrelated"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "comparison_result": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "available",
+            "unavailable"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "added_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "removed_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "changed_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "moved_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "evidence_change_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "revision_classification": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "presentation",
+            "factual",
+            "mixed",
+            "ambiguous"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "revision_state": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "submitted",
+            "clarification_needed",
+            "awaiting_confirmation",
+            "generating",
+            "proposed",
+            "accepted",
+            "edited",
+            "rejected",
+            "regenerate",
+            "failed"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "revision_scope": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "statement",
+            "section",
+            "resume"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "attempt": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
         },
         {
           "type": "null"

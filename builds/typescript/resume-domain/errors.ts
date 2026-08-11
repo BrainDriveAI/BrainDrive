@@ -14,7 +14,7 @@ export class ResumeDomainError extends Error {
     public readonly code: ResumeDomainErrorCode,
     message: string,
     public readonly statusCode = 409,
-    public readonly details: { currentRevision?: number } = {},
+    public readonly details: { currentRevision?: number; corrections?: string[] } = {},
   ) {
     super(message);
     this.name = "ResumeDomainError";

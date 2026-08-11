@@ -5,7 +5,7 @@
   "properties": {
     "questions": {
       "minItems": 1,
-      "maxItems": 8,
+      "maxItems": 1,
       "type": "array",
       "items": {
         "type": "object",
@@ -15,10 +15,25 @@
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           },
-          "topic": {
+          "job_fact_revision_id": {
             "type": "string",
-            "minLength": 1,
-            "maxLength": 512
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "dimension": {
+            "type": "string",
+            "enum": [
+              "responsibilities",
+              "tools",
+              "accomplishments",
+              "outcomes",
+              "scope",
+              "progression"
+            ]
+          },
+          "selection_method": {
+            "type": "string",
+            "const": "broker_ranked"
           },
           "prompt": {
             "type": "string",
@@ -33,7 +48,9 @@
         },
         "required": [
           "question_id",
-          "topic",
+          "job_fact_revision_id",
+          "dimension",
+          "selection_method",
           "prompt",
           "rationale"
         ],

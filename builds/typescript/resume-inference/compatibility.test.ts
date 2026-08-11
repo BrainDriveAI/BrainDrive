@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import { ModelCompatibilityRegistry, VERSIONED_MODEL_COMPATIBILITY_ENTRIES } from "./compatibility.js";
 import { PURPOSE_OUTPUT_SCHEMAS } from "../app-platform/contracts/inference.js";
-import { RESUME_MODEL_CONFORMANCE_CORPUS_DIGEST } from "./conformance-corpus.js";
+import { conformanceCorpusDigest, RESUME_MODEL_CONFORMANCE_CORPUS_DIGEST } from "./conformance-corpus.js";
+import { RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION } from "./policy.js";
 
 function entry(provider: string, model: string) {
   return {
     registry_version: 1, provider_profile_id: provider, model_id: model, purpose: "interview_assist",
     output_schema_id: PURPOSE_OUTPUT_SCHEMAS.interview_assist, compatible: true,
+    prompt_policy_id: RESUME_PROMPT_POLICY_ID, prompt_policy_version: RESUME_PROMPT_POLICY_VERSION,
     fixture_corpus_digest: `sha256:${"a".repeat(64)}`, tested_at: "2026-08-07T12:00:00.000Z",
     zero_unsupported_claim_gate: true, schema_success_rate: 1, latency_p95_ms: 100,
   };
@@ -15,19 +17,12 @@ function entry(provider: string, model: string) {
 
 describe("model compatibility registry", () => {
   it("admits the effective BrainDrive Models alias only for its conformance-backed purposes", () => {
-    expect(VERSIONED_MODEL_COMPATIBILITY_ENTRIES).toHaveLength(6);
-    expect(VERSIONED_MODEL_COMPATIBILITY_ENTRIES).toEqual(expect.arrayContaining(Object.keys(PURPOSE_OUTPUT_SCHEMAS).map((purpose) => expect.objectContaining({
-      provider_profile_id: "braindrive-models",
-      model_id: "braindrive-models-default",
-      purpose,
-      compatible: true,
-      fixture_corpus_digest: RESUME_MODEL_CONFORMANCE_CORPUS_DIGEST,
-      zero_unsupported_claim_gate: true,
-      schema_success_rate: 1,
-    }))));
+    const changedOrFoundationOnly = Object.keys(PURPOSE_OUTPUT_SCHEMAS) as Array<keyof typeof PURPOSE_OUTPUT_SCHEMAS>;
+    expect(VERSIONED_MODEL_COMPATIBILITY_ENTRIES).toHaveLength(0);
     const registry = new ModelCompatibilityRegistry(VERSIONED_MODEL_COMPATIBILITY_ENTRIES);
-    for (const purpose of Object.keys(PURPOSE_OUTPUT_SCHEMAS) as Array<keyof typeof PURPOSE_OUTPUT_SCHEMAS>) {
-      expect(registry.require("braindrive-models", "braindrive-models-default", purpose).purpose).toBe(purpose);
+    for (const purpose of changedOrFoundationOnly) expect(() => registry.require("braindrive-models", "braindrive-models-default", purpose)).toThrow(/conformance record/);
+    for (const purpose of ["interview_assist", "general_resume_draft", "targeted_resume_draft"] as const) {
+      expect(conformanceCorpusDigest(purpose)).not.toBe(RESUME_MODEL_CONFORMANCE_CORPUS_DIGEST);
     }
     expect(() => registry.require("openrouter", "braindrive-models-default", "general_resume_draft")).toThrow(/conformance record/);
   });

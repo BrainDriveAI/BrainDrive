@@ -54,6 +54,89 @@ function decision(fact: { metadata: { record_id: string; revision_id: string; re
 }
 
 describe("Resume data M3 career facts, sources, and placement", () => {
+  it("binds role evidence to exactly one confirmed employment revision and keeps general evidence explicit", async () => {
+    const { service, store } = await setup();
+    const jobValue = JSON.stringify({
+      format: "resume_job_v1",
+      title: "Operations Lead",
+      employer: "Synthetic Cooperative",
+      location: "Dayton, Ohio",
+      start_date: "2021",
+      end_date: "Present",
+      responsibilities: "Coordinated daily service work.",
+    });
+    const jobProposal = await service.proposeFact({
+      ...proposalInput(jobValue),
+      fact: { ...proposalInput().fact, fact_kind: "employment" as const, value: jobValue },
+    }, authority("career.facts.propose"));
+    const jobAuthority = authority("career.facts.confirm");
+    const job = await service.confirmFact(
+      decision(jobProposal.fact, "accept"),
+      jobAuthority,
+      decisionEvidence(jobAuthority, jobProposal.fact.metadata.revision_id, "accept"),
+    );
+
+    const roleEvidenceValue = JSON.stringify({
+      value_version: 1,
+      association: "job",
+      job_fact_revision_id: job.fact.metadata.revision_id,
+      dimension: "tools",
+      outcome: "answered",
+      owner_text: "Used scheduling software to coordinate coverage.",
+    });
+    const roleEvidence = await service.proposeFact({
+      ...proposalInput(roleEvidenceValue),
+      fact: { ...proposalInput().fact, fact_kind: "job_evidence" as const, value: roleEvidenceValue },
+    }, authority("career.facts.propose"));
+    const evidenceAuthority = authority("career.facts.confirm");
+    const confirmedRoleEvidence = await service.confirmFact(
+      decision(roleEvidence.fact, "accept"),
+      evidenceAuthority,
+      decisionEvidence(evidenceAuthority, roleEvidence.fact.metadata.revision_id, "accept"),
+    );
+
+    const generalEvidenceValue = JSON.stringify({
+      value_version: 1,
+      association: "general",
+      job_fact_revision_id: null,
+      dimension: "tools",
+      outcome: "answered",
+      owner_text: "Comfortable learning new scheduling systems.",
+    });
+    await expect(service.proposeFact({
+      ...proposalInput(generalEvidenceValue),
+      fact: { ...proposalInput().fact, fact_kind: "job_evidence" as const, value: generalEvidenceValue },
+    }, authority("career.facts.propose"))).resolves.toMatchObject({ fact: { fact_kind: "job_evidence" } });
+
+    const graphRecords = [
+      ...(await store.list("source")),
+      ...(await store.list("career_fact")),
+    ];
+    const linked = graphRecords.find((record) => record.metadata.revision_id === confirmedRoleEvidence.fact.metadata.revision_id);
+    expect(linked).toMatchObject({ fact_kind: "job_evidence" });
+  });
+
+  it("rejects speculative or non-employment role associations before a proposal commits", async () => {
+    const { service, store } = await setup();
+    const unrelated = await service.proposeFact(proposalInput("General supported accomplishment"), authority("career.facts.propose"));
+    const invalidTargets = [unrelated.fact.metadata.revision_id, crypto.randomUUID()];
+    for (const jobFactRevisionId of invalidTargets) {
+      const value = JSON.stringify({
+        value_version: 1,
+        association: "job",
+        job_fact_revision_id: jobFactRevisionId,
+        dimension: "outcomes",
+        outcome: "answered",
+        owner_text: "Improved a supported qualitative outcome.",
+      });
+      await expect(service.proposeFact({
+        ...proposalInput(value),
+        fact: { ...proposalInput().fact, fact_kind: "job_evidence" as const, value },
+      }, authority("career.facts.propose"))).rejects.toMatchObject({ code: "validation_failed" });
+    }
+    expect(await store.list("career_fact")).toHaveLength(1);
+  });
+
   it("requires an unforgeable per-fact host-owner decision and records its exact proof", async () => {
     const { service } = await setup();
     const proposed = await service.proposeFact(proposalInput(), authority("career.facts.propose"));

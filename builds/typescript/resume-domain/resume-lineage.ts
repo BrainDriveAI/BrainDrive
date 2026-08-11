@@ -3,6 +3,7 @@ import { z } from "zod";
 import { canonicalInputDigest } from "../app-platform/contracts/common.js";
 import {
   LineageGraphSchema,
+  JobEvidenceValueSchema,
   ResumeDataRecordSchema,
   type ResumeDefinitionRecordSchema,
   type ResumeStatementSchema,
@@ -49,13 +50,31 @@ export function buildResumeLineageGraph(rawRecords: readonly LineageRecord[]): R
       case "source":
       case "job_description":
       case "migration":
-      case "interview_progress":
         break;
+      case "interview_progress": {
+        if (record.active_job_fact_revision_id) {
+          const job = edge(record, record.active_job_fact_revision_id, "supported_by", "career_fact");
+          if (job.record_type !== "career_fact" || job.fact_kind !== "employment" || job.state !== "confirmed" || job.owner_id !== record.owner_id) {
+            fail("Interview progress job slot must resolve to one confirmed same-owner employment fact");
+          }
+        }
+        if (record.last_submitted_turn_revision_id) edge(record, record.last_submitted_turn_revision_id, "derived_from", "source");
+        break;
+      }
       case "career_fact": {
         for (const sourceRevisionId of record.source_revision_ids) derivative(record, edge(record, sourceRevisionId, "derived_from", "source"));
         if (record.supersedes_fact_revision_id) {
           const prior = byRevision.get(record.supersedes_fact_revision_id);
           if (!prior || prior.record_type !== "career_fact" || prior.metadata.record_id !== record.metadata.record_id) fail("Career fact supersession lineage is invalid");
+        }
+        if (record.fact_kind === "job_evidence") {
+          const evidence = JobEvidenceValueSchema.parse(JSON.parse(record.value));
+          if (evidence.job_fact_revision_id) {
+            const jobFact = edge(record, evidence.job_fact_revision_id, "supported_by", "career_fact");
+            if (jobFact.record_type !== "career_fact" || jobFact.fact_kind !== "employment" || jobFact.state !== "confirmed" || jobFact.owner_id !== record.owner_id) {
+              fail("Job evidence must resolve to one confirmed same-owner employment fact");
+            }
+          }
         }
         break;
       }
@@ -80,6 +99,20 @@ export function buildResumeLineageGraph(rawRecords: readonly LineageRecord[]): R
           derivative(record, parent);
         }
         if (record.job_revision_id) derivative(record, edge(record, record.job_revision_id, "job_snapshot", "job_description"));
+        if (record.successor_context) {
+          const source = edge(record, record.successor_context.source_definition_revision_id, "derived_from", "resume_definition");
+          if (source.record_type !== "resume_definition" || source.owner_id !== record.owner_id) fail("Definition successor source must remain owner scoped");
+          derivative(record, source);
+          if (record.successor_context.kind === "natural_language_revision") {
+            const requestId = record.successor_context.revision_request_revision_id;
+            if (!requestId) fail("Natural-language successor requires its immutable revision request");
+            const request = edge(record, requestId, "derived_from", "resume_revision_request");
+            if (request.record_type !== "resume_revision_request" || request.source_definition_revision_id !== source.metadata.revision_id || request.state !== "generating") {
+              fail("Natural-language successor request lineage is invalid");
+            }
+            derivative(record, request);
+          }
+        }
         break;
       }
       case "tailored_variant": {
@@ -131,6 +164,26 @@ export function buildResumeLineageGraph(rawRecords: readonly LineageRecord[]): R
           fail("Export receipt artifact lineage is invalid");
         }
         derivative(record, artifact);
+        break;
+      }
+      case "resume_revision_request": {
+        const source = edge(record, record.source_definition_revision_id, "revision_source", "resume_definition");
+        if (source.owner_id !== record.owner_id) fail("Revision request source must remain owner scoped");
+        if (record.resulting_definition_revision_id) {
+          const result = edge(record, record.resulting_definition_revision_id, "resulted_in", "resume_definition");
+          const context = result.record_type === "resume_definition" ? result.successor_context : null;
+          const instruction = context?.revision_request_revision_id ? byRevision.get(context.revision_request_revision_id) : null;
+          if (
+            result.owner_id !== record.owner_id || result.record_type !== "resume_definition" ||
+            context?.kind !== "natural_language_revision" ||
+            context.source_definition_revision_id !== source.metadata.revision_id ||
+            instruction?.record_type !== "resume_revision_request" ||
+            instruction.metadata.record_id !== record.metadata.record_id ||
+            instruction.state !== "generating"
+          ) {
+            fail("Revision request result must be an owner-scoped successor definition");
+          }
+        }
         break;
       }
     }

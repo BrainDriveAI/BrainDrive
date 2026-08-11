@@ -56,6 +56,12 @@ export class BrowserActionBroker {
   ): BrowserActionResult {
     if (!/^[^/\\]{1,128}$/.test(input.safeFilename)) return deny("export_name_denied", "The export filename is invalid.");
     if (!this.policy.exportMimeTypes.includes(input.mimeType)) return deny("export_type_denied", "This export type is not enabled for the app.");
+    const extensionMatches = input.mimeType === "application/pdf"
+      ? input.safeFilename.toLocaleLowerCase("en-US").endsWith(".pdf")
+      : input.mimeType === "text/plain"
+        ? input.safeFilename.toLocaleLowerCase("en-US").endsWith(".txt")
+        : true;
+    if (!extensionMatches) return deny("export_name_denied", "The export filename does not match its file type.");
     if (!Number.isInteger(input.sizeBytes) || input.sizeBytes < 1 || input.sizeBytes > this.policy.maxExportBytes) return deny("export_oversized", "The export exceeds the host limit.");
     if (!userGesture) return deny("user_gesture_required", "Use the host export action to save this file.");
     if (!ownerConfirmed) return deny("owner_confirmation_required", "Confirm the export in BrainDrive.");
