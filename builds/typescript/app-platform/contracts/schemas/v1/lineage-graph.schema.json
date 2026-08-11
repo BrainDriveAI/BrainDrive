@@ -29,7 +29,13 @@
               "export_receipt",
               "migration",
               "interview_progress",
-              "resume_revision_request"
+              "resume_revision_request",
+              "job_evidence_coverage",
+              "resume_strategy",
+              "target_fit_analysis",
+              "craft_quality_report",
+              "craft_repair_operation",
+              "artifact_parity_report"
             ]
           },
           "fact_state": {

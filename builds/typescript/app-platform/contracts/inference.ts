@@ -8,6 +8,16 @@ import {
 } from "./common.js";
 import { RESUME_INFERENCE_SCHEMA_VERSION, RESUME_BUILDER_APP_ID } from "./constants.js";
 import { ContractViolation } from "./errors.js";
+import {
+  CraftCorrectionClassSchema,
+  CraftQualityReportRecordSchema,
+  JobEvidenceCoverageRecordSchema,
+  ResumeStrategyRecordSchema,
+  TargetFitAnalysisRecordSchema,
+} from "./data.js";
+import { ResumeEvidenceAnnotationsSchema, ResumeQualityPolicyIdentitySchema } from "../../resume-inference/strategy.js";
+import { TARGET_FIT_THRESHOLD_POLICY } from "../../resume-inference/target-fit.js";
+import { CRAFT_EVIDENCE_LIMITED_POLICY } from "../../resume-inference/craft-evaluator.js";
 
 export const InferencePurposeSchema = z.enum([
   "interview_assist",
@@ -19,20 +29,26 @@ export const InferencePurposeSchema = z.enum([
   "resume_revision_classify",
   "resume_revision_draft",
   "resume_guidance",
+  "resume_strategy",
+  "resume_craft_evaluate",
+  "resume_craft_repair",
 ]);
 
 export type InferencePurpose = z.infer<typeof InferencePurposeSchema>;
 
 export const PURPOSE_OUTPUT_SCHEMAS = {
-  interview_assist: "resume.interview-assist.v1",
+  interview_assist: "resume.interview-assist.v2",
   general_resume_draft: "resume.general-draft.v1",
   job_description_analyze: "resume.job-analysis.v1",
   requirement_evidence_match: "resume.requirement-evidence.v1",
-  tailoring_plan: "resume.tailoring-plan.v1",
+  tailoring_plan: "resume.tailoring-plan.v2",
   targeted_resume_draft: "resume.targeted-draft.v1",
   resume_revision_classify: "resume.revision-classify.v1",
   resume_revision_draft: "resume.revision-draft.v1",
   resume_guidance: "resume.guidance.v1",
+  resume_strategy: "resume.strategy.v1",
+  resume_craft_evaluate: "resume.craft-evaluate.v1",
+  resume_craft_repair: "resume.craft-repair.v1",
 } as const satisfies Record<InferencePurpose, string>;
 
 export const PURPOSE_LIMITS = {
@@ -45,6 +61,9 @@ export const PURPOSE_LIMITS = {
   resume_revision_classify: { input_bytes: 65_536, input_tokens: 16_384, output_tokens: 2_048, duration_ms: 60_000, attempts: 2, concurrency: 1 },
   resume_revision_draft: { input_bytes: 327_680, input_tokens: 81_920, output_tokens: 8_192, duration_ms: 120_000, attempts: 2, concurrency: 1 },
   resume_guidance: { input_bytes: 196_608, input_tokens: 49_152, output_tokens: 4_096, duration_ms: 90_000, attempts: 2, concurrency: 1 },
+  resume_strategy: { input_bytes: 262_144, input_tokens: 65_536, output_tokens: 6_144, duration_ms: 90_000, attempts: 2, concurrency: 1 },
+  resume_craft_evaluate: { input_bytes: 327_680, input_tokens: 81_920, output_tokens: 8_192, duration_ms: 120_000, attempts: 2, concurrency: 1 },
+  resume_craft_repair: { input_bytes: 327_680, input_tokens: 81_920, output_tokens: 8_192, duration_ms: 120_000, attempts: 2, concurrency: 1 },
 } as const satisfies Record<InferencePurpose, {
   input_bytes: number;
   input_tokens: number;
@@ -79,13 +98,61 @@ export const InferenceDataBlockSchema = z
       "definition_comparison",
       "deterministic_findings",
       "job_evidence_summary",
+      "coverage_summary",
+      "resume_strategy",
+      "target_fit_analysis",
+      "craft_quality_report",
+      "craft_repair_scope",
+      "craft_gate_policy",
+      "evidence_annotations",
+      "quality_policy",
+      "target_fit_policy",
     ]),
     content_digest: Sha256DigestSchema,
     schema_id: NonEmptyStringSchema,
     schema_version: z.number().int().positive(),
     data: z.unknown(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    const schemas: Partial<Record<typeof value.category, z.ZodType>> = {
+      coverage_summary: JobEvidenceCoverageRecordSchema,
+      resume_strategy: ResumeStrategyRecordSchema,
+      target_fit_analysis: TargetFitAnalysisRecordSchema,
+      craft_quality_report: CraftQualityReportRecordSchema,
+      evidence_annotations: ResumeEvidenceAnnotationsSchema,
+      quality_policy: ResumeQualityPolicyIdentitySchema,
+      target_fit_policy: z.object({
+        policy_id: z.literal(TARGET_FIT_THRESHOLD_POLICY.policy_id),
+        policy_version: z.literal(TARGET_FIT_THRESHOLD_POLICY.policy_version),
+        authority_status: z.literal("provisional_planning_default"),
+        supported_core_minimum: z.literal(1),
+        supported_transferable_minimum: z.literal(2),
+        material_change_minimum: z.literal(1),
+        score_free: z.literal(true),
+      }).strict(),
+      craft_repair_scope: z.object({
+        scope_version: z.literal(1),
+        source_definition_revision_id: OpaqueIdSchema,
+        source_report_revision_id: OpaqueIdSchema,
+        statement_scope_ids: z.array(OpaqueIdSchema).min(1).max(500),
+        allowed_correction_classes: z.array(CraftCorrectionClassSchema).min(1).max(7),
+        attempt: z.literal(1),
+      }).strict(),
+      craft_gate_policy: z.object({
+        policy_id: z.literal(CRAFT_EVIDENCE_LIMITED_POLICY.policy_id),
+        policy_version: z.literal(CRAFT_EVIDENCE_LIMITED_POLICY.policy_version),
+        authority_status: z.literal("provisional_planning_default"),
+        required_relative_criteria: z.tuple([z.literal("C1"), z.literal("C2"), z.literal("C3")]),
+        require_no_must_use_omission: z.literal(true),
+        require_optional_gap_guidance: z.literal(true),
+        bypass_allowed: z.literal(false),
+        score_free: z.literal(true),
+      }).strict(),
+    };
+    const schema = schemas[value.category];
+    if (schema && !schema.safeParse(value.data).success) context.addIssue({ code: "custom", path: ["data"], message: "data block does not match its category contract" });
+  });
 
 export const InferenceRequestSchema = z
   .object({

@@ -101,10 +101,21 @@ describe("M5 protected app inference capability", () => {
     expect(duplicate).toEqual(first);
     expect(build).toHaveBeenCalledTimes(1);
     expect(execute).toHaveBeenCalledTimes(1);
-    expect(first).toMatchObject({ inference_contract_version: 1, status: "completed", model_class: "owner_active_compatible", usage: { available: true }, events: [{ event: "progress" }, { event: "completed" }] });
+    expect(first).toMatchObject({
+      inference_contract_version: 1,
+      status: "completed",
+      prompt_policy_id: "braindrive.resume-builder.fixed",
+      prompt_policy_version: "7",
+      input_digest: canonicalInputDigest(FACTS),
+      provider_profile_id: "owner-profile",
+      model_id: "owner-model",
+      model_class: "owner_active_compatible",
+      usage: { available: true },
+      events: [{ event: "progress" }, { event: "completed" }],
+    });
     expect((first as { events: unknown[] }).events.every((event) => AppInferenceEventSchema.safeParse(event).success)).toBe(true);
     const visible = JSON.stringify(first);
-    for (const forbidden of ["owner-profile", "owner-model", "api_key", "endpoint", "prompt", "authorization", "secret_ref"]) expect(visible).not.toContain(forbidden);
+    for (const forbidden of ["api_key", "endpoint", "prompt_body", "authorization", "secret_ref"]) expect(visible).not.toContain(forbidden);
     await expect(capability.execute({ ...invocation(operationId), presentation_preferences: { locale: "fr" } }, context)).rejects.toMatchObject({ code: "idempotency_conflict" });
   });
 

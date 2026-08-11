@@ -52,7 +52,10 @@
         "targeted_resume_draft",
         "resume_revision_classify",
         "resume_revision_draft",
-        "resume_guidance"
+        "resume_guidance",
+        "resume_strategy",
+        "resume_craft_evaluate",
+        "resume_craft_repair"
       ]
     },
     "input_snapshot": {
@@ -103,7 +106,16 @@
               "revision_instruction",
               "definition_comparison",
               "deterministic_findings",
-              "job_evidence_summary"
+              "job_evidence_summary",
+              "coverage_summary",
+              "resume_strategy",
+              "target_fit_analysis",
+              "craft_quality_report",
+              "craft_repair_scope",
+              "craft_gate_policy",
+              "evidence_annotations",
+              "quality_policy",
+              "target_fit_policy"
             ]
           },
           "content_digest": {

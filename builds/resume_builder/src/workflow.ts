@@ -39,17 +39,12 @@ export type RecoverySlot = {
 
 export type RecoverySaveStatus = "idle" | "saving" | "saved" | "error" | "conflict";
 
-export const JOB_EVIDENCE_DIMENSIONS = [
-  "responsibilities",
-  "accomplishments",
-  "outcomes",
-  "tools",
-  "scope",
-  "progression",
-] as const;
+import { EVIDENCE_DIMENSIONS, OPPORTUNITY_DIMENSION_PRIORITY } from "./opportunities.js";
+
+export const JOB_EVIDENCE_DIMENSIONS = EVIDENCE_DIMENSIONS;
 
 export type JobEvidenceDimension = (typeof JOB_EVIDENCE_DIMENSIONS)[number];
-export type JobEvidenceOutcome = "answered" | "skipped" | "unknown" | "not_applicable" | "complete_for_now";
+export type JobEvidenceOutcome = "answered" | "skipped" | "unknown" | "not_applicable" | "deferred" | "conflicting";
 export type JobEvidenceOutcomes = Partial<Record<JobEvidenceDimension, JobEvidenceOutcome>>;
 
 export type JobInterviewState = {
@@ -184,7 +179,7 @@ export type ResumeBuilderWorkflowAction =
   | { type: "job.dimension_recorded"; dimension: JobEvidenceDimension; outcome: JobEvidenceOutcome }
   | { type: "job.back" }
   | { type: "job.completed_for_now" }
-  | { type: "job.reopened"; jobRevisionId: string }
+  | { type: "job.reopened"; jobRevisionId: string; dimension: JobEvidenceDimension }
   | { type: "comparison.selection_toggled"; revisionId: string }
   | { type: "comparison.started" }
   | { type: "comparison.completed"; available: boolean }
@@ -239,7 +234,7 @@ export const initialWorkflowState: ResumeBuilderWorkflowState = {
 };
 
 export function nextJobEvidenceDimension(outcomes: JobEvidenceOutcomes): JobEvidenceDimension | null {
-  return JOB_EVIDENCE_DIMENSIONS.find((dimension) => outcomes[dimension] === undefined) ?? null;
+  return OPPORTUNITY_DIMENSION_PRIORITY.find((dimension) => outcomes[dimension] === undefined) ?? null;
 }
 
 function normalizeRememberedValue(value: string): string {
@@ -301,7 +296,7 @@ export function jobEvidenceProgress(outcomes: JobEvidenceOutcomes): { answered: 
   const values = Object.values(outcomes);
   return {
     answered: values.filter((outcome) => outcome === "answered").length,
-    deferred: values.filter((outcome) => outcome !== "answered").length,
+    deferred: values.filter((outcome) => outcome !== "answered" && outcome !== "conflicting").length,
     remaining: JOB_EVIDENCE_DIMENSIONS.filter((dimension) => outcomes[dimension] === undefined).length,
     total: JOB_EVIDENCE_DIMENSIONS.length,
   };
@@ -511,19 +506,23 @@ export function resumeBuilderWorkflowReducer(
     }
     case "job.completed_for_now": {
       const outcomes = { ...state.jobInterview.outcomes };
-      if (state.jobInterview.currentDimension) outcomes[state.jobInterview.currentDimension] = "complete_for_now";
+      for (const dimension of JOB_EVIDENCE_DIMENSIONS) {
+        if (outcomes[dimension] === undefined) outcomes[dimension] = "deferred";
+      }
       return { ...state, jobInterview: { activeJobRevisionId: null, currentDimension: null, outcomes, history: state.jobInterview.history } };
     }
     case "job.reopened": {
       const outcomes = { ...state.jobInterview.outcomes };
-      const deferred = JOB_EVIDENCE_DIMENSIONS.find((dimension) => outcomes[dimension] === "complete_for_now");
+      if (["unknown", "not_applicable", "skipped", "deferred", "conflicting"].includes(outcomes[action.dimension] ?? "")) {
+        delete outcomes[action.dimension];
+      }
       return {
         ...state,
         jobInterview: {
           activeJobRevisionId: action.jobRevisionId,
-          currentDimension: deferred ?? nextJobEvidenceDimension(outcomes),
+          currentDimension: action.dimension,
           outcomes,
-          history: state.jobInterview.history.filter((dimension) => dimension !== deferred),
+          history: state.jobInterview.history.filter((dimension) => dimension !== action.dimension),
         },
       };
     }

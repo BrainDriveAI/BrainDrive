@@ -65,6 +65,79 @@ function context(grant: ReturnType<typeof testGrant>, operationId = crypto.rando
 }
 
 describe("named Resume Builder data capabilities", () => {
+  it("routes explicit coverage transitions with content-free yield and friction diagnostics", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-resume-coverage-capability-")); roots.push(root);
+    const store = new ResumeDataStore(root, undefined, {}, false);
+    const grant = testGrant();
+    await store.initialize(grant.owner_id);
+    const events: Array<{ event: string; details: Record<string, unknown> }> = [];
+    const router = new ResumeCapabilityRouter(
+      new ResumeDomainService(store, () => new Date("2026-08-11T12:00:00.000Z")),
+      new CareerPlacementAdapter(root),
+      new ResumeCapabilityPolicy(async () => grant),
+      (event, details) => events.push({ event, details }),
+    );
+    const privateSentinel = "PRIVATE_COVERAGE_RESPONSIBILITY_SENTINEL";
+    const jobValue = JSON.stringify({ format: "resume_job_v1", title: "Coordinator", employer: "Synthetic Org", responsibilities: privateSentinel });
+    const proposed = await router.domain.proposeFact({
+      ...proposalInput(jobValue),
+      fact: { ...proposalInput().fact, fact_kind: "employment", value: jobValue },
+    }, authority("career.facts.propose"));
+    const confirmationAuthority = authority("career.facts.confirm");
+    const confirmed = await router.domain.confirmFact({
+      fact_record_id: proposed.fact.metadata.record_id,
+      fact_revision_id: proposed.fact.metadata.revision_id,
+      expected_revision: 1,
+      decision: "accept",
+      edited_value: null,
+      review_note: null,
+    }, confirmationAuthority, ownerDecision(confirmationAuthority, proposed.fact.metadata.revision_id));
+    const initialized = await router.execute("resume.definitions.write", {
+      kind: "job_evidence_coverage",
+      coverage: { action: "initialize", job_fact_revision_id: confirmed.fact.metadata.revision_id },
+    }, context(grant, undefined, "resume.definitions.write")) as { coverage: { metadata: { record_id: string; revision: number }; job_fact_revision_id: string } };
+    const opportunityId = "51000000-0000-4000-8000-000000000071";
+    const presented = await router.execute("resume.definitions.write", {
+      kind: "job_evidence_coverage",
+      coverage: {
+        action: "opportunity_presented",
+        coverage_record_id: initialized.coverage.metadata.record_id,
+        expected_revision: initialized.coverage.metadata.revision,
+        job_fact_revision_id: confirmed.fact.metadata.revision_id,
+        opportunity: { opportunity_id: opportunityId, dimension: "accomplishments", opportunity_kind: "qualitative", value_category: "distinct_accomplishment", context_digest: canonicalInputDigest({ job: confirmed.fact.metadata.revision_id, dimension: "accomplishments" }) },
+      },
+    }, context(grant, undefined, "resume.definitions.write")) as { coverage: { metadata: { record_id: string; revision: number } } };
+    const recorded = await router.execute("resume.definitions.write", {
+      kind: "job_evidence_coverage",
+      coverage: {
+        action: "record",
+        coverage_record_id: presented.coverage.metadata.record_id,
+        expected_revision: presented.coverage.metadata.revision,
+        job_fact_revision_id: confirmed.fact.metadata.revision_id,
+        dimension: "accomplishments",
+        state: "unknown",
+        evidence_revision_ids: [],
+        opportunity: { opportunity_id: opportunityId, dimension: "accomplishments", opportunity_kind: "qualitative", value_category: "distinct_accomplishment", context_digest: canonicalInputDigest({ job: confirmed.fact.metadata.revision_id, dimension: "accomplishments" }) },
+      },
+    }, context(grant, undefined, "resume.definitions.write")) as { coverage: { metadata: { record_id: string; revision: number } } };
+    await router.execute("resume.definitions.write", {
+      kind: "job_evidence_coverage",
+      coverage: { action: "complete_for_now", coverage_record_id: recorded.coverage.metadata.record_id, expected_revision: recorded.coverage.metadata.revision, job_fact_revision_id: confirmed.fact.metadata.revision_id },
+    }, context(grant, undefined, "resume.definitions.write"));
+
+    expect(events.map(({ event }) => event)).toEqual([
+      "app.resume_coverage.transitioned",
+      "app.resume_opportunity.updated",
+      "app.resume_coverage.transitioned",
+      "app.resume_coverage.transitioned",
+    ]);
+    expect(events[0]).toMatchObject({ details: { target_category: "resume_coverage", job_revision_id: confirmed.fact.metadata.revision_id, item_count: 6, timing_class: "human" } });
+    expect(events[1]).toMatchObject({ details: { opportunity_id: opportunityId, opportunity_state: "available", item_count: 1, timing_class: "automation" } });
+    expect(events[2]).toMatchObject({ details: { coverage_state: "unknown", opportunity_state: "suppressed", timing_class: "human" } });
+    expect(events[3]).toMatchObject({ details: { coverage_state: "deferred", item_count: 4, timing_class: "human" } });
+    expect(JSON.stringify(events)).not.toContain(privateSentinel);
+  });
+
   it("routes the revision transaction and keeps request content out of capability diagnostics", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-resume-revision-capability-")); roots.push(root);
     const store = new ResumeDataStore(root, undefined, {}, false);
@@ -135,6 +208,7 @@ describe("named Resume Builder data capabilities", () => {
   it("rejects raw-path fields and app-forged confirmation deterministically", async () => {
     const { grant, router } = await setup();
     await expect(router.execute("career.facts.propose", { ...proposalInput(), raw_path: "/tmp/forbidden" }, context(grant, undefined, "career.facts.propose"))).rejects.toMatchObject({ code: "invalid_input" });
+    await expect(router.execute("career.facts.propose", { ...proposalInput(), provider_profile_id: "app-selected-provider", model_id: "app-selected-model" }, context(grant, undefined, "career.facts.propose"))).rejects.toMatchObject({ code: "invalid_input" });
     const proposed = await router.execute("career.facts.propose", proposalInput(), context(grant, undefined, "career.facts.propose")) as { fact: { metadata: { record_id: string; revision_id: string } } };
     await expect(router.execute("career.facts.confirm", { fact_record_id: proposed.fact.metadata.record_id, fact_revision_id: proposed.fact.metadata.revision_id, expected_revision: 1, decision: "accept", edited_value: null, review_note: null }, context(grant, undefined, "career.facts.confirm"))).rejects.toMatchObject({ code: "denied" });
   });

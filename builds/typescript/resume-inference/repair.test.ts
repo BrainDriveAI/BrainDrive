@@ -65,7 +65,7 @@ describe("Resume Builder deterministic fact repair", () => {
     });
   });
 
-  it("adds required summary, job heading, and linked accomplishment without changing a valid responsibility", () => {
+  it("adds required job structure without inventing an unconditional summary or changing a valid responsibility", () => {
     const responsibility = statement("experience", "Received shipments, maintained inventory records, and prepared customer orders.", [JOB_ID]);
     const result = { title: "Resume", statements: [responsibility], section_order: ["experience"] };
     const initial = validateInferenceClaims("general_resume_draft", result, [factBlock]);
@@ -76,11 +76,10 @@ describe("Resume Builder deterministic fact repair", () => {
     expect(final.accepted).toBe(true);
     expect(repaired.statements).toContainEqual(responsibility);
     expect(repaired.statements.map((item) => item.text)).toEqual([
-      "Inventory Clerk with experience received shipments, maintained inventory records, and prepared customer orders.",
       "Inventory Clerk, Riverbend Supply, Dayton, Ohio, January 2018 - February 2021",
       responsibility.text,
       "Improved stock retrieval by reorganizing labels so coworkers could find commonly requested items more easily.",
     ]);
-    expect(repaired.section_order).toEqual(["summary", "experience"]);
+    expect(repaired.section_order).toEqual(["experience"]);
   });
 });

@@ -43,6 +43,7 @@ describe("M4 capability bridge", () => {
     const store = new ResumeDataStore(root, path.join(root, "owner-data"), {}, false);
     await store.initialize(descriptor.grant!.owner_id);
     const domain = new ResumeDomainService(store);
+    const capabilityEvents: Array<{ event: string; details: Record<string, unknown> }> = [];
     const router = new ResumeCapabilityRouter(
       domain,
       new CareerPlacementAdapter(root),
@@ -50,6 +51,7 @@ describe("M4 capability bridge", () => {
         const current = await harness.service.ownerDescriptor();
         return current.record.state === "active" ? current.grant : null;
       }),
+      (event, details) => capabilityEvents.push({ event, details }),
     );
     const proposedJobAuthority = authority("career.facts.propose", crypto.randomUUID(), { grant: descriptor.grant! });
     const proposedJob = await domain.proposeFact({
@@ -65,10 +67,11 @@ describe("M4 capability bridge", () => {
       edited_value: null,
       review_note: null,
     }, confirmedJobAuthority, ownerDecision(confirmedJobAuthority, proposedJob.fact.metadata.revision_id));
+    const interviewOpportunityId = "74000000-0000-4000-8000-000000000001";
     const adapter: ModelAdapter = {
       async complete() { throw new Error("agent path prohibited"); },
       async completeStructuredNoTools() {
-        return { text: JSON.stringify({ questions: [{ question_id: crypto.randomUUID(), job_fact_revision_id: confirmedJob.fact.metadata.revision_id, dimension: "accomplishments", selection_method: "broker_ranked", prompt: "What did you build in this role? A qualitative answer is enough.", rationale: "Collect the highest-value unanswered evidence for the active job." }] }), finishReason: "stop" };
+        return { text: JSON.stringify({ questions: [{ question_id: crypto.randomUUID(), job_fact_revision_id: confirmedJob.fact.metadata.revision_id, opportunity_id: interviewOpportunityId, dimension: "accomplishments", opportunity_kind: "qualitative", value_category: "distinct_accomplishment", selection_method: "deterministic_value", prompt: "What did you build in this role? A qualitative answer is enough.", rationale: "Phrase the selected evidence opportunity." }] }), finishReason: "stop" };
       },
     };
     const broker = new ResumeInferenceBroker(async () => ({ providerProfileId: "owner-profile", providerId: "ollama", modelId: "local-model", modelClass: "owner_active_compatible", adapter }));
@@ -139,12 +142,18 @@ describe("M4 capability bridge", () => {
     expect(JSON.stringify(firstServerResult)).not.toContain(firstServerAuthority.token);
     await expect(host.handleServerCapability(firstServerAuthority.token, "career.context.read", 1, { entry_point: "direct" }, serverOperationId, serverIdempotencyKey)).rejects.toMatchObject({ code: "token_replayed" });
     const inferenceOperationId = crypto.randomUUID();
-    const jobEvidenceSummary = { active_job_fact_revision_id: confirmedJob.fact.metadata.revision_id, active_job_revision: confirmedJob.fact.metadata.revision, requested_dimension: "accomplishments", dimensions: [] };
-    const inferenceInput = { inference_contract_version: 1, purpose: "interview_assist", operation_id: inferenceOperationId, fact_revision_ids: [confirmedJob.fact.metadata.revision_id], derived_blocks: [{ category: "job_evidence_summary", schema_id: "resume.job-evidence-summary.v1", data: jobEvidenceSummary }] };
+    const jobEvidenceSummary = { active_job_fact_revision_id: confirmedJob.fact.metadata.revision_id, active_job_revision: confirmedJob.fact.metadata.revision, requested_opportunity_id: interviewOpportunityId, requested_dimension: "accomplishments", opportunity_kind: "qualitative", value_category: "distinct_accomplishment", dimensions: [] };
+    const inferenceInput = { inference_contract_version: 1, purpose: "interview_assist", operation_id: inferenceOperationId, fact_revision_ids: [confirmedJob.fact.metadata.revision_id], derived_blocks: [{ category: "job_evidence_summary", schema_id: "resume.job-evidence-summary.v2", data: jobEvidenceSummary }] };
     const inference = await host.handleBridge(launch.session_id, message("app.inference.request", inferenceInput), { origin: "null", sourceMatches: true });
-    expect(inference).toMatchObject({ status: "capability_completed", result: { inference_contract_version: 1, status: "completed", model_class: "owner_active_compatible", events: [{ event: "progress" }, { event: "completed" }] } });
-    expect(JSON.stringify(inference)).not.toContain("owner-profile");
-    expect(JSON.stringify(inference)).not.toContain("local-model");
+    expect(inference).toMatchObject({ status: "capability_completed", result: {
+      inference_contract_version: 1,
+      status: "completed",
+      provider_profile_id: "owner-profile",
+      model_id: "local-model",
+      model_class: "owner_active_compatible",
+      events: [{ event: "progress" }, { event: "completed" }],
+    } });
+    expect(JSON.stringify(inference)).not.toMatch(/api_key|endpoint|prompt_body|authorization|secret_ref|"provider_id":"ollama"/);
     const serverInferenceOperationId = crypto.randomUUID();
     const serverInferenceKey = `m5-server-inference-${serverInferenceOperationId}`;
     const serverInferenceAuthority = await host.issueServerCapabilityAuthority(launch.session_id, "app.inference.request", serverInferenceOperationId, serverInferenceKey);
@@ -203,5 +212,29 @@ describe("M4 capability bridge", () => {
       reused: false,
     });
     await expect(host.handleOwnerCapability("career.facts.confirm", confirmationInput, confirmationOperation, true, ownerAuthorization)).resolves.toMatchObject({ reused: true });
+
+    const groupedProposals = await Promise.all([
+      host.handleOwnerCapability("career.facts.propose", proposalInput("First factual unit from one submission"), crypto.randomUUID(), false, ownerAuthorization),
+      host.handleOwnerCapability("career.facts.propose", proposalInput("Second factual unit from one submission"), crypto.randomUUID(), false, ownerAuthorization),
+    ]) as Array<{ fact: { metadata: { record_id: string; revision_id: string; revision: number } } }>;
+    const groupedOperation = crypto.randomUUID();
+    const groupedInput = {
+      decisions: groupedProposals.map((item, index) => ({
+        fact_record_id: item.fact.metadata.record_id,
+        fact_revision_id: item.fact.metadata.revision_id,
+        expected_revision: item.fact.metadata.revision,
+        decision: index === 0 ? "accept" as const : "reject" as const,
+        edited_value: null,
+        review_note: null,
+      })),
+    };
+    await expect(host.handleOwnerCapability("career.facts.confirm", groupedInput, groupedOperation, true, ownerAuthorization)).resolves.toMatchObject({
+      facts: [{ state: "confirmed", confirmation: { operation_id: groupedOperation } }, { state: "rejected", confirmation: { operation_id: groupedOperation } }],
+      reused: false,
+    });
+    await expect(host.handleOwnerCapability("career.facts.confirm", groupedInput, groupedOperation, true, ownerAuthorization)).resolves.toMatchObject({ reused: true });
+    expect(capabilityEvents.filter(({ event }) => event === "app.resume_confirmation.grouped")).toEqual([
+      expect.objectContaining({ details: expect.objectContaining({ confirmation_group_count: 1, confirmation_unit_count: 2, used_evidence_count: 1, item_count: 2, timing_class: "human" }) }),
+    ]);
   });
 });

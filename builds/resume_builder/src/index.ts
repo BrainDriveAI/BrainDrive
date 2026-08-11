@@ -2,7 +2,7 @@ export const RESUME_BUILDER_PACKAGE_ID = "ai.braindrive.resume-builder" as const
 
 export const CONTRACT_BINDING = {
   appContractSchemaVersion: 1,
-  resumeDataSchemaVersion: 2,
+  resumeDataSchemaVersion: 3,
   resumeInferenceSchemaVersion: 1,
   appBridgeSchemaVersion: 1,
 } as const;
@@ -10,6 +10,7 @@ export const CONTRACT_BINDING = {
 export const RUNTIME_ENABLED = false as const;
 
 export * from "./workflow.js";
+export * from "./opportunities.js";
 
 export type ResumeBuilderPackageContract = {
   readonly packageId: typeof RESUME_BUILDER_PACKAGE_ID;
@@ -27,6 +28,9 @@ export const RESUME_INFERENCE_PURPOSES = [
   "resume_revision_classify",
   "resume_revision_draft",
   "resume_guidance",
+  "resume_strategy",
+  "resume_craft_evaluate",
+  "resume_craft_repair",
 ] as const;
 
 export type ResumeInferencePurpose = typeof RESUME_INFERENCE_PURPOSES[number];

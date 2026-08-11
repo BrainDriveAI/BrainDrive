@@ -1,0 +1,178 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/inference-result-resume-craft-evaluate.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "report_version": {
+      "type": "number",
+      "const": 1
+    },
+    "evidence_context": {
+      "type": "string",
+      "enum": [
+        "standard",
+        "limited"
+      ]
+    },
+    "verdict": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "fail"
+      ]
+    },
+    "criterion_verdicts": {
+      "minItems": 10,
+      "maxItems": 10,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "criterion": {
+            "type": "string",
+            "enum": [
+              "C1",
+              "C2",
+              "C3",
+              "C4",
+              "C5",
+              "C6",
+              "C7",
+              "T1",
+              "T2",
+              "T3"
+            ]
+          },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "pass",
+              "fail",
+              "not_applicable"
+            ]
+          },
+          "finding_ids": {
+            "maxItems": 500,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        },
+        "required": [
+          "criterion",
+          "verdict",
+          "finding_ids"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "findings": {
+      "maxItems": 500,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "finding_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "criterion": {
+            "type": "string",
+            "enum": [
+              "C1",
+              "C2",
+              "C3",
+              "C4",
+              "C5",
+              "C6",
+              "C7",
+              "T1",
+              "T2",
+              "T3"
+            ]
+          },
+          "statement_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "guidance",
+              "blocking"
+            ]
+          },
+          "correction_class": {
+            "type": "string",
+            "enum": [
+              "specificity",
+              "duty_only",
+              "generic_language",
+              "redundancy",
+              "density",
+              "organization",
+              "target_relevance"
+            ]
+          },
+          "safe_message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "evidence_category": {
+            "type": "string",
+            "enum": [
+              "statement_support",
+              "must_use_evidence",
+              "strategy",
+              "target_analysis",
+              "deterministic_gate",
+              "optional_gap",
+              "explicit_absence"
+            ]
+          },
+          "evidence_revision_ids": {
+            "maxItems": 32,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          }
+        },
+        "required": [
+          "finding_id",
+          "criterion",
+          "statement_id",
+          "severity",
+          "correction_class",
+          "safe_message",
+          "evidence_category",
+          "evidence_revision_ids"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "report_version",
+    "evidence_context",
+    "verdict",
+    "criterion_verdicts",
+    "findings"
+  ],
+  "additionalProperties": false
+}

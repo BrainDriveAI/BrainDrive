@@ -8,6 +8,7 @@ import { validateInferenceClaims } from "./validators.js";
 const FACT_ID = "72000000-0000-4000-8000-000000000001";
 const JOB_ID = "72000000-0000-4000-8000-000000000002";
 const ACCOMPLISHMENT_ID = "72000000-0000-4000-8000-000000000003";
+const OPPORTUNITY_ID = "72000000-0000-4000-8000-000000000004";
 const blocks = (value: string) => {
   const data = { facts: [{ revision_id: FACT_ID, fact_kind: "accomplishment", value, source_revision_ids: [randomUUID()] }] };
   return [{ category: "confirmed_fact_snapshot" as const, content_digest: canonicalInputDigest(data), schema_id: "resume.confirmed-facts.v1", schema_version: 1 as const, data }];
@@ -53,7 +54,7 @@ describe("deterministic claim gate", () => {
     expect(leaked.accepted).toBe(false);
   });
 
-  it("requires a summary, an individual job heading, and a concise statement for each linked accomplishment", () => {
+  it("allows an evidence-shaped omitted summary while requiring job headings and linked accomplishments", () => {
     const data = { facts: [
       { revision_id: JOB_ID, fact_kind: "employment", value: JSON.stringify({ format: "resume_job_v1", title: "Operations Coordinator", employer: "Northstar Health" }), source_revision_ids: [randomUUID()] },
       { revision_id: ACCOMPLISHMENT_ID, fact_kind: "accomplishment", value: JSON.stringify({ format: "resume_accomplishment_v1", job_fact_revision_id: JOB_ID, text: "Reduced incomplete forms from 18% to 6%." }), source_revision_ids: [randomUUID()] },
@@ -71,10 +72,67 @@ describe("deterministic claim gate", () => {
     ] }, structuredBlocks);
     expect(incomplete.accepted).toBe(false);
     expect(incomplete.findings.map((item) => item.safe_message)).toEqual(expect.arrayContaining([
-      expect.stringContaining("professional summary"),
       expect.stringContaining("individual experience heading"),
       expect.stringContaining("confirmed accomplishment"),
     ]));
+    expect(incomplete.findings.map((item) => item.safe_message).join(" ")).not.toContain("professional summary");
+  });
+
+  it("validates bounded strategy identities and makes quiet must-use omission blocking", () => {
+    const data = { facts: [
+      { revision_id: JOB_ID, fact_kind: "employment", value: JSON.stringify({ format: "resume_job_v1", title: "Coordinator", employer: "Northstar Health" }), source_revision_ids: [randomUUID()] },
+      { revision_id: ACCOMPLISHMENT_ID, fact_kind: "accomplishment", value: JSON.stringify({ format: "resume_accomplishment_v1", job_fact_revision_id: JOB_ID, text: "Reduced incomplete forms." }), source_revision_ids: [randomUUID()] },
+    ] };
+    const annotations = {
+      annotation_version: 1,
+      facts: [
+        { fact_revision_id: JOB_ID, evidence_class: "role_identity", job_fact_revision_id: JOB_ID, required_priority: "must_use" },
+        { fact_revision_id: ACCOMPLISHMENT_ID, evidence_class: "accomplishment", job_fact_revision_id: JOB_ID, required_priority: "must_use" },
+      ],
+    };
+    const strategy = {
+      strategy_version: 1,
+      history_shape: "chronological_standard",
+      history_reason_code: "standard_chronology",
+      role_emphasis: [{ job_fact_revision_id: JOB_ID, priority: "primary", reason_code: "evidence_rich", bullet_density: "compact" }],
+      section_order: ["experience"],
+      evidence_priorities: [
+        { fact_revision_id: JOB_ID, priority: "must_use" },
+        { fact_revision_id: ACCOMPLISHMENT_ID, priority: "must_use" },
+      ],
+      summary_decision: "omit",
+      summary_reason_code: "insufficient_distinct_value",
+      skills_context: [],
+      omissions: [],
+      unresolved_gap_ids: [],
+      owner_rationale: "Lead with the supported role and its specific outcome.",
+    };
+    const strategyBlocks = [
+      { category: "confirmed_fact_snapshot" as const, content_digest: canonicalInputDigest(data), schema_id: "resume.confirmed-facts.v1", schema_version: 1 as const, data },
+      { category: "evidence_annotations" as const, content_digest: canonicalInputDigest(annotations), schema_id: "resume.evidence-annotations.v1", schema_version: 1 as const, data: annotations },
+    ];
+    expect(validateInferenceClaims("resume_strategy", strategy, strategyBlocks).accepted).toBe(true);
+    expect(validateInferenceClaims("resume_strategy", {
+      ...strategy,
+      evidence_priorities: [{ fact_revision_id: JOB_ID, priority: "must_use" }],
+    }, strategyBlocks).accepted).toBe(false);
+
+    const strategyRecord = { ...strategy, metadata: { revision_id: randomUUID() } };
+    const generationBlocks = [
+      strategyBlocks[0],
+      { category: "resume_strategy" as const, content_digest: canonicalInputDigest(strategyRecord), schema_id: "resume.strategy-record.v1", schema_version: 1 as const, data: strategyRecord },
+    ];
+    const heading = { statement_id: randomUUID(), section_id: "experience", kind: "factual", text: "Coordinator | Northstar Health", supporting_confirmed_fact_revision_ids: [JOB_ID] };
+    const quiet = validateInferenceClaims("general_resume_draft", { statements: [heading], omissions: [] }, generationBlocks);
+    expect(quiet.accepted).toBe(false);
+    expect(quiet.findings.map((item) => item.safe_message).join(" ")).toContain("must-use");
+    for (const reason_code of ["redundant", "low_relevance", "space", "older_context", "owner_direction", "structural_mismatch", "conflict"] as const) {
+      const visible = validateInferenceClaims("general_resume_draft", {
+        statements: [heading],
+        omissions: [{ fact_revision_id: ACCOMPLISHMENT_ID, reason_code }],
+      }, generationBlocks);
+      expect(visible.accepted, reason_code).toBe(true);
+    }
   });
 
   it("produces stable findings and digests for identical invalid input", () => {
@@ -98,26 +156,34 @@ describe("deterministic claim gate", () => {
     const summary = {
       active_job_fact_revision_id: JOB_ID,
       active_job_revision: 2,
+      requested_opportunity_id: OPPORTUNITY_ID,
       requested_dimension: "outcomes",
+      opportunity_kind: "qualitative",
+      value_category: "decision_useful_outcome",
       dimensions: [{ dimension: "responsibilities", outcome: "answered", evidence_revision_ids: [JOB_ID] }],
     };
     const data = { facts: [{ revision_id: JOB_ID, fact_kind: "employment", value: JSON.stringify({ format: "resume_job_v1", title: "Coordinator", employer: "Synthetic Org" }), source_revision_ids: [randomUUID()] }] };
     const assistBlocks = [
       { category: "confirmed_fact_snapshot" as const, content_digest: canonicalInputDigest(data), schema_id: "resume.confirmed-facts.v1", schema_version: 1 as const, data },
-      { category: "job_evidence_summary" as const, content_digest: canonicalInputDigest(summary), schema_id: "resume.job-evidence-summary.v1", schema_version: 1 as const, data: summary },
+      { category: "job_evidence_summary" as const, content_digest: canonicalInputDigest(summary), schema_id: "resume.job-evidence-summary.v2", schema_version: 1 as const, data: summary },
     ];
     const result = (overrides: Record<string, unknown> = {}) => ({ questions: [{
       question_id: randomUUID(),
       job_fact_revision_id: JOB_ID,
+      opportunity_id: OPPORTUNITY_ID,
       dimension: "outcomes",
-      selection_method: "broker_ranked",
+      opportunity_kind: "qualitative",
+      value_category: "decision_useful_outcome",
+      selection_method: "deterministic_value",
       prompt: "What became better or easier because of your work? A qualitative result is enough.",
       rationale: "A supported outcome could make this role clearer.",
       ...overrides,
     }] });
     expect(validateInferenceClaims("interview_assist", result(), assistBlocks).accepted).toBe(true);
     expect(validateInferenceClaims("interview_assist", result({ job_fact_revision_id: randomUUID() }), assistBlocks).accepted).toBe(false);
+    expect(validateInferenceClaims("interview_assist", result({ opportunity_id: randomUUID() }), assistBlocks).accepted).toBe(false);
     expect(validateInferenceClaims("interview_assist", result({ dimension: "tools" }), assistBlocks).accepted).toBe(false);
+    expect(validateInferenceClaims("interview_assist", result({ opportunity_kind: "metric" }), assistBlocks).accepted).toBe(false);
     expect(validateInferenceClaims("interview_assist", result({ prompt: "What exact percentage did you improve? You must provide a number." }), assistBlocks).accepted).toBe(false);
   });
 

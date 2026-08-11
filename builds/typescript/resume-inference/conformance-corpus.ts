@@ -1,5 +1,9 @@
 import { canonicalInputDigest } from "../app-platform/contracts/common.js";
 import type { InferencePurpose } from "../app-platform/contracts/inference.js";
+import { evaluateCraftProposal, type CraftEvaluationContext } from "./craft-evaluator.js";
+import { CRAFT_EVIDENCE_LIMITED_POLICY } from "./craft-evaluator.js";
+import { RESUME_QUALITY_POLICY_IDENTITY, buildEvidenceAnnotations } from "./strategy.js";
+import { TARGET_FIT_THRESHOLD_POLICY } from "./target-fit.js";
 
 const CONTACT_ID = "73000000-0000-4000-8000-000000000001";
 const JOB_ONE_ID = "73000000-0000-4000-8000-000000000002";
@@ -10,6 +14,10 @@ const JOB_DESCRIPTION_ID = "73000000-0000-4000-8000-000000000006";
 const REQUIREMENT_ID = "73000000-0000-4000-8000-000000000007";
 const JOB_EVIDENCE_ID = "73000000-0000-4000-8000-000000000008";
 const REVISION_REQUEST_ID = "73000000-0000-4000-8000-000000000009";
+const OPPORTUNITY_ID = "73000000-0000-4000-8000-000000000010";
+const CRAFT_FACT_ID = "73000000-0000-4000-8000-000000000016";
+const CRAFT_DEFINITION_ID = "73000000-0000-4000-8000-000000000017";
+const CRAFT_REPORT_ID = "73000000-0000-4000-8000-000000000018";
 
 const facts = [
   { revision_id: CONTACT_ID, fact_kind: "contact", value: "Jordan Lee | Dayton, Ohio | jordan.lee@example.test | 555-010-0100", source_revision_ids: ["73000000-0000-4000-8000-000000000011"] },
@@ -28,7 +36,10 @@ const jobEvidenceFact = {
 const jobEvidenceSummary = {
   active_job_fact_revision_id: JOB_ONE_ID,
   active_job_revision: 1,
+  requested_opportunity_id: OPPORTUNITY_ID,
   requested_dimension: "outcomes",
+  opportunity_kind: "qualitative",
+  value_category: "decision_useful_outcome",
   dimensions: [
     { dimension: "responsibilities", outcome: "answered", evidence_revision_ids: [JOB_ONE_ID] },
     { dimension: "accomplishments", outcome: "answered", evidence_revision_ids: [ACCOMPLISHMENT_ID] },
@@ -38,6 +49,7 @@ const jobEvidenceSummary = {
 
 const generalDefinition = {
   metadata: { revision_id: DEFINITION_ID },
+  definition_kind: "general",
   title: "Jordan Lee",
   statements: [
     { statement_id: "73000000-0000-4000-8000-000000000021", section_id: "contact", kind: "factual", text: "Jordan Lee | Dayton, Ohio | jordan.lee@example.test | 555-010-0100", supporting_confirmed_fact_revision_ids: [CONTACT_ID] },
@@ -46,6 +58,94 @@ const generalDefinition = {
     { statement_id: "73000000-0000-4000-8000-000000000024", section_id: "experience", kind: "factual", text: "Standardized the intake process and reduced incomplete forms from 18% to 6%.", supporting_confirmed_fact_revision_ids: [ACCOMPLISHMENT_ID] },
   ],
   section_order: ["contact", "summary", "experience"],
+  selected_fact_revision_ids: [CONTACT_ID, JOB_ONE_ID, ACCOMPLISHMENT_ID],
+};
+
+const conformanceStrategy = {
+  metadata: { revision_id: "73000000-0000-4000-8000-000000000019" },
+  history_shape: "chronological_standard",
+  summary_decision: "include",
+  section_order: ["contact", "summary", "experience"],
+  evidence_priorities: [
+    { fact_revision_id: CONTACT_ID, priority: "context" },
+    { fact_revision_id: JOB_ONE_ID, priority: "must_use" },
+    { fact_revision_id: ACCOMPLISHMENT_ID, priority: "must_use" },
+    { fact_revision_id: SKILL_ID, priority: "preferred" },
+    { fact_revision_id: JOB_EVIDENCE_ID, priority: "preferred" },
+  ],
+  omissions: [
+    { fact_revision_id: SKILL_ID, reason_code: "redundant" },
+    { fact_revision_id: JOB_EVIDENCE_ID, reason_code: "redundant" },
+  ],
+  unresolved_gap_ids: [],
+};
+
+const targetAnalysis = {
+  metadata: { revision_id: "73000000-0000-4000-8000-000000000020" },
+  outcome: "targeted_variant",
+  analysis_state: "ready_for_targeted_draft",
+  fit_class: "meaningfully_supported",
+  parent_general_definition_revision_id: DEFINITION_ID,
+  job_revision_id: JOB_DESCRIPTION_ID,
+  material_changes: [{
+    statement_id: "73000000-0000-4000-8000-000000000024",
+    requirement_id: REQUIREMENT_ID,
+    supporting_confirmed_fact_revision_ids: [ACCOMPLISHMENT_ID],
+    action: "emphasis",
+  }],
+};
+
+const craftFact = {
+  revision_id: CRAFT_FACT_ID,
+  fact_kind: "accomplishment",
+  value: "Responsible for weekly schedules; coordinated weekly schedules across three teams.",
+  source_revision_ids: ["73000000-0000-4000-8000-000000000025"],
+};
+
+const craftDefinition = {
+  metadata: { revision_id: CRAFT_DEFINITION_ID },
+  definition_kind: "general" as const,
+  title: "Jordan Lee",
+  statements: [
+    { statement_id: "73000000-0000-4000-8000-000000000026", section_id: "experience", display_role: "heading" as const, kind: "factual" as const, text: "Operations Coordinator, Northstar Health, March 2022 - Present", supporting_confirmed_fact_revision_ids: [JOB_ONE_ID] },
+    { statement_id: "73000000-0000-4000-8000-000000000027", section_id: "experience", display_role: "bullet" as const, kind: "factual" as const, text: "Responsible for weekly schedules.", supporting_confirmed_fact_revision_ids: [CRAFT_FACT_ID] },
+  ],
+  section_order: ["experience"],
+  selected_fact_revision_ids: [JOB_ONE_ID, CRAFT_FACT_ID],
+};
+
+const craftStrategy = {
+  ...conformanceStrategy,
+  metadata: { revision_id: "73000000-0000-4000-8000-000000000028" },
+  summary_decision: "omit",
+  section_order: ["experience"],
+  evidence_priorities: [{ fact_revision_id: JOB_ONE_ID, priority: "context" }, { fact_revision_id: CRAFT_FACT_ID, priority: "must_use" }],
+  omissions: [],
+};
+
+const craftContext: CraftEvaluationContext = {
+  definition_kind: craftDefinition.definition_kind,
+  title: craftDefinition.title,
+  statements: craftDefinition.statements,
+  section_order: craftDefinition.section_order,
+  selected_fact_revision_ids: craftDefinition.selected_fact_revision_ids,
+  strategy: {
+    history_shape: craftStrategy.history_shape,
+    summary_decision: "omit",
+    section_order: craftStrategy.section_order,
+    evidence_priorities: [{ fact_revision_id: JOB_ONE_ID, priority: "context" }, { fact_revision_id: CRAFT_FACT_ID, priority: "must_use" }],
+    omissions: [],
+    unresolved_gap_ids: [],
+  },
+  target_analysis: null,
+  deterministic_truth_passed: true,
+  deterministic_structure_passed: true,
+};
+const craftEvaluation = evaluateCraftProposal(craftContext);
+const craftReport = {
+  metadata: { revision_id: CRAFT_REPORT_ID },
+  proposal_definition_revision_id: CRAFT_DEFINITION_ID,
+  ...craftEvaluation,
 };
 
 const jobDescription = {
@@ -69,7 +169,7 @@ function revisionRequest(state: "submitted" | "generating") {
   };
 }
 
-type ConformanceBlockCategory = "confirmed_fact_snapshot" | "job_description" | "general_resume_definition" | "job_analysis" | "evidence_matrix" | "job_evidence_summary" | "revision_instruction";
+type ConformanceBlockCategory = "confirmed_fact_snapshot" | "job_description" | "general_resume_definition" | "job_analysis" | "evidence_matrix" | "job_evidence_summary" | "revision_instruction" | "evidence_annotations" | "quality_policy" | "resume_strategy" | "target_fit_policy" | "target_fit_analysis" | "deterministic_findings" | "craft_gate_policy" | "craft_quality_report" | "craft_repair_scope";
 
 function block(category: ConformanceBlockCategory, schemaId: string, data: unknown) {
   return { category, content_digest: canonicalInputDigest(data), schema_id: schemaId, schema_version: 1 as const, data };
@@ -86,6 +186,28 @@ export const RESUME_MODEL_CONFORMANCE_CORPUS_DIGEST = canonicalInputDigest({
 });
 
 export function conformanceBlocks(purpose: InferencePurpose) {
+  if (purpose === "resume_craft_evaluate" || purpose === "resume_craft_repair") {
+    const craftFacts = [facts[1], craftFact];
+    const blocks = [
+      block("confirmed_fact_snapshot", "resume.confirmed-facts.v1", { facts: craftFacts }),
+      block("general_resume_definition", "resume.definition.v1", craftDefinition),
+      block("resume_strategy", "resume.strategy-record.v1", craftStrategy),
+      block("deterministic_findings", "resume.craft-deterministic-gates.v1", { truth_passed: true, structure_passed: true, mechanical_passed: true, mechanical_report_digest: canonicalInputDigest(craftDefinition) }),
+      block("craft_gate_policy", "resume.craft-gate-policy.v1", CRAFT_EVIDENCE_LIMITED_POLICY),
+    ];
+    if (purpose === "resume_craft_repair") {
+      blocks.push(block("craft_quality_report", "resume.craft-quality-report.v1", craftReport));
+      blocks.push(block("craft_repair_scope", "resume.craft-repair-scope.v1", {
+        scope_version: 1,
+        source_definition_revision_id: CRAFT_DEFINITION_ID,
+        source_report_revision_id: CRAFT_REPORT_ID,
+        statement_scope_ids: ["73000000-0000-4000-8000-000000000027"],
+        allowed_correction_classes: ["duty_only"],
+        attempt: 1,
+      }));
+    }
+    return blocks;
+  }
   const changedM3Purpose = ["interview_assist", "general_resume_draft", "targeted_resume_draft"].includes(purpose);
   const purposeFacts = purpose === "interview_assist"
     ? [facts[1], facts[2], jobEvidenceFact]
@@ -93,11 +215,24 @@ export function conformanceBlocks(purpose: InferencePurpose) {
       ? [...facts, jobEvidenceFact]
       : facts;
   const blocks = [block("confirmed_fact_snapshot", "resume.confirmed-facts.v1", { facts: purposeFacts })];
-  if (purpose === "interview_assist") blocks.push(block("job_evidence_summary", "resume.job-evidence-summary.v1", jobEvidenceSummary));
+  if (purpose === "resume_strategy") {
+    blocks.push(block("evidence_annotations", "resume.evidence-annotations.v1", buildEvidenceAnnotations(purposeFacts, [])));
+    blocks.push(block("quality_policy", "resume.quality-policy-identity.v1", RESUME_QUALITY_POLICY_IDENTITY));
+  }
+  if (purpose === "general_resume_draft") {
+    blocks.push(block("resume_strategy", "resume.strategy-record.v1", conformanceStrategy));
+    blocks.push(block("quality_policy", "resume.quality-policy-identity.v1", RESUME_QUALITY_POLICY_IDENTITY));
+  }
+  if (purpose === "interview_assist") blocks.push(block("job_evidence_summary", "resume.job-evidence-summary.v2", jobEvidenceSummary));
   if (["job_description_analyze", "targeted_resume_draft"].includes(purpose)) blocks.push(block("job_description", "resume.job-description.v1", jobDescription));
   if (["tailoring_plan", "targeted_resume_draft"].includes(purpose)) blocks.push(block("general_resume_definition", "resume.definition.v1", generalDefinition));
   if (purpose === "requirement_evidence_match") blocks.push(block("job_analysis", "resume.job-analysis.v1", jobAnalysis));
   if (["tailoring_plan", "targeted_resume_draft"].includes(purpose)) blocks.push(block("evidence_matrix", "resume.requirement-evidence.v1", evidenceMatrix));
+  if (purpose === "tailoring_plan") blocks.push(block("target_fit_policy", "resume.target-fit-policy.v1", TARGET_FIT_THRESHOLD_POLICY));
+  if (purpose === "targeted_resume_draft") {
+    blocks.push(block("resume_strategy", "resume.strategy-record.v1", conformanceStrategy));
+    blocks.push(block("target_fit_analysis", "resume.target-fit-analysis.v1", targetAnalysis));
+  }
   if (["resume_revision_classify", "resume_revision_draft"].includes(purpose)) {
     blocks.push(block("general_resume_definition", "resume.definition.v1", generalDefinition));
     blocks.push(block("revision_instruction", "resume.revision-request.v1", revisionRequest(purpose === "resume_revision_draft" ? "generating" : "submitted")));
@@ -106,8 +241,5 @@ export function conformanceBlocks(purpose: InferencePurpose) {
 }
 
 export function conformanceCorpusDigest(purpose: InferencePurpose): string {
-  if (["job_description_analyze", "requirement_evidence_match", "tailoring_plan"].includes(purpose)) {
-    return RESUME_MODEL_CONFORMANCE_CORPUS_DIGEST;
-  }
   return canonicalInputDigest({ corpus_version: RESUME_MODEL_CONFORMANCE_CORPUS_VERSION, purpose, blocks: conformanceBlocks(purpose) });
 }

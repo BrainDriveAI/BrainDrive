@@ -23,6 +23,30 @@ export function isModelSettingsAction(action: unknown, value: unknown): boolean 
   return action === "navigate_settings" && value === "models";
 }
 
+export function applyGroupedFactDecisions(input: Record<string, unknown>, acceptedRevisionIds: ReadonlySet<string>): Record<string, unknown> {
+  if (!Array.isArray(input.decisions)) return input;
+  return {
+    ...input,
+    decisions: input.decisions.map((candidate) => {
+      if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return candidate;
+      const decision = candidate as Record<string, unknown>;
+      const accepted = typeof decision.fact_revision_id === "string" && acceptedRevisionIds.has(decision.fact_revision_id);
+      return { ...decision, decision: accepted ? "accept" : "reject", edited_value: null };
+    }),
+  };
+}
+
+export function ownerFactConfirmationDetail(value: string): string {
+  try {
+    const parsed = JSON.parse(value) as { owner_text?: unknown; text?: unknown };
+    if (typeof parsed.owner_text === "string" && parsed.owner_text.trim()) return parsed.owner_text;
+    if (typeof parsed.text === "string" && parsed.text.trim()) return parsed.text;
+  } catch {
+    // Plain owner-entered facts are already suitable for review.
+  }
+  return value;
+}
+
 type BridgeEnvelope = {
   bridge_version: 1;
   message_id: string;
@@ -97,10 +121,12 @@ export default function SandboxedAppFrame({
   const cleanupAbortRef = useRef<AbortController | null>(null);
   const ownerRecordsRef = useRef(new Map<string, { label: string; detail: string }>());
   const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
   const [status, setStatus] = useState<BridgeStatus>("loading");
   const [error, setError] = useState<string | null>(null);
   const [frameHeight, setFrameHeight] = useState(720);
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingOwnerConfirmation | null>(null);
+  const [acceptedGroupRevisionIds, setAcceptedGroupRevisionIds] = useState<Set<string>>(new Set());
   const [pendingHostAction, setPendingHostAction] = useState<PendingHostAction | null>(null);
 
   useEffect(() => {
@@ -167,6 +193,8 @@ export default function SandboxedAppFrame({
         )
       );
       if (isFactConfirmation || isDefinitionApproval || isRevisionOwnerAction) {
+        const decisions = message.payload?.input?.decisions;
+        setAcceptedGroupRevisionIds(new Set(Array.isArray(decisions) ? decisions.flatMap((decision) => decision && typeof decision === "object" && typeof (decision as Record<string, unknown>).fact_revision_id === "string" ? [(decision as Record<string, unknown>).fact_revision_id as string] : []) : []));
         return await new Promise((resolve, reject) => setPendingConfirmation({ message, resolve, reject }));
       }
       if (signal.aborted) throw new DOMException("Cancelled", "AbortError");
@@ -221,7 +249,7 @@ export default function SandboxedAppFrame({
       const result = (response as { result?: unknown }).result;
       if (message.type === "capability.call" && message.payload?.capability === "career.facts.propose") {
         const fact = (result as { fact?: { metadata?: { record_id?: unknown }; value?: unknown } } | undefined)?.fact;
-        if (typeof fact?.metadata?.record_id === "string" && typeof fact.value === "string") ownerRecordsRef.current.set(fact.metadata.record_id, { label: "Confirm career fact", detail: fact.value });
+        if (typeof fact?.metadata?.record_id === "string" && typeof fact.value === "string") ownerRecordsRef.current.set(fact.metadata.record_id, { label: "Confirm career fact", detail: ownerFactConfirmationDetail(fact.value) });
       }
       if (message.type === "capability.call" && message.payload?.capability === "resume.definitions.write") {
         const definition = (result as { definition?: { metadata?: { record_id?: unknown }; title?: unknown; statements?: unknown[] } } | undefined)?.definition;
@@ -283,6 +311,7 @@ export default function SandboxedAppFrame({
 
   const confirmationRecord = (() => {
     const input = pendingConfirmation?.message.payload?.input;
+    if (Array.isArray(input?.decisions)) return { label: "Review factual units from one answer", detail: `${input.decisions.length} factual unit${input.decisions.length === 1 ? "" : "s"} will be decided together. Uncheck any unit that should remain unconfirmed.` };
     const recordId = typeof input?.fact_record_id === "string" ? input.fact_record_id : typeof input?.definition_record_id === "string" ? input.definition_record_id : typeof input?.request_record_id === "string" ? input.request_record_id : "";
     if (input?.kind === "revision_outcome" && input.state === "generating") return { label: "Confirm factual resume revision", detail: "BrainDrive will generate a proposal from the confirmed fact snapshot. This does not approve a resume version." };
     if (input?.kind === "revision_outcome" && input.state === "accepted") return { label: "Accept revision proposal", detail: "The proposal will remain unapproved until you separately validate and approve the resume version." };
@@ -298,6 +327,19 @@ export default function SandboxedAppFrame({
     return ownerRecordsRef.current.get(recordId) ?? { label: "Confirm this owner action", detail: "BrainDrive will validate the saved record and reject stale or unsupported content." };
   })();
 
+  const confirmationUnits = (() => {
+    const input = pendingConfirmation?.message.payload?.input;
+    if (!Array.isArray(input?.decisions)) return [];
+    return input.decisions.flatMap((candidate) => {
+      if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return [];
+      const decision = candidate as Record<string, unknown>;
+      const recordId = typeof decision.fact_record_id === "string" ? decision.fact_record_id : "";
+      const revisionId = typeof decision.fact_revision_id === "string" ? decision.fact_revision_id : "";
+      if (!recordId || !revisionId) return [];
+      return [{ recordId, revisionId, detail: ownerRecordsRef.current.get(recordId)?.detail ?? "Proposed factual unit" }];
+    });
+  })();
+
   const completeConfirmation = async (confirmed: boolean) => {
     const message = pendingConfirmation;
     setPendingConfirmation(null);
@@ -308,7 +350,8 @@ export default function SandboxedAppFrame({
       return;
     }
     try {
-      const response = await callResumeBuilderCapability(message.message.payload.capability, message.message.payload.input, message.message.message_id, true);
+      const input = applyGroupedFactDecisions(message.message.payload.input, acceptedGroupRevisionIds);
+      const response = await callResumeBuilderCapability(message.message.payload.capability, input, message.message.message_id, true);
       message.resolve(response);
     } catch (requestError) {
       message.reject(requestError instanceof Error ? requestError : new Error("recoverable_internal_failure"));
@@ -328,6 +371,29 @@ export default function SandboxedAppFrame({
     catch (failure) { action.reject(failure instanceof Error ? failure : new Error("recoverable_internal_failure")); }
     finally { frameRef.current?.focus(); }
   };
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog || (!pendingConfirmation && !pendingHostAction)) return;
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (pendingConfirmation) { setPendingConfirmation(null); pendingConfirmation.reject(new Error("cancelled")); }
+        else if (pendingHostAction) { setPendingHostAction(null); pendingHostAction.reject(new Error("cancelled")); }
+        frameRef.current?.focus();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = [...dialog.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])')];
+      if (focusable.length === 0) return;
+      const first = focusable[0]!;
+      const last = focusable.at(-1)!;
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    dialog.addEventListener("keydown", onKeyDown);
+    return () => dialog.removeEventListener("keydown", onKeyDown);
+  }, [pendingConfirmation, pendingHostAction]);
 
   const closeAndReturn = useCallback(() => {
     controllerRef.current?.requestTeardown();
@@ -356,10 +422,11 @@ export default function SandboxedAppFrame({
       </div>
       {error ? <div role="alert" className="m-4 rounded-lg border border-bd-danger px-4 py-3 text-sm text-bd-text-primary">{error}</div> : null}
       {pendingConfirmation ? (
-        <div role="dialog" aria-modal="true" aria-labelledby="resume-owner-confirmation-title" className="m-4 rounded-xl border border-bd-amber bg-bd-bg-secondary p-4 shadow-xl">
+        <div ref={dialogRef} role="dialog" tabIndex={-1} aria-modal="true" aria-labelledby="resume-owner-confirmation-title" aria-describedby="resume-owner-confirmation-detail resume-owner-confirmation-boundary" className="m-4 rounded-xl border border-bd-amber bg-bd-bg-secondary p-4 shadow-xl">
           <h2 id="resume-owner-confirmation-title" className="font-heading text-lg font-semibold text-bd-text-heading">{confirmationRecord.label}</h2>
-          <p className="mt-2 text-sm text-bd-text-primary">{confirmationRecord.detail}</p>
-          <p className="mt-2 text-xs text-bd-text-secondary">This host-owned confirmation prevents the sandboxed app from approving facts or resume versions by itself.</p>
+          <p id="resume-owner-confirmation-detail" className="mt-2 text-sm text-bd-text-primary">{confirmationRecord.detail}</p>
+          {confirmationUnits.length ? <fieldset className="mt-3 space-y-2"><legend className="sr-only">Choose factual units to confirm</legend>{confirmationUnits.map((unit) => <label key={unit.revisionId} className="flex items-start gap-2 rounded-lg border border-bd-border p-3 text-sm text-bd-text-primary"><input type="checkbox" className="mt-1" checked={acceptedGroupRevisionIds.has(unit.revisionId)} onChange={(event) => setAcceptedGroupRevisionIds((current) => { const next = new Set(current); if (event.target.checked) next.add(unit.revisionId); else next.delete(unit.revisionId); return next; })} /><span>{unit.detail}</span></label>)}</fieldset> : null}
+          <p id="resume-owner-confirmation-boundary" className="mt-2 text-xs text-bd-text-secondary">This host-owned confirmation prevents the sandboxed app from approving facts or resume versions by itself. Press Escape to cancel and return to the app.</p>
           <div className="mt-4 flex flex-wrap gap-2">
             <button ref={confirmButtonRef} type="button" onClick={() => void completeConfirmation(true)} className="rounded-lg bg-bd-amber px-4 py-2 font-semibold text-bd-bg-primary">Confirm</button>
             <button type="button" onClick={() => void completeConfirmation(false)} className="rounded-lg border border-bd-border px-4 py-2 text-bd-text-primary">Cancel</button>
@@ -367,10 +434,10 @@ export default function SandboxedAppFrame({
         </div>
       ) : null}
       {pendingHostAction ? (
-        <div role="dialog" aria-modal="true" aria-labelledby="app-host-action-title" className="m-4 rounded-xl border border-bd-amber bg-bd-bg-secondary p-4 shadow-xl">
+        <div ref={dialogRef} role="dialog" tabIndex={-1} aria-modal="true" aria-labelledby="app-host-action-title" aria-describedby="app-host-action-detail app-host-action-boundary" className="m-4 rounded-xl border border-bd-amber bg-bd-bg-secondary p-4 shadow-xl">
           <h2 id="app-host-action-title" className="font-heading text-lg font-semibold text-bd-text-heading">{pendingHostAction.title}</h2>
-          <p className="mt-2 break-words text-sm text-bd-text-primary">{pendingHostAction.detail}</p>
-          <p className="mt-2 text-xs text-bd-text-secondary">This action is performed by BrainDrive. The app receives only a safe outcome and no host path or runtime credential.</p>
+          <p id="app-host-action-detail" className="mt-2 break-words text-sm text-bd-text-primary">{pendingHostAction.detail}</p>
+          <p id="app-host-action-boundary" className="mt-2 text-xs text-bd-text-secondary">This action is performed by BrainDrive. The app receives only a safe outcome and no host path or runtime credential. Press Escape to cancel and return to the app.</p>
           <div className="mt-4 flex flex-wrap gap-2">
             <button ref={confirmButtonRef} type="button" onClick={() => void completeHostAction(true)} className="rounded-lg bg-bd-amber px-4 py-2 font-semibold text-bd-bg-primary">Confirm</button>
             <button type="button" onClick={() => void completeHostAction(false)} className="rounded-lg border border-bd-border px-4 py-2 text-bd-text-primary">Cancel</button>

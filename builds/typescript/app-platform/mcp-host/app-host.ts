@@ -445,6 +445,9 @@ export class AppMcpHost {
       const factDecision = parsedCapability.data === "career.facts.confirm" && hostOwnerConfirmed
         ? FactDecisionInputSchema.safeParse(input)
         : null;
+      const groupedFactDecisions = parsedCapability.data === "career.facts.confirm" && hostOwnerConfirmed && isRecordValue(input) && Array.isArray(input.decisions)
+        ? input.decisions.map((decision) => FactDecisionInputSchema.safeParse(decision))
+        : null;
       const ownerDecision = factDecision?.success
         ? issueHostOwnerDecisionEvidence({
             ownerId: descriptor.grant.owner_id,
@@ -455,11 +458,21 @@ export class AppMcpHost {
             confirmedAt: new Date(this.now()).toISOString(),
           })
         : undefined;
+      const ownerDecisions = groupedFactDecisions?.length && groupedFactDecisions.every((decision) => decision.success)
+        ? groupedFactDecisions.map((decision) => issueHostOwnerDecisionEvidence({
+            ownerId: descriptor.grant!.owner_id,
+            actorId: descriptor.grant!.actor_id,
+            operationId,
+            inputRevisionId: decision.data!.fact_revision_id,
+            decision: decision.data!.decision,
+            confirmedAt: new Date(this.now()).toISOString(),
+          }))
+        : undefined;
       return await this.executeDataCapability(parsedCapability.data, input, {
         authority: restrictedAuthorityFromTokenClaims(claims), installationId: descriptor.record.installation_id,
         connectionId: claims.connection_id, viewId: null, operationId, correlationId: operationId,
         idempotencyKey, deadlineAt: Math.min(Date.parse(claims.expires_at), this.now() + 120_000),
-        hostOwnerConfirmed, ownerDecision,
+        hostOwnerConfirmed, ownerDecision, ownerDecisions,
       });
     } catch (error) { throw this.asHostError(error); }
   }

@@ -76,7 +76,7 @@ describe("memory migration archive", () => {
       await mkdir(namespace, { recursive: true });
       await writeFile(path.join(namespace, "catalog.json"), `${JSON.stringify({
         catalog_version: 2,
-        data_schema_version: 3,
+        data_schema_version: 4,
         owner_id: testGrant().owner_id,
       })}\n`, "utf8");
       await exportMemoryArchive(sourceMemory, archivePath);

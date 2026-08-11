@@ -40,7 +40,7 @@ describe("Resume Builder migration, backup participation, and retained reopen", 
     await migrated.initialize(testGrant().owner_id);
     expect((await migrated.catalog()).extensions).toEqual({ future_namespace_hint: true });
     expect(await migrated.list("career_fact")).toHaveLength(1);
-    expect((await readFile(path.join(namespace, "catalog.json"), "utf8")).includes('"data_schema_version":2')).toBe(true);
+    expect((await readFile(path.join(namespace, "catalog.json"), "utf8")).includes('"data_schema_version":3')).toBe(true);
   });
 
   it("restores the pre-migration catalog when deterministic transformation fails", async () => {
@@ -72,7 +72,7 @@ describe("Resume Builder migration, backup participation, and retained reopen", 
 
     const reopened = new ResumeDataStore(target, namespace, {}, false);
     await reopened.initialize(testGrant().owner_id);
-    expect((await reopened.catalog()).data_schema_version).toBe(2);
+    expect((await reopened.catalog()).data_schema_version).toBe(3);
     await expect(readFile(path.join(namespace, "migration-transaction.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 

@@ -1,7 +1,19 @@
 import { z } from "zod";
 
 import { NonEmptyStringSchema, OpaqueIdSchema } from "../app-platform/contracts/common.js";
-import { EvidenceStatusSchema, GuidanceResultSchema, JobEvidenceDimensionSchema, RequirementKindSchema, RevisionIntentClassSchema } from "../app-platform/contracts/data.js";
+import {
+  CraftCorrectionClassSchema,
+  CraftCriterionSchema,
+  EvidenceStatusSchema,
+  GuidanceResultSchema,
+  JobEvidenceDimensionSchema,
+  RequirementKindSchema,
+  ResumeHistoryShapeSchema,
+  ResumeRoleBulletDensitySchema,
+  ResumeStrategyOmissionReasonSchema,
+  RevisionIntentClassSchema,
+  TargetFitClassSchema,
+} from "../app-platform/contracts/data.js";
 import { type InferencePurpose, PURPOSE_OUTPUT_SCHEMAS } from "../app-platform/contracts/inference.js";
 
 const SupportIdsSchema = z.array(OpaqueIdSchema).max(32);
@@ -23,8 +35,11 @@ export const InterviewAssistResultSchema = z.object({
   questions: z.array(z.object({
     question_id: OpaqueIdSchema,
     job_fact_revision_id: OpaqueIdSchema,
+    opportunity_id: OpaqueIdSchema,
     dimension: JobEvidenceDimensionSchema.exclude(["identity"]),
-    selection_method: z.literal("broker_ranked"),
+    opportunity_kind: z.enum(["qualitative", "metric"]),
+    value_category: z.enum(["distinct_accomplishment", "decision_useful_outcome", "scope_or_scale", "tools_in_use", "progression", "core_responsibility"]),
+    selection_method: z.literal("deterministic_value"),
     prompt: z.string().min(1).max(2_048),
     rationale: z.string().min(1).max(1_024),
   }).strict()).length(1),
@@ -34,6 +49,7 @@ export const GeneralResumeDraftResultSchema = z.object({
   title: z.string().min(1).max(256),
   statements: z.array(GeneratedStatementSchema).min(1).max(500),
   section_order: z.array(NonEmptyStringSchema).min(1).max(32),
+  omissions: z.array(z.object({ fact_revision_id: OpaqueIdSchema, reason_code: ResumeStrategyOmissionReasonSchema }).strict()).max(500),
 }).strict();
 
 export const JobDescriptionAnalyzeResultSchema = z.object({
@@ -63,13 +79,82 @@ export const RequirementEvidenceMatchResultSchema = z.object({
 }).strict();
 
 export const TailoringPlanResultSchema = z.object({
+  plan_version: z.literal(2),
+  threshold_policy_id: NonEmptyStringSchema,
+  threshold_policy_version: NonEmptyStringSchema,
+  fit_class: TargetFitClassSchema,
+  outcome: z.enum(["targeted_variant", "no_meaningful_change"]),
+  no_change_reason: z.enum(["ambiguous_evidence", "insufficient_supported_fit", "no_material_resume_change"]).nullable(),
+  support_counts: z.object({ core: z.number().int().nonnegative(), transferable: z.number().int().nonnegative(), partial: z.number().int().nonnegative(), unsupported: z.number().int().nonnegative() }).strict(),
   changes: z.array(z.object({
     change_id: OpaqueIdSchema,
+    requirement_id: OpaqueIdSchema,
     statement_id: OpaqueIdSchema.nullable(),
-    action: z.enum(["retain", "reorder", "rewrite", "omit", "clarify"]),
+    action: z.enum(["selection", "ordering", "emphasis", "faithful_wording", "shorten"]),
     rationale: z.string().min(1).max(2_048),
-    supporting_confirmed_fact_revision_ids: SupportIdsSchema,
-  }).strict()).min(1).max(500),
+    supporting_confirmed_fact_revision_ids: SupportIdsSchema.min(1),
+  }).strict()).max(500),
+}).strict().superRefine((value, context) => {
+  if ((value.outcome === "targeted_variant") !== (value.changes.length > 0)) context.addIssue({ code: "custom", message: "tailoring outcome requires a material-change manifest" });
+  if ((value.outcome === "no_meaningful_change") !== (value.no_change_reason !== null)) context.addIssue({ code: "custom", message: "no-change tailoring outcome requires one bounded reason" });
+});
+
+export const ResumeStrategyResultSchema = z.object({
+  strategy_version: z.literal(1),
+  history_shape: ResumeHistoryShapeSchema,
+  history_reason_code: z.enum(["standard_chronology", "thin_history", "senior_compression", "career_transition", "employment_gap", "overlap_or_promotion"]),
+  role_emphasis: z.array(z.object({
+    job_fact_revision_id: OpaqueIdSchema,
+    priority: z.enum(["primary", "supporting", "compressed"]),
+    reason_code: z.enum(["recent", "relevant", "evidence_rich", "continuity", "older_context"]),
+    bullet_density: ResumeRoleBulletDensitySchema,
+  }).strict()).max(100),
+  section_order: z.array(NonEmptyStringSchema).min(1).max(32),
+  evidence_priorities: z.array(z.object({ fact_revision_id: OpaqueIdSchema, priority: z.enum(["must_use", "preferred", "context"]) }).strict()).max(500),
+  summary_decision: z.enum(["include", "omit"]),
+  summary_reason_code: z.enum(["supported_positioning", "insufficient_distinct_value", "redundant_with_experience"]),
+  skills_context: z.array(z.object({
+    skill_fact_revision_id: OpaqueIdSchema,
+    placement: z.enum(["role", "project", "skills_section"]),
+    context_fact_revision_ids: z.array(OpaqueIdSchema).max(16),
+  }).strict()).max(100),
+  omissions: z.array(z.object({ fact_revision_id: OpaqueIdSchema, reason_code: ResumeStrategyOmissionReasonSchema }).strict()).max(500),
+  unresolved_gap_ids: z.array(OpaqueIdSchema).max(100),
+  owner_rationale: z.string().min(1).max(1_024),
+}).strict();
+
+export const ResumeCraftEvaluateResultSchema = z.object({
+  report_version: z.literal(1),
+  evidence_context: z.enum(["standard", "limited"]),
+  verdict: z.enum(["pass", "fail"]),
+  criterion_verdicts: z.array(z.object({ criterion: CraftCriterionSchema, verdict: z.enum(["pass", "fail", "not_applicable"]), finding_ids: z.array(OpaqueIdSchema).max(500) }).strict()).length(10),
+  findings: z.array(z.object({
+    finding_id: OpaqueIdSchema,
+    criterion: CraftCriterionSchema,
+    statement_id: OpaqueIdSchema.nullable(),
+    severity: z.enum(["guidance", "blocking"]),
+    correction_class: CraftCorrectionClassSchema,
+    safe_message: z.string().min(1).max(512),
+    evidence_category: z.enum(["statement_support", "must_use_evidence", "strategy", "target_analysis", "deterministic_gate", "optional_gap", "explicit_absence"]),
+    evidence_revision_ids: SupportIdsSchema,
+  }).strict()).max(500),
+}).strict().superRefine((value, context) => {
+  const criteria = value.criterion_verdicts.map((entry) => entry.criterion);
+  if (new Set(criteria).size !== CraftCriterionSchema.options.length || CraftCriterionSchema.options.some((criterion) => !criteria.includes(criterion))) context.addIssue({ code: "custom", path: ["criterion_verdicts"], message: "every craft criterion is required exactly once" });
+  const findingIds = new Set(value.findings.map((finding) => finding.finding_id));
+  if (findingIds.size !== value.findings.length || value.criterion_verdicts.some((entry) => entry.finding_ids.some((id) => !findingIds.has(id)))) context.addIssue({ code: "custom", path: ["findings"], message: "craft finding references are invalid" });
+  const failed = value.criterion_verdicts.some((entry) => entry.verdict === "fail") || value.findings.some((finding) => finding.severity === "blocking");
+  if ((value.verdict === "fail") !== failed) context.addIssue({ code: "custom", path: ["verdict"], message: "craft verdict and mandatory findings disagree" });
+});
+
+export const ResumeCraftRepairResultSchema = z.object({
+  repair_version: z.literal(1),
+  source_definition_revision_id: OpaqueIdSchema,
+  source_report_revision_id: OpaqueIdSchema,
+  changed_statement_ids: z.array(OpaqueIdSchema).min(1).max(500),
+  title: z.string().min(1).max(256),
+  statements: z.array(GeneratedStatementSchema).min(1).max(500),
+  section_order: z.array(NonEmptyStringSchema).min(1).max(32),
 }).strict();
 
 export const TargetedResumeDraftResultSchema = z.object({
@@ -116,6 +201,9 @@ export const PURPOSE_RESULT_SCHEMAS = {
   resume_revision_classify: ResumeRevisionClassifyResultSchema,
   resume_revision_draft: ResumeRevisionDraftResultSchema,
   resume_guidance: ResumeGuidanceResultSchema,
+  resume_strategy: ResumeStrategyResultSchema,
+  resume_craft_evaluate: ResumeCraftEvaluateResultSchema,
+  resume_craft_repair: ResumeCraftRepairResultSchema,
 } as const satisfies Record<InferencePurpose, z.ZodType>;
 
 export function parsePurposeResult(purpose: InferencePurpose, schemaId: string, value: unknown): unknown {

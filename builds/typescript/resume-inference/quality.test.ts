@@ -17,6 +17,14 @@ const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
 describe("credential-free Resume Quality foundation", () => {
+  it("is deterministic for one fixed revision and identical synthetic inputs", async () => {
+    const revision = "7ba4e8abebdc0032c9c2f8021321585b85397811";
+    const first = await runResumeQualityFoundation({ sourceRevision: revision });
+    const second = await runResumeQualityFoundation({ sourceRevision: revision });
+    expect(second.report_digest).toBe(first.report_digest);
+    expect(second.m7_evaluation.report_digest).toBe(first.m7_evaluation.report_digest);
+  });
+
   it("loads only declared synthetic fixtures and emits a sanitized schema-valid report", async () => {
     const fixtures = await loadSyntheticQualityFixtures();
     expect(fixtures.length).toBeGreaterThan(0);
@@ -44,6 +52,30 @@ describe("credential-free Resume Quality foundation", () => {
       tier_2_artifacts: "passed",
       tier_3_craft: "awaiting_authorized_generation",
       human_calibration: "awaiting_review",
+      provider_conformance: "awaiting_authorization",
+      numeric_friction: "awaiting_authority",
+      retention_deletion: "awaiting_contract",
+      release_ready: false,
+    });
+    expect(report.m7_evaluation).toMatchObject({
+      source_revision: expect.stringMatching(/^[a-f0-9]{40}$/),
+      outcome_scope: "synthetic_sanitized_evaluation",
+      corpus_integrity: {
+        outcome: "passed",
+        generative_fixture_count: 9,
+        holdout_fixture_count: 2,
+        parity_mutation_count: 4,
+      },
+      gates: {
+        fixture_integrity: "passed",
+        deterministic_foundation: "passed",
+        semantic_friction: "passed",
+        multi_run: "blocked",
+        provider_conformance: "blocked",
+        human_calibration: "blocked",
+        numeric_friction: "blocked",
+        retention_deletion: "blocked",
+      },
       release_ready: false,
     });
     expect(qualityReportMarkdown(report)).toContain(`Report digest: \`${report.report_digest}\``);

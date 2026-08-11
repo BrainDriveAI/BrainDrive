@@ -149,6 +149,13 @@ function projectCompletion(completion: Completion): unknown {
     output_schema_id: inference.output_schema_id,
     output_schema_version: inference.output_schema_version,
     output_digest: inference.output_digest,
+    ...(inference.status === "completed" ? {
+      prompt_policy_id: inference.prompt_policy_id,
+      prompt_policy_version: inference.prompt_policy_version,
+      input_digest: inference.input_digest,
+      provider_profile_id: inference.provider_profile_id,
+      model_id: inference.model_id,
+    } : {}),
     model_class: inference.provider_profile_id ? "owner_active_compatible" : null,
     attempt_count: inference.attempt_count,
     usage: inference.usage,

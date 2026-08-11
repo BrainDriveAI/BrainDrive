@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import type { ModelAdapter, StructuredCompletionRequest } from "../adapters/base.js";
 import type { InferencePurpose } from "../app-platform/contracts/inference.js";
 import type { ResolvedInferenceProvider } from "./compatibility.js";
+import { craftContextFromBlocks, evaluateCraftProposal } from "./craft-evaluator.js";
+import { decideTargetFit, TARGET_FIT_THRESHOLD_POLICY } from "./target-fit.js";
 
 type DataBlock = { category?: string; data?: unknown };
 type ConfirmedFact = { revision_id: string; fact_kind?: string; value: string };
@@ -43,7 +45,7 @@ export function synthesizeResumeE2eResult(purpose: InferencePurpose, blocks: Dat
   switch (purpose) {
     case "interview_assist":
       {
-        const summary = blockData<{ active_job_fact_revision_id: string; requested_dimension: string }>(blocks, "job_evidence_summary");
+        const summary = blockData<{ active_job_fact_revision_id: string; requested_opportunity_id: string; requested_dimension: string; opportunity_kind: "qualitative" | "metric"; value_category: "distinct_accomplishment" | "decision_useful_outcome" | "scope_or_scale" | "tools_in_use" | "progression" | "core_responsibility" }>(blocks, "job_evidence_summary");
         const prompts: Record<string, string> = {
           responsibilities: "What work did you handle most often in this role?",
           accomplishments: "What is one thing you improved, solved, or handled especially well in this role?",
@@ -52,7 +54,7 @@ export function synthesizeResumeE2eResult(purpose: InferencePurpose, blocks: Dat
           scope: "What truthful detail would help explain the scope of this role? Exact numbers are optional.",
           progression: "Did your responsibilities change or grow in this role? It is fine if they did not.",
         };
-        return { questions: [{ question_id: randomUUID(), job_fact_revision_id: summary.active_job_fact_revision_id, dimension: summary.requested_dimension, selection_method: "broker_ranked", prompt: prompts[summary.requested_dimension] ?? "What useful confirmed detail would you like to add for this role?", rationale: "Ask one unanswered high-value gap for the active job." }] };
+        return { questions: [{ question_id: randomUUID(), job_fact_revision_id: summary.active_job_fact_revision_id, opportunity_id: summary.requested_opportunity_id, dimension: summary.requested_dimension, opportunity_kind: summary.opportunity_kind, value_category: summary.value_category, selection_method: "deterministic_value", prompt: prompts[summary.requested_dimension] ?? "What useful confirmed detail would you like to add for this role?", rationale: "Phrase the host-selected evidence opportunity without changing its identity." }] };
       }
     case "general_resume_draft":
       {
@@ -66,8 +68,11 @@ export function synthesizeResumeE2eResult(purpose: InferencePurpose, blocks: Dat
         return "experience";
       };
       const resumeFacts = facts.filter((fact) => fact.fact_kind !== "preference");
+      const strategy = blocks.find((block) => block.category === "resume_strategy")?.data as { summary_decision?: string; section_order?: string[]; omissions?: Array<{ fact_revision_id?: string }> } | undefined;
+      const plannedOmissions = new Set((strategy?.omissions ?? []).map((item) => item.fact_revision_id));
       const statements: ReturnType<typeof statement>[] = [];
       for (const fact of resumeFacts) {
+        if (plannedOmissions.has(fact.revision_id)) continue;
         const job = fact.fact_kind === "employment" ? structuredFact<StructuredJob>(fact) : null;
         const accomplishment = fact.fact_kind === "accomplishment" ? structuredFact<StructuredAccomplishment>(fact) : null;
         const jobEvidence = fact.fact_kind === "job_evidence" ? structuredFact<StructuredJobEvidence>(fact) : null;
@@ -86,7 +91,7 @@ export function synthesizeResumeE2eResult(purpose: InferencePurpose, blocks: Dat
       }
       const firstJobFact = facts.find((fact) => fact.fact_kind === "employment");
       const firstJob = firstJobFact ? structuredFact<StructuredJob>(firstJobFact) : null;
-      if (firstJobFact && firstJob?.format === "resume_job_v1") {
+      if (strategy?.summary_decision === "include" && firstJobFact && firstJob?.format === "resume_job_v1") {
         const summaryText = firstJob.responsibilities
           ? `${firstJob.title} with experience ${firstJob.responsibilities.charAt(0).toLowerCase()}${firstJob.responsibilities.slice(1)}`
           : `${firstJob.title} with experience at ${firstJob.employer}.`;
@@ -99,7 +104,8 @@ export function synthesizeResumeE2eResult(purpose: InferencePurpose, blocks: Dat
       return {
         title: contact?.value.split("|")[0]?.trim() || "Resume",
         statements,
-        section_order: acceptedOrder.filter((section) => sections.has(section)),
+        section_order: strategy?.section_order ?? acceptedOrder.filter((section) => sections.has(section)),
+        omissions: strategy?.omissions ?? [],
       };
       }
     case "job_description_analyze": {
@@ -113,13 +119,23 @@ export function synthesizeResumeE2eResult(purpose: InferencePurpose, blocks: Dat
     }
     case "tailoring_plan": {
       const definition = blockData<{ statements: Array<{ statement_id: string }> }>(blocks, "general_resume_definition");
-      return { changes: [{ change_id: randomUUID(), statement_id: definition.statements[0]?.statement_id ?? null, action: "retain", rationale: "Retain supported owner wording.", supporting_confirmed_fact_revision_ids: firstFact ? [firstFact.revision_id] : [] }] };
+      const evidence = blockData<Array<{ requirement_id: string; requirement_kind: "required" | "preferred" | "responsibility" | "skill" | "credential" | "constraint" | "inferred"; evidence_status: "supported" | "partially_supported" | "unsupported" | "ambiguous" | "clarification_needed"; supporting_confirmed_fact_revision_ids: string[] }>>(blocks, "evidence_matrix");
+      const supported = evidence.find((row) => row.evidence_status === "supported");
+      const changes = supported && definition.statements[0]
+        ? [{ change_id: randomUUID(), requirement_id: supported.requirement_id, statement_id: definition.statements[0].statement_id, action: "emphasis" as const, rationale: "Emphasize supported owner evidence.", supporting_confirmed_fact_revision_ids: supported.supporting_confirmed_fact_revision_ids }]
+        : [];
+      const decision = decideTargetFit(evidence, changes);
+      return { plan_version: 2, threshold_policy_id: TARGET_FIT_THRESHOLD_POLICY.policy_id, threshold_policy_version: TARGET_FIT_THRESHOLD_POLICY.policy_version, fit_class: decision.fit_class, outcome: decision.outcome, no_change_reason: decision.no_change_reason, support_counts: decision.support_counts, changes: decision.material_changes.map((change) => ({ ...change, rationale: "Emphasize supported owner evidence." })) };
     }
     case "targeted_resume_draft": {
       const definition = blockData<{ metadata: { revision_id: string }; title: string; statements: Array<Record<string, unknown>>; section_order: string[] }>(blocks, "general_resume_definition");
       const job = blockData<{ metadata: { revision_id: string } }>(blocks, "job_description");
-      const statements = definition.statements.map(({ display_role: _displayRole, ...generatedStatement }) => generatedStatement);
-      return { parent_general_definition_revision_id: definition.metadata.revision_id, job_revision_id: job.metadata.revision_id, title: `${definition.title} - Targeted`, statements, changed_statement_ids: [], section_order: definition.section_order };
+      const analysis = blockData<{ material_changes: Array<{ statement_id: string | null }> }>(blocks, "target_fit_analysis");
+      const changedStatementIds = [...new Set(analysis.material_changes.flatMap((change) => change.statement_id ? [change.statement_id] : []))];
+      const statements = definition.statements.map((generatedStatement) => changedStatementIds.includes(String(generatedStatement.statement_id))
+        ? { ...generatedStatement, text: String(generatedStatement.text).endsWith(".") ? String(generatedStatement.text).slice(0, -1) : `${String(generatedStatement.text)}.` }
+        : generatedStatement);
+      return { parent_general_definition_revision_id: definition.metadata.revision_id, job_revision_id: job.metadata.revision_id, title: definition.title, statements, changed_statement_ids: changedStatementIds, section_order: definition.section_order };
     }
     case "resume_revision_classify": {
       const request = blockData<{ target: { scope: "statement" | "section" | "resume"; target_id: string | null }; request_text: string }>(blocks, "revision_instruction");
@@ -155,6 +171,55 @@ export function synthesizeResumeE2eResult(purpose: InferencePurpose, blocks: Dat
     }
     case "resume_guidance":
       return { guidance_version: 1, items: firstFact ? [{ category: "strong_evidence", evidence_revision_ids: [firstFact.revision_id], evidence_labels: ["Confirmed evidence"], message: "This confirmed evidence is specific and ready for review." }] : [], optional_questions: [] };
+    case "resume_strategy": {
+      const annotations = blocks.find((block) => block.category === "evidence_annotations")?.data as { facts?: Array<{ fact_revision_id: string; evidence_class: string; job_fact_revision_id: string | null; required_priority: "must_use" | "preferred" | "context" }>; unresolved_gap_ids?: string[] } | undefined;
+      const jobs = facts.filter((fact) => fact.fact_kind === "employment");
+      const sectionFor = (fact: typeof facts[number]) => {
+        if (fact.fact_kind === "contact") return fact.value.startsWith("Professional link:") ? "links" : "contact";
+        if (fact.fact_kind === "employment" || fact.fact_kind === "accomplishment") return "experience";
+        if (fact.fact_kind === "job_evidence") {
+          try { return JSON.parse(fact.value).association === "general" ? "skills" : "experience"; } catch { return "experience"; }
+        }
+        if (fact.fact_kind === "credential") return "certifications";
+        if (fact.fact_kind === "skill") return "skills";
+        if (fact.fact_kind === "project") return fact.value.startsWith("Leadership or volunteer:") ? "leadership" : "projects";
+        return fact.fact_kind;
+      };
+      const sections = [...new Set(facts.filter((fact) => fact.fact_kind !== "preference").map(sectionFor))];
+      const includeSummary = jobs.length >= 2;
+      const sectionOrder = sections.length ? sections : ["experience"];
+      if (includeSummary && !sectionOrder.includes("summary")) sectionOrder.splice(sectionOrder.indexOf("contact") >= 0 ? sectionOrder.indexOf("contact") + 1 : 0, 0, "summary");
+      return {
+        strategy_version: 1,
+        history_shape: jobs.length <= 1 ? "early_career" : jobs.length >= 5 ? "senior_selective" : "chronological_standard",
+        history_reason_code: jobs.length <= 1 ? "thin_history" : jobs.length >= 5 ? "senior_compression" : "standard_chronology",
+        role_emphasis: jobs.map((job, index) => {
+          const evidenceCount = (annotations?.facts ?? []).filter((fact) => fact.job_fact_revision_id === job.revision_id && fact.evidence_class !== "role_identity").length;
+          return { job_fact_revision_id: job.revision_id, priority: index === 0 ? "primary" : index >= 3 ? "compressed" : "supporting", reason_code: index === 0 ? "recent" : index >= 3 ? "older_context" : "continuity", bullet_density: evidenceCount >= 4 ? "expanded" : evidenceCount >= 2 ? "standard" : "compact" };
+        }),
+        section_order: sectionOrder,
+        evidence_priorities: (annotations?.facts ?? []).map((fact) => ({ fact_revision_id: fact.fact_revision_id, priority: fact.required_priority })),
+        summary_decision: includeSummary ? "include" : "omit",
+        summary_reason_code: includeSummary ? "supported_positioning" : "insufficient_distinct_value",
+        skills_context: facts.filter((fact) => fact.fact_kind === "skill").map((fact) => ({ skill_fact_revision_id: fact.revision_id, placement: "skills_section", context_fact_revision_ids: [] })),
+        omissions: [],
+        unresolved_gap_ids: annotations?.unresolved_gap_ids ?? [],
+        owner_rationale: "Lead with the most recent supported experience and preserve every distinct confirmed evidence unit.",
+      };
+    }
+    case "resume_craft_evaluate":
+      return evaluateCraftProposal(craftContextFromBlocks(blocks.map((entry) => ({ category: entry.category ?? "", data: entry.data }))));
+    case "resume_craft_repair": {
+      const definition = blockData<{ metadata: { revision_id: string }; title: string; statements: Array<{ statement_id: string } & Record<string, unknown>>; section_order: string[] }>(blocks, "general_resume_definition");
+      const report = blockData<{ metadata: { revision_id: string }; findings?: Array<{ severity?: string; statement_id?: string | null }> }>(blocks, "craft_quality_report");
+      const namedId = report.findings?.find((finding) => finding.severity === "blocking" && finding.statement_id)?.statement_id;
+      const changed = definition.statements.find((item) => item.statement_id === namedId) ?? definition.statements[0];
+      if (!changed) throw new Error("Synthetic craft repair fixture requires one source statement");
+      const statements = definition.statements.map((item) => item.statement_id === changed.statement_id
+        ? { ...item, text: String(item.text).replace(/^(?:Responsible for|Duties included|Tasked with)\s+/i, "") }
+        : item);
+      return { repair_version: 1, source_definition_revision_id: definition.metadata.revision_id, source_report_revision_id: report.metadata.revision_id, changed_statement_ids: [changed.statement_id], title: definition.title, statements, section_order: definition.section_order };
+    }
   }
 }
 

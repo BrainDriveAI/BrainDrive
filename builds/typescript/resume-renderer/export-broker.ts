@@ -6,7 +6,8 @@ import { OpaqueIdSchema } from "../app-platform/contracts/common.js";
 import type { DataAuthority } from "../resume-domain/service.js";
 import { ResumeDomainService } from "../resume-domain/service.js";
 import { ResumeDomainError } from "../resume-domain/errors.js";
-import { renderApprovedResume, renderApprovedResumeCleanText, RESUME_FONT_MANIFEST_DIGEST, type RenderedResume } from "./renderer.js";
+import { renderApprovedResume, renderApprovedResumeCleanText, renderApprovedResumeMarkdown, RESUME_FONT_MANIFEST_DIGEST, type RenderedCleanText, type RenderedResume } from "./renderer.js";
+import { verifyArtifactParity, type ArtifactParityEvaluation } from "./parity.js";
 
 const PreviewRequestSchema = z.object({ action: z.literal("preview"), definition_revision_id: OpaqueIdSchema }).strict();
 const ExportRequestSchema = z.object({
@@ -37,6 +38,7 @@ export type ResumePreview = {
   renderer: { template: string; renderer: string; input_digest: string; parse_back: "passed" | "unavailable" };
   pdf: { status: "ready" | "unavailable"; error_code: null | "pdf_render_failed" };
   clean_text: { text: string; digest: string; input_digest: string; mime_type: "text/plain"; selectable: true; instructions: string };
+  parity: { status: "passed" | "blocked"; report_revision_id: string; report_digest: string; disposition: "pass" | "block_preview" | "block_export" | "block_career_projection"; allowed_side_effects: Array<"preview" | "copy" | "text_export" | "pdf_export" | "career_projection">; recovery: string };
 };
 
 export type PreparedResumeExport = {
@@ -50,6 +52,8 @@ export type PreparedResumeExport = {
   safe_destination_label: string;
   definition: { kind: "general" | "targeted"; revision_label: string };
   parse_back: "passed";
+  parity_report_revision_id: string;
+  parity_report_digest: string;
 };
 
 export class ResumeExportBroker {
@@ -68,16 +72,26 @@ export class ResumeExportBroker {
     let rendered: RenderedResume | null = null;
     try { rendered = this.renderPdf(definition); }
     catch { /* Clean text is deliberately prepared before the fallible PDF path. */ }
+    const parity = this.evaluateParity(definition, rendered, clean);
+    const persistedParity = await this.persistParity(parity, authority, "preview");
+    const previewAllowed = parity.unsafe_representations.includes("preview") === false;
+    const cleanAllowed = parity.unsafe_representations.includes("clean_text") === false;
+    const fallbackText = `${parity.approved_source_lines.join("\n")}\n`;
+    const selectedCleanText = cleanAllowed ? clean.text : fallbackText;
+    const selectedCleanDigest = cleanAllowed
+      ? clean.artifact_digest
+      : `sha256:${createHash("sha256").update(fallbackText).digest("hex")}`;
     this.audit("app.validation.completed", { app_id: authority.grant.app_id, installation_id: authority.grant.installation_id, operation_id: authority.operationId, target_category: "resume_definition", target_id: definition.metadata.record_id, outcome: rendered ? "allowed" : "clean_text_only", item_count: clean.logical_lines.length, error_code: rendered ? null : "pdf_render_failed" });
     return {
-      status: rendered ? "ready" : "clean_text_only",
+      status: rendered && previewAllowed ? "ready" : "clean_text_only",
       definition: { kind: definition.definition_kind, safe_label: definition.title, revision_label: `Version ${definition.metadata.revision}` },
       format: "pdf",
       page_count: rendered?.page_count ?? 0,
-      lines: rendered?.logical_lines ?? clean.logical_lines,
+      lines: rendered && previewAllowed ? rendered.logical_lines : cleanAllowed ? clean.logical_lines : parity.approved_source_lines,
       renderer: { template: `${definition.template_id}@${definition.template_version}`, renderer: rendered ? `${rendered.renderer_id}@${rendered.renderer_version}` : "unavailable", input_digest: rendered?.input_digest ?? clean.input_digest, parse_back: rendered ? "passed" : "unavailable" },
       pdf: { status: rendered ? "ready" : "unavailable", error_code: rendered ? null : "pdf_render_failed" },
-      clean_text: { text: clean.text, digest: clean.artifact_digest, input_digest: clean.input_digest, mime_type: "text/plain", selectable: true, instructions: "Select the clean text and copy it manually if Copy or text export is unavailable." },
+      clean_text: { text: selectedCleanText, digest: selectedCleanDigest, input_digest: clean.input_digest, mime_type: "text/plain", selectable: true, instructions: cleanAllowed ? "Select the clean text and copy it manually if Copy or text export is unavailable." : "The generated clean text was blocked. This selectable fallback was reconstructed independently from the unchanged approved source." },
+      parity: this.parityProjection(parity, persistedParity.report.metadata.revision_id, persistedParity.report.report_digest),
     };
   }
 
@@ -85,8 +99,16 @@ export class ResumeExportBroker {
     const input = ExportRequestSchema.parse(raw);
     const definition = await this.domain.store.readRevision(input.definition_revision_id, authority.grant.record_scopes);
     if (definition.record_type !== "resume_definition") throw new ResumeDomainError("not_found_within_scope", "Resume version was not found", 404);
-    const pdf = input.format === "pdf" ? this.renderPdf(definition) : null;
+    const pdf = input.format === "pdf" ? this.tryRenderPdf(definition) : null;
     const text = input.format === "text" ? renderApprovedResumeCleanText(definition) : null;
+    const parityClean = text ?? renderApprovedResumeCleanText(definition);
+    const parityPdf = pdf ?? this.tryRenderPdf(definition);
+    const parity = this.evaluateParity(definition, parityPdf, parityClean);
+    const persistedParity = await this.persistParity(parity, authority, `export-${input.format}`);
+    const requestedRepresentation = input.format === "pdf" ? "pdf_extraction" : "clean_text";
+    if (parity.unsafe_representations.includes(requestedRepresentation)) {
+      throw new ResumeDomainError("validation_failed", `The ${input.format.toUpperCase()} export failed artifact parity. The approved source remains unchanged.`);
+    }
     const rendered = pdf ?? text!;
     if (authority.isCancelled?.()) throw new ResumeDomainError("cancelled", "Export was cancelled before creating a file");
     const artifactAuthority: DataAuthority = { ...authority, capability: "resume.artifacts.register", operationId: derivedUuid(authority.operationId, "artifact"), idempotencyKey: `${authority.idempotencyKey}:artifact` };
@@ -121,6 +143,8 @@ export class ResumeExportBroker {
       safe_destination_label: input.safe_filename,
       definition: { kind: definition.definition_kind, revision_label: `Version ${definition.metadata.revision}` },
       parse_back: "passed",
+      parity_report_revision_id: persistedParity.report.metadata.revision_id,
+      parity_report_digest: persistedParity.report.report_digest,
     };
   }
 
@@ -166,6 +190,59 @@ export class ResumeExportBroker {
       if (error instanceof ResumeDomainError && error.code === "not_found_within_scope") return null;
       throw error;
     }
+  }
+
+  private evaluateParity(definition: Parameters<typeof renderApprovedResume>[0], rendered: RenderedResume | null, clean: RenderedCleanText): ArtifactParityEvaluation {
+    return verifyArtifactParity({
+      definition,
+      preview_lines: rendered?.logical_lines ?? clean.logical_lines,
+      clean_text: clean.text,
+      pdf_bytes: rendered?.bytes ?? null,
+      career_markdown: renderApprovedResumeMarkdown(definition),
+      checked_at: this.now().toISOString(),
+    });
+  }
+
+  private tryRenderPdf(definition: Parameters<typeof renderApprovedResume>[0]): RenderedResume | null {
+    try { return this.renderPdf(definition); }
+    catch { return null; }
+  }
+
+  private async persistParity(parity: ArtifactParityEvaluation, authority: DataAuthority, stage: string) {
+    const parityAuthority: DataAuthority = { ...authority, capability: "resume.export.request", operationId: derivedUuid(authority.operationId, `parity-${stage}`), idempotencyKey: `${authority.idempotencyKey}:parity:${stage}` };
+    const persisted = await this.domain.writeArtifactParityReport(parity.report, parityAuthority);
+    this.audit("app.resume_parity.checked", {
+      app_id: authority.grant.app_id,
+      installation_id: authority.grant.installation_id,
+      operation_id: authority.operationId,
+      target_category: "artifact_parity_report",
+      target_id: persisted.report.metadata.record_id,
+      parity_revision_id: persisted.report.metadata.revision_id,
+      parity_digest: persisted.report.report_digest,
+      definition_revision_id: persisted.report.approved_definition_revision_id,
+      outcome: persisted.report.disposition === "pass" ? "allowed" : "denied",
+      item_count: persisted.report.representations.length,
+      error_code: persisted.report.disposition === "pass" ? null : "artifact_parity_mismatch",
+      timing_class: "automation",
+    });
+    return persisted;
+  }
+
+  private parityProjection(parity: ArtifactParityEvaluation, reportRevisionId: string, reportDigest: string): ResumePreview["parity"] {
+    const unsafe = new Set(parity.unsafe_representations);
+    return {
+      status: parity.report.disposition === "pass" ? "passed" : "blocked",
+      report_revision_id: reportRevisionId,
+      report_digest: reportDigest,
+      disposition: parity.report.disposition,
+      allowed_side_effects: [
+        ...(!unsafe.has("preview") ? ["preview" as const] : []),
+        ...(!unsafe.has("clean_text") ? ["copy" as const, "text_export" as const] : []),
+        ...(!unsafe.has("pdf_extraction") ? ["pdf_export" as const] : []),
+        ...(!unsafe.has("career_projection") ? ["career_projection" as const] : []),
+      ],
+      recovery: parity.report.disposition === "pass" ? "All representations match the approved definition." : "Only the affected action is unavailable; the approved source remains unchanged and verified fallback text remains selectable when safe.",
+    };
   }
 }
 

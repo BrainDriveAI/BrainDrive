@@ -440,6 +440,30 @@
             "failed"
           ]
         },
+        "provider_conformance": {
+          "type": "string",
+          "enum": [
+            "awaiting_authorization",
+            "passed",
+            "failed"
+          ]
+        },
+        "numeric_friction": {
+          "type": "string",
+          "enum": [
+            "awaiting_authority",
+            "passed",
+            "failed"
+          ]
+        },
+        "retention_deletion": {
+          "type": "string",
+          "enum": [
+            "awaiting_contract",
+            "passed",
+            "failed"
+          ]
+        },
         "release_ready": {
           "type": "boolean"
         }
@@ -449,7 +473,241 @@
         "tier_2_artifacts",
         "tier_3_craft",
         "human_calibration",
+        "provider_conformance",
+        "numeric_friction",
+        "retention_deletion",
         "release_ready"
+      ],
+      "additionalProperties": false
+    },
+    "m7_evaluation": {
+      "type": "object",
+      "properties": {
+        "report_schema_version": {
+          "type": "number",
+          "const": 1
+        },
+        "source_revision": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "quality_standard_revision": {
+          "type": "number",
+          "const": 3
+        },
+        "prompt_policy_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "rubric_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "fixture_corpus_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "report_schema_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "outcome_scope": {
+          "type": "string",
+          "const": "synthetic_sanitized_evaluation"
+        },
+        "corpus_integrity": {
+          "type": "object",
+          "properties": {
+            "outcome": {
+              "type": "string",
+              "const": "passed"
+            },
+            "generative_fixture_count": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "holdout_fixture_count": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "must_use_case_count": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "coverage_journey_count": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "target_case_count": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "craft_case_count": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "repair_case_count": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "successor_pair_count": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "parity_mutation_count": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "friction_journey_count": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "outcome",
+            "generative_fixture_count",
+            "holdout_fixture_count",
+            "must_use_case_count",
+            "coverage_journey_count",
+            "target_case_count",
+            "craft_case_count",
+            "repair_case_count",
+            "successor_pair_count",
+            "parity_mutation_count",
+            "friction_journey_count"
+          ],
+          "additionalProperties": false
+        },
+        "deterministic_foundation": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "passed",
+                "failed"
+              ]
+            },
+            "report_digest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "status",
+            "report_digest"
+          ],
+          "additionalProperties": false
+        },
+        "gates": {
+          "type": "object",
+          "properties": {
+            "fixture_integrity": {
+              "type": "string",
+              "enum": [
+                "passed",
+                "failed"
+              ]
+            },
+            "deterministic_foundation": {
+              "type": "string",
+              "enum": [
+                "passed",
+                "failed"
+              ]
+            },
+            "semantic_friction": {
+              "type": "string",
+              "enum": [
+                "passed",
+                "failed"
+              ]
+            },
+            "multi_run": {
+              "type": "string",
+              "enum": [
+                "blocked",
+                "passed",
+                "failed"
+              ]
+            },
+            "provider_conformance": {
+              "type": "string",
+              "enum": [
+                "blocked",
+                "passed",
+                "failed"
+              ]
+            },
+            "human_calibration": {
+              "type": "string",
+              "enum": [
+                "blocked",
+                "passed",
+                "failed"
+              ]
+            },
+            "numeric_friction": {
+              "type": "string",
+              "enum": [
+                "blocked",
+                "passed",
+                "failed"
+              ]
+            },
+            "retention_deletion": {
+              "type": "string",
+              "enum": [
+                "blocked",
+                "passed",
+                "failed"
+              ]
+            }
+          },
+          "required": [
+            "fixture_integrity",
+            "deterministic_foundation",
+            "semantic_friction",
+            "multi_run",
+            "provider_conformance",
+            "human_calibration",
+            "numeric_friction",
+            "retention_deletion"
+          ],
+          "additionalProperties": false
+        },
+        "release_ready": {
+          "type": "boolean"
+        },
+        "report_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "report_schema_version",
+        "source_revision",
+        "quality_standard_revision",
+        "prompt_policy_digest",
+        "rubric_digest",
+        "fixture_corpus_digest",
+        "report_schema_digest",
+        "outcome_scope",
+        "corpus_integrity",
+        "deterministic_foundation",
+        "gates",
+        "release_ready",
+        "report_digest"
       ],
       "additionalProperties": false
     },
@@ -477,6 +735,7 @@
     "suite_summary",
     "authorized_generation",
     "release_gate",
+    "m7_evaluation",
     "outcome",
     "report_digest"
   ],

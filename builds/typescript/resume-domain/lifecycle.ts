@@ -36,7 +36,7 @@ function opaqueIdFor(seed: string): string {
 
 export type ResumeDataTransferValidation =
   | { state: "missing"; schema_version: null; revision_count: 0 }
-  | { state: "verified"; schema_version: 2; revision_count: number };
+  | { state: "verified"; schema_version: typeof RESUME_DATA_SCHEMA_VERSION; revision_count: number };
 
 export type ResumeDataRepairState = {
   state: "missing" | "ready" | "incompatible" | "repair_required";
@@ -274,7 +274,7 @@ export class ResumeDataLifecycleAdapter implements OwnerDataLifecycle, ResumeLif
   }
 
   async prepareOwnerExport(): Promise<{
-    receipt: { export_version: 1; safe_file_name: string; schema_version: 2; record_count: number; operation_count: number; export_digest: string };
+    receipt: { export_version: 1; safe_file_name: string; schema_version: typeof RESUME_DATA_SCHEMA_VERSION; record_count: number; operation_count: number; export_digest: string };
     internalArchivePath: string;
   }> {
     const identity = await this.requireIdentity();

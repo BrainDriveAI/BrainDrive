@@ -6,6 +6,7 @@ import { canonicalInputDigest } from "../app-platform/contracts/common.js";
 import type { ResumeDefinitionRecordSchema } from "../app-platform/contracts/data.js";
 import { ResumeDomainError } from "../resume-domain/errors.js";
 import { assertBoundQualityReport } from "../resume-inference/quality-runtime.js";
+import { assertBoundCraftApproval } from "../resume-inference/craft-evaluator.js";
 
 type ResumeDefinition = z.infer<typeof ResumeDefinitionRecordSchema>;
 
@@ -261,6 +262,8 @@ function assertRenderable(definition: ResumeDefinition): void {
   }
   try { assertBoundQualityReport(definition); }
   catch { throw new ResumeDomainError("validation_failed", "Resume quality report is missing, stale, or failing"); }
+  try { assertBoundCraftApproval(definition); }
+  catch { throw new ResumeDomainError("validation_failed", "Craft quality report is missing, stale, or failing"); }
 }
 
 function definitionQualityIdentity(definition: ResumeDefinition): Record<string, unknown> {

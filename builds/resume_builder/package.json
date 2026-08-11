@@ -17,7 +17,7 @@
   "braindrive": {
     "appId": "ai.braindrive.resume-builder",
     "appContractSchemaVersion": 1,
-    "resumeDataSchemaVersion": 2,
+    "resumeDataSchemaVersion": 3,
     "resumeInferenceSchemaVersion": 1,
     "appBridgeSchemaVersion": 1,
     "runtimeEnabled": false

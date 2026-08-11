@@ -28,7 +28,10 @@
         "targeted_resume_draft",
         "resume_revision_classify",
         "resume_revision_draft",
-        "resume_guidance"
+        "resume_guidance",
+        "resume_strategy",
+        "resume_craft_evaluate",
+        "resume_craft_repair"
       ]
     },
     "status": {

@@ -1,6 +1,8 @@
 import { readFile, readdir } from "node:fs/promises";
+import { execFile } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 import { z } from "zod";
 
@@ -8,9 +10,18 @@ import { canonicalInputDigest, NonEmptyStringSchema, Sha256DigestSchema } from "
 import { evaluateResumeQuality, type QualityDefinition } from "./quality-runtime.js";
 import { validateInferenceClaims } from "./validators.js";
 import { extractCleanTextFields } from "./clean-text-extractor.js";
+import {
+  M7DurableQualityReportSchema,
+  M7_QUALITY_EVALUATION_SCHEMA_ID,
+  buildM7DurableQualityReport,
+  loadM7QualityCorpus,
+  validateM7FixtureIntegrity,
+} from "./quality-evaluation.js";
+import { RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION } from "./policy.js";
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const defaultFixtureRoot = path.join(moduleDirectory, "fixtures", "quality");
+const execFileAsync = promisify(execFile);
 
 export const SyntheticQualityFixtureSchema = z.object({
   fixture_schema_version: z.literal(1),
@@ -111,8 +122,12 @@ export const ResumeQualityReportSchema = z.object({
     tier_2_artifacts: z.enum(["passed", "failed"]),
     tier_3_craft: z.enum(["awaiting_authorized_generation", "awaiting_calibration", "passed", "failed"]),
     human_calibration: z.enum(["awaiting_review", "passed", "failed"]),
+    provider_conformance: z.enum(["awaiting_authorization", "passed", "failed"]),
+    numeric_friction: z.enum(["awaiting_authority", "passed", "failed"]),
+    retention_deletion: z.enum(["awaiting_contract", "passed", "failed"]),
     release_ready: z.boolean(),
   }).strict(),
+  m7_evaluation: M7DurableQualityReportSchema,
   outcome: z.enum(["passed", "failed"]),
   report_digest: Sha256DigestSchema,
 }).strict().superRefine((value, context) => {
@@ -232,8 +247,17 @@ export async function runAntiOverfitScan(input: { productRoots: string[]; canary
   return { files_scanned: files.length, literal_count: literals.length, outcome: "passed" };
 }
 
-export async function runResumeQualityFoundation(options: { fixtureRoot?: string; productRoots?: string[] } = {}) {
+async function currentGitRevision(): Promise<string> {
+  const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: path.resolve(moduleDirectory, "../../..") });
+  const revision = stdout.trim();
+  if (!/^[a-f0-9]{40}$/.test(revision)) throw new Error("Resume quality harness could not bind evidence to a full Git revision");
+  return revision;
+}
+
+export async function runResumeQualityFoundation(options: { fixtureRoot?: string; productRoots?: string[]; sourceRevision?: string } = {}) {
   const fixtures = await loadSyntheticQualityFixtures(options.fixtureRoot);
+  const m7Corpus = await loadM7QualityCorpus();
+  const m7CorpusIntegrity = validateM7FixtureIntegrity(m7Corpus);
   const fixtureResults = fixtures.map((fixture) => {
     const extracted = extractQualityFieldsIndependently(fixture);
     const errorCodes: Array<"section_count_mismatch" | "line_count_mismatch"> = [];
@@ -270,6 +294,29 @@ export async function runResumeQualityFoundation(options: { fixtureRoot?: string
     personas: { covered: coveredPersonas, thresholds_passed: f1F12.length === 12 && coveredPersonas.length >= 7, outcome: f1F12.length === 12 && coveredPersonas.length >= 7 ? "passed" as const : "failed" as const },
     successor_no_regression: { fixture_id: "f9-strong-successor-synthetic" as const, outcome: f9?.successor_checks?.outcome === "passed" ? "passed" as const : "failed" as const },
   };
+  const sourceRevision = options.sourceRevision ?? await currentGitRevision();
+  if (!/^[a-f0-9]{40}$/.test(sourceRevision)) throw new Error("Resume quality harness requires a full Git revision");
+  const deterministicFoundation = {
+    fixture_results: fixtureResults,
+    anti_overfit: antiOverfit,
+    suite_summary: suiteSummary,
+    m7_corpus_integrity: m7CorpusIntegrity,
+  };
+  const m7Evaluation = buildM7DurableQualityReport({
+    binding: {
+      source_revision: sourceRevision,
+      quality_standard_revision: 3,
+      prompt_policy_digest: canonicalInputDigest({ policy_id: RESUME_PROMPT_POLICY_ID, policy_version: RESUME_PROMPT_POLICY_VERSION }),
+      rubric_digest: canonicalInputDigest({ standard: "resume-quality", revision: 3 }),
+      fixture_corpus_digest: canonicalInputDigest(m7Corpus),
+      report_schema_digest: canonicalInputDigest({ schema_id: M7_QUALITY_EVALUATION_SCHEMA_ID, schema_version: 1 }),
+    },
+    corpus_integrity: m7CorpusIntegrity,
+    deterministic_foundation: {
+      status: fixtureResults.every((result) => result.outcome === "passed") && antiOverfit.outcome === "passed" && suiteSummary.mutation.outcome === "passed" && suiteSummary.clean.outcome === "passed" && suiteSummary.personas.outcome === "passed" && suiteSummary.successor_no_regression.outcome === "passed" ? "passed" : "failed",
+      report_digest: canonicalInputDigest(deterministicFoundation),
+    },
+  });
   const body = {
     report_schema_version: 1 as const,
     standard_revision: 3 as const,
@@ -286,8 +333,12 @@ export async function runResumeQualityFoundation(options: { fixtureRoot?: string
       tier_2_artifacts: fixtureResults.every((result) => result.outcome === "passed") ? "passed" as const : "failed" as const,
       tier_3_craft: "awaiting_authorized_generation" as const,
       human_calibration: "awaiting_review" as const,
+      provider_conformance: "awaiting_authorization" as const,
+      numeric_friction: "awaiting_authority" as const,
+      retention_deletion: "awaiting_contract" as const,
       release_ready: false,
     },
+    m7_evaluation: m7Evaluation,
     outcome: fixtureResults.every((result) => result.outcome === "passed") && antiOverfit.outcome === "passed" && suiteSummary.mutation.outcome === "passed" && suiteSummary.clean.outcome === "passed" && suiteSummary.personas.outcome === "passed" && suiteSummary.successor_no_regression.outcome === "passed" ? "passed" as const : "failed" as const,
   };
   return ResumeQualityReportSchema.parse({ ...body, report_digest: canonicalInputDigest(body) });
@@ -310,6 +361,18 @@ export function qualityReportMarkdown(report: z.infer<typeof ResumeQualityReport
     `- Authorized generation: ${report.authorized_generation.status} (${report.authorized_generation.completed_runs} completed; ${report.authorized_generation.required_runs_per_generative_fixture} required per generative fixture)`,
     `- Tier 3 craft: ${report.release_gate.tier_3_craft}`,
     `- Human calibration: ${report.release_gate.human_calibration}`,
+    `- Provider conformance: ${report.release_gate.provider_conformance}`,
+    `- Numeric friction: ${report.release_gate.numeric_friction}`,
+    `- Retention/deletion: ${report.release_gate.retention_deletion}`,
+    `- M7 corpus integrity: ${report.m7_evaluation.gates.fixture_integrity} (${report.m7_evaluation.corpus_integrity.generative_fixture_count} generative, ${report.m7_evaluation.corpus_integrity.holdout_fixture_count} holdout)`,
+    `- M7 must-use cases: ${report.m7_evaluation.corpus_integrity.must_use_case_count}`,
+    `- M7 coverage/yield journeys: ${report.m7_evaluation.corpus_integrity.coverage_journey_count}`,
+    `- M7 target cases: ${report.m7_evaluation.corpus_integrity.target_case_count}`,
+    `- M7 craft/repair cases: ${report.m7_evaluation.corpus_integrity.craft_case_count}/${report.m7_evaluation.corpus_integrity.repair_case_count}`,
+    `- M7 successor pairs: ${report.m7_evaluation.corpus_integrity.successor_pair_count}`,
+    `- M7 parity mutations: ${report.m7_evaluation.corpus_integrity.parity_mutation_count}`,
+    `- M7 normalized friction journeys: ${report.m7_evaluation.corpus_integrity.friction_journey_count} (semantic ${report.m7_evaluation.gates.semantic_friction}; numeric ${report.m7_evaluation.gates.numeric_friction})`,
+    `- M7 multi-run gate: ${report.m7_evaluation.gates.multi_run}`,
     `- Release ready: ${report.release_gate.release_ready}`,
     "",
   ].join("\n");

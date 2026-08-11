@@ -211,7 +211,7 @@ describe("Resume Builder durable workflow reducer", () => {
     expect(state.jobInterview.outcomes.accomplishments).toBe("unknown");
 
     state = resumeBuilderWorkflowReducer(state, { type: "job.dimension_recorded", dimension: "outcomes", outcome: "not_applicable" });
-    expect(state.jobInterview.currentDimension).toBe("tools");
+    expect(state.jobInterview.currentDimension).toBe("scope");
 
     state = resumeBuilderWorkflowReducer(state, { type: "job.back" });
     expect(state.jobInterview.currentDimension).toBe("outcomes");
@@ -219,10 +219,18 @@ describe("Resume Builder durable workflow reducer", () => {
 
     state = resumeBuilderWorkflowReducer(state, { type: "job.completed_for_now" });
     expect(state.jobInterview).toMatchObject({ activeJobRevisionId: null, currentDimension: null });
+    expect(state.jobInterview.outcomes).toMatchObject({
+      accomplishments: "unknown",
+      outcomes: "not_applicable",
+      tools: "deferred",
+      scope: "deferred",
+      progression: "deferred",
+    });
 
-    state = resumeBuilderWorkflowReducer(state, { type: "job.reopened", jobRevisionId: jobId });
-    expect(state.jobInterview).toMatchObject({ activeJobRevisionId: jobId, currentDimension: "outcomes" });
-    expect(state.jobInterview.outcomes.outcomes).toBe("complete_for_now");
+    state = resumeBuilderWorkflowReducer(state, { type: "job.reopened", jobRevisionId: jobId, dimension: "scope" });
+    expect(state.jobInterview).toMatchObject({ activeJobRevisionId: jobId, currentDimension: "scope" });
+    expect(state.jobInterview.outcomes.scope).toBeUndefined();
+    expect(state.jobInterview.outcomes.progression).toBe("deferred");
   });
 
   it("matches remembered details only by explicit identity or deterministic exact labels", () => {

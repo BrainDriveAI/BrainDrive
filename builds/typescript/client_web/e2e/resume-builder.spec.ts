@@ -5,8 +5,20 @@ import { loginAsLocalUser } from "./helpers";
 async function confirmOwnerAction(page: Page, label: RegExp) {
   const dialog = page.getByRole("dialog");
   await expect(dialog).toContainText(label, { timeout: 20_000 });
-  await dialog.getByRole("button", { name: "Confirm", exact: true }).click();
+  await expect(dialog).toHaveAttribute("aria-modal", "true");
+  await expect(dialog).toHaveAttribute("aria-describedby", /.+/);
+  const confirm = dialog.getByRole("button", { name: "Confirm", exact: true });
+  await expect(confirm).toBeFocused();
+  await confirm.click();
   await expect(dialog).toBeHidden();
+}
+
+async function reviewAndApprove(page: Page, frame: FrameLocator) {
+  await frame.getByRole("button", { name: "Run independent review" }).click();
+  await expect(frame.getByRole("heading", { name: "Owner review" })).toBeVisible({ timeout: 20_000 });
+  await expect(frame.getByText(/Independent review complete/)).toBeVisible();
+  await frame.getByRole("button", { name: "Approve reviewed version" }).click();
+  await confirmOwnerAction(page, /Approve resume version/);
 }
 
 async function answerInterviewTopic(page: Page, frame: FrameLocator, answer: string, nextHeading: string, followUp?: string) {
@@ -37,24 +49,43 @@ async function answerEmployment(page: Page, frame: FrameLocator) {
 }
 
 async function completeJobEvidence(page: Page, frame: FrameLocator) {
-  await frame.getByLabel("Your answer").fill("Created a checkout checklist that reduced errors and helped train new employees.");
-  await frame.getByRole("button", { name: /Add this to Customer Service Associate at Lakeside Market/ }).click();
-  await confirmOwnerAction(page, /Confirm career fact/);
+  await expect(frame.getByRole("heading", { name: "Job coverage summary" })).toBeVisible();
+  await expect(frame.getByText(/Why this may help:/)).toBeVisible();
+  await frame.getByRole("button", { name: "Ask another way" }).click();
+  await expect(frame.getByRole("button", { name: "Ask another way" })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("dialog")).toBeHidden();
+  await frame.getByLabel("Your answer").fill("Created a checkout checklist that reduced errors.\nHelped train new employees with the checklist.");
+  await frame.getByRole("button", { name: /Review factual units for Customer Service Associate at Lakeside Market/ }).click();
+  const groupedDialog = page.getByRole("dialog");
+  await expect(groupedDialog).toContainText(/Review factual units from one answer/);
+  await expect(groupedDialog.getByRole("checkbox")).toHaveCount(2);
+  await groupedDialog.getByRole("checkbox").nth(1).uncheck();
+  await groupedDialog.getByRole("button", { name: "Confirm", exact: true }).click();
+  await expect(groupedDialog).toBeHidden();
   await expect(frame.getByText("Outcomes", { exact: true })).toBeVisible();
   await frame.getByRole("button", { name: "I don’t know" }).click();
-  await confirmOwnerAction(page, /Confirm career fact/);
-  await expect(frame.getByText("Tools and technologies", { exact: true })).toBeVisible();
+  await expect(frame.getByText("Scope and scale", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("dialog")).toBeHidden();
   await frame.getByRole("button", { name: "Not applicable" }).click();
-  await confirmOwnerAction(page, /Confirm career fact/);
-  await expect(frame.getByText("Scope and scale", { exact: true })).toBeVisible();
+  await expect(frame.getByText("Tools and technologies", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("dialog")).toBeHidden();
   await frame.getByRole("button", { name: "Complete for now" }).click();
-  await confirmOwnerAction(page, /Confirm career fact/);
   await expect(frame.getByRole("heading", { name: "Education and training" })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("dialog")).toBeHidden();
 }
 
 async function skipInterviewTopic(frame: FrameLocator, nextHeading: string) {
   await frame.getByRole("button", { name: "I’m not sure" }).click();
   await expect(frame.getByRole("heading", { name: nextHeading })).toBeVisible({ timeout: 15_000 });
+}
+
+async function reviewStrategyAndCreate(frame: FrameLocator) {
+  await frame.getByRole("button", { name: "Review resume plan" }).click();
+  await expect(frame.getByRole("heading", { name: "Your resume plan" })).toBeVisible({ timeout: 15_000 });
+  await expect(frame.getByText("This plan guides presentation. It is not a career fact, score, or approval.")).toBeVisible();
+  await expect(frame.getByRole("button", { name: "Correct information" })).toBeVisible();
+  await expect(frame.getByRole("button", { name: "Refresh plan" })).toBeVisible();
+  await frame.getByRole("button", { name: "Create general draft" }).click();
 }
 
 async function openCareerApps(page: Page) {
@@ -146,7 +177,16 @@ test.describe("Resume Builder owner journey", () => {
 
     await expect(frame.getByRole("heading", { name: "Review your information" })).toBeVisible();
     await expect(frame.getByText(/Created a checkout checklist/)).toBeVisible();
+    await expect(frame.getByText(/Helped train new employees with the checklist/)).toHaveCount(0);
     await expect(frame.getByRole("button", { name: "Reopen interview" })).toBeVisible();
+    await frame.getByRole("button", { name: "Reopen interview" }).click();
+    await expect(frame.getByRole("heading", { name: "Job coverage summary" })).toBeVisible({ timeout: 15_000 });
+    await expect(frame.getByText(/deferred/i).first()).toBeVisible();
+    await frame.getByRole("button", { name: "Reopen", exact: true }).first().click();
+    await expect(frame.getByText("Outcomes", { exact: true })).toBeVisible({ timeout: 15_000 });
+    await frame.getByRole("button", { name: "Complete for now" }).click();
+    await expect(frame.getByRole("heading", { name: "Review your information" })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("dialog")).toBeHidden();
     const contactCard = frame.locator(".card").filter({ hasText: "owner@example.test" });
     await contactCard.getByRole("button", { name: "Edit" }).click();
     await frame.getByLabel("Information").fill("Synthetic Owner | Dayton, Ohio | synthetic.owner@example.test | 555-010-0142");
@@ -157,7 +197,7 @@ test.describe("Resume Builder owner journey", () => {
     await linkCard.getByRole("button", { name: "Remove" }).click();
     await confirmOwnerAction(page, /Remove this career information/);
     await expect(frame.getByText(/1 removed item is preserved in history/)).toBeVisible();
-    await frame.getByRole("button", { name: "Create general draft" }).click();
+    await reviewStrategyAndCreate(frame);
     await expect(frame.getByRole("heading", { name: "General resume" })).toBeVisible({ timeout: 15_000 });
     const generalDraft = (await frame.locator("textarea[data-index]").evaluateAll((elements) =>
       elements.map((element) => (element as HTMLTextAreaElement).value).join("\n"),
@@ -166,8 +206,7 @@ test.describe("Resume Builder owner journey", () => {
     expect(generalDraft).toContain("Customer Service Associate");
     expect(generalDraft).toContain("Sinclair Community College");
     expect(generalDraft).toContain("Microsoft Excel");
-    await frame.getByRole("button", { name: "Validate and approve" }).click();
-    await confirmOwnerAction(page, /Approve resume version/);
+    await reviewAndApprove(page, frame);
 
     await expect(frame.getByRole("heading", { name: "Preview approved resume" })).toBeVisible({ timeout: 15_000 });
     await frame.getByRole("button", { name: "Revise in your own words" }).click();
@@ -180,8 +219,7 @@ test.describe("Resume Builder owner journey", () => {
     await confirmOwnerAction(page, /Accept revision proposal/);
     await expect(frame.getByRole("heading", { name: "General resume" })).toBeVisible({ timeout: 15_000 });
     await expect(frame.getByRole("alert")).toContainText("Validate and approve this resume version separately");
-    await frame.getByRole("button", { name: "Validate and approve" }).click();
-    await confirmOwnerAction(page, /Approve resume version/);
+    await reviewAndApprove(page, frame);
 
     await expect(frame.getByRole("heading", { name: "Preview approved resume" })).toBeVisible({ timeout: 15_000 });
     await frame.getByRole("button", { name: "Revise in your own words" }).click();
@@ -208,10 +246,9 @@ test.describe("Resume Builder owner journey", () => {
     await frame.getByLabel("Job description").fill("Requires TypeScript delivery and respectful collaboration with product owners.");
     await frame.getByRole("button", { name: "Analyze evidence" }).click();
     await expect(frame.getByRole("heading", { name: "Requirement evidence" })).toBeVisible({ timeout: 15_000 });
-    await frame.getByRole("button", { name: "Create tailored variant" }).click();
+    await frame.getByRole("button", { name: "Assess fit and create a useful variant" }).click();
     await expect(frame.getByRole("heading", { name: "Tailored resume" })).toBeVisible({ timeout: 15_000 });
-    await frame.getByRole("button", { name: "Validate and approve" }).click();
-    await confirmOwnerAction(page, /Approve resume version/);
+    await reviewAndApprove(page, frame);
 
     await expect(frame.getByRole("heading", { name: "Preview approved resume" })).toBeVisible({ timeout: 15_000 });
     const rememberedDetail = "Built a reusable customer handoff checklist for weekly team reviews.";
@@ -226,8 +263,7 @@ test.describe("Resume Builder owner journey", () => {
     await expect(frame.getByRole("heading", { name: "What this proposal changes" })).toBeVisible();
     await expect(frame.getByText(rememberedDetail).first()).toBeVisible();
     await expect(frame.getByText(/based on older evidence/)).toBeVisible();
-    await frame.getByRole("button", { name: "Validate and approve" }).click();
-    await confirmOwnerAction(page, /Approve resume version/);
+    await reviewAndApprove(page, frame);
 
     await expect(frame.getByRole("heading", { name: "Preview approved resume" })).toBeVisible({ timeout: 15_000 });
     await frame.getByRole("button", { name: "Add remembered detail" }).click();
@@ -341,12 +377,14 @@ test.describe("Resume Builder responsive job interview", () => {
 
   test("keeps current-job identity, progress, and optional controls usable without horizontal overflow", async ({ page }) => {
     test.setTimeout(150_000);
+    await page.emulateMedia({ reducedMotion: "reduce" });
     await openCareerApps(page);
     const frame = await installAndLaunchCareer(page);
     await page.getByRole("button", { name: "Enter app" }).click();
     const continueInterview = frame.getByRole("button", { name: "Continue to interview" });
     const currentJob = frame.getByLabel("Current job");
     const historyStep = frame.locator('[data-stage="history"]');
+    expect(await frame.getByRole("button").first().evaluate((button) => getComputedStyle(button).transitionDuration)).toBe("0s");
     await expect.poll(async () =>
       await continueInterview.isVisible() || await currentJob.isVisible() || await historyStep.isEnabled(),
     { timeout: 15_000 }).toBe(true);
@@ -370,10 +408,15 @@ test.describe("Resume Builder responsive job interview", () => {
       await skipInterviewTopic(frame, "Leadership and volunteering");
       await skipInterviewTopic(frame, "Professional links");
       await skipInterviewTopic(frame, "Review your information");
-      await frame.getByRole("button", { name: "Create general draft" }).click();
+      await reviewStrategyAndCreate(frame);
       await expect(frame.getByRole("heading", { name: "General resume" })).toBeVisible({ timeout: 15_000 });
-      await frame.getByRole("button", { name: "Validate and approve" }).click();
-      await confirmOwnerAction(page, /Approve resume version/);
+      const firstStatement = frame.locator("textarea[data-index]").first();
+      const originalStatement = await firstStatement.inputValue();
+      const editedStatement = originalStatement.endsWith(".") ? originalStatement.slice(0, -1) : `${originalStatement}.`;
+      await firstStatement.fill(editedStatement);
+      await frame.getByRole("button", { name: "Save edit" }).first().click();
+      await expect(frame.locator("textarea[data-index]").first()).toHaveValue(editedStatement, { timeout: 15_000 });
+      await reviewAndApprove(page, frame);
     }
     await expect(historyStep).toBeEnabled();
     await historyStep.click();

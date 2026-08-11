@@ -53,7 +53,15 @@
         "app.inference.completed",
         "app.export.completed",
         "app.validation.completed",
-        "app.migration.completed"
+        "app.migration.completed",
+        "app.resume_coverage.transitioned",
+        "app.resume_opportunity.updated",
+        "app.resume_confirmation.grouped",
+        "app.resume_strategy.completed",
+        "app.resume_target_fit.completed",
+        "app.resume_craft.evaluated",
+        "app.resume_craft.repaired",
+        "app.resume_parity.checked"
       ]
     },
     "occurred_at": {
@@ -353,7 +361,8 @@
           "type": "string",
           "enum": [
             "deterministic_gap",
-            "broker_ranked"
+            "broker_ranked",
+            "deterministic_value"
           ]
         },
         {
@@ -650,6 +659,443 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 2
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "coverage_revision_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "coverage_state": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "unanswered",
+            "answered",
+            "unknown",
+            "not_applicable",
+            "skipped",
+            "deferred",
+            "conflicting"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "opportunity_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "opportunity_state": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "available",
+            "suppressed",
+            "resolved",
+            "reopened"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "suppression_reason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "owner_declined",
+            "already_known",
+            "duplicate",
+            "low_value"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "strategy_revision_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "strategy_digest": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "report_revision_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "report_digest": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "parity_revision_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "parity_digest": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "fit_class": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "meaningfully_supported",
+            "partially_supported_transferable",
+            "lacking_supported_core_fit"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "used_evidence_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "omitted_evidence_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "omission_reason_categories": {
+      "maxItems": 7,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "redundant",
+          "low_relevance",
+          "space",
+          "older_context",
+          "owner_direction",
+          "structural_mismatch",
+          "conflict"
+        ]
+      }
+    },
+    "unresolved_gap_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "history_shape": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "chronological_standard",
+            "early_career",
+            "senior_selective",
+            "career_change",
+            "return_to_work",
+            "concurrent_roles"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "finding_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "criterion": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "C1",
+            "C2",
+            "C3",
+            "C4",
+            "C5",
+            "C6",
+            "C7",
+            "T1",
+            "T2",
+            "T3"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "correction_class": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "specificity",
+            "duty_only",
+            "generic_language",
+            "redundancy",
+            "density",
+            "organization",
+            "target_relevance"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "repair_result": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "completed",
+            "rejected",
+            "failed",
+            "cancelled"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "verdict": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "pass",
+            "fail"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "evidence_context": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "standard",
+            "evidence_limited"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "operation_revision_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "operation_digest": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "confirmation_group_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "confirmation_unit_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "redundant_confirmation_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "non_fact_dialog_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "final_approval_count": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "interaction_budget_status": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "semantic_pass_numeric_gate_blocked",
+            "semantic_failed"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "timing_class": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "automation",
+            "human"
+          ]
         },
         {
           "type": "null"

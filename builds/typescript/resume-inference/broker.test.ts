@@ -8,29 +8,55 @@ import { InferenceDataBlockSchema, InferenceRequestSchema, PURPOSE_LIMITS, PURPO
 import type { ModelAdapter, StructuredCompletionRequest } from "../adapters/base.js";
 import { ResumeInferenceBroker } from "./broker.js";
 import { RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION } from "./policy.js";
+import { CRAFT_EVIDENCE_LIMITED_POLICY } from "./craft-evaluator.js";
+import { TARGET_FIT_THRESHOLD_POLICY } from "./target-fit.js";
 
 const FACT_ID = "71000000-0000-4000-8000-000000000001";
 const PARENT_ID = "71000000-0000-4000-8000-000000000002";
 const JOB_ID = "71000000-0000-4000-8000-000000000003";
 const INTERVIEW_JOB_ID = "71000000-0000-4000-8000-000000000004";
+const INTERVIEW_OPPORTUNITY_ID = "71000000-0000-4000-8000-000000000008";
 const REVISION_REQUEST_ID = "71000000-0000-4000-8000-000000000005";
 const REVISION_STATEMENT_ID = "71000000-0000-4000-8000-000000000006";
 const GUIDANCE_DEFINITION_ID = "71000000-0000-4000-8000-000000000007";
+const TARGET_REQUIREMENT_ID = "71000000-0000-4000-8000-000000000009";
+const TARGET_STATEMENT_ID = "71000000-0000-4000-8000-000000000010";
 const FACTS = [
   { revision_id: FACT_ID, fact_kind: "accomplishment", value: "Built product 20%", source_revision_ids: [randomUUID()] },
   { revision_id: INTERVIEW_JOB_ID, fact_kind: "employment", value: "Product Builder at Synthetic Company", source_revision_ids: [randomUUID()] },
 ];
+const CRAFT_CRITERIA = ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "T1", "T2", "T3"] as const;
+const CRAFT_REPORT_ID = "71000000-0000-4000-8000-000000000011";
+const CRAFT_HEADING_ID = "71000000-0000-4000-8000-000000000012";
+const OWNER_ID = "71000000-0000-4000-8000-000000000013";
+const INSTALLATION_ID = "71000000-0000-4000-8000-000000000014";
+const FIXED_TIME = "2026-08-11T12:00:00.000Z";
+const SHA = `sha256:${"a".repeat(64)}`;
+
+function envelope(recordType: string, recordId: string, revisionId: string) {
+  return {
+    schema_version: 3, record_type: recordType,
+    metadata: { record_id: recordId, revision_id: revisionId, revision: 1, created_at: FIXED_TIME, created_by: { owner_id: OWNER_ID, actor_id: OWNER_ID, app_id: "ai.braindrive.resume-builder", publisher_id: "ai.braindrive", package_digest: SHA, installation_id: INSTALLATION_ID }, prior_revision_id: null, extensions: {} },
+    owner_id: OWNER_ID, updated_at: FIXED_TIME, lifecycle_state: "active", sensitivity: "sensitive", retention_class: "durable_owner_data", extensions: {},
+  };
+}
 
 const outputs: Record<InferencePurpose, unknown> = {
-  interview_assist: { questions: [{ question_id: randomUUID(), job_fact_revision_id: INTERVIEW_JOB_ID, dimension: "accomplishments", selection_method: "broker_ranked", prompt: "What did you build in this role? A qualitative answer is enough.", rationale: "Collect the highest-value unanswered evidence for the active job." }] },
-  general_resume_draft: { title: "Resume", statements: [{ statement_id: randomUUID(), kind: "factual", text: "Built product 20%", supporting_confirmed_fact_revision_ids: [FACT_ID] }], section_order: ["experience"] },
+  interview_assist: { questions: [{ question_id: randomUUID(), job_fact_revision_id: INTERVIEW_JOB_ID, opportunity_id: INTERVIEW_OPPORTUNITY_ID, dimension: "accomplishments", opportunity_kind: "qualitative", value_category: "distinct_accomplishment", selection_method: "deterministic_value", prompt: "What did you build in this role? A qualitative answer is enough.", rationale: "Phrase the selected evidence opportunity." }] },
+  general_resume_draft: { title: "Resume", statements: [{ statement_id: randomUUID(), kind: "factual", text: "Built product 20%", supporting_confirmed_fact_revision_ids: [FACT_ID] }], section_order: ["experience"], omissions: [] },
   job_description_analyze: { requirements: [{ requirement_id: randomUUID(), requirement_kind: "required", source_span: "Build products", inferred: false, normalized_requirement: "Build products" }] },
   requirement_evidence_match: { evidence: [{ requirement_id: randomUUID(), evidence_status: "supported", supporting_confirmed_fact_revision_ids: [FACT_ID], explanation: "Confirmed fact", clarification: null }] },
-  tailoring_plan: { changes: [{ change_id: randomUUID(), statement_id: null, action: "retain", rationale: "Supported", supporting_confirmed_fact_revision_ids: [FACT_ID] }] },
+  tailoring_plan: { plan_version: 2, threshold_policy_id: TARGET_FIT_THRESHOLD_POLICY.policy_id, threshold_policy_version: TARGET_FIT_THRESHOLD_POLICY.policy_version, fit_class: "meaningfully_supported", outcome: "targeted_variant", no_change_reason: null, support_counts: { core: 1, transferable: 0, partial: 0, unsupported: 0 }, changes: [{ change_id: randomUUID(), requirement_id: TARGET_REQUIREMENT_ID, statement_id: TARGET_STATEMENT_ID, action: "emphasis", rationale: "Supported", supporting_confirmed_fact_revision_ids: [FACT_ID] }] },
   targeted_resume_draft: { parent_general_definition_revision_id: PARENT_ID, job_revision_id: JOB_ID, title: "Targeted", statements: [{ statement_id: randomUUID(), kind: "factual", text: "Built product 20%", supporting_confirmed_fact_revision_ids: [FACT_ID] }], changed_statement_ids: [], section_order: ["experience"] },
   resume_revision_classify: { classification: "presentation", target: { scope: "resume", target_id: null }, clarification: null, proposed_fact_changes: [] },
   resume_revision_draft: { source_definition_revision_id: PARENT_ID, revision_request_revision_id: REVISION_REQUEST_ID, title: "Revised", statements: [{ statement_id: REVISION_STATEMENT_ID, section_id: "experience", kind: "factual", text: "Product built 20%", supporting_confirmed_fact_revision_ids: [FACT_ID] }], changed_statement_ids: [REVISION_STATEMENT_ID], section_order: ["experience"] },
   resume_guidance: { guidance_version: 1, items: [{ category: "strong_evidence", evidence_revision_ids: [FACT_ID], evidence_labels: ["Confirmed result"], message: "This confirmed result is specific." }], optional_questions: [] },
+  resume_strategy: { strategy_version: 1, history_shape: "chronological_standard", history_reason_code: "standard_chronology", role_emphasis: [{ job_fact_revision_id: INTERVIEW_JOB_ID, priority: "primary", reason_code: "recent", bullet_density: "compact" }], section_order: ["experience"], evidence_priorities: [{ fact_revision_id: FACT_ID, priority: "must_use" }, { fact_revision_id: INTERVIEW_JOB_ID, priority: "must_use" }], summary_decision: "omit", summary_reason_code: "insufficient_distinct_value", skills_context: [], omissions: [], unresolved_gap_ids: [], owner_rationale: "Lead with confirmed evidence." },
+  resume_craft_evaluate: { report_version: 1, evidence_context: "standard", verdict: "pass", criterion_verdicts: CRAFT_CRITERIA.map((criterion) => ({ criterion, verdict: criterion === "C4" || criterion.startsWith("T") ? "not_applicable" : "pass", finding_ids: [] })), findings: [] },
+  resume_craft_repair: { repair_version: 1, source_definition_revision_id: PARENT_ID, source_report_revision_id: CRAFT_REPORT_ID, changed_statement_ids: [REVISION_STATEMENT_ID], title: "Resume", statements: [
+    { statement_id: CRAFT_HEADING_ID, section_id: "experience", display_role: "heading", kind: "factual", text: "Product Builder at Synthetic Company", supporting_confirmed_fact_revision_ids: [INTERVIEW_JOB_ID] },
+    { statement_id: REVISION_STATEMENT_ID, section_id: "experience", display_role: "bullet", kind: "factual", text: "Built product 20%", supporting_confirmed_fact_revision_ids: [FACT_ID] },
+  ], section_order: ["experience"] },
 };
 
 function dataBlocks(purpose: InferencePurpose) {
@@ -38,8 +64,15 @@ function dataBlocks(purpose: InferencePurpose) {
   const facts = { facts: FACTS };
   blocks.push({ category: "confirmed_fact_snapshot", content_digest: canonicalInputDigest(facts), schema_id: "resume.confirmed-facts.v1", schema_version: 1, data: facts });
   if (purpose === "interview_assist") {
-    const data = { active_job_fact_revision_id: INTERVIEW_JOB_ID, active_job_revision: 1, requested_dimension: "accomplishments", dimensions: [] };
-    blocks.push({ category: "job_evidence_summary", content_digest: canonicalInputDigest(data), schema_id: "resume.job-evidence-summary.v1", schema_version: 1, data });
+    const data = { active_job_fact_revision_id: INTERVIEW_JOB_ID, active_job_revision: 1, requested_opportunity_id: INTERVIEW_OPPORTUNITY_ID, requested_dimension: "accomplishments", opportunity_kind: "qualitative", value_category: "distinct_accomplishment", dimensions: [] };
+    blocks.push({ category: "job_evidence_summary", content_digest: canonicalInputDigest(data), schema_id: "resume.job-evidence-summary.v2", schema_version: 1, data });
+  }
+  if (purpose === "resume_strategy") {
+    const data = { annotation_version: 1, facts: [
+      { fact_revision_id: FACT_ID, evidence_class: "accomplishment", job_fact_revision_id: null, required_priority: "must_use" },
+      { fact_revision_id: INTERVIEW_JOB_ID, evidence_class: "role_identity", job_fact_revision_id: INTERVIEW_JOB_ID, required_priority: "must_use" },
+    ], coverage_digest: canonicalInputDigest([]), unresolved_gap_ids: [] };
+    blocks.push({ category: "evidence_annotations", content_digest: canonicalInputDigest(data), schema_id: "resume.evidence-annotations.v1", schema_version: 1, data });
   }
   if (purpose === "job_description_analyze" || purpose === "targeted_resume_draft") {
     const data = { metadata: { revision_id: JOB_ID }, description_text: "Build products" };
@@ -48,6 +81,13 @@ function dataBlocks(purpose: InferencePurpose) {
   if (purpose === "targeted_resume_draft") {
     const data = { metadata: { revision_id: PARENT_ID }, statements: [] };
     blocks.push({ category: "general_resume_definition", content_digest: canonicalInputDigest(data), schema_id: "resume.definition.v1", schema_version: 1, data });
+  }
+  if (purpose === "tailoring_plan") {
+    const definition = { metadata: { revision_id: PARENT_ID }, statements: [{ statement_id: TARGET_STATEMENT_ID }] };
+    const evidence = [{ requirement_id: TARGET_REQUIREMENT_ID, requirement_kind: "required", evidence_status: "supported", source_span: "Build products", inferred: false, supporting_confirmed_fact_revision_ids: [FACT_ID], clarification: null }];
+    blocks.push({ category: "general_resume_definition", content_digest: canonicalInputDigest(definition), schema_id: "resume.definition.v1", schema_version: 1, data: definition });
+    blocks.push({ category: "evidence_matrix", content_digest: canonicalInputDigest(evidence), schema_id: "resume.requirement-evidence.v1", schema_version: 1, data: evidence });
+    blocks.push({ category: "target_fit_policy", content_digest: canonicalInputDigest(TARGET_FIT_THRESHOLD_POLICY), schema_id: "resume.target-fit-policy.v1", schema_version: 1, data: TARGET_FIT_THRESHOLD_POLICY });
   }
   if (purpose === "resume_revision_classify" || purpose === "resume_revision_draft") {
     const definition = { metadata: { revision_id: PARENT_ID }, title: "Resume", statements: [{ statement_id: REVISION_STATEMENT_ID, section_id: "experience", kind: "factual", text: "Built product 20%", supporting_confirmed_fact_revision_ids: [FACT_ID] }], section_order: ["experience"] };
@@ -69,19 +109,42 @@ function dataBlocks(purpose: InferencePurpose) {
     blocks.push({ category: "general_resume_definition", content_digest: canonicalInputDigest(definition), schema_id: "resume.definition.v1", schema_version: 1, data: definition });
     blocks.push({ category: "deterministic_findings", content_digest: canonicalInputDigest(findings), schema_id: "resume.quality-findings.v1", schema_version: 1, data: findings });
   }
+  if (purpose === "resume_craft_evaluate" || purpose === "resume_craft_repair") {
+    const definition = { metadata: { revision_id: PARENT_ID }, definition_kind: "general", title: "Resume", statements: [
+      { statement_id: CRAFT_HEADING_ID, section_id: "experience", display_role: "heading", kind: "factual", text: "Product Builder at Synthetic Company", supporting_confirmed_fact_revision_ids: [INTERVIEW_JOB_ID] },
+      { statement_id: REVISION_STATEMENT_ID, section_id: "experience", display_role: "bullet", kind: "factual", text: purpose === "resume_craft_repair" ? "Responsible for building product 20%" : "Built product 20%", supporting_confirmed_fact_revision_ids: [FACT_ID] },
+    ], selected_fact_revision_ids: [FACT_ID, INTERVIEW_JOB_ID], section_order: ["experience"] };
+    const strategy = { ...envelope("resume_strategy", randomUUID(), randomUUID()), strategy_version: 1, fact_snapshot_digest: canonicalInputDigest(FACTS), fact_revision_ids: [FACT_ID, INTERVIEW_JOB_ID], coverage_revision_ids: [], target_revision_id: null, history_shape: "chronological_standard", history_reason_code: "standard_chronology", role_emphasis: [{ job_fact_revision_id: INTERVIEW_JOB_ID, priority: "primary", reason_code: "recent", bullet_density: "compact" }], section_order: ["experience"], evidence_priorities: [{ fact_revision_id: FACT_ID, priority: "must_use" }, { fact_revision_id: INTERVIEW_JOB_ID, priority: "must_use" }], summary_decision: "omit", summary_reason_code: "insufficient_distinct_value", skills_context: [], omissions: [], unresolved_gap_ids: [], owner_rationale: "Use confirmed evidence.", prompt_policy_id: RESUME_PROMPT_POLICY_ID, prompt_policy_version: RESUME_PROMPT_POLICY_VERSION, quality_standard_id: "braindrive.resume-quality", quality_standard_version: "3", quality_standard_digest: SHA, provider_profile_id: "owner-profile", model_id: "synthetic-model", input_digest: SHA, output_digest: SHA };
+    const gates = { truth_passed: true, structure_passed: true };
+    blocks.push({ category: "general_resume_definition", content_digest: canonicalInputDigest(definition), schema_id: "resume.definition.v1", schema_version: 1, data: definition });
+    blocks.push({ category: "resume_strategy", content_digest: canonicalInputDigest(strategy), schema_id: "resume.strategy-record.v1", schema_version: 1, data: strategy });
+    blocks.push({ category: "deterministic_findings", content_digest: canonicalInputDigest(gates), schema_id: "resume.craft-deterministic-gates.v1", schema_version: 1, data: gates });
+    blocks.push({ category: "craft_gate_policy", content_digest: canonicalInputDigest(CRAFT_EVIDENCE_LIMITED_POLICY), schema_id: "resume.craft-gate-policy.v1", schema_version: 1, data: CRAFT_EVIDENCE_LIMITED_POLICY });
+    if (purpose === "resume_craft_repair") {
+      const findingId = "71000000-0000-4000-8000-000000000015";
+      const reportBody = { report_version: 1, proposal_definition_revision_id: PARENT_ID, strategy_revision_id: strategy.metadata.revision_id, target_analysis_revision_id: null, definition_digest: SHA, strategy_digest: canonicalInputDigest(strategy), fact_snapshot_digest: canonicalInputDigest(FACTS), fact_revision_ids: [FACT_ID, INTERVIEW_JOB_ID], coverage_revision_ids: [], quality_standard_id: "braindrive.resume-quality", quality_standard_version: "3", quality_standard_digest: SHA, evidence_limited_policy_id: CRAFT_EVIDENCE_LIMITED_POLICY.policy_id, evidence_limited_policy_version: CRAFT_EVIDENCE_LIMITED_POLICY.policy_version, evidence_limited_authority_status: CRAFT_EVIDENCE_LIMITED_POLICY.authority_status, truth_validation_digest: SHA, structure_validation_digest: SHA, criterion_verdicts: CRAFT_CRITERIA.map((criterion) => ({ criterion, verdict: criterion === "C2" ? "fail" : criterion === "C4" || criterion.startsWith("T") ? "not_applicable" : "pass", finding_ids: criterion === "C2" ? [findingId] : [] })), findings: [{ finding_id: findingId, criterion: "C2", statement_id: REVISION_STATEMENT_ID, severity: "blocking", correction_class: "duty_only", safe_message: "Replace the duty-only wording.", evidence_category: "statement_support", evidence_revision_ids: [FACT_ID] }], evidence_context: "standard", verdict: "fail", prompt_policy_id: RESUME_PROMPT_POLICY_ID, prompt_policy_version: RESUME_PROMPT_POLICY_VERSION, provider_profile_id: "owner-profile", model_id: "synthetic-model", input_digest: SHA, output_digest: SHA, evaluated_at: FIXED_TIME };
+      const report = { ...envelope("craft_quality_report", randomUUID(), CRAFT_REPORT_ID), ...reportBody, report_digest: canonicalInputDigest(reportBody) };
+      blocks.push({ category: "craft_quality_report", content_digest: canonicalInputDigest(report), schema_id: "resume.craft-quality-report.v1", schema_version: 1, data: report });
+    }
+  }
   return blocks;
 }
 
 function request(purpose: InferencePurpose, overrides: Record<string, unknown> = {}): z.infer<typeof InferenceRequestSchema> {
   const now = new Date();
   const revisionPurpose = purpose === "resume_revision_classify" || purpose === "resume_revision_draft";
-  const recordRevisionIds = [FACT_ID, INTERVIEW_JOB_ID, ...(purpose === "job_description_analyze" || purpose === "targeted_resume_draft" ? [JOB_ID] : []), ...(purpose === "targeted_resume_draft" ? [PARENT_ID] : []), ...(revisionPurpose ? [PARENT_ID, REVISION_REQUEST_ID] : []), ...(purpose === "resume_guidance" ? [GUIDANCE_DEFINITION_ID] : [])];
+  const requestBlocks = dataBlocks(purpose);
+  const blockRevisionIds = requestBlocks.flatMap((candidate) => {
+    const revisionId = (candidate.data as { metadata?: { revision_id?: unknown } } | null)?.metadata?.revision_id;
+    return typeof revisionId === "string" ? [revisionId] : [];
+  });
+  const recordRevisionIds = [...new Set([FACT_ID, INTERVIEW_JOB_ID, ...(purpose === "job_description_analyze" || purpose === "targeted_resume_draft" ? [JOB_ID] : []), ...(purpose === "targeted_resume_draft" || purpose === "tailoring_plan" ? [PARENT_ID] : []), ...(revisionPurpose ? [PARENT_ID, REVISION_REQUEST_ID] : []), ...(purpose === "resume_guidance" ? [GUIDANCE_DEFINITION_ID] : []), ...blockRevisionIds])];
   return InferenceRequestSchema.parse({
     inference_schema_version: 1,
     request_id: randomUUID(), owner_id: randomUUID(), actor_id: randomUUID(), app_id: "ai.braindrive.resume-builder",
     installation_id: randomUUID(), operation_id: randomUUID(), grant_id: randomUUID(), purpose,
     input_snapshot: { fact_snapshot_revision: 1, fact_snapshot_digest: canonicalInputDigest(FACTS), record_revision_ids: recordRevisionIds },
-    data_blocks: dataBlocks(purpose), prompt_policy_id: RESUME_PROMPT_POLICY_ID, prompt_policy_version: RESUME_PROMPT_POLICY_VERSION,
+    data_blocks: requestBlocks, prompt_policy_id: RESUME_PROMPT_POLICY_ID, prompt_policy_version: RESUME_PROMPT_POLICY_VERSION,
     output_schema_id: PURPOSE_OUTPUT_SCHEMAS[purpose], output_schema_version: 1,
     capability_requirements: { text_generation: true, complete_structured_json: true, minimum_context_tokens: PURPOSE_LIMITS[purpose].input_tokens, model_tools: false },
     limits: PURPOSE_LIMITS[purpose], requested_at: now.toISOString(), deadline_at: new Date(now.getTime() + PURPOSE_LIMITS[purpose].duration_ms).toISOString(),

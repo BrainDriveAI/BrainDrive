@@ -142,6 +142,40 @@ export function buildResumeLineageGraph(rawRecords: readonly LineageRecord[]): R
         derivative(record, parent);
         derivative(record, targeted);
         derivative(record, job);
+        if (record.target_fit_analysis_revision_id) {
+          const analysis = edge(record, record.target_fit_analysis_revision_id, "derived_from", "target_fit_analysis");
+          if (analysis.record_type !== "target_fit_analysis" || analysis.outcome !== "targeted_variant" || analysis.parent_general_definition_revision_id !== parent.metadata.revision_id || analysis.job_revision_id !== job.metadata.revision_id) {
+            fail("Tailored variant target-fit analysis lineage is invalid");
+          }
+          derivative(record, analysis);
+        }
+        break;
+      }
+      case "target_fit_analysis": {
+        const parent = edge(record, record.parent_general_definition_revision_id, "parent", "resume_definition");
+        const job = edge(record, record.job_revision_id, "job_snapshot", "job_description");
+        const strategy = edge(record, record.strategy_revision_id, "derived_from", "resume_strategy");
+        if (parent.record_type !== "resume_definition" || parent.definition_kind !== "general" || parent.status !== "approved" || job.record_type !== "job_description" || strategy.record_type !== "resume_strategy") {
+          fail("Target-fit analysis source lineage is invalid");
+        }
+        if (record.target_content_digest !== job.content_digest || record.strategy_digest !== canonicalInputDigest(strategy) || !sameSet(record.fact_revision_ids, strategy.fact_revision_ids)) {
+          fail("Target-fit analysis source digests are stale or inconsistent");
+        }
+        for (const factRevisionId of record.fact_revision_ids) {
+          const fact = edge(record, factRevisionId, "supported_by", "career_fact");
+          if (fact.record_type !== "career_fact" || fact.state !== "confirmed") fail("Target-fit analysis facts must resolve to confirmed revisions");
+          derivative(record, fact);
+        }
+        if (record.targeted_definition_revision_id) {
+          const targeted = edge(record, record.targeted_definition_revision_id, "resulted_in", "resume_definition");
+          if (targeted.record_type !== "resume_definition" || targeted.definition_kind !== "targeted" || targeted.parent_definition_revision_id !== parent.metadata.revision_id || targeted.job_revision_id !== job.metadata.revision_id) {
+            fail("Completed target-fit analysis child lineage is invalid");
+          }
+          derivative(record, targeted);
+        }
+        derivative(record, parent);
+        derivative(record, job);
+        derivative(record, strategy);
         break;
       }
       case "artifact": {

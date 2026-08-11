@@ -11,6 +11,8 @@ import { ResumeDomainService } from "./service.js";
 import { ResumeDataStore } from "./store.js";
 import { authority, definitionInput, ownerDecision, proposalInput, testGrant } from "./test-helpers.js";
 import { assertRevisionTransition } from "./revision-requests.js";
+import { buildEvidenceAnnotations, RESUME_QUALITY_POLICY_IDENTITY, RESUME_QUALITY_STANDARD_DIGEST, RESUME_QUALITY_STANDARD_ID, RESUME_QUALITY_STANDARD_VERSION } from "../resume-inference/strategy.js";
+import { RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION } from "../resume-inference/policy.js";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
@@ -64,6 +66,58 @@ function submittedTurn(sessionId: string, answer: string) {
 }
 
 describe("Resume domain invariants", () => {
+  it("persists an exact strategy binding and blocks approval after the confirmed snapshot changes", async () => {
+    const { service } = await setup();
+    const confirmed = await confirmedFact(service);
+    const factId = confirmed.fact.metadata.revision_id;
+    const facts = [{ revision_id: factId, fact_kind: confirmed.fact.fact_kind, value: confirmed.fact.value, source_revision_ids: confirmed.fact.source_revision_ids }];
+    const annotations = buildEvidenceAnnotations(facts, []);
+    const block = (category: "confirmed_fact_snapshot" | "evidence_annotations" | "quality_policy" | "resume_strategy", schema_id: string, data: unknown) => ({ category, content_digest: canonicalInputDigest(data), schema_id, schema_version: 1, data });
+    const strategyResult = {
+      strategy_version: 1 as const,
+      history_shape: "early_career" as const,
+      history_reason_code: "thin_history" as const,
+      role_emphasis: [],
+      section_order: ["experience"],
+      evidence_priorities: [{ fact_revision_id: factId, priority: "must_use" as const }],
+      summary_decision: "omit" as const,
+      summary_reason_code: "insufficient_distinct_value" as const,
+      skills_context: [], omissions: [], unresolved_gap_ids: [],
+      owner_rationale: "Use the one distinct confirmed accomplishment without padding.",
+    };
+    const strategyInputDigest = canonicalInputDigest([
+      block("confirmed_fact_snapshot", "resume.confirmed-facts.v1", { facts }),
+      block("evidence_annotations", "resume.evidence-annotations.v1", annotations),
+      block("quality_policy", "resume.quality-policy-identity.v1", RESUME_QUALITY_POLICY_IDENTITY),
+    ]);
+    const persisted = await service.writeResumeStrategy({
+      kind: "resume_strategy", fact_revision_ids: [factId], coverage_revision_ids: [], target_revision_id: null, presentation_preferences: {}, strategy: strategyResult,
+      inference_binding: { prompt_policy_id: RESUME_PROMPT_POLICY_ID, prompt_policy_version: RESUME_PROMPT_POLICY_VERSION, input_digest: strategyInputDigest, output_digest: canonicalInputDigest(strategyResult), provider_profile_id: "owner-active", model_id: "synthetic-model" },
+    }, authority("resume.definitions.write"));
+    expect(persisted.strategy).toMatchObject({ record_type: "resume_strategy", fact_revision_ids: [factId], quality_standard_version: "3", provider_profile_id: "owner-active" });
+
+    const strategy = persisted.strategy;
+    if (strategy.record_type !== "resume_strategy") throw new Error("strategy fixture failed");
+    const generationResult = { title: "General Resume", statements: [{ statement_id: crypto.randomUUID(), section_id: "experience", kind: "factual" as const, text: confirmed.fact.value, supporting_confirmed_fact_revision_ids: [factId] }], section_order: ["experience"], omissions: [] };
+    const generationInputDigest = canonicalInputDigest([
+      block("confirmed_fact_snapshot", "resume.confirmed-facts.v1", { facts }),
+      block("resume_strategy", "resume.strategy-record.v1", strategy),
+      block("quality_policy", "resume.quality-policy-identity.v1", RESUME_QUALITY_POLICY_IDENTITY),
+    ]);
+    const binding = {
+      binding_version: 1 as const, strategy_revision_id: strategy.metadata.revision_id, fact_snapshot_digest: strategy.fact_snapshot_digest,
+      fact_revision_ids: [factId], coverage_revision_ids: [], strategy_input_digest: strategy.input_digest, strategy_output_digest: strategy.output_digest,
+      generation_input_digest: generationInputDigest, generation_output_digest: canonicalInputDigest(generationResult), prompt_policy_id: RESUME_PROMPT_POLICY_ID, prompt_policy_version: RESUME_PROMPT_POLICY_VERSION,
+      quality_standard_id: RESUME_QUALITY_STANDARD_ID, quality_standard_version: RESUME_QUALITY_STANDARD_VERSION, quality_standard_digest: RESUME_QUALITY_STANDARD_DIGEST,
+      provider_profile_id: strategy.provider_profile_id, model_id: strategy.model_id, used_must_use_fact_revision_ids: [factId], omissions: [],
+    };
+    const proposal = await service.writeDefinition({ ...definitionInput(factId), status: "proposed", prompt_policy_version: RESUME_PROMPT_POLICY_VERSION, strategy_binding: binding, generation_result: generationResult, title: generationResult.title, statements: generationResult.statements }, authority("resume.definitions.write"));
+    expect(proposal.definition).toMatchObject({ status: "proposed", strategy_binding: { strategy_revision_id: strategy.metadata.revision_id } });
+
+    const correctionAuthority = authority("career.facts.confirm");
+    await service.confirmFact({ fact_record_id: confirmed.fact.metadata.record_id, fact_revision_id: factId, expected_revision: confirmed.fact.metadata.revision, decision: "edit_and_accept", edited_value: "Corrected synthetic supported statement", review_note: null }, correctionAuthority, ownerDecision(correctionAuthority, factId, "edit_and_accept"));
+    await expect(service.approveDefinition({ kind: "approve_definition", definition_record_id: proposal.definition.metadata.record_id, expected_revision: proposal.definition.metadata.revision }, authority("resume.definitions.write"), true)).rejects.toMatchObject({ code: "validation_failed" });
+  });
   it("persists a scoped revision before inference and atomically links a validated immutable proposal", async () => {
     const { store, service } = await setup();
     const confirmed = await confirmedFact(service);

@@ -20,6 +20,11 @@
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           },
+          "opportunity_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
           "dimension": {
             "type": "string",
             "enum": [
@@ -31,9 +36,27 @@
               "progression"
             ]
           },
+          "opportunity_kind": {
+            "type": "string",
+            "enum": [
+              "qualitative",
+              "metric"
+            ]
+          },
+          "value_category": {
+            "type": "string",
+            "enum": [
+              "distinct_accomplishment",
+              "decision_useful_outcome",
+              "scope_or_scale",
+              "tools_in_use",
+              "progression",
+              "core_responsibility"
+            ]
+          },
           "selection_method": {
             "type": "string",
-            "const": "broker_ranked"
+            "const": "deterministic_value"
           },
           "prompt": {
             "type": "string",
@@ -49,7 +72,10 @@
         "required": [
           "question_id",
           "job_fact_revision_id",
+          "opportunity_id",
           "dimension",
+          "opportunity_kind",
+          "value_category",
           "selection_method",
           "prompt",
           "rationale"

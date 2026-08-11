@@ -240,9 +240,9 @@ export const ResumeDataCapabilityResultSchema = z
 export const MigrationCompatibilityPolicySchema = z
   .object({
     policy_version: z.literal(1),
-    active_schema_version: z.literal(2),
-    readable_schema_versions: z.tuple([z.literal(1), z.literal(2)]),
-    writable_schema_versions: z.tuple([z.literal(2)]),
+    active_schema_version: z.literal(3),
+    readable_schema_versions: z.tuple([z.literal(2), z.literal(3)]),
+    writable_schema_versions: z.tuple([z.literal(3)]),
     prior_release_policy: z.literal("read_immediately_prior_when_released"),
     writes_require_active_version: z.literal(true),
     unsafe_downgrade: z.literal("block_preserve_data_offer_export_or_upgrade"),
@@ -274,9 +274,9 @@ export const MigrationProvenanceSchema = z
 
 export const MIGRATION_COMPATIBILITY_POLICY = {
   policy_version: 1,
-  active_schema_version: 2,
-  readable_schema_versions: [1, 2],
-  writable_schema_versions: [2],
+  active_schema_version: 3,
+  readable_schema_versions: [2, 3],
+  writable_schema_versions: [3],
   prior_release_policy: "read_immediately_prior_when_released",
   writes_require_active_version: true,
   unsafe_downgrade: "block_preserve_data_offer_export_or_upgrade",

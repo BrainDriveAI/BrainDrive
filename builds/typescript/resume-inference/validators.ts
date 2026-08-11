@@ -5,7 +5,10 @@ import type { z } from "zod";
 import { canonicalInputDigest } from "../app-platform/contracts/common.js";
 import { JobEvidenceValueSchema, ValidatorFindingSchema } from "../app-platform/contracts/data.js";
 import type { InferenceDataBlockSchema, InferencePurpose } from "../app-platform/contracts/inference.js";
+import { craftContextFromBlocks, validateCraftEvaluationResult, type CraftEvaluationResult } from "./craft-evaluator.js";
+import { validateCraftRepair } from "./craft-repair.js";
 import type { GeneratedStatementSchema } from "./results.js";
+import { decideTargetFit, TARGET_FIT_THRESHOLD_POLICY } from "./target-fit.js";
 import { revisionDraftIssues, type RevisionIntentClass, type RevisionStatement, type RevisionTarget } from "../resume-domain/revision-requests.js";
 
 type DataBlock = z.infer<typeof InferenceDataBlockSchema>;
@@ -30,10 +33,12 @@ export function validateInferenceClaims(purpose: InferencePurpose, result: unkno
   const findings: Finding[] = [];
   const facts = confirmedFacts(dataBlocks);
   if (purpose === "interview_assist") findings.push(...validateInterviewAssist(result, dataBlocks));
+  if (purpose === "resume_strategy") findings.push(...validateStrategy(result, dataBlocks));
   if (purpose === "general_resume_draft" || purpose === "targeted_resume_draft") {
     const statements = (result as { statements?: GeneratedStatement[] }).statements ?? [];
     for (const statement of statements) findings.push(...validateStatement(statement, facts));
-    findings.push(...validateResumeStructure(statements, dataBlocks));
+    findings.push(...validateResumeStructure(statements, dataBlocks, (result as { omissions?: Array<{ fact_revision_id?: string }> }).omissions ?? []));
+    if (purpose === "general_resume_draft") findings.push(...validateGeneralStrategyUse(result, dataBlocks));
     if (purpose === "targeted_resume_draft") findings.push(...validateTargetedLineage(result, dataBlocks));
   }
   if (purpose === "resume_revision_classify") findings.push(...validateRevisionClassification(result, dataBlocks));
@@ -45,8 +50,10 @@ export function validateInferenceClaims(purpose: InferencePurpose, result: unkno
   }
   if (purpose === "job_description_analyze") findings.push(...validateJobAnalysis(result, dataBlocks));
   if (purpose === "requirement_evidence_match") findings.push(...validateEvidence(result, facts));
-  if (purpose === "tailoring_plan") findings.push(...validatePlan(result, facts));
+  if (purpose === "tailoring_plan") findings.push(...validatePlan(result, facts, dataBlocks));
   if (purpose === "resume_guidance") findings.push(...validateGuidance(result, dataBlocks));
+  if (purpose === "resume_craft_evaluate") findings.push(...validateCraftEvaluation(result, dataBlocks));
+  if (purpose === "resume_craft_repair") findings.push(...validateCraftRepairResult(result, dataBlocks, facts));
   const inputSnapshotDigest = canonicalInputDigest(dataBlocks);
   const policyDigest = canonicalInputDigest({ validator: "resume-claim-gate", version: "1", protected: "lexical-subset-v1" });
   return {
@@ -59,6 +66,47 @@ export function validateInferenceClaims(purpose: InferencePurpose, result: unkno
     findings,
     accepted: !findings.some((finding) => finding.severity === "error"),
   };
+}
+
+export function evaluateDefinitionDeterministicGates(definition: { statements: GeneratedStatement[] }, dataBlocks: DataBlock[]): {
+  truth_passed: boolean;
+  truth_validation_digest: `sha256:${string}`;
+  structure_passed: boolean;
+  structure_validation_digest: `sha256:${string}`;
+} {
+  const facts = confirmedFacts(dataBlocks);
+  const truthFindings = definition.statements.flatMap((statement) => validateStatement(statement, facts));
+  const structureFindings = validateResumeStructure(definition.statements, dataBlocks);
+  return {
+    truth_passed: truthFindings.length === 0,
+    truth_validation_digest: canonicalInputDigest(truthFindings),
+    structure_passed: structureFindings.length === 0,
+    structure_validation_digest: canonicalInputDigest(structureFindings),
+  };
+}
+
+function validateCraftEvaluation(result: unknown, blocks: DataBlock[]): Finding[] {
+  try {
+    const context = craftContextFromBlocks(blocks);
+    return validateCraftEvaluationResult(result as CraftEvaluationResult, context).map((issue) => finding(
+      issue.code === "evaluator_disagreement" ? "lineage_invalid" : "schema_invalid",
+      null,
+      issue.safe_message,
+    ));
+  } catch {
+    return [finding("lineage_invalid", null, "Craft evaluation is not bound to one complete proposal, strategy, and deterministic gate context")];
+  }
+}
+
+function validateCraftRepairResult(result: unknown, blocks: DataBlock[], facts: Map<string, string>): Finding[] {
+  const source = blocks.find((block) => block.category === "general_resume_definition")?.data as Parameters<typeof validateCraftRepair>[0] | undefined;
+  const report = blocks.find((block) => block.category === "craft_quality_report")?.data as Parameters<typeof validateCraftRepair>[1] | undefined;
+  if (!source || !report) return [finding("lineage_invalid", null, "Craft repair requires one immutable proposal and failing craft report")];
+  const repair = result as Parameters<typeof validateCraftRepair>[2];
+  const findings = validateCraftRepair(source, report, repair).map((issue) => finding("lineage_invalid", issue.statement_id, issue.safe_message));
+  for (const statement of repair.statements ?? []) findings.push(...validateStatement(statement, facts));
+  findings.push(...validateResumeStructure(repair.statements ?? [], blocks));
+  return findings;
 }
 
 const FORBIDDEN_GUIDANCE = /\b(?:ats|resume|employability|match|hiring|interview(?:-rate)?|candidate)\s*(?:score|rating|percentage|percent)|\b(?:guarantee(?:d|s)?|will get hired|will get interviews?|hireability|competence|incompetent|unqualified|hireable|unhireable)\b|\b(?:strong|weak|ideal|poor|good|bad|competitive|uncompetitive|qualified)\s+(?:candidate|fit)\b|\b(?:likelihood|probability|chance|odds)\b.{0,48}\b(?:hire|hired|interview|offer)\b|\b(?:likely|unlikely|expected)\b.{0,32}\b(?:hire|hired|interview|offer)\b/i;
@@ -159,7 +207,7 @@ function validateRevisionDraft(result: unknown, blocks: DataBlock[]): Finding[] 
   return findings;
 }
 
-function validateResumeStructure(statements: GeneratedStatement[], blocks: DataBlock[]): Finding[] {
+function validateResumeStructure(statements: GeneratedStatement[], blocks: DataBlock[], omissions: Array<{ fact_revision_id?: string }> = []): Finding[] {
   const findings: Finding[] = [];
   const factRows = blocks.flatMap((block) => block.category === "confirmed_fact_snapshot"
     ? ((block.data as { facts?: Array<{ revision_id?: unknown; fact_kind?: unknown; value?: unknown }> } | null)?.facts ?? [])
@@ -180,9 +228,6 @@ function validateResumeStructure(statements: GeneratedStatement[], blocks: DataB
     return parsed.success ? [{ revisionId: fact.revisionId, value: parsed.data }] : [];
   });
   if (jobs.length === 0) return findings;
-  if (!statements.some((statement) => statement.section_id === "summary")) {
-    findings.push(finding("schema_invalid", null, "A resume with work experience requires a supported professional summary"));
-  }
   for (const job of jobs) {
     const title = typeof job.value.title === "string" ? normalize(job.value.title) : "";
     const employer = typeof job.value.employer === "string" ? normalize(job.value.employer) : "";
@@ -193,6 +238,7 @@ function validateResumeStructure(statements: GeneratedStatement[], blocks: DataB
     if (!heading) findings.push(finding("schema_invalid", null, "Each confirmed job requires an individual experience heading"));
   }
   for (const accomplishment of structured.filter((fact) => fact.value.format === "resume_accomplishment_v1")) {
+    if (omissions.some((omission) => omission.fact_revision_id === accomplishment.revisionId)) continue;
     const candidate = statements.find((statement) => statement.section_id === "experience" && statement.supporting_confirmed_fact_revision_ids.includes(accomplishment.revisionId));
     if (!candidate) findings.push(finding("missing_provenance", null, "Each confirmed accomplishment requires its own supported experience statement"));
     else if (candidate.text.length > 320) findings.push(finding("schema_invalid", candidate.statement_id, "Accomplishment bullets must remain concise"));
@@ -216,17 +262,134 @@ function validateResumeStructure(statements: GeneratedStatement[], blocks: DataB
   return findings;
 }
 
+function validateStrategy(result: unknown, blocks: DataBlock[]): Finding[] {
+  const value = result as {
+    history_shape?: string;
+    history_reason_code?: string;
+    role_emphasis?: Array<{ job_fact_revision_id?: string; bullet_density?: string }>;
+    section_order?: string[];
+    evidence_priorities?: Array<{ fact_revision_id?: string; priority?: string }>;
+    summary_decision?: string;
+    summary_reason_code?: string;
+    skills_context?: Array<{ skill_fact_revision_id?: string; context_fact_revision_ids?: string[] }>;
+    omissions?: Array<{ fact_revision_id?: string; reason_code?: string }>;
+    unresolved_gap_ids?: string[];
+  };
+  const findings: Finding[] = [];
+  const facts = confirmedFacts(blocks);
+  const factRows = blocks.flatMap((candidate) => candidate.category === "confirmed_fact_snapshot"
+    ? ((candidate.data as { facts?: Array<{ revision_id?: string; fact_kind?: string }> }).facts ?? []) : []);
+  const annotations = blocks.find((candidate) => candidate.category === "evidence_annotations")?.data as {
+    facts?: Array<{ fact_revision_id?: string; evidence_class?: string; job_fact_revision_id?: string | null; required_priority?: string }>;
+    unresolved_gap_ids?: string[];
+  } | undefined;
+  if (!annotations || blocks.filter((candidate) => candidate.category === "evidence_annotations").length !== 1) {
+    findings.push(finding("lineage_invalid", null, "Resume strategy requires one deterministic evidence annotation block"));
+    return findings;
+  }
+  if (facts.size === 0) findings.push(finding("missing_provenance", null, "Resume strategy requires at least one confirmed owner fact"));
+  const priorities = value.evidence_priorities ?? [];
+  const priorityIds = priorities.map((entry) => entry.fact_revision_id).filter((id): id is string => typeof id === "string");
+  if (new Set(priorityIds).size !== priorityIds.length || priorityIds.some((id) => !facts.has(id))) {
+    findings.push(finding("lineage_invalid", null, "Strategy evidence priorities must be unique confirmed snapshot identities"));
+  }
+  const omissions = value.omissions ?? [];
+  const omittedIds = omissions.map((entry) => entry.fact_revision_id).filter((id): id is string => typeof id === "string");
+  if (new Set(omittedIds).size !== omittedIds.length || omittedIds.some((id) => !facts.has(id))) {
+    findings.push(finding("lineage_invalid", null, "Strategy omissions must be unique confirmed snapshot identities"));
+  }
+  const required = (annotations.facts ?? []).filter((entry) => entry.required_priority === "must_use").map((entry) => entry.fact_revision_id).filter((id): id is string => typeof id === "string");
+  for (const revisionId of required) {
+    if (!priorities.some((entry) => entry.fact_revision_id === revisionId && entry.priority === "must_use")) {
+      findings.push(finding("missing_provenance", null, "Strategy must retain every deterministically required evidence identity as must-use"));
+    }
+  }
+  const jobs = factRows.filter((fact) => fact.fact_kind === "employment").map((fact) => fact.revision_id).filter((id): id is string => typeof id === "string");
+  const emphasized = (value.role_emphasis ?? []).map((entry) => entry.job_fact_revision_id).filter((id): id is string => typeof id === "string");
+  if (new Set(emphasized).size !== emphasized.length || jobs.some((id) => !emphasized.includes(id)) || emphasized.some((id) => !jobs.includes(id))) {
+    findings.push(finding("lineage_invalid", null, "Strategy role emphasis must cover each confirmed employment identity exactly once"));
+  }
+  for (const role of value.role_emphasis ?? []) {
+    const evidenceCount = (annotations.facts ?? []).filter((entry) => entry.job_fact_revision_id === role.job_fact_revision_id && entry.evidence_class !== "role_identity").length;
+    if (role.bullet_density === "expanded" && evidenceCount < 4) findings.push(finding("schema_invalid", null, "Expanded role density requires several distinct confirmed evidence units"));
+    if (role.bullet_density === "standard" && evidenceCount < 2) findings.push(finding("schema_invalid", null, "Standard role density requires multiple distinct confirmed evidence units"));
+    if (role.bullet_density === "none" && evidenceCount > 0) findings.push(finding("schema_invalid", null, "A role with distinct confirmed evidence cannot use heading-only density"));
+  }
+  if (jobs.length > 0 && !(value.section_order ?? []).includes("experience")) {
+    findings.push(finding("schema_invalid", null, "Strategy section order must preserve confirmed work history"));
+  }
+  if ((value.summary_decision === "include") !== (value.summary_reason_code === "supported_positioning")) {
+    findings.push(finding("schema_invalid", null, "Strategy summary inclusion requires a supported positioning reason"));
+  }
+  for (const skill of value.skills_context ?? []) {
+    const row = factRows.find((fact) => fact.revision_id === skill.skill_fact_revision_id);
+    if (row?.fact_kind !== "skill" || (skill.context_fact_revision_ids ?? []).some((id) => !facts.has(id))) {
+      findings.push(finding("lineage_invalid", null, "Strategy skills context must cite confirmed skill and context identities"));
+    }
+  }
+  const allowedGaps = new Set(annotations.unresolved_gap_ids ?? []);
+  if ((value.unresolved_gap_ids ?? []).some((id) => !allowedGaps.has(id))) {
+    findings.push(finding("lineage_invalid", null, "Strategy unresolved gaps must come from explicit current coverage"));
+  }
+  return findings;
+}
+
+function validateGeneralStrategyUse(result: unknown, blocks: DataBlock[]): Finding[] {
+  const value = result as { statements?: GeneratedStatement[]; section_order?: string[]; omissions?: Array<{ fact_revision_id?: string; reason_code?: string }> };
+  const strategies = blocks.filter((candidate) => candidate.category === "resume_strategy");
+  if (strategies.length === 0) return [];
+  if (strategies.length !== 1) return [finding("lineage_invalid", null, "General generation requires one exact validated resume strategy")];
+  const strategy = strategies[0]!.data as {
+    section_order?: string[];
+    evidence_priorities?: Array<{ fact_revision_id?: string; priority?: string }>;
+    summary_decision?: string;
+    omissions?: Array<{ fact_revision_id?: string; reason_code?: string }>;
+  };
+  const findings: Finding[] = [];
+  const used = new Set((value.statements ?? []).flatMap((statement) => statement.supporting_confirmed_fact_revision_ids));
+  const omissions = [...(strategy.omissions ?? []), ...(value.omissions ?? [])];
+  const omissionMap = new Map<string, unknown>();
+  for (const entry of omissions) {
+    if (typeof entry.fact_revision_id !== "string") continue;
+    const existing = omissionMap.get(entry.fact_revision_id);
+    if (existing !== undefined && existing !== entry.reason_code) findings.push(finding("schema_invalid", null, "One omission identity cannot carry conflicting visible reasons"));
+    omissionMap.set(entry.fact_revision_id, entry.reason_code);
+  }
+  const omissionIds = [...omissionMap.keys()];
+  const facts = confirmedFacts(blocks);
+  if (omissionIds.some((id) => !facts.has(id))) findings.push(finding("lineage_invalid", null, "Draft omissions must reference the exact confirmed snapshot"));
+  for (const entry of strategy.evidence_priorities ?? []) {
+    if (entry.priority === "must_use" && typeof entry.fact_revision_id === "string" && !used.has(entry.fact_revision_id) && !omissionIds.includes(entry.fact_revision_id)) {
+      findings.push(finding("missing_provenance", null, "Every must-use strategy item must appear with claim lineage or a visible allowed omission reason"));
+    }
+  }
+  const hasSummary = (value.statements ?? []).some((statement) => statement.section_id === "summary");
+  if (strategy.summary_decision === "omit" && hasSummary) findings.push(finding("schema_invalid", null, "Draft added a summary that the evidence-shaped strategy omitted"));
+  if (strategy.summary_decision === "include" && !hasSummary) findings.push(finding("schema_invalid", null, "Draft quietly omitted the supported strategy summary"));
+  if (value.section_order && strategy.section_order && canonicalInputDigest(value.section_order) !== canonicalInputDigest(strategy.section_order)) {
+    findings.push(finding("lineage_invalid", null, "Draft section order does not match the exact strategy"));
+  }
+  return findings;
+}
+
 function validateInterviewAssist(result: unknown, blocks: DataBlock[]): Finding[] {
   const summary = blocks.find((block) => block.category === "job_evidence_summary")?.data as {
     active_job_fact_revision_id?: string;
+    requested_opportunity_id?: string;
     requested_dimension?: string;
+    opportunity_kind?: string;
+    value_category?: string;
   } | undefined;
-  const questions = (result as { questions?: Array<{ question_id?: string; job_fact_revision_id?: string; dimension?: string; prompt?: string }> }).questions ?? [];
+  const questions = (result as { questions?: Array<{ question_id?: string; job_fact_revision_id?: string; opportunity_id?: string; dimension?: string; opportunity_kind?: string; value_category?: string; selection_method?: string; prompt?: string }> }).questions ?? [];
   if (!summary || questions.length !== 1) return [finding("schema_invalid", null, "Interview assistance requires one active-job question")];
   const question = questions[0]!;
   const findings: Finding[] = [];
   if (question.job_fact_revision_id !== summary.active_job_fact_revision_id) findings.push(finding("lineage_invalid", question.question_id ?? null, "Interview assistance must stay on the active job"));
+  if (question.opportunity_id !== summary.requested_opportunity_id) findings.push(finding("lineage_invalid", question.question_id ?? null, "Interview assistance must preserve the selected opportunity identity"));
   if (question.dimension !== summary.requested_dimension) findings.push(finding("lineage_invalid", question.question_id ?? null, "Interview assistance must stay on the selected evidence dimension"));
+  if (question.opportunity_kind !== summary.opportunity_kind || question.value_category !== summary.value_category || question.selection_method !== "deterministic_value") {
+    findings.push(finding("lineage_invalid", question.question_id ?? null, "Interview assistance must preserve the deterministic opportunity classification"));
+  }
   if (/\b(?:must|need to|required to)\b[^.?!]{0,60}\b(?:number|metric|percentage|percent|how many)\b|\bexact (?:number|percentage|metric)\b/i.test(question.prompt ?? "")) {
     findings.push(finding("unsupported_claim", question.question_id ?? null, "Interview assistance cannot pressure the owner to provide a metric"));
   }
@@ -291,19 +454,70 @@ function validateEvidence(result: unknown, facts: Map<string, string>): Finding[
   });
 }
 
-function validatePlan(result: unknown, facts: Map<string, string>): Finding[] {
-  return ((result as { changes?: Array<{ change_id: string; supporting_confirmed_fact_revision_ids: string[] }> }).changes ?? [])
+function validatePlan(result: unknown, facts: Map<string, string>, blocks: DataBlock[]): Finding[] {
+  const value = result as {
+    threshold_policy_id?: string; threshold_policy_version?: string; fit_class?: string; outcome?: string; no_change_reason?: string | null;
+    support_counts?: unknown; changes?: Array<{ change_id: string; requirement_id: string; statement_id: string | null; action: "selection" | "ordering" | "emphasis" | "faithful_wording" | "shorten"; rationale?: string; supporting_confirmed_fact_revision_ids: string[] }>;
+  };
+  const findings = (value.changes ?? [])
     .filter((change) => change.supporting_confirmed_fact_revision_ids.some((id) => !facts.has(id)))
     .map((change) => finding("missing_provenance", change.change_id, "Tailoring plan cites a fact outside the confirmed snapshot"));
+  const matrix = blocks.find((candidate) => candidate.category === "evidence_matrix")?.data;
+  const parent = blocks.find((candidate) => candidate.category === "general_resume_definition")?.data as { statements?: Array<{ statement_id?: string }> } | undefined;
+  const policy = blocks.find((candidate) => candidate.category === "target_fit_policy")?.data;
+  if (!Array.isArray(matrix) || canonicalInputDigest(policy) !== canonicalInputDigest(TARGET_FIT_THRESHOLD_POLICY)) {
+    findings.push(finding("lineage_invalid", null, "Tailoring requires one exact versioned target-fit policy and evidence matrix"));
+    return findings;
+  }
+  const decision = decideTargetFit(matrix, value.changes ?? []);
+  if (
+    value.threshold_policy_id !== TARGET_FIT_THRESHOLD_POLICY.policy_id || value.threshold_policy_version !== TARGET_FIT_THRESHOLD_POLICY.policy_version ||
+    value.fit_class !== decision.fit_class || value.outcome !== decision.outcome || value.no_change_reason !== decision.no_change_reason ||
+    canonicalInputDigest(value.support_counts) !== canonicalInputDigest(decision.support_counts) ||
+    canonicalInputDigest((value.changes ?? []).map(({ rationale: _rationale, ...change }) => change)) !== canonicalInputDigest(decision.material_changes)
+  ) findings.push(finding("schema_invalid", null, "Tailoring result does not match the deterministic score-free fit and material-change gate"));
+  const statementIds = new Set((parent?.statements ?? []).flatMap((statement) => typeof statement.statement_id === "string" ? [statement.statement_id] : []));
+  if ((value.changes ?? []).some((change) => !change.statement_id || !statementIds.has(change.statement_id))) {
+    findings.push(finding("lineage_invalid", null, "Tailoring changes must name statements in the approved general resume"));
+  }
+  return findings;
 }
 
 function validateTargetedLineage(result: unknown, blocks: DataBlock[]): Finding[] {
-  const value = result as { parent_general_definition_revision_id?: string; job_revision_id?: string };
-  const definition = blocks.find((block) => block.category === "general_resume_definition")?.data as { metadata?: { revision_id?: string } } | undefined;
+  const value = result as { parent_general_definition_revision_id?: string; job_revision_id?: string; title?: string; statements?: GeneratedStatement[]; changed_statement_ids?: string[]; section_order?: string[] };
+  const definition = blocks.find((block) => block.category === "general_resume_definition")?.data as { metadata?: { revision_id?: string }; title?: string; statements?: GeneratedStatement[]; section_order?: string[] } | undefined;
   const job = blocks.find((block) => block.category === "job_description")?.data as { metadata?: { revision_id?: string } } | undefined;
-  return value.parent_general_definition_revision_id === definition?.metadata?.revision_id && value.job_revision_id === job?.metadata?.revision_id
-    ? []
-    : [finding("lineage_invalid", null, "Targeted draft lineage does not match the immutable input snapshot")];
+  const analysis = blocks.find((block) => block.category === "target_fit_analysis")?.data as { outcome?: string; analysis_state?: string; parent_general_definition_revision_id?: string; job_revision_id?: string; material_changes?: Array<{ statement_id?: string | null; action?: string }> } | undefined;
+  const findings: Finding[] = [];
+  if (!analysis) {
+    return value.parent_general_definition_revision_id === definition?.metadata?.revision_id && value.job_revision_id === job?.metadata?.revision_id
+      ? []
+      : [finding("lineage_invalid", null, "Targeted draft lineage does not match the immutable input snapshot")];
+  }
+  if (
+    value.parent_general_definition_revision_id !== definition?.metadata?.revision_id || value.job_revision_id !== job?.metadata?.revision_id ||
+    analysis?.outcome !== "targeted_variant" || analysis.analysis_state !== "ready_for_targeted_draft" ||
+    analysis.parent_general_definition_revision_id !== definition?.metadata?.revision_id || analysis.job_revision_id !== job?.metadata?.revision_id
+  ) {
+    findings.push(finding("lineage_invalid", null, "Targeted draft lineage does not match one persisted passing target analysis"));
+    return findings;
+  }
+  const plannedIds = [...new Set((analysis.material_changes ?? []).flatMap((change) => change.statement_id ? [change.statement_id] : []))].sort();
+  const actualIds = [...new Set(value.changed_statement_ids ?? [])].sort();
+  if (canonicalInputDigest(plannedIds) !== canonicalInputDigest(actualIds)) findings.push(finding("lineage_invalid", null, "Targeted draft change manifest differs from the supported plan"));
+  const source = new Map((definition?.statements ?? []).map((statement) => [statement.statement_id, statement]));
+  const next = new Map((value.statements ?? []).map((statement) => [statement.statement_id, statement]));
+  if (source.size !== next.size || [...source.keys()].some((id) => !next.has(id))) findings.push(finding("lineage_invalid", null, "Targeted drafting cannot add or remove statements outside the supported plan"));
+  for (const [statementId, sourceStatement] of source) {
+    const nextStatement = next.get(statementId);
+    if (!nextStatement) continue;
+    const changed = canonicalInputDigest(sourceStatement) !== canonicalInputDigest(nextStatement);
+    if (changed !== plannedIds.includes(statementId)) findings.push(finding("lineage_invalid", statementId, "Targeted draft changed an unplanned statement or failed to apply a planned change"));
+  }
+  if (value.title !== definition?.title) findings.push(finding("lineage_invalid", null, "Targeted drafting cannot inject target wording into the resume title"));
+  const orderingPlanned = (analysis.material_changes ?? []).some((change) => change.action === "ordering");
+  if (!orderingPlanned && canonicalInputDigest(value.section_order) !== canonicalInputDigest(definition?.section_order)) findings.push(finding("lineage_invalid", null, "Targeted section order changed without a supported ordering plan"));
+  return findings;
 }
 
 function significantTokens(text: string): string[] {

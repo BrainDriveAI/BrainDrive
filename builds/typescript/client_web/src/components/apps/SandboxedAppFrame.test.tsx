@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
 
 import { closeResumeBuilderSession } from "@/api/apps-adapter";
-import SandboxedAppFrame, { isModelSettingsAction, isTrustedSandboxMessage, saveHostPdfExport, saveHostResumeExport } from "./SandboxedAppFrame";
+import SandboxedAppFrame, { applyGroupedFactDecisions, isModelSettingsAction, isTrustedSandboxMessage, ownerFactConfirmationDetail, saveHostPdfExport, saveHostResumeExport } from "./SandboxedAppFrame";
 
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
@@ -66,6 +66,24 @@ describe("sandboxed MCP App frame", () => {
     expect(isModelSettingsAction("navigate_settings", "models")).toBe(true);
     expect(isModelSettingsAction("navigate_settings", "providers/new")).toBe(false);
     expect(isModelSettingsAction("open_link", "models")).toBe(false);
+  });
+
+  it("keeps one grouped confirmation while preserving individual accept and reject decisions", () => {
+    const first = crypto.randomUUID();
+    const second = crypto.randomUUID();
+    const input = { decisions: [
+      { fact_record_id: crypto.randomUUID(), fact_revision_id: first, expected_revision: 1, decision: "accept", edited_value: null, review_note: null },
+      { fact_record_id: crypto.randomUUID(), fact_revision_id: second, expected_revision: 1, decision: "accept", edited_value: null, review_note: null },
+    ] };
+    expect(applyGroupedFactDecisions(input, new Set([first]))).toEqual({ decisions: [
+      expect.objectContaining({ fact_revision_id: first, decision: "accept" }),
+      expect.objectContaining({ fact_revision_id: second, decision: "reject" }),
+    ] });
+  });
+
+  it("shows owner-visible factual-unit text instead of structured storage JSON", () => {
+    expect(ownerFactConfirmationDetail(JSON.stringify({ value_version: 1, owner_text: "Reduced handoff errors.", internal: "hidden" }))).toBe("Reduced handoff errors.");
+    expect(ownerFactConfirmationDetail("Plain confirmed fact")).toBe("Plain confirmed fact");
   });
 
   it("validates browser export bytes and returns only a safe receipt projection to the app", async () => {

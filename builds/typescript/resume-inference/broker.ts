@@ -228,7 +228,7 @@ export class ResumeInferenceBroker {
         started_at: startedAt,
         completed_at: completedAt,
       });
-      this.audit("app.inference.completed", this.auditFields(request, { status: "completed", attempt: attempts, model_class: provider.modelClass, usage_available: inference.usage.available, ...(repair ? { repair } : {}) }));
+      this.audit("app.inference.completed", this.auditFields(request, { status: "completed", attempt: attempts, model_class: provider.modelClass, usage_available: inference.usage.available, ...this.safeResultDiagnostics(request, result), ...(repair ? { repair } : {}) }));
       return { inference, validation };
     } catch (error) {
       const classified = classifyInferenceError(error, signal);
@@ -276,6 +276,30 @@ export class ResumeInferenceBroker {
       prompt_policy_version: request.prompt_policy_version,
       ...extra,
     };
+  }
+
+  private safeResultDiagnostics(request: InferenceRequest, result: unknown): Record<string, unknown> {
+    if (request.purpose === "resume_strategy") {
+      const strategy = result as { history_shape?: unknown; evidence_priorities?: Array<{ priority?: unknown }>; omissions?: Array<{ reason_code?: unknown }>; unresolved_gap_ids?: unknown[] };
+      return {
+        history_shape: strategy.history_shape ?? null,
+        used_evidence_count: (strategy.evidence_priorities ?? []).filter((entry) => entry.priority === "must_use").length,
+        omitted_evidence_count: strategy.omissions?.length ?? 0,
+        omission_reason_categories: [...new Set((strategy.omissions ?? []).map((entry) => entry.reason_code).filter((reason): reason is string => typeof reason === "string"))].sort(),
+        unresolved_gap_count: strategy.unresolved_gap_ids?.length ?? 0,
+      };
+    }
+    if (request.purpose === "general_resume_draft") {
+      const draft = result as { statements?: Array<{ supporting_confirmed_fact_revision_ids?: string[] }>; omissions?: Array<{ reason_code?: unknown }> };
+      const strategy = request.data_blocks.find((block) => block.category === "resume_strategy")?.data as { evidence_priorities?: Array<{ fact_revision_id?: string; priority?: string }> } | undefined;
+      const used = new Set((draft.statements ?? []).flatMap((statement) => statement.supporting_confirmed_fact_revision_ids ?? []));
+      return {
+        used_evidence_count: (strategy?.evidence_priorities ?? []).filter((entry) => entry.priority === "must_use" && typeof entry.fact_revision_id === "string" && used.has(entry.fact_revision_id)).length,
+        omitted_evidence_count: draft.omissions?.length ?? 0,
+        omission_reason_categories: [...new Set((draft.omissions ?? []).map((entry) => entry.reason_code).filter((reason): reason is string => typeof reason === "string"))].sort(),
+      };
+    }
+    return {};
   }
 }
 

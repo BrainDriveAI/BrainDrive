@@ -60,7 +60,8 @@ describe("sandboxed Resume Builder owner resource", () => {
     expect(html).not.toMatch(/\b(?:fetch|XMLHttpRequest|WebSocket|window\.open)\s*\(/);
     expect(html).not.toMatch(/\b(?:https?:|file:|tauri:|javascript:)/i);
     expect(html).not.toContain("allow-same-origin");
-    expect(html).not.toContain("provider_profile");
+    expect(html).not.toContain("active_provider_profile");
+    expect(html).not.toMatch(/inference_contract_version:1[^}]*\b(?:provider|model|endpoint|credential|api_key):/);
     expect(html).not.toContain("api_key");
   });
 
@@ -111,6 +112,11 @@ describe("sandboxed Resume Builder owner resource", () => {
       "Complete for now",
       "Review job evidence",
       "Reopen interview",
+      "Job coverage summary",
+      "Why this may help:",
+      "Ask another way",
+      "Review factual units for",
+      "Non-fact choices save coverage without opening a career-fact confirmation",
       "Exact numbers are optional",
     ]) expect(html).toContain(text);
     expect(html).toContain('aria-label="Current job"');
@@ -119,6 +125,34 @@ describe("sandboxed Resume Builder owner resource", () => {
     expect(html).toContain('association:"general"');
     expect(html).toContain('fact_kind:"job_evidence"');
     expect(html).toContain('infer("interview_assist"');
+    expect(html).toContain('schema_id:"resume.job-evidence-summary.v2"');
+    expect(html).toContain('selection_method:"deterministic_value"');
+    expect(html).toContain('if(state.jobAssistStatus==="selecting")return');
+    expect(html).toContain('action:"complete_for_now"');
+    expect(html).toContain('action:"reopen"');
+    const reopen = html.slice(html.indexOf("async function reopenJobDimension"), html.indexOf("async function backJobDimension"));
+    expect(reopen).toContain("candidates.find(candidate=>candidate.dimension===dimension)");
+    expect(reopen).toContain('state.stage="interview"');
+    const persistence = html.slice(html.indexOf("async function persistJobEvidence"), html.indexOf("async function reopenJobDimension"));
+    const nonFactBranch = persistence.slice(persistence.indexOf('if(outcome!=="answered")'), persistence.indexOf("const units=factualUnits"));
+    expect(nonFactBranch).not.toContain('career.facts.propose');
+    expect(nonFactBranch).not.toContain('career.facts.confirm');
+    expect(persistence.match(/capability\("career\.facts\.confirm",\{decisions\}/g)).toHaveLength(1);
+  });
+
+  it("shows a correctable strategy before binding general generation", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    for (const text of ["Your resume plan", "Correct information", "Refresh plan", "Review resume plan", "This plan guides presentation. It is not a career fact, score, or approval."]) {
+      expect(html).toContain(text);
+    }
+    const prepare = html.slice(html.indexOf("async function persistGeneralStrategy"), html.indexOf("async function prepareGeneralStrategy"));
+    expect(prepare).toContain('inferCompletion("resume_strategy"');
+    expect(prepare).toContain('kind:"resume_strategy"');
+    const create = html.slice(html.indexOf("async function completeBoundGeneral"), html.indexOf("function editor"));
+    expect(create).toContain('record_revision_ids:[...strategy.coverage_revision_ids,strategy.metadata.revision_id]');
+    expect(create).toContain("strategy_binding:binding");
+    expect(create).toContain("generation_result:draft");
+    expect(create).toContain("completion.provider_profile_id!==strategy.provider_profile_id");
   });
 
   it("exposes remembered-detail disambiguation, duplicate reuse, successor generation, and impact notice", async () => {
@@ -209,5 +243,56 @@ describe("sandboxed Resume Builder owner resource", () => {
     expect(html).toContain('format:"text"');
     expect(html).toContain('infer("resume_guidance"');
     expect(html).not.toMatch(/ATS score|employability score|interview guarantee/i);
+  });
+
+  it("persists target fit before generation and renders an honest score-free no-change route", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    for (const text of [
+      "Assess fit and create a useful variant",
+      "Your general resume is the honest best fit",
+      "No score was calculated and no targeted resume was created",
+      "Use general resume",
+      "Review evidence questions",
+      "Try a different target",
+    ]) expect(html).toContain(text);
+    expect(html).toContain('inferCompletion("tailoring_plan"');
+    expect(html).toContain('kind:"target_fit_analysis"');
+    expect(html).toContain('saved.analysis.outcome==="no_meaningful_change"');
+    expect(html).toContain('inferCompletion("targeted_resume_draft"');
+    expect(html.indexOf('kind:"target_fit_analysis"')).toBeLessThan(html.indexOf('inferCompletion("targeted_resume_draft"'));
+    expect(html).toContain("target_fit_analysis_revision_id:saved.analysis.metadata.revision_id");
+    expect(html).not.toMatch(/fit score|ATS score|score:\s*\d/i);
+  });
+
+  it("requires independent craft evidence and permits one bounded repair before approval", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    const start = html.indexOf("async function approveDefinition");
+    const approval = html.slice(start, html.indexOf("function renderJob", start));
+    expect(approval).toContain('inferCompletion("resume_craft_evaluate"');
+    expect(approval).toContain('kind:"craft_quality_report"');
+    expect(approval).toContain('report.verdict==="fail"');
+    expect(approval).toContain('inferCompletion("resume_craft_repair"');
+    expect(approval).toContain('kind:"craft_repair"');
+    expect(approval).toContain("craft_report_revision_id:report.metadata.revision_id");
+    expect(approval.indexOf('kind:"craft_quality_report"')).toBeLessThan(approval.indexOf('kind:"approve_definition"'));
+    expect(approval).toContain("One bounded craft repair was applied");
+    expect(approval).not.toMatch(/craft score|quality score|score:\s*\d/i);
+  });
+
+  it("presents one score-free owner review with parity recovery and semantic friction diagnostics", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    expect(html).toContain("Owner review");
+    expect(html).toContain("What is strong");
+    expect(html).toContain("What is intentionally omitted");
+    expect(html).toContain("What remains uncertain");
+    expect(html).toContain('target?.outcome==="targeted_variant"');
+    expect(html).toContain("The targeted changes are materially supported by the saved job evidence.");
+    expect(html).toContain("parity?.allowed_side_effects");
+    expect(html).toContain("approved source remains unchanged");
+    expect(html).toContain("confirmation_group_count");
+    expect(html).toContain("redundant_confirmation_count");
+    expect(html).toContain("RB7-OQ-2");
+    const review = html.slice(html.indexOf("function ownerReview"), html.indexOf("function evidenceRows"));
+    expect(review).not.toMatch(/match score|ATS score|quality score/i);
   });
 });

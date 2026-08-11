@@ -121,12 +121,25 @@ describe("conservative ATS PDF renderer", () => {
   });
 
   it("returns clean text when PDF preparation fails", async () => {
-    const { service, definition } = await approvedDefinition();
+    const { store, service, definition } = await approvedDefinition();
     const broker = new ResumeExportBroker(service, () => undefined, () => new Date(), () => { throw new Error("forced_pdf_failure"); });
     const preview = await broker.preview({ action: "preview", definition_revision_id: definition.metadata.revision_id }, authority("resume.export.request"));
     expect(preview).toMatchObject({ status: "clean_text_only", pdf: { status: "unavailable", error_code: "pdf_render_failed" } });
     expect(preview.clean_text.text).toContain("Owner Name");
     expect(preview.clean_text.instructions).toMatch(/select.*copy/i);
+    expect(preview.parity).toMatchObject({ status: "blocked", disposition: "block_export", allowed_side_effects: expect.arrayContaining(["preview", "copy", "text_export", "career_projection"]) });
+    expect(preview.parity.allowed_side_effects).not.toContain("pdf_export");
+    expect(await store.list("artifact_parity_report")).toHaveLength(1);
+  });
+
+  it("blocks a mutated preview only and preserves verified clean-text recovery", async () => {
+    const { service, definition } = await approvedDefinition();
+    const rendered = renderApprovedResume(definition);
+    const broker = new ResumeExportBroker(service, () => undefined, () => new Date(), () => ({ ...rendered, logical_lines: rendered.logical_lines.map((line, index) => index === 1 ? "mutated@example.test" : line) }));
+    const preview = await broker.preview({ action: "preview", definition_revision_id: definition.metadata.revision_id }, authority("resume.export.request"));
+    expect(preview).toMatchObject({ status: "clean_text_only", lines: renderApprovedResumeCleanText(definition).logical_lines, parity: { disposition: "block_preview" } });
+    expect(preview.parity.allowed_side_effects).not.toContain("preview");
+    expect(preview.parity.allowed_side_effects).toEqual(expect.arrayContaining(["copy", "text_export", "pdf_export", "career_projection"]));
   });
 
   it("exports only approved lineage, records safe receipts, and leaves the definition immutable", async () => {
@@ -143,8 +156,11 @@ describe("conservative ATS PDF renderer", () => {
     expect(await store.readRevision(definition.metadata.revision_id)).toEqual(definition);
     const artifacts = await store.list("artifact");
     const receipts = await store.list("export_receipt");
+    const parityReports = await store.list("artifact_parity_report");
     expect(artifacts).toHaveLength(1);
     expect(receipts).toHaveLength(1);
+    expect(parityReports).toHaveLength(2);
+    expect(exported.parity_report_revision_id).toBe(parityReports.find((report) => report.record_type === "artifact_parity_report" && report.metadata.revision_id === exported.parity_report_revision_id)?.metadata.revision_id);
   });
 
   it("prepares and finalizes a strict UTF-8 text export without exposing a path", async () => {

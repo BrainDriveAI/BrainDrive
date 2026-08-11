@@ -34,7 +34,8 @@ export function repairResumeDraftFromConfirmedFacts(
     return replacement ? { ...statement, text: replacement } : statement;
   });
 
-  addRequiredStructure(statements, facts);
+  const strategy = blocks.find((block) => block.category === "resume_strategy")?.data as { summary_decision?: string } | undefined;
+  addRequiredStructure(statements, facts, strategy?.summary_decision === "include");
   const sectionOrder = [...result.section_order];
   if (statements.some((statement) => statement.section_id === "summary") && !sectionOrder.includes("summary")) {
     const contactIndex = sectionOrder.indexOf("contact");
@@ -82,10 +83,10 @@ function safeStatementText(statement: GeneratedStatement, facts: Map<string, Fac
   return boundedExact(support.map((fact) => fact.value).join(" | "), statement.section_id === "experience" ? 320 : 8_192);
 }
 
-function addRequiredStructure(statements: GeneratedStatement[], facts: Map<string, Fact>): void {
+function addRequiredStructure(statements: GeneratedStatement[], facts: Map<string, Fact>, includeSummary: boolean): void {
   const structuredFacts = [...facts.values()].map((fact) => ({ fact, structured: structuredValue(fact.value) }));
   const jobs = structuredFacts.filter(({ structured }) => structured?.format === "resume_job_v1");
-  if (jobs.length > 0 && !statements.some((statement) => statement.section_id === "summary")) {
+  if (includeSummary && jobs.length > 0 && !statements.some((statement) => statement.section_id === "summary")) {
     const first = jobs[0]!;
     statements.unshift(newStatement("summary", safeSummary([first.fact]), first.fact.revision_id));
   }

@@ -74,12 +74,44 @@
         "minLength": 1,
         "maxLength": 512
       }
+    },
+    "omissions": {
+      "maxItems": 500,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "fact_revision_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "reason_code": {
+            "type": "string",
+            "enum": [
+              "redundant",
+              "low_relevance",
+              "space",
+              "older_context",
+              "owner_direction",
+              "structural_mismatch",
+              "conflict"
+            ]
+          }
+        },
+        "required": [
+          "fact_revision_id",
+          "reason_code"
+        ],
+        "additionalProperties": false
+      }
     }
   },
   "required": [
     "title",
     "statements",
-    "section_order"
+    "section_order",
+    "omissions"
   ],
   "additionalProperties": false
 }

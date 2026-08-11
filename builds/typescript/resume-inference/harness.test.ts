@@ -27,14 +27,15 @@ describe("starting-position claim harness", () => {
     const dimensions = ["responsibilities", "tools", "accomplishments", "outcomes", "scope", "progression"] as const;
     for (const [index, scenario] of corpus.scenarios.entries()) {
       const jobId = crypto.randomUUID();
+      const opportunityId = crypto.randomUUID();
       const facts = { facts: [{ revision_id: jobId, fact_kind: "employment", value: scenario.fact, source_revision_ids: [crypto.randomUUID()] }] };
       const dimension = dimensions[index % dimensions.length]!;
-      const summary = { active_job_fact_revision_id: jobId, active_job_revision: 1, requested_dimension: dimension, dimensions: [] };
+      const summary = { active_job_fact_revision_id: jobId, active_job_revision: 1, requested_opportunity_id: opportunityId, requested_dimension: dimension, opportunity_kind: "qualitative", value_category: dimension === "accomplishments" ? "distinct_accomplishment" : dimension === "outcomes" ? "decision_useful_outcome" : dimension === "scope" ? "scope_or_scale" : dimension === "tools" ? "tools_in_use" : dimension === "progression" ? "progression" : "core_responsibility", dimensions: [] };
       const blocks = [
         { category: "confirmed_fact_snapshot" as const, content_digest: canonicalInputDigest(facts), schema_id: "resume.confirmed-facts.v1", schema_version: 1 as const, data: facts },
-        { category: "job_evidence_summary" as const, content_digest: canonicalInputDigest(summary), schema_id: "resume.job-evidence-summary.v1", schema_version: 1 as const, data: summary },
+        { category: "job_evidence_summary" as const, content_digest: canonicalInputDigest(summary), schema_id: "resume.job-evidence-summary.v2", schema_version: 1 as const, data: summary },
       ];
-      const result = { questions: [{ question_id: crypto.randomUUID(), job_fact_revision_id: jobId, dimension, selection_method: "deterministic_gap", prompt: "What useful detail do you remember about this part of the role? A qualitative answer is enough, and it is okay not to know.", rationale: "This is the highest-value unanswered evidence area for the active job." }] };
+      const result = { questions: [{ question_id: crypto.randomUUID(), job_fact_revision_id: jobId, opportunity_id: opportunityId, dimension, opportunity_kind: "qualitative", value_category: summary.value_category, selection_method: "deterministic_value", prompt: "What useful detail do you remember about this part of the role? A qualitative answer is enough, and it is okay not to know.", rationale: "Phrase the selected evidence opportunity." }] };
       expect(validateInferenceClaims("interview_assist", result, blocks).accepted, scenario.id).toBe(true);
     }
   });
