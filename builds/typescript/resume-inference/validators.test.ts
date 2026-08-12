@@ -54,6 +54,21 @@ describe("deterministic claim gate", () => {
     expect(leaked.accepted).toBe(false);
   });
 
+  it("allows non-claim career-direction connectors while retaining exact supported role wording", () => {
+    const source = "Customer Service Lead. Resume goal: customer service supervisor or operations coordinator roles.";
+    const supported = validateInferenceClaims("general_resume_draft", { statements: [{
+      statement_id: randomUUID(), kind: "factual", text: "Customer Service Lead targeting customer service supervisor or operations coordinator roles.",
+      supporting_confirmed_fact_revision_ids: [FACT_ID],
+    }] }, blocks(source));
+    expect(supported.accepted).toBe(true);
+
+    const invented = validateInferenceClaims("general_resume_draft", { statements: [{
+      statement_id: randomUUID(), kind: "factual", text: "Customer Service Director targeting customer service supervisor roles.",
+      supporting_confirmed_fact_revision_ids: [FACT_ID],
+    }] }, blocks(source));
+    expect(invented.accepted).toBe(false);
+  });
+
   it("allows an evidence-shaped omitted summary while requiring job headings and linked accomplishments", () => {
     const data = { facts: [
       { revision_id: JOB_ID, fact_kind: "employment", value: JSON.stringify({ format: "resume_job_v1", title: "Operations Coordinator", employer: "Northstar Health" }), source_revision_ids: [randomUUID()] },

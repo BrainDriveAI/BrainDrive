@@ -5,6 +5,7 @@ import { CORRECTED_CRAFT_REPORT_SCHEMA_DIGEST, CORRECTED_CRAFT_REPORT_SCHEMA_ID,
 import { RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION } from "./policy.js";
 import { RESUME_QUALITY_POLICY_IDENTITY, buildEvidenceAnnotations } from "./strategy.js";
 import { TARGET_FIT_THRESHOLD_POLICY } from "./target-fit.js";
+import { RESUME_HOST_ASSISTANCE_POLICY_DIGEST } from "./host-assistance.js";
 
 const CONTACT_ID = "73000000-0000-4000-8000-000000000001";
 const JOB_ONE_ID = "73000000-0000-4000-8000-000000000002";
@@ -118,6 +119,8 @@ const craftDefinition = {
 const craftStrategy = {
   ...conformanceStrategy,
   metadata: { revision_id: "73000000-0000-4000-8000-000000000028" },
+  fact_revision_ids: [JOB_ONE_ID, CRAFT_FACT_ID],
+  coverage_revision_ids: [],
   summary_decision: "omit",
   section_order: ["experience"],
   evidence_priorities: [{ fact_revision_id: JOB_ONE_ID, priority: "context" }, { fact_revision_id: CRAFT_FACT_ID, priority: "must_use" }],
@@ -191,6 +194,7 @@ export const RESUME_MODEL_CONFORMANCE_BINDING = {
   prompt_policy_version: RESUME_PROMPT_POLICY_VERSION,
   prompt_policy_digest: CORRECTED_PROMPT_POLICY_DIGEST,
   evaluator_contract_digest: PRODUCT_CRAFT_EVALUATOR.binding_digest,
+  host_assistance_policy_digest: RESUME_HOST_ASSISTANCE_POLICY_DIGEST,
   craft_report_schema_id: CORRECTED_CRAFT_REPORT_SCHEMA_ID,
   craft_report_schema_digest: CORRECTED_CRAFT_REPORT_SCHEMA_DIGEST,
 } as const;

@@ -10,7 +10,7 @@ function entry(provider: string, model: string) {
     registry_version: 1, provider_profile_id: provider, model_id: model, purpose: "interview_assist",
     output_schema_id: PURPOSE_OUTPUT_SCHEMAS.interview_assist, compatible: true,
     prompt_policy_id: RESUME_PROMPT_POLICY_ID, prompt_policy_version: RESUME_PROMPT_POLICY_VERSION,
-    fixture_corpus_digest: `sha256:${"a".repeat(64)}`, tested_at: "2026-08-07T12:00:00.000Z",
+    fixture_corpus_digest: conformanceCorpusDigest("interview_assist"), tested_at: "2026-08-07T12:00:00.000Z",
     zero_unsupported_claim_gate: true, schema_success_rate: 1, latency_p95_ms: 100,
   };
 }
@@ -22,6 +22,7 @@ describe("model compatibility registry", () => {
       ...base,
       purpose: "resume_craft_evaluate" as const,
       output_schema_id: PURPOSE_OUTPUT_SCHEMAS.resume_craft_evaluate,
+      fixture_corpus_digest: conformanceCorpusDigest("resume_craft_evaluate"),
     };
     const registry = new ModelCompatibilityRegistry([
       { ...currentCraft, prompt_policy_version: "7" },
@@ -39,14 +40,18 @@ describe("model compatibility registry", () => {
   });
 
   it("admits the effective BrainDrive Models alias only for its conformance-backed purposes", () => {
-    const changedOrFoundationOnly = Object.keys(PURPOSE_OUTPUT_SCHEMAS) as Array<keyof typeof PURPOSE_OUTPUT_SCHEMAS>;
-    expect(VERSIONED_MODEL_COMPATIBILITY_ENTRIES).toHaveLength(0);
+    const passingPurposes = Object.keys(PURPOSE_OUTPUT_SCHEMAS) as Array<keyof typeof PURPOSE_OUTPUT_SCHEMAS>;
+    expect(VERSIONED_MODEL_COMPATIBILITY_ENTRIES).toHaveLength(passingPurposes.length);
     const registry = new ModelCompatibilityRegistry(VERSIONED_MODEL_COMPATIBILITY_ENTRIES);
-    for (const purpose of changedOrFoundationOnly) expect(() => registry.require("braindrive-models", "braindrive-models-default", purpose)).toThrow(/conformance record/);
+    for (const purpose of passingPurposes) {
+      expect(registry.require("braindrive-models", "braindrive-models-default", purpose)).toMatchObject({ purpose, compatible: true });
+    }
     for (const purpose of ["interview_assist", "general_resume_draft", "targeted_resume_draft"] as const) {
       expect(conformanceCorpusDigest(purpose)).not.toBe(RESUME_MODEL_CONFORMANCE_CORPUS_DIGEST);
     }
     expect(() => registry.require("openrouter", "braindrive-models-default", "general_resume_draft")).toThrow(/conformance record/);
+    const stale = new ModelCompatibilityRegistry([{ ...entry("braindrive-models", "braindrive-models-default"), fixture_corpus_digest: `sha256:${"f".repeat(64)}` }]);
+    expect(() => stale.require("braindrive-models", "braindrive-models-default", "interview_assist")).toThrow(/conformance record/);
   });
 
   it("keeps Ollama, BYOK OpenRouter, and BrainDrive Models independent and conformance-derived", () => {

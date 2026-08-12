@@ -1,9 +1,12 @@
 import { InferencePurposeSchema, ModelCompatibilityEntrySchema, PURPOSE_OUTPUT_SCHEMAS, type InferencePurpose } from "../app-platform/contracts/inference.js";
 import type { ModelAdapter } from "../adapters/base.js";
-import { buildPolicyMessages, RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION } from "./policy.js";
+import { buildPolicyMessages, RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION, type ResumeRepairContext } from "./policy.js";
 import { parsePurposeResult, purposeJsonSchema } from "./results.js";
-import { validateInferenceClaims } from "./validators.js";
+import { validateInferenceClaims, type ValidationReport } from "./validators.js";
 import { conformanceBlocks, conformanceCorpusDigest } from "./conformance-corpus.js";
+import { canonicalizeStrategyResultFromBlocks } from "./strategy.js";
+import { deterministicHostFallback, normalizeHostOwnedResult } from "./host-assistance.js";
+import { repairResumeDraftFromConfirmedFacts } from "./repair.js";
 
 export const RESUME_CONFORMANCE_PURPOSES = InferencePurposeSchema.options;
 
@@ -23,10 +26,19 @@ export async function runResumeModelConformance(input: {
     const startedAt = Date.now();
     let parsed: unknown;
     let schemaSuccess = false;
-    let validationAccepted = false;
+    let validation: ValidationReport | null = null;
     let providerFailed = false;
-    for (let attempt = 1; attempt <= 2; attempt += 1) {
-      const messages = buildPolicyMessages(purpose, blocks, attempt === 2 ? { kind: "structural" } : undefined);
+    let repairContext: ResumeRepairContext | undefined;
+    if (purpose === "resume_craft_evaluate") {
+      const fallback = deterministicHostFallback(purpose, blocks);
+      if (fallback !== null) {
+        parsed = parsePurposeResult(purpose, PURPOSE_OUTPUT_SCHEMAS[purpose], fallback);
+        schemaSuccess = true;
+        validation = validateInferenceClaims(purpose, parsed, blocks);
+      }
+    }
+    for (let attempt = 1; purpose !== "resume_craft_evaluate" && attempt <= 2; attempt += 1) {
+      const messages = buildPolicyMessages(purpose, blocks, repairContext);
       let response: Awaited<ReturnType<NonNullable<ModelAdapter["completeStructuredNoTools"]>>>;
       try {
         response = await input.adapter.completeStructuredNoTools({
@@ -44,13 +56,33 @@ export async function runResumeModelConformance(input: {
       try {
         parsed = parsePurposeResult(purpose, PURPOSE_OUTPUT_SCHEMAS[purpose], JSON.parse(response.text));
         schemaSuccess = true;
-        break;
+        if (purpose === "resume_strategy") parsed = canonicalizeStrategyResultFromBlocks(parsed, blocks);
+        parsed = normalizeHostOwnedResult(purpose, parsed, blocks);
+        validation = validateInferenceClaims(purpose, parsed, blocks);
+        if (validation.accepted) break;
+        if (attempt < 2) {
+          repairContext = {
+            kind: "validation",
+            priorResult: parsed,
+            findings: validation.findings.map(({ code, statement_id, safe_message }) => ({ code, statement_id, safe_message })),
+          };
+        }
       } catch {
-        if (attempt === 2) break;
+        if (attempt < 2) repairContext = { kind: "structural" };
       }
     }
-    const validation = schemaSuccess ? validateInferenceClaims(purpose, parsed, blocks) : null;
-    if (validation) validationAccepted = validation.accepted;
+    if (!providerFailed && parsed !== undefined && validation !== null && !validation.accepted && ["general_resume_draft", "targeted_resume_draft"].includes(purpose)) {
+      const repaired = repairResumeDraftFromConfirmedFacts(purpose, parsed, validation, blocks);
+      if (repaired !== null) {
+        const repairedResult = parsePurposeResult(purpose, PURPOSE_OUTPUT_SCHEMAS[purpose], repaired);
+        const repairedValidation = validateInferenceClaims(purpose, repairedResult, blocks);
+        if (repairedValidation.accepted) {
+          parsed = repairedResult;
+          validation = repairedValidation;
+        }
+      }
+    }
+    const validationAccepted = validation?.accepted ?? false;
     input.onDiagnostic?.({
       purpose,
       schemaSuccess,

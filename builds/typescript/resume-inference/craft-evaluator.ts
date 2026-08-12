@@ -128,6 +128,8 @@ const DUTY_ONLY = /^(?:responsible for|duties (?:included|include)|tasked with|w
 const SELF_PRAISE = /\b(?:results-driven|detail-oriented|go-getter|rockstar|best-in-class|world-class|guru|ninja|exceptional|outstanding)\b/i;
 const MECHANICAL_LANGUAGE = /\b(?:leveraged? synergies?|synergistic|dynamic (?:environment|solutions?|workflows?)|optimi[sz](?:e|ed|ing) (?:dynamic|robust|innovative)|proven track record|passionate professional|thought leader)\b/i;
 const DEFENSIVE_GAP = /\b(?:unemployed|laid off|terminated|fired|career gap due to|despite (?:a|the) gap|apologi[sz])\b/i;
+const UNGRAMMATICAL_EXPERIENCE = /\bwith experience\s+(?:support|coordinate|train|manage|maintain|lead|assist|work|create|develop|implement|operate|oversee|deliver|resolve|prepare|schedule)\b/i;
+const CRAFT_STOP_WORDS = new Set(["a", "an", "and", "as", "at", "by", "for", "from", "in", "of", "on", "or", "the", "to", "with"]);
 
 export { extractCraftAnchorEvidence } from "./craft-anchors.js";
 
@@ -251,11 +253,31 @@ export function evaluateCraftProposal(context: CraftEvaluationContext): CraftEva
   if (context.strategy.summary_decision === "omit" && summaries.length > 0) {
     addFinding("C4", "redundancy", "The summary was not selected because it does not add distinct supported value.", evidenceReference(context, anchors, "C4", "statement", "negative", { statement_id: summaries[0]!.statement_id }));
   }
+  for (const summary of summaries) {
+    if (craftTokens(summary.text).size < 4) {
+      addFinding("C4", "generic_language", "The summary is too thin to add distinct supported positioning.", evidenceReference(context, anchors, "C4", "statement", "negative", { statement_id: summary.statement_id }));
+    }
+    const redundantWith = bullets.find((bullet) => evidenceOverlap(summary.text, bullet.text) >= 0.8);
+    if (redundantWith) {
+      addFinding("C4", "redundancy", "The summary repeats experience evidence instead of adding distinct supported positioning.", evidenceReference(context, anchors, "C4", "statement", "negative", { statement_id: summary.statement_id }));
+    }
+  }
   if (canonicalInputDigest(context.section_order) !== canonicalInputDigest(context.strategy.section_order)) {
     addFinding("C5", "organization", "Section order does not match the evidence-shaped history strategy.", evidenceReference(context, anchors, "C5", "strategy", "negative", { revision_id: context.strategy_revision_id }));
   }
   for (const statement of context.statements.filter((candidate) => MECHANICAL_LANGUAGE.test(normalize(candidate.text)))) {
     addFinding("C6", "generic_language", "The wording is mechanical or AI-generic rather than direct, plain, and specific.", evidenceReference(context, anchors, "C6", "statement", "negative", { statement_id: statement.statement_id }));
+  }
+  for (const statement of context.statements.filter((candidate) => UNGRAMMATICAL_EXPERIENCE.test(normalize(candidate.text)) || /\b([\p{L}]+)\s+\1\b/iu.test(normalize(candidate.text)))) {
+    addFinding("C6", "generic_language", "The wording contains a grammar or fluency problem that does not read as natural professional language.", evidenceReference(context, anchors, "C6", "statement", "negative", { statement_id: statement.statement_id }));
+  }
+  for (let left = 0; left < bullets.length; left += 1) {
+    for (let right = left + 1; right < bullets.length; right += 1) {
+      if (evidenceOverlap(bullets[left]!.text, bullets[right]!.text) < 0.8) continue;
+      const reference = evidenceReference(context, anchors, "C2", "statement", "negative", { statement_id: bullets[right]!.statement_id });
+      addFinding("C2", "redundancy", "Two experience statements repeat substantially the same evidence instead of adding decision-useful detail.", reference);
+      addFinding("C6", "redundancy", "Remove or combine repeated experience wording so each statement earns its space.", evidenceReference(context, anchors, "C6", "statement", "negative", { statement_id: bullets[right]!.statement_id }));
+    }
   }
   const openingCounts = new Map<string, CraftStatement[]>();
   for (const statement of bullets) {
@@ -380,9 +402,17 @@ function defaultPositiveEvidence(criterion: CraftCriterion, context: CraftEvalua
       evidenceReference(context, anchors, criterion, "strategy", "positive", { revision_id: context.strategy_revision_id }),
     ];
   }
+  if (criterion === "C4") {
+    const summaries = context.statements.filter((entry) => entry.section_id === "summary");
+    return summaries.length > 0
+      ? summaries.slice(0, 4).map((statement) => evidenceReference(context, anchors, criterion, "statement", "positive", { statement_id: statement.statement_id }))
+      : [evidenceReference(context, anchors, criterion, "strategy", "positive", { revision_id: context.strategy_revision_id })];
+  }
   if (criterion === "C3" || criterion === "C6" || criterion === "C7") {
-    const statement = context.statements.find((entry) => entry.section_id === "experience" && entry.display_role !== "heading") ?? context.statements[0];
-    return statement ? [evidenceReference(context, anchors, criterion, "statement", "positive", { statement_id: statement.statement_id })] : [evidenceReference(context, anchors, criterion, "deterministic_gate", "positive", { absence_code: "deterministic_gate_passed" })];
+    const statements = context.statements.filter((entry) => entry.section_id === "experience" && entry.display_role !== "heading");
+    return statements.length > 0
+      ? statements.slice(0, 8).map((statement) => evidenceReference(context, anchors, criterion, "statement", "positive", { statement_id: statement.statement_id }))
+      : [evidenceReference(context, anchors, criterion, "deterministic_gate", "positive", { absence_code: "deterministic_gate_passed" })];
   }
   return [evidenceReference(context, anchors, criterion, "strategy", "positive", { revision_id: context.strategy_revision_id })];
 }
@@ -440,6 +470,29 @@ function uniqueIssues(issues: CraftEvaluationIssue[]): CraftEvaluationIssue[] {
 
 function normalize(value: string): string {
   return value.normalize("NFKC").replace(/\s+/g, " ").trim();
+}
+
+function evidenceOverlap(left: string, right: string): number {
+  const leftTokens = craftTokens(left);
+  const rightTokens = craftTokens(right);
+  if (leftTokens.size < 3 || rightTokens.size < 3) return 0;
+  const overlap = [...leftTokens].filter((token) => rightTokens.has(token)).length;
+  return overlap / Math.min(leftTokens.size, rightTokens.size);
+}
+
+function craftTokens(value: string): Set<string> {
+  return new Set(normalize(value).toLocaleLowerCase("en-US").split(/[^\p{L}\p{N}%]+/u)
+    .filter((token) => token.length >= 3 && !CRAFT_STOP_WORDS.has(token))
+    .map(craftTokenRoot));
+}
+
+function craftTokenRoot(token: string): string {
+  let root = token;
+  if (root.endsWith("ing") && root.length > 6) root = root.slice(0, -3);
+  else if (root.endsWith("ed") && root.length > 5) root = root.slice(0, -2);
+  else if (root.endsWith("s") && root.length > 4) root = root.slice(0, -1);
+  if (root.endsWith("e") && root.length > 5) root = root.slice(0, -1);
+  return root;
 }
 
 function deterministicUuid(value: string): string {

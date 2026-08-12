@@ -13,7 +13,8 @@ import { validateInferenceClaims, type ValidationReport } from "./validators.js"
 import type { ResolvedInferenceProvider } from "./compatibility.js";
 import { repairResumeDraftFromConfirmedFacts } from "./repair.js";
 import { deterministicGuidanceFallback } from "./guidance.js";
-import { canonicalizeStrategyResult } from "./strategy.js";
+import { canonicalizeStrategyResultFromBlocks } from "./strategy.js";
+import { deterministicHostFallback, normalizeHostOwnedResult } from "./host-assistance.js";
 
 type InferenceRequest = z.infer<typeof InferenceRequestSchema>;
 type InferenceResult = z.infer<typeof InferenceResultSchema>;
@@ -126,11 +127,42 @@ export class ResumeInferenceBroker {
       provider = await this.resolveProvider(request.purpose);
       throwIfAborted(signal);
       if (!provider.adapter.completeStructuredNoTools) throw new ResumeInferenceError("model_incompatible", "Active provider lacks the no-tools structured adapter path");
+      if (request.purpose === "resume_craft_evaluate") {
+        const hostResult = deterministicHostFallback(request.purpose, request.data_blocks);
+        if (hostResult === null) throw new ResumeInferenceError("recoverable_internal_failure", "Host craft evaluation is unavailable");
+        const result = parsePurposeResult(request.purpose, request.output_schema_id, hostResult);
+        const validation = validateInferenceClaims(request.purpose, result, request.data_blocks);
+        if (!validation.accepted) throw new ResumeInferenceError("validation_failed", "Host craft evaluation did not pass deterministic validation");
+        const completedAt = this.now().toISOString();
+        const inference = InferenceResultSchema.parse({
+          inference_schema_version: 1,
+          request_id: request.request_id,
+          operation_id: request.operation_id,
+          purpose: request.purpose,
+          status: "completed",
+          prompt_policy_id: request.prompt_policy_id,
+          prompt_policy_version: request.prompt_policy_version,
+          output_schema_id: request.output_schema_id,
+          output_schema_version: 1,
+          input_digest: inputDigest,
+          output_digest: canonicalInputDigest(result),
+          result,
+          provider_profile_id: provider.providerProfileId,
+          model_id: provider.modelId,
+          attempt_count: 0,
+          usage: { available: false, input_tokens: null, output_tokens: null },
+          error: null,
+          started_at: startedAt,
+          completed_at: completedAt,
+        });
+        this.audit("app.inference.completed", this.auditFields(request, { status: "completed", attempt: 0, model_class: provider.modelClass, repair: "deterministic_craft_evaluation" }));
+        return { inference, validation };
+      }
       let result: unknown;
       let response: StructuredCompletionResponse | null = null;
       let validation: ValidationReport | null = null;
       let repairContext: ResumeRepairContext | undefined;
-      let repair: "provider_validation_repair" | "deterministic_fact_fallback" | "deterministic_guidance_fallback" | null = null;
+      let repair: "provider_validation_repair" | "deterministic_fact_fallback" | "deterministic_strategy_fallback" | "deterministic_guidance_fallback" | "host_owned_structure" | "deterministic_craft_evaluation" | null = null;
       for (let attempt = 1; attempt <= request.limits.attempts; attempt += 1) {
         throwIfAborted(signal);
         attempts = attempt;
@@ -146,6 +178,10 @@ export class ResumeInferenceBroker {
           signal,
         });
         throwIfAborted(signal);
+        if (response.finishReason === "length" && attempt < request.limits.attempts) {
+          repairContext = { kind: "structural" };
+          continue;
+        }
         if (["length", "content_filter", "tool_calls"].includes(response.finishReason)) {
           throw new ResumeInferenceError("validation_failed", "Provider ended with an ambiguous or incomplete structured outcome");
         }
@@ -155,10 +191,12 @@ export class ResumeInferenceBroker {
         try {
           if (response.text.trim().length === 0) throw new Error("empty structured result");
           result = parsePurposeResult(request.purpose, request.output_schema_id, JSON.parse(response.text));
-          if (request.purpose === "resume_strategy") result = canonicalStrategyResult(result, request);
+          if (request.purpose === "resume_strategy") result = canonicalizeStrategyResultFromBlocks(result, request.data_blocks);
+          result = normalizeHostOwnedResult(request.purpose, result, request.data_blocks);
+          if (["tailoring_plan", "targeted_resume_draft", "resume_revision_draft"].includes(request.purpose)) repair = "host_owned_structure";
           validation = validateInferenceClaims(request.purpose, result, request.data_blocks);
           if (validation.accepted) {
-            if (currentRepair?.kind === "validation") repair = "provider_validation_repair";
+            if (currentRepair?.kind === "validation" && repair === null) repair = "provider_validation_repair";
             break;
           }
           if (attempt < request.limits.attempts) {
@@ -176,6 +214,22 @@ export class ResumeInferenceBroker {
         result = deterministicGuidanceFallback(request.data_blocks);
         validation = validateInferenceClaims(request.purpose, result, request.data_blocks);
         repair = "deterministic_guidance_fallback";
+      }
+      if (request.purpose === "general_resume_draft" && (result === undefined || validation === null)) {
+        const fallback = deterministicHostFallback(request.purpose, request.data_blocks);
+        if (fallback !== null) {
+          result = parsePurposeResult(request.purpose, request.output_schema_id, fallback);
+          validation = validateInferenceClaims(request.purpose, result, request.data_blocks);
+          repair = "deterministic_fact_fallback";
+        }
+      }
+      if (request.purpose === "resume_strategy" && (result === undefined || validation === null || !validation.accepted)) {
+        const fallback = deterministicHostFallback(request.purpose, request.data_blocks);
+        if (fallback !== null) {
+          result = parsePurposeResult(request.purpose, request.output_schema_id, fallback);
+          validation = validateInferenceClaims(request.purpose, result, request.data_blocks);
+          repair = "deterministic_strategy_fallback";
+        }
       }
       if (response === null || result === undefined || validation === null) {
         throw new ResumeInferenceError("schema_validation_failed", "Provider output failed the accepted schema after one structural repair");
@@ -323,12 +377,6 @@ function operationInputDigest(request: InferenceRequest): `sha256:${string}` {
     capability_requirements: request.capability_requirements,
     limits: request.limits,
   });
-}
-
-function canonicalStrategyResult(result: unknown, request: InferenceRequest): unknown {
-  const facts = (request.data_blocks.find((block) => block.category === "confirmed_fact_snapshot")?.data as { facts?: Array<{ revision_id: string; fact_kind: string; value: string; source_revision_ids?: string[] }> } | undefined)?.facts ?? [];
-  const annotations = request.data_blocks.find((block) => block.category === "evidence_annotations")?.data as Parameters<typeof canonicalizeStrategyResult>[2] | undefined;
-  return annotations ? canonicalizeStrategyResult(result as Parameters<typeof canonicalizeStrategyResult>[0], facts, annotations) : result;
 }
 
 function throwIfAborted(signal: AbortSignal): void {

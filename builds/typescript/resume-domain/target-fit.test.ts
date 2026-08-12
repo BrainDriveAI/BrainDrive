@@ -112,6 +112,51 @@ describe("durable target-fit operation", () => {
     expect(await fixture.store.list("resume_definition")).toHaveLength(1);
   });
 
+  it("finalizes a pending target as honest no-change when generation finds no observable useful difference", async () => {
+    const fixture = await setup();
+    const input = fitInput(fixture, "supported");
+    const pending = await fixture.service.writeTargetFitAnalysis(input, authority("resume.definitions.write"));
+    const result = {
+      outcome: "no_meaningful_change" as const,
+      no_change_reason: "no_material_resume_change" as const,
+      parent_general_definition_revision_id: fixture.parent.metadata.revision_id,
+      job_revision_id: fixture.job.metadata.revision_id,
+    };
+    const blocks = [
+      block("confirmed_fact_snapshot", "resume.confirmed-facts.v1", { facts: fixture.facts }),
+      block("general_resume_definition", "resume.definition.v1", fixture.parent),
+      block("job_description", "resume.job-description.v1", fixture.job),
+      block("resume_strategy", "resume.strategy-record.v1", fixture.strategy),
+      block("target_fit_analysis", "resume.target-fit-analysis.v1", pending.analysis),
+    ];
+
+    const finalized = await fixture.service.finalizeTargetFitNoChange({
+      kind: "target_fit_no_change",
+      analysis_record_id: pending.analysis.metadata.record_id,
+      expected_revision: pending.analysis.metadata.revision,
+      result,
+      inference_binding: {
+        prompt_policy_id: RESUME_PROMPT_POLICY_ID,
+        prompt_policy_version: RESUME_PROMPT_POLICY_VERSION,
+        input_digest: canonicalInputDigest(blocks),
+        output_digest: canonicalInputDigest(result),
+        provider_profile_id: "owner-active",
+        model_id: "synthetic-model",
+      },
+    }, authority("resume.definitions.write"));
+
+    expect(finalized.analysis).toMatchObject({
+      outcome: "no_meaningful_change",
+      analysis_state: "completed",
+      no_change_reason: "no_material_resume_change",
+      material_changes: [],
+      targeted_definition_revision_id: null,
+    });
+    expect(finalized.analysis.owner_next_actions).toEqual(["use_general_resume", "try_different_target"]);
+    expect(await fixture.store.list("resume_definition")).toHaveLength(1);
+    expect(await fixture.store.list("tailored_variant")).toHaveLength(0);
+  });
+
   it("persists a passing gate, creates at most one bound child, and reuses semantic retries", async () => {
     const fixture = await setup();
     const analysisOperation = crypto.randomUUID();
@@ -121,7 +166,7 @@ describe("durable target-fit operation", () => {
     expect(retried.reused).toBe(true);
     expect(retried.analysis.metadata.revision_id).toBe(first.analysis.metadata.revision_id);
 
-    const changed = { ...fixture.statement, text: "Synthetic supported statement." };
+    const changed = { ...fixture.statement, text: "Supported synthetic statement" };
     const generated = { parent_general_definition_revision_id: fixture.parent.metadata.revision_id, job_revision_id: fixture.job.metadata.revision_id, title: fixture.parent.title, statements: [changed, fixture.detail], changed_statement_ids: [fixture.statement.statement_id], section_order: fixture.parent.section_order };
     const targetBlocks = [
       block("confirmed_fact_snapshot", "resume.confirmed-facts.v1", { facts: fixture.facts }),

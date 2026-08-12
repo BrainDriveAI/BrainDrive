@@ -191,6 +191,22 @@ function coverageContextDigest(jobFactRevisionId: string, dimension: string, evi
   return `sha256:${createHash("sha256").update(value, "utf8").digest("hex")}`;
 }
 
+type CoverageDimension = "responsibilities" | "accomplishments" | "outcomes" | "tools" | "scope" | "progression";
+
+const OUTCOME_EVIDENCE = /\b(?:reduc(?:e|ed|ing)|increas(?:e|ed|ing)|improv(?:e|ed|ing)|grew|grow|saved?|cut|lower(?:ed|ing)?|rais(?:e|ed|ing)|accelerat(?:e|ed|ing)|prevent(?:ed|ing)|eliminat(?:e|ed|ing)|resolved?)\b|\bfrom\s+\d[\d,.%]*\s+to\s+\d[\d,.%]*/i;
+const SCOPE_EVIDENCE = /\b\d[\d,.]*\s*(?:customers?|clients?|patients?|users?|employees?|associates?|technicians?|people|staff|team members?|teams?|locations?|sites?|regions?|accounts?|projects?|requests?|tickets?|cases?|orders?|shifts?|weekly|monthly|annually|per\s+(?:day|week|month|shift|year))\b/i;
+const TOOL_EVIDENCE = /\b(?:using|used|via|with)\s+(?:microsoft\s+|google\s+|adobe\s+)?(?:excel|word|powerpoint|outlook|teams|sheets|docs|workspace|salesforce|servicenow|workday|jira|slack|quickbooks|tableau|power\s*bi|sql|python|software|platform|system|database|spreadsheet|equipment|machinery|tools?)\b|\b(?:microsoft\s+(?:excel|word|powerpoint|outlook|teams)|google\s+(?:sheets|docs|workspace)|salesforce|servicenow|workday|jira|slack|quickbooks|tableau|power\s*bi)\b/i;
+const PROGRESSION_EVIDENCE = /\b(?:promot(?:e|ed|ion)|advanced?\s+(?:to|into)|progressed?\s+(?:to|into)|grew\s+(?:from|into)|increasing responsibility|expanded role|selected to lead)\b/i;
+
+function inferredCoverageDimensions(text: string): Set<CoverageDimension> {
+  const dimensions = new Set<CoverageDimension>();
+  if (OUTCOME_EVIDENCE.test(text)) dimensions.add("outcomes");
+  if (SCOPE_EVIDENCE.test(text)) dimensions.add("scope");
+  if (TOOL_EVIDENCE.test(text)) dimensions.add("tools");
+  if (PROGRESSION_EVIDENCE.test(text)) dimensions.add("progression");
+  return dimensions;
+}
+
 const InferenceBindingSchema = z.object({
   prompt_policy_id: NonEmptyStringSchema,
   prompt_policy_version: NonEmptyStringSchema,
@@ -264,6 +280,14 @@ const TargetFitWriteInputSchema = z.object({
   strategy_revision_id: OpaqueIdSchema,
   evidence_matrix: z.array(RequirementEvidenceSchema).min(1).max(250),
   plan: TailoringPlanResultSchema,
+  inference_binding: InferenceBindingSchema,
+}).strict();
+
+const TargetFitNoChangeInputSchema = z.object({
+  kind: z.literal("target_fit_no_change"),
+  analysis_record_id: OpaqueIdSchema,
+  expected_revision: z.number().int().positive(),
+  result: TargetedResumeDraftResultSchema.refine((value) => "outcome" in value && value.outcome === "no_meaningful_change", "Target-fit finalization requires a no-change generation result"),
   inference_binding: InferenceBindingSchema,
 }).strict();
 
@@ -671,6 +695,17 @@ export class ResumeDomainService {
       opportunities[index] = { ...opportunities[index]!, state: "suppressed", suppression_reason: input.suppression_reason };
     }
 
+    const knownEvidence = await this.initialCoverageEvidence(job, authority);
+    for (const dimension of Object.keys(dimensions) as CoverageDimension[]) {
+      const revisionIds = knownEvidence.get(dimension) ?? [];
+      if (revisionIds.length === 0 || dimensions[dimension].state === "conflicting") continue;
+      dimensions[dimension] = {
+        state: "answered",
+        evidence_revision_ids: [...new Set([...dimensions[dimension].evidence_revision_ids, ...revisionIds])].sort(),
+        recorded_at: dimensions[dimension].recorded_at ?? timestamp,
+      };
+    }
+
     const body = {
       coverage_version: current.coverage_version,
       job_fact_revision_id: current.job_fact_revision_id,
@@ -855,6 +890,84 @@ export class ResumeDomainService {
       analysis_digest: canonicalInputDigest(body),
     });
     const result = await this.store.commit([analysis], this.mutation(authority, input, "target_fit_analysis", null, null));
+    return { analysis: TargetFitAnalysisRecordSchema.parse(result.records[0]), reused: result.reused };
+  }
+
+  async finalizeTargetFitNoChange(raw: unknown, authority: DataAuthority): Promise<{ analysis: z.infer<typeof TargetFitAnalysisRecordSchema>; reused: boolean }> {
+    this.authorize(authority, "resume.definitions.write");
+    const input = TargetFitNoChangeInputSchema.parse(raw);
+    const recovered = await this.recoveredOperation(authority, input);
+    if (recovered) {
+      const analysis = recovered.find((record) => record.record_type === "target_fit_analysis");
+      if (!analysis) throw new ResumeDomainError("recoverable_internal_failure", "Target-fit no-change result was unavailable", 500);
+      return { analysis: TargetFitAnalysisRecordSchema.parse(analysis), reused: true };
+    }
+    const currentRecord = await this.store.readHead(input.analysis_record_id, authority.grant.record_scopes);
+    if (currentRecord.record_type !== "target_fit_analysis") throw new ResumeDomainError("not_found_within_scope", "Target-fit analysis was not found within scope", 404);
+    const current = TargetFitAnalysisRecordSchema.parse(currentRecord);
+    if (current.metadata.revision !== input.expected_revision) throw new ResumeDomainError("conflict", "Expected target-fit revision is stale", 409, { currentRevision: current.metadata.revision });
+    if (current.outcome !== "targeted_variant" || current.analysis_state !== "ready_for_targeted_draft" || current.targeted_definition_revision_id !== null) {
+      throw new ResumeDomainError("conflict", "Target-fit analysis is not awaiting a targeted draft", 409);
+    }
+    const [parent, job, strategy] = await Promise.all([
+      this.store.readRevision(current.parent_general_definition_revision_id, authority.grant.record_scopes),
+      this.store.readRevision(current.job_revision_id, authority.grant.record_scopes),
+      this.store.readRevision(current.strategy_revision_id, authority.grant.record_scopes),
+    ]);
+    if (parent.record_type !== "resume_definition" || job.record_type !== "job_description" || strategy.record_type !== "resume_strategy") {
+      throw new ResumeDomainError("validation_failed", "Target-fit no-change lineage is invalid");
+    }
+    const facts = await this.confirmedFacts(current.fact_revision_ids, authority.grant.record_scopes);
+    const factSnapshot = current.fact_revision_ids.map((revisionId) => facts.get(revisionId)!).map((fact) => ({ revision_id: fact.metadata.revision_id, fact_kind: fact.fact_kind, value: fact.value, source_revision_ids: fact.source_revision_ids }));
+    const blocks: Array<z.infer<typeof InferenceDataBlockSchema>> = [
+      this.inferenceBlock("confirmed_fact_snapshot", "resume.confirmed-facts.v1", { facts: factSnapshot }),
+      this.inferenceBlock("general_resume_definition", "resume.definition.v1", parent),
+      this.inferenceBlock("job_description", "resume.job-description.v1", job),
+      this.inferenceBlock("resume_strategy", "resume.strategy-record.v1", strategy),
+      this.inferenceBlock("target_fit_analysis", "resume.target-fit-analysis.v1", current),
+    ];
+    if (
+      input.inference_binding.prompt_policy_id !== RESUME_PROMPT_POLICY_ID || input.inference_binding.prompt_policy_version !== RESUME_PROMPT_POLICY_VERSION
+      || input.inference_binding.input_digest !== canonicalInputDigest(blocks) || input.inference_binding.output_digest !== canonicalInputDigest(input.result)
+    ) throw new ResumeDomainError("validation_failed", "Target-fit no-change binding does not match its immutable generation result");
+    const validation = validateInferenceClaims("targeted_resume_draft", input.result, blocks);
+    if (!validation.accepted) throw new ResumeDomainError("validation_failed", "Target-fit no-change result failed deterministic validation");
+    const body = {
+      analysis_version: current.analysis_version,
+      parent_general_definition_revision_id: current.parent_general_definition_revision_id,
+      job_revision_id: current.job_revision_id,
+      target_content_digest: current.target_content_digest,
+      strategy_revision_id: current.strategy_revision_id,
+      strategy_digest: current.strategy_digest,
+      fact_snapshot_digest: current.fact_snapshot_digest,
+      fact_revision_ids: current.fact_revision_ids,
+      evidence_matrix_digest: current.evidence_matrix_digest,
+      fit_class: current.fit_class,
+      support_counts: current.support_counts,
+      material_changes: [],
+      threshold_policy_id: current.threshold_policy_id,
+      threshold_policy_version: current.threshold_policy_version,
+      prompt_policy_id: current.prompt_policy_id,
+      prompt_policy_version: current.prompt_policy_version,
+      provider_profile_id: current.provider_profile_id,
+      model_id: current.model_id,
+      input_digest: current.input_digest,
+      output_digest: current.output_digest,
+      outcome: "no_meaningful_change" as const,
+      analysis_state: "completed" as const,
+      no_change_reason: "no_material_resume_change" as const,
+      owner_next_actions: ["use_general_resume", "try_different_target"] as const,
+      targeted_definition_revision_id: null,
+    };
+    const timestamp = this.now().toISOString();
+    const analysis = TargetFitAnalysisRecordSchema.parse({
+      ...current,
+      metadata: { ...current.metadata, revision_id: randomUUID(), revision: current.metadata.revision + 1, prior_revision_id: current.metadata.revision_id, created_at: timestamp },
+      updated_at: timestamp,
+      ...body,
+      analysis_digest: canonicalInputDigest(body),
+    });
+    const result = await this.store.commit([analysis], this.mutation(authority, input, "target_fit_analysis", current.metadata.record_id, current.metadata.revision));
     return { analysis: TargetFitAnalysisRecordSchema.parse(result.records[0]), reused: result.reused };
   }
 
@@ -1278,6 +1391,7 @@ export class ResumeDomainService {
           generationBinding.input_digest !== canonicalInputDigest(targetBlocks) || generationBinding.output_digest !== canonicalInputDigest(input.variant.generation_result)
         ) throw new ResumeDomainError("validation_failed", "Targeted generation binding does not match its immutable input and output");
         const generated = input.variant.generation_result;
+        if ("outcome" in generated) throw new ResumeDomainError("validation_failed", "A no-change target result cannot create a targeted resume");
         const generatedStatements = generated.statements.map(({ display_role: _displayRole, ...statement }) => statement);
         const persistedStatements = input.statements.map(({ display_role: _displayRole, ...statement }) => statement);
         if (
@@ -2337,24 +2451,33 @@ export class ResumeDomainService {
     job: z.infer<typeof CareerFactRecordSchema>,
     authority: DataAuthority,
   ): Promise<Map<string, string[]>> {
-    const evidence = new Map<string, string[]>();
-    const add = (dimension: string, revisionId: string) => evidence.set(dimension, [...(evidence.get(dimension) ?? []), revisionId]);
+    const evidence = new Map<CoverageDimension, string[]>();
+    const add = (dimension: CoverageDimension, revisionId: string) => evidence.set(dimension, [...(evidence.get(dimension) ?? []), revisionId]);
     try {
       const value = JSON.parse(job.value) as { format?: unknown; responsibilities?: unknown };
-      if (value.format === "resume_job_v1" && typeof value.responsibilities === "string" && value.responsibilities.trim()) add("responsibilities", job.metadata.revision_id);
+      if (value.format === "resume_job_v1" && typeof value.responsibilities === "string" && value.responsibilities.trim()) {
+        add("responsibilities", job.metadata.revision_id);
+        for (const dimension of inferredCoverageDimensions(value.responsibilities)) add(dimension, job.metadata.revision_id);
+      }
     } catch { /* an unstructured employment fact still has exact identity without inferred evidence */ }
     for (const record of await this.store.list("career_fact", authority.grant.record_scopes)) {
       if (record.record_type !== "career_fact" || record.state !== "confirmed") continue;
       if (record.fact_kind === "accomplishment") {
         try {
           const value = JSON.parse(record.value) as { format?: unknown; job_fact_revision_id?: unknown; text?: unknown };
-          if (value.format === "resume_accomplishment_v1" && value.job_fact_revision_id === job.metadata.revision_id && typeof value.text === "string" && value.text.trim()) add("accomplishments", record.metadata.revision_id);
+          if (value.format === "resume_accomplishment_v1" && value.job_fact_revision_id === job.metadata.revision_id && typeof value.text === "string" && value.text.trim()) {
+            add("accomplishments", record.metadata.revision_id);
+            for (const dimension of inferredCoverageDimensions(value.text)) add(dimension, record.metadata.revision_id);
+          }
         } catch { /* general accomplishments do not acquire a job association */ }
       }
       if (record.fact_kind === "job_evidence") {
         try {
           const value = JobEvidenceValueSchema.parse(JSON.parse(record.value));
-          if (value.association === "job" && value.job_fact_revision_id === job.metadata.revision_id && value.outcome === "answered" && value.dimension !== "identity") add(value.dimension, record.metadata.revision_id);
+          if (value.association === "job" && value.job_fact_revision_id === job.metadata.revision_id && value.outcome === "answered" && value.dimension !== "identity") {
+            add(value.dimension, record.metadata.revision_id);
+            for (const dimension of inferredCoverageDimensions(value.owner_text)) add(dimension, record.metadata.revision_id);
+          }
         } catch { /* legacy or malformed evidence is not eligible for new coverage */ }
       }
     }
@@ -2373,17 +2496,37 @@ export class ResumeDomainService {
       if (record.record_type !== "career_fact" || record.state !== "confirmed" || record.owner_id !== authority.grant.owner_id) {
         throw new ResumeDomainError("validation_failed", "Coverage support must resolve to confirmed same-owner career evidence");
       }
-      if (dimension === "responsibilities" && record.fact_kind === "employment" && record.metadata.revision_id === jobRevisionId) continue;
+      if (record.fact_kind === "employment" && record.metadata.revision_id === jobRevisionId) {
+        try {
+          const value = JSON.parse(record.value) as { format?: unknown; responsibilities?: unknown };
+          if (
+            value.format === "resume_job_v1" && typeof value.responsibilities === "string"
+            && (dimension === "responsibilities" || inferredCoverageDimensions(value.responsibilities).has(dimension))
+          ) continue;
+        } catch { /* handled below */ }
+      }
       if (dimension === "accomplishments" && record.fact_kind === "accomplishment") {
         try {
           const value = JSON.parse(record.value) as { format?: unknown; job_fact_revision_id?: unknown };
           if (value.format === "resume_accomplishment_v1" && value.job_fact_revision_id === jobRevisionId) continue;
         } catch { /* handled below */ }
       }
+      if (record.fact_kind === "accomplishment") {
+        try {
+          const value = JSON.parse(record.value) as { format?: unknown; job_fact_revision_id?: unknown; text?: unknown };
+          if (
+            value.format === "resume_accomplishment_v1" && value.job_fact_revision_id === jobRevisionId && typeof value.text === "string"
+            && inferredCoverageDimensions(value.text).has(dimension)
+          ) continue;
+        } catch { /* handled below */ }
+      }
       if (record.fact_kind === "job_evidence") {
         try {
           const value = JobEvidenceValueSchema.parse(JSON.parse(record.value));
-          if (value.association === "job" && value.job_fact_revision_id === jobRevisionId && value.dimension === dimension && value.outcome === "answered") continue;
+          if (
+            value.association === "job" && value.job_fact_revision_id === jobRevisionId && value.outcome === "answered"
+            && (value.dimension === dimension || inferredCoverageDimensions(value.owner_text).has(dimension))
+          ) continue;
         } catch { /* handled below */ }
       }
       throw new ResumeDomainError("validation_failed", "Coverage evidence does not match the exact job and dimension");

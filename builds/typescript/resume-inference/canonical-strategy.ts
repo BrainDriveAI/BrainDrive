@@ -163,7 +163,7 @@ export function canonicalizeStrategyResult<T extends StrategyResult>(
   return {
     ...strategy,
     role_emphasis: roleEmphasis,
-    section_order: canonicalizeSectionOrder(strategy.section_order, strategy.summary_decision),
+    section_order: canonicalSectionOrder(canonicalFacts, strategy.summary_decision, omissions.map((entry) => entry.fact_revision_id)),
     evidence_priorities: evidencePriorities,
     skills_context: skillsContext,
     omissions,

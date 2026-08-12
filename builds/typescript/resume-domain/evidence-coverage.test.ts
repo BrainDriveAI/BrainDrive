@@ -27,6 +27,29 @@ async function setup(now = "2026-08-11T12:00:00.000Z") {
   return { store, service, job: confirmed.fact };
 }
 
+async function confirmJobEvidence(
+  service: ResumeDomainService,
+  jobRevisionId: string,
+  dimension: "responsibilities" | "accomplishments" | "outcomes" | "tools" | "scope" | "progression",
+  ownerText: string,
+) {
+  const now = "2026-08-11T12:00:00.000Z";
+  const value = JSON.stringify({ value_version: 1, association: "job", job_fact_revision_id: jobRevisionId, dimension, outcome: "answered", owner_text: ownerText });
+  const proposed = await service.proposeFact({
+    source: { source_kind: "owner_interview", safe_label: "Resume job evidence", content_digest: canonicalInputDigest(value), captured_at: now },
+    fact: { fact_kind: "job_evidence", state: "suggested", value, sensitivity: "standard" },
+  }, authority("career.facts.propose"));
+  const confirmAuthority = authority("career.facts.confirm");
+  return (await service.confirmFact({
+    fact_record_id: proposed.fact.metadata.record_id,
+    fact_revision_id: proposed.fact.metadata.revision_id,
+    expected_revision: 1,
+    decision: "accept",
+    edited_value: null,
+    review_note: null,
+  }, confirmAuthority, ownerDecision(confirmAuthority, proposed.fact.metadata.revision_id))).fact;
+}
+
 describe("Spec 07 job evidence coverage domain", () => {
   it("initializes all six dimensions explicitly and preserves exact job identity", async () => {
     const { service, job } = await setup();
@@ -53,6 +76,46 @@ describe("Spec 07 job evidence coverage domain", () => {
     const reopened = await service.writeJobEvidenceCoverage({ action: "reopen", coverage_record_id: completed.coverage.metadata.record_id, expected_revision: 2, job_fact_revision_id: job.metadata.revision_id, dimension: "scope", opportunity_id: null }, authority("resume.definitions.write"));
     expect(reopened.coverage.dimensions.scope).toMatchObject({ state: "unanswered", evidence_revision_ids: [], recorded_at: null });
     expect(reopened.coverage.dimensions.progression.state).toBe("deferred");
+  });
+
+  it("reconciles one confirmed answer across every dimension it explicitly supports before deferring gaps", async () => {
+    const { service, job } = await setup();
+    const initialized = await service.writeJobEvidenceCoverage({ action: "initialize", job_fact_revision_id: job.metadata.revision_id }, authority("resume.definitions.write"));
+    const evidence = await confirmJobEvidence(
+      service,
+      job.metadata.revision_id,
+      "accomplishments",
+      "Coordinated schedules for 12 technicians using ServiceNow and reduced missed appointments from 9 per week to 3.",
+    );
+
+    const recorded = await service.writeJobEvidenceCoverage({
+      action: "record",
+      coverage_record_id: initialized.coverage.metadata.record_id,
+      expected_revision: 1,
+      job_fact_revision_id: job.metadata.revision_id,
+      dimension: "accomplishments",
+      state: "answered",
+      evidence_revision_ids: [evidence.metadata.revision_id],
+      opportunity: null,
+    }, authority("resume.definitions.write"));
+
+    expect(recorded.coverage.dimensions).toMatchObject({
+      accomplishments: { state: "answered", evidence_revision_ids: [evidence.metadata.revision_id] },
+      outcomes: { state: "answered", evidence_revision_ids: [evidence.metadata.revision_id] },
+      tools: { state: "answered", evidence_revision_ids: [evidence.metadata.revision_id] },
+      scope: { state: "answered", evidence_revision_ids: [evidence.metadata.revision_id] },
+    });
+
+    const completed = await service.writeJobEvidenceCoverage({
+      action: "complete_for_now",
+      coverage_record_id: recorded.coverage.metadata.record_id,
+      expected_revision: 2,
+      job_fact_revision_id: job.metadata.revision_id,
+    }, authority("resume.definitions.write"));
+    expect(completed.coverage.dimensions.outcomes.state).toBe("answered");
+    expect(completed.coverage.dimensions.tools.state).toBe("answered");
+    expect(completed.coverage.dimensions.scope.state).toBe("answered");
+    expect(completed.coverage.dimensions.progression.state).toBe("deferred");
   });
 
   it.each(["unknown", "not_applicable", "skipped"] as const)("persists %s as coverage without creating or confirming a career fact", async (state) => {

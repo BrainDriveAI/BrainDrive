@@ -11,6 +11,7 @@ import {
   canonicalizeEvidenceAnnotations,
   canonicalizeFacts,
   canonicalizeStrategyResult,
+  canonicalizeStrategyResultFromBlocks,
   RESUME_QUALITY_POLICY_IDENTITY,
 } from "./strategy.js";
 import { validateInferenceClaims } from "./validators.js";
@@ -111,6 +112,34 @@ describe("inspectable resume strategy", () => {
     ]);
   });
 
+  it("restores sections required by confirmed non-omitted evidence", () => {
+    const job = { revision_id: "12600000-0000-4000-8000-000000000001", fact_kind: "employment", value: "Supported role" };
+    const contact = { revision_id: "12600000-0000-4000-8000-000000000002", fact_kind: "contact", value: "Owner | owner@example.test" };
+    const generalTools = {
+      revision_id: "12600000-0000-4000-8000-000000000003",
+      fact_kind: "job_evidence",
+      value: JSON.stringify({ value_version: 1, association: "general", job_fact_revision_id: null, dimension: "tools", outcome: "answered", owner_text: "Microsoft Excel" }),
+    };
+    const facts = [job, contact, generalTools];
+    const annotations = buildEvidenceAnnotations(facts, []);
+    const result = canonicalizeStrategyResult({
+      strategy_version: 1 as const,
+      history_shape: "early_career" as const,
+      history_reason_code: "thin_history" as const,
+      role_emphasis: [{ job_fact_revision_id: job.revision_id, priority: "primary" as const, reason_code: "recent" as const, bullet_density: "compact" as const }],
+      section_order: ["experience"],
+      evidence_priorities: annotations.facts.map((fact) => ({ fact_revision_id: fact.fact_revision_id, priority: fact.required_priority })),
+      summary_decision: "omit" as const,
+      summary_reason_code: "insufficient_distinct_value" as const,
+      skills_context: [],
+      omissions: [],
+      unresolved_gap_ids: [],
+      owner_rationale: "Use the confirmed evidence.",
+    }, facts, annotations);
+
+    expect(result.section_order).toEqual(["contact", "experience", "skills"]);
+  });
+
   it("fails closed for an empty snapshot", () => {
     const facts = { facts: [] };
     const annotations = buildEvidenceAnnotations([], []);
@@ -124,6 +153,57 @@ describe("inspectable resume strategy", () => {
       block("quality_policy", "resume.quality-policy-identity.v1", RESUME_QUALITY_POLICY_IDENTITY),
     ]);
     expect(report.accepted).toBe(false);
+  });
+
+  it("drops model-supplied skill context that is not backed by a confirmed skill fact", () => {
+    const job = {
+      revision_id: "12100000-0000-4000-8000-000000000001",
+      fact_kind: "employment",
+      value: JSON.stringify({ format: "resume_job_v1", title: "Customer Service Lead", employer: "Synthetic Market" }),
+      source_revision_ids: ["12100000-0000-4000-8000-000000000011"],
+    };
+    const jobEvidence = {
+      revision_id: "12100000-0000-4000-8000-000000000002",
+      fact_kind: "job_evidence",
+      value: JSON.stringify({
+        value_version: 1,
+        association: "job",
+        job_fact_revision_id: job.revision_id,
+        dimension: "tools",
+        outcome: "answered",
+        owner_text: "Customer service, Microsoft Excel, staff scheduling, and employee training",
+      }),
+      source_revision_ids: ["12100000-0000-4000-8000-000000000012"],
+    };
+    const facts = [job, jobEvidence];
+    const annotations = buildEvidenceAnnotations(facts, []);
+    const blocks = [
+      block("confirmed_fact_snapshot", "resume.confirmed-facts.v1", { facts }),
+      block("evidence_annotations", "resume.evidence-annotations.v1", annotations),
+      block("quality_policy", "resume.quality-policy-identity.v1", RESUME_QUALITY_POLICY_IDENTITY),
+    ];
+    const modelResult = ResumeStrategyResultSchema.parse({
+      strategy_version: 1,
+      history_shape: "chronological_standard",
+      history_reason_code: "standard_chronology",
+      role_emphasis: [{ job_fact_revision_id: job.revision_id, priority: "primary", reason_code: "recent", bullet_density: "compact" }],
+      section_order: ["experience", "skills"],
+      evidence_priorities: annotations.facts.map((fact) => ({ fact_revision_id: fact.fact_revision_id, priority: fact.required_priority })),
+      summary_decision: "omit",
+      summary_reason_code: "insufficient_distinct_value",
+      skills_context: [{
+        skill_fact_revision_id: jobEvidence.revision_id,
+        placement: "skills_section",
+        context_fact_revision_ids: [job.revision_id, "12100000-0000-4000-8000-000000000099"],
+      }],
+      omissions: [],
+      unresolved_gap_ids: [],
+      owner_rationale: "Use confirmed customer service evidence.",
+    });
+
+    const normalized = canonicalizeStrategyResultFromBlocks(modelResult, blocks) as typeof modelResult;
+    expect(normalized.skills_context).toEqual([]);
+    expect(validateInferenceClaims("resume_strategy", normalized, blocks).accepted).toBe(true);
   });
 
   it.each([

@@ -183,9 +183,9 @@ describe("ResumeInferenceBroker", () => {
       const model = adapter(() => JSON.stringify(fixtureOutput));
       const broker = new ResumeInferenceBroker(async () => provider(model.value));
       const completion = await broker.execute(inferenceRequest);
-      expect(completion.inference).toMatchObject({ purpose, status: "completed", attempt_count: 1 });
+      expect(completion.inference).toMatchObject({ purpose, status: "completed", attempt_count: purpose === "resume_craft_evaluate" ? 0 : 1 });
       expect(completion.validation?.accepted).toBe(true);
-      expect(model.calls()).toBe(1);
+      expect(model.calls()).toBe(purpose === "resume_craft_evaluate" ? 0 : 1);
     }
   });
 
@@ -224,6 +224,53 @@ describe("ResumeInferenceBroker", () => {
     const malformed = adapter((_input, call) => call === 1 ? "{}" : JSON.stringify(outputs.interview_assist));
     const repaired = await new ResumeInferenceBroker(async () => provider(malformed.value)).execute(request("interview_assist"));
     expect(repaired.inference).toMatchObject({ status: "completed", attempt_count: 2 });
+  });
+
+  it("uses confirmed facts when both general-draft structured responses are malformed", async () => {
+    const model = adapter(() => "{}");
+    const events: Array<{ event: string; details: Record<string, unknown> }> = [];
+    const completion = await new ResumeInferenceBroker(async () => provider(model.value), (event, details) => events.push({ event, details })).execute(request("general_resume_draft"));
+    expect(completion.inference).toMatchObject({
+      status: "completed",
+      attempt_count: 2,
+      result: {
+        statements: expect.arrayContaining([
+          expect.objectContaining({ text: "Built product 20%", supporting_confirmed_fact_revision_ids: [FACT_ID] }),
+          expect.objectContaining({ text: "Product Builder at Synthetic Company", supporting_confirmed_fact_revision_ids: [INTERVIEW_JOB_ID] }),
+        ]),
+      },
+    });
+    expect(completion.validation?.accepted).toBe(true);
+    expect(events.at(-1)?.details).toMatchObject({ repair: "deterministic_fact_fallback" });
+  });
+
+  it("uses the canonical evidence strategy when both strategy responses are malformed", async () => {
+    const inferenceRequest = request("resume_strategy");
+    const model = adapter(() => "{}");
+    const events: Array<{ event: string; details: Record<string, unknown> }> = [];
+    const completion = await new ResumeInferenceBroker(async () => provider(model.value), (event, details) => events.push({ event, details })).execute(inferenceRequest);
+    expect(completion.inference).toMatchObject({
+      status: "completed",
+      attempt_count: 2,
+      result: {
+        evidence_priorities: expect.arrayContaining([
+          expect.objectContaining({ fact_revision_id: FACT_ID, priority: "must_use" }),
+          expect.objectContaining({ fact_revision_id: INTERVIEW_JOB_ID, priority: "must_use" }),
+        ]),
+      },
+    });
+    expect(completion.validation?.accepted).toBe(true);
+    expect(events.at(-1)?.details).toMatchObject({ repair: "deterministic_strategy_fallback" });
+  });
+
+  it("uses the canonical evidence strategy when both structured strategies fail deterministic lineage", async () => {
+    const invalid = { ...outputs.resume_strategy as object, role_emphasis: [] };
+    const model = adapter(() => JSON.stringify(invalid));
+    const events: Array<{ event: string; details: Record<string, unknown> }> = [];
+    const completion = await new ResumeInferenceBroker(async () => provider(model.value), (event, details) => events.push({ event, details })).execute(request("resume_strategy"));
+    expect(completion.inference).toMatchObject({ status: "completed", attempt_count: 2 });
+    expect(completion.validation?.accepted).toBe(true);
+    expect(events.at(-1)?.details).toMatchObject({ repair: "deterministic_strategy_fallback" });
   });
 
   it("repairs deterministic validation once while preserving valid resume statements", async () => {
@@ -284,14 +331,18 @@ describe("ResumeInferenceBroker", () => {
     expect(oversizedModel.calls()).toBe(1);
   });
 
-  it("never projects unavailable or malformed craft evaluation as a passing result", async () => {
+  it("uses host craft evaluation without asking the model to reproduce the report schema", async () => {
     const unavailableModel = adapter(() => { throw new Error("fetch failed: ECONNRESET"); });
     const unavailable = await new ResumeInferenceBroker(async () => provider(unavailableModel.value)).execute(request("resume_craft_evaluate"));
-    expect(unavailable.inference).toMatchObject({ status: "failed", result: null, output_digest: null, error: { code: "provider_unavailable" } });
+    expect(unavailable.inference).toMatchObject({ status: "completed", attempt_count: 0, result: { report_version: 2 }, provider_profile_id: "owner-profile", model_id: "synthetic-model" });
+    expect(unavailable.validation?.accepted).toBe(true);
+    expect(unavailableModel.calls()).toBe(0);
 
     const malformedModel = adapter(() => "{}");
     const malformed = await new ResumeInferenceBroker(async () => provider(malformedModel.value)).execute(request("resume_craft_evaluate"));
-    expect(malformed.inference).toMatchObject({ status: "failed", attempt_count: 2, result: null, output_digest: null, error: { code: "schema_validation_failed" } });
+    expect(malformed.inference).toMatchObject({ status: "completed", attempt_count: 0, result: { report_version: 2 } });
+    expect(malformed.validation?.accepted).toBe(true);
+    expect(malformedModel.calls()).toBe(0);
   });
 
   it("replaces malformed or unavailable guidance with a neutral deterministic fallback", async () => {
@@ -307,7 +358,7 @@ describe("ResumeInferenceBroker", () => {
     expect(unavailable.validation?.accepted).toBe(true);
   });
 
-  it("classifies quota, rate, network, timeout, and ambiguous transport outcomes without fallback", async () => {
+  it("classifies quota, rate, network, and timeout outcomes without fallback", async () => {
     const cases = [
       ["insufficient_quota: credits exhausted", "quota_exceeded"],
       ["429 rate limit", "rate_limited"],
@@ -322,17 +373,24 @@ describe("ResumeInferenceBroker", () => {
       expect(model.calls()).toBe(1);
       expect(resolve).toHaveBeenCalledTimes(1);
     }
-    let ambiguousCalls = 0;
-    const ambiguousAdapter: ModelAdapter = {
+  });
+
+  it("uses the bounded structural retry when a provider exhausts the first output budget", async () => {
+    let calls = 0;
+    const lengthAdapter: ModelAdapter = {
       async complete() { throw new Error("agent path prohibited"); },
       async completeStructuredNoTools() {
-        ambiguousCalls += 1;
-        return { text: JSON.stringify(outputs.interview_assist), finishReason: "length" };
+        calls += 1;
+        return {
+          text: JSON.stringify(outputs.general_resume_draft),
+          finishReason: calls === 1 ? "length" : "stop",
+        };
       },
     };
-    const ambiguous = await new ResumeInferenceBroker(async () => provider(ambiguousAdapter)).execute(request("interview_assist"));
-    expect(ambiguous.inference).toMatchObject({ status: "failed", attempt_count: 1, error: { code: "validation_failed" } });
-    expect(ambiguousCalls).toBe(1);
+    const completion = await new ResumeInferenceBroker(async () => provider(lengthAdapter)).execute(request("general_resume_draft"));
+    expect(completion.inference).toMatchObject({ status: "completed", attempt_count: 2 });
+    expect(completion.validation?.accepted).toBe(true);
+    expect(calls).toBe(2);
   });
 
   it("threads cancellation and emits content-free audit fields", async () => {

@@ -6,6 +6,7 @@ import {
   canonicalizeCoverage,
   canonicalizeEvidenceAnnotations,
   canonicalizeFacts,
+  canonicalizeStrategyResult,
 } from "./canonical-strategy.js";
 
 export {
@@ -51,6 +52,34 @@ export const ResumeEvidenceAnnotationsSchema = z.object({
 }).strict();
 
 type SnapshotFact = { revision_id: string; fact_kind: string; value: string };
+
+export function canonicalizeStrategyResultFromBlocks(
+  result: unknown,
+  dataBlocks: readonly { category: string; data: unknown }[],
+): unknown {
+  const facts = (dataBlocks.find((block) => block.category === "confirmed_fact_snapshot")?.data as {
+    facts?: Parameters<typeof canonicalizeStrategyResult>[1];
+  } | undefined)?.facts ?? [];
+  const annotations = dataBlocks.find((block) => block.category === "evidence_annotations")?.data as Parameters<typeof canonicalizeStrategyResult>[2] | undefined;
+  if (!annotations) return result;
+  const canonical = canonicalizeStrategyResult(result as Parameters<typeof canonicalizeStrategyResult>[0], facts, annotations);
+  const factKinds = new Map(facts.map((fact) => [fact.revision_id, fact.fact_kind]));
+  const confirmedFactIds = new Set(factKinds.keys());
+  return {
+    ...canonical,
+    role_emphasis: canonical.role_emphasis.map((role) => {
+      const evidenceCount = annotations.facts.filter((fact) => fact.job_fact_revision_id === role.job_fact_revision_id && fact.evidence_class !== "role_identity").length;
+      return { ...role, bullet_density: evidenceCount >= 4 ? "expanded" : evidenceCount >= 2 ? "standard" : evidenceCount === 1 ? "compact" : "none" };
+    }),
+    skills_context: canonical.skills_context
+      .filter((entry) => factKinds.get(entry.skill_fact_revision_id) === "skill")
+      .map((entry) => ({
+        ...entry,
+        context_fact_revision_ids: entry.context_fact_revision_ids.filter((revisionId) => confirmedFactIds.has(revisionId)),
+      })),
+  };
+}
+
 type Coverage = {
   metadata?: { revision_id?: string };
   job_fact_revision_id?: string;

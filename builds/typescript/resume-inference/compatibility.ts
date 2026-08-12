@@ -7,6 +7,7 @@ import { createModelAdapter, resolveEffectiveAdapterConfig } from "../adapters/i
 import { resolveProviderCredentialForStartup } from "../secrets/resolver.js";
 import { ResumeInferenceError } from "./errors.js";
 import { RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION } from "./policy.js";
+import { conformanceCorpusDigest } from "./conformance-corpus.js";
 import registryDocument from "./model-compatibility.json" with { type: "json" };
 
 type CompatibilityEntry = z.infer<typeof ModelCompatibilityEntrySchema>;
@@ -32,7 +33,7 @@ export class ModelCompatibilityRegistry {
     this.entries = entries.map((entry) => ModelCompatibilityEntrySchema.parse(entry));
   }
   require(providerProfileId: string, modelId: string, purpose: InferencePurpose): CompatibilityEntry {
-    const entry = this.entries.find((candidate) => candidate.provider_profile_id === providerProfileId && candidate.model_id === modelId && candidate.purpose === purpose && candidate.compatible && candidate.prompt_policy_id === RESUME_PROMPT_POLICY_ID && candidate.prompt_policy_version === RESUME_PROMPT_POLICY_VERSION && candidate.output_schema_id === PURPOSE_OUTPUT_SCHEMAS[purpose]);
+    const entry = this.entries.find((candidate) => candidate.provider_profile_id === providerProfileId && candidate.model_id === modelId && candidate.purpose === purpose && candidate.compatible && candidate.prompt_policy_id === RESUME_PROMPT_POLICY_ID && candidate.prompt_policy_version === RESUME_PROMPT_POLICY_VERSION && candidate.output_schema_id === PURPOSE_OUTPUT_SCHEMAS[purpose] && candidate.fixture_corpus_digest === conformanceCorpusDigest(purpose));
     if (!entry) throw new ResumeInferenceError("model_incompatible", "The active provider model has no accepted Resume Builder conformance record");
     return entry;
   }

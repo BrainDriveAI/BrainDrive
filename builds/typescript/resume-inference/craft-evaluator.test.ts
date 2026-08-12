@@ -153,6 +153,72 @@ describe("evidence-cited product craft evaluator", () => {
     expect(validateCraftEvaluationResult(dishonest, weak)).toContainEqual(expect.objectContaining({ code: "evaluator_disagreement" }));
   });
 
+  it("rejects a summary that repeats experience and uses an ungrammatical bare verb", () => {
+    const base = context();
+    const summary = {
+      statement_id: "81000000-0000-4000-8000-000000000015",
+      section_id: "summary",
+      display_role: "line" as const,
+      kind: "factual" as const,
+      text: "Operations Coordinator with experience coordinate weekly service schedules across three teams.",
+      supporting_confirmed_fact_revision_ids: [FACT_ID],
+    };
+    const weak = {
+      ...base,
+      statements: [base.statements[0]!, summary, ...base.statements.slice(1)],
+      section_order: ["contact", "summary", "experience", "education"],
+      strategy: {
+        ...base.strategy,
+        summary_decision: "include" as const,
+        section_order: ["contact", "summary", "experience", "education"],
+      },
+    };
+
+    const result = evaluateCraftProposal(weak);
+    expect(result.verdict).toBe("fail");
+    expect(result.findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ criterion: "C4", correction_class: "redundancy", severity: "blocking" }),
+      expect.objectContaining({ criterion: "C6", correction_class: "generic_language", severity: "blocking" }),
+    ]));
+  });
+
+  it("rejects a title-only summary that adds no useful positioning", () => {
+    const base = context();
+    const summary = {
+      statement_id: "81000000-0000-4000-8000-000000000017",
+      section_id: "summary",
+      display_role: "line" as const,
+      kind: "factual" as const,
+      text: "Operations Coordinator.",
+      supporting_confirmed_fact_revision_ids: [JOB_ID],
+    };
+    const result = evaluateCraftProposal({
+      ...base,
+      statements: [base.statements[0]!, summary, ...base.statements.slice(1)],
+      section_order: ["contact", "summary", "experience", "education"],
+      strategy: { ...base.strategy, summary_decision: "include", section_order: ["contact", "summary", "experience", "education"] },
+    });
+
+    expect(result.verdict).toBe("fail");
+    expect(result.findings).toContainEqual(expect.objectContaining({ criterion: "C4", correction_class: "generic_language", severity: "blocking" }));
+  });
+
+  it("rejects experience bullets that restate the same evidence in different sentence shapes", () => {
+    const base = context();
+    const repeated = {
+      ...base.statements[3]!,
+      statement_id: "81000000-0000-4000-8000-000000000016",
+      text: "Documented the shared intake process to resolve handoff delays.",
+    };
+    const result = evaluateCraftProposal({ ...base, statements: [...base.statements.slice(0, 4), repeated, ...base.statements.slice(4)] });
+
+    expect(result.verdict).toBe("fail");
+    expect(result.findings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ criterion: "C2", correction_class: "redundancy", severity: "blocking" }),
+      expect.objectContaining({ criterion: "C6", correction_class: "redundancy", severity: "blocking" }),
+    ]));
+  });
+
   it("rejects missing, duplicate, foreign, stale, and context-changed evidence", () => {
     const base = context();
     const valid = evaluateCraftProposal(base);

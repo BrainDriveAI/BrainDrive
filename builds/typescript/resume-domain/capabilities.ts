@@ -72,6 +72,13 @@ const TargetFitCapabilityInputSchema = z.object({
   plan: z.record(z.string(), z.unknown()),
   inference_binding: z.record(z.string(), z.unknown()),
 }).strict();
+const TargetFitNoChangeCapabilityInputSchema = z.object({
+  kind: z.literal("target_fit_no_change"),
+  analysis_record_id: z.string().uuid(),
+  expected_revision: z.number().int().positive(),
+  result: z.record(z.string(), z.unknown()),
+  inference_binding: z.record(z.string(), z.unknown()),
+}).strict();
 const CraftQualityCapabilityInputSchema = z.object({
   kind: z.literal("craft_quality_report"),
   proposal_definition_revision_id: z.string().uuid(),
@@ -180,6 +187,7 @@ export class ResumeCapabilityRouter {
           const coverage = JobEvidenceCoverageCapabilityInputSchema.safeParse(input);
           const strategy = ResumeStrategyCapabilityInputSchema.safeParse(input);
           const targetFit = TargetFitCapabilityInputSchema.safeParse(input);
+          const targetFitNoChange = TargetFitNoChangeCapabilityInputSchema.safeParse(input);
           const craftQuality = CraftQualityCapabilityInputSchema.safeParse(input);
           const craftRepair = CraftRepairCapabilityInputSchema.safeParse(input);
           const craftRepairFailure = CraftRepairFailureCapabilityInputSchema.safeParse(input);
@@ -193,6 +201,8 @@ export class ResumeCapabilityRouter {
             ? await this.domain.writeCraftRepair(craftRepair.data, authority)
             : craftQuality.success
             ? await this.domain.writeCraftQualityReport(craftQuality.data, authority)
+            : targetFitNoChange.success
+            ? await this.domain.finalizeTargetFitNoChange(targetFitNoChange.data, authority)
             : targetFit.success
             ? await this.domain.writeTargetFitAnalysis(targetFit.data, authority)
             : strategy.success
@@ -603,7 +613,7 @@ export class ResumeCapabilityRouter {
       if (coverage.action === "opportunity_presented" || coverage.action === "opportunity_suppressed") return "app.resume_opportunity.updated";
     }
     if (value.kind === "resume_strategy") return "app.resume_strategy.completed";
-    if (value.kind === "target_fit_analysis") return "app.resume_target_fit.completed";
+    if (value.kind === "target_fit_analysis" || value.kind === "target_fit_no_change") return "app.resume_target_fit.completed";
     if (value.kind === "craft_quality_report") return "app.resume_craft.evaluated";
     if (value.kind === "craft_repair" || value.kind === "craft_repair_failure") return "app.resume_craft.repaired";
     if (value.kind === "interview_progress" || value.kind === "interview_progress_submit") {

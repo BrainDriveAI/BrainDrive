@@ -26,7 +26,7 @@ export type ValidationReport = {
   accepted: boolean;
 };
 
-const STOP_WORDS = new Set(["and", "the", "for", "with", "from", "into", "that", "this", "were", "was", "are", "has", "have", "had", "your", "their", "our", "using", "through", "across", "over", "under", "a", "an", "to", "of", "in", "on", "at", "by", "as", "or"]);
+const STOP_WORDS = new Set(["and", "the", "for", "with", "from", "into", "that", "this", "were", "was", "are", "has", "have", "had", "your", "their", "our", "using", "through", "across", "over", "under", "target", "targeting", "pursue", "pursuing", "seek", "seeking", "a", "an", "to", "of", "in", "on", "at", "by", "as", "or"]);
 const PROTECTED_TOKEN = /(?:\b\d+(?:[.,]\d+)?%?\b|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b|https?:\/\/\S+)/gi;
 
 export function validateInferenceClaims(purpose: InferencePurpose, result: unknown, dataBlocks: DataBlock[]): ValidationReport {
@@ -35,9 +35,12 @@ export function validateInferenceClaims(purpose: InferencePurpose, result: unkno
   if (purpose === "interview_assist") findings.push(...validateInterviewAssist(result, dataBlocks));
   if (purpose === "resume_strategy") findings.push(...validateStrategy(result, dataBlocks));
   if (purpose === "general_resume_draft" || purpose === "targeted_resume_draft") {
+    const noTargetChange = purpose === "targeted_resume_draft" && (result as { outcome?: unknown }).outcome === "no_meaningful_change";
     const statements = (result as { statements?: GeneratedStatement[] }).statements ?? [];
-    for (const statement of statements) findings.push(...validateStatement(statement, facts));
-    findings.push(...validateResumeStructure(statements, dataBlocks, (result as { omissions?: Array<{ fact_revision_id?: string }> }).omissions ?? []));
+    if (!noTargetChange) {
+      for (const statement of statements) findings.push(...validateStatement(statement, facts));
+      findings.push(...validateResumeStructure(statements, dataBlocks, (result as { omissions?: Array<{ fact_revision_id?: string }> }).omissions ?? []));
+    }
     if (purpose === "general_resume_draft") findings.push(...validateGeneralStrategyUse(result, dataBlocks));
     if (purpose === "targeted_resume_draft") findings.push(...validateTargetedLineage(result, dataBlocks));
   }
@@ -369,6 +372,10 @@ function validateGeneralStrategyUse(result: unknown, blocks: DataBlock[]): Findi
   if (value.section_order && strategy.section_order && canonicalInputDigest(value.section_order) !== canonicalInputDigest(strategy.section_order)) {
     findings.push(finding("lineage_invalid", null, "Draft section order does not match the exact strategy"));
   }
+  const orderedSections = new Set(value.section_order ?? []);
+  if (value.section_order && (value.statements ?? []).some((statement) => !orderedSections.has(statement.section_id ?? "experience"))) {
+    findings.push(finding("schema_invalid", null, "Every draft statement section must appear in the section order"));
+  }
   return findings;
 }
 
@@ -484,7 +491,7 @@ function validatePlan(result: unknown, facts: Map<string, string>, blocks: DataB
 }
 
 function validateTargetedLineage(result: unknown, blocks: DataBlock[]): Finding[] {
-  const value = result as { parent_general_definition_revision_id?: string; job_revision_id?: string; title?: string; statements?: GeneratedStatement[]; changed_statement_ids?: string[]; section_order?: string[] };
+  const value = result as { outcome?: string; no_change_reason?: string; parent_general_definition_revision_id?: string; job_revision_id?: string; title?: string; statements?: GeneratedStatement[]; changed_statement_ids?: string[]; section_order?: string[] };
   const definition = blocks.find((block) => block.category === "general_resume_definition")?.data as { metadata?: { revision_id?: string }; title?: string; statements?: GeneratedStatement[]; section_order?: string[] } | undefined;
   const job = blocks.find((block) => block.category === "job_description")?.data as { metadata?: { revision_id?: string } } | undefined;
   const analysis = blocks.find((block) => block.category === "target_fit_analysis")?.data as { outcome?: string; analysis_state?: string; parent_general_definition_revision_id?: string; job_revision_id?: string; material_changes?: Array<{ statement_id?: string | null; action?: string }> } | undefined;
@@ -493,6 +500,14 @@ function validateTargetedLineage(result: unknown, blocks: DataBlock[]): Finding[
     return value.parent_general_definition_revision_id === definition?.metadata?.revision_id && value.job_revision_id === job?.metadata?.revision_id
       ? []
       : [finding("lineage_invalid", null, "Targeted draft lineage does not match the immutable input snapshot")];
+  }
+  if (value.outcome === "no_meaningful_change") {
+    return value.no_change_reason === "no_material_resume_change"
+      && value.parent_general_definition_revision_id === definition?.metadata?.revision_id
+      && value.job_revision_id === job?.metadata?.revision_id
+      && analysis.outcome === "targeted_variant" && analysis.analysis_state === "ready_for_targeted_draft"
+      ? []
+      : [finding("lineage_invalid", null, "Targeted no-change result does not match one current pending target analysis")];
   }
   if (
     value.parent_general_definition_revision_id !== definition?.metadata?.revision_id || value.job_revision_id !== job?.metadata?.revision_id ||
@@ -503,17 +518,36 @@ function validateTargetedLineage(result: unknown, blocks: DataBlock[]): Finding[
     return findings;
   }
   const plannedIds = [...new Set((analysis.material_changes ?? []).flatMap((change) => change.statement_id ? [change.statement_id] : []))].sort();
+  const actionById = new Map((analysis.material_changes ?? []).flatMap((change) => change.statement_id ? [[change.statement_id, change.action]] : []));
   const actualIds = [...new Set(value.changed_statement_ids ?? [])].sort();
   if (canonicalInputDigest(plannedIds) !== canonicalInputDigest(actualIds)) findings.push(finding("lineage_invalid", null, "Targeted draft change manifest differs from the supported plan"));
   const source = new Map((definition?.statements ?? []).map((statement) => [statement.statement_id, statement]));
   const next = new Map((value.statements ?? []).map((statement) => [statement.statement_id, statement]));
   if (source.size !== next.size || [...source.keys()].some((id) => !next.has(id))) findings.push(finding("lineage_invalid", null, "Targeted drafting cannot add or remove statements outside the supported plan"));
+  let observableChanges = 0;
   for (const [statementId, sourceStatement] of source) {
     const nextStatement = next.get(statementId);
     if (!nextStatement) continue;
-    const changed = canonicalInputDigest(sourceStatement) !== canonicalInputDigest(nextStatement);
-    if (changed !== plannedIds.includes(statementId)) findings.push(finding("lineage_invalid", statementId, "Targeted draft changed an unplanned statement or failed to apply a planned change"));
+    const planned = plannedIds.includes(statementId);
+    const action = actionById.get(statementId);
+    const sourceWithoutText = { ...sourceStatement, text: "" };
+    const nextWithoutText = { ...nextStatement, text: "" };
+    const nonTextChanged = canonicalInputDigest(sourceWithoutText) !== canonicalInputDigest(nextWithoutText);
+    const usefulTextChange = hasUsefulTextDifference(sourceStatement.text, nextStatement.text);
+    const sourceIndex = (definition?.statements ?? []).findIndex((statement) => statement.statement_id === statementId);
+    const nextIndex = (value.statements ?? []).findIndex((statement) => statement.statement_id === statementId);
+    const usefulOrderingChange = action === "ordering" && sourceIndex >= 0 && nextIndex >= 0 && nextIndex < sourceIndex;
+    if (!planned && (usefulTextChange || nonTextChanged)) {
+      findings.push(finding("lineage_invalid", statementId, "Targeted draft changed an unplanned statement"));
+    } else if (planned && action === "ordering" && (!usefulOrderingChange || usefulTextChange || nonTextChanged)) {
+      findings.push(finding("lineage_invalid", statementId, "A planned ordering change must visibly move the supported statement earlier without rewriting it"));
+    } else if (planned && action !== "ordering" && (!usefulTextChange || nonTextChanged)) {
+      findings.push(finding("lineage_invalid", statementId, "A planned wording change must create an observable difference beyond punctuation, case, or whitespace"));
+    } else if (planned && (usefulOrderingChange || usefulTextChange)) {
+      observableChanges += 1;
+    }
   }
+  if (observableChanges !== plannedIds.length) findings.push(finding("schema_invalid", null, "A targeted draft requires every planned change to produce one observable, useful presentation difference"));
   if (value.title !== definition?.title) findings.push(finding("lineage_invalid", null, "Targeted drafting cannot inject target wording into the resume title"));
   const orderingPlanned = (analysis.material_changes ?? []).some((change) => change.action === "ordering");
   if (!orderingPlanned && canonicalInputDigest(value.section_order) !== canonicalInputDigest(definition?.section_order)) findings.push(finding("lineage_invalid", null, "Targeted section order changed without a supported ordering plan"));
@@ -537,6 +571,11 @@ function claimTokenRoot(token: string): string {
 }
 
 function normalize(value: string): string { return value.normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim(); }
+
+function hasUsefulTextDifference(left: string, right: string): boolean {
+  const words = (value: string) => value.normalize("NFKC").toLowerCase().match(/[\p{L}\p{N}%]+/gu)?.join(" ") ?? "";
+  return words(left) !== words(right);
+}
 
 function finding(code: Finding["code"], statementId: string | null, safeMessage: string): Finding {
   return ValidatorFindingSchema.parse({

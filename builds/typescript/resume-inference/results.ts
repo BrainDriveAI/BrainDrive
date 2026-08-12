@@ -175,7 +175,7 @@ export const ResumeCraftRepairResultSchema = z.union([
   CraftRepairResultBodySchema.extend({ repair_version: z.literal(2) }).strict(),
 ]);
 
-export const TargetedResumeDraftResultSchema = z.object({
+const TargetedResumeVariantResultSchema = z.object({
   parent_general_definition_revision_id: OpaqueIdSchema,
   job_revision_id: OpaqueIdSchema,
   title: z.string().min(1).max(256),
@@ -183,6 +183,18 @@ export const TargetedResumeDraftResultSchema = z.object({
   changed_statement_ids: z.array(OpaqueIdSchema).max(500),
   section_order: z.array(NonEmptyStringSchema).min(1).max(32),
 }).strict();
+
+const TargetedResumeNoChangeResultSchema = z.object({
+  outcome: z.literal("no_meaningful_change"),
+  no_change_reason: z.literal("no_material_resume_change"),
+  parent_general_definition_revision_id: OpaqueIdSchema,
+  job_revision_id: OpaqueIdSchema,
+}).strict();
+
+export const TargetedResumeDraftResultSchema = z.union([
+  TargetedResumeVariantResultSchema,
+  TargetedResumeNoChangeResultSchema,
+]);
 
 export const ResumeRevisionClassifyResultSchema = z.object({
   classification: RevisionIntentClassSchema,

@@ -130,6 +130,7 @@ describe("sandboxed Resume Builder owner resource", () => {
     expect(html).toContain('if(state.jobAssistStatus==="selecting")return');
     expect(html).toContain('action:"complete_for_now"');
     expect(html).toContain('action:"reopen"');
+    expect(html).toContain('if(value)panel.querySelectorAll("button").forEach(button=>{button.disabled=true})');
     const reopen = html.slice(html.indexOf("async function reopenJobDimension"), html.indexOf("async function backJobDimension"));
     expect(reopen).toContain("candidates.find(candidate=>candidate.dimension===dimension)");
     expect(reopen).toContain('state.stage="interview"');
@@ -138,6 +139,15 @@ describe("sandboxed Resume Builder owner resource", () => {
     expect(nonFactBranch).not.toContain('career.facts.propose');
     expect(nonFactBranch).not.toContain('career.facts.confirm');
     expect(persistence.match(/capability\("career\.facts\.confirm",\{decisions\}/g)).toHaveLength(1);
+    const postNonFactReload = nonFactBranch.slice(nonFactBranch.indexOf("if(next)await saveJobPosition"));
+    expect(postNonFactReload).not.toContain('state.jobAssistStatus="idle"');
+    expect(postNonFactReload).not.toContain("render()");
+    const postAnsweredReload = persistence.slice(
+      persistence.indexOf("await submitJobProgress(job,dimension,submission)"),
+      persistence.indexOf("}catch(error){fail(error)}"),
+    );
+    expect(postAnsweredReload).not.toContain('state.jobAssistStatus="idle"');
+    expect(postAnsweredReload).not.toContain("render()");
   });
 
   it("shows a correctable strategy before binding general generation", async () => {
@@ -259,6 +269,9 @@ describe("sandboxed Resume Builder owner resource", () => {
     expect(html).toContain('kind:"target_fit_analysis"');
     expect(html).toContain('saved.analysis.outcome==="no_meaningful_change"');
     expect(html).toContain('inferCompletion("targeted_resume_draft"');
+    expect(html).toContain('draft.outcome==="no_meaningful_change"');
+    expect(html).toContain('kind:"target_fit_no_change"');
+    expect(html).toContain("result:draft");
     expect(html.indexOf('kind:"target_fit_analysis"')).toBeLessThan(html.indexOf('inferCompletion("targeted_resume_draft"'));
     expect(html).toContain("target_fit_analysis_revision_id:saved.analysis.metadata.revision_id");
     expect(html).not.toMatch(/fit score|ATS score|score:\s*\d/i);

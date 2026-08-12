@@ -130,7 +130,7 @@ export function synthesizeResumeE2eResult(purpose: InferencePurpose, blocks: Dat
       const analysis = blockData<{ material_changes: Array<{ statement_id: string | null }> }>(blocks, "target_fit_analysis");
       const changedStatementIds = [...new Set(analysis.material_changes.flatMap((change) => change.statement_id ? [change.statement_id] : []))];
       const statements = definition.statements.map((generatedStatement) => changedStatementIds.includes(String(generatedStatement.statement_id))
-        ? { ...generatedStatement, text: String(generatedStatement.text).endsWith(".") ? String(generatedStatement.text).slice(0, -1) : `${String(generatedStatement.text)}.` }
+        ? { ...generatedStatement, text: emphasizedFixtureText(String(generatedStatement.text)) }
         : generatedStatement);
       return { parent_general_definition_revision_id: definition.metadata.revision_id, job_revision_id: job.metadata.revision_id, title: definition.title, statements, changed_statement_ids: changedStatementIds, section_order: definition.section_order };
     }
@@ -206,6 +206,16 @@ export function synthesizeResumeE2eResult(purpose: InferencePurpose, blocks: Dat
       return { repair_version: 1, source_definition_revision_id: definition.metadata.revision_id, source_report_revision_id: report.metadata.revision_id, changed_statement_ids: [changed.statement_id], title: definition.title, statements, section_order: definition.section_order };
     }
   }
+}
+
+function emphasizedFixtureText(value: string): string {
+  const trimmed = value.trim().replace(/[.]$/, "");
+  const clauses = trimmed.split(/\s+and\s+/i);
+  if (clauses.length === 2) {
+    const second = clauses[1]!;
+    return `${second.charAt(0).toUpperCase()}${second.slice(1)}; ${clauses[0]!.charAt(0).toLowerCase()}${clauses[0]!.slice(1)}.`;
+  }
+  return `${trimmed}.`;
 }
 
 export function createResumeE2eFixtureProviderResolver(): (purpose: InferencePurpose) => Promise<ResolvedInferenceProvider> {
