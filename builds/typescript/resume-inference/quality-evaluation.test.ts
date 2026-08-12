@@ -458,7 +458,14 @@ describe("M7 sanitization, gate precedence, and deletion", () => {
     const symlinked = path.join(parent, "symlinked-review");
     await mkdir(symlinked);
     await writeFile(path.join(symlinked, ".braindrive-synthetic-review.json"), JSON.stringify({ synthetic: true, retention_contract_digest: canonicalInputDigest(contract) }), "utf8");
-    await symlink(path.join(symlinked, ".braindrive-synthetic-review.json"), path.join(symlinked, "linked-scorecard.json"));
+    if (process.platform === "win32") {
+      const linkedSource = path.join(parent, "linked-review-source");
+      await mkdir(linkedSource);
+      await writeFile(path.join(linkedSource, "raw-scorecard.json"), "{}", "utf8");
+      await symlink(linkedSource, path.join(symlinked, "linked-scorecards"), "junction");
+    } else {
+      await symlink(path.join(symlinked, ".braindrive-synthetic-review.json"), path.join(symlinked, "linked-scorecard.json"));
+    }
     await expect(deleteRawSyntheticReviewArtifacts({ parent_directory: parent, workspace_directory: symlinked, contract, completed_at: "2026-08-11T14:00:00.000Z" })).rejects.toThrow(/symbolic/i);
 
     await expect(deleteRawSyntheticReviewArtifacts({ parent_directory: parent, workspace_directory: parent, contract, completed_at: "2026-08-11T14:00:00.000Z" })).rejects.toThrow(/bounded/i);
