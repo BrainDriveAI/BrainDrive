@@ -8,8 +8,8 @@
     "osVersion": "10.0.26200 build 26200",
     "architecture": "x64"
   },
-  "sourceTestRevision": "7576ac504e42fce346bf79b3559fafbcdd342d98",
-  "sourceCandidateProof": "source-candidate sha256 9f9e7b2252aa7a3f8211001f057438bbe6f8e7572df0bb950b6f9f4d6b30d859; entries 619; revision 7576ac504e42fce346bf79b3559fafbcdd342d98",
+  "sourceTestRevision": "eded3d711d4b78a62a78501a78932c1b82d7053e",
+  "sourceCandidateProof": "source-candidate sha256 bcdf89f04f2d36d6b7dba3b735ca27bb279e5772631c38eb1cf3eae4c5f3b277; entries 1042; revision eded3d711d4b78a62a78501a78932c1b82d7053e",
   "cleanBefore": true,
   "cleanAfter": true,
   "toolVersions": {
@@ -19,22 +19,22 @@
     "cargo": "1.95.0",
     "tauriCli": "2.11.4",
     "visualStudioBuildTools": "2022 17.14.37314.3",
-    "webView2Runtime": "151.0.4129.59"
+    "webView2Runtime": "151.0.4129.78"
   },
   "commands": [
     {
-      "command": "git clone https://github.com/BrainDriveAI/BrainDrive <disposable-clone>",
-      "workingDirectory": "task-owned disposable parent directory",
+      "command": "git bundle create <candidate-bundle> eded3d711d4b78a62a78501a78932c1b82d7053e",
+      "workingDirectory": "source repository root",
       "exitCode": 0,
       "result": "pass",
-      "summary": "Created a disposable public repository checkout without reusing owner application data."
+      "summary": "Created a task-owned bundle for the exact committed source candidate without publishing or altering the owner's native checkout."
     },
     {
-      "command": "git fetch origin && git checkout --detach 7576ac504e42fce346bf79b3559fafbcdd342d98",
-      "workingDirectory": "disposable repository root",
+      "command": "git -c core.autocrlf=false clone --no-checkout <candidate-bundle> <disposable-clone> && git checkout --detach eded3d711d4b78a62a78501a78932c1b82d7053e",
+      "workingDirectory": "task-owned Windows projects directory",
       "exitCode": 0,
       "result": "pass",
-      "summary": "Checked out the exact tested revision."
+      "summary": "Created a disposable native-Windows checkout with source bytes preserved, checked out the exact tested revision, and confirmed a clean working tree."
     },
     {
       "command": "npm --prefix builds/typescript ci",
@@ -58,39 +58,46 @@
       "summary": "Installed the locked MCP release dependencies."
     },
     {
-      "command": "npm --prefix builds/typescript run docs:verify",
-      "workingDirectory": "disposable repository root",
+      "command": "npm run desktop:preflight",
+      "workingDirectory": "disposable repository builds/typescript directory",
       "exitCode": 0,
       "result": "pass",
-      "summary": "Documentation tests and validation passed with 221 candidates and zero diagnostics."
+      "summary": "The runtime TypeScript build, MCP release build, and web typecheck passed natively."
     },
     {
-      "command": "npm --prefix builds/typescript run desktop:preflight",
-      "workingDirectory": "disposable repository root",
+      "command": "npm run desktop:test",
+      "workingDirectory": "disposable repository builds/typescript directory",
       "exitCode": 0,
       "result": "pass",
-      "summary": "Desktop runtime, MCP, web, and Rust prerequisites passed."
+      "summary": "The complete native desktop suite passed: 104 runtime files with 826 tests, 26 web files with 235 tests, and 55 Rust tests with one intentionally ignored test."
     },
     {
-      "command": "npm --prefix builds/typescript run desktop:test",
-      "workingDirectory": "disposable repository root",
+      "command": "Get-NetTCPConnection and Invoke-WebRequest native runtime probes",
+      "workingDirectory": "isolated native-Windows desktop session",
       "exitCode": 0,
       "result": "pass",
-      "summary": "Runtime, web, and Cargo suites passed: 222 runtime tests, 186 web tests, and 49 Cargo tests."
+      "summary": "Confirmed four distinct listening service ports, a successful gateway health response, rejection of a tokenless protected request, and no listener on the fixed development gateway port."
+    },
+    {
+      "command": "Native desktop local-signup and shell observation",
+      "workingDirectory": "isolated native-Windows desktop session",
+      "exitCode": 0,
+      "result": "pass",
+      "summary": "Completed a task-only local signup through the visible desktop window, observed authorized shell requests, and confirmed a responsive main application shell without configuring a model provider."
     }
   ],
   "dynamicGatewayObservation": {
     "result": "pass",
-    "summary": "The supervisor allocated distinct dynamic loopback services; the gateway and three MCP services became healthy, direct health and configuration probes passed, a request without the desktop transport token was rejected, the fixed proxy target was not listening, and native signup reached the dynamic gateway."
+    "summary": "The desktop supervisor allocated four distinct dynamic loopback ports for the gateway and three MCP services. Every service became healthy, the gateway health probe returned 200, a tokenless protected request returned 403, the fixed development gateway port remained closed, and signup traffic reached the dynamic gateway."
   },
   "providerIndependentUsableShellBaseline": {
     "result": "pass",
-    "summary": "The native desktop window reached local account setup, completed one disposable local signup, and displayed a responsive authenticated application shell without provider credentials, model credits, a local model service, or a model response."
+    "summary": "The native window was visible and responsive, completed one disposable local signup, and displayed the authenticated BrainDrive shell. No model-provider setup was performed, the isolated credential store contained only local-authentication material, and no model response was required to reach or use the shell baseline."
   },
-  "cleanup": "Ctrl-C stopped the desktop and web processes. Four remaining task-owned embedded Node services were explicitly terminated by observed task ownership. All task service ports closed, no task PID remained, and the tracked checkout was clean.",
+  "cleanup": "The automation terminal did not complete shutdown after interactive interrupt signals, so the four observed task-owned launcher, Tauri, web, and desktop processes were explicitly stopped by exact process identity. All child-service and task ports then closed, no task process remained, the isolated application data was removed, and the tracked disposable checkout remained clean.",
   "sanitization": "pass",
   "operatorRole": "native Windows Tauri J-05 evidence operator",
   "reviewerRole": "native Windows Tauri J-05 evidence reviewer",
-  "remainingRisk": "Ctrl-C did not terminate four embedded Node services; explicit task-owned cleanup succeeded, but desktop shutdown ownership remains a follow-up risk.",
+  "remainingRisk": "Interactive interrupt handling through the automation terminal did not complete desktop shutdown; exact task-owned process cleanup succeeded, but automated development-session shutdown remains a follow-up risk.",
   "disposition": "pass"
 }
