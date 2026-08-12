@@ -1,65 +1,54 @@
 # AIH-02 scorecard
 
-## Historical evidence note
-
-The earlier scorecard attempt bound to revision `79fd0e3de2cd137b38b624552478d2ab13f775f1` was recorded as passing for that earlier candidate. It remains historical only and is not relabeled as current evidence.
-
-## Current-candidate execution
-
-The retained fresh evaluator output ran in a public checkout detached at `576fbdceb8d9370742242e07ac07a65d872db936`. The finalization-test-only refreeze selected no AIH-02 rerun, so the substantive output carries forward and this scorecard binds the compatible current source. Prior scorecards and human-review records were excluded; earlier attempts remain historical without relabeling.
-
 - Scenario ID: AIH-02
-- Candidate revision: `ba0a15920feffc1b902457f29adf4779c9df473e`
-- Candidate state proof: `candidate-content sha256 e3910e9aeae38a20ed163c8fd1afbac27e3bf8265ab0640e662ca977d34f003d; entries 619; head ba0a15920feffc1b902457f29adf4779c9df473e`
-- SOURCE_TEST_REVISION: `ba0a15920feffc1b902457f29adf4779c9df473e`
-- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 e3910e9aeae38a20ed163c8fd1afbac27e3bf8265ab0640e662ca977d34f003d; entries 619; revision ba0a15920feffc1b902457f29adf4779c9df473e`
+- Candidate revision: `d89ba6d5d9cb8a34f5afd801e887701de323dfed`
+- Candidate state proof: `candidate-content sha256 8fe40a01593323b8c35fe1bb11d41b8dce82ed3cb13e604b5084d17ae955e741; entries 0; head d89ba6d5d9cb8a34f5afd801e887701de323dfed`
+- SOURCE_TEST_REVISION: `d89ba6d5d9cb8a34f5afd801e887701de323dfed`
+- SOURCE_CANDIDATE_PROOF: `source-candidate sha256 1b949797d2f8dedeb9b336e5e52ddb484705683df83923a58f78258c9492b9e7; entries 1042; revision d89ba6d5d9cb8a34f5afd801e887701de323dfed`
 - Task prompt: Starting at docs/developers/README.md, map the web client, gateway, auth/config, engine, providers, tools/MCP, memory/secrets, Docker/installer, Tauri desktop, tests/CI, and release surfaces. Cite tracked source or current canonical documentation for every component and do not infer one universal request path.
-- Starting path and allowed context: `docs/developers/README.md`; Git-derived tracked and non-ignored files linked from the developer front door and catalog.
-- Prohibited inputs/actions confirmed: No archived/external planning or ignored runtime state was used; no component, interface, support claim, or file change was invented.
-- Evaluator role: Fresh isolated read-only AI evaluator using only the public checkout and scenario context.
+- Starting path and allowed context: `docs/developers/README.md`; Git-derived tracked and non-ignored files linked by the developer front door and catalog.
+- Prohibited inputs/actions confirmed: No archived planning, ignored runtime state, invented component, universal-flow claim, or modification was used.
+- Evaluator role: Fresh-context, read-only AI evaluator; primary implementer independently cross-checked paths and boundaries.
 
 ## Trace summary
 
-- Authorities consulted: `docs/developers/README.md`, `docs/developers/catalog.json`, `docs/developers/repository-map.md`, canonical component pages, source, tests, package scripts, and CI.
-- Repository evidence inspected: All eleven requested component families plus distinct chat, public configuration, skills, auth, settings, memory, and release routes.
-- Required output: A source-backed component map and explicit request/trust boundary distinctions.
-- Exact checks or comparisons: Tracked-file verification, scoped source reads, package-script inspection, `docs:verify`, projection check, and closing Git status.
-- Zero-change evidence, when required: The evaluator reported a clean worktree before and after inspection.
+- Authorities consulted: Root/scoped instructions, `docs/developers/README.md`, `catalog.json`, repository and architecture maps, integration pages, verification/release pages, live source, package scripts, tests, and CI.
+- Repository evidence inspected: The source/config/test paths summarized in the component map, plus source-adjacent READMEs and `.github/workflows/ci.yml`.
+- Required output: Component-to-source map, representative tests/trust boundaries, and variant-flow caveat.
+- Exact checks or comparisons: Tracked-path verification; route/auth/SSE/provider/tool/memory/Compose/Tauri/script/CI/release comparisons; version comparison; focused docs tests; closing Git checks.
+- Zero-change evidence, when required: HEAD stayed at the source revision and staged, unstaged, and non-ignored status remained empty.
 
 ## Required output evidence
 
-- Component map: The complete component-to-source map is retained in the table below.
+- Component map: The substantive component-to-source mapping is retained below.
 
 ### Component map
 
-| Component | Current source/canonical authority | Boundary retained |
+| Surface | Current source and representative tests | Boundary |
 |---|---|---|
-| Web client | `builds/typescript/client_web/src/api/`, `builds/typescript/client_web/README.md` | Browser proxy and Tauri transport selection are distinct. |
-| Gateway | `builds/typescript/gateway/server.ts`, `docs/developers/integrations/gateway.md` | Gateway routes omit the browser `/api` proxy prefix. |
-| Auth/config | `builds/typescript/auth/`, `builds/typescript/config.ts`, `docs/developers/architecture/modes-data-and-trust.md` | Transport authorization does not replace request authorization. |
-| Engine | `builds/typescript/engine/loop.ts`, `builds/typescript/engine/tool-executor.ts` | Permission filtering occurs before listing and again before execution. |
-| Providers | `builds/typescript/adapters/openai-compatible.json`, `docs/developers/integrations/providers.md` | BrainDrive Models, BYOK OpenRouter, and Ollama remain independent. |
-| Tools/MCP | `builds/typescript/tools.ts`, `builds/typescript/mcp/`, `builds/mcp_release/` | In-process and MCP discovery paths differ; standalone exposure retains its trust caveat. |
-| Memory/secrets | `builds/typescript/memory/`, `builds/typescript/secrets/`, `docs/developers/architecture/memory-and-secrets.md` | Memory and secrets are separate authorities despite migration interactions. |
-| Docker/installer | `installer/docker/`, `docs/developers/integrations/deployment.md` | Dev, local, and production modes have different process and side-effect shapes. |
-| Tauri desktop | `builds/typescript/src-tauri/`, `docs/developers/setup/tauri-desktop.md` | Windows is the V1 native claim; other configured targets are unclaimed. |
-| Tests/CI | `docs/developers/verification.md`, `.github/workflows/ci.yml` | CI suites do not imply browser-E2E or native desktop proof. |
-| Release | `docs/developers/releases.md`, `installer/docker/scripts/release-production.sh` | App, MCP package, and installer version/evidence domains remain distinct. |
+| Web client | `client_web/src/api/gateway-adapter.ts`, `useGatewayChat.ts`, `runtime-api-base.ts`, and colocated tests | React/browser state; `/api` is a browser/deployment prefix and Tauri resolves loopback transport separately. |
+| Gateway/auth/config | `gateway/server.ts`, `auth/middleware.ts`, `config.ts`, auth route/config tests | Public, authenticated local, desktop-token, and managed branches are distinct; gateway routes do not universally enter the engine. |
+| Engine/providers | `engine/loop.ts`, `engine/tool-executor.ts`, `adapters/openai-compatible.json`, provider activation and resolver tests | Provider profiles and credentials remain independent; authorization is passed into tool execution. |
+| Tools/MCP | `tools.ts`, `mcp/config.ts`, `mcp/client.ts`, `builds/mcp_release/src/first-party-tools.ts`, MCP envelope/core tests | Configured sources determine participation; first-party, custom, and legacy paths are not one support surface. |
+| Memory/secrets | `memory/backup.ts`, `memory/migration.ts`, `secrets/vault.ts`, migration/backup/resolver tests | File-backed memory and encrypted secret storage are separate even when migration coordinates both. |
+| Docker/installer | `installer/docker/compose.*.yml`, entrypoint/bootstrap/lifecycle scripts and integrity/smoke tests | Dev/local/prod topology and side effects differ; deployment is not a universal request path. |
+| Tauri desktop | `src-tauri/src/main.rs`, `tauri.conf.json`, desktop staging and runtime-base tests | Native supervision and tokenized loopback transport wrap the web client; documented V1 claim is native Windows. |
+| Tests/CI/release | Package scripts, `.github/workflows/ci.yml`, `docs/developers/verification.md`, `releases.md`, release helper tests | Verification is change-routed; app/web/Tauri and MCP version domains remain separate; publication is restricted. |
 
-- Source cross-check: Controller verification confirmed every retained path is tracked, live package scripts exist, and the Node 22 documentation boundary tests pass.
-- Boundary notes: Chat, public configuration discovery, skills, auth/session, provider/settings, memory, and release operations are separate route families; no universal request path is asserted.
-- Binary scorecard: All declared gates pass independently; no aggregate score was used.
+- Source cross-check: The primary implementer confirmed the cited representative paths are tracked, package scripts exist, the candidate digest is unchanged, and the evaluator's focused documentation tests reported 30 passing tests.
+- Boundary notes: Chat, public configuration, skills, auth/session, provider settings, memory operations, desktop startup, Docker lifecycle, and release publication have different participants and trust boundaries; no universal request flow is asserted.
+- Binary scorecard: Every declared must-pass dimension was adjudicated independently from current source and tests.
 
 | Gating dimension | Pass/fail | Evidence |
 |---|---|---|
-| Authority | pass | Current catalog routes and executable source/tests were used. |
-| Repository accuracy | pass | Every requested component maps to tracked source or canonical documentation. |
-| Trust | pass | Auth, secrets, deployment, providers, MCP exposure, and release boundaries remain distinct. |
+| Authority | pass | Current catalog routes, canonical pages, source, tests, scripts, and CI were used rather than planning or prior evidence. |
+| Repository accuracy | pass | All requested components map to existing representative paths and tests, with conditional gaps and absent MCP integration entrypoint called out. |
+| Trust | pass | Auth, secrets, provider choice, memory, deployment, native transport, verification, and publication remain separate boundaries. |
 
 ## Outcome
 
-- Required output present: Yes; the substantive component map and source/boundary cross-check are retained.
-- Interventions: None in the accepted run.
-- Remaining risk: Static and Tier A checks do not prove live providers, native desktop handoff, Docker lifecycle behavior, or release publication.
+- Required output present: Yes; all requested surfaces, tests, boundaries, and variant flows are retained.
+- Interventions: The primary implementer checked path existence and preserved evaluator-identified coverage gaps as risks rather than silently resolving them.
+- Remaining risk: Static mapping does not prove managed deployment, live providers, Docker startup, native Windows behavior, or publication; managed-auth and MCP registration coverage gaps remain.
 - Disposition: `pass`
-- Sanitization performed: Repository-relative public paths and concise test totals only; absolute evaluator paths, owner data, credentials, private systems, and raw logs were removed.
+- Sanitization performed: Public repository-relative paths and summarized checks only; ignored/runtime/private data and raw logs were excluded.
