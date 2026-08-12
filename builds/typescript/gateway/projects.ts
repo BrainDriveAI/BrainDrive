@@ -2,8 +2,11 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { cp, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import type { z } from "zod";
 
 import { commitMemoryChange } from "../git.js";
+import { ResumeQualityStateSchema } from "../app-platform/contracts/data.js";
+import { resumeQualityStateLabel } from "../resume-domain/quality-state.js";
 import { isProtectedProjectId, scaffoldProjectFiles } from "../memory/init.js";
 import { resolveMemoryPath, toMemoryRelativePath } from "../memory/paths.js";
 import {
@@ -31,6 +34,12 @@ export type GatewayProjectFile = {
   readOnly?: boolean;
   sourceLabel?: string;
   sourceType?: "app_published";
+  quality?: PublishedDocumentQuality;
+};
+
+export type PublishedDocumentQuality = {
+  state: z.infer<typeof ResumeQualityStateSchema>;
+  label: string;
 };
 
 export type PublishedProjectDocument = {
@@ -39,6 +48,7 @@ export type PublishedProjectDocument = {
   logicalId: string;
   title: string;
   markdown: string;
+  quality?: PublishedDocumentQuality;
 };
 
 export type PublishedProjectDocumentProvider = {
@@ -470,6 +480,7 @@ export class GatewayProjectService {
           readOnly: true,
           sourceLabel: document.sourceLabel,
           sourceType: "app_published",
+          ...(document.quality ? { quality: document.quality } : {}),
         });
       }
       const publisherRoot = resolveMemoryPath(this.memoryRoot, `documents/${projectId}/published/${provider.publisherId}`);
@@ -498,6 +509,12 @@ export class GatewayProjectService {
     if (document.sourceLabel.trim().length === 0 || document.sourceLabel.length > 128) throw new Error("Invalid published document source label");
     if (document.title.trim().length === 0 || document.title.length > 256) throw new Error("Invalid published document title");
     if (Buffer.byteLength(document.markdown, "utf8") > 512 * 1024) throw new Error("Published document exceeds the accepted byte limit");
+    if (document.quality) {
+      const state = ResumeQualityStateSchema.safeParse(document.quality.state);
+      if (!state.success || document.quality.label !== resumeQualityStateLabel(state.data)) {
+        throw new Error("Invalid published document quality metadata");
+      }
+    }
   }
 
   private validatePublisherId(publisherId: string): void {

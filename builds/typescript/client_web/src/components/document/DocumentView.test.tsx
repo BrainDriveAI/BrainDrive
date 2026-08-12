@@ -21,6 +21,7 @@ describe("DocumentView published documents", () => {
           readOnly: true,
           sourceLabel: "Resume Builder",
           sourceType: "app_published",
+          quality: { state: "owner_approved", label: "Owner approved" },
         }}
         onBack={() => undefined}
       />
@@ -28,6 +29,9 @@ describe("DocumentView published documents", () => {
 
     expect((await screen.findAllByRole("heading", { name: "General Resume", level: 1 })).length).toBeGreaterThan(0);
     expect(screen.getByText("Published by Resume Builder")).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: "Resume quality status: Owner approved" })).toHaveTextContent("Owner approved");
+    expect(screen.getByText("Approved content.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/quality state:/i)).not.toBeInTheDocument();
   });
 });

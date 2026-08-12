@@ -1,7 +1,7 @@
 import type { InferencePurpose } from "../app-platform/contracts/inference.js";
 
 export const RESUME_PROMPT_POLICY_ID = "braindrive.resume-builder.fixed";
-export const RESUME_PROMPT_POLICY_VERSION = "7";
+export const RESUME_PROMPT_POLICY_VERSION = "8";
 
 export type ResumeRepairContext =
   | { kind: "structural" }
@@ -35,7 +35,7 @@ const PURPOSE_INSTRUCTIONS: Record<InferencePurpose, string> = {
   resume_revision_draft: "Draft one complete reviewable successor from the selected immutable definition, persisted revision instruction, and confirmed fact snapshot. Preserve unchanged statement identities and factual meaning. Never approve the result or add unsupported facts.",
   resume_guidance: "Return categorized, evidence-cited strengths and gaps using only confirmed evidence, the selected definition, deterministic findings, and job evidence. Return at most three optional questions. Never score, rank, judge competence, predict hiring outcomes, or guarantee ATS behavior.",
   resume_strategy: "Create an inspectable resume strategy from confirmed facts, deterministic evidence annotations, explicit coverage, presentation preferences, and the supplied accepted quality-policy identity. Select the history shape and reason, role emphasis and evidence-shaped density class, section order, evidence priorities, contextual skill placement, optional summary decision, visible omissions, and unresolved coverage gaps. Every annotation marked must_use must remain must_use unless it receives one allowed visible omission reason. These planning classifications are not career facts. Do not write resume statements, invent facts, apply fixed counts, or emit a numeric score.",
-  resume_craft_evaluate: "Independently evaluate the complete proposal against the supplied versioned C1-C7 and T1-T3 craft standard. Return criterion verdicts and statement-scoped findings only. Truth and deterministic structure findings remain authoritative; do not repair text, invent evidence, or emit a numeric score.",
+  resume_craft_evaluate: "Independently evaluate the complete proposal against the supplied accepted C1-C7 and T1-T3 product-craft standard. Return every criterion exactly once. Every pass must cite exact positive statement, rendered-anchor, strategy, fact, coverage, target-analysis, or deterministic-gate evidence from the supplied immutable context. Every fail must cite exact negative evidence or explicit absence, and every not-applicable target criterion must cite the general-resume absence. C1-C7 are always applicable. Do not infer passage from the absence of regex findings, counts, headings, parse success, or unsupported-claim absence. The local C1-C3 anchors are necessary inputs, not complete semantic judgment. Truth, structure, mechanical, must-use, and local mandatory failures remain authoritative. Direction is context, never evidence. Do not change evidence context, repair text, invent evidence, expose hidden reasoning, or emit a numeric score.",
   resume_craft_repair: "Return one complete repaired proposal changing only the named statement scope and only the allowed correction classes. Preserve unnamed statements, evidence references, chronology, ordering, target fit, and all immutable input identities. Do not add facts, tools, or a second repair attempt.",
 };
 

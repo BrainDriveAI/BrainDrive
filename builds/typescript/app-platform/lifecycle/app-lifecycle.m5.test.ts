@@ -85,11 +85,11 @@ describe("M5 prerequisite contracts", () => {
     await store.initialize(OWNER_ID);
     const adapter = new ResumeDataLifecycleAdapter(root);
     const inspected = await adapter.inspectSchema({ action: "inspect_schema", context: dataContext() });
-    expect(inspected).toMatchObject({ outcome: "compatible", observed_schema_version: 3, readable: true, writable: true });
+    expect(inspected).toMatchObject({ outcome: "compatible", observed_schema_version: 4, readable: true, writable: true });
     const discovered = await adapter.discoverRetainedData({ action: "discover_retained_data", context: dataContext() });
-    expect(discovered).toMatchObject({ present: true, schema_version: 3, compatible: true });
+    expect(discovered).toMatchObject({ present: true, schema_version: 4, compatible: true });
 
-    const snapshot = await adapter.snapshot({ action: "snapshot", context: dataContext(), from_schema_version: 3, to_schema_version: 3 });
+    const snapshot = await adapter.snapshot({ action: "snapshot", context: dataContext(), from_schema_version: 4, to_schema_version: 4 });
     expect(snapshot.snapshot_id).toMatch(/^[0-9a-f-]{36}$/);
     expect(JSON.stringify(snapshot)).not.toMatch(/[\\/]apps[\\/]|catalog\.json/);
     const catalogPath = path.join(root, "apps", "resume-builder", "catalog.json");
@@ -105,8 +105,8 @@ describe("M5 prerequisite contracts", () => {
     roots.push(root);
     await new ResumeDataStore(root, undefined, {}, false).initialize(OWNER_ID);
     const adapter = new ResumeDataLifecycleAdapter(root);
-    const snapshot = await adapter.snapshot({ action: "snapshot", context: dataContext(), from_schema_version: 3, to_schema_version: 4 });
-    await expect(adapter.migrate({ action: "migrate", context: dataContext(), snapshot_id: snapshot.snapshot_id, from_schema_version: 3, to_schema_version: 4 })).rejects.toMatchObject({ code: "incompatible_schema" });
+    const snapshot = await adapter.snapshot({ action: "snapshot", context: dataContext(), from_schema_version: 4, to_schema_version: 5 });
+    await expect(adapter.migrate({ action: "migrate", context: dataContext(), snapshot_id: snapshot.snapshot_id, from_schema_version: 4, to_schema_version: 5 })).rejects.toMatchObject({ code: "incompatible_schema" });
     expect(await adapter.listSnapshotIds()).toEqual([snapshot.snapshot_id]);
   });
 
@@ -262,7 +262,7 @@ async function updateHarness(failStep?: string, options: { data?: ResumeLifecycl
   await Promise.all([lifecycle.initialize(), grants.initialize(), runtimeAuthority.initialize(), packages.initialize()]);
   const descriptor = PackageDescriptorSchema.parse(JSON.parse(await readFile(path.join(FIXTURE_ROOT, "1.0.0.descriptor.json"), "utf8")));
   const oldManifest = descriptor.payload.manifest;
-  const targetSchema = options.targetSchema ?? 3;
+  const targetSchema = options.targetSchema ?? 4;
   const targetVersion = options.targetVersion ?? "2.0.0";
   const targetDigest = options.targetDigest ?? NEW_DIGEST;
   const requestedCapabilities = options.addCapability ? [...oldManifest.requested_capabilities, "app.inference.request"] : oldManifest.requested_capabilities;

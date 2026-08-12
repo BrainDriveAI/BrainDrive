@@ -1,7 +1,8 @@
 import { canonicalInputDigest } from "../app-platform/contracts/common.js";
 import type { InferencePurpose } from "../app-platform/contracts/inference.js";
-import { evaluateCraftProposal, type CraftEvaluationContext } from "./craft-evaluator.js";
-import { CRAFT_EVIDENCE_LIMITED_POLICY } from "./craft-evaluator.js";
+import { CRAFT_EVIDENCE_LIMITED_POLICY, PRODUCT_CRAFT_EVALUATOR, evaluateCraftProposal, extractCraftAnchorEvidence, type CraftEvaluationContext } from "./craft-evaluator.js";
+import { CORRECTED_CRAFT_REPORT_SCHEMA_DIGEST, CORRECTED_CRAFT_REPORT_SCHEMA_ID, CORRECTED_PROMPT_POLICY_DIGEST } from "./quality-evaluation.js";
+import { RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION } from "./policy.js";
 import { RESUME_QUALITY_POLICY_IDENTITY, buildEvidenceAnnotations } from "./strategy.js";
 import { TARGET_FIT_THRESHOLD_POLICY } from "./target-fit.js";
 
@@ -124,11 +125,15 @@ const craftStrategy = {
 };
 
 const craftContext: CraftEvaluationContext = {
+  definition_revision_id: CRAFT_DEFINITION_ID,
+  strategy_revision_id: craftStrategy.metadata.revision_id,
   definition_kind: craftDefinition.definition_kind,
   title: craftDefinition.title,
   statements: craftDefinition.statements,
   section_order: craftDefinition.section_order,
   selected_fact_revision_ids: craftDefinition.selected_fact_revision_ids,
+  fact_revision_ids: [JOB_ONE_ID, CRAFT_FACT_ID],
+  coverage_revision_ids: [],
   strategy: {
     history_shape: craftStrategy.history_shape,
     summary_decision: "omit",
@@ -140,6 +145,8 @@ const craftContext: CraftEvaluationContext = {
   target_analysis: null,
   deterministic_truth_passed: true,
   deterministic_structure_passed: true,
+  deterministic_mechanical_passed: true,
+  deterministic_gate_digest: canonicalInputDigest({ truth_passed: true, structure_passed: true, mechanical_passed: true, mechanical_report_digest: canonicalInputDigest(craftDefinition) }),
 };
 const craftEvaluation = evaluateCraftProposal(craftContext);
 const craftReport = {
@@ -169,15 +176,29 @@ function revisionRequest(state: "submitted" | "generating") {
   };
 }
 
-type ConformanceBlockCategory = "confirmed_fact_snapshot" | "job_description" | "general_resume_definition" | "job_analysis" | "evidence_matrix" | "job_evidence_summary" | "revision_instruction" | "evidence_annotations" | "quality_policy" | "resume_strategy" | "target_fit_policy" | "target_fit_analysis" | "deterministic_findings" | "craft_gate_policy" | "craft_quality_report" | "craft_repair_scope";
+type ConformanceBlockCategory = "confirmed_fact_snapshot" | "job_description" | "general_resume_definition" | "job_analysis" | "evidence_matrix" | "job_evidence_summary" | "revision_instruction" | "evidence_annotations" | "quality_policy" | "resume_strategy" | "target_fit_policy" | "target_fit_analysis" | "deterministic_findings" | "craft_anchor_evidence" | "craft_gate_policy" | "craft_quality_report" | "craft_repair_scope";
 
 function block(category: ConformanceBlockCategory, schemaId: string, data: unknown) {
   return { category, content_digest: canonicalInputDigest(data), schema_id: schemaId, schema_version: 1 as const, data };
 }
 
-export const RESUME_MODEL_CONFORMANCE_CORPUS_VERSION = 1 as const;
+export const RESUME_MODEL_CONFORMANCE_BINDING = {
+  binding_version: 2 as const,
+  evidence_scope: "controlled_provider_conformance" as const,
+  quality_standard_revision: 3 as const,
+  quality_standard_digest: RESUME_QUALITY_POLICY_IDENTITY.quality_standard_digest,
+  prompt_policy_id: RESUME_PROMPT_POLICY_ID,
+  prompt_policy_version: RESUME_PROMPT_POLICY_VERSION,
+  prompt_policy_digest: CORRECTED_PROMPT_POLICY_DIGEST,
+  evaluator_contract_digest: PRODUCT_CRAFT_EVALUATOR.binding_digest,
+  craft_report_schema_id: CORRECTED_CRAFT_REPORT_SCHEMA_ID,
+  craft_report_schema_digest: CORRECTED_CRAFT_REPORT_SCHEMA_DIGEST,
+} as const;
+
+export const RESUME_MODEL_CONFORMANCE_CORPUS_VERSION = 2 as const;
 export const RESUME_MODEL_CONFORMANCE_CORPUS_DIGEST = canonicalInputDigest({
   corpus_version: RESUME_MODEL_CONFORMANCE_CORPUS_VERSION,
+  binding: RESUME_MODEL_CONFORMANCE_BINDING,
   facts,
   generalDefinition,
   jobDescription,
@@ -193,6 +214,7 @@ export function conformanceBlocks(purpose: InferencePurpose) {
       block("general_resume_definition", "resume.definition.v1", craftDefinition),
       block("resume_strategy", "resume.strategy-record.v1", craftStrategy),
       block("deterministic_findings", "resume.craft-deterministic-gates.v1", { truth_passed: true, structure_passed: true, mechanical_passed: true, mechanical_report_digest: canonicalInputDigest(craftDefinition) }),
+      block("craft_anchor_evidence", "resume.craft-anchor-evidence.v1", extractCraftAnchorEvidence(craftContext)),
       block("craft_gate_policy", "resume.craft-gate-policy.v1", CRAFT_EVIDENCE_LIMITED_POLICY),
     ];
     if (purpose === "resume_craft_repair") {
@@ -241,5 +263,5 @@ export function conformanceBlocks(purpose: InferencePurpose) {
 }
 
 export function conformanceCorpusDigest(purpose: InferencePurpose): string {
-  return canonicalInputDigest({ corpus_version: RESUME_MODEL_CONFORMANCE_CORPUS_VERSION, purpose, blocks: conformanceBlocks(purpose) });
+  return canonicalInputDigest({ corpus_version: RESUME_MODEL_CONFORMANCE_CORPUS_VERSION, binding: RESUME_MODEL_CONFORMANCE_BINDING, purpose, blocks: conformanceBlocks(purpose) });
 }

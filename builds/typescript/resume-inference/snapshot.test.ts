@@ -4,15 +4,74 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { canonicalInputDigest } from "../app-platform/contracts/common.js";
 import { ResumeDomainService } from "../resume-domain/service.js";
 import { ResumeDataStore } from "../resume-domain/store.js";
 import { authority, definitionInput, ownerDecision, proposalInput, testGrant } from "../resume-domain/test-helpers.js";
+import { synthesizeResumeE2eResult } from "./e2e-fixture.js";
 import { ImmutableInferenceSnapshotBuilder } from "./snapshot.js";
 
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
 describe("immutable inference snapshot", () => {
+  it("canonicalizes equivalent strategy invocation permutations before snapshot digests and blocks", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-inference-canonical-")); roots.push(root);
+    const store = new ResumeDataStore(root, undefined, {}, false);
+    const grant = testGrant({ capabilities: [...testGrant().capabilities, "app.inference.request"] });
+    await store.initialize(grant.owner_id);
+    const service = new ResumeDomainService(store);
+    const confirmedJobs = [];
+    for (const [title, startDate, endDate] of [["Earlier", "2018", "2020"], ["Current", "2021", "Present"]]) {
+      const value = JSON.stringify({ format: "resume_job_v1", title, employer: "Synthetic Org", start_date: startDate, end_date: endDate });
+      const proposed = await service.proposeFact({ ...proposalInput(value), fact: { ...proposalInput().fact, fact_kind: "employment" as const, value } }, authority("career.facts.propose"));
+      const confirmAuthority = authority("career.facts.confirm");
+      confirmedJobs.push((await service.confirmFact({ fact_record_id: proposed.fact.metadata.record_id, fact_revision_id: proposed.fact.metadata.revision_id, expected_revision: 1, decision: "accept", edited_value: null, review_note: null }, confirmAuthority, ownerDecision(confirmAuthority, proposed.fact.metadata.revision_id))).fact);
+    }
+    const coverage = [];
+    for (const jobFact of confirmedJobs) {
+      coverage.push((await service.writeJobEvidenceCoverage({ action: "initialize", job_fact_revision_id: jobFact.metadata.revision_id }, authority("resume.definitions.write"))).coverage);
+    }
+    const builder = new ImmutableInferenceSnapshotBuilder(store, () => new Date("2026-08-11T12:00:00.000Z"));
+    const build = (factRevisionIds: string[], coverageRevisionIds: string[]) => builder.build({
+      inference_contract_version: 1,
+      purpose: "resume_strategy",
+      operation_id: crypto.randomUUID(),
+      fact_revision_ids: factRevisionIds,
+      record_revision_ids: coverageRevisionIds,
+    }, grant);
+    const forward = await build(confirmedJobs.map((jobFact) => jobFact.metadata.revision_id), coverage.map((record) => record.metadata.revision_id));
+    const reverse = await build(confirmedJobs.map((jobFact) => jobFact.metadata.revision_id).reverse(), coverage.map((record) => record.metadata.revision_id).reverse());
+    const duplicated = await build(confirmedJobs.flatMap((jobFact) => [jobFact.metadata.revision_id, jobFact.metadata.revision_id]), coverage.flatMap((record) => [record.metadata.revision_id, record.metadata.revision_id]));
+    expect(reverse.input_snapshot).toEqual(forward.input_snapshot);
+    expect(duplicated.input_snapshot).toEqual(forward.input_snapshot);
+    expect(canonicalInputDigest(reverse.data_blocks)).toBe(canonicalInputDigest(forward.data_blocks));
+    expect(canonicalInputDigest(duplicated.data_blocks)).toBe(canonicalInputDigest(forward.data_blocks));
+    const strategy = synthesizeResumeE2eResult("resume_strategy", forward.data_blocks);
+    const saved = await service.writeResumeStrategy({
+      kind: "resume_strategy",
+      fact_revision_ids: confirmedJobs.flatMap((jobFact) => [jobFact.metadata.revision_id, jobFact.metadata.revision_id]).reverse(),
+      coverage_revision_ids: coverage.flatMap((record) => [record.metadata.revision_id, record.metadata.revision_id]).reverse(),
+      target_revision_id: null,
+      presentation_preferences: {},
+      strategy,
+      inference_binding: {
+        prompt_policy_id: forward.prompt_policy_id,
+        prompt_policy_version: forward.prompt_policy_version,
+        input_digest: canonicalInputDigest(forward.data_blocks),
+        output_digest: canonicalInputDigest(strategy),
+        provider_profile_id: "synthetic-resume-e2e",
+        model_id: "deterministic-fixture-v1",
+      },
+    }, authority("resume.definitions.write"));
+    expect(saved.strategy).toMatchObject({
+      fact_revision_ids: (forward.data_blocks[0]!.data as { facts: Array<{ revision_id: string }> }).facts.map((fact) => fact.revision_id),
+      coverage_revision_ids: forward.data_blocks.filter((block) => block.category === "coverage_summary").map((block) => (block.data as { metadata: { revision_id: string } }).metadata.revision_id),
+      input_digest: canonicalInputDigest(forward.data_blocks),
+      output_digest: canonicalInputDigest(strategy),
+    });
+  });
+
   it("reads exact confirmed revisions and never resolves a provider or path", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-inference-snapshot-")); roots.push(root);
     const store = new ResumeDataStore(root, undefined, {}, false);

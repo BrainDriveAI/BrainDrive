@@ -3,16 +3,18 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import { assertContentFreeAudit, AuditEventSchema } from "../app-platform/contracts/audit.js";
-import { OpaqueIdSchema } from "../app-platform/contracts/common.js";
-import { JobEvidenceValueSchema } from "../app-platform/contracts/data.js";
+import { canonicalInputDigest, OpaqueIdSchema } from "../app-platform/contracts/common.js";
+import { JobEvidenceValueSchema, TailoredVariantRecordSchema } from "../app-platform/contracts/data.js";
 import { CapabilityNameSchema } from "../app-platform/contracts/package.js";
 import type { CapabilityGrant } from "../app-platform/lifecycle/store.js";
-import { CareerPlacementAdapter, type CareerReturnSummary } from "./career.js";
+import { buildCareerReturnSummary, CareerPlacementAdapter, type CareerReturnSummary } from "./career.js";
 import { ResumeDomainError } from "./errors.js";
 import { ResumeDomainService, type DataAuthority } from "./service.js";
 import type { ResumeExportBroker } from "../resume-renderer/export-broker.js";
 import type { HostOwnerDecisionEvidence } from "./career-data.js";
 import { FactDecisionInputSchema } from "./career-data.js";
+import { CRAFT_EVIDENCE_LIMITED_POLICY, craftDefinitionDigest } from "../resume-inference/craft-evaluator.js";
+import { adjudicateResumeQualityState, projectResumeOwnerReview } from "./quality-state.js";
 import {
   RestrictedCapabilityAuthoritySchema,
   ResumeCapabilityPolicy,
@@ -84,6 +86,17 @@ const CraftRepairCapabilityInputSchema = z.object({
   source_report_revision_id: z.string().uuid(),
   repair: z.record(z.string(), z.unknown()),
   inference_binding: z.record(z.string(), z.unknown()),
+}).strict();
+const CraftRepairFailureCapabilityInputSchema = z.object({
+  kind: z.literal("craft_repair_failure"),
+  source_definition_revision_id: z.string().uuid(),
+  source_report_revision_id: z.string().uuid(),
+  failure_class: z.enum(["provider", "schema", "cancelled"]),
+  prompt_policy_id: z.string().min(1),
+  prompt_policy_version: z.string().min(1),
+  provider_profile_id: z.string().min(1),
+  model_id: z.string().min(1),
+  input_digest: z.string().regex(/^sha256:[0-9a-f]{64}$/),
 }).strict();
 const GroupFactConfirmationCapabilityInputSchema = z.object({ decisions: z.array(FactDecisionInputSchema).min(1).max(100) }).strict();
 const DefinitionApprovalCapabilityInputSchema = z.object({ kind: z.literal("approve_definition"), definition_record_id: z.string().uuid(), expected_revision: z.number().int().positive(), craft_report_revision_id: z.string().uuid().optional() }).strict();
@@ -169,11 +182,14 @@ export class ResumeCapabilityRouter {
           const targetFit = TargetFitCapabilityInputSchema.safeParse(input);
           const craftQuality = CraftQualityCapabilityInputSchema.safeParse(input);
           const craftRepair = CraftRepairCapabilityInputSchema.safeParse(input);
+          const craftRepairFailure = CraftRepairFailureCapabilityInputSchema.safeParse(input);
           const approval = DefinitionApprovalCapabilityInputSchema.safeParse(input);
           const revisionRequest = RevisionRequestCapabilityInputSchema.safeParse(input);
           const revisionOutcome = RevisionOutcomeCapabilityInputSchema.safeParse(input);
           const revisionProposal = RevisionProposalCapabilityInputSchema.safeParse(input);
-          result = craftRepair.success
+          result = craftRepairFailure.success
+            ? await this.domain.writeCraftRepairFailure(craftRepairFailure.data, authority)
+            : craftRepair.success
             ? await this.domain.writeCraftRepair(craftRepair.data, authority)
             : craftQuality.success
             ? await this.domain.writeCraftQualityReport(craftQuality.data, authority)
@@ -254,20 +270,38 @@ export class ResumeCapabilityRouter {
 
   async placeCareerReturn(summary: CareerReturnSummary, entryPoint: "direct" | "career", operationId: string, grant: CapabilityGrant): Promise<{ placement: "career_journal" | "none"; committed: boolean; reused: boolean }> {
     if (entryPoint !== "career") return { placement: "none", committed: false, reused: false };
+    let expectedV2: CareerReturnSummary | null = null;
     if (summary.approved_reference) {
       const approved = await this.domain.store.readRevision(summary.approved_reference.revision_id, grant.record_scopes);
       if (approved.metadata.record_id !== summary.approved_reference.record_id) throw new ResumeDomainError("validation_failed", "Career return approved reference is invalid");
       if (summary.approved_reference.kind === "general_resume") {
         if (approved.record_type !== "resume_definition" || approved.definition_kind !== "general" || approved.status !== "approved") throw new ResumeDomainError("validation_failed", "Career return approved reference is invalid");
+        if (summary.summary_version === 2 && craftDefinitionDigest(approved) !== summary.approved_reference.definition_digest) throw new ResumeDomainError("validation_failed", "Career return approved definition digest is invalid");
+        if (summary.summary_version === 2) expectedV2 = buildCareerReturnSummary(approved, null, summary.updated_at);
       } else {
         if (approved.record_type !== "tailored_variant") throw new ResumeDomainError("validation_failed", "Career return approved reference is invalid");
         const targeted = await this.domain.store.readRevision(approved.targeted_definition_revision_id, grant.record_scopes);
         if (targeted.record_type !== "resume_definition" || targeted.definition_kind !== "targeted" || targeted.status !== "approved") throw new ResumeDomainError("validation_failed", "Career return approved reference is invalid");
+        if (summary.summary_version === 2 && craftDefinitionDigest(targeted) !== summary.approved_reference.definition_digest) throw new ResumeDomainError("validation_failed", "Career return approved definition digest is invalid");
+        if (summary.summary_version === 2) expectedV2 = buildCareerReturnSummary(targeted, approved, summary.updated_at);
       }
     }
-    for (const proposal of summary.stable_fact_proposals) {
-      const fact = await this.domain.store.readRevision(proposal.fact_revision_id, grant.record_scopes);
-      if (fact.record_type !== "career_fact" || fact.metadata.record_id !== proposal.fact_record_id || fact.state !== "confirmed") throw new ResumeDomainError("validation_failed", "Career return stable fact proposal is invalid");
+    if (summary.summary_version === 2) {
+      if (!expectedV2 || canonicalInputDigest(expectedV2) !== canonicalInputDigest(summary)) {
+        throw new ResumeDomainError("validation_failed", "Career return quality metadata does not match the approved definition");
+      }
+      if (summary.craft_report_reference) {
+        const report = await this.domain.store.readRevision(summary.craft_report_reference.revision_id, grant.record_scopes);
+        if (report.record_type !== "craft_quality_report" || report.report_version !== 2 || report.report_digest !== summary.craft_report_reference.report_digest) {
+          throw new ResumeDomainError("validation_failed", "Career return craft report reference is invalid");
+        }
+      }
+    }
+    if (summary.summary_version === 1) {
+      for (const proposal of summary.stable_fact_proposals) {
+        const fact = await this.domain.store.readRevision(proposal.fact_revision_id, grant.record_scopes);
+        if (fact.record_type !== "career_fact" || fact.metadata.record_id !== proposal.fact_record_id || fact.state !== "confirmed") throw new ResumeDomainError("validation_failed", "Career return stable fact proposal is invalid");
+      }
     }
     return this.career.placeReturn(summary, operationId);
   }
@@ -319,7 +353,7 @@ export class ResumeCapabilityRouter {
         this.domain.store.list("artifact_parity_report", authority.grant.record_scopes),
       ]);
       return {
-        workspace_version: 3,
+        workspace_version: 4,
         definitions,
         definition_history: allHistory.filter((record) => record.record_type === "resume_definition"),
         variants,
@@ -335,6 +369,78 @@ export class ResumeCapabilityRouter {
         craft_quality_reports: craftQualityReports,
         craft_repair_operations: craftRepairOperations,
         artifact_parity_reports: artifactParityReports,
+        quality_reviews: await Promise.all(definitions
+          .filter((definition) => definition.record_type === "resume_definition")
+          .map(async (definition) => {
+            const persuasive = definition.approval_evidence?.persuasive_quality;
+            const reportRevisionId = persuasive?.contract_version === 2
+              ? persuasive.craft_report_revision_id
+              : definition.status === "proposed"
+                ? craftQualityReports
+                    .filter((report) => report.record_type === "craft_quality_report" && report.proposal_definition_revision_id === definition.metadata.revision_id)
+                    .sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at))[0]?.metadata.revision_id ?? null
+                : null;
+            const report = reportRevisionId
+              ? craftQualityReports.find((candidate) => candidate.record_type === "craft_quality_report" && candidate.metadata.revision_id === reportRevisionId) ?? null
+              : null;
+            const correctedReport = report?.record_type === "craft_quality_report" && report.report_version === 2 ? report : null;
+            const qualityState = definition.status === "approved"
+              ? persuasive?.contract_version === 2 ? "owner_approved" as const : "pre_correction_review" as const
+              : adjudicateResumeQualityState({
+                  definition_status: definition.status,
+                  approval_contract_version: null,
+                  deterministic_truth_passed: true,
+                  deterministic_structure_passed: true,
+                  deterministic_mechanical_passed: true,
+                  review_disposition: report === null ? "not_run" : correctedReport ? "available" : "incompatible",
+                  bindings_current: correctedReport?.proposal_definition_revision_id === definition.metadata.revision_id,
+                  report: correctedReport ? {
+                    report_version: 2,
+                    evidence_context: correctedReport.evidence_context,
+                    verdict: correctedReport.verdict,
+                    criterion_verdicts: correctedReport.criterion_verdicts,
+                    findings: correctedReport.findings,
+                  } : null,
+                  evidence_limited_policy: CRAFT_EVIDENCE_LIMITED_POLICY,
+                });
+            const correctionEnvelope = correctedReport && definition.status === "proposed"
+              ? await this.domain.craftRepairEnvelope(correctedReport, authority)
+              : null;
+            const correctionAction = correctionEnvelope?.correction_action ?? null;
+            const presentation = projectResumeOwnerReview(qualityState, correctionAction);
+            const evidenceById = new Map((correctedReport?.criterion_verdicts ?? []).flatMap((criterion) => criterion.evidence_refs).map((reference) => [reference.evidence_ref_id, reference]));
+            const findings = (correctedReport?.findings ?? []).map((finding) => ({
+              criterion: finding.criterion,
+              message: finding.safe_message,
+              evidence: finding.evidence_ref_ids.map((id) => evidenceById.get(id)).filter((reference) => reference !== undefined).map((reference) => ({
+                kind: reference.kind,
+                statement_id: reference.statement_id,
+                revision_id: reference.revision_id,
+                anchor_id: reference.anchor_id,
+                absence: reference.absence_code ? reference.absence_code.replaceAll("_", " ") : null,
+              })),
+            }));
+            return {
+              definition_revision_id: definition.metadata.revision_id,
+              report_revision_id: correctedReport?.metadata.revision_id ?? null,
+              report_digest: correctedReport?.report_digest ?? null,
+              correction_action: correctionAction,
+              repair_scope: correctionEnvelope?.repair_scope ?? null,
+              repair_input_digest: correctionEnvelope?.repair_input_digest ?? null,
+              ...presentation,
+              blocking_findings: findings.filter((_, index) => correctedReport?.findings[index]?.severity === "blocking"),
+              secondary_guidance: findings.filter((_, index) => correctedReport?.findings[index]?.severity === "guidance"),
+              career_return_summary: definition.status === "approved"
+                  ? buildCareerReturnSummary(
+                    definition,
+                    definition.definition_kind === "targeted"
+                      ? TailoredVariantRecordSchema.parse(variants.find((variant) => variant.record_type === "tailored_variant" && variant.targeted_definition_revision_id === definition.metadata.revision_id))
+                      : null,
+                    definition.approved_at ?? definition.updated_at,
+                  )
+                : null,
+            };
+          })),
       };
     }
     return this.domain.readRecords("resume_definition", authority);
@@ -499,7 +605,7 @@ export class ResumeCapabilityRouter {
     if (value.kind === "resume_strategy") return "app.resume_strategy.completed";
     if (value.kind === "target_fit_analysis") return "app.resume_target_fit.completed";
     if (value.kind === "craft_quality_report") return "app.resume_craft.evaluated";
-    if (value.kind === "craft_repair") return "app.resume_craft.repaired";
+    if (value.kind === "craft_repair" || value.kind === "craft_repair_failure") return "app.resume_craft.repaired";
     if (value.kind === "interview_progress" || value.kind === "interview_progress_submit") {
       const progress = value.progress && typeof value.progress === "object" && !Array.isArray(value.progress) ? value.progress as Record<string, unknown> : {};
       if (progress.active_job_fact_revision_id && progress.job_dimension && progress.selection_method) return "app.resume_interview.question_selected";
@@ -571,7 +677,23 @@ export class ResumeCapabilityRouter {
       const rawResult = result && typeof result === "object" && !Array.isArray(result) ? result as Record<string, unknown> : {};
       const operation = rawResult.operation && typeof rawResult.operation === "object" && !Array.isArray(rawResult.operation) ? rawResult.operation as Record<string, unknown> : {};
       const metadata = operation.metadata && typeof operation.metadata === "object" && !Array.isArray(operation.metadata) ? operation.metadata as Record<string, unknown> : {};
-      return { operation_revision_id: metadata.revision_id ?? null, operation_digest: operation.operation_digest ?? null, repair_result: operation.result ?? null, attempt: operation.attempt ?? null, change_count: Array.isArray(operation.statement_scope_ids) ? operation.statement_scope_ids.length : null };
+      return {
+        operation_revision_id: metadata.revision_id ?? null,
+        operation_digest: operation.operation_digest ?? null,
+        correction_action: operation.action ?? "repair_statement",
+        correction_class: operation.correction_class ?? (Array.isArray(operation.allowed_correction_classes) ? operation.allowed_correction_classes[0] : null),
+        repair_result: operation.result ?? null,
+        correction_transition: operation.transition ?? null,
+        recovery_reason: operation.recovery_reason ?? null,
+        attempt: operation.attempt ?? null,
+        change_count: Array.isArray(operation.statement_scope_ids) ? operation.statement_scope_ids.length : null,
+        source_definition_revision_id: operation.source_definition_revision_id ?? null,
+        source_report_revision_id: operation.source_report_revision_id ?? null,
+        successor_definition_revision_id: operation.successor_definition_revision_id ?? null,
+        successor_report_revision_id: operation.successor_report_revision_id ?? null,
+        input_digest: operation.input_digest ?? null,
+        output_digest: operation.output_digest ?? null,
+      };
     }
     if (eventName.startsWith("app.resume_revision.")) {
       const rawInput = input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};

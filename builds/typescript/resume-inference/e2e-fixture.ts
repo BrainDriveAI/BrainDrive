@@ -3,11 +3,19 @@ import { randomUUID } from "node:crypto";
 import type { ModelAdapter, StructuredCompletionRequest } from "../adapters/base.js";
 import type { InferencePurpose } from "../app-platform/contracts/inference.js";
 import type { ResolvedInferenceProvider } from "./compatibility.js";
+import {
+  buildEvidenceAnnotations,
+  canonicalSectionOrder,
+  canonicalizeEvidenceAnnotations,
+  canonicalizeFacts,
+  canonicalizeStrategyResult,
+  sectionForFact,
+} from "./strategy.js";
 import { craftContextFromBlocks, evaluateCraftProposal } from "./craft-evaluator.js";
 import { decideTargetFit, TARGET_FIT_THRESHOLD_POLICY } from "./target-fit.js";
 
 type DataBlock = { category?: string; data?: unknown };
-type ConfirmedFact = { revision_id: string; fact_kind?: string; value: string };
+type ConfirmedFact = { revision_id: string; fact_kind: string; value: string };
 type StructuredJob = { format: "resume_job_v1"; title: string; employer: string; location?: string; start_date?: string; end_date?: string; responsibilities?: string };
 type StructuredAccomplishment = { format: "resume_accomplishment_v1"; job_fact_revision_id: string; text: string };
 type StructuredJobEvidence = { value_version: 1; association: "job" | "general"; job_fact_revision_id: string | null; dimension: string; outcome: "answered" | "skipped" | "unknown" | "not_applicable" | "complete_for_now"; owner_text: string };
@@ -40,7 +48,7 @@ function statement(sectionId: string, text: string, supportingIds: string[]) {
 }
 
 export function synthesizeResumeE2eResult(purpose: InferencePurpose, blocks: DataBlock[]): unknown {
-  const facts = blockData<{ facts: ConfirmedFact[] }>(blocks, "confirmed_fact_snapshot").facts;
+  const facts = canonicalizeFacts(blockData<{ facts: ConfirmedFact[] }>(blocks, "confirmed_fact_snapshot").facts);
   const firstFact = facts[0];
   switch (purpose) {
     case "interview_assist":
@@ -58,18 +66,9 @@ export function synthesizeResumeE2eResult(purpose: InferencePurpose, blocks: Dat
       }
     case "general_resume_draft":
       {
-      const sectionFor = (fact: ConfirmedFact) => {
-        if (fact.fact_kind === "contact") return fact.value.startsWith("Professional link:") ? "links" : "contact";
-        if (fact.fact_kind === "employment" || fact.fact_kind === "accomplishment") return "experience";
-        if (fact.fact_kind === "education") return "education";
-        if (fact.fact_kind === "credential") return "certifications";
-        if (fact.fact_kind === "skill") return "skills";
-        if (fact.fact_kind === "project") return fact.value.startsWith("Leadership or volunteer:") ? "leadership" : "projects";
-        return "experience";
-      };
       const resumeFacts = facts.filter((fact) => fact.fact_kind !== "preference");
       const strategy = blocks.find((block) => block.category === "resume_strategy")?.data as { summary_decision?: string; section_order?: string[]; omissions?: Array<{ fact_revision_id?: string }> } | undefined;
-      const plannedOmissions = new Set((strategy?.omissions ?? []).map((item) => item.fact_revision_id));
+      const plannedOmissions = new Set((strategy?.omissions ?? []).flatMap((item) => typeof item.fact_revision_id === "string" ? [item.fact_revision_id] : []));
       const statements: ReturnType<typeof statement>[] = [];
       for (const fact of resumeFacts) {
         if (plannedOmissions.has(fact.revision_id)) continue;
@@ -86,7 +85,7 @@ export function synthesizeResumeE2eResult(purpose: InferencePurpose, blocks: Dat
           if (jobEvidence.outcome !== "answered") continue;
           statements.push(statement(jobEvidence.association === "general" ? "skills" : "experience", jobEvidence.owner_text, [fact.revision_id]));
         } else {
-          statements.push(statement(sectionFor(fact), fact.value, [fact.revision_id]));
+          statements.push(statement(sectionForFact(fact) ?? "experience", fact.value, [fact.revision_id]));
         }
       }
       const firstJobFact = facts.find((fact) => fact.fact_kind === "employment");
@@ -98,13 +97,11 @@ export function synthesizeResumeE2eResult(purpose: InferencePurpose, blocks: Dat
         const contactIndex = statements.findIndex((candidate) => candidate.section_id === "contact");
         statements.splice(contactIndex < 0 ? 0 : contactIndex + 1, 0, statement("summary", summaryText, [firstJobFact.revision_id]));
       }
-      const acceptedOrder = ["contact", "summary", "experience", "education", "certifications", "skills", "projects", "leadership", "volunteer", "links"];
-      const sections = new Set(statements.map((statement) => statement.section_id));
       const contact = facts.find((fact) => fact.fact_kind === "contact" && !fact.value.startsWith("Professional link:"));
       return {
         title: contact?.value.split("|")[0]?.trim() || "Resume",
         statements,
-        section_order: strategy?.section_order ?? acceptedOrder.filter((section) => sections.has(section)),
+        section_order: strategy?.section_order ?? canonicalSectionOrder(resumeFacts, strategy?.summary_decision === "include" ? "include" : "omit", [...plannedOmissions]),
         omissions: strategy?.omissions ?? [],
       };
       }
@@ -172,40 +169,28 @@ export function synthesizeResumeE2eResult(purpose: InferencePurpose, blocks: Dat
     case "resume_guidance":
       return { guidance_version: 1, items: firstFact ? [{ category: "strong_evidence", evidence_revision_ids: [firstFact.revision_id], evidence_labels: ["Confirmed evidence"], message: "This confirmed evidence is specific and ready for review." }] : [], optional_questions: [] };
     case "resume_strategy": {
-      const annotations = blocks.find((block) => block.category === "evidence_annotations")?.data as { facts?: Array<{ fact_revision_id: string; evidence_class: string; job_fact_revision_id: string | null; required_priority: "must_use" | "preferred" | "context" }>; unresolved_gap_ids?: string[] } | undefined;
+      const suppliedAnnotations = blocks.find((block) => block.category === "evidence_annotations")?.data as ReturnType<typeof buildEvidenceAnnotations> | undefined;
+      const annotations = suppliedAnnotations ? canonicalizeEvidenceAnnotations(suppliedAnnotations) : buildEvidenceAnnotations(facts, []);
       const jobs = facts.filter((fact) => fact.fact_kind === "employment");
-      const sectionFor = (fact: typeof facts[number]) => {
-        if (fact.fact_kind === "contact") return fact.value.startsWith("Professional link:") ? "links" : "contact";
-        if (fact.fact_kind === "employment" || fact.fact_kind === "accomplishment") return "experience";
-        if (fact.fact_kind === "job_evidence") {
-          try { return JSON.parse(fact.value).association === "general" ? "skills" : "experience"; } catch { return "experience"; }
-        }
-        if (fact.fact_kind === "credential") return "certifications";
-        if (fact.fact_kind === "skill") return "skills";
-        if (fact.fact_kind === "project") return fact.value.startsWith("Leadership or volunteer:") ? "leadership" : "projects";
-        return fact.fact_kind;
-      };
-      const sections = [...new Set(facts.filter((fact) => fact.fact_kind !== "preference").map(sectionFor))];
       const includeSummary = jobs.length >= 2;
-      const sectionOrder = sections.length ? sections : ["experience"];
-      if (includeSummary && !sectionOrder.includes("summary")) sectionOrder.splice(sectionOrder.indexOf("contact") >= 0 ? sectionOrder.indexOf("contact") + 1 : 0, 0, "summary");
-      return {
+      const result = {
         strategy_version: 1,
         history_shape: jobs.length <= 1 ? "early_career" : jobs.length >= 5 ? "senior_selective" : "chronological_standard",
         history_reason_code: jobs.length <= 1 ? "thin_history" : jobs.length >= 5 ? "senior_compression" : "standard_chronology",
         role_emphasis: jobs.map((job, index) => {
-          const evidenceCount = (annotations?.facts ?? []).filter((fact) => fact.job_fact_revision_id === job.revision_id && fact.evidence_class !== "role_identity").length;
+          const evidenceCount = annotations.facts.filter((fact) => fact.job_fact_revision_id === job.revision_id && fact.evidence_class !== "role_identity").length;
           return { job_fact_revision_id: job.revision_id, priority: index === 0 ? "primary" : index >= 3 ? "compressed" : "supporting", reason_code: index === 0 ? "recent" : index >= 3 ? "older_context" : "continuity", bullet_density: evidenceCount >= 4 ? "expanded" : evidenceCount >= 2 ? "standard" : "compact" };
         }),
-        section_order: sectionOrder,
-        evidence_priorities: (annotations?.facts ?? []).map((fact) => ({ fact_revision_id: fact.fact_revision_id, priority: fact.required_priority })),
-        summary_decision: includeSummary ? "include" : "omit",
+        section_order: canonicalSectionOrder(facts, includeSummary ? "include" : "omit"),
+        evidence_priorities: annotations.facts.map((fact) => ({ fact_revision_id: fact.fact_revision_id, priority: fact.required_priority })),
+        summary_decision: includeSummary ? "include" as const : "omit" as const,
         summary_reason_code: includeSummary ? "supported_positioning" : "insufficient_distinct_value",
         skills_context: facts.filter((fact) => fact.fact_kind === "skill").map((fact) => ({ skill_fact_revision_id: fact.revision_id, placement: "skills_section", context_fact_revision_ids: [] })),
         omissions: [],
-        unresolved_gap_ids: annotations?.unresolved_gap_ids ?? [],
+        unresolved_gap_ids: annotations.unresolved_gap_ids,
         owner_rationale: "Lead with the most recent supported experience and preserve every distinct confirmed evidence unit.",
       };
+      return canonicalizeStrategyResult(result, facts, annotations);
     }
     case "resume_craft_evaluate":
       return evaluateCraftProposal(craftContextFromBlocks(blocks.map((entry) => ({ category: entry.category ?? "", data: entry.data }))));

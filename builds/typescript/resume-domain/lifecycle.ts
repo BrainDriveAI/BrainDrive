@@ -108,7 +108,7 @@ export class ResumeDataLifecycleAdapter implements OwnerDataLifecycle, ResumeLif
     const parsed = ResumeLifecycleDataAdapterRequestSchema.parse(request);
     if (parsed.action !== "migrate") throw new ResumeDomainError("invalid_input", "Lifecycle data action is invalid", 400);
     await this.requireSnapshot(parsed.context.owner_id, parsed.snapshot_id, parsed.from_schema_version);
-    if (!((parsed.from_schema_version === 1 && parsed.to_schema_version === RESUME_DATA_SCHEMA_VERSION) || (parsed.from_schema_version === RESUME_DATA_SCHEMA_VERSION && parsed.to_schema_version === RESUME_DATA_SCHEMA_VERSION))) {
+    if (!(parsed.from_schema_version >= 1 && parsed.from_schema_version <= RESUME_DATA_SCHEMA_VERSION && parsed.to_schema_version === RESUME_DATA_SCHEMA_VERSION)) {
       throw new ResumeDomainError("incompatible_schema", "No accepted deterministic Resume Builder migration exists for this schema pair", 409);
     }
     const identity = await this.requireIdentity();
@@ -129,7 +129,7 @@ export class ResumeDataLifecycleAdapter implements OwnerDataLifecycle, ResumeLif
     const restoredRaw = JSON.parse(await readFile(temporary, "utf8")) as unknown;
     if (canonicalInputDigest(restoredRaw) !== metadata.snapshot_digest) throw new ResumeDomainError("validation_failed", "Recovery snapshot integrity check failed", 409);
     await rename(temporary, path.join(this.namespaceRoot, "catalog.json"));
-    const restoredSchemaVersion = z.union([z.literal(1), z.literal(RESUME_DATA_SCHEMA_VERSION)]).parse(metadata.schema_version);
+    const restoredSchemaVersion = z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(RESUME_DATA_SCHEMA_VERSION)]).parse(metadata.schema_version);
     const manifestTemporary = path.join(this.namespaceRoot, `manifest.${parsed.context.operation_id}.restore.json`);
     await writeFile(manifestTemporary, `${canonicalJson({
       manifest_version: 1,

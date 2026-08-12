@@ -5,6 +5,7 @@ import {
   OpaqueIdSchema,
   Sha256DigestSchema,
   TimestampSchema,
+  canonicalInputDigest,
 } from "./common.js";
 import { RESUME_INFERENCE_SCHEMA_VERSION, RESUME_BUILDER_APP_ID } from "./constants.js";
 import { ContractViolation } from "./errors.js";
@@ -17,7 +18,7 @@ import {
 } from "./data.js";
 import { ResumeEvidenceAnnotationsSchema, ResumeQualityPolicyIdentitySchema } from "../../resume-inference/strategy.js";
 import { TARGET_FIT_THRESHOLD_POLICY } from "../../resume-inference/target-fit.js";
-import { CRAFT_EVIDENCE_LIMITED_POLICY } from "../../resume-inference/craft-evaluator.js";
+import { CRAFT_EVIDENCE_LIMITED_POLICY, LEGACY_CRAFT_EVIDENCE_LIMITED_POLICY } from "../../resume-inference/craft-evaluator.js";
 
 export const InferencePurposeSchema = z.enum([
   "interview_assist",
@@ -47,7 +48,7 @@ export const PURPOSE_OUTPUT_SCHEMAS = {
   resume_revision_draft: "resume.revision-draft.v1",
   resume_guidance: "resume.guidance.v1",
   resume_strategy: "resume.strategy.v1",
-  resume_craft_evaluate: "resume.craft-evaluate.v1",
+  resume_craft_evaluate: "resume.craft-evaluate.v2",
   resume_craft_repair: "resume.craft-repair.v1",
 } as const satisfies Record<InferencePurpose, string>;
 
@@ -104,6 +105,7 @@ export const InferenceDataBlockSchema = z
       "craft_quality_report",
       "craft_repair_scope",
       "craft_gate_policy",
+      "craft_anchor_evidence",
       "evidence_annotations",
       "quality_policy",
       "target_fit_policy",
@@ -131,24 +133,67 @@ export const InferenceDataBlockSchema = z
         material_change_minimum: z.literal(1),
         score_free: z.literal(true),
       }).strict(),
-      craft_repair_scope: z.object({
-        scope_version: z.literal(1),
-        source_definition_revision_id: OpaqueIdSchema,
-        source_report_revision_id: OpaqueIdSchema,
-        statement_scope_ids: z.array(OpaqueIdSchema).min(1).max(500),
-        allowed_correction_classes: z.array(CraftCorrectionClassSchema).min(1).max(7),
-        attempt: z.literal(1),
-      }).strict(),
-      craft_gate_policy: z.object({
-        policy_id: z.literal(CRAFT_EVIDENCE_LIMITED_POLICY.policy_id),
-        policy_version: z.literal(CRAFT_EVIDENCE_LIMITED_POLICY.policy_version),
-        authority_status: z.literal("provisional_planning_default"),
-        required_relative_criteria: z.tuple([z.literal("C1"), z.literal("C2"), z.literal("C3")]),
-        require_no_must_use_omission: z.literal(true),
-        require_optional_gap_guidance: z.literal(true),
-        bypass_allowed: z.literal(false),
-        score_free: z.literal(true),
-      }).strict(),
+      craft_repair_scope: z.union([
+        z.object({
+          scope_version: z.literal(1),
+          source_definition_revision_id: OpaqueIdSchema,
+          source_report_revision_id: OpaqueIdSchema,
+          statement_scope_ids: z.array(OpaqueIdSchema).min(1).max(500),
+          allowed_correction_classes: z.array(CraftCorrectionClassSchema).min(1).max(7),
+          attempt: z.literal(1),
+        }).strict(),
+        z.object({
+          scope_version: z.literal(2),
+          source_definition_revision_id: OpaqueIdSchema,
+          source_report_revision_id: OpaqueIdSchema,
+          statement_scope_ids: z.array(OpaqueIdSchema).min(1).max(500),
+          correction_class: CraftCorrectionClassSchema,
+          attempt: z.literal(1),
+        }).strict(),
+      ]),
+      craft_gate_policy: z.union([
+        z.object({
+          policy_id: z.literal(CRAFT_EVIDENCE_LIMITED_POLICY.policy_id),
+          policy_version: z.literal(CRAFT_EVIDENCE_LIMITED_POLICY.policy_version),
+          authority_status: z.literal("accepted_implementation_blocker"),
+          ordinary_product_craft_passage_allowed: z.literal(false),
+          owner_approval_allowed: z.literal(false),
+          release_ready_allowed: z.literal(false),
+          score_free: z.literal(true),
+        }).strict(),
+        z.object({
+          policy_id: z.literal(LEGACY_CRAFT_EVIDENCE_LIMITED_POLICY.policy_id),
+          policy_version: z.literal(LEGACY_CRAFT_EVIDENCE_LIMITED_POLICY.policy_version),
+          authority_status: z.literal(LEGACY_CRAFT_EVIDENCE_LIMITED_POLICY.authority_status),
+          required_relative_criteria: z.tuple([z.literal("C1"), z.literal("C2"), z.literal("C3")]),
+          require_no_must_use_omission: z.literal(true),
+          require_optional_gap_guidance: z.literal(true),
+          bypass_allowed: z.literal(false),
+          score_free: z.literal(true),
+        }).strict(),
+      ]),
+      craft_anchor_evidence: z.object({
+        extraction_version: z.literal(1),
+        definition_revision_id: OpaqueIdSchema,
+        strategy_revision_id: OpaqueIdSchema,
+        anchors: z.array(z.object({
+          anchor_id: OpaqueIdSchema,
+          anchor_kind: z.enum(["professional_identity", "contact", "experience_heading", "experience_evidence", "education", "skill_usage", "strategy_evidence_priority"]),
+          section_id: NonEmptyStringSchema.nullable(),
+          statement_id: OpaqueIdSchema.nullable(),
+          ordinal: z.number().int().nonnegative(),
+          fact_revision_ids: z.array(OpaqueIdSchema).max(500),
+          content_digest: Sha256DigestSchema,
+          evidence_digest: Sha256DigestSchema,
+        }).strict()).max(1_000),
+        criterion_inputs: z.array(z.object({ criterion: z.enum(["C1", "C2", "C3"]), anchor_ids: z.array(OpaqueIdSchema).max(1_000) }).strict()).length(3),
+        extraction_digest: Sha256DigestSchema,
+      }).strict().superRefine((anchorEvidence, anchorContext) => {
+        const { extraction_digest: _digest, ...body } = anchorEvidence;
+        if (anchorEvidence.extraction_digest !== canonicalInputDigest(body)) anchorContext.addIssue({ code: "custom", path: ["extraction_digest"], message: "craft anchor evidence digest mismatch" });
+        const ids = new Set(anchorEvidence.anchors.map((anchor) => anchor.anchor_id));
+        if (ids.size !== anchorEvidence.anchors.length || anchorEvidence.criterion_inputs.some((entry) => entry.anchor_ids.some((id) => !ids.has(id)))) anchorContext.addIssue({ code: "custom", message: "craft anchor identities are invalid" });
+      }),
     };
     const schema = schemas[value.category];
     if (schema && !schema.safeParse(value.data).success) context.addIssue({ code: "custom", path: ["data"], message: "data block does not match its category contract" });

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { ModelCompatibilityRegistry, VERSIONED_MODEL_COMPATIBILITY_ENTRIES } from "./compatibility.js";
 import { PURPOSE_OUTPUT_SCHEMAS } from "../app-platform/contracts/inference.js";
-import { conformanceCorpusDigest, RESUME_MODEL_CONFORMANCE_CORPUS_DIGEST } from "./conformance-corpus.js";
+import { conformanceCorpusDigest, RESUME_MODEL_CONFORMANCE_BINDING, RESUME_MODEL_CONFORMANCE_CORPUS_DIGEST } from "./conformance-corpus.js";
 import { RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION } from "./policy.js";
 
 function entry(provider: string, model: string) {
@@ -16,6 +16,28 @@ function entry(provider: string, model: string) {
 }
 
 describe("model compatibility registry", () => {
+  it("invalidates craft-evaluator conformance from the prior prompt and result policies", () => {
+    const base = entry("ollama", "local-model");
+    const currentCraft = {
+      ...base,
+      purpose: "resume_craft_evaluate" as const,
+      output_schema_id: PURPOSE_OUTPUT_SCHEMAS.resume_craft_evaluate,
+    };
+    const registry = new ModelCompatibilityRegistry([
+      { ...currentCraft, prompt_policy_version: "7" },
+      currentCraft,
+    ]);
+    expect(RESUME_PROMPT_POLICY_VERSION).toBe("8");
+    expect(RESUME_MODEL_CONFORMANCE_BINDING.prompt_policy_digest).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(RESUME_MODEL_CONFORMANCE_BINDING.evaluator_contract_digest).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(RESUME_MODEL_CONFORMANCE_BINDING.craft_report_schema_digest).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(PURPOSE_OUTPUT_SCHEMAS.resume_craft_evaluate).toBe("resume.craft-evaluate.v2");
+    expect(registry.require("ollama", "local-model", "resume_craft_evaluate")).toMatchObject({
+      prompt_policy_version: "8",
+      output_schema_id: "resume.craft-evaluate.v2",
+    });
+  });
+
   it("admits the effective BrainDrive Models alias only for its conformance-backed purposes", () => {
     const changedOrFoundationOnly = Object.keys(PURPOSE_OUTPUT_SCHEMAS) as Array<keyof typeof PURPOSE_OUTPUT_SCHEMAS>;
     expect(VERSIONED_MODEL_COMPATIBILITY_ENTRIES).toHaveLength(0);

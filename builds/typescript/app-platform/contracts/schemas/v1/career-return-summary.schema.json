@@ -1,30 +1,141 @@
 {
   "$id": "https://schemas.braindrive.ai/resume-builder/v1/career-return-summary.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
-  "properties": {
-    "summary_version": {
-      "type": "number",
-      "const": 1
+  "anyOf": [
+    {
+      "type": "object",
+      "properties": {
+        "summary_version": {
+          "type": "number",
+          "const": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "not_started",
+            "in_progress",
+            "review_needed",
+            "completed",
+            "blocked"
+          ]
+        },
+        "outcome_summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "approved_reference": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "general_resume",
+                    "tailored_variant"
+                  ]
+                },
+                "record_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "revision_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "safe_label": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                }
+              },
+              "required": [
+                "kind",
+                "record_id",
+                "revision_id",
+                "safe_label"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stable_fact_proposals": {
+          "maxItems": 25,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "fact_record_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "fact_revision_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "safe_summary": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "proposed_placement": {
+                "type": "string",
+                "const": "owner_profile"
+              }
+            },
+            "required": [
+              "fact_record_id",
+              "fact_revision_id",
+              "safe_summary",
+              "proposed_placement"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "next_career_action": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 512
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        }
+      },
+      "required": [
+        "summary_version",
+        "status",
+        "outcome_summary",
+        "approved_reference",
+        "stable_fact_proposals",
+        "next_career_action",
+        "updated_at"
+      ],
+      "additionalProperties": false
     },
-    "status": {
-      "type": "string",
-      "enum": [
-        "not_started",
-        "in_progress",
-        "review_needed",
-        "completed",
-        "blocked"
-      ]
-    },
-    "outcome_summary": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 1024
-    },
-    "approved_reference": {
-      "anyOf": [
-        {
+    {
+      "type": "object",
+      "properties": {
+        "summary_version": {
+          "type": "number",
+          "const": 2
+        },
+        "approved_reference": {
           "type": "object",
           "properties": {
             "kind": {
@@ -44,85 +155,71 @@
               "format": "uuid",
               "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
             },
-            "safe_label": {
+            "definition_digest": {
               "type": "string",
-              "minLength": 1,
-              "maxLength": 256
+              "pattern": "^sha256:[a-f0-9]{64}$"
             }
           },
           "required": [
             "kind",
             "record_id",
             "revision_id",
-            "safe_label"
+            "definition_digest"
           ],
           "additionalProperties": false
         },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "stable_fact_proposals": {
-      "maxItems": 25,
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "fact_record_id": {
-            "type": "string",
-            "format": "uuid",
-            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-          },
-          "fact_revision_id": {
-            "type": "string",
-            "format": "uuid",
-            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-          },
-          "safe_summary": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 512
-          },
-          "proposed_placement": {
-            "type": "string",
-            "const": "owner_profile"
-          }
-        },
-        "required": [
-          "fact_record_id",
-          "fact_revision_id",
-          "safe_summary",
-          "proposed_placement"
-        ],
-        "additionalProperties": false
-      }
-    },
-    "next_career_action": {
-      "anyOf": [
-        {
+        "quality_state": {
           "type": "string",
-          "maxLength": 512
+          "enum": [
+            "review_not_run",
+            "review_incomplete",
+            "needs_correction",
+            "evidence_limited",
+            "product_craft_passed",
+            "owner_approved",
+            "pre_correction_review"
+          ]
         },
-        {
-          "type": "null"
+        "craft_report_reference": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "revision_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "report_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                }
+              },
+              "required": [
+                "revision_id",
+                "report_digest"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
         }
-      ]
-    },
-    "updated_at": {
-      "type": "string",
-      "format": "date-time",
-      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+      },
+      "required": [
+        "summary_version",
+        "approved_reference",
+        "quality_state",
+        "craft_report_reference",
+        "updated_at"
+      ],
+      "additionalProperties": false
     }
-  },
-  "required": [
-    "summary_version",
-    "status",
-    "outcome_summary",
-    "approved_reference",
-    "stable_fact_proposals",
-    "next_career_action",
-    "updated_at"
-  ],
-  "additionalProperties": false
+  ]
 }

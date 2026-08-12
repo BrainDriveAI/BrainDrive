@@ -13,11 +13,32 @@ async function confirmOwnerAction(page: Page, label: RegExp) {
   await expect(dialog).toBeHidden();
 }
 
-async function reviewAndApprove(page: Page, frame: FrameLocator) {
-  await frame.getByRole("button", { name: "Run independent review" }).click();
+async function reviewAndApprove(
+  page: Page,
+  frame: FrameLocator,
+  options: { exerciseKeyboardRecovery?: boolean; screenshotPath?: string } = {},
+) {
+  await frame.getByRole("button", { name: "Run product craft review" }).click();
   await expect(frame.getByRole("heading", { name: "Owner review" })).toBeVisible({ timeout: 20_000 });
-  await expect(frame.getByText(/Independent review complete/)).toBeVisible();
-  await frame.getByRole("button", { name: "Approve reviewed version" }).click();
+  await expect(frame.locator('section[aria-labelledby="owner-review-heading"] .status')).toHaveText("Product craft review passed");
+  await expect(frame.getByText(/Product craft review complete/)).toBeVisible();
+  await expect(frame.getByText(/Independent review passed/i)).toHaveCount(0);
+  if (options.screenshotPath) await page.screenshot({ path: options.screenshotPath, fullPage: true });
+  await frame.getByRole("button", { name: "Approve this reviewed version" }).click();
+  if (options.exerciseKeyboardRecovery) {
+    const dialog = page.getByRole("dialog");
+    const confirm = dialog.getByRole("button", { name: "Confirm", exact: true });
+    const cancel = dialog.getByRole("button", { name: "Cancel", exact: true });
+    await expect(confirm).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(cancel).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(confirm).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("title"))).toBe("Resume Builder sandbox proxy");
+    await frame.getByRole("button", { name: "Approve this reviewed version" }).click();
+  }
   await confirmOwnerAction(page, /Approve resume version/);
 }
 
@@ -48,14 +69,20 @@ async function answerEmployment(page: Page, frame: FrameLocator) {
   await expect(frame.getByLabel("Job progress")).toBeVisible();
 }
 
-async function completeJobEvidence(page: Page, frame: FrameLocator) {
+async function completeJobEvidence(
+  page: Page,
+  frame: FrameLocator,
+  nextHeading = "Education and training",
+  jobLabel = "Customer Service Associate at Lakeside Market",
+  evidenceAnswer = "Created a checkout checklist that reduced errors.\nHelped train new employees with the checklist.",
+) {
   await expect(frame.getByRole("heading", { name: "Job coverage summary" })).toBeVisible();
   await expect(frame.getByText(/Why this may help:/)).toBeVisible();
   await frame.getByRole("button", { name: "Ask another way" }).click();
   await expect(frame.getByRole("button", { name: "Ask another way" })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("dialog")).toBeHidden();
-  await frame.getByLabel("Your answer").fill("Created a checkout checklist that reduced errors.\nHelped train new employees with the checklist.");
-  await frame.getByRole("button", { name: /Review factual units for Customer Service Associate at Lakeside Market/ }).click();
+  await frame.getByLabel("Your answer").fill(evidenceAnswer);
+  await frame.getByRole("button", { name: `Review factual units for ${jobLabel}` }).click();
   const groupedDialog = page.getByRole("dialog");
   await expect(groupedDialog).toContainText(/Review factual units from one answer/);
   await expect(groupedDialog.getByRole("checkbox")).toHaveCount(2);
@@ -70,7 +97,7 @@ async function completeJobEvidence(page: Page, frame: FrameLocator) {
   await expect(frame.getByText("Tools and technologies", { exact: true })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("dialog")).toBeHidden();
   await frame.getByRole("button", { name: "Complete for now" }).click();
-  await expect(frame.getByRole("heading", { name: "Education and training" })).toBeVisible({ timeout: 15_000 });
+  await expect(frame.getByRole("heading", { name: nextHeading })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("dialog")).toBeHidden();
 }
 
@@ -125,7 +152,7 @@ test.describe("Resume Builder owner journey", () => {
   });
 
   test("completes Career entry, owner approvals, PDF export, history, and direct reopen", async ({ page }, testInfo) => {
-    test.setTimeout(120_000);
+    test.setTimeout(240_000);
     await openCareerApps(page);
     let frame = await installAndLaunchCareer(page);
     const proxy = page.locator('iframe[title="Resume Builder sandbox proxy"]');
@@ -186,6 +213,23 @@ test.describe("Resume Builder owner journey", () => {
     await expect(frame.getByText("Outcomes", { exact: true })).toBeVisible({ timeout: 15_000 });
     await frame.getByRole("button", { name: "Complete for now" }).click();
     await expect(frame.getByRole("heading", { name: "Review your information" })).toBeVisible({ timeout: 15_000 });
+    await frame.getByRole("button", { name: "Add another job" }).click();
+    await frame.getByLabel("Job title").fill("Front Desk Associate");
+    await frame.getByLabel("Employer").fill("Riverside Clinic");
+    await frame.getByLabel(/Location/).fill("Dayton, Ohio");
+    await frame.getByLabel(/Started/).fill("June 2018");
+    await frame.getByLabel(/Ended/).fill("February 2021");
+    await frame.getByLabel("What did you do?").fill("Scheduled appointments and maintained accurate customer records.");
+    await frame.getByRole("button", { name: "Save this job" }).click();
+    await confirmOwnerAction(page, /Confirm career fact/);
+    await expect(frame.getByLabel("Current job")).toContainText("Front Desk Associate at Riverside Clinic", { timeout: 15_000 });
+    await completeJobEvidence(
+      page,
+      frame,
+      "Review your information",
+      "Front Desk Associate at Riverside Clinic",
+      "Organized appointment requests into a consistent daily queue.\nMaintained clear handoff notes for the next shift.",
+    );
     await expect(page.getByRole("dialog")).toBeHidden();
     const contactCard = frame.locator(".card").filter({ hasText: "owner@example.test" });
     await contactCard.getByRole("button", { name: "Edit" }).click();
@@ -196,7 +240,7 @@ test.describe("Resume Builder owner journey", () => {
     const linkCard = frame.locator(".card").filter({ hasText: "Professional link:" });
     await linkCard.getByRole("button", { name: "Remove" }).click();
     await confirmOwnerAction(page, /Remove this career information/);
-    await expect(frame.getByText(/1 removed item is preserved in history/)).toBeVisible();
+    await expect(frame.getByText(/removed items? (?:is|are) preserved in history/)).toBeVisible();
     await reviewStrategyAndCreate(frame);
     await expect(frame.getByRole("heading", { name: "General resume" })).toBeVisible({ timeout: 15_000 });
     const generalDraft = (await frame.locator("textarea[data-index]").evaluateAll((elements) =>
@@ -206,7 +250,10 @@ test.describe("Resume Builder owner journey", () => {
     expect(generalDraft).toContain("Customer Service Associate");
     expect(generalDraft).toContain("Sinclair Community College");
     expect(generalDraft).toContain("Microsoft Excel");
-    await reviewAndApprove(page, frame);
+    await reviewAndApprove(page, frame, {
+      exerciseKeyboardRecovery: true,
+      screenshotPath: testInfo.outputPath("resume-builder-owner-review.png"),
+    });
 
     await expect(frame.getByRole("heading", { name: "Preview approved resume" })).toBeVisible({ timeout: 15_000 });
     await frame.getByRole("button", { name: "Revise in your own words" }).click();
@@ -416,7 +463,13 @@ test.describe("Resume Builder responsive job interview", () => {
       await firstStatement.fill(editedStatement);
       await frame.getByRole("button", { name: "Save edit" }).first().click();
       await expect(frame.locator("textarea[data-index]").first()).toHaveValue(editedStatement, { timeout: 15_000 });
-      await reviewAndApprove(page, frame);
+      await frame.getByRole("button", { name: "Run product craft review" }).click();
+      const ownerReview = frame.locator('section[aria-labelledby="owner-review-heading"]');
+      await expect(ownerReview.locator(".status")).toHaveText("More evidence could strengthen this resume", { timeout: 20_000 });
+      await expect(ownerReview.locator("button[data-owner-action]").first()).toBeVisible();
+      await expect(ownerReview.getByRole("button", { name: "Approve this reviewed version" })).toHaveCount(0);
+      await expect(ownerReview).not.toContainText(/score|independent review passed/i);
+      expect(await frame.locator("html").evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
     }
     await expect(historyStep).toBeEnabled();
     await historyStep.click();

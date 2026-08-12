@@ -1,6 +1,6 @@
 import type { z } from "zod";
 
-import { ModelCompatibilityEntrySchema, type InferencePurpose } from "../app-platform/contracts/inference.js";
+import { ModelCompatibilityEntrySchema, PURPOSE_OUTPUT_SCHEMAS, type InferencePurpose } from "../app-platform/contracts/inference.js";
 import type { ModelAdapter } from "../adapters/base.js";
 import type { AdapterConfig, Preferences } from "../contracts.js";
 import { createModelAdapter, resolveEffectiveAdapterConfig } from "../adapters/index.js";
@@ -32,7 +32,7 @@ export class ModelCompatibilityRegistry {
     this.entries = entries.map((entry) => ModelCompatibilityEntrySchema.parse(entry));
   }
   require(providerProfileId: string, modelId: string, purpose: InferencePurpose): CompatibilityEntry {
-    const entry = this.entries.find((candidate) => candidate.provider_profile_id === providerProfileId && candidate.model_id === modelId && candidate.purpose === purpose && candidate.compatible && candidate.prompt_policy_id === RESUME_PROMPT_POLICY_ID && candidate.prompt_policy_version === RESUME_PROMPT_POLICY_VERSION);
+    const entry = this.entries.find((candidate) => candidate.provider_profile_id === providerProfileId && candidate.model_id === modelId && candidate.purpose === purpose && candidate.compatible && candidate.prompt_policy_id === RESUME_PROMPT_POLICY_ID && candidate.prompt_policy_version === RESUME_PROMPT_POLICY_VERSION && candidate.output_schema_id === PURPOSE_OUTPUT_SCHEMAS[purpose]);
     if (!entry) throw new ResumeInferenceError("model_incompatible", "The active provider model has no accepted Resume Builder conformance record");
     return entry;
   }

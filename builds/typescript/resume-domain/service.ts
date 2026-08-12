@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   ArtifactRecordSchema,
   ArtifactParityReportRecordSchema,
+  CareerReturnSummarySchema,
   CareerFactRecordSchema,
   CraftQualityReportRecordSchema,
   CraftRepairOperationRecordSchema,
@@ -56,12 +57,20 @@ import { assertBoundQualityReport, evaluateResumeQuality } from "../resume-infer
 import {
   assertBoundCraftApproval,
   CRAFT_EVIDENCE_LIMITED_POLICY,
+  LEGACY_CRAFT_EVIDENCE_LIMITED_POLICY,
+  PRODUCT_CRAFT_EVALUATOR,
   craftContextFromBlocks,
   craftDefinitionDigest,
   evaluateCraftProposal,
+  extractCraftAnchorEvidence,
 } from "../resume-inference/craft-evaluator.js";
+import { adjudicateResumeQualityState, type ResumeQualityState } from "./quality-state.js";
 import {
   buildEvidenceAnnotations,
+  canonicalizeCoverage,
+  canonicalizeFacts,
+  canonicalizeOpaqueIds,
+  canonicalizeStrategyResult,
   RESUME_QUALITY_POLICY_IDENTITY,
   RESUME_QUALITY_STANDARD_DIGEST,
   RESUME_QUALITY_STANDARD_ID,
@@ -79,6 +88,8 @@ import type { ResumeLineageGraph } from "./resume-lineage.js";
 import { compareDefinitionRevisions } from "./definition-comparison.js";
 import { GeneralResumeDraftResultSchema, ResumeCraftEvaluateResultSchema, ResumeCraftRepairResultSchema, ResumeRevisionDraftResultSchema, TailoringPlanResultSchema, TargetedResumeDraftResultSchema } from "../resume-inference/results.js";
 import { decideTargetFit, TARGET_FIT_THRESHOLD_POLICY } from "../resume-inference/target-fit.js";
+import { deriveCraftCorrectionAction, type CraftCorrectionAction } from "../resume-inference/craft-repair.js";
+import { buildCareerReturnSummary } from "./career.js";
 import {
   assertRevisionTarget,
   assertRevisionTransition,
@@ -93,6 +104,15 @@ export type DataAuthority = {
   operationId: string;
   idempotencyKey: string;
   isCancelled?: () => boolean;
+};
+
+type CraftRepairScopeV2 = {
+  scope_version: 2;
+  source_definition_revision_id: string;
+  source_report_revision_id: string;
+  statement_scope_ids: string[];
+  correction_class: z.infer<typeof CraftQualityReportRecordSchema>["findings"][number]["correction_class"];
+  attempt: 1;
 };
 
 const ProposalInputSchema = z.object({
@@ -262,6 +282,18 @@ const CraftRepairWriteInputSchema = z.object({
   source_report_revision_id: OpaqueIdSchema,
   repair: ResumeCraftRepairResultSchema,
   inference_binding: InferenceBindingSchema,
+}).strict();
+
+const CraftRepairFailureWriteInputSchema = z.object({
+  kind: z.literal("craft_repair_failure"),
+  source_definition_revision_id: OpaqueIdSchema,
+  source_report_revision_id: OpaqueIdSchema,
+  failure_class: z.enum(["provider", "schema", "cancelled"]),
+  prompt_policy_id: NonEmptyStringSchema,
+  prompt_policy_version: NonEmptyStringSchema,
+  provider_profile_id: NonEmptyStringSchema,
+  model_id: NonEmptyStringSchema,
+  input_digest: Sha256DigestSchema,
 }).strict();
 
 const JobInputSchema = z.object({ job_id: OpaqueIdSchema.optional(), safe_label: z.string().min(1).max(256), description_text: z.string().min(1).max(131_072), content_digest: Sha256DigestSchema, captured_at: TimestampSchema, sensitivity: z.enum(["standard", "sensitive", "highly_sensitive"]).default("sensitive") }).strict();
@@ -691,12 +723,15 @@ export class ResumeDomainService {
     if (input.inference_binding.prompt_policy_id !== RESUME_PROMPT_POLICY_ID || input.inference_binding.prompt_policy_version !== RESUME_PROMPT_POLICY_VERSION) {
       throw new ResumeDomainError("validation_failed", "Resume strategy prompt policy is stale or unsupported");
     }
-    if (input.fact_revision_ids.length === 0 || new Set(input.fact_revision_ids).size !== input.fact_revision_ids.length || new Set(input.coverage_revision_ids).size !== input.coverage_revision_ids.length) {
+    if (input.fact_revision_ids.length === 0) {
       throw new ResumeDomainError("validation_failed", "Resume strategy requires unique current confirmed input identities");
     }
-    const { facts, coverage } = await this.currentStrategyInputs(input.fact_revision_ids, input.coverage_revision_ids, authority.grant.record_scopes);
+    const requestedFactRevisionIds = canonicalizeOpaqueIds(input.fact_revision_ids);
+    const requestedCoverageRevisionIds = canonicalizeOpaqueIds(input.coverage_revision_ids);
+    const { facts, coverage } = await this.currentStrategyInputs(requestedFactRevisionIds, requestedCoverageRevisionIds, authority.grant.record_scopes);
     const factSnapshot = facts.map((fact) => ({ revision_id: fact.metadata.revision_id, fact_kind: fact.fact_kind, value: fact.value, source_revision_ids: fact.source_revision_ids }));
     const annotations = buildEvidenceAnnotations(factSnapshot, coverage);
+    const canonicalStrategy = canonicalizeStrategyResult(input.strategy, factSnapshot, annotations);
     const dataBlocks: Array<z.infer<typeof InferenceDataBlockSchema>> = [this.inferenceBlock("confirmed_fact_snapshot", "resume.confirmed-facts.v1", { facts: factSnapshot })];
     if (Object.keys(input.presentation_preferences).length > 0) dataBlocks.push(this.inferenceBlock("presentation_preferences", "resume.presentation-preferences.v1", input.presentation_preferences));
     for (const record of coverage) dataBlocks.push(this.inferenceBlock("coverage_summary", "resume.coverage-summary.v1", record));
@@ -704,18 +739,18 @@ export class ResumeDomainService {
       this.inferenceBlock("evidence_annotations", "resume.evidence-annotations.v1", annotations),
       this.inferenceBlock("quality_policy", "resume.quality-policy-identity.v1", RESUME_QUALITY_POLICY_IDENTITY),
     );
-    if (canonicalInputDigest(dataBlocks) !== input.inference_binding.input_digest || canonicalInputDigest(input.strategy) !== input.inference_binding.output_digest) {
+    if (canonicalInputDigest(dataBlocks) !== input.inference_binding.input_digest || canonicalInputDigest(canonicalStrategy) !== input.inference_binding.output_digest) {
       throw new ResumeDomainError("validation_failed", "Resume strategy inference binding does not match its immutable input and output");
     }
-    const validation = validateInferenceClaims("resume_strategy", input.strategy, dataBlocks);
+    const validation = validateInferenceClaims("resume_strategy", canonicalStrategy, dataBlocks);
     if (!validation.accepted) throw new ResumeDomainError("validation_failed", "Resume strategy failed deterministic identity validation");
     const timestamp = this.now().toISOString();
     const strategy = ResumeStrategyRecordSchema.parse({
       ...this.envelope("resume_strategy", randomUUID(), randomUUID(), 1, null, this.maxSensitivity(facts.map((fact) => fact.sensitivity)), "durable_owner_data", authority, timestamp),
-      ...input.strategy,
+      ...canonicalStrategy,
       fact_snapshot_digest: canonicalInputDigest(factSnapshot),
-      fact_revision_ids: input.fact_revision_ids,
-      coverage_revision_ids: input.coverage_revision_ids,
+      fact_revision_ids: factSnapshot.map((fact) => fact.revision_id),
+      coverage_revision_ids: coverage.map((record) => record.metadata.revision_id),
       target_revision_id: null,
       prompt_policy_id: input.inference_binding.prompt_policy_id,
       prompt_policy_version: input.inference_binding.prompt_policy_version,
@@ -727,7 +762,8 @@ export class ResumeDomainService {
       input_digest: input.inference_binding.input_digest,
       output_digest: input.inference_binding.output_digest,
     });
-    const result = await this.store.commit([strategy], this.mutation(authority, input, "resume_strategy", null, null));
+    const canonicalInput = { ...input, fact_revision_ids: strategy.fact_revision_ids, coverage_revision_ids: strategy.coverage_revision_ids, strategy: canonicalStrategy };
+    const result = await this.store.commit([strategy], this.mutation(authority, canonicalInput, "resume_strategy", null, null));
     return { strategy: result.records[0]!, reused: result.reused };
   }
 
@@ -824,8 +860,10 @@ export class ResumeDomainService {
 
   async writeCraftQualityReport(raw: unknown, authority: DataAuthority): Promise<{
     report: z.infer<typeof CraftQualityReportRecordSchema>;
+    quality_state: ResumeQualityState;
+    correction_action: CraftCorrectionAction;
     repair_input_digest: `sha256:${string}`;
-    repair_scope: { scope_version: 1; source_definition_revision_id: string; source_report_revision_id: string; statement_scope_ids: string[]; allowed_correction_classes: Array<z.infer<typeof CraftQualityReportRecordSchema>["findings"][number]["correction_class"]>; attempt: 1 } | null;
+    repair_scope: CraftRepairScopeV2 | null;
     reused: boolean;
   }> {
     this.authorize(authority, "resume.definitions.write");
@@ -835,7 +873,14 @@ export class ResumeDomainService {
       const prior = recovered.find((record) => record.record_type === "craft_quality_report");
       if (!prior || prior.record_type !== "craft_quality_report") throw new ResumeDomainError("recoverable_internal_failure", "Craft report operation result was unavailable", 500);
       const repair = await this.craftRepairEnvelope(prior, authority);
-      return { report: prior, ...repair, reused: true };
+      const qualityState = adjudicateResumeQualityState({
+        definition_status: "proposed", approval_contract_version: null,
+        deterministic_truth_passed: true, deterministic_structure_passed: true, deterministic_mechanical_passed: true,
+        review_disposition: "available", bindings_current: prior.report_version === 2,
+        report: prior.report_version === 2 ? { report_version: 2, evidence_context: prior.evidence_context, verdict: prior.verdict, criterion_verdicts: prior.criterion_verdicts, findings: prior.findings } : null,
+        evidence_limited_policy: CRAFT_EVIDENCE_LIMITED_POLICY,
+      });
+      return { report: prior, quality_state: qualityState, ...repair, reused: true };
     }
     if (input.inference_binding.prompt_policy_id !== RESUME_PROMPT_POLICY_ID || input.inference_binding.prompt_policy_version !== RESUME_PROMPT_POLICY_VERSION) {
       throw new ResumeDomainError("validation_failed", "Craft evaluation prompt policy is stale or unsupported");
@@ -892,6 +937,11 @@ export class ResumeDomainService {
     }
     blocks.push(
       this.inferenceBlock("deterministic_findings", "resume.craft-deterministic-gates.v1", { ...gates, mechanical_passed: mechanical.accepted, mechanical_report_digest: mechanical.report_digest }),
+    );
+    const craftContext = craftContextFromBlocks(blocks);
+    const anchors = extractCraftAnchorEvidence(craftContext);
+    blocks.push(
+      this.inferenceBlock("craft_anchor_evidence", "resume.craft-anchor-evidence.v1", anchors),
       this.inferenceBlock("craft_gate_policy", "resume.craft-gate-policy.v1", CRAFT_EVIDENCE_LIMITED_POLICY),
     );
     if (canonicalInputDigest(blocks) !== input.inference_binding.input_digest || canonicalInputDigest(input.evaluation) !== input.inference_binding.output_digest) {
@@ -903,7 +953,7 @@ export class ResumeDomainService {
     }
     const timestamp = this.now().toISOString();
     const body = {
-      report_version: 1 as const,
+      report_version: 2 as const,
       proposal_definition_revision_id: definitionRecord.metadata.revision_id,
       strategy_revision_id: strategyRecord.metadata.revision_id,
       target_analysis_revision_id: targetAnalysis?.metadata.revision_id ?? null,
@@ -912,12 +962,15 @@ export class ResumeDomainService {
       fact_snapshot_digest: strategyRecord.fact_snapshot_digest,
       fact_revision_ids: strategyRecord.fact_revision_ids,
       coverage_revision_ids: strategyRecord.coverage_revision_ids,
+      definition_statement_ids: definitionRecord.statements.map((statement) => statement.statement_id),
+      rendered_anchor_ids: anchors.anchors.map((anchor) => anchor.anchor_id),
       quality_standard_id: RESUME_QUALITY_STANDARD_ID,
       quality_standard_version: RESUME_QUALITY_STANDARD_VERSION,
       quality_standard_digest: RESUME_QUALITY_STANDARD_DIGEST,
       evidence_limited_policy_id: CRAFT_EVIDENCE_LIMITED_POLICY.policy_id,
       evidence_limited_policy_version: CRAFT_EVIDENCE_LIMITED_POLICY.policy_version,
       evidence_limited_authority_status: CRAFT_EVIDENCE_LIMITED_POLICY.authority_status,
+      evaluator: PRODUCT_CRAFT_EVALUATOR,
       truth_validation_digest: gates.truth_validation_digest,
       structure_validation_digest: gates.structure_validation_digest,
       criterion_verdicts: input.evaluation.criterion_verdicts,
@@ -926,8 +979,6 @@ export class ResumeDomainService {
       verdict: input.evaluation.verdict,
       prompt_policy_id: input.inference_binding.prompt_policy_id,
       prompt_policy_version: input.inference_binding.prompt_policy_version,
-      provider_profile_id: input.inference_binding.provider_profile_id,
-      model_id: input.inference_binding.model_id,
       input_digest: input.inference_binding.input_digest,
       output_digest: input.inference_binding.output_digest,
       evaluated_at: timestamp,
@@ -940,7 +991,14 @@ export class ResumeDomainService {
     const result = await this.store.commit([report], this.mutation(authority, input, "craft_quality_report", null, null));
     const saved = CraftQualityReportRecordSchema.parse(result.records[0]);
     const repair = await this.craftRepairEnvelope(saved, authority);
-    return { report: saved, ...repair, reused: result.reused };
+    const qualityState = adjudicateResumeQualityState({
+      definition_status: definitionRecord.status, approval_contract_version: null,
+      deterministic_truth_passed: gates.truth_passed, deterministic_structure_passed: gates.structure_passed, deterministic_mechanical_passed: mechanical.accepted,
+      review_disposition: "available", bindings_current: saved.report_version === 2,
+      report: saved.report_version === 2 ? { report_version: 2, evidence_context: saved.evidence_context, verdict: saved.verdict, criterion_verdicts: saved.criterion_verdicts, findings: saved.findings } : null,
+      evidence_limited_policy: CRAFT_EVIDENCE_LIMITED_POLICY,
+    });
+    return { report: saved, quality_state: qualityState, ...repair, reused: result.reused };
   }
 
   async writeCraftRepair(raw: unknown, authority: DataAuthority): Promise<{
@@ -965,22 +1023,29 @@ export class ResumeDomainService {
       this.store.readRevision(input.source_definition_revision_id, authority.grant.record_scopes),
       this.store.readRevision(input.source_report_revision_id, authority.grant.record_scopes),
     ]);
-    if (sourceRecord.record_type !== "resume_definition" || reportRecord.record_type !== "craft_quality_report" || reportRecord.verdict !== "fail" || reportRecord.proposal_definition_revision_id !== sourceRecord.metadata.revision_id) {
+    if (sourceRecord.record_type !== "resume_definition" || sourceRecord.status !== "proposed" || reportRecord.record_type !== "craft_quality_report" || reportRecord.report_version !== 2 || input.repair.repair_version !== 2 || reportRecord.verdict !== "fail" || reportRecord.proposal_definition_revision_id !== sourceRecord.metadata.revision_id) {
       throw new ResumeDomainError("validation_failed", "Craft repair requires one immutable proposal and its failing report");
-    }
-    if (input.inference_binding.prompt_policy_id !== RESUME_PROMPT_POLICY_ID || input.inference_binding.prompt_policy_version !== RESUME_PROMPT_POLICY_VERSION || input.inference_binding.provider_profile_id !== reportRecord.provider_profile_id || input.inference_binding.model_id !== reportRecord.model_id) {
-      throw new ResumeDomainError("validation_failed", "Craft repair must use the report's current policy, provider profile, and model");
     }
     const strategyRecord = await this.store.readRevision(reportRecord.strategy_revision_id, authority.grant.record_scopes);
     if (strategyRecord.record_type !== "resume_strategy") throw new ResumeDomainError("validation_failed", "Craft repair strategy lineage is invalid");
+    if (
+      input.inference_binding.prompt_policy_id !== RESUME_PROMPT_POLICY_ID ||
+      input.inference_binding.prompt_policy_version !== RESUME_PROMPT_POLICY_VERSION ||
+      input.inference_binding.provider_profile_id !== strategyRecord.provider_profile_id ||
+      input.inference_binding.model_id !== strategyRecord.model_id ||
+      sourceRecord.strategy_binding?.provider_profile_id !== strategyRecord.provider_profile_id ||
+      sourceRecord.strategy_binding?.model_id !== strategyRecord.model_id
+    ) {
+      throw new ResumeDomainError("validation_failed", "Craft repair must use the source strategy's current policy, provider profile, and model");
+    }
     let targetAnalysis: z.infer<typeof TargetFitAnalysisRecordSchema> | null = null;
     if (reportRecord.target_analysis_revision_id) {
       const target = await this.store.readRevision(reportRecord.target_analysis_revision_id, authority.grant.record_scopes);
       if (target.record_type !== "target_fit_analysis") throw new ResumeDomainError("validation_failed", "Craft repair target analysis is invalid");
       targetAnalysis = target;
     }
-    const { repair_input_digest: expectedInputDigest, repair_scope: scope } = await this.craftRepairEnvelope(reportRecord, authority);
-    if (!scope || expectedInputDigest !== input.inference_binding.input_digest || canonicalInputDigest(input.repair) !== input.inference_binding.output_digest) {
+    const { correction_action: action, repair_input_digest: expectedInputDigest, repair_scope: scope } = await this.craftRepairEnvelope(reportRecord, authority);
+    if (action.action !== "repair_statement" || !scope || expectedInputDigest !== input.inference_binding.input_digest || canonicalInputDigest(input.repair) !== input.inference_binding.output_digest) {
       throw new ResumeDomainError("validation_failed", "Craft repair binding or named statement scope is invalid");
     }
     const { facts } = await this.currentStrategyInputs(strategyRecord.fact_revision_ids, strategyRecord.coverage_revision_ids, authority.grant.record_scopes);
@@ -991,10 +1056,12 @@ export class ResumeDomainService {
       this.inferenceBlock("resume_strategy", "resume.strategy-record.v1", strategyRecord),
     ];
     if (targetAnalysis) validationBlocks.push(this.inferenceBlock("target_fit_analysis", "resume.target-fit-analysis.v1", targetAnalysis));
-    validationBlocks.push(this.inferenceBlock("craft_quality_report", "resume.craft-quality-report.v1", reportRecord), this.inferenceBlock("craft_repair_scope", "resume.craft-repair-scope.v1", scope));
+    validationBlocks.push(this.inferenceBlock("craft_quality_report", "resume.craft-quality-report.v2", reportRecord), this.inferenceBlock("craft_repair_scope", "resume.craft-repair-scope.v2", scope));
     const sourceGates = evaluateDefinitionDeterministicGates(sourceRecord, validationBlocks);
     const sourceMechanical = evaluateResumeQuality(sourceRecord);
-    validationBlocks.push(this.inferenceBlock("deterministic_findings", "resume.craft-deterministic-gates.v1", { ...sourceGates, mechanical_passed: sourceMechanical.accepted, mechanical_report_digest: sourceMechanical.report_digest }), this.inferenceBlock("craft_gate_policy", "resume.craft-gate-policy.v1", CRAFT_EVIDENCE_LIMITED_POLICY));
+    validationBlocks.push(this.inferenceBlock("deterministic_findings", "resume.craft-deterministic-gates.v1", { ...sourceGates, mechanical_passed: sourceMechanical.accepted, mechanical_report_digest: sourceMechanical.report_digest }));
+    validationBlocks.push(this.inferenceBlock("craft_anchor_evidence", "resume.craft-anchor-evidence.v1", extractCraftAnchorEvidence(craftContextFromBlocks(validationBlocks))));
+    validationBlocks.push(this.inferenceBlock("craft_gate_policy", "resume.craft-gate-policy.v1", CRAFT_EVIDENCE_LIMITED_POLICY));
     const validation = validateInferenceClaims("resume_craft_repair", input.repair, validationBlocks);
     const timestamp = this.now().toISOString();
     const successorBase = {
@@ -1014,37 +1081,45 @@ export class ResumeDomainService {
     if (targetAnalysis) successorBlocks.push(this.inferenceBlock("target_fit_analysis", "resume.target-fit-analysis.v1", targetAnalysis));
     const successorGates = evaluateDefinitionDeterministicGates(successor, successorBlocks);
     const successorMechanical = evaluateResumeQuality(successor);
-    successorBlocks.push(this.inferenceBlock("deterministic_findings", "resume.craft-deterministic-gates.v1", { ...successorGates, mechanical_passed: successorMechanical.accepted, mechanical_report_digest: successorMechanical.report_digest }), this.inferenceBlock("craft_gate_policy", "resume.craft-gate-policy.v1", CRAFT_EVIDENCE_LIMITED_POLICY));
+    successorBlocks.push(this.inferenceBlock("deterministic_findings", "resume.craft-deterministic-gates.v1", { ...successorGates, mechanical_passed: successorMechanical.accepted, mechanical_report_digest: successorMechanical.report_digest }));
+    const successorAnchors = extractCraftAnchorEvidence(craftContextFromBlocks(successorBlocks));
+    successorBlocks.push(this.inferenceBlock("craft_anchor_evidence", "resume.craft-anchor-evidence.v1", successorAnchors));
+    successorBlocks.push(this.inferenceBlock("craft_gate_policy", "resume.craft-gate-policy.v1", CRAFT_EVIDENCE_LIMITED_POLICY));
     const evaluation = evaluateCraftProposal(craftContextFromBlocks(successorBlocks));
-    const accepted = validation.accepted && successorGates.truth_passed && successorGates.structure_passed && successorMechanical.accepted && evaluation.verdict === "pass";
+    const accepted = validation.accepted && successorGates.truth_passed && successorGates.structure_passed && successorMechanical.accepted && evaluation.verdict === "pass" && evaluation.evidence_context === "standard";
+    const recoveryReason = validation.accepted ? "full_gate_regression" as const : "validation_rejected" as const;
     const operationBody = {
-      repair_version: 1 as const, attempt: 1 as const, source_definition_revision_id: sourceRecord.metadata.revision_id, source_report_revision_id: reportRecord.metadata.revision_id,
+      repair_version: 2 as const, action: "repair_statement" as const, attempt: 1 as const, source_definition_revision_id: sourceRecord.metadata.revision_id, source_report_revision_id: reportRecord.metadata.revision_id,
       source_definition_digest: reportRecord.definition_digest, source_report_digest: reportRecord.report_digest, strategy_revision_id: strategyRecord.metadata.revision_id,
       target_analysis_revision_id: reportRecord.target_analysis_revision_id, fact_snapshot_digest: reportRecord.fact_snapshot_digest, statement_scope_ids: scope.statement_scope_ids,
-      allowed_correction_classes: scope.allowed_correction_classes, prompt_policy_id: input.inference_binding.prompt_policy_id, prompt_policy_version: input.inference_binding.prompt_policy_version,
+      correction_class: scope.correction_class, allowed_correction_classes: [scope.correction_class], prompt_policy_id: input.inference_binding.prompt_policy_id, prompt_policy_version: input.inference_binding.prompt_policy_version,
       provider_profile_id: input.inference_binding.provider_profile_id, model_id: input.inference_binding.model_id, input_digest: input.inference_binding.input_digest,
       result: accepted ? "completed" as const : "rejected" as const, successor_definition_revision_id: accepted ? successor.metadata.revision_id : null,
-      successor_report_revision_id: null as string | null, output_digest: accepted ? input.inference_binding.output_digest : null,
-      unchanged_statement_count: sourceRecord.statements.length - scope.statement_scope_ids.length, error_class: accepted ? null : "regression" as const, completed_at: timestamp,
+      successor_report_revision_id: null as string | null, output_digest: input.inference_binding.output_digest,
+      unchanged_statement_count: sourceRecord.statements.length - scope.statement_scope_ids.length, error_class: accepted ? null : validation.accepted ? "regression" as const : "validation" as const,
+      transition: accepted ? "needs_correction_to_product_craft_passed" as const : "needs_correction_preserved" as const,
+      recovery_reason: accepted ? null : recoveryReason,
+      completed_at: timestamp,
     };
     let successorReport: z.infer<typeof CraftQualityReportRecordSchema> | null = null;
     if (accepted) {
       const reportBody = {
-        report_version: 1 as const, proposal_definition_revision_id: successor.metadata.revision_id, strategy_revision_id: strategyRecord.metadata.revision_id,
+        report_version: 2 as const, proposal_definition_revision_id: successor.metadata.revision_id, strategy_revision_id: strategyRecord.metadata.revision_id,
         target_analysis_revision_id: reportRecord.target_analysis_revision_id, definition_digest: craftDefinitionDigest(successor), strategy_digest: canonicalInputDigest(strategyRecord),
         fact_snapshot_digest: strategyRecord.fact_snapshot_digest, fact_revision_ids: strategyRecord.fact_revision_ids, coverage_revision_ids: strategyRecord.coverage_revision_ids,
+        definition_statement_ids: successor.statements.map((statement) => statement.statement_id), rendered_anchor_ids: successorAnchors.anchors.map((anchor) => anchor.anchor_id),
         quality_standard_id: RESUME_QUALITY_STANDARD_ID, quality_standard_version: RESUME_QUALITY_STANDARD_VERSION, quality_standard_digest: RESUME_QUALITY_STANDARD_DIGEST,
         evidence_limited_policy_id: CRAFT_EVIDENCE_LIMITED_POLICY.policy_id, evidence_limited_policy_version: CRAFT_EVIDENCE_LIMITED_POLICY.policy_version,
-        evidence_limited_authority_status: CRAFT_EVIDENCE_LIMITED_POLICY.authority_status, truth_validation_digest: successorGates.truth_validation_digest,
+        evidence_limited_authority_status: CRAFT_EVIDENCE_LIMITED_POLICY.authority_status, evaluator: PRODUCT_CRAFT_EVALUATOR, truth_validation_digest: successorGates.truth_validation_digest,
         structure_validation_digest: successorGates.structure_validation_digest, criterion_verdicts: evaluation.criterion_verdicts, findings: evaluation.findings,
         evidence_context: evaluation.evidence_context, verdict: evaluation.verdict, prompt_policy_id: input.inference_binding.prompt_policy_id,
-        prompt_policy_version: input.inference_binding.prompt_policy_version, provider_profile_id: input.inference_binding.provider_profile_id, model_id: input.inference_binding.model_id,
+        prompt_policy_version: input.inference_binding.prompt_policy_version,
         input_digest: canonicalInputDigest(successorBlocks), output_digest: canonicalInputDigest(evaluation), evaluated_at: timestamp,
       };
       successorReport = CraftQualityReportRecordSchema.parse({ ...this.envelope("craft_quality_report", randomUUID(), randomUUID(), 1, null, successor.sensitivity, "durable_owner_data", authority, timestamp), ...reportBody, report_digest: canonicalInputDigest(reportBody) });
       operationBody.successor_report_revision_id = successorReport.metadata.revision_id;
     }
-    const operation = CraftRepairOperationRecordSchema.parse({ ...this.envelope("craft_repair_operation", randomUUID(), randomUUID(), 1, null, sourceRecord.sensitivity, "durable_owner_data", authority, timestamp), ...operationBody, operation_digest: canonicalInputDigest(operationBody) });
+    const operation = CraftRepairOperationRecordSchema.parse({ ...this.envelope("craft_repair_operation", deterministicRecordId(`resume-craft-repair-v2|${authority.grant.owner_id}|${sourceRecord.metadata.revision_id}`), randomUUID(), 1, null, sourceRecord.sensitivity, "durable_owner_data", authority, timestamp), ...operationBody, operation_digest: canonicalInputDigest(operationBody) });
     let successorVariant: z.infer<typeof TailoredVariantRecordSchema> | null = null;
     if (accepted && successor.definition_kind === "targeted") {
       const sourceVariant = await this.variants.forTargetedDefinition(sourceRecord.metadata.revision_id, authority.grant.record_scopes);
@@ -1060,8 +1135,83 @@ export class ResumeDomainService {
     }
     const records: ResumeDataRecord[] = accepted && successorReport ? [successor, ...(successorVariant ? [successorVariant] : []), successorReport, operation] : [operation];
     const committed = await this.store.commit(records, this.mutation(authority, input, "craft_repair_operation", null, null));
+    const committedDefinition = committed.records.find((record) => record.record_type === "resume_definition");
     const committedReport = committed.records.find((record) => record.record_type === "craft_quality_report");
-    return { operation: CraftRepairOperationRecordSchema.parse(committed.records.at(-1)), definition: accepted ? ResumeDefinitionRecordSchema.parse(committed.records[0]) : null, report: committedReport?.record_type === "craft_quality_report" ? CraftQualityReportRecordSchema.parse(committedReport) : null, reused: committed.reused };
+    return { operation: CraftRepairOperationRecordSchema.parse(committed.records.at(-1)), definition: committedDefinition?.record_type === "resume_definition" ? ResumeDefinitionRecordSchema.parse(committedDefinition) : null, report: committedReport?.record_type === "craft_quality_report" ? CraftQualityReportRecordSchema.parse(committedReport) : null, reused: committed.reused };
+  }
+
+  async writeCraftRepairFailure(raw: unknown, authority: DataAuthority): Promise<{
+    operation: z.infer<typeof CraftRepairOperationRecordSchema>;
+    definition: null;
+    report: null;
+    reused: boolean;
+  }> {
+    this.authorize(authority, "resume.definitions.write");
+    const input = CraftRepairFailureWriteInputSchema.parse(raw);
+    const recovered = await this.recoveredOperation(authority, input);
+    if (recovered) {
+      const operation = recovered.find((record) => record.record_type === "craft_repair_operation");
+      if (!operation || operation.record_type !== "craft_repair_operation") throw new ResumeDomainError("recoverable_internal_failure", "Craft repair failure result was unavailable", 500);
+      return { operation: CraftRepairOperationRecordSchema.parse(operation), definition: null, report: null, reused: true };
+    }
+    const priorAttempts = (await this.store.list("craft_repair_operation", authority.grant.record_scopes)).filter((record) => record.record_type === "craft_repair_operation" && record.source_definition_revision_id === input.source_definition_revision_id);
+    if (priorAttempts.length > 0) throw new ResumeDomainError("conflict", "The proposal already used its single craft repair attempt", 409);
+    const [source, report] = await Promise.all([
+      this.store.readRevision(input.source_definition_revision_id, authority.grant.record_scopes),
+      this.store.readRevision(input.source_report_revision_id, authority.grant.record_scopes),
+    ]);
+    if (source.record_type !== "resume_definition" || source.status !== "proposed" || report.record_type !== "craft_quality_report" || report.report_version !== 2 || report.verdict !== "fail" || report.proposal_definition_revision_id !== source.metadata.revision_id) {
+      throw new ResumeDomainError("validation_failed", "Craft repair failure requires one immutable proposal and its failing report");
+    }
+    const strategy = await this.store.readRevision(report.strategy_revision_id, authority.grant.record_scopes);
+    if (strategy.record_type !== "resume_strategy") throw new ResumeDomainError("validation_failed", "Craft repair failure strategy lineage is invalid");
+    const envelope = await this.craftRepairEnvelope(report, authority);
+    if (
+      envelope.correction_action.action !== "repair_statement" || !envelope.repair_scope || envelope.repair_input_digest !== input.input_digest ||
+      input.prompt_policy_id !== RESUME_PROMPT_POLICY_ID || input.prompt_policy_version !== RESUME_PROMPT_POLICY_VERSION ||
+      input.provider_profile_id !== strategy.provider_profile_id || input.model_id !== strategy.model_id ||
+      source.strategy_binding?.provider_profile_id !== strategy.provider_profile_id || source.strategy_binding?.model_id !== strategy.model_id
+    ) throw new ResumeDomainError("validation_failed", "Craft repair failure binding is stale or unsupported");
+    const timestamp = this.now().toISOString();
+    const scope = envelope.repair_scope;
+    const result = input.failure_class === "cancelled" ? "cancelled" as const : "failed" as const;
+    const recoveryReason = input.failure_class === "provider" ? "provider_failure" as const : input.failure_class === "schema" ? "schema_failure" as const : "cancelled" as const;
+    const body = {
+      repair_version: 2 as const,
+      action: "repair_statement" as const,
+      attempt: 1 as const,
+      source_definition_revision_id: source.metadata.revision_id,
+      source_report_revision_id: report.metadata.revision_id,
+      source_definition_digest: report.definition_digest,
+      source_report_digest: report.report_digest,
+      strategy_revision_id: strategy.metadata.revision_id,
+      target_analysis_revision_id: report.target_analysis_revision_id,
+      fact_snapshot_digest: report.fact_snapshot_digest,
+      statement_scope_ids: scope.statement_scope_ids,
+      correction_class: scope.correction_class,
+      allowed_correction_classes: [scope.correction_class],
+      prompt_policy_id: input.prompt_policy_id,
+      prompt_policy_version: input.prompt_policy_version,
+      provider_profile_id: input.provider_profile_id,
+      model_id: input.model_id,
+      input_digest: input.input_digest,
+      result,
+      transition: "needs_correction_preserved" as const,
+      recovery_reason: recoveryReason,
+      successor_definition_revision_id: null,
+      successor_report_revision_id: null,
+      output_digest: null,
+      unchanged_statement_count: source.statements.length - scope.statement_scope_ids.length,
+      error_class: input.failure_class,
+      completed_at: timestamp,
+    };
+    const operation = CraftRepairOperationRecordSchema.parse({
+      ...this.envelope("craft_repair_operation", deterministicRecordId(`resume-craft-repair-v2|${authority.grant.owner_id}|${source.metadata.revision_id}`), randomUUID(), 1, null, source.sensitivity, "durable_owner_data", authority, timestamp),
+      ...body,
+      operation_digest: canonicalInputDigest(body),
+    });
+    const committed = await this.store.commit([operation], this.mutation(authority, input, "craft_repair_operation", null, null));
+    return { operation: CraftRepairOperationRecordSchema.parse(committed.records[0]), definition: null, report: null, reused: committed.reused };
   }
 
   async writeDefinition(raw: unknown, authority: DataAuthority, hostOwnerConfirmed = false): Promise<{ definition: ResumeDataRecord; variant: ResumeDataRecord | null; reused: boolean }> {
@@ -1304,7 +1454,7 @@ export class ResumeDomainService {
     return { definition: result.records[0]!, variant: result.records[1] ?? null, reused: result.reused };
   }
 
-  async approveDefinition(raw: unknown, authority: DataAuthority, hostOwnerConfirmed: boolean): Promise<{ definition: ResumeDataRecord; variant: ResumeDataRecord | null; reused: boolean }> {
+  async approveDefinition(raw: unknown, authority: DataAuthority, hostOwnerConfirmed: boolean): Promise<{ definition: ResumeDataRecord; variant: ResumeDataRecord | null; career_return_summary: z.infer<typeof CareerReturnSummarySchema>; reused: boolean }> {
     this.authorize(authority, "resume.definitions.write");
     if (!hostOwnerConfirmed) throw new ResumeDomainError("denied", "Definition approval requires a host-mediated owner action", 403);
     const input = DefinitionApprovalInputSchema.parse(raw);
@@ -1312,6 +1462,9 @@ export class ResumeDomainService {
     if (current.record_type !== "resume_definition") throw new ResumeDomainError("not_found_within_scope", "Definition was not found within the granted scope", 404);
     if (current.metadata.revision !== input.expected_revision) throw new ResumeDomainError("conflict", "Expected definition revision is stale", 409, { currentRevision: current.metadata.revision });
     if (current.status === "approved") throw new ResumeDomainError("conflict", "Definition is already approved", 409, { currentRevision: current.metadata.revision });
+    if (current.prompt_policy_version !== null && current.prompt_policy_version !== RESUME_PROMPT_POLICY_VERSION) {
+      throw new ResumeDomainError("validation_failed", "The proposal uses a stale product-craft policy and requires a fresh review");
+    }
     if (current.strategy_binding) await this.validateStoredStrategyBinding(current, authority);
     else if (current.prompt_policy_version === RESUME_PROMPT_POLICY_VERSION && current.definition_kind === "general") {
       throw new ResumeDomainError("validation_failed", "Current general proposal is missing its strategy binding");
@@ -1354,12 +1507,13 @@ export class ResumeDomainService {
       if (candidate.record_type !== "craft_quality_report") throw new ResumeDomainError("validation_failed", "Craft approval evidence has invalid lineage");
       const reportHead = await this.store.readHead(candidate.metadata.record_id, authority.grant.record_scopes);
       if (
-        reportHead.metadata.revision_id !== candidate.metadata.revision_id || candidate.verdict !== "pass" ||
+        candidate.report_version !== 2 || reportHead.metadata.revision_id !== candidate.metadata.revision_id ||
         candidate.proposal_definition_revision_id !== current.metadata.revision_id || candidate.definition_digest !== craftDefinitionDigest(current) ||
         candidate.prompt_policy_id !== RESUME_PROMPT_POLICY_ID || candidate.prompt_policy_version !== RESUME_PROMPT_POLICY_VERSION ||
         candidate.quality_standard_id !== RESUME_QUALITY_STANDARD_ID || candidate.quality_standard_version !== RESUME_QUALITY_STANDARD_VERSION || candidate.quality_standard_digest !== RESUME_QUALITY_STANDARD_DIGEST ||
         candidate.evidence_limited_policy_id !== CRAFT_EVIDENCE_LIMITED_POLICY.policy_id || candidate.evidence_limited_policy_version !== CRAFT_EVIDENCE_LIMITED_POLICY.policy_version ||
         candidate.evidence_limited_authority_status !== CRAFT_EVIDENCE_LIMITED_POLICY.authority_status ||
+        canonicalInputDigest(candidate.evaluator) !== canonicalInputDigest(PRODUCT_CRAFT_EVALUATOR) ||
         (current.strategy_binding !== null && canonicalInputDigest(candidate.fact_revision_ids) !== canonicalInputDigest(current.strategy_binding.fact_revision_ids)) ||
         (current.strategy_binding !== null && candidate.strategy_revision_id !== current.strategy_binding.strategy_revision_id)
       ) throw new ResumeDomainError("validation_failed", "Craft approval evidence is missing, stale, failing, or bound to different inputs");
@@ -1374,6 +1528,20 @@ export class ResumeDomainService {
         if (analysis.record_type !== "target_fit_analysis" || !analysis.targeted_definition_revision_id || !allowedTargetDefinitionIds.has(analysis.targeted_definition_revision_id) || analysis.strategy_revision_id !== candidate.strategy_revision_id) throw new ResumeDomainError("validation_failed", "Craft target analysis is stale or mismatched");
         const analysisHead = await this.store.readHead(analysis.metadata.record_id, authority.grant.record_scopes);
         if (analysisHead.metadata.revision_id !== analysis.metadata.revision_id) throw new ResumeDomainError("validation_failed", "Craft target analysis is stale or mismatched");
+      }
+      const qualityState = adjudicateResumeQualityState({
+        definition_status: current.status,
+        approval_contract_version: null,
+        deterministic_truth_passed: report.accepted,
+        deterministic_structure_passed: report.accepted,
+        deterministic_mechanical_passed: qualityReport.accepted,
+        review_disposition: "available",
+        bindings_current: true,
+        report: { report_version: 2, evidence_context: candidate.evidence_context, verdict: candidate.verdict, criterion_verdicts: candidate.criterion_verdicts, findings: candidate.findings },
+        evidence_limited_policy: CRAFT_EVIDENCE_LIMITED_POLICY,
+      });
+      if (qualityState !== "product_craft_passed") {
+        throw new ResumeDomainError("validation_failed", qualityState === "evidence_limited" ? "Evidence-limited review is not authorized for owner approval" : "Craft approval evidence is incomplete or requires correction");
       }
       craftReport = candidate;
     }
@@ -1407,15 +1575,15 @@ export class ResumeDomainService {
         quality_validator_version: qualityReport.validator_version,
         validated_at: timestamp,
         persuasive_quality: craftReport ? {
-          contract_version: 1,
-          status: "current",
+          contract_version: 2,
+          quality_state: "owner_approved",
           coverage_revision_ids: craftReport.coverage_revision_ids,
           strategy_revision_id: craftReport.strategy_revision_id,
           craft_report_revision_id: craftReport.metadata.revision_id,
           craft_report_digest: craftReport.report_digest,
           craft_definition_digest: craftReport.definition_digest,
           target_analysis_revision_id: craftReport.target_analysis_revision_id,
-          successor_continuity_digest: canonicalInputDigest({ definition_digest: craftReport.definition_digest, strategy_revision_id: craftReport.strategy_revision_id, target_analysis_revision_id: craftReport.target_analysis_revision_id, statement_support: current.statements.map((statement) => ({ statement_id: statement.statement_id, supporting_confirmed_fact_revision_ids: statement.supporting_confirmed_fact_revision_ids })) }),
+          evaluator: craftReport.report_version === 2 ? craftReport.evaluator : PRODUCT_CRAFT_EVALUATOR,
           evidence_limited_policy_id: CRAFT_EVIDENCE_LIMITED_POLICY.policy_id,
           evidence_limited_policy_version: CRAFT_EVIDENCE_LIMITED_POLICY.policy_version,
           evidence_limited_authority_status: CRAFT_EVIDENCE_LIMITED_POLICY.authority_status,
@@ -1431,9 +1599,9 @@ export class ResumeDomainService {
           craft_definition_digest: null,
           target_analysis_revision_id: null,
           successor_continuity_digest: null,
-          evidence_limited_policy_id: CRAFT_EVIDENCE_LIMITED_POLICY.policy_id,
-          evidence_limited_policy_version: CRAFT_EVIDENCE_LIMITED_POLICY.policy_version,
-          evidence_limited_authority_status: CRAFT_EVIDENCE_LIMITED_POLICY.authority_status,
+          evidence_limited_policy_id: LEGACY_CRAFT_EVIDENCE_LIMITED_POLICY.policy_id,
+          evidence_limited_policy_version: LEGACY_CRAFT_EVIDENCE_LIMITED_POLICY.policy_version,
+          evidence_limited_authority_status: LEGACY_CRAFT_EVIDENCE_LIMITED_POLICY.authority_status,
           parity_policy_id: "braindrive.resume-builder.artifact-parity.v1",
           parity_policy_version: "1",
         },
@@ -1453,7 +1621,14 @@ export class ResumeDomainService {
       });
     }
     const result = await this.store.commit(variant ? [next, variant] : [next], this.mutation(authority, input, "resume_definition", current.metadata.record_id, input.expected_revision));
-    return { definition: result.records[0]!, variant: result.records[1] ?? null, reused: result.reused };
+    const committedDefinition = ResumeDefinitionRecordSchema.parse(result.records[0]);
+    const committedVariant = result.records[1] ? TailoredVariantRecordSchema.parse(result.records[1]) : null;
+    return {
+      definition: committedDefinition,
+      variant: committedVariant,
+      career_return_summary: buildCareerReturnSummary(committedDefinition, committedVariant, timestamp),
+      reused: result.reused,
+    };
   }
 
   async registerArtifact(raw: unknown, authority: DataAuthority): Promise<{ artifact: ResumeDataRecord; reused: boolean }> {
@@ -2369,7 +2544,9 @@ export class ResumeDomainService {
       throw new ResumeDomainError("validation_failed", "Resume strategy fact snapshot is stale or incomplete");
     }
     const byFactRevision = new Map(currentFacts.map((fact) => [fact.metadata.revision_id, fact]));
-    const facts = factRevisionIds.map((revisionId) => byFactRevision.get(revisionId)).filter((record): record is z.infer<typeof CareerFactRecordSchema> => Boolean(record));
+    const requestedFacts = factRevisionIds.map((revisionId) => byFactRevision.get(revisionId)).filter((record): record is z.infer<typeof CareerFactRecordSchema> => Boolean(record));
+    const canonicalFactOrder = canonicalizeFacts(requestedFacts.map((fact) => ({ revision_id: fact.metadata.revision_id, fact_kind: fact.fact_kind, value: fact.value, source_revision_ids: fact.source_revision_ids }))).map((fact) => fact.revision_id);
+    const facts = canonicalFactOrder.map((revisionId) => byFactRevision.get(revisionId)!);
     const jobIds = new Set(facts.filter((fact) => fact.fact_kind === "employment").map((fact) => fact.metadata.revision_id));
     const currentCoverage = (await this.store.list("job_evidence_coverage", scopes))
       .filter((record): record is z.infer<typeof JobEvidenceCoverageRecordSchema> => record.record_type === "job_evidence_coverage" && jobIds.has(record.job_fact_revision_id));
@@ -2377,7 +2554,7 @@ export class ResumeDomainService {
       throw new ResumeDomainError("validation_failed", "Resume strategy coverage snapshot is stale or incomplete");
     }
     const byCoverageRevision = new Map(currentCoverage.map((record) => [record.metadata.revision_id, record]));
-    const coverage = coverageRevisionIds.map((revisionId) => byCoverageRevision.get(revisionId)).filter((record): record is z.infer<typeof JobEvidenceCoverageRecordSchema> => Boolean(record));
+    const coverage = canonicalizeCoverage(coverageRevisionIds.map((revisionId) => byCoverageRevision.get(revisionId)).filter((record): record is z.infer<typeof JobEvidenceCoverageRecordSchema> => Boolean(record)));
     return { facts, coverage };
   }
 
@@ -2491,10 +2668,18 @@ export class ResumeDomainService {
     }
   }
 
-  private async craftRepairEnvelope(report: z.infer<typeof CraftQualityReportRecordSchema>, authority: DataAuthority): Promise<{
+  async craftRepairEnvelope(report: z.infer<typeof CraftQualityReportRecordSchema>, authority: DataAuthority): Promise<{
+    correction_action: CraftCorrectionAction;
     repair_input_digest: `sha256:${string}`;
-    repair_scope: { scope_version: 1; source_definition_revision_id: string; source_report_revision_id: string; statement_scope_ids: string[]; allowed_correction_classes: Array<z.infer<typeof CraftQualityReportRecordSchema>["findings"][number]["correction_class"]>; attempt: 1 } | null;
+    repair_scope: CraftRepairScopeV2 | null;
   }> {
+    const fallback: CraftCorrectionAction = {
+      action: "keep_prior_or_exit",
+      source_definition_revision_id: report.proposal_definition_revision_id,
+      source_report_revision_id: report.metadata.revision_id,
+      reason: "report_not_repairable",
+    };
+    if (report.report_version !== 2) return { correction_action: fallback, repair_input_digest: canonicalInputDigest([]), repair_scope: null };
     const [source, strategy] = await Promise.all([
       this.store.readRevision(report.proposal_definition_revision_id, authority.grant.record_scopes),
       this.store.readRevision(report.strategy_revision_id, authority.grant.record_scopes),
@@ -2508,10 +2693,23 @@ export class ResumeDomainService {
     if (sourceHead.metadata.revision_id !== source.metadata.revision_id || strategyHead.metadata.revision_id !== strategy.metadata.revision_id || reportHead.metadata.revision_id !== report.metadata.revision_id) {
       throw new ResumeDomainError("conflict", "Craft repair evidence is no longer current", 409);
     }
-    const statementScopeIds = [...new Set(report.findings.filter((finding) => finding.severity === "blocking" && finding.statement_id !== null).map((finding) => finding.statement_id!))].sort();
-    const allowedCorrectionClasses = [...new Set(report.findings.filter((finding) => finding.severity === "blocking" && finding.statement_id !== null).map((finding) => finding.correction_class))].sort();
-    if (report.verdict !== "fail" || statementScopeIds.length === 0 || allowedCorrectionClasses.length === 0) return { repair_input_digest: canonicalInputDigest([]), repair_scope: null };
-    const scope = { scope_version: 1 as const, source_definition_revision_id: source.metadata.revision_id, source_report_revision_id: report.metadata.revision_id, statement_scope_ids: statementScopeIds, allowed_correction_classes: allowedCorrectionClasses, attempt: 1 as const };
+    const coverage = await Promise.all(report.coverage_revision_ids.map(async (revisionId) => {
+      const record = await this.store.readRevision(revisionId, authority.grant.record_scopes);
+      if (record.record_type !== "job_evidence_coverage") throw new ResumeDomainError("validation_failed", "Craft correction coverage lineage is invalid");
+      const head = await this.store.readHead(record.metadata.record_id, authority.grant.record_scopes);
+      if (head.metadata.revision_id !== record.metadata.revision_id) throw new ResumeDomainError("conflict", "Craft correction evidence opportunity is no longer current", 409);
+      return JobEvidenceCoverageRecordSchema.parse(record);
+    }));
+    const action = deriveCraftCorrectionAction(report, coverage);
+    if (action.action !== "repair_statement") return { correction_action: action, repair_input_digest: canonicalInputDigest([]), repair_scope: null };
+    const scope: CraftRepairScopeV2 = {
+      scope_version: 2,
+      source_definition_revision_id: source.metadata.revision_id,
+      source_report_revision_id: report.metadata.revision_id,
+      statement_scope_ids: action.statement_scope_ids,
+      correction_class: action.correction_class,
+      attempt: 1,
+    };
     const { facts } = await this.currentStrategyInputs(strategy.fact_revision_ids, strategy.coverage_revision_ids, authority.grant.record_scopes);
     const factSnapshot = facts.map((fact) => ({ revision_id: fact.metadata.revision_id, fact_kind: fact.fact_kind, value: fact.value, source_revision_ids: fact.source_revision_ids }));
     const blocks: Array<z.infer<typeof InferenceDataBlockSchema>> = [
@@ -2526,11 +2724,13 @@ export class ResumeDomainService {
       if (targetHead.metadata.revision_id !== target.metadata.revision_id) throw new ResumeDomainError("conflict", "Craft repair target analysis is no longer current", 409);
       blocks.push(this.inferenceBlock("target_fit_analysis", "resume.target-fit-analysis.v1", target));
     }
-    blocks.push(this.inferenceBlock("craft_quality_report", "resume.craft-quality-report.v1", report), this.inferenceBlock("craft_repair_scope", "resume.craft-repair-scope.v1", scope));
+    blocks.push(this.inferenceBlock("craft_quality_report", "resume.craft-quality-report.v2", report), this.inferenceBlock("craft_repair_scope", "resume.craft-repair-scope.v2", scope));
     const gates = evaluateDefinitionDeterministicGates(source, blocks);
     const mechanical = evaluateResumeQuality(source);
-    blocks.push(this.inferenceBlock("deterministic_findings", "resume.craft-deterministic-gates.v1", { ...gates, mechanical_passed: mechanical.accepted, mechanical_report_digest: mechanical.report_digest }), this.inferenceBlock("craft_gate_policy", "resume.craft-gate-policy.v1", CRAFT_EVIDENCE_LIMITED_POLICY));
-    return { repair_input_digest: canonicalInputDigest(blocks), repair_scope: scope };
+    blocks.push(this.inferenceBlock("deterministic_findings", "resume.craft-deterministic-gates.v1", { ...gates, mechanical_passed: mechanical.accepted, mechanical_report_digest: mechanical.report_digest }));
+    blocks.push(this.inferenceBlock("craft_anchor_evidence", "resume.craft-anchor-evidence.v1", extractCraftAnchorEvidence(craftContextFromBlocks(blocks))));
+    blocks.push(this.inferenceBlock("craft_gate_policy", "resume.craft-gate-policy.v1", CRAFT_EVIDENCE_LIMITED_POLICY));
+    return { correction_action: action, repair_input_digest: canonicalInputDigest(blocks), repair_scope: scope };
   }
 
   private async recoveredOperation(authority: DataAuthority, canonicalInput: unknown): Promise<ResumeDataRecord[] | null> {

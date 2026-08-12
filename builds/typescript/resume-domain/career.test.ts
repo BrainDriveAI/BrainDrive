@@ -61,6 +61,43 @@ describe("Career bounded context and return placement", () => {
     await expect(adapter.placeReturn({ ...summary, outcome_summary: "Different result." }, operationId)).rejects.toMatchObject({ code: "idempotency_conflict" });
   });
 
+  it("places an exact v2 approved identity and narrow quality state once across response-loss retry", async () => {
+    const { root, adapter } = await setup();
+    const summary = {
+      summary_version: 2 as const,
+      approved_reference: {
+        kind: "general_resume" as const,
+        record_id: crypto.randomUUID(),
+        revision_id: crypto.randomUUID(),
+        definition_digest: `sha256:${"a".repeat(64)}` as const,
+      },
+      quality_state: "owner_approved" as const,
+      craft_report_reference: {
+        revision_id: crypto.randomUUID(),
+        report_digest: `sha256:${"b".repeat(64)}` as const,
+      },
+      updated_at: "2026-08-07T12:00:00.000Z",
+    };
+    const operationId = crypto.randomUUID();
+    await expect(adapter.placeReturn(summary, operationId)).resolves.toMatchObject({ committed: true, reused: false });
+
+    const journalPath = path.join(root, "documents", "career", "journal.md");
+    const operationPath = path.join(root, "apps", "resume-builder", "career-return-operations", `${operationId}.json`);
+    const committedJournal = await readFile(journalPath, "utf8");
+    expect(committedJournal).toContain("Quality status: Owner approved");
+    expect(committedJournal).toContain(`Approved resume revision: ${summary.approved_reference.revision_id}`);
+    expect(committedJournal).toContain(`Product craft report revision: ${summary.craft_report_reference.revision_id}`);
+    expect(committedJournal).not.toContain(summary.approved_reference.definition_digest);
+    expect(committedJournal).not.toContain(summary.craft_report_reference.report_digest);
+    expect(committedJournal).not.toMatch(/release[- ]quality|independent review passed|score/i);
+
+    const operation = JSON.parse(await readFile(operationPath, "utf8")) as Record<string, unknown>;
+    await writeFile(operationPath, `${JSON.stringify({ ...operation, status: "pending" })}\n`, "utf8");
+    await expect(adapter.placeReturn(summary, operationId)).resolves.toMatchObject({ committed: true, reused: true });
+    expect(await readFile(journalPath, "utf8")).toBe(committedJournal);
+    expect(committedJournal.match(/Resume Builder Return/g)).toHaveLength(1);
+  });
+
   it("fails closed when an accepted context source exceeds its size bound", async () => {
     const { root, adapter } = await setup();
     await writeFile(path.join(root, "documents", "career", "plan.md"), "x".repeat(16_385), "utf8");

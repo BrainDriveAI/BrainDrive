@@ -25,7 +25,7 @@ async function root(prefix: string) {
   return value;
 }
 
-const compatibility = { read_min: 2, read_max: 3, write_version: 3 } as const;
+const compatibility = { read_min: 2, read_max: 4, write_version: 4 } as const;
 
 function schemaOneCatalog(ownerId: string, extensions: Record<string, unknown> = {}) {
   const body = {
@@ -120,11 +120,11 @@ describe("M6 migration, retention, and retained-data lifecycle", () => {
       expect(await readFile(catalogPath, "utf8")).toBe(bytes);
       const restarted = new ResumeDataStore(memoryRoot, fixture.namespace, {}, false);
       await restarted.initialize(testGrant().owner_id);
-      expect((await restarted.catalog()).data_schema_version).toBe(3);
+      expect((await restarted.catalog()).data_schema_version).toBe(4);
       expect(await restarted.list("job_evidence_coverage")).toHaveLength(1);
     }
   });
-  it("runs deterministic 0-to-1-to-2-to-3 steps with exact provenance while preserving extensions", async () => {
+  it("runs deterministic 0-to-1-to-2-to-3-to-4 steps with exact provenance while preserving extensions", async () => {
     const memoryRoot = await root("bd-resume-m6-migrate-");
     const namespace = path.join(memoryRoot, "apps", "resume-builder");
     await mkdir(namespace, { recursive: true });
@@ -140,11 +140,11 @@ describe("M6 migration, retention, and retained-data lifecycle", () => {
     const store = new ResumeDataStore(memoryRoot, namespace, {}, false);
     await store.initialize(testGrant().owner_id);
     const catalog = await store.catalog();
-    expect(catalog).toMatchObject({ data_schema_version: 3, extensions: legacy.extensions });
+    expect(catalog).toMatchObject({ data_schema_version: 4, extensions: legacy.extensions });
     const migrations = (await store.list("migration")).filter((record) => record.record_type === "migration");
-    expect(migrations).toHaveLength(3);
+    expect(migrations).toHaveLength(4);
     const orderedMigrations = [...migrations].sort((left, right) => left.from_schema_version - right.from_schema_version);
-    expect(orderedMigrations.map((migration) => [migration.from_schema_version, migration.to_schema_version])).toEqual([[0, 1], [1, 2], [2, 3]]);
+    expect(orderedMigrations.map((migration) => [migration.from_schema_version, migration.to_schema_version])).toEqual([[0, 1], [1, 2], [2, 3], [3, 4]]);
     expect(orderedMigrations[1]).toMatchObject({ status: "committed", extensions: { migration_provenance: {
       provenance_version: 1, transformer_id: "resume-data.schema-1-to-2", method: "deterministic_no_ai",
     } } });
@@ -165,7 +165,7 @@ describe("M6 migration, retention, and retained-data lifecycle", () => {
       expect(await readFile(path.join(namespace, "catalog.json"), "utf8")).toBe(bytes);
       const restarted = new ResumeDataStore(memoryRoot, namespace, {}, false);
       await restarted.initialize(testGrant().owner_id);
-      expect(await restarted.catalog()).toMatchObject({ data_schema_version: 3, extensions: schemaOne.extensions });
+      expect(await restarted.catalog()).toMatchObject({ data_schema_version: 4, extensions: schemaOne.extensions });
     }
   });
 
@@ -227,7 +227,7 @@ describe("M6 migration, retention, and retained-data lifecycle", () => {
 
       const restarted = new ResumeDataStore(memoryRoot, namespace, {}, false);
       await restarted.initialize(testGrant().owner_id);
-      expect((await restarted.catalog()).data_schema_version).toBe(3);
+      expect((await restarted.catalog()).data_schema_version).toBe(4);
       expect((await restarted.integrityScan()).staged_transaction_count).toBe(0);
     }
   });
@@ -237,7 +237,7 @@ describe("M6 migration, retention, and retained-data lifecycle", () => {
     const store = new ResumeDataStore(memoryRoot, undefined, {}, false);
     await store.initialize(testGrant().owner_id);
     const catalogPath = path.join(store.namespaceRoot, "catalog.json");
-    const newer = { ...JSON.parse(await readFile(catalogPath, "utf8")), data_schema_version: 4 };
+    const newer = { ...JSON.parse(await readFile(catalogPath, "utf8")), data_schema_version: 5 };
     const retained = `${JSON.stringify(newer)}\n`;
     await writeFile(catalogPath, retained, "utf8");
     const adapter = new ResumeDataLifecycleAdapter(memoryRoot, store.namespaceRoot);
@@ -245,7 +245,7 @@ describe("M6 migration, retention, and retained-data lifecycle", () => {
     expect(await readFile(catalogPath, "utf8")).toBe(retained);
     await expect(adapter.repairState(compatibility)).resolves.toMatchObject({
       state: "incompatible",
-      retained_schema_version: 4,
+      retained_schema_version: 5,
       data_preserved: true,
       owner_export_available: true,
     });
@@ -268,7 +268,7 @@ describe("M6 migration, retention, and retained-data lifecycle", () => {
     const { export_digest: exportDigest, ...exportBody } = exported;
     expect(exported.records).toHaveLength(2);
     expect(exportDigest).toBe(canonicalInputDigest(exportBody));
-    expect(prepared.receipt).toMatchObject({ export_version: 1, record_count: 2, schema_version: 3 });
+    expect(prepared.receipt).toMatchObject({ export_version: 1, record_count: 2, schema_version: 4 });
     expect(JSON.stringify(prepared.receipt)).not.toContain(memoryRoot);
     expect(JSON.stringify(prepared.receipt)).not.toContain("path");
   });
@@ -357,7 +357,7 @@ describe("M6 migration, retention, and retained-data lifecycle", () => {
     const dataRoot = await root("bd-resume-m6-valid-transfer-");
     const store = new ResumeDataStore(dataRoot, undefined, {}, false);
     await store.initialize(testGrant().owner_id);
-    await expect(validateResumeDataTransfer(dataRoot)).resolves.toMatchObject({ state: "verified", schema_version: 3 });
+    await expect(validateResumeDataTransfer(dataRoot)).resolves.toMatchObject({ state: "verified", schema_version: 4 });
   });
 
   it("blocks lifecycle changes while a whole-memory transfer is active", async () => {

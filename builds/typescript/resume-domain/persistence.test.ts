@@ -10,7 +10,7 @@ import { MODERN_FIXTURE_VERSION } from "../app-platform/lifecycle/fixture-reposi
 import { canonicalInputDigest } from "../app-platform/contracts/common.js";
 import { exportMigrationArchive, importMigrationArchive } from "../memory/migration.js";
 import { ResumeDomainService } from "./service.js";
-import { ResumeDataStore } from "./store.js";
+import { ResumeDataStore, type MigrationFaultPoint } from "./store.js";
 import { authority, proposalInput, testGrant } from "./test-helpers.js";
 
 const roots: string[] = [];
@@ -23,7 +23,90 @@ async function memoryRoot(prefix: string) {
   return root;
 }
 
+async function writeSchemaThreeFixture(root: string, extensions: Record<string, unknown> = {}) {
+  const namespace = path.join(root, "apps", "resume-builder");
+  const ownerId = testGrant().owner_id;
+  const recordId = "73000000-0000-4000-8000-000000000001";
+  const revisionId = "73000000-0000-4000-8000-000000000002";
+  const relativePath = `records/source/${recordId}/${revisionId}.json`;
+  const record = {
+    schema_version: 3, record_type: "source",
+    metadata: {
+      record_id: recordId, revision_id: revisionId, revision: 1, created_at: "2026-08-11T12:00:00.000Z",
+      created_by: {
+        owner_id: ownerId, actor_id: ownerId, app_id: "ai.braindrive.resume-builder", publisher_id: "ai.braindrive",
+        package_digest: `sha256:${"a".repeat(64)}`, installation_id: testGrant().installation_id,
+      },
+      prior_revision_id: null, extensions: { retained_metadata_extension: { exact: true } },
+    },
+    owner_id: ownerId, updated_at: "2026-08-11T12:00:00.000Z", lifecycle_state: "active",
+    sensitivity: "sensitive", retention_class: "durable_provenance_while_referenced",
+    extensions: { retained_record_extension: { exact: true } }, source_kind: "owner_interview",
+    safe_label: "Synthetic migration source", content_digest: canonicalInputDigest("synthetic-migration-source"),
+    captured_at: "2026-08-11T12:00:00.000Z", source_ref: "73000000-0000-4000-8000-000000000003", untrusted_content: true,
+  };
+  const recordBytes = `${JSON.stringify(record, null, 2)}\n`;
+  const locator = {
+    record_id: recordId, revision_id: revisionId, revision: 1, record_type: "source",
+    relative_path: relativePath, content_digest: canonicalInputDigest(record),
+  };
+  const body = {
+    catalog_version: 1, data_schema_version: 3, owner_id: ownerId, generation: 7,
+    created_at: "2026-08-11T12:00:00.000Z", updated_at: "2026-08-11T12:00:00.000Z",
+    heads: { [recordId]: { record_id: recordId, revision_id: revisionId, revision: 1, record_type: "source" } },
+    revisions: { [revisionId]: locator }, operations: {}, extensions,
+  };
+  const catalog = { ...body, integrity_digest: canonicalInputDigest(body) };
+  await mkdir(path.dirname(path.join(namespace, relativePath)), { recursive: true });
+  await writeFile(path.join(namespace, relativePath), recordBytes, "utf8");
+  const catalogBytes = `${JSON.stringify(catalog, null, 2)}\n`;
+  await writeFile(path.join(namespace, "catalog.json"), catalogBytes, "utf8");
+  return { namespace, ownerId, relativePath, revisionId, recordBytes, catalogBytes, extensions };
+}
+
 describe("Resume Builder migration, backup participation, and retained reopen", () => {
+  it("migrates schema 3 to 4 without rewriting historical bytes or inventing quality state", async () => {
+    const root = await memoryRoot("bd-resume-schema4-");
+    const fixture = await writeSchemaThreeFixture(root, { retained_catalog_extension: { exact: true } });
+    const store = new ResumeDataStore(root, fixture.namespace, {}, false);
+
+    await store.initialize(fixture.ownerId);
+    const catalog = await store.catalog();
+    expect(catalog).toMatchObject({ data_schema_version: 4, extensions: fixture.extensions });
+    expect(await readFile(path.join(fixture.namespace, fixture.relativePath), "utf8")).toBe(fixture.recordBytes);
+    expect(catalog.revisions[fixture.revisionId]).toMatchObject({ content_digest: canonicalInputDigest(JSON.parse(fixture.recordBytes)) });
+    expect(await store.list("craft_quality_report")).toHaveLength(0);
+    expect(await store.list("resume_definition")).toHaveLength(0);
+    expect(await store.list("migration")).toEqual([
+      expect.objectContaining({
+        schema_version: 4, from_schema_version: 3, to_schema_version: 4, status: "committed",
+        extensions: { migration_provenance: expect.objectContaining({ transformer_id: "resume-data.schema-3-to-4", method: "deterministic_no_ai" }) },
+      }),
+    ]);
+
+    await store.initialize(fixture.ownerId);
+    expect(await store.list("migration")).toHaveLength(1);
+  });
+
+  it("restores schema 3 at every migration fault boundary and converges on restart", async () => {
+    const faultPoints: MigrationFaultPoint[] = ["after_snapshot", "after_records", "after_staged_catalog", "after_marker", "after_catalog_switch"];
+    for (const faultPoint of faultPoints) {
+      const root = await memoryRoot(`bd-resume-schema4-${faultPoint}-`);
+      const fixture = await writeSchemaThreeFixture(root, { retained_fault_point: faultPoint });
+      const store = new ResumeDataStore(root, fixture.namespace, { migrationFaultPoint: faultPoint }, false);
+
+      await expect(store.initialize(fixture.ownerId)).rejects.toMatchObject({ code: "recoverable_internal_failure" });
+      expect(await readFile(path.join(fixture.namespace, "catalog.json"), "utf8")).toBe(fixture.catalogBytes);
+      expect(await readFile(path.join(fixture.namespace, fixture.relativePath), "utf8")).toBe(fixture.recordBytes);
+
+      const restarted = new ResumeDataStore(root, fixture.namespace, {}, false);
+      await restarted.initialize(fixture.ownerId);
+      expect((await restarted.catalog()).data_schema_version).toBe(4);
+      expect(await restarted.list("migration")).toHaveLength(1);
+      expect(await readFile(path.join(fixture.namespace, fixture.relativePath), "utf8")).toBe(fixture.recordBytes);
+    }
+  });
+
   it("transactionally migrates a pre-contract catalog and preserves extensions", async () => {
     const source = await memoryRoot("bd-resume-legacy-source-");
     const sourceStore = new ResumeDataStore(source, undefined, {}, false);
@@ -40,7 +123,7 @@ describe("Resume Builder migration, backup participation, and retained reopen", 
     await migrated.initialize(testGrant().owner_id);
     expect((await migrated.catalog()).extensions).toEqual({ future_namespace_hint: true });
     expect(await migrated.list("career_fact")).toHaveLength(1);
-    expect((await readFile(path.join(namespace, "catalog.json"), "utf8")).includes('"data_schema_version":3')).toBe(true);
+    expect((await readFile(path.join(namespace, "catalog.json"), "utf8")).includes('"data_schema_version":4')).toBe(true);
   });
 
   it("restores the pre-migration catalog when deterministic transformation fails", async () => {
@@ -72,7 +155,7 @@ describe("Resume Builder migration, backup participation, and retained reopen", 
 
     const reopened = new ResumeDataStore(target, namespace, {}, false);
     await reopened.initialize(testGrant().owner_id);
-    expect((await reopened.catalog()).data_schema_version).toBe(3);
+    expect((await reopened.catalog()).data_schema_version).toBe(4);
     await expect(readFile(path.join(namespace, "migration-transaction.json"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 

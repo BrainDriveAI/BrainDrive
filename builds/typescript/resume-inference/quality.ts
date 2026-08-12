@@ -11,13 +11,18 @@ import { evaluateResumeQuality, type QualityDefinition } from "./quality-runtime
 import { validateInferenceClaims } from "./validators.js";
 import { extractCleanTextFields } from "./clean-text-extractor.js";
 import {
+  CORRECTED_CRAFT_REPORT_SCHEMA_DIGEST,
+  CORRECTED_PROMPT_POLICY_DIGEST,
   M7DurableQualityReportSchema,
   M7_QUALITY_EVALUATION_SCHEMA_ID,
   buildM7DurableQualityReport,
+  loadFrozenQualityRegressionManifest,
   loadM7QualityCorpus,
+  validateCorrectiveCorpusBindings,
   validateM7FixtureIntegrity,
 } from "./quality-evaluation.js";
-import { RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION } from "./policy.js";
+import { PRODUCT_CRAFT_EVALUATOR } from "./craft-evaluator.js";
+import { RESUME_QUALITY_STANDARD_DIGEST } from "./strategy.js";
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const defaultFixtureRoot = path.join(moduleDirectory, "fixtures", "quality");
@@ -72,9 +77,9 @@ export const SyntheticQualityFixtureSchema = z.object({
 export type SyntheticQualityFixture = z.infer<typeof SyntheticQualityFixtureSchema>;
 
 export const ResumeQualityReportSchema = z.object({
-  report_schema_version: z.literal(1),
+  report_schema_version: z.literal(2),
   standard_revision: z.literal(3),
-  harness_mode: z.literal("complete_m7"),
+  harness_mode: z.literal("quality_gate_correction_m6"),
   outcome_scope: z.literal("credential_free_deterministic_checks"),
   credential_mode: z.literal("none"),
   fixture_count: z.number().int().nonnegative(),
@@ -116,15 +121,15 @@ export const ResumeQualityReportSchema = z.object({
     personas: z.object({ covered: z.array(z.string()), thresholds_passed: z.boolean(), outcome: z.enum(["passed", "failed"]) }).strict(),
     successor_no_regression: z.object({ fixture_id: z.literal("f9-strong-successor-synthetic"), outcome: z.enum(["passed", "failed"]) }).strict(),
   }).strict(),
-  authorized_generation: z.object({ required_runs_per_generative_fixture: z.literal(3), completed_runs: z.number().int().nonnegative(), status: z.enum(["awaiting_authorization", "completed"]) }).strict(),
+  authorized_generation: z.object({ required_runs_per_generative_fixture: z.literal(3), completed_runs: z.number().int().nonnegative(), status: z.enum(["blocked_missing_authority", "completed"]) }).strict(),
   release_gate: z.object({
-    tier_1_generation: z.enum(["awaiting_authorization", "passed", "failed"]),
+    tier_1_generation: z.enum(["blocked", "passed", "failed"]),
     tier_2_artifacts: z.enum(["passed", "failed"]),
-    tier_3_craft: z.enum(["awaiting_authorized_generation", "awaiting_calibration", "passed", "failed"]),
-    human_calibration: z.enum(["awaiting_review", "passed", "failed"]),
-    provider_conformance: z.enum(["awaiting_authorization", "passed", "failed"]),
-    numeric_friction: z.enum(["awaiting_authority", "passed", "failed"]),
-    retention_deletion: z.enum(["awaiting_contract", "passed", "failed"]),
+    tier_3_craft: z.enum(["blocked", "passed", "failed"]),
+    human_calibration: z.enum(["blocked", "passed", "failed"]),
+    provider_conformance: z.enum(["blocked", "passed", "failed"]),
+    numeric_friction: z.enum(["blocked", "passed", "failed"]),
+    retention_deletion: z.enum(["blocked", "passed", "failed"]),
     release_ready: z.boolean(),
   }).strict(),
   m7_evaluation: M7DurableQualityReportSchema,
@@ -142,8 +147,11 @@ export async function loadSyntheticQualityFixtures(fixtureRoot = defaultFixtureR
   const entries = (await readdir(fixtureRoot, { withFileTypes: true }))
     .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
     .sort((left, right) => left.name.localeCompare(right.name));
-  const fixtures = await Promise.all(entries.map(async (entry) =>
-    SyntheticQualityFixtureSchema.parse(JSON.parse(await readFile(path.join(fixtureRoot, entry.name), "utf8")))));
+  const fixtures = (await Promise.all(entries.map(async (entry) => {
+    const raw = JSON.parse(await readFile(path.join(fixtureRoot, entry.name), "utf8")) as unknown;
+    if (!raw || typeof raw !== "object" || !("fixture_schema_version" in raw) || !("synthetic" in raw)) return null;
+    return SyntheticQualityFixtureSchema.parse(raw);
+  }))).filter((fixture): fixture is SyntheticQualityFixture => fixture !== null);
   if (new Set(fixtures.map((fixture) => fixture.fixture_id)).size !== fixtures.length) throw new Error("Synthetic quality fixtures contain duplicate identities");
   return fixtures;
 }
@@ -257,7 +265,9 @@ async function currentGitRevision(): Promise<string> {
 export async function runResumeQualityFoundation(options: { fixtureRoot?: string; productRoots?: string[]; sourceRevision?: string } = {}) {
   const fixtures = await loadSyntheticQualityFixtures(options.fixtureRoot);
   const m7Corpus = await loadM7QualityCorpus();
+  const frozenManifest = await loadFrozenQualityRegressionManifest();
   const m7CorpusIntegrity = validateM7FixtureIntegrity(m7Corpus);
+  const correctiveBindings = validateCorrectiveCorpusBindings(m7Corpus, frozenManifest);
   const fixtureResults = fixtures.map((fixture) => {
     const extracted = extractQualityFieldsIndependently(fixture);
     const errorCodes: Array<"section_count_mismatch" | "line_count_mismatch"> = [];
@@ -301,41 +311,46 @@ export async function runResumeQualityFoundation(options: { fixtureRoot?: string
     anti_overfit: antiOverfit,
     suite_summary: suiteSummary,
     m7_corpus_integrity: m7CorpusIntegrity,
+    corrective_bindings: correctiveBindings,
   };
   const m7Evaluation = buildM7DurableQualityReport({
     binding: {
       source_revision: sourceRevision,
       quality_standard_revision: 3,
-      prompt_policy_digest: canonicalInputDigest({ policy_id: RESUME_PROMPT_POLICY_ID, policy_version: RESUME_PROMPT_POLICY_VERSION }),
+      quality_standard_digest: RESUME_QUALITY_STANDARD_DIGEST,
+      prompt_policy_digest: CORRECTED_PROMPT_POLICY_DIGEST,
       rubric_digest: canonicalInputDigest({ standard: "resume-quality", revision: 3 }),
+      evaluator_contract_digest: PRODUCT_CRAFT_EVALUATOR.binding_digest,
       fixture_corpus_digest: canonicalInputDigest(m7Corpus),
-      report_schema_digest: canonicalInputDigest({ schema_id: M7_QUALITY_EVALUATION_SCHEMA_ID, schema_version: 1 }),
+      craft_report_schema_digest: CORRECTED_CRAFT_REPORT_SCHEMA_DIGEST,
+      report_schema_digest: canonicalInputDigest({ schema_id: M7_QUALITY_EVALUATION_SCHEMA_ID, schema_version: 2 }),
     },
     corpus_integrity: m7CorpusIntegrity,
+    corrective_bindings: correctiveBindings,
     deterministic_foundation: {
       status: fixtureResults.every((result) => result.outcome === "passed") && antiOverfit.outcome === "passed" && suiteSummary.mutation.outcome === "passed" && suiteSummary.clean.outcome === "passed" && suiteSummary.personas.outcome === "passed" && suiteSummary.successor_no_regression.outcome === "passed" ? "passed" : "failed",
       report_digest: canonicalInputDigest(deterministicFoundation),
     },
   });
   const body = {
-    report_schema_version: 1 as const,
+    report_schema_version: 2 as const,
     standard_revision: 3 as const,
-    harness_mode: "complete_m7" as const,
+    harness_mode: "quality_gate_correction_m6" as const,
     outcome_scope: "credential_free_deterministic_checks" as const,
     credential_mode: "none" as const,
     fixture_count: fixtures.length,
     fixture_results: fixtureResults,
     anti_overfit: { scanner_version: 1 as const, ...antiOverfit },
     suite_summary: suiteSummary,
-    authorized_generation: { required_runs_per_generative_fixture: 3 as const, completed_runs: 0, status: "awaiting_authorization" as const },
+    authorized_generation: { required_runs_per_generative_fixture: 3 as const, completed_runs: 0, status: "blocked_missing_authority" as const },
     release_gate: {
-      tier_1_generation: "awaiting_authorization" as const,
+      tier_1_generation: "blocked" as const,
       tier_2_artifacts: fixtureResults.every((result) => result.outcome === "passed") ? "passed" as const : "failed" as const,
-      tier_3_craft: "awaiting_authorized_generation" as const,
-      human_calibration: "awaiting_review" as const,
-      provider_conformance: "awaiting_authorization" as const,
-      numeric_friction: "awaiting_authority" as const,
-      retention_deletion: "awaiting_contract" as const,
+      tier_3_craft: "blocked" as const,
+      human_calibration: "blocked" as const,
+      provider_conformance: "blocked" as const,
+      numeric_friction: "blocked" as const,
+      retention_deletion: "blocked" as const,
       release_ready: false,
     },
     m7_evaluation: m7Evaluation,
@@ -364,15 +379,18 @@ export function qualityReportMarkdown(report: z.infer<typeof ResumeQualityReport
     `- Provider conformance: ${report.release_gate.provider_conformance}`,
     `- Numeric friction: ${report.release_gate.numeric_friction}`,
     `- Retention/deletion: ${report.release_gate.retention_deletion}`,
-    `- M7 corpus integrity: ${report.m7_evaluation.gates.fixture_integrity} (${report.m7_evaluation.corpus_integrity.generative_fixture_count} generative, ${report.m7_evaluation.corpus_integrity.holdout_fixture_count} holdout)`,
-    `- M7 must-use cases: ${report.m7_evaluation.corpus_integrity.must_use_case_count}`,
-    `- M7 coverage/yield journeys: ${report.m7_evaluation.corpus_integrity.coverage_journey_count}`,
-    `- M7 target cases: ${report.m7_evaluation.corpus_integrity.target_case_count}`,
-    `- M7 craft/repair cases: ${report.m7_evaluation.corpus_integrity.craft_case_count}/${report.m7_evaluation.corpus_integrity.repair_case_count}`,
-    `- M7 successor pairs: ${report.m7_evaluation.corpus_integrity.successor_pair_count}`,
-    `- M7 parity mutations: ${report.m7_evaluation.corpus_integrity.parity_mutation_count}`,
-    `- M7 normalized friction journeys: ${report.m7_evaluation.corpus_integrity.friction_journey_count} (semantic ${report.m7_evaluation.gates.semantic_friction}; numeric ${report.m7_evaluation.gates.numeric_friction})`,
-    `- M7 multi-run gate: ${report.m7_evaluation.gates.multi_run}`,
+    `- M6 corrective corpus: ${report.m7_evaluation.gates.corrective_corpus} (${report.m7_evaluation.corrective_bindings.frozen_negative_count} frozen negative, ${report.m7_evaluation.corrective_bindings.clean_positive_count} clean positive, ${report.m7_evaluation.corrective_bindings.permutation_relation_count} permutation)`,
+    `- Workflow-only fixture boundary: ${report.m7_evaluation.gates.workflow_fixture_boundary} (higher-gate eligible: ${report.m7_evaluation.corrective_bindings.higher_gate_eligible})`,
+    `- Evaluation corpus integrity: ${report.m7_evaluation.gates.fixture_integrity} (${report.m7_evaluation.corpus_integrity.generative_fixture_count} generative, ${report.m7_evaluation.corpus_integrity.holdout_fixture_count} holdout)`,
+    `- Must-use cases: ${report.m7_evaluation.corpus_integrity.must_use_case_count}`,
+    `- Coverage/yield journeys: ${report.m7_evaluation.corpus_integrity.coverage_journey_count}`,
+    `- Target cases: ${report.m7_evaluation.corpus_integrity.target_case_count}`,
+    `- Craft/repair cases: ${report.m7_evaluation.corpus_integrity.craft_case_count}/${report.m7_evaluation.corpus_integrity.repair_case_count}`,
+    `- Successor pairs: ${report.m7_evaluation.corpus_integrity.successor_pair_count}`,
+    `- Parity mutations: ${report.m7_evaluation.corpus_integrity.parity_mutation_count}`,
+    `- Normalized friction journeys: ${report.m7_evaluation.corpus_integrity.friction_journey_count} (semantic ${report.m7_evaluation.gates.semantic_friction}; numeric ${report.m7_evaluation.gates.numeric_friction})`,
+    `- Controlled authority: ${report.m7_evaluation.gates.controlled_authority}`,
+    `- Three-run gate: ${report.m7_evaluation.gates.multi_run}`,
     `- Release ready: ${report.release_gate.release_ready}`,
     "",
   ].join("\n");

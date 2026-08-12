@@ -1,5 +1,5 @@
 export const APP_CONTRACT_SCHEMA_VERSION = 1 as const;
-export const RESUME_DATA_SCHEMA_VERSION = 3 as const;
+export const RESUME_DATA_SCHEMA_VERSION = 4 as const;
 export const RESUME_INFERENCE_SCHEMA_VERSION = 1 as const;
 export const APP_BRIDGE_SCHEMA_VERSION = 1 as const;
 

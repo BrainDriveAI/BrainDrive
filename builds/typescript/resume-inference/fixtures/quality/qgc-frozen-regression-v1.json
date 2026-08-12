@@ -1,0 +1,58 @@
+{
+  "manifest_version": 1,
+  "fixture_id": "synthetic-qgc-general-resume-001",
+  "synthetic_only": true,
+  "evidence_scope": "workflow_only",
+  "semantic_input_version": 1,
+  "normalized_checkpoint": {
+    "checkpoint_id": "pre_correction_general_resume_review",
+    "checkpoint_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "bindings": {
+    "fact_revision_ids": [
+      "71000000-0000-4000-8000-000000000001",
+      "71000000-0000-4000-8000-000000000002"
+    ],
+    "coverage_revision_ids": [
+      "71000000-0000-4000-8000-000000000003"
+    ],
+    "presentation_preference_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "target_direction_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+    "semantic_input_digest": "sha256:d65fd24cbb0e2610d0cf3ad3329384493038641076c8e788706b04c97260749f"
+  },
+  "policies": {
+    "quality_standard": {
+      "policy_id": "braindrive.resume-quality",
+      "policy_version": "3",
+      "policy_digest": "sha256:bf644a25e4587c43acc84a521ae6955b0c950ff8dbd17bafb34cb52b2c65f498"
+    },
+    "evaluator_contract": {
+      "policy_id": "braindrive.resume-builder.product-craft-review",
+      "policy_version": "2",
+      "policy_digest": "sha256:e46214e2ad153201ac24cbc34556c7364dc434f1f39635b5a0e217db028fe39f"
+    },
+    "evidence_limited": {
+      "policy_id": "braindrive.resume-builder.evidence-limited.rb7-oq1-blocked",
+      "policy_version": "1",
+      "policy_digest": "sha256:e9cc66749ba6b2a08f15f5e986bda406ffb0a529c9cdaee43a822a8c6922096c"
+    },
+    "prompt": {
+      "policy_id": "braindrive.resume-builder.fixed",
+      "policy_version": "8",
+      "policy_digest": "sha256:58762017d1cd33a584cd3a776c5a9dbe331aa9c7d167022ec733819763948037"
+    }
+  },
+  "expected": {
+    "C1": "fail",
+    "C2": "fail",
+    "C3": "pass",
+    "quality_state": "needs_correction",
+    "passing_label_allowed": false
+  },
+  "strategy_binding": {
+    "status": "canonicalized_milestone_2",
+    "strategy_digest": "sha256:0b1424bade2ae3ab1560d3da7feb63c18b2be492e019c2aec661a01389aa9eb2",
+    "section_order_digest": "sha256:6001c6b9233b54b38929066fcc64a95218c9ba46a8919f939fec969b05065697"
+  },
+  "manifest_digest": "sha256:a3f180a605aa5f6ff1845d1a7c526749a219b985e0769843cdf5a26cda715b38"
+}

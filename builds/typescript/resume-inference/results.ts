@@ -3,6 +3,7 @@ import { z } from "zod";
 import { NonEmptyStringSchema, OpaqueIdSchema } from "../app-platform/contracts/common.js";
 import {
   CraftCorrectionClassSchema,
+  CraftEvidenceReferenceSchema,
   CraftCriterionSchema,
   EvidenceStatusSchema,
   GuidanceResultSchema,
@@ -124,31 +125,43 @@ export const ResumeStrategyResultSchema = z.object({
 }).strict();
 
 export const ResumeCraftEvaluateResultSchema = z.object({
-  report_version: z.literal(1),
+  report_version: z.literal(2),
   evidence_context: z.enum(["standard", "limited"]),
   verdict: z.enum(["pass", "fail"]),
-  criterion_verdicts: z.array(z.object({ criterion: CraftCriterionSchema, verdict: z.enum(["pass", "fail", "not_applicable"]), finding_ids: z.array(OpaqueIdSchema).max(500) }).strict()).length(10),
+  criterion_verdicts: z.array(z.object({
+    criterion: CraftCriterionSchema,
+    verdict: z.enum(["pass", "fail", "not_applicable"]),
+    evidence_refs: z.array(CraftEvidenceReferenceSchema).min(1).max(500),
+    finding_ids: z.array(OpaqueIdSchema).max(500),
+  }).strict()).length(10),
   findings: z.array(z.object({
     finding_id: OpaqueIdSchema,
     criterion: CraftCriterionSchema,
-    statement_id: OpaqueIdSchema.nullable(),
     severity: z.enum(["guidance", "blocking"]),
     correction_class: CraftCorrectionClassSchema,
     safe_message: z.string().min(1).max(512),
-    evidence_category: z.enum(["statement_support", "must_use_evidence", "strategy", "target_analysis", "deterministic_gate", "optional_gap", "explicit_absence"]),
-    evidence_revision_ids: SupportIdsSchema,
+    evidence_ref_ids: z.array(OpaqueIdSchema).min(1).max(500),
   }).strict()).max(500),
 }).strict().superRefine((value, context) => {
   const criteria = value.criterion_verdicts.map((entry) => entry.criterion);
   if (new Set(criteria).size !== CraftCriterionSchema.options.length || CraftCriterionSchema.options.some((criterion) => !criteria.includes(criterion))) context.addIssue({ code: "custom", path: ["criterion_verdicts"], message: "every craft criterion is required exactly once" });
+  const allEvidence = value.criterion_verdicts.flatMap((entry) => entry.evidence_refs);
+  const evidenceIds = new Set(allEvidence.map((entry) => entry.evidence_ref_id));
+  if (evidenceIds.size !== allEvidence.length) context.addIssue({ code: "custom", path: ["criterion_verdicts"], message: "craft evidence identities must be unique" });
+  for (const entry of value.criterion_verdicts) {
+    if (entry.verdict === "pass" && !entry.evidence_refs.some((reference) => reference.polarity === "positive")) context.addIssue({ code: "custom", message: "passing craft criteria require positive evidence" });
+    if (entry.verdict === "fail" && !entry.evidence_refs.some((reference) => reference.polarity === "negative" || reference.polarity === "absence")) context.addIssue({ code: "custom", message: "failing craft criteria require negative evidence or absence" });
+    if (entry.verdict === "not_applicable" && !entry.evidence_refs.some((reference) => reference.kind === "explicit_absence" && reference.polarity === "absence")) context.addIssue({ code: "custom", message: "not-applicable craft criteria require explicit absence evidence" });
+    if (entry.criterion.startsWith("C") && entry.verdict === "not_applicable") context.addIssue({ code: "custom", message: "general craft criteria are always applicable" });
+  }
   const findingIds = new Set(value.findings.map((finding) => finding.finding_id));
   if (findingIds.size !== value.findings.length || value.criterion_verdicts.some((entry) => entry.finding_ids.some((id) => !findingIds.has(id)))) context.addIssue({ code: "custom", path: ["findings"], message: "craft finding references are invalid" });
+  if (value.findings.some((finding) => finding.evidence_ref_ids.some((id) => !evidenceIds.has(id)))) context.addIssue({ code: "custom", path: ["findings"], message: "craft findings require report evidence" });
   const failed = value.criterion_verdicts.some((entry) => entry.verdict === "fail") || value.findings.some((finding) => finding.severity === "blocking");
   if ((value.verdict === "fail") !== failed) context.addIssue({ code: "custom", path: ["verdict"], message: "craft verdict and mandatory findings disagree" });
 });
 
-export const ResumeCraftRepairResultSchema = z.object({
-  repair_version: z.literal(1),
+const CraftRepairResultBodySchema = z.object({
   source_definition_revision_id: OpaqueIdSchema,
   source_report_revision_id: OpaqueIdSchema,
   changed_statement_ids: z.array(OpaqueIdSchema).min(1).max(500),
@@ -156,6 +169,11 @@ export const ResumeCraftRepairResultSchema = z.object({
   statements: z.array(GeneratedStatementSchema).min(1).max(500),
   section_order: z.array(NonEmptyStringSchema).min(1).max(32),
 }).strict();
+
+export const ResumeCraftRepairResultSchema = z.union([
+  CraftRepairResultBodySchema.extend({ repair_version: z.literal(1) }).strict(),
+  CraftRepairResultBodySchema.extend({ repair_version: z.literal(2) }).strict(),
+]);
 
 export const TargetedResumeDraftResultSchema = z.object({
   parent_general_definition_revision_id: OpaqueIdSchema,

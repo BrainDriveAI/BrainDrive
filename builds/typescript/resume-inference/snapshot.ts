@@ -16,9 +16,9 @@ import type { CapabilityGrant } from "../app-platform/lifecycle/store.js";
 import type { ResumeDataRecord, ResumeDataStore } from "../resume-domain/store.js";
 import { ResumeInferenceError } from "./errors.js";
 import { RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION } from "./policy.js";
-import { CRAFT_EVIDENCE_LIMITED_POLICY } from "./craft-evaluator.js";
+import { CRAFT_EVIDENCE_LIMITED_POLICY, craftContextFromBlocks, extractCraftAnchorEvidence } from "./craft-evaluator.js";
 import { evaluateResumeQuality } from "./quality-runtime.js";
-import { buildEvidenceAnnotations, RESUME_QUALITY_POLICY_IDENTITY } from "./strategy.js";
+import { buildEvidenceAnnotations, canonicalizeCoverage, canonicalizeFacts, RESUME_QUALITY_POLICY_IDENTITY } from "./strategy.js";
 import { TARGET_FIT_THRESHOLD_POLICY } from "./target-fit.js";
 import { evaluateDefinitionDeterministicGates } from "./validators.js";
 
@@ -78,19 +78,33 @@ export class ImmutableInferenceSnapshotBuilder {
   async build(raw: unknown, grant: CapabilityGrant): Promise<z.infer<typeof InferenceRequestSchema>> {
     const parsed = InferenceInvocationSchema.safeParse(raw);
     if (!parsed.success) throw new ResumeInferenceError("invalid_request", "Inference invocation failed the versioned app contract");
-    const input = parsed.data;
+    let input = parsed.data;
     this.authorize(grant);
-    const requestedFactRecords = await Promise.all(input.fact_revision_ids.map((id) => this.store.readRevision(id, grant.record_scopes)));
+    const requestedFactRecords = await Promise.all([...new Set(input.fact_revision_ids)].map((id) => this.store.readRevision(id, grant.record_scopes)));
     for (const record of requestedFactRecords) {
       if (record.record_type !== "career_fact" || record.state !== "confirmed") {
         throw new ResumeInferenceError("validation_failed", "Inference snapshots may contain only confirmed fact revisions");
       }
     }
-    const factRecords = requestedFactRecords.filter((record) => {
+    let factRecords = requestedFactRecords.filter((record) => {
       if (record.record_type !== "career_fact" || record.fact_kind !== "job_evidence") return true;
       return JobEvidenceValueSchema.parse(JSON.parse(record.value)).outcome === "answered";
     });
-    const related = await Promise.all(input.record_revision_ids.map((id) => this.store.readRevision(id, grant.record_scopes)));
+    let related = await Promise.all([...new Set(input.record_revision_ids)].map((id) => this.store.readRevision(id, grant.record_scopes)));
+    if (input.purpose === "resume_strategy" || input.purpose === "general_resume_draft") {
+      const factOrder = canonicalizeFacts(factRecords.map((record) => ({
+        revision_id: record.metadata.revision_id,
+        fact_kind: record.record_type === "career_fact" ? record.fact_kind : "preference",
+        value: record.record_type === "career_fact" ? record.value : "",
+        source_revision_ids: record.record_type === "career_fact" ? record.source_revision_ids : [],
+      }))).map((fact) => fact.revision_id);
+      const byFact = new Map(factRecords.map((record) => [record.metadata.revision_id, record]));
+      factRecords = factOrder.map((revisionId) => byFact.get(revisionId)!);
+      const coverage = canonicalizeCoverage(related.filter((record) => record.record_type === "job_evidence_coverage"));
+      const other = related.filter((record) => record.record_type !== "job_evidence_coverage").sort((left, right) => left.metadata.revision_id.localeCompare(right.metadata.revision_id));
+      related = [...coverage, ...other];
+    }
+    input = { ...input, fact_revision_ids: factRecords.map((record) => record.metadata.revision_id), record_revision_ids: related.map((record) => record.metadata.revision_id) };
     const records = [...factRecords, ...related];
     if (new Set(records.map((record) => record.metadata.revision_id)).size !== records.length) {
       throw new ResumeInferenceError("invalid_request", "Inference snapshot contains duplicate revision identities");
@@ -128,6 +142,7 @@ export class ImmutableInferenceSnapshotBuilder {
         mechanical_passed: quality.accepted,
         mechanical_report_digest: quality.report_digest,
       }));
+      dataBlocks.push(block("craft_anchor_evidence", "resume.craft-anchor-evidence.v1", extractCraftAnchorEvidence(craftContextFromBlocks(dataBlocks))));
       dataBlocks.push(block("craft_gate_policy", "resume.craft-gate-policy.v1", CRAFT_EVIDENCE_LIMITED_POLICY));
     }
     const ceiling = PURPOSE_LIMITS[input.purpose];

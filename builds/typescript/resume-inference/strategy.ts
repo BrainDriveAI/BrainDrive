@@ -2,6 +2,23 @@ import { z } from "zod";
 
 import { canonicalInputDigest, OpaqueIdSchema, Sha256DigestSchema } from "../app-platform/contracts/common.js";
 import { JobEvidenceValueSchema } from "../app-platform/contracts/data.js";
+import {
+  canonicalizeCoverage,
+  canonicalizeEvidenceAnnotations,
+  canonicalizeFacts,
+} from "./canonical-strategy.js";
+
+export {
+  CANONICAL_RESUME_SECTION_PRECEDENCE,
+  canonicalSectionOrder,
+  canonicalizeCoverage,
+  canonicalizeEvidenceAnnotations,
+  canonicalizeFacts,
+  canonicalizeOpaqueIds,
+  canonicalizeSectionOrder,
+  canonicalizeStrategyResult,
+  sectionForFact,
+} from "./canonical-strategy.js";
 
 export const RESUME_QUALITY_STANDARD_ID = "braindrive.resume-quality" as const;
 export const RESUME_QUALITY_STANDARD_VERSION = "3" as const;
@@ -42,7 +59,9 @@ type Coverage = {
 };
 
 export function buildEvidenceAnnotations(facts: SnapshotFact[], coverage: Coverage[]) {
-  const annotations = facts.map((fact) => {
+  const canonicalFacts = canonicalizeFacts(facts);
+  const canonicalCoverage = canonicalizeCoverage(coverage);
+  const annotations = canonicalFacts.map((fact) => {
     let evidenceClass: z.infer<typeof ResumeEvidenceAnnotationsSchema>["facts"][number]["evidence_class"] = "other";
     let jobFactRevisionId: string | null = null;
     let requiredPriority: "must_use" | "preferred" | "context" = "must_use";
@@ -64,15 +83,15 @@ export function buildEvidenceAnnotations(facts: SnapshotFact[], coverage: Covera
     else if (fact.fact_kind === "preference") { evidenceClass = "presentation_preference"; requiredPriority = "context"; }
     return { fact_revision_id: fact.revision_id, evidence_class: evidenceClass, job_fact_revision_id: jobFactRevisionId, required_priority: requiredPriority };
   });
-  const unresolvedGapIds = coverage.flatMap((record) => (record.opportunities ?? [])
+  const unresolvedGapIds = canonicalCoverage.flatMap((record) => (record.opportunities ?? [])
     .filter((opportunity) => opportunity.state === "available" && typeof opportunity.opportunity_id === "string")
     .map((opportunity) => opportunity.opportunity_id!));
-  return ResumeEvidenceAnnotationsSchema.parse({
+  return ResumeEvidenceAnnotationsSchema.parse(canonicalizeEvidenceAnnotations({
     annotation_version: 1,
     facts: annotations,
-    coverage_digest: canonicalInputDigest(coverage.map((record) => ({ revision_id: record.metadata?.revision_id, job_fact_revision_id: record.job_fact_revision_id, dimensions: record.dimensions, opportunities: record.opportunities }))),
+    coverage_digest: canonicalInputDigest(canonicalCoverage.map((record) => ({ revision_id: record.metadata?.revision_id, job_fact_revision_id: record.job_fact_revision_id, dimensions: record.dimensions, opportunities: record.opportunities }))),
     unresolved_gap_ids: [...new Set(unresolvedGapIds)].sort(),
-  });
+  }));
 }
 
 function parseJson(value: string): unknown {

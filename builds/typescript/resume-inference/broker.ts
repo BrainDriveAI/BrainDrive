@@ -13,6 +13,7 @@ import { validateInferenceClaims, type ValidationReport } from "./validators.js"
 import type { ResolvedInferenceProvider } from "./compatibility.js";
 import { repairResumeDraftFromConfirmedFacts } from "./repair.js";
 import { deterministicGuidanceFallback } from "./guidance.js";
+import { canonicalizeStrategyResult } from "./strategy.js";
 
 type InferenceRequest = z.infer<typeof InferenceRequestSchema>;
 type InferenceResult = z.infer<typeof InferenceResultSchema>;
@@ -154,6 +155,7 @@ export class ResumeInferenceBroker {
         try {
           if (response.text.trim().length === 0) throw new Error("empty structured result");
           result = parsePurposeResult(request.purpose, request.output_schema_id, JSON.parse(response.text));
+          if (request.purpose === "resume_strategy") result = canonicalStrategyResult(result, request);
           validation = validateInferenceClaims(request.purpose, result, request.data_blocks);
           if (validation.accepted) {
             if (currentRepair?.kind === "validation") repair = "provider_validation_repair";
@@ -321,6 +323,12 @@ function operationInputDigest(request: InferenceRequest): `sha256:${string}` {
     capability_requirements: request.capability_requirements,
     limits: request.limits,
   });
+}
+
+function canonicalStrategyResult(result: unknown, request: InferenceRequest): unknown {
+  const facts = (request.data_blocks.find((block) => block.category === "confirmed_fact_snapshot")?.data as { facts?: Array<{ revision_id: string; fact_kind: string; value: string; source_revision_ids?: string[] }> } | undefined)?.facts ?? [];
+  const annotations = request.data_blocks.find((block) => block.category === "evidence_annotations")?.data as Parameters<typeof canonicalizeStrategyResult>[2] | undefined;
+  return annotations ? canonicalizeStrategyResult(result as Parameters<typeof canonicalizeStrategyResult>[0], facts, annotations) : result;
 }
 
 function throwIfAborted(signal: AbortSignal): void {

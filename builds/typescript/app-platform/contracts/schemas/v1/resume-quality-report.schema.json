@@ -5,7 +5,7 @@
   "properties": {
     "report_schema_version": {
       "type": "number",
-      "const": 1
+      "const": 2
     },
     "standard_revision": {
       "type": "number",
@@ -13,7 +13,7 @@
     },
     "harness_mode": {
       "type": "string",
-      "const": "complete_m7"
+      "const": "quality_gate_correction_m6"
     },
     "outcome_scope": {
       "type": "string",
@@ -393,7 +393,7 @@
         "status": {
           "type": "string",
           "enum": [
-            "awaiting_authorization",
+            "blocked_missing_authority",
             "completed"
           ]
         }
@@ -411,7 +411,7 @@
         "tier_1_generation": {
           "type": "string",
           "enum": [
-            "awaiting_authorization",
+            "blocked",
             "passed",
             "failed"
           ]
@@ -426,8 +426,7 @@
         "tier_3_craft": {
           "type": "string",
           "enum": [
-            "awaiting_authorized_generation",
-            "awaiting_calibration",
+            "blocked",
             "passed",
             "failed"
           ]
@@ -435,7 +434,7 @@
         "human_calibration": {
           "type": "string",
           "enum": [
-            "awaiting_review",
+            "blocked",
             "passed",
             "failed"
           ]
@@ -443,7 +442,7 @@
         "provider_conformance": {
           "type": "string",
           "enum": [
-            "awaiting_authorization",
+            "blocked",
             "passed",
             "failed"
           ]
@@ -451,7 +450,7 @@
         "numeric_friction": {
           "type": "string",
           "enum": [
-            "awaiting_authority",
+            "blocked",
             "passed",
             "failed"
           ]
@@ -459,7 +458,7 @@
         "retention_deletion": {
           "type": "string",
           "enum": [
-            "awaiting_contract",
+            "blocked",
             "passed",
             "failed"
           ]
@@ -485,7 +484,7 @@
       "properties": {
         "report_schema_version": {
           "type": "number",
-          "const": 1
+          "const": 2
         },
         "source_revision": {
           "type": "string",
@@ -495,6 +494,10 @@
           "type": "number",
           "const": 3
         },
+        "quality_standard_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
         "prompt_policy_digest": {
           "type": "string",
           "pattern": "^sha256:[a-f0-9]{64}$"
@@ -503,7 +506,15 @@
           "type": "string",
           "pattern": "^sha256:[a-f0-9]{64}$"
         },
+        "evaluator_contract_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
         "fixture_corpus_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "craft_report_schema_digest": {
           "type": "string",
           "pattern": "^sha256:[a-f0-9]{64}$"
         },
@@ -513,7 +524,7 @@
         },
         "outcome_scope": {
           "type": "string",
-          "const": "synthetic_sanitized_evaluation"
+          "const": "synthetic_sanitized_quality_gate_correction"
         },
         "corpus_integrity": {
           "type": "object",
@@ -552,6 +563,15 @@
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991
             },
+            "clean_control_count": {
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 9007199254740991
+            },
+            "permutation_relation_count": {
+              "type": "number",
+              "const": 1
+            },
             "repair_case_count": {
               "type": "integer",
               "exclusiveMinimum": 0,
@@ -581,10 +601,51 @@
             "coverage_journey_count",
             "target_case_count",
             "craft_case_count",
+            "clean_control_count",
+            "permutation_relation_count",
             "repair_case_count",
             "successor_pair_count",
             "parity_mutation_count",
             "friction_journey_count"
+          ],
+          "additionalProperties": false
+        },
+        "corrective_bindings": {
+          "type": "object",
+          "properties": {
+            "outcome": {
+              "type": "string",
+              "const": "passed"
+            },
+            "frozen_negative_count": {
+              "type": "number",
+              "const": 1
+            },
+            "clean_positive_count": {
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 9007199254740991
+            },
+            "permutation_relation_count": {
+              "type": "number",
+              "const": 1
+            },
+            "evidence_scope": {
+              "type": "string",
+              "const": "workflow_only"
+            },
+            "higher_gate_eligible": {
+              "type": "boolean",
+              "const": false
+            }
+          },
+          "required": [
+            "outcome",
+            "frozen_negative_count",
+            "clean_positive_count",
+            "permutation_relation_count",
+            "evidence_scope",
+            "higher_gate_eligible"
           ],
           "additionalProperties": false
         },
@@ -629,6 +690,25 @@
             "semantic_friction": {
               "type": "string",
               "enum": [
+                "passed",
+                "failed"
+              ]
+            },
+            "corrective_corpus": {
+              "type": "string",
+              "enum": [
+                "passed",
+                "failed"
+              ]
+            },
+            "workflow_fixture_boundary": {
+              "type": "string",
+              "const": "passed"
+            },
+            "controlled_authority": {
+              "type": "string",
+              "enum": [
+                "blocked",
                 "passed",
                 "failed"
               ]
@@ -678,6 +758,9 @@
             "fixture_integrity",
             "deterministic_foundation",
             "semantic_friction",
+            "corrective_corpus",
+            "workflow_fixture_boundary",
+            "controlled_authority",
             "multi_run",
             "provider_conformance",
             "human_calibration",
@@ -698,12 +781,16 @@
         "report_schema_version",
         "source_revision",
         "quality_standard_revision",
+        "quality_standard_digest",
         "prompt_policy_digest",
         "rubric_digest",
+        "evaluator_contract_digest",
         "fixture_corpus_digest",
+        "craft_report_schema_digest",
         "report_schema_digest",
         "outcome_scope",
         "corpus_integrity",
+        "corrective_bindings",
         "deterministic_foundation",
         "gates",
         "release_ready",

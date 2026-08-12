@@ -266,7 +266,7 @@ async function loadOrCreateFixtureSource(root: string, versions: string[], autho
         { target: "docker_linux_x64", os: "linux", architecture: "x64", runtime_kind: "packaged_node", entrypoint: "payload/docker/index.js" },
         { target: "desktop_windows_x64", os: "windows", architecture: "x64", runtime_kind: "packaged_node", entrypoint: "payload/docker/index.js" },
       ],
-      compatibility: { app_contract: 1, host_min_version: "26.7.23", mcp_protocol: "2026-07-28", legacy_mcp_adapter: "2025-11-25", mcp_apps: { extension_id: "io.modelcontextprotocol/ui", version: "2026-01-26" }, data_schema: version === MODERN_FIXTURE_VERSION ? { read_min: 2, read_max: 3, write_version: 3 } : { read_min: 1, read_max: 1, write_version: 1 } },
+      compatibility: { app_contract: 1, host_min_version: "26.7.23", mcp_protocol: "2026-07-28", legacy_mcp_adapter: "2025-11-25", mcp_apps: { extension_id: "io.modelcontextprotocol/ui", version: "2026-01-26" }, data_schema: version === MODERN_FIXTURE_VERSION ? { read_min: 2, read_max: 4, write_version: 4 } : { read_min: 1, read_max: 1, write_version: 1 } },
       requested_capabilities: version === MODERN_FIXTURE_VERSION ? [...MODERN_FIXTURE_CAPABILITIES] : ["career.context.read", "career.facts.read", "career.facts.propose", "career.facts.confirm", "resume.definitions.read", "resume.definitions.write", "resume.jobs.read", "resume.jobs.write", "resume.artifacts.register", "resume.export.request", "resume.operations.read", ...(version === "1.0.0" ? [] : ["app.inference.request" as const])],
       provenance_path: "provenance/build.jsonl",
       sbom_path: "sbom/cyclonedx.json",

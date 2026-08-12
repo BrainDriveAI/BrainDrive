@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { ModelAdapter } from "../adapters/base.js";
 import { InferencePurposeSchema } from "../app-platform/contracts/inference.js";
 import { RESUME_CONFORMANCE_PURPOSES, runResumeModelConformance } from "./conformance.js";
-import { conformanceBlocks } from "./conformance-corpus.js";
+import { RESUME_MODEL_CONFORMANCE_BINDING, conformanceBlocks } from "./conformance-corpus.js";
 
 describe("Resume Builder provider conformance safety", () => {
   it("keeps the runner purpose list synchronized with every versioned inference purpose", () => {
@@ -14,11 +14,18 @@ describe("Resume Builder provider conformance safety", () => {
   });
 
   it("supplies purpose-complete strategy, target, evaluation, and repair inputs", () => {
+    expect(RESUME_MODEL_CONFORMANCE_BINDING).toMatchObject({
+      binding_version: 2,
+      evidence_scope: "controlled_provider_conformance",
+      quality_standard_revision: 3,
+      prompt_policy_version: "8",
+      craft_report_schema_id: "resume.craft-quality-report.v2",
+    });
     expect(conformanceBlocks("resume_strategy").map((item) => item.category)).toEqual(expect.arrayContaining(["confirmed_fact_snapshot", "evidence_annotations", "quality_policy"]));
     expect(conformanceBlocks("general_resume_draft").map((item) => item.category)).toEqual(expect.arrayContaining(["confirmed_fact_snapshot", "resume_strategy", "quality_policy"]));
     expect(conformanceBlocks("tailoring_plan").map((item) => item.category)).toEqual(expect.arrayContaining(["general_resume_definition", "evidence_matrix", "target_fit_policy"]));
     expect(conformanceBlocks("targeted_resume_draft").map((item) => item.category)).toEqual(expect.arrayContaining(["general_resume_definition", "resume_strategy", "target_fit_analysis"]));
-    expect(conformanceBlocks("resume_craft_evaluate").map((item) => item.category)).toEqual(expect.arrayContaining(["general_resume_definition", "resume_strategy", "deterministic_findings", "craft_gate_policy"]));
+    expect(conformanceBlocks("resume_craft_evaluate").map((item) => item.category)).toEqual(expect.arrayContaining(["general_resume_definition", "resume_strategy", "deterministic_findings", "craft_anchor_evidence", "craft_gate_policy"]));
     expect(conformanceBlocks("resume_craft_repair").map((item) => item.category)).toEqual(expect.arrayContaining(["craft_quality_report", "craft_repair_scope"]));
   });
 

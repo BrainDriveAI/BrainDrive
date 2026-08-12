@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { canonicalInputDigest } from "../app-platform/contracts/common.js";
 import type { InferenceDataBlockSchema } from "../app-platform/contracts/inference.js";
-import { CRAFT_EVIDENCE_LIMITED_POLICY, craftContextFromBlocks, evaluateCraftProposal } from "../resume-inference/craft-evaluator.js";
+import { CRAFT_EVIDENCE_LIMITED_POLICY, craftContextFromBlocks, evaluateCraftProposal, extractCraftAnchorEvidence } from "../resume-inference/craft-evaluator.js";
 import { RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION } from "../resume-inference/policy.js";
 import { evaluateResumeQuality } from "../resume-inference/quality-runtime.js";
 import { buildEvidenceAnnotations, RESUME_QUALITY_POLICY_IDENTITY, RESUME_QUALITY_STANDARD_DIGEST, RESUME_QUALITY_STANDARD_ID, RESUME_QUALITY_STANDARD_VERSION } from "../resume-inference/strategy.js";
@@ -36,7 +36,7 @@ async function setup() {
   const factId = confirmed.fact.metadata.revision_id;
   const facts = [{ revision_id: factId, fact_kind: confirmed.fact.fact_kind, value: confirmed.fact.value, source_revision_ids: confirmed.fact.source_revision_ids }];
   const strategyResult = {
-    strategy_version: 1 as const, history_shape: "early_career" as const, history_reason_code: "thin_history" as const,
+    strategy_version: 1 as const, history_shape: "chronological_standard" as const, history_reason_code: "standard_chronology" as const,
     role_emphasis: [], section_order: ["experience"], evidence_priorities: [{ fact_revision_id: factId, priority: "must_use" as const }],
     summary_decision: "omit" as const, summary_reason_code: "insufficient_distinct_value" as const, skills_context: [], omissions: [], unresolved_gap_ids: [],
     owner_rationale: "Use the confirmed accomplishment without padding.",
@@ -53,7 +53,8 @@ async function setup() {
   if (strategyResultRecord.strategy.record_type !== "resume_strategy") throw new Error("strategy fixture failed");
   const strategy = strategyResultRecord.strategy;
   const statement = { statement_id: crypto.randomUUID(), section_id: "experience", display_role: "heading" as const, kind: "factual" as const, text: "Synthetic supported statement", supporting_confirmed_fact_revision_ids: [factId] };
-  const generation = { title: "General Resume", statements: [statement], section_order: ["experience"], omissions: [] };
+  const detail = { statement_id: crypto.randomUUID(), section_id: "experience", display_role: "bullet" as const, kind: "presentation" as const, text: "Maintained routine work", supporting_confirmed_fact_revision_ids: [] };
+  const generation = { title: "Synthetic Owner", statements: [statement, detail], section_order: ["experience"], omissions: [] };
   const generationInput = [
     block("confirmed_fact_snapshot", "resume.confirmed-facts.v1", { facts }),
     block("resume_strategy", "resume.strategy-record.v1", strategy),
@@ -67,19 +68,21 @@ async function setup() {
     quality_standard_digest: RESUME_QUALITY_STANDARD_DIGEST, provider_profile_id: strategy.provider_profile_id, model_id: strategy.model_id,
     used_must_use_fact_revision_ids: [factId], omissions: [],
   };
-  const proposal = await service.writeDefinition({ ...definitionInput(factId), status: "proposed", statements: [statement], prompt_policy_version: RESUME_PROMPT_POLICY_VERSION, strategy_binding: strategyBinding, generation_result: generation }, authority("resume.definitions.write"));
+  const proposal = await service.writeDefinition({ ...definitionInput(factId), status: "proposed", title: generation.title, statements: [statement, detail], prompt_policy_version: RESUME_PROMPT_POLICY_VERSION, strategy_binding: strategyBinding, generation_result: generation }, authority("resume.definitions.write"));
   if (proposal.definition.record_type !== "resume_definition") throw new Error("parent proposal fixture failed");
   const craftBase = [block("confirmed_fact_snapshot", "resume.confirmed-facts.v1", { facts }), block("general_resume_definition", "resume.definition.v1", proposal.definition), block("resume_strategy", "resume.strategy-record.v1", strategy)];
   const gates = evaluateDefinitionDeterministicGates(proposal.definition, craftBase);
   const mechanical = evaluateResumeQuality(proposal.definition);
-  const craftBlocks = [...craftBase, block("deterministic_findings", "resume.craft-deterministic-gates.v1", { ...gates, mechanical_passed: mechanical.accepted, mechanical_report_digest: mechanical.report_digest }), block("craft_gate_policy", "resume.craft-gate-policy.v1", CRAFT_EVIDENCE_LIMITED_POLICY)];
+  const gatesBlock = block("deterministic_findings", "resume.craft-deterministic-gates.v1", { ...gates, mechanical_passed: mechanical.accepted, mechanical_report_digest: mechanical.report_digest });
+  const anchorContext = craftContextFromBlocks([...craftBase, gatesBlock]);
+  const craftBlocks = [...craftBase, gatesBlock, block("craft_anchor_evidence", "resume.craft-anchor-evidence.v1", extractCraftAnchorEvidence(anchorContext)), block("craft_gate_policy", "resume.craft-gate-policy.v1", CRAFT_EVIDENCE_LIMITED_POLICY)];
   const evaluation = evaluateCraftProposal(craftContextFromBlocks(craftBlocks));
   const craft = await service.writeCraftQualityReport({ kind: "craft_quality_report", proposal_definition_revision_id: proposal.definition.metadata.revision_id, strategy_revision_id: strategy.metadata.revision_id, target_analysis_revision_id: null, evaluation, inference_binding: { prompt_policy_id: RESUME_PROMPT_POLICY_ID, prompt_policy_version: RESUME_PROMPT_POLICY_VERSION, input_digest: canonicalInputDigest(craftBlocks), output_digest: canonicalInputDigest(evaluation), provider_profile_id: "owner-active", model_id: "synthetic-model" } }, authority("resume.definitions.write"));
   const parent = await service.approveDefinition({ kind: "approve_definition", definition_record_id: proposal.definition.metadata.record_id, expected_revision: 1, craft_report_revision_id: craft.report.metadata.revision_id }, authority("resume.definitions.write"), true);
   const jobText = "Requires delivery of synthetic systems.";
   const job = await service.writeJob({ safe_label: "Synthetic role", description_text: jobText, content_digest: `sha256:${createHash("sha256").update(jobText).digest("hex")}`, captured_at: "2026-08-11T12:00:00.000Z", sensitivity: "sensitive" }, authority("resume.jobs.write"));
   if (parent.definition.record_type !== "resume_definition" || job.job.record_type !== "job_description") throw new Error("target fixture failed");
-  return { store, service, factId, facts, strategy, parent: parent.definition, job: job.job, statement };
+  return { store, service, factId, facts, strategy, parent: parent.definition, job: job.job, statement, detail };
 }
 
 function fitInput(fixture: Awaited<ReturnType<typeof setup>>, evidenceStatus: "supported" | "unsupported") {
@@ -119,7 +122,7 @@ describe("durable target-fit operation", () => {
     expect(retried.analysis.metadata.revision_id).toBe(first.analysis.metadata.revision_id);
 
     const changed = { ...fixture.statement, text: "Synthetic supported statement." };
-    const generated = { parent_general_definition_revision_id: fixture.parent.metadata.revision_id, job_revision_id: fixture.job.metadata.revision_id, title: fixture.parent.title, statements: [changed], changed_statement_ids: [fixture.statement.statement_id], section_order: fixture.parent.section_order };
+    const generated = { parent_general_definition_revision_id: fixture.parent.metadata.revision_id, job_revision_id: fixture.job.metadata.revision_id, title: fixture.parent.title, statements: [changed, fixture.detail], changed_statement_ids: [fixture.statement.statement_id], section_order: fixture.parent.section_order };
     const targetBlocks = [
       block("confirmed_fact_snapshot", "resume.confirmed-facts.v1", { facts: fixture.facts }),
       block("general_resume_definition", "resume.definition.v1", fixture.parent),
@@ -128,7 +131,7 @@ describe("durable target-fit operation", () => {
       block("target_fit_analysis", "resume.target-fit-analysis.v1", first.analysis),
     ];
     const childInput = {
-      ...definitionInput(fixture.factId), definition_kind: "targeted", status: "proposed", title: fixture.parent.title, statements: [changed], section_order: fixture.parent.section_order,
+      ...definitionInput(fixture.factId), definition_kind: "targeted", status: "proposed", title: fixture.parent.title, statements: [changed, fixture.detail], section_order: fixture.parent.section_order,
       parent_definition_revision_id: fixture.parent.metadata.revision_id, job_revision_id: fixture.job.metadata.revision_id, prompt_policy_version: RESUME_PROMPT_POLICY_VERSION,
       variant: { evidence_matrix: input.evidence_matrix, changed_statement_ids: generated.changed_statement_ids, target_fit_analysis_revision_id: first.analysis.metadata.revision_id, generation_result: generated, inference_binding: { prompt_policy_id: RESUME_PROMPT_POLICY_ID, prompt_policy_version: RESUME_PROMPT_POLICY_VERSION, input_digest: canonicalInputDigest(targetBlocks), output_digest: canonicalInputDigest(generated), provider_profile_id: "owner-active", model_id: "synthetic-model" } },
     };
@@ -150,7 +153,9 @@ describe("durable target-fit operation", () => {
     const craftBase = [block("confirmed_fact_snapshot", "resume.confirmed-facts.v1", { facts: fixture.facts }), block("general_resume_definition", "resume.definition.v1", child.definition), block("resume_strategy", "resume.strategy-record.v1", fixture.strategy), block("target_fit_analysis", "resume.target-fit-analysis.v1", completed)];
     const craftGates = evaluateDefinitionDeterministicGates(child.definition, craftBase);
     const craftMechanical = evaluateResumeQuality(child.definition);
-    const craftBlocks = [...craftBase, block("deterministic_findings", "resume.craft-deterministic-gates.v1", { ...craftGates, mechanical_passed: craftMechanical.accepted, mechanical_report_digest: craftMechanical.report_digest }), block("craft_gate_policy", "resume.craft-gate-policy.v1", CRAFT_EVIDENCE_LIMITED_POLICY)];
+    const craftGatesBlock = block("deterministic_findings", "resume.craft-deterministic-gates.v1", { ...craftGates, mechanical_passed: craftMechanical.accepted, mechanical_report_digest: craftMechanical.report_digest });
+    const craftAnchorContext = craftContextFromBlocks([...craftBase, craftGatesBlock]);
+    const craftBlocks = [...craftBase, craftGatesBlock, block("craft_anchor_evidence", "resume.craft-anchor-evidence.v1", extractCraftAnchorEvidence(craftAnchorContext)), block("craft_gate_policy", "resume.craft-gate-policy.v1", CRAFT_EVIDENCE_LIMITED_POLICY)];
     const craftEvaluation = evaluateCraftProposal(craftContextFromBlocks(craftBlocks));
     const craftReport = await fixture.service.writeCraftQualityReport({ kind: "craft_quality_report", proposal_definition_revision_id: child.definition.metadata.revision_id, strategy_revision_id: fixture.strategy.metadata.revision_id, target_analysis_revision_id: completed.metadata.revision_id, evaluation: craftEvaluation, inference_binding: { prompt_policy_id: RESUME_PROMPT_POLICY_ID, prompt_policy_version: RESUME_PROMPT_POLICY_VERSION, input_digest: canonicalInputDigest(craftBlocks), output_digest: canonicalInputDigest(craftEvaluation), provider_profile_id: "owner-active", model_id: "synthetic-model" } }, authority("resume.definitions.write"));
     await expect(fixture.service.approveDefinition({ kind: "approve_definition", definition_record_id: child.definition.metadata.record_id, expected_revision: 1, craft_report_revision_id: craftReport.report.metadata.revision_id }, authority("resume.definitions.write"), true)).resolves.toMatchObject({ definition: { status: "approved", definition_kind: "targeted" } });

@@ -88,7 +88,18 @@ export default function DocumentView({
             </div>
             <h1 className="truncate font-heading text-lg text-bd-text-heading">{file.displayName ?? file.name}</h1>
             {file.sourceType === "app_published" && file.sourceLabel ? (
-              <p className="text-xs text-bd-text-secondary">Published by {file.sourceLabel}</p>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-bd-text-secondary">
+                <span>Published by {file.sourceLabel}</span>
+                {file.quality ? (
+                  <span
+                    className="rounded-full border border-bd-border bg-bd-bg-secondary px-2 py-0.5 text-bd-text-primary"
+                    role="status"
+                    aria-label={`Resume quality status: ${file.quality.label}`}
+                  >
+                    {file.quality.label}
+                  </span>
+                ) : null}
+              </div>
             ) : null}
           </div>
 

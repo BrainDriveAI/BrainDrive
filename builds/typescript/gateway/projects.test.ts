@@ -26,6 +26,7 @@ describe("GatewayProjectService projects", () => {
               logicalId: "general-resume",
               title: "General Resume",
               markdown,
+              quality: { state: "owner_approved", label: "Owner approved" },
             }]
           : [];
       },
@@ -51,6 +52,7 @@ describe("GatewayProjectService projects", () => {
         readOnly: true,
         sourceLabel: "Resume Builder",
         sourceType: "app_published",
+        quality: { state: "owner_approved", label: "Owner approved" },
       });
       await expect(projects.readProjectFile("career", publishedFile!.path)).resolves.toBe(markdown);
 
@@ -64,6 +66,40 @@ describe("GatewayProjectService projects", () => {
       await expect(projects.listProjectFiles("career")).resolves.toMatchObject({ files: expect.not.arrayContaining([
         expect.objectContaining({ path: publishedFile!.path }),
       ]) });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps optional publication metadata generic, validated, and separate from Markdown", async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), "gateway-project-published-quality-"));
+    const memoryRoot = path.join(tempRoot, "memory");
+    const markdown = "# Exact Synthetic Resume\n\nApproved content only.\n";
+    let quality: { state: "owner_approved"; label: string } = { state: "owner_approved", label: "Owner approved" };
+    const provider: PublishedProjectDocumentProvider = {
+      publisherId: "ai.braindrive.resume-builder",
+      async list() {
+        return [{
+          publisherId: this.publisherId,
+          sourceLabel: "Resume Builder",
+          logicalId: "general-resume",
+          title: "General Resume",
+          markdown,
+          quality,
+        }];
+      },
+    };
+    try {
+      await mkdir(path.join(memoryRoot, "documents", "career"), { recursive: true });
+      await writeFile(path.join(memoryRoot, "documents", "projects.json"), JSON.stringify([{ id: "career", name: "Career", icon: "briefcase" }]), "utf8");
+      const projects = new GatewayProjectService(memoryRoot, { rootDir: tempRoot, publishedDocumentProviders: [provider] });
+      const publishedPath = path.join(memoryRoot, "documents", "career", "published", provider.publisherId, "general-resume.md");
+      await expect(projects.listProjectFiles("career")).resolves.toBeDefined();
+      await expect(readFile(publishedPath, "utf8")).resolves.toBe(markdown);
+
+      quality = { state: "owner_approved", label: "Misleading pass" };
+      await expect(projects.listProjectFiles("career")).rejects.toThrow(/quality metadata/i);
+      await expect(readFile(publishedPath, "utf8")).resolves.toBe(markdown);
     } finally {
       await rm(tempRoot, { recursive: true, force: true });
     }

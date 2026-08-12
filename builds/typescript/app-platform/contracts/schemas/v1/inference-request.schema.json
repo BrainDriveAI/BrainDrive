@@ -113,6 +113,7 @@
               "craft_quality_report",
               "craft_repair_scope",
               "craft_gate_policy",
+              "craft_anchor_evidence",
               "evidence_annotations",
               "quality_policy",
               "target_fit_policy"

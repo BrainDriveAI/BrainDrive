@@ -65,6 +65,33 @@ function context(grant: ReturnType<typeof testGrant>, operationId = crypto.rando
 }
 
 describe("named Resume Builder data capabilities", () => {
+  it("emits content-free correction, transition, recovery, identity, digest, and count fields", async () => {
+    const { router } = await setup();
+    const details = (router as unknown as { interviewAuditDetails: (event: string, input: unknown, result: unknown) => Record<string, unknown> }).interviewAuditDetails("app.resume_craft.repaired", { private_text: "PRIVATE_REPAIR_SENTINEL" }, {
+      reused: true,
+      operation: {
+        metadata: { revision_id: "51000000-0000-4000-8000-000000000081" },
+        action: "repair_statement",
+        correction_class: "duty_only",
+        result: "rejected",
+        transition: "needs_correction_preserved",
+        recovery_reason: "full_gate_regression",
+        attempt: 1,
+        statement_scope_ids: ["51000000-0000-4000-8000-000000000082"],
+        source_definition_revision_id: "51000000-0000-4000-8000-000000000083",
+        source_report_revision_id: "51000000-0000-4000-8000-000000000084",
+        successor_definition_revision_id: null,
+        successor_report_revision_id: null,
+        input_digest: `sha256:${"a".repeat(64)}`,
+        output_digest: `sha256:${"b".repeat(64)}`,
+        operation_digest: `sha256:${"c".repeat(64)}`,
+      },
+    });
+
+    expect(details).toMatchObject({ correction_action: "repair_statement", correction_class: "duty_only", repair_result: "rejected", correction_transition: "needs_correction_preserved", recovery_reason: "full_gate_regression", attempt: 1, change_count: 1, source_definition_revision_id: "51000000-0000-4000-8000-000000000083", source_report_revision_id: "51000000-0000-4000-8000-000000000084", successor_definition_revision_id: null, successor_report_revision_id: null });
+    expect(JSON.stringify(details)).not.toContain("PRIVATE_REPAIR_SENTINEL");
+  });
+
   it("routes explicit coverage transitions with content-free yield and friction diagnostics", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-resume-coverage-capability-")); roots.push(root);
     const store = new ResumeDataStore(root, undefined, {}, false);
@@ -331,13 +358,34 @@ describe("named Resume Builder data capabilities", () => {
       relation: "related",
       observable_summary: ["No observable changes."],
     });
-    await expect(router.execute("resume.definitions.read", { view: "workspace" }, context(grant, undefined, "resume.definitions.read"))).resolves.toMatchObject({
+    const firstWorkspace = await router.execute("resume.definitions.read", { view: "workspace" }, context(grant, undefined, "resume.definitions.read")) as {
+      definition_history: unknown[];
+      job_history: unknown[];
+      quality_reviews: Array<{ definition_revision_id: string; quality_state: string; status_label: string; actions: string[] }>;
+    };
+    expect(firstWorkspace).toMatchObject({
       definition_history: expect.arrayContaining([
         expect.objectContaining({ metadata: expect.objectContaining({ revision_id: first.definition.metadata.revision_id }) }),
         expect.objectContaining({ metadata: expect.objectContaining({ revision_id: second.definition.metadata.revision_id }) }),
       ]),
       job_history: [],
     });
+    expect(firstWorkspace.quality_reviews).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        definition_revision_id: first.definition.metadata.revision_id,
+        quality_state: "pre_correction_review",
+        status_label: "Previously approved — corrected review not run",
+        actions: ["manual_revision", "keep_prior_approved", "exit"],
+      }),
+      expect.objectContaining({
+        definition_revision_id: second.definition.metadata.revision_id,
+        quality_state: "review_not_run",
+        status_label: "Review not run",
+        actions: ["run_review", "manual_revision", "keep_prior_approved", "exit"],
+      }),
+    ]));
+    const reopenedWorkspace = await router.execute("resume.definitions.read", { view: "workspace" }, context(grant, undefined, "resume.definitions.read")) as typeof firstWorkspace;
+    expect(reopenedWorkspace.quality_reviews).toEqual(firstWorkspace.quality_reviews);
     expect(canonicalInputDigest(await store.allRevisions())).toBe(before);
     await expect(Promise.all([
       readFile(path.join(root, "documents", "career", "spec.md"), "utf8"),

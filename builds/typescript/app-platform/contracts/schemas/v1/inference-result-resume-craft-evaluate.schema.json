@@ -5,7 +5,7 @@
   "properties": {
     "report_version": {
       "type": "number",
-      "const": 1
+      "const": 2
     },
     "evidence_context": {
       "type": "string",
@@ -51,6 +51,106 @@
               "not_applicable"
             ]
           },
+          "evidence_refs": {
+            "minItems": 1,
+            "maxItems": 500,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "evidence_ref_id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "statement",
+                    "rendered_anchor",
+                    "strategy",
+                    "fact",
+                    "coverage",
+                    "target_analysis",
+                    "deterministic_gate",
+                    "explicit_absence"
+                  ]
+                },
+                "polarity": {
+                  "type": "string",
+                  "enum": [
+                    "positive",
+                    "negative",
+                    "absence"
+                  ]
+                },
+                "statement_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "revision_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "anchor_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "absence_code": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "pattern": "^[a-z0-9_]+$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "evidence_digest": {
+                  "type": "string",
+                  "pattern": "^sha256:[a-f0-9]{64}$"
+                }
+              },
+              "required": [
+                "evidence_ref_id",
+                "kind",
+                "polarity",
+                "statement_id",
+                "revision_id",
+                "anchor_id",
+                "absence_code",
+                "evidence_digest"
+              ],
+              "additionalProperties": false
+            }
+          },
           "finding_ids": {
             "maxItems": 500,
             "type": "array",
@@ -64,6 +164,7 @@
         "required": [
           "criterion",
           "verdict",
+          "evidence_refs",
           "finding_ids"
         ],
         "additionalProperties": false
@@ -95,18 +196,6 @@
               "T3"
             ]
           },
-          "statement_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "uuid",
-                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "severity": {
             "type": "string",
             "enum": [
@@ -131,20 +220,9 @@
             "minLength": 1,
             "maxLength": 512
           },
-          "evidence_category": {
-            "type": "string",
-            "enum": [
-              "statement_support",
-              "must_use_evidence",
-              "strategy",
-              "target_analysis",
-              "deterministic_gate",
-              "optional_gap",
-              "explicit_absence"
-            ]
-          },
-          "evidence_revision_ids": {
-            "maxItems": 32,
+          "evidence_ref_ids": {
+            "minItems": 1,
+            "maxItems": 500,
             "type": "array",
             "items": {
               "type": "string",
@@ -156,12 +234,10 @@
         "required": [
           "finding_id",
           "criterion",
-          "statement_id",
           "severity",
           "correction_class",
           "safe_message",
-          "evidence_category",
-          "evidence_revision_ids"
+          "evidence_ref_ids"
         ],
         "additionalProperties": false
       }

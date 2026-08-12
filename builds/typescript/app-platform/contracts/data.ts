@@ -44,7 +44,7 @@ export const RecordLifecycleStateSchema = z.enum(["active", "superseded", "retir
 
 const RecordEnvelopeSchema = z
   .object({
-    schema_version: z.union([z.literal(1), z.literal(2), z.literal(RESUME_DATA_SCHEMA_VERSION)]),
+    schema_version: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(RESUME_DATA_SCHEMA_VERSION)]),
     record_type: NonEmptyStringSchema,
     metadata: RevisionMetadataSchema,
     owner_id: OpaqueIdSchema,
@@ -55,6 +55,8 @@ const RecordEnvelopeSchema = z
     extensions: ExtensionsSchema,
   })
   .strict();
+
+const SchemaThreeOrCurrentSchema = z.union([z.literal(3), z.literal(RESUME_DATA_SCHEMA_VERSION)]);
 
 export const SourceRecordSchema = RecordEnvelopeSchema.extend({
   record_type: z.literal("source"),
@@ -116,8 +118,8 @@ export const CareerFactRecordSchema = RecordEnvelopeSchema.extend({
     if (value.schema_version === 1) context.addIssue({ code: "custom", path: ["schema_version"], message: "job evidence requires schema version 2 or 3" });
     try {
       const evidence = JobEvidenceValueSchema.parse(JSON.parse(value.value));
-      if (value.schema_version === 3 && evidence.outcome !== "answered") {
-        context.addIssue({ code: "custom", path: ["value"], message: "schema-3 career evidence may contain answered facts only" });
+      if (value.schema_version >= 3 && evidence.outcome !== "answered") {
+        context.addIssue({ code: "custom", path: ["value"], message: "current career evidence may contain answered facts only" });
       }
     } catch {
       context.addIssue({ code: "custom", path: ["value"], message: "job evidence requires strict structured value" });
@@ -188,7 +190,7 @@ export const CoverageOpportunitySchema = z.object({
 });
 
 export const JobEvidenceCoverageRecordSchema = RecordEnvelopeSchema.extend({
-  schema_version: z.literal(3),
+  schema_version: SchemaThreeOrCurrentSchema,
   record_type: z.literal("job_evidence_coverage"),
   coverage_version: z.literal(1),
   job_fact_revision_id: OpaqueIdSchema,
@@ -251,7 +253,31 @@ export const ResumeStrategyBindingSchema = z.object({
   }).strict()).max(500),
 }).strict();
 
-export const DefinitionApprovalEvidenceSchema = z.object({
+export const ResumeQualityStateSchema = z.enum([
+  "review_not_run",
+  "review_incomplete",
+  "needs_correction",
+  "evidence_limited",
+  "product_craft_passed",
+  "owner_approved",
+  "pre_correction_review",
+]);
+
+export const ProductCraftEvaluatorBindingSchema = z.object({
+  scope: z.literal("product_craft_review"),
+  contract_id: z.literal("braindrive.resume-builder.product-craft-review"),
+  contract_version: z.literal("2"),
+  policy_id: z.literal("braindrive.resume-builder.product-craft-evidence"),
+  policy_version: z.literal("1"),
+  binding_digest: Sha256DigestSchema,
+}).strict().superRefine((value, context) => {
+  const { binding_digest: _bindingDigest, ...body } = value;
+  if (value.binding_digest !== canonicalInputDigest(body)) {
+    context.addIssue({ code: "custom", path: ["binding_digest"], message: "product craft evaluator binding digest mismatch" });
+  }
+});
+
+const DefinitionApprovalEvidenceBase = {
   validation_run_id: OpaqueIdSchema,
   validator_id: NonEmptyStringSchema,
   validator_version: NonEmptyStringSchema,
@@ -267,6 +293,10 @@ export const DefinitionApprovalEvidenceSchema = z.object({
   quality_validator_id: NonEmptyStringSchema,
   quality_validator_version: NonEmptyStringSchema,
   validated_at: TimestampSchema,
+} as const;
+
+export const DefinitionApprovalEvidenceV1Schema = z.object({
+  ...DefinitionApprovalEvidenceBase,
   persuasive_quality: z.object({
     contract_version: z.literal(1),
     status: z.enum(["legacy_mechanical_only", "current"]),
@@ -294,6 +324,36 @@ export const DefinitionApprovalEvidenceSchema = z.object({
     context.addIssue({ code: "custom", path: ["persuasive_quality"], message: "current persuasive approval requires exact strategy, craft, and continuity evidence" });
   }
 });
+
+export const CorrectedDefinitionApprovalEvidenceSchema = z.object({
+  ...DefinitionApprovalEvidenceBase,
+  persuasive_quality: z.object({
+    contract_version: z.literal(2),
+    quality_state: z.literal("owner_approved"),
+    coverage_revision_ids: z.array(OpaqueIdSchema).max(500),
+    strategy_revision_id: OpaqueIdSchema,
+    craft_report_revision_id: OpaqueIdSchema,
+    craft_report_digest: Sha256DigestSchema,
+    craft_definition_digest: Sha256DigestSchema,
+    target_analysis_revision_id: OpaqueIdSchema.nullable(),
+    evaluator: ProductCraftEvaluatorBindingSchema,
+    evidence_limited_policy_id: z.literal("braindrive.resume-builder.evidence-limited.rb7-oq1-blocked"),
+    evidence_limited_policy_version: z.literal("1"),
+    evidence_limited_authority_status: z.literal("accepted_implementation_blocker"),
+    parity_policy_id: NonEmptyStringSchema,
+    parity_policy_version: NonEmptyStringSchema,
+  }).strict(),
+}).strict();
+
+export const DefinitionApprovalEvidenceSchema = z.union([
+  DefinitionApprovalEvidenceV1Schema,
+  CorrectedDefinitionApprovalEvidenceSchema,
+]);
+
+export function deriveHistoricalResumeQualityState(value: unknown): "pre_correction_review" | null {
+  const parsed = DefinitionApprovalEvidenceV1Schema.safeParse(value);
+  return parsed.success && parsed.data.persuasive_quality?.contract_version === 1 ? "pre_correction_review" : null;
+}
 
 export const ResumeDefinitionRecordSchema = RecordEnvelopeSchema.extend({
   record_type: z.literal("resume_definition"),
@@ -344,8 +404,8 @@ export const ResumeDefinitionRecordSchema = RecordEnvelopeSchema.extend({
   if ((value.status === "approved") !== (value.approval_evidence !== null)) {
     context.addIssue({ code: "custom", message: "approved definitions require deterministic validation evidence" });
   }
-  if ([2, 3].includes(value.schema_version) && value.successor_context === undefined) {
-    context.addIssue({ code: "custom", message: "schema-2 and schema-3 definitions require explicit successor context" });
+  if (value.schema_version >= 2 && value.successor_context === undefined) {
+    context.addIssue({ code: "custom", message: "schema-2 and newer definitions require explicit successor context" });
   }
   if (value.schema_version === 1 && value.successor_context !== undefined) {
     context.addIssue({ code: "custom", message: "schema-1 definitions cannot carry schema-2 successor context" });
@@ -403,7 +463,7 @@ export const ResumeHistoryShapeSchema = z.enum([
   "chronological_standard", "early_career", "senior_selective", "career_change", "return_to_work", "concurrent_roles",
 ]);
 export const ResumeStrategyRecordSchema = RecordEnvelopeSchema.extend({
-  schema_version: z.literal(3),
+  schema_version: SchemaThreeOrCurrentSchema,
   record_type: z.literal("resume_strategy"),
   strategy_version: z.literal(1),
   fact_snapshot_digest: Sha256DigestSchema,
@@ -458,7 +518,7 @@ export const MaterialResumeChangeSchema = z.object({
   supporting_confirmed_fact_revision_ids: z.array(OpaqueIdSchema).min(1).max(32),
 }).strict();
 export const TargetFitAnalysisRecordSchema = RecordEnvelopeSchema.extend({
-  schema_version: z.literal(3),
+  schema_version: SchemaThreeOrCurrentSchema,
   record_type: z.literal("target_fit_analysis"),
   analysis_version: z.literal(1),
   parent_general_definition_revision_id: OpaqueIdSchema,
@@ -533,8 +593,8 @@ export const TargetFitAnalysisRecordSchema = RecordEnvelopeSchema.extend({
 export const CraftCriterionSchema = z.enum(["C1", "C2", "C3", "C4", "C5", "C6", "C7", "T1", "T2", "T3"]);
 export const CraftCorrectionClassSchema = z.enum(["specificity", "duty_only", "generic_language", "redundancy", "density", "organization", "target_relevance"]);
 export const CraftEvidenceCategorySchema = z.enum(["statement_support", "must_use_evidence", "strategy", "target_analysis", "deterministic_gate", "optional_gap", "explicit_absence"]);
-export const CraftQualityReportRecordSchema = RecordEnvelopeSchema.extend({
-  schema_version: z.literal(3),
+export const CraftQualityReportV1RecordSchema = RecordEnvelopeSchema.extend({
+  schema_version: SchemaThreeOrCurrentSchema,
   record_type: z.literal("craft_quality_report"),
   report_version: z.literal(1),
   proposal_definition_revision_id: OpaqueIdSchema,
@@ -586,8 +646,133 @@ export const CraftQualityReportRecordSchema = RecordEnvelopeSchema.extend({
   if (value.report_digest !== canonicalInputDigest(body)) context.addIssue({ code: "custom", path: ["report_digest"], message: "craft report digest mismatch" });
 });
 
-export const CraftRepairOperationRecordSchema = RecordEnvelopeSchema.extend({
-  schema_version: z.literal(3),
+export const CraftEvidenceReferenceSchema = z.object({
+  evidence_ref_id: OpaqueIdSchema,
+  kind: z.enum(["statement", "rendered_anchor", "strategy", "fact", "coverage", "target_analysis", "deterministic_gate", "explicit_absence"]),
+  polarity: z.enum(["positive", "negative", "absence"]),
+  statement_id: OpaqueIdSchema.nullable(),
+  revision_id: OpaqueIdSchema.nullable(),
+  anchor_id: OpaqueIdSchema.nullable(),
+  absence_code: z.string().min(1).max(128).regex(/^[a-z0-9_]+$/).nullable(),
+  evidence_digest: Sha256DigestSchema,
+}).strict().superRefine((value, context) => {
+  const statement = value.statement_id !== null;
+  const revision = value.revision_id !== null;
+  const anchor = value.anchor_id !== null;
+  const absence = value.absence_code !== null;
+  const validShape =
+    (value.kind === "statement" && statement && !revision && !anchor && !absence) ||
+    (value.kind === "rendered_anchor" && !statement && !revision && anchor && !absence) ||
+    (["strategy", "fact", "coverage", "target_analysis"].includes(value.kind) && !statement && revision && !anchor && !absence) ||
+    (value.kind === "deterministic_gate" && !statement && !revision && !anchor && absence) ||
+    (value.kind === "explicit_absence" && !statement && !revision && !anchor && absence && value.polarity === "absence");
+  if (!validShape) context.addIssue({ code: "custom", message: "craft evidence reference shape does not match its kind" });
+});
+
+export const CraftQualityReportV2RecordSchema = RecordEnvelopeSchema.extend({
+  schema_version: z.literal(RESUME_DATA_SCHEMA_VERSION),
+  record_type: z.literal("craft_quality_report"),
+  report_version: z.literal(2),
+  proposal_definition_revision_id: OpaqueIdSchema,
+  strategy_revision_id: OpaqueIdSchema,
+  target_analysis_revision_id: OpaqueIdSchema.nullable(),
+  definition_digest: Sha256DigestSchema,
+  strategy_digest: Sha256DigestSchema,
+  fact_snapshot_digest: Sha256DigestSchema,
+  fact_revision_ids: z.array(OpaqueIdSchema).max(500),
+  coverage_revision_ids: z.array(OpaqueIdSchema).max(500),
+  definition_statement_ids: z.array(OpaqueIdSchema).min(1).max(500),
+  rendered_anchor_ids: z.array(OpaqueIdSchema).max(1_000),
+  quality_standard_id: NonEmptyStringSchema,
+  quality_standard_version: NonEmptyStringSchema,
+  quality_standard_digest: Sha256DigestSchema,
+  evidence_limited_policy_id: z.literal("braindrive.resume-builder.evidence-limited.rb7-oq1-blocked"),
+  evidence_limited_policy_version: z.literal("1"),
+  evidence_limited_authority_status: z.literal("accepted_implementation_blocker"),
+  evaluator: ProductCraftEvaluatorBindingSchema,
+  truth_validation_digest: Sha256DigestSchema,
+  structure_validation_digest: Sha256DigestSchema,
+  criterion_verdicts: z.array(z.object({
+    criterion: CraftCriterionSchema,
+    verdict: z.enum(["pass", "fail", "not_applicable"]),
+    evidence_refs: z.array(CraftEvidenceReferenceSchema).min(1).max(500),
+    finding_ids: z.array(OpaqueIdSchema).max(500),
+  }).strict()).length(10),
+  findings: z.array(z.object({
+    finding_id: OpaqueIdSchema,
+    criterion: CraftCriterionSchema,
+    severity: z.enum(["guidance", "blocking"]),
+    correction_class: CraftCorrectionClassSchema,
+    safe_message: z.string().min(1).max(512),
+    evidence_ref_ids: z.array(OpaqueIdSchema).min(1).max(500),
+  }).strict()).max(500),
+  evidence_context: z.enum(["standard", "limited"]),
+  verdict: z.enum(["pass", "fail"]),
+  prompt_policy_id: NonEmptyStringSchema,
+  prompt_policy_version: NonEmptyStringSchema,
+  input_digest: Sha256DigestSchema,
+  output_digest: Sha256DigestSchema,
+  evaluated_at: TimestampSchema,
+  report_digest: Sha256DigestSchema,
+}).strict().superRefine((value, context) => {
+  const criteria = value.criterion_verdicts.map((entry) => entry.criterion);
+  if (new Set(criteria).size !== CraftCriterionSchema.options.length || CraftCriterionSchema.options.some((criterion) => !criteria.includes(criterion))) {
+    context.addIssue({ code: "custom", path: ["criterion_verdicts"], message: "craft report requires every criterion exactly once" });
+  }
+  for (const values of [value.fact_revision_ids, value.coverage_revision_ids, value.definition_statement_ids, value.rendered_anchor_ids]) {
+    if (new Set(values).size !== values.length) context.addIssue({ code: "custom", message: "craft report bindings cannot contain duplicate identities" });
+  }
+  const allEvidence = value.criterion_verdicts.flatMap((entry) => entry.evidence_refs);
+  const evidenceIds = new Set(allEvidence.map((entry) => entry.evidence_ref_id));
+  if (evidenceIds.size !== allEvidence.length) context.addIssue({ code: "custom", path: ["criterion_verdicts"], message: "craft evidence reference identities must be unique" });
+  for (const entry of value.criterion_verdicts) {
+    if (entry.verdict === "pass" && !entry.evidence_refs.some((reference) => reference.polarity === "positive")) {
+      context.addIssue({ code: "custom", path: ["criterion_verdicts"], message: "passing criteria require positive evidence" });
+    }
+    if (entry.verdict === "fail" && !entry.evidence_refs.some((reference) => reference.polarity === "negative" || reference.polarity === "absence")) {
+      context.addIssue({ code: "custom", path: ["criterion_verdicts"], message: "failing criteria require negative evidence or explicit absence" });
+    }
+    if (entry.verdict === "not_applicable" && !entry.evidence_refs.some((reference) => reference.kind === "explicit_absence" && reference.polarity === "absence")) {
+      context.addIssue({ code: "custom", path: ["criterion_verdicts"], message: "not-applicable criteria require explicit absence evidence" });
+    }
+    if (entry.criterion.startsWith("C") && entry.verdict === "not_applicable") {
+      context.addIssue({ code: "custom", path: ["criterion_verdicts"], message: "general craft criteria are always applicable" });
+    }
+    if (entry.criterion.startsWith("T") && ((value.target_analysis_revision_id === null) !== (entry.verdict === "not_applicable"))) {
+      context.addIssue({ code: "custom", path: ["criterion_verdicts"], message: "target criterion applicability must match the target analysis binding" });
+    }
+  }
+  for (const reference of allEvidence) {
+    const valid =
+      (reference.kind === "statement" && reference.statement_id !== null && value.definition_statement_ids.includes(reference.statement_id)) ||
+      (reference.kind === "rendered_anchor" && reference.anchor_id !== null && value.rendered_anchor_ids.includes(reference.anchor_id)) ||
+      (reference.kind === "strategy" && reference.revision_id === value.strategy_revision_id) ||
+      (reference.kind === "fact" && reference.revision_id !== null && value.fact_revision_ids.includes(reference.revision_id)) ||
+      (reference.kind === "coverage" && reference.revision_id !== null && value.coverage_revision_ids.includes(reference.revision_id)) ||
+      (reference.kind === "target_analysis" && reference.revision_id !== null && reference.revision_id === value.target_analysis_revision_id) ||
+      reference.kind === "deterministic_gate" || reference.kind === "explicit_absence";
+    if (!valid) context.addIssue({ code: "custom", path: ["criterion_verdicts"], message: "craft evidence reference is foreign or stale" });
+  }
+  const findingIds = new Set(value.findings.map((finding) => finding.finding_id));
+  if (findingIds.size !== value.findings.length || value.criterion_verdicts.some((entry) => entry.finding_ids.some((id) => !findingIds.has(id)))) {
+    context.addIssue({ code: "custom", path: ["findings"], message: "craft finding identities must be unique and internally referenced" });
+  }
+  if (value.findings.some((finding) => finding.evidence_ref_ids.some((id) => !evidenceIds.has(id)))) {
+    context.addIssue({ code: "custom", path: ["findings"], message: "craft findings require current report evidence references" });
+  }
+  const failed = value.criterion_verdicts.some((entry) => entry.verdict === "fail") || value.findings.some((finding) => finding.severity === "blocking");
+  if ((value.verdict === "fail") !== failed) context.addIssue({ code: "custom", path: ["verdict"], message: "craft verdict must match mandatory findings" });
+  const { metadata: _metadata, record_type: _recordType, schema_version: _schemaVersion, owner_id: _ownerId, updated_at: _updatedAt, lifecycle_state: _lifecycleState, sensitivity: _sensitivity, retention_class: _retentionClass, extensions: _extensions, report_digest: _reportDigest, ...body } = value;
+  if (value.report_digest !== canonicalInputDigest(body)) context.addIssue({ code: "custom", path: ["report_digest"], message: "craft report digest mismatch" });
+});
+
+export const CraftQualityReportRecordSchema = z.union([
+  CraftQualityReportV1RecordSchema,
+  CraftQualityReportV2RecordSchema,
+]);
+
+export const CraftRepairOperationV1RecordSchema = RecordEnvelopeSchema.extend({
+  schema_version: SchemaThreeOrCurrentSchema,
   record_type: z.literal("craft_repair_operation"),
   repair_version: z.literal(1),
   attempt: z.literal(1),
@@ -623,8 +808,72 @@ export const CraftRepairOperationRecordSchema = RecordEnvelopeSchema.extend({
   if (value.operation_digest !== canonicalInputDigest(body)) context.addIssue({ code: "custom", path: ["operation_digest"], message: "craft repair operation digest mismatch" });
 });
 
+export const CraftRepairOperationV2RecordSchema = RecordEnvelopeSchema.extend({
+  schema_version: z.literal(RESUME_DATA_SCHEMA_VERSION),
+  record_type: z.literal("craft_repair_operation"),
+  repair_version: z.literal(2),
+  action: z.literal("repair_statement"),
+  attempt: z.literal(1),
+  source_definition_revision_id: OpaqueIdSchema,
+  source_report_revision_id: OpaqueIdSchema,
+  source_definition_digest: Sha256DigestSchema,
+  source_report_digest: Sha256DigestSchema,
+  strategy_revision_id: OpaqueIdSchema,
+  target_analysis_revision_id: OpaqueIdSchema.nullable(),
+  fact_snapshot_digest: Sha256DigestSchema,
+  statement_scope_ids: z.array(OpaqueIdSchema).min(1).max(500),
+  correction_class: CraftCorrectionClassSchema,
+  allowed_correction_classes: z.array(CraftCorrectionClassSchema).length(1),
+  prompt_policy_id: NonEmptyStringSchema,
+  prompt_policy_version: NonEmptyStringSchema,
+  provider_profile_id: NonEmptyStringSchema,
+  model_id: NonEmptyStringSchema,
+  input_digest: Sha256DigestSchema,
+  result: z.enum(["completed", "rejected", "failed", "cancelled"]),
+  transition: z.enum(["needs_correction_to_product_craft_passed", "needs_correction_preserved"]),
+  recovery_reason: z.enum(["validation_rejected", "full_gate_regression", "provider_failure", "schema_failure", "persistence_failure", "cancelled"]).nullable(),
+  successor_definition_revision_id: OpaqueIdSchema.nullable(),
+  successor_report_revision_id: OpaqueIdSchema.nullable(),
+  output_digest: Sha256DigestSchema.nullable(),
+  unchanged_statement_count: z.number().int().nonnegative().max(500),
+  error_class: z.enum(["provider", "schema", "validation", "regression", "cancelled"]).nullable(),
+  completed_at: TimestampSchema,
+  operation_digest: Sha256DigestSchema,
+}).strict().superRefine((value, context) => {
+  if (value.allowed_correction_classes[0] !== value.correction_class) {
+    context.addIssue({ code: "custom", path: ["allowed_correction_classes"], message: "repair operation requires one exact correction class" });
+  }
+  const completed = value.result === "completed";
+  const rejected = value.result === "rejected";
+  if (completed !== (value.successor_definition_revision_id !== null && value.successor_report_revision_id !== null && value.output_digest !== null && value.error_class === null && value.recovery_reason === null)) {
+    context.addIssue({ code: "custom", message: "repair result and terminal lineage must agree" });
+  }
+  if (completed !== (value.transition === "needs_correction_to_product_craft_passed")) {
+    context.addIssue({ code: "custom", path: ["transition"], message: "repair transition must match the terminal result" });
+  }
+  if (rejected && (value.output_digest === null || value.successor_definition_revision_id !== null || value.successor_report_revision_id !== null || !["validation", "regression"].includes(value.error_class ?? "") || !["validation_rejected", "full_gate_regression"].includes(value.recovery_reason ?? ""))) {
+    context.addIssue({ code: "custom", message: "rejected repair requires a validated output digest and a safe rejection reason" });
+  }
+  if (!completed && !rejected && (value.successor_definition_revision_id !== null || value.successor_report_revision_id !== null || value.error_class === null || value.recovery_reason === null)) {
+    context.addIssue({ code: "custom", message: "failed repair cannot identify a successor and requires a safe failure class" });
+  }
+  if ((value.result === "cancelled") !== (value.error_class === "cancelled" && value.recovery_reason === "cancelled")) {
+    context.addIssue({ code: "custom", message: "cancelled repair result requires the cancelled error and recovery classes" });
+  }
+  if (value.result === "failed" && !((value.error_class === "provider" && value.recovery_reason === "provider_failure") || (value.error_class === "schema" && value.recovery_reason === "schema_failure"))) {
+    context.addIssue({ code: "custom", message: "failed repair result and recovery class must agree" });
+  }
+  const { metadata: _metadata, record_type: _recordType, schema_version: _schemaVersion, owner_id: _ownerId, updated_at: _updatedAt, lifecycle_state: _lifecycleState, sensitivity: _sensitivity, retention_class: _retentionClass, extensions: _extensions, operation_digest: _operationDigest, ...body } = value;
+  if (value.operation_digest !== canonicalInputDigest(body)) context.addIssue({ code: "custom", path: ["operation_digest"], message: "craft repair operation digest mismatch" });
+});
+
+export const CraftRepairOperationRecordSchema = z.union([
+  CraftRepairOperationV1RecordSchema,
+  CraftRepairOperationV2RecordSchema,
+]);
+
 export const ArtifactParityReportRecordSchema = RecordEnvelopeSchema.extend({
-  schema_version: z.literal(3),
+  schema_version: SchemaThreeOrCurrentSchema,
   record_type: z.literal("artifact_parity_report"),
   parity_version: z.literal(1),
   approved_definition_revision_id: OpaqueIdSchema,
@@ -714,7 +963,7 @@ export const MigrationRecordSchema = RecordEnvelopeSchema.extend({
   }
 });
 
-export const CareerReturnSummarySchema = z
+export const CareerReturnSummaryV1Schema = z
   .object({
     summary_version: z.literal(1),
     status: z.enum(["not_started", "in_progress", "review_needed", "completed", "blocked"]),
@@ -735,6 +984,94 @@ export const CareerReturnSummarySchema = z
     updated_at: TimestampSchema,
   })
   .strict();
+
+export const CareerReturnSummaryV2Schema = z.object({
+  summary_version: z.literal(2),
+  approved_reference: z.object({
+    kind: z.enum(["general_resume", "tailored_variant"]),
+    record_id: OpaqueIdSchema,
+    revision_id: OpaqueIdSchema,
+    definition_digest: Sha256DigestSchema,
+  }).strict(),
+  quality_state: ResumeQualityStateSchema,
+  craft_report_reference: z.object({
+    revision_id: OpaqueIdSchema,
+    report_digest: Sha256DigestSchema,
+  }).strict().nullable(),
+  updated_at: TimestampSchema,
+}).strict().superRefine((value, context) => {
+  const currentReportRequired = ["product_craft_passed", "owner_approved"].includes(value.quality_state);
+  if (currentReportRequired !== (value.craft_report_reference !== null)) {
+    context.addIssue({ code: "custom", path: ["craft_report_reference"], message: "current passing quality states require an exact corrected report reference" });
+  }
+});
+
+export const CareerReturnSummarySchema = z.union([
+  CareerReturnSummaryV1Schema,
+  CareerReturnSummaryV2Schema,
+]);
+
+const FrozenPolicyIdentitySchema = z.object({
+  policy_id: NonEmptyStringSchema,
+  policy_version: NonEmptyStringSchema,
+  policy_digest: Sha256DigestSchema,
+}).strict();
+
+export const FrozenQualityRegressionManifestSchema = z.object({
+  manifest_version: z.literal(1),
+  fixture_id: z.string().min(1).max(128).regex(/^synthetic-qgc-/),
+  synthetic_only: z.literal(true),
+  evidence_scope: z.literal("workflow_only"),
+  semantic_input_version: z.literal(1),
+  normalized_checkpoint: z.object({
+    checkpoint_id: z.literal("pre_correction_general_resume_review"),
+    checkpoint_digest: Sha256DigestSchema,
+  }).strict(),
+  bindings: z.object({
+    fact_revision_ids: z.array(OpaqueIdSchema).min(1).max(500),
+    coverage_revision_ids: z.array(OpaqueIdSchema).min(1).max(500),
+    presentation_preference_digest: Sha256DigestSchema,
+    target_direction_digest: Sha256DigestSchema,
+    semantic_input_digest: Sha256DigestSchema,
+  }).strict(),
+  policies: z.object({
+    quality_standard: FrozenPolicyIdentitySchema,
+    evaluator_contract: FrozenPolicyIdentitySchema,
+    evidence_limited: FrozenPolicyIdentitySchema,
+    prompt: FrozenPolicyIdentitySchema,
+  }).strict(),
+  expected: z.object({
+    C1: z.literal("fail"),
+    C2: z.literal("fail"),
+    C3: z.literal("pass"),
+    quality_state: z.literal("needs_correction"),
+    passing_label_allowed: z.literal(false),
+  }).strict(),
+  strategy_binding: z.object({
+    status: z.literal("canonicalized_milestone_2"),
+    strategy_digest: Sha256DigestSchema,
+    section_order_digest: Sha256DigestSchema,
+  }).strict(),
+  manifest_digest: Sha256DigestSchema,
+}).strict().superRefine((value, context) => {
+  for (const ids of [value.bindings.fact_revision_ids, value.bindings.coverage_revision_ids]) {
+    if (new Set(ids).size !== ids.length) context.addIssue({ code: "custom", path: ["bindings"], message: "frozen manifest identities must be unique" });
+  }
+  const expectedInputDigest = canonicalInputDigest({
+    semantic_input_version: value.semantic_input_version,
+    fact_revision_ids: value.bindings.fact_revision_ids,
+    coverage_revision_ids: value.bindings.coverage_revision_ids,
+    presentation_preference_digest: value.bindings.presentation_preference_digest,
+    target_direction_digest: value.bindings.target_direction_digest,
+  });
+  if (value.bindings.semantic_input_digest !== expectedInputDigest) {
+    context.addIssue({ code: "custom", path: ["bindings", "semantic_input_digest"], message: "frozen semantic input digest mismatch" });
+  }
+  const { manifest_digest: _manifestDigest, ...body } = value;
+  if (value.manifest_digest !== canonicalInputDigest(body)) {
+    context.addIssue({ code: "custom", path: ["manifest_digest"], message: "frozen manifest digest mismatch" });
+  }
+});
 
 export const CareerContextProjectionSchema = z.object({
   context_version: z.literal(1),
@@ -833,7 +1170,7 @@ export const InterviewProgressRecordSchema = RecordEnvelopeSchema.extend({
       context.addIssue({ code: "custom", path: ["recovery_draft", "acknowledged_revision"], message: "recovery acknowledgement must name the durable progress revision" });
     }
   }
-  if ([2, 3].includes(value.schema_version) && [
+  if (value.schema_version >= 2 && [
     "active_job_fact_revision_id", "current_question_id", "current_field_id", "job_dimension", "recovery_draft", "last_submitted_turn_revision_id",
   ].some((key) => !(key in value))) {
     context.addIssue({ code: "custom", message: "schema-2 progress requires explicit recovery fields" });
@@ -848,7 +1185,7 @@ export const InterviewProgressRecordSchema = RecordEnvelopeSchema.extend({
 export const RevisionIntentClassSchema = z.enum(["presentation", "factual", "mixed", "ambiguous"]);
 
 export const ResumeRevisionRequestRecordSchema = RecordEnvelopeSchema.extend({
-  schema_version: z.union([z.literal(2), z.literal(3)]),
+  schema_version: z.union([z.literal(2), z.literal(3), z.literal(RESUME_DATA_SCHEMA_VERSION)]),
   record_type: z.literal("resume_revision_request"),
   source_definition_revision_id: OpaqueIdSchema,
   target: z.object({
@@ -942,7 +1279,7 @@ export const GuidanceResultSchema = z.object({
   optional_questions: z.array(z.object({ question_id: OpaqueIdSchema, prompt: z.string().min(1).max(1_024), evidence_revision_ids: z.array(OpaqueIdSchema).max(32) }).strict()).max(3),
 }).strict();
 
-export const ResumeDataRecordSchema = z.discriminatedUnion("record_type", [
+export const ResumeDataRecordSchema = z.union([
   SourceRecordSchema,
   CareerFactRecordSchema,
   ResumeDefinitionRecordSchema,

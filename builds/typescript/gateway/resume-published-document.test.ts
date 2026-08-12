@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { canonicalInputDigest } from "../app-platform/contracts/common.js";
+import { ResumeDefinitionRecordSchema } from "../app-platform/contracts/data.js";
 import { ResumeDomainService } from "../resume-domain/service.js";
 import { ResumeDataStore } from "../resume-domain/store.js";
 import { authority, definitionInput, ownerDecision, proposalInput, testGrant } from "../resume-domain/test-helpers.js";
@@ -57,10 +58,38 @@ describe("ResumePublishedDocumentProvider", () => {
         logicalId: "general-resume",
         title: "General Resume",
         markdown: expect.stringContaining("# Current Resume"),
+        quality: { state: "pre_correction_review", label: "Previously approved — corrected review not run" },
       }),
     ]);
     const approvedBefore = (await provider.list("career"))[0]!.markdown;
     expect(approvedBefore).not.toContain("Unapproved Draft");
+
+    const currentDefinition = ResumeDefinitionRecordSchema.parse(current.definition);
+    const invalidLatest = {
+      ...currentDefinition,
+      title: "Newer Resume With Missing Quality Evidence",
+      approved_at: "2026-08-07T14:30:00.000Z",
+      approval_evidence: {
+        ...currentDefinition.approval_evidence!,
+        persuasive_quality: {
+          contract_version: 2,
+          craft_report_revision_id: crypto.randomUUID(),
+          craft_report_digest: `sha256:${"f".repeat(64)}`,
+        },
+      },
+    };
+    const fallbackProvider = new ResumePublishedDocumentProvider({
+      store: {
+        list: async () => [invalidLatest, currentDefinition],
+        readRevision: async () => { throw new Error("missing bound report"); },
+      },
+    } as unknown as ResumeDomainService);
+    const fallback = await fallbackProvider.list("career");
+    expect(fallback[0]).toMatchObject({
+      markdown: approvedBefore,
+      quality: { state: "pre_correction_review", label: "Previously approved — corrected review not run" },
+    });
+    expect(fallback[0]!.markdown).not.toContain("Newer Resume With Missing Quality Evidence");
 
     now = new Date("2026-08-07T15:00:00.000Z");
     const correctionAuthority = authority("career.facts.confirm");

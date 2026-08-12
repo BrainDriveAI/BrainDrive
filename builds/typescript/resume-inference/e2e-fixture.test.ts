@@ -1,7 +1,12 @@
+import { readFile } from "node:fs/promises";
+
 import { describe, expect, it } from "vitest";
 
+import { canonicalInputDigest } from "../app-platform/contracts/common.js";
+import { FrozenQualityRegressionManifestSchema } from "../app-platform/contracts/data.js";
 import { PURPOSE_RESULT_SCHEMAS } from "./results.js";
 import { synthesizeResumeE2eResult } from "./e2e-fixture.js";
+import { buildEvidenceAnnotations } from "./strategy.js";
 
 const factId = "10000000-0000-4000-8000-000000000001";
 const parentId = "10000000-0000-4000-8000-000000000002";
@@ -35,9 +40,14 @@ const evidenceMatrix = { category: "evidence_matrix", data: [{ requirement_id: r
 const targetAnalysis = { category: "target_fit_analysis", data: { material_changes: [{ statement_id: statementId }] } };
 const revisionRequestId = "10000000-0000-4000-8000-000000000010";
 const revisionRequest = { category: "revision_instruction", data: { metadata: { revision_id: revisionRequestId }, source_definition_revision_id: parentId, target: { scope: "resume", target_id: null }, request_text: "Shorten the wording.", request_digest: "sha256:test", classification: "presentation", state: "generating" } };
-const strategy = { category: "resume_strategy", data: { history_shape: "chronological_standard", summary_decision: "omit", section_order: ["experience"], evidence_priorities: [{ fact_revision_id: factId, priority: "must_use" }], omissions: [], unresolved_gap_ids: [] } };
-const deterministicGates = { category: "deterministic_findings", data: { truth_passed: true, structure_passed: true } };
+const strategy = { category: "resume_strategy", data: { metadata: { revision_id: "10000000-0000-4000-8000-000000000013" }, fact_revision_ids: [factId], coverage_revision_ids: [], history_shape: "chronological_standard", summary_decision: "omit", section_order: ["experience"], evidence_priorities: [{ fact_revision_id: factId, priority: "must_use" }], omissions: [], unresolved_gap_ids: [] } };
+const deterministicGates = { category: "deterministic_findings", data: { truth_passed: true, structure_passed: true, mechanical_passed: true } };
 const craftReport = { category: "craft_quality_report", data: { metadata: { revision_id: "10000000-0000-4000-8000-000000000011" }, proposal_definition_revision_id: parentId, verdict: "fail", findings: [{ criterion: "C2", statement_id: statementId, severity: "blocking", correction_class: "duty_only" }] } };
+
+function permutations<T>(values: T[]): T[][] {
+  if (values.length < 2) return [values];
+  return values.flatMap((value, index) => permutations(values.filter((_, candidate) => candidate !== index)).map((rest) => [value, ...rest]));
+}
 
 describe("Resume Builder isolated E2E inference fixture", () => {
   it("produces contract-valid outputs for every accepted purpose without entering the agent loop", () => {
@@ -132,9 +142,62 @@ describe("Resume Builder isolated E2E inference fixture", () => {
     ] } };
     const strategy = synthesizeResumeE2eResult("resume_strategy", [extendedFacts]) as { section_order: string[] };
     const draft = synthesizeResumeE2eResult("general_resume_draft", [extendedFacts, { category: "resume_strategy", data: strategy }]) as { section_order: string[]; statements: Array<{ section_id: string }> };
-    expect(strategy.section_order).toEqual(["experience", "contact", "education", "links", "leadership", "skills"]);
+    expect(strategy.section_order).toEqual(["contact", "experience", "education", "skills", "leadership", "links"]);
     expect(draft.section_order).toEqual(strategy.section_order);
     expect(new Set(draft.statements.map((item) => item.section_id))).toEqual(new Set(strategy.section_order));
+  });
+
+  it("produces one exact strategy across all 120 fact permutations", () => {
+    const expected = synthesizeResumeE2eResult("resume_strategy", [facts]);
+    const expectedDigest = canonicalInputDigest(expected);
+    for (const orderedFacts of permutations(facts.data.facts)) {
+      const result = synthesizeResumeE2eResult("resume_strategy", [{ ...facts, data: { facts: orderedFacts } }]);
+      expect(canonicalInputDigest(result)).toBe(expectedDigest);
+    }
+  });
+
+  it("orders roles by semantic chronology and keeps summary at the fixed position", () => {
+    const olderId = "13000000-0000-4000-8000-000000000001";
+    const currentId = "13000000-0000-4000-8000-000000000002";
+    const roleFacts = { category: "confirmed_fact_snapshot", data: { facts: [
+      { revision_id: olderId, fact_kind: "employment", value: JSON.stringify({ format: "resume_job_v1", title: "Associate", employer: "Synthetic Shop", start_date: "2018", end_date: "2020" }) },
+      { revision_id: currentId, fact_kind: "employment", value: JSON.stringify({ format: "resume_job_v1", title: "Specialist", employer: "Synthetic Desk", start_date: "2021", end_date: "Present" }) },
+      { revision_id: "13000000-0000-4000-8000-000000000003", fact_kind: "contact", value: "Synthetic Owner | owner@example.test" },
+    ] } };
+    const result = synthesizeResumeE2eResult("resume_strategy", [roleFacts]) as { role_emphasis: Array<{ job_fact_revision_id: string; priority: string }>; section_order: string[]; summary_decision: string };
+    expect(result.role_emphasis).toEqual([
+      expect.objectContaining({ job_fact_revision_id: currentId, priority: "primary" }),
+      expect.objectContaining({ job_fact_revision_id: olderId, priority: "supporting" }),
+    ]);
+    expect(result.summary_decision).toBe("include");
+    expect(result.section_order).toEqual(["contact", "summary", "experience"]);
+  });
+
+  it("never turns target-direction preference into leadership, title, proficiency, or work evidence", () => {
+    const direction = { revision_id: "14000000-0000-4000-8000-000000000001", fact_kind: "preference", value: "Target a senior leadership title and expert proficiency." };
+    const directed = { ...facts, data: { facts: [direction, ...facts.data.facts] } };
+    const result = synthesizeResumeE2eResult("resume_strategy", [directed]) as { role_emphasis: Array<{ job_fact_revision_id: string }>; section_order: string[]; evidence_priorities: Array<{ fact_revision_id: string; priority: string }> };
+    expect(result.section_order).not.toContain("leadership");
+    expect(result.role_emphasis.map((role) => role.job_fact_revision_id)).toEqual([factId]);
+    expect(result.evidence_priorities).toContainEqual({ fact_revision_id: direction.revision_id, priority: "context" });
+  });
+
+  it("binds the workflow-only frozen journey to exact canonical strategy and section digests", async () => {
+    const manifest = FrozenQualityRegressionManifestSchema.parse(JSON.parse(await readFile(new URL("./fixtures/quality/qgc-frozen-regression-v1.json", import.meta.url), "utf8")));
+    const [jobRevisionId, accomplishmentRevisionId] = manifest.bindings.fact_revision_ids;
+    const frozenFacts = [
+      { revision_id: accomplishmentRevisionId!, fact_kind: "accomplishment", value: JSON.stringify({ format: "resume_accomplishment_v1", job_fact_revision_id: jobRevisionId, text: "Improved a supported checkout workflow." }) },
+      { revision_id: jobRevisionId!, fact_kind: "employment", value: JSON.stringify({ format: "resume_job_v1", title: "Customer Service Associate", employer: "Synthetic Market", start_date: "2022", end_date: "Present", responsibilities: "Supported customers and trained new colleagues." }) },
+    ];
+    const frozenCoverage = [{ metadata: { revision_id: manifest.bindings.coverage_revision_ids[0] }, job_fact_revision_id: jobRevisionId, dimensions: {}, opportunities: [] }];
+    const annotations = buildEvidenceAnnotations(frozenFacts, frozenCoverage);
+    const strategy = synthesizeResumeE2eResult("resume_strategy", [
+      { category: "confirmed_fact_snapshot", data: { facts: frozenFacts } },
+      { category: "evidence_annotations", data: annotations },
+    ]) as { section_order: string[] };
+    expect(manifest).toMatchObject({ synthetic_only: true, evidence_scope: "workflow_only", strategy_binding: { status: "canonicalized_milestone_2" } });
+    expect(canonicalInputDigest(strategy)).toBe(manifest.strategy_binding.strategy_digest);
+    expect(canonicalInputDigest(strategy.section_order)).toBe(manifest.strategy_binding.section_order_digest);
   });
 
   it("returns one active-job question and never a blank-slate checklist", () => {

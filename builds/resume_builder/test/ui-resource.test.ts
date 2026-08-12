@@ -264,19 +264,54 @@ describe("sandboxed Resume Builder owner resource", () => {
     expect(html).not.toMatch(/fit score|ATS score|score:\s*\d/i);
   });
 
-  it("requires independent craft evidence and permits one bounded repair before approval", async () => {
+  it("requires product-craft evidence and keeps bounded repair separate from approval", async () => {
     const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
     const start = html.indexOf("async function approveDefinition");
     const approval = html.slice(start, html.indexOf("function renderJob", start));
+    const repair = html.slice(html.indexOf("async function applyBoundedRepair"), start);
     expect(approval).toContain('inferCompletion("resume_craft_evaluate"');
     expect(approval).toContain('kind:"craft_quality_report"');
-    expect(approval).toContain('report.verdict==="fail"');
-    expect(approval).toContain('inferCompletion("resume_craft_repair"');
-    expect(approval).toContain('kind:"craft_repair"');
+    expect(repair).toContain('inferCompletion("resume_craft_repair"');
+    expect(repair).toContain('kind:"craft_repair"');
     expect(approval).toContain("craft_report_revision_id:report.metadata.revision_id");
     expect(approval.indexOf('kind:"craft_quality_report"')).toBeLessThan(approval.indexOf('kind:"approve_definition"'));
-    expect(approval).toContain("One bounded craft repair was applied");
+    expect(approval).not.toContain('kind:"craft_repair"');
+    expect(repair).toContain("One bounded repair created a new proposal");
     expect(approval).not.toMatch(/craft score|quality score|score:\s*\d/i);
+  });
+
+  it("renders domain-projected quality states, blocking-first findings, and distinct owner actions", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    const review = html.slice(html.indexOf("function ownerReview"), html.indexOf("function evidenceRows"));
+    for (const text of [
+      "Product craft review passed",
+      "Product craft review incomplete",
+      "Needs correction",
+      "More evidence could strengthen this resume",
+      "Previously approved — corrected review not run",
+      "Run product craft review",
+      "Apply bounded repair",
+      "Add supporting evidence",
+      "Revise manually",
+      "Approve this reviewed version",
+      "Keep prior approved version",
+      "Exit Resume Builder",
+    ]) expect(review).toContain(text);
+    expect(review).toContain("currentQualityReview(definition)");
+    expect(review).toContain("Blocking findings");
+    expect(review).toContain("Secondary guidance");
+    expect(review.indexOf("Blocking findings")).toBeLessThan(review.indexOf("Secondary guidance"));
+    expect(review).toContain('aria-live="polite"');
+    expect(review).not.toMatch(/Independent review passed|quality score|craft score|score:\s*\d/i);
+  });
+
+  it("sends the host-produced Career return v2 and never reconstructs its quality state", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    const start = html.indexOf("async function approveDefinition");
+    const approval = html.slice(start, html.indexOf("function renderJob", start));
+    expect(approval).toContain('request("career.return",{summary:result.career_return_summary}');
+    expect(approval).not.toContain("summary_version:1");
+    expect(approval).not.toContain('quality_state:report.verdict');
   });
 
   it("presents one score-free owner review with parity recovery and semantic friction diagnostics", async () => {

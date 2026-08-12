@@ -50,11 +50,13 @@ const CatalogFields = {
 
 const CatalogBodyV1Schema = z.object({ ...CatalogFields, data_schema_version: z.literal(1) }).strict();
 const CatalogBodyV2Schema = z.object({ ...CatalogFields, data_schema_version: z.literal(2) }).strict();
+const CatalogBodyV3Schema = z.object({ ...CatalogFields, data_schema_version: z.literal(3) }).strict();
 const CatalogBodySchema = z.object({ ...CatalogFields, data_schema_version: z.literal(RESUME_DATA_SCHEMA_VERSION) }).strict();
 
 export const ResumeDataCatalogSchema = CatalogBodySchema.extend({ integrity_digest: Sha256DigestSchema }).strict();
 const ResumeDataCatalogV1Schema = CatalogBodyV1Schema.extend({ integrity_digest: Sha256DigestSchema }).strict();
 const ResumeDataCatalogV2Schema = CatalogBodyV2Schema.extend({ integrity_digest: Sha256DigestSchema }).strict();
+const ResumeDataCatalogV3Schema = CatalogBodyV3Schema.extend({ integrity_digest: Sha256DigestSchema }).strict();
 
 const UnsealedCatalogSchema = CatalogBodySchema.omit({ revisions: true }).extend({
   revisions: z.record(OpaqueIdSchema, LegacyRecordLocatorSchema),
@@ -62,7 +64,7 @@ const UnsealedCatalogSchema = CatalogBodySchema.omit({ revisions: true }).extend
 
 const StoreManifestSchema = z.object({
   manifest_version: z.literal(1),
-  data_schema_version: z.union([z.literal(1), z.literal(2), z.literal(RESUME_DATA_SCHEMA_VERSION)]),
+  data_schema_version: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(RESUME_DATA_SCHEMA_VERSION)]),
   active_catalog: z.literal("catalog.json"),
   records_directory: z.literal("records"),
   transactions_directory: z.literal("transactions"),
@@ -127,9 +129,9 @@ const LegacyCatalogSchema = z.object({
 
 const VersionedMigrationMarkerSchema = z.object({
   marker_version: z.literal(1),
-  from_schema_version: z.union([z.literal(0), z.literal(1), z.literal(2)]),
-  to_schema_version: z.union([z.literal(1), z.literal(2), z.literal(3)]),
-  snapshot_path: z.string().regex(/^recovery\/[0-9a-f-]{36}\.catalog-v[012]\.json$/),
+  from_schema_version: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]),
+  to_schema_version: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(RESUME_DATA_SCHEMA_VERSION)]),
+  snapshot_path: z.string().regex(/^recovery\/[0-9a-f-]{36}\.catalog-v[0123]\.json$/),
   staged_path: z.string().regex(/^catalog\.[0-9a-f-]{36}\.staged\.json$/),
 }).strict().superRefine((value, context) => {
   if (value.to_schema_version !== value.from_schema_version + 1) context.addIssue({ code: "custom", message: "migration marker must describe one forward schema step" });
@@ -244,6 +246,19 @@ function sealCatalogV2(catalog: z.infer<typeof CatalogBodyV2Schema>): z.infer<ty
   return ResumeDataCatalogV2Schema.parse({ ...catalog, integrity_digest: canonicalInputDigest(catalog) });
 }
 
+function verifyCatalogV3(raw: unknown): z.infer<typeof ResumeDataCatalogV3Schema> {
+  const catalog = ResumeDataCatalogV3Schema.parse(raw);
+  const { integrity_digest: integrityDigest, ...body } = catalog;
+  if (canonicalInputDigest(CatalogBodyV3Schema.parse(body)) !== integrityDigest) {
+    throw new ResumeDomainError("validation_failed", "Resume Builder owner-data catalog integrity check failed", 409);
+  }
+  return catalog;
+}
+
+function sealCatalogV3(catalog: z.infer<typeof CatalogBodyV3Schema>): z.infer<typeof ResumeDataCatalogV3Schema> {
+  return ResumeDataCatalogV3Schema.parse({ ...catalog, integrity_digest: canonicalInputDigest(catalog) });
+}
+
 function deterministicOpaqueId(seed: string): string {
   const hex = createHash("sha256").update(seed).digest("hex").slice(0, 32).split("");
   hex[12] = "5";
@@ -286,17 +301,22 @@ export class ResumeDataStore {
         if (raw.data_schema_version === 0) {
           await this.migrateLegacy(raw, ownerId);
           raw = JSON.parse(await readFile(this.catalogPath, "utf8")) as { data_schema_version?: number };
-          checkpointMessage = "Migrate Resume Builder owner data schema 0 to 1 to 2 to 3";
+          checkpointMessage = "Migrate Resume Builder owner data schema 0 to 1 to 2 to 3 to 4";
         }
         if (raw.data_schema_version === 1) {
           await this.migrateSchemaOneToTwo(raw, ownerId);
           raw = JSON.parse(await readFile(this.catalogPath, "utf8")) as { data_schema_version?: number };
-          checkpointMessage ??= "Migrate Resume Builder owner data schema 1 to 2 to 3";
+          checkpointMessage ??= "Migrate Resume Builder owner data schema 1 to 2 to 3 to 4";
         }
         if (raw.data_schema_version === 2) {
           await this.migrateSchemaTwoToThree(raw, ownerId);
           raw = JSON.parse(await readFile(this.catalogPath, "utf8")) as { data_schema_version?: number };
-          checkpointMessage ??= "Migrate Resume Builder owner data schema 2 to 3";
+          checkpointMessage ??= "Migrate Resume Builder owner data schema 2 to 3 to 4";
+        }
+        if (raw.data_schema_version === 3) {
+          await this.migrateSchemaThreeToFour(raw, ownerId);
+          raw = JSON.parse(await readFile(this.catalogPath, "utf8")) as { data_schema_version?: number };
+          checkpointMessage ??= "Migrate Resume Builder owner data schema 3 to 4";
         }
         if (raw.data_schema_version === RESUME_DATA_SCHEMA_VERSION) {
           const opened = await this.openOrUpgradeCatalog(raw);
@@ -1234,7 +1254,7 @@ export class ResumeDataStore {
       const migrationId = randomUUID();
       const migrationRevisionId = randomUUID();
       const sourceCatalogDigest = canonicalInputDigest(source);
-      const transformedBase = CatalogBodySchema.parse({
+      const transformedBase = CatalogBodyV3Schema.parse({
         catalog_version: 1, data_schema_version: 3, owner_id: ownerId, generation: source.generation + 1,
         created_at: source.created_at, updated_at: now, heads, revisions, operations: source.operations, extensions: source.extensions,
       });
@@ -1265,12 +1285,134 @@ export class ResumeDataStore {
         relative_path: migrationRelativePath, content_digest: canonicalInputDigest(migration),
       });
       await this.migrationFault("after_records");
-      const staged = sealCatalog(CatalogBodySchema.parse({ ...transformedBase, heads, revisions }));
+      const staged = sealCatalogV3(CatalogBodyV3Schema.parse({ ...transformedBase, heads, revisions }));
       await this.writeAtomic(stagedPath, staged);
       await this.migrationFault("after_staged_catalog");
       await this.writeAtomic(this.migrationMarkerPath, {
         marker_version: 1, from_schema_version: 2, to_schema_version: 3,
         snapshot_path: path.relative(this.namespaceRoot, snapshotPath), staged_path: path.relative(this.namespaceRoot, stagedPath),
+      });
+      await this.migrationFault("after_marker");
+      await rename(stagedPath, this.catalogPath);
+      await this.writeAtomic(this.manifestPath, { ...STORE_MANIFEST, data_schema_version: 3 });
+      await this.migrationFault("after_catalog_switch");
+      await rm(this.migrationMarkerPath, { force: true });
+    } catch (error) {
+      await this.copyAtomic(snapshotPath, this.catalogPath);
+      await rm(this.manifestPath, { force: true });
+      await rm(this.migrationMarkerPath, { force: true });
+      await rm(stagedPath, { force: true });
+      throw new ResumeDomainError("recoverable_internal_failure", `Resume Builder data migration rolled back: ${error instanceof Error ? error.name : "failure"}`, 500);
+    }
+  }
+
+  private async migrateSchemaThreeToFour(raw: unknown, ownerId: string): Promise<void> {
+    const source = verifyCatalogV3(raw);
+    if (source.owner_id !== ownerId) throw new ResumeDomainError("denied", "Retained owner data belongs to a different owner", 403);
+    await this.validateReferencedRecords(source as unknown as ResumeDataCatalog);
+    const sourceCatalogDigest = canonicalInputDigest(source);
+    const snapshotId = deterministicOpaqueId(`resume-builder:schema-4:snapshot:${sourceCatalogDigest}`);
+    const snapshotPath = path.join(this.namespaceRoot, "recovery", `${snapshotId}.catalog-v3.json`);
+    const stagedPath = path.join(this.namespaceRoot, `catalog.${snapshotId}.staged.json`);
+    await this.copyAtomic(this.catalogPath, snapshotPath);
+    const now = source.updated_at;
+    try {
+      await this.migrationFault("after_snapshot");
+      const migrationId = deterministicOpaqueId(`resume-builder:schema-4:migration:${sourceCatalogDigest}`);
+      const migrationRevisionId = deterministicOpaqueId(`resume-builder:schema-4:migration-revision:${sourceCatalogDigest}`);
+      const transformedBase = CatalogBodySchema.parse({
+        catalog_version: 1,
+        data_schema_version: RESUME_DATA_SCHEMA_VERSION,
+        owner_id: ownerId,
+        generation: source.generation + 1,
+        created_at: source.created_at,
+        updated_at: now,
+        heads: source.heads,
+        revisions: source.revisions,
+        operations: source.operations,
+        extensions: source.extensions,
+      });
+      const resultCatalogDigest = canonicalInputDigest(transformedBase);
+      const migrationProvenance = MigrationProvenanceSchema.parse({
+        provenance_version: 1,
+        migration_id: migrationId,
+        transformer_id: "resume-data.schema-3-to-4",
+        transformer_version: "1",
+        transformer_digest: canonicalInputDigest({
+          transformer_id: "resume-data.schema-3-to-4",
+          transformer_version: "1",
+          steps: ["retain-schema-3-record-bytes", "retain-catalog-extensions", "advance-catalog-contract-version", "validate-record-graph", "seal-catalog"],
+        }),
+        from_schema_version: 3,
+        to_schema_version: 4,
+        source_catalog_digest: sourceCatalogDigest,
+        result_catalog_digest: resultCatalogDigest,
+        recovery_snapshot_id: snapshotId,
+        method: "deterministic_no_ai",
+        validated_at: now,
+      });
+      const migration = MigrationRecordSchema.parse({
+        schema_version: 4,
+        record_type: "migration",
+        metadata: {
+          record_id: migrationId,
+          revision_id: migrationRevisionId,
+          revision: 1,
+          created_at: now,
+          created_by: {
+            owner_id: ownerId,
+            actor_id: ownerId,
+            app_id: "ai.braindrive.resume-builder",
+            publisher_id: "ai.braindrive",
+            package_digest: `sha256:${"0".repeat(64)}`,
+            installation_id: "00000000-0000-4000-8000-000000000000",
+          },
+          prior_revision_id: null,
+          extensions: {},
+        },
+        owner_id: ownerId,
+        updated_at: now,
+        lifecycle_state: "active",
+        sensitivity: "standard",
+        retention_class: "rollback_recovery_window",
+        extensions: { migration_provenance: migrationProvenance },
+        migration_id: migrationId,
+        from_schema_version: 3,
+        to_schema_version: 4,
+        status: "committed",
+        source_catalog_digest: sourceCatalogDigest,
+        result_catalog_digest: resultCatalogDigest,
+        recovery_snapshot_id: snapshotId,
+        started_at: now,
+        completed_at: now,
+      });
+      const migrationRelativePath = this.recordRelativePath(migration);
+      await this.writeAtomic(path.join(this.namespaceRoot, migrationRelativePath), migration);
+      await this.migrationFault("after_records");
+      const heads = {
+        ...source.heads,
+        [migrationId]: { record_id: migrationId, revision_id: migrationRevisionId, revision: 1, record_type: "migration" },
+      };
+      const revisions = {
+        ...source.revisions,
+        [migrationRevisionId]: RecordLocatorSchema.parse({
+          record_id: migrationId,
+          revision_id: migrationRevisionId,
+          revision: 1,
+          record_type: "migration",
+          relative_path: migrationRelativePath,
+          content_digest: canonicalInputDigest(migration),
+        }),
+      };
+      const staged = sealCatalog(CatalogBodySchema.parse({ ...transformedBase, heads, revisions }));
+      await this.writeAtomic(stagedPath, staged);
+      await this.migrationFault("after_staged_catalog");
+      await this.writeAtomic(this.migrationMarkerPath, {
+        marker_version: 1,
+        from_schema_version: 3,
+        to_schema_version: 4,
+        snapshot_path: path.relative(this.namespaceRoot, snapshotPath),
+        staged_path: path.relative(this.namespaceRoot, stagedPath),
       });
       await this.migrationFault("after_marker");
       await rename(stagedPath, this.catalogPath);
@@ -1294,8 +1436,14 @@ export class ResumeDataStore {
         const stagedRaw = JSON.parse(await readFile(stagedPath, "utf8"));
         const toSchemaVersion = "to_schema_version" in marker
           ? marker.to_schema_version
-          : z.union([z.literal(1), z.literal(2), z.literal(RESUME_DATA_SCHEMA_VERSION)]).parse((stagedRaw as { data_schema_version?: unknown }).data_schema_version);
-        const staged = toSchemaVersion === 1 ? verifyCatalogV1(stagedRaw) : toSchemaVersion === 2 ? verifyCatalogV2(stagedRaw) : verifyCatalog(stagedRaw);
+          : z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(RESUME_DATA_SCHEMA_VERSION)]).parse((stagedRaw as { data_schema_version?: unknown }).data_schema_version);
+        const staged = toSchemaVersion === 1
+          ? verifyCatalogV1(stagedRaw)
+          : toSchemaVersion === 2
+            ? verifyCatalogV2(stagedRaw)
+            : toSchemaVersion === 3
+              ? verifyCatalogV3(stagedRaw)
+              : verifyCatalog(stagedRaw);
         await this.validateReferencedRecords(staged as unknown as ResumeDataCatalog);
         await rename(stagedPath, this.catalogPath);
         await this.writeAtomic(this.manifestPath, { ...STORE_MANIFEST, data_schema_version: toSchemaVersion });

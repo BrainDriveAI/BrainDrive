@@ -68,7 +68,7 @@ describe("Resume data M2 atomic record store", () => {
     const { store } = await setup();
     expect(JSON.parse(await readFile(path.join(store.namespaceRoot, "manifest.json"), "utf8"))).toEqual({
       active_catalog: "catalog.json",
-      data_schema_version: 3,
+      data_schema_version: 4,
       integrity_algorithm: "sha256",
       manifest_version: 1,
       records_directory: "records",

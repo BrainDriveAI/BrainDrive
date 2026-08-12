@@ -21,6 +21,8 @@ Developer routes: [developer documentation index](../../../docs/developers/READM
 
 Runtime data comes from the gateway. Unit and component tests mock API boundaries, but the running application does not use mock users, conversations, or projects.
 
+App-published project documents use the normal read-only `DocumentView`. Optional validated quality metadata appears as a bordered text status in the document header with an accessible name; it never changes the Markdown body or enables editing. Files without this metadata retain the existing generic document behavior.
+
 ## How It Fits
 
 ```text

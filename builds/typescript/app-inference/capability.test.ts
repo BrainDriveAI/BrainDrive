@@ -105,7 +105,7 @@ describe("M5 protected app inference capability", () => {
       inference_contract_version: 1,
       status: "completed",
       prompt_policy_id: "braindrive.resume-builder.fixed",
-      prompt_policy_version: "7",
+      prompt_policy_version: "8",
       input_digest: canonicalInputDigest(FACTS),
       provider_profile_id: "owner-profile",
       model_id: "owner-model",

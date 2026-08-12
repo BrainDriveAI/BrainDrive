@@ -4,10 +4,17 @@ import path from "node:path";
 
 import { z } from "zod";
 
-import { CareerContextProjectionSchema, CareerReturnSummarySchema } from "../app-platform/contracts/data.js";
+import {
+  CareerContextProjectionSchema,
+  CareerReturnSummarySchema,
+  ResumeDefinitionRecordSchema,
+  TailoredVariantRecordSchema,
+} from "../app-platform/contracts/data.js";
 import { canonicalJson } from "../app-platform/contracts/common.js";
 import { commitMemoryChange } from "../git.js";
 import { ResumeDomainError } from "./errors.js";
+import { craftDefinitionDigest } from "../resume-inference/craft-evaluator.js";
+import { resumeQualityStateLabel } from "./quality-state.js";
 
 export type CareerContextProjection = z.infer<typeof CareerContextProjectionSchema>;
 export type CareerReturnSummary = z.infer<typeof CareerReturnSummarySchema>;
@@ -83,17 +90,21 @@ export class CareerPlacementAdapter {
       current = JOURNAL_HEADER;
     }
     const date = summary.updated_at.slice(0, 10);
-    const lines = [
-      `## ${date} - Resume Builder Return`, "", "- Source: Resume Builder", "- Entry:",
-      `  - Status: ${summary.status}`,
-      `  - Outcome: ${summary.outcome_summary}`,
-    ];
-    if (summary.approved_reference) lines.push(`  - Approved resume: ${summary.approved_reference.safe_label}`);
-    if (summary.stable_fact_proposals.length > 0) {
-      lines.push("  - Stable fact proposals for owner profile review:");
-      for (const proposal of summary.stable_fact_proposals) lines.push(`    - ${proposal.safe_summary}`);
+    const lines = [`## ${date} - Resume Builder Return`, "", "- Source: Resume Builder", "- Entry:"];
+    if (summary.summary_version === 2) {
+      lines.push(`  - Quality status: ${resumeQualityStateLabel(summary.quality_state)}`);
+      lines.push(`  - Approved resume revision: ${summary.approved_reference.revision_id}`);
+      if (summary.craft_report_reference) lines.push(`  - Product craft report revision: ${summary.craft_report_reference.revision_id}`);
+    } else {
+      lines.push(`  - Status: ${summary.status}`);
+      lines.push(`  - Outcome: ${summary.outcome_summary}`);
+      if (summary.approved_reference) lines.push(`  - Approved resume: ${summary.approved_reference.safe_label}`);
+      if (summary.stable_fact_proposals.length > 0) {
+        lines.push("  - Stable fact proposals for owner profile review:");
+        for (const proposal of summary.stable_fact_proposals) lines.push(`    - ${proposal.safe_summary}`);
+      }
+      if (summary.next_career_action) lines.push(`  - Next Career action: ${summary.next_career_action}`);
     }
-    if (summary.next_career_action) lines.push(`  - Next Career action: ${summary.next_career_action}`);
     lines.push("- Status: needs owner review", "");
     const entry = lines.join("\n");
     const normalized = this.ensureAnchor(current);
@@ -182,5 +193,40 @@ export class CareerPlacementAdapter {
 }
 
 export function redactedCareerSummaryDigest(summary: CareerReturnSummary): `sha256:${string}` {
-  return `sha256:${createHash("sha256").update(canonicalJson({ status: summary.status, approved: Boolean(summary.approved_reference), proposal_count: summary.stable_fact_proposals.length, has_next_action: Boolean(summary.next_career_action) })).digest("hex")}`;
+  const redacted = summary.summary_version === 2
+    ? { quality_state: summary.quality_state, approved: true, has_report: summary.craft_report_reference !== null }
+    : { status: summary.status, approved: Boolean(summary.approved_reference), proposal_count: summary.stable_fact_proposals.length, has_next_action: Boolean(summary.next_career_action) };
+  return `sha256:${createHash("sha256").update(canonicalJson(redacted)).digest("hex")}`;
+}
+
+export function buildCareerReturnSummary(
+  definitionInput: z.infer<typeof ResumeDefinitionRecordSchema>,
+  variantInput: z.infer<typeof TailoredVariantRecordSchema> | null,
+  updatedAt: string,
+): Extract<CareerReturnSummary, { summary_version: 2 }> {
+  const definition = ResumeDefinitionRecordSchema.parse(definitionInput);
+  if (definition.status !== "approved" || !definition.approval_evidence) {
+    throw new ResumeDomainError("validation_failed", "Career return requires one exact approved definition");
+  }
+  const persuasive = definition.approval_evidence.persuasive_quality;
+  const qualityState = persuasive?.contract_version === 2 ? "owner_approved" as const : "pre_correction_review" as const;
+  const variant = definition.definition_kind === "targeted" ? TailoredVariantRecordSchema.parse(variantInput) : null;
+  if (definition.definition_kind === "targeted" && variant?.targeted_definition_revision_id !== definition.metadata.revision_id) {
+    throw new ResumeDomainError("validation_failed", "Career return targeted variant does not bind the approved definition");
+  }
+  return CareerReturnSummarySchema.parse({
+    summary_version: 2,
+    approved_reference: {
+      kind: definition.definition_kind === "general" ? "general_resume" : "tailored_variant",
+      record_id: definition.definition_kind === "general" ? definition.metadata.record_id : variant!.metadata.record_id,
+      revision_id: definition.definition_kind === "general" ? definition.metadata.revision_id : variant!.metadata.revision_id,
+      definition_digest: craftDefinitionDigest(definition),
+    },
+    quality_state: qualityState,
+    craft_report_reference: persuasive?.contract_version === 2 ? {
+      revision_id: persuasive.craft_report_revision_id,
+      report_digest: persuasive.craft_report_digest,
+    } : null,
+    updated_at: updatedAt,
+  }) as Extract<CareerReturnSummary, { summary_version: 2 }>;
 }

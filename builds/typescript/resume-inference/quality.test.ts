@@ -31,7 +31,7 @@ describe("credential-free Resume Quality foundation", () => {
     expect(fixtures.every((fixture) => fixture.synthetic === true)).toBe(true);
     const report = ResumeQualityReportSchema.parse(await runResumeQualityFoundation());
     expect(report.credential_mode).toBe("none");
-    expect(report.harness_mode).toBe("complete_m7");
+    expect(report.harness_mode).toBe("quality_gate_correction_m6");
     expect(report.outcome_scope).toBe("credential_free_deterministic_checks");
     expect(report.fixture_count).toBe(fixtures.length);
     expect(JSON.stringify(report)).not.toContain("owner_text");
@@ -46,30 +46,36 @@ describe("credential-free Resume Quality foundation", () => {
     expect(report.suite_summary.clean).toMatchObject({ blocking_false_positives: 0, outcome: "passed" });
     expect(report.suite_summary.personas).toMatchObject({ thresholds_passed: true, outcome: "passed" });
     expect(report.suite_summary.successor_no_regression.outcome).toBe("passed");
-    expect(report.authorized_generation).toEqual({ required_runs_per_generative_fixture: 3, completed_runs: 0, status: "awaiting_authorization" });
+    expect(report.authorized_generation).toEqual({ required_runs_per_generative_fixture: 3, completed_runs: 0, status: "blocked_missing_authority" });
     expect(report.release_gate).toEqual({
-      tier_1_generation: "awaiting_authorization",
+      tier_1_generation: "blocked",
       tier_2_artifacts: "passed",
-      tier_3_craft: "awaiting_authorized_generation",
-      human_calibration: "awaiting_review",
-      provider_conformance: "awaiting_authorization",
-      numeric_friction: "awaiting_authority",
-      retention_deletion: "awaiting_contract",
+      tier_3_craft: "blocked",
+      human_calibration: "blocked",
+      provider_conformance: "blocked",
+      numeric_friction: "blocked",
+      retention_deletion: "blocked",
       release_ready: false,
     });
     expect(report.m7_evaluation).toMatchObject({
       source_revision: expect.stringMatching(/^[a-f0-9]{40}$/),
-      outcome_scope: "synthetic_sanitized_evaluation",
+      outcome_scope: "synthetic_sanitized_quality_gate_correction",
       corpus_integrity: {
         outcome: "passed",
         generative_fixture_count: 9,
         holdout_fixture_count: 2,
         parity_mutation_count: 4,
+        clean_control_count: 3,
+        permutation_relation_count: 1,
       },
+      corrective_bindings: { outcome: "passed", evidence_scope: "workflow_only", higher_gate_eligible: false },
       gates: {
         fixture_integrity: "passed",
         deterministic_foundation: "passed",
         semantic_friction: "passed",
+        corrective_corpus: "passed",
+        workflow_fixture_boundary: "passed",
+        controlled_authority: "blocked",
         multi_run: "blocked",
         provider_conformance: "blocked",
         human_calibration: "blocked",

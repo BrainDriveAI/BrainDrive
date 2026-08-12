@@ -8,7 +8,7 @@ import { InferenceDataBlockSchema, InferenceRequestSchema, PURPOSE_LIMITS, PURPO
 import type { ModelAdapter, StructuredCompletionRequest } from "../adapters/base.js";
 import { ResumeInferenceBroker } from "./broker.js";
 import { RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION } from "./policy.js";
-import { CRAFT_EVIDENCE_LIMITED_POLICY } from "./craft-evaluator.js";
+import { CRAFT_EVIDENCE_LIMITED_POLICY, LEGACY_CRAFT_EVIDENCE_LIMITED_POLICY, craftContextFromBlocks, evaluateCraftProposal, extractCraftAnchorEvidence } from "./craft-evaluator.js";
 import { TARGET_FIT_THRESHOLD_POLICY } from "./target-fit.js";
 
 const FACT_ID = "71000000-0000-4000-8000-000000000001";
@@ -52,7 +52,7 @@ const outputs: Record<InferencePurpose, unknown> = {
   resume_revision_draft: { source_definition_revision_id: PARENT_ID, revision_request_revision_id: REVISION_REQUEST_ID, title: "Revised", statements: [{ statement_id: REVISION_STATEMENT_ID, section_id: "experience", kind: "factual", text: "Product built 20%", supporting_confirmed_fact_revision_ids: [FACT_ID] }], changed_statement_ids: [REVISION_STATEMENT_ID], section_order: ["experience"] },
   resume_guidance: { guidance_version: 1, items: [{ category: "strong_evidence", evidence_revision_ids: [FACT_ID], evidence_labels: ["Confirmed result"], message: "This confirmed result is specific." }], optional_questions: [] },
   resume_strategy: { strategy_version: 1, history_shape: "chronological_standard", history_reason_code: "standard_chronology", role_emphasis: [{ job_fact_revision_id: INTERVIEW_JOB_ID, priority: "primary", reason_code: "recent", bullet_density: "compact" }], section_order: ["experience"], evidence_priorities: [{ fact_revision_id: FACT_ID, priority: "must_use" }, { fact_revision_id: INTERVIEW_JOB_ID, priority: "must_use" }], summary_decision: "omit", summary_reason_code: "insufficient_distinct_value", skills_context: [], omissions: [], unresolved_gap_ids: [], owner_rationale: "Lead with confirmed evidence." },
-  resume_craft_evaluate: { report_version: 1, evidence_context: "standard", verdict: "pass", criterion_verdicts: CRAFT_CRITERIA.map((criterion) => ({ criterion, verdict: criterion === "C4" || criterion.startsWith("T") ? "not_applicable" : "pass", finding_ids: [] })), findings: [] },
+  resume_craft_evaluate: null,
   resume_craft_repair: { repair_version: 1, source_definition_revision_id: PARENT_ID, source_report_revision_id: CRAFT_REPORT_ID, changed_statement_ids: [REVISION_STATEMENT_ID], title: "Resume", statements: [
     { statement_id: CRAFT_HEADING_ID, section_id: "experience", display_role: "heading", kind: "factual", text: "Product Builder at Synthetic Company", supporting_confirmed_fact_revision_ids: [INTERVIEW_JOB_ID] },
     { statement_id: REVISION_STATEMENT_ID, section_id: "experience", display_role: "bullet", kind: "factual", text: "Built product 20%", supporting_confirmed_fact_revision_ids: [FACT_ID] },
@@ -115,14 +115,19 @@ function dataBlocks(purpose: InferencePurpose) {
       { statement_id: REVISION_STATEMENT_ID, section_id: "experience", display_role: "bullet", kind: "factual", text: purpose === "resume_craft_repair" ? "Responsible for building product 20%" : "Built product 20%", supporting_confirmed_fact_revision_ids: [FACT_ID] },
     ], selected_fact_revision_ids: [FACT_ID, INTERVIEW_JOB_ID], section_order: ["experience"] };
     const strategy = { ...envelope("resume_strategy", randomUUID(), randomUUID()), strategy_version: 1, fact_snapshot_digest: canonicalInputDigest(FACTS), fact_revision_ids: [FACT_ID, INTERVIEW_JOB_ID], coverage_revision_ids: [], target_revision_id: null, history_shape: "chronological_standard", history_reason_code: "standard_chronology", role_emphasis: [{ job_fact_revision_id: INTERVIEW_JOB_ID, priority: "primary", reason_code: "recent", bullet_density: "compact" }], section_order: ["experience"], evidence_priorities: [{ fact_revision_id: FACT_ID, priority: "must_use" }, { fact_revision_id: INTERVIEW_JOB_ID, priority: "must_use" }], summary_decision: "omit", summary_reason_code: "insufficient_distinct_value", skills_context: [], omissions: [], unresolved_gap_ids: [], owner_rationale: "Use confirmed evidence.", prompt_policy_id: RESUME_PROMPT_POLICY_ID, prompt_policy_version: RESUME_PROMPT_POLICY_VERSION, quality_standard_id: "braindrive.resume-quality", quality_standard_version: "3", quality_standard_digest: SHA, provider_profile_id: "owner-profile", model_id: "synthetic-model", input_digest: SHA, output_digest: SHA };
-    const gates = { truth_passed: true, structure_passed: true };
+    const gates = { truth_passed: true, structure_passed: true, mechanical_passed: true };
     blocks.push({ category: "general_resume_definition", content_digest: canonicalInputDigest(definition), schema_id: "resume.definition.v1", schema_version: 1, data: definition });
     blocks.push({ category: "resume_strategy", content_digest: canonicalInputDigest(strategy), schema_id: "resume.strategy-record.v1", schema_version: 1, data: strategy });
     blocks.push({ category: "deterministic_findings", content_digest: canonicalInputDigest(gates), schema_id: "resume.craft-deterministic-gates.v1", schema_version: 1, data: gates });
-    blocks.push({ category: "craft_gate_policy", content_digest: canonicalInputDigest(CRAFT_EVIDENCE_LIMITED_POLICY), schema_id: "resume.craft-gate-policy.v1", schema_version: 1, data: CRAFT_EVIDENCE_LIMITED_POLICY });
+    if (purpose === "resume_craft_evaluate") {
+      const anchors = extractCraftAnchorEvidence(craftContextFromBlocks(blocks));
+      blocks.push({ category: "craft_anchor_evidence", content_digest: canonicalInputDigest(anchors), schema_id: "resume.craft-anchor-evidence.v1", schema_version: 1, data: anchors });
+    }
+    const craftPolicy = purpose === "resume_craft_evaluate" ? CRAFT_EVIDENCE_LIMITED_POLICY : LEGACY_CRAFT_EVIDENCE_LIMITED_POLICY;
+    blocks.push({ category: "craft_gate_policy", content_digest: canonicalInputDigest(craftPolicy), schema_id: "resume.craft-gate-policy.v1", schema_version: 1, data: craftPolicy });
     if (purpose === "resume_craft_repair") {
       const findingId = "71000000-0000-4000-8000-000000000015";
-      const reportBody = { report_version: 1, proposal_definition_revision_id: PARENT_ID, strategy_revision_id: strategy.metadata.revision_id, target_analysis_revision_id: null, definition_digest: SHA, strategy_digest: canonicalInputDigest(strategy), fact_snapshot_digest: canonicalInputDigest(FACTS), fact_revision_ids: [FACT_ID, INTERVIEW_JOB_ID], coverage_revision_ids: [], quality_standard_id: "braindrive.resume-quality", quality_standard_version: "3", quality_standard_digest: SHA, evidence_limited_policy_id: CRAFT_EVIDENCE_LIMITED_POLICY.policy_id, evidence_limited_policy_version: CRAFT_EVIDENCE_LIMITED_POLICY.policy_version, evidence_limited_authority_status: CRAFT_EVIDENCE_LIMITED_POLICY.authority_status, truth_validation_digest: SHA, structure_validation_digest: SHA, criterion_verdicts: CRAFT_CRITERIA.map((criterion) => ({ criterion, verdict: criterion === "C2" ? "fail" : criterion === "C4" || criterion.startsWith("T") ? "not_applicable" : "pass", finding_ids: criterion === "C2" ? [findingId] : [] })), findings: [{ finding_id: findingId, criterion: "C2", statement_id: REVISION_STATEMENT_ID, severity: "blocking", correction_class: "duty_only", safe_message: "Replace the duty-only wording.", evidence_category: "statement_support", evidence_revision_ids: [FACT_ID] }], evidence_context: "standard", verdict: "fail", prompt_policy_id: RESUME_PROMPT_POLICY_ID, prompt_policy_version: RESUME_PROMPT_POLICY_VERSION, provider_profile_id: "owner-profile", model_id: "synthetic-model", input_digest: SHA, output_digest: SHA, evaluated_at: FIXED_TIME };
+      const reportBody = { report_version: 1, proposal_definition_revision_id: PARENT_ID, strategy_revision_id: strategy.metadata.revision_id, target_analysis_revision_id: null, definition_digest: SHA, strategy_digest: canonicalInputDigest(strategy), fact_snapshot_digest: canonicalInputDigest(FACTS), fact_revision_ids: [FACT_ID, INTERVIEW_JOB_ID], coverage_revision_ids: [], quality_standard_id: "braindrive.resume-quality", quality_standard_version: "3", quality_standard_digest: SHA, evidence_limited_policy_id: LEGACY_CRAFT_EVIDENCE_LIMITED_POLICY.policy_id, evidence_limited_policy_version: LEGACY_CRAFT_EVIDENCE_LIMITED_POLICY.policy_version, evidence_limited_authority_status: LEGACY_CRAFT_EVIDENCE_LIMITED_POLICY.authority_status, truth_validation_digest: SHA, structure_validation_digest: SHA, criterion_verdicts: CRAFT_CRITERIA.map((criterion) => ({ criterion, verdict: criterion === "C2" ? "fail" : criterion === "C4" || criterion.startsWith("T") ? "not_applicable" : "pass", finding_ids: criterion === "C2" ? [findingId] : [] })), findings: [{ finding_id: findingId, criterion: "C2", statement_id: REVISION_STATEMENT_ID, severity: "blocking", correction_class: "duty_only", safe_message: "Replace the duty-only wording.", evidence_category: "statement_support", evidence_revision_ids: [FACT_ID] }], evidence_context: "standard", verdict: "fail", prompt_policy_id: RESUME_PROMPT_POLICY_ID, prompt_policy_version: RESUME_PROMPT_POLICY_VERSION, provider_profile_id: "owner-profile", model_id: "synthetic-model", input_digest: SHA, output_digest: SHA, evaluated_at: FIXED_TIME };
       const report = { ...envelope("craft_quality_report", randomUUID(), CRAFT_REPORT_ID), ...reportBody, report_digest: canonicalInputDigest(reportBody) };
       blocks.push({ category: "craft_quality_report", content_digest: canonicalInputDigest(report), schema_id: "resume.craft-quality-report.v1", schema_version: 1, data: report });
     }
@@ -173,9 +178,11 @@ function provider(modelAdapter: ModelAdapter) {
 describe("ResumeInferenceBroker", () => {
   it("binds all nine purposes to strict result schemas", async () => {
     for (const purpose of Object.keys(outputs) as InferencePurpose[]) {
-      const model = adapter(() => JSON.stringify(outputs[purpose]));
+      const inferenceRequest = request(purpose);
+      const fixtureOutput = purpose === "resume_craft_evaluate" ? evaluateCraftProposal(craftContextFromBlocks(inferenceRequest.data_blocks)) : outputs[purpose];
+      const model = adapter(() => JSON.stringify(fixtureOutput));
       const broker = new ResumeInferenceBroker(async () => provider(model.value));
-      const completion = await broker.execute(request(purpose));
+      const completion = await broker.execute(inferenceRequest);
       expect(completion.inference).toMatchObject({ purpose, status: "completed", attempt_count: 1 });
       expect(completion.validation?.accepted).toBe(true);
       expect(model.calls()).toBe(1);
@@ -275,6 +282,16 @@ describe("ResumeInferenceBroker", () => {
     const oversized = await new ResumeInferenceBroker(async () => provider(oversizedModel.value)).execute(limited);
     expect(oversized.inference).toMatchObject({ status: "failed", attempt_count: 1, error: { code: "validation_failed" } });
     expect(oversizedModel.calls()).toBe(1);
+  });
+
+  it("never projects unavailable or malformed craft evaluation as a passing result", async () => {
+    const unavailableModel = adapter(() => { throw new Error("fetch failed: ECONNRESET"); });
+    const unavailable = await new ResumeInferenceBroker(async () => provider(unavailableModel.value)).execute(request("resume_craft_evaluate"));
+    expect(unavailable.inference).toMatchObject({ status: "failed", result: null, output_digest: null, error: { code: "provider_unavailable" } });
+
+    const malformedModel = adapter(() => "{}");
+    const malformed = await new ResumeInferenceBroker(async () => provider(malformedModel.value)).execute(request("resume_craft_evaluate"));
+    expect(malformed.inference).toMatchObject({ status: "failed", attempt_count: 2, result: null, output_digest: null, error: { code: "schema_validation_failed" } });
   });
 
   it("replaces malformed or unavailable guidance with a neutral deterministic fallback", async () => {

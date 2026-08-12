@@ -5,14 +5,112 @@ import { describe, expect, it } from "vitest";
 import { canonicalInputDigest } from "../app-platform/contracts/common.js";
 import { ResumeStrategyOmissionReasonSchema } from "../app-platform/contracts/data.js";
 import { ResumeStrategyResultSchema } from "./results.js";
-import { buildEvidenceAnnotations, RESUME_QUALITY_POLICY_IDENTITY } from "./strategy.js";
+import {
+  buildEvidenceAnnotations,
+  canonicalizeCoverage,
+  canonicalizeEvidenceAnnotations,
+  canonicalizeFacts,
+  canonicalizeStrategyResult,
+  RESUME_QUALITY_POLICY_IDENTITY,
+} from "./strategy.js";
 import { validateInferenceClaims } from "./validators.js";
 
 function block(category: "confirmed_fact_snapshot" | "evidence_annotations" | "quality_policy", schemaId: string, data: unknown) {
   return { category, content_digest: canonicalInputDigest(data), schema_id: schemaId, schema_version: 1 as const, data };
 }
 
+function permutations<T>(values: T[]): T[][] {
+  if (values.length < 2) return [values];
+  return values.flatMap((value, index) => permutations(values.filter((_, candidate) => candidate !== index)).map((rest) => [value, ...rest]));
+}
+
 describe("inspectable resume strategy", () => {
+  it("canonicalizes every fact and coverage permutation without changing semantic values", () => {
+    const currentJobId = "11000000-0000-4000-8000-000000000001";
+    const priorJobId = "11000000-0000-4000-8000-000000000002";
+    const facts = [
+      { revision_id: priorJobId, fact_kind: "employment", value: JSON.stringify({ format: "resume_job_v1", title: "Associate", employer: "Synthetic Retail", start_date: "2018", end_date: "2021" }), source_revision_ids: ["11000000-0000-4000-8000-000000000011"] },
+      { revision_id: "11000000-0000-4000-8000-000000000003", fact_kind: "accomplishment", value: JSON.stringify({ format: "resume_accomplishment_v1", job_fact_revision_id: currentJobId, text: "Improved a supported workflow." }), source_revision_ids: ["11000000-0000-4000-8000-000000000013", "11000000-0000-4000-8000-000000000012"] },
+      { revision_id: currentJobId, fact_kind: "employment", value: JSON.stringify({ format: "resume_job_v1", title: "Specialist", employer: "Synthetic Support", start_date: "2022", end_date: "Present" }), source_revision_ids: ["11000000-0000-4000-8000-000000000014"] },
+      { revision_id: "11000000-0000-4000-8000-000000000004", fact_kind: "skill", value: "Synthetic tooling", source_revision_ids: [] },
+    ];
+    const coverage = [
+      { metadata: { revision_id: "11000000-0000-4000-8000-000000000021" }, job_fact_revision_id: priorJobId, dimensions: {}, opportunities: [{ opportunity_id: "11000000-0000-4000-8000-000000000031", state: "available" }] },
+      { metadata: { revision_id: "11000000-0000-4000-8000-000000000020" }, job_fact_revision_id: currentJobId, dimensions: {}, opportunities: [{ opportunity_id: "11000000-0000-4000-8000-000000000030", state: "available" }] },
+    ];
+    const expectedFacts = canonicalizeFacts(facts);
+    const expectedCoverage = canonicalizeCoverage(coverage);
+    const expectedAnnotations = buildEvidenceAnnotations(facts, coverage);
+    for (const factOrder of permutations(facts)) {
+      expect(canonicalizeFacts(factOrder)).toEqual(expectedFacts);
+      for (const coverageOrder of permutations(coverage)) {
+        expect(canonicalizeCoverage(coverageOrder)).toEqual(expectedCoverage);
+        expect(buildEvidenceAnnotations(factOrder, coverageOrder)).toEqual(expectedAnnotations);
+      }
+    }
+    expect(expectedFacts.map((fact) => fact.revision_id)).toEqual([
+      currentJobId,
+      "11000000-0000-4000-8000-000000000003",
+      priorJobId,
+      "11000000-0000-4000-8000-000000000004",
+    ]);
+    expect(canonicalizeFacts(expectedFacts)).toEqual(expectedFacts);
+    expect(canonicalizeCoverage(expectedCoverage)).toEqual(expectedCoverage);
+  });
+
+  it("deduplicates equivalent identities and rejects conflicting fact, coverage, annotation, and strategy identities", () => {
+    const job = { revision_id: "12000000-0000-4000-8000-000000000001", fact_kind: "employment", value: "Supported role", source_revision_ids: ["12000000-0000-4000-8000-000000000002"] };
+    expect(canonicalizeFacts([job, { ...job, source_revision_ids: [...job.source_revision_ids].reverse() }])).toEqual([job]);
+    expect(() => canonicalizeFacts([job, { ...job, value: "Conflicting role" }])).toThrow(/conflicting fact identity/i);
+
+    const coverage = { metadata: { revision_id: "12000000-0000-4000-8000-000000000003" }, job_fact_revision_id: job.revision_id, dimensions: {}, opportunities: [] };
+    expect(canonicalizeCoverage([coverage, { ...coverage }])).toEqual([coverage]);
+    expect(() => canonicalizeCoverage([coverage, { ...coverage, job_fact_revision_id: "12000000-0000-4000-8000-000000000004" }])).toThrow(/conflicting coverage identity/i);
+
+    const annotations = buildEvidenceAnnotations([job], []);
+    expect(canonicalizeEvidenceAnnotations({ ...annotations, facts: [annotations.facts[0]!, annotations.facts[0]!] })).toEqual(annotations);
+    expect(() => canonicalizeEvidenceAnnotations({ ...annotations, facts: [annotations.facts[0]!, { ...annotations.facts[0]!, required_priority: "context" }] })).toThrow(/conflicting evidence annotation identity/i);
+    const base = {
+      strategy_version: 1 as const,
+      history_shape: "early_career" as const,
+      history_reason_code: "thin_history" as const,
+      role_emphasis: [
+        { job_fact_revision_id: job.revision_id, priority: "primary" as const, reason_code: "recent" as const, bullet_density: "compact" as const },
+        { job_fact_revision_id: job.revision_id, priority: "primary" as const, reason_code: "recent" as const, bullet_density: "compact" as const },
+      ],
+      section_order: ["experience", "experience"],
+      evidence_priorities: [
+        { fact_revision_id: job.revision_id, priority: "must_use" as const },
+        { fact_revision_id: job.revision_id, priority: "must_use" as const },
+      ],
+      summary_decision: "omit" as const,
+      summary_reason_code: "insufficient_distinct_value" as const,
+      skills_context: [],
+      omissions: [],
+      unresolved_gap_ids: [],
+      owner_rationale: "Use supported evidence.",
+    };
+    expect(canonicalizeStrategyResult(base, [job], annotations)).toMatchObject({ role_emphasis: [base.role_emphasis[0]], evidence_priorities: [base.evidence_priorities[0]], section_order: ["experience"] });
+    expect(() => canonicalizeStrategyResult({ ...base, role_emphasis: [base.role_emphasis[0]!, { ...base.role_emphasis[0]!, priority: "supporting" as const }] }, [job], annotations)).toThrow(/conflicting role emphasis identity/i);
+    expect(() => canonicalizeStrategyResult({ ...base, evidence_priorities: [base.evidence_priorities[0]!, { ...base.evidence_priorities[0]!, priority: "context" as const }] }, [job], annotations)).toThrow(/conflicting evidence priority identity/i);
+    const omission = { fact_revision_id: job.revision_id, reason_code: "space" as const };
+    expect(canonicalizeStrategyResult({ ...base, omissions: [omission, omission], unresolved_gap_ids: [job.revision_id, job.revision_id] }, [job], annotations)).toMatchObject({ omissions: [omission], unresolved_gap_ids: [job.revision_id] });
+    expect(() => canonicalizeStrategyResult({ ...base, omissions: [omission, { ...omission, reason_code: "conflict" as const }] }, [job], annotations)).toThrow(/conflicting omission identity/i);
+  });
+
+  it("uses semantic month chronology before immutable identity tie-breakers", () => {
+    const jobs = [
+      { revision_id: "12500000-0000-4000-8000-000000000001", fact_kind: "employment", value: JSON.stringify({ format: "resume_job_v1", title: "January role", employer: "Synthetic Org", start_date: "2022", end_date: "January 2023" }) },
+      { revision_id: "12500000-0000-4000-8000-000000000003", fact_kind: "employment", value: JSON.stringify({ format: "resume_job_v1", title: "December role B", employer: "Synthetic Org", start_date: "2022", end_date: "2023-12" }) },
+      { revision_id: "12500000-0000-4000-8000-000000000002", fact_kind: "employment", value: JSON.stringify({ format: "resume_job_v1", title: "December role A", employer: "Synthetic Org", start_date: "2022", end_date: "December 2023" }) },
+    ];
+    expect(canonicalizeFacts(jobs).map((job) => job.revision_id)).toEqual([
+      "12500000-0000-4000-8000-000000000002",
+      "12500000-0000-4000-8000-000000000003",
+      "12500000-0000-4000-8000-000000000001",
+    ]);
+  });
+
   it("fails closed for an empty snapshot", () => {
     const facts = { facts: [] };
     const annotations = buildEvidenceAnnotations([], []);
