@@ -125,9 +125,9 @@ export function assertArchiveEntrySet(entries: readonly unknown[]): z.infer<type
 
 export const PlatformArtifactSchema = z
   .object({
-    target: z.enum(["docker_linux_x64", "desktop_windows_x64"]),
-    os: z.enum(["linux", "windows"]),
-    architecture: z.literal("x64"),
+    target: z.enum(["docker_linux_x64", "desktop_windows_x64", "desktop_macos_universal"]),
+    os: z.enum(["linux", "windows", "macos"]),
+    architecture: z.enum(["x64", "universal"]),
     runtime_kind: z.literal("packaged_node"),
     entrypoint: PackagePathSchema,
   })
@@ -135,7 +135,10 @@ export const PlatformArtifactSchema = z
   .superRefine((value, context) => {
     if (
       (value.target === "docker_linux_x64" && value.os !== "linux") ||
-      (value.target === "desktop_windows_x64" && value.os !== "windows")
+      (value.target === "desktop_windows_x64" && value.os !== "windows") ||
+      (value.target === "desktop_macos_universal" && value.os !== "macos") ||
+      (value.target === "desktop_macos_universal" && value.architecture !== "universal") ||
+      (value.target !== "desktop_macos_universal" && value.architecture !== "x64")
     ) {
       context.addIssue({ code: "custom", message: "platform target and operating system disagree" });
     }
@@ -163,7 +166,7 @@ export const PackageManifestSchema = z
       })
       .strict(),
     files: z.array(PackageFileSchema).min(3).max(256),
-    platform_artifacts: z.array(PlatformArtifactSchema).length(2),
+    platform_artifacts: z.array(PlatformArtifactSchema).min(2).max(3),
     compatibility: z
       .object({
         app_contract: z.literal(APP_CONTRACT_SCHEMA_VERSION),
@@ -236,8 +239,8 @@ export const PackageManifestSchema = z
       context.addIssue({ code: "custom", message: "declared package contents exceed the canonical stored-ZIP byte ceiling" });
     }
     const targets = value.platform_artifacts.map((artifact) => artifact.target);
-    if (new Set(targets).size !== 2 || !targets.includes("docker_linux_x64") || !targets.includes("desktop_windows_x64")) {
-      context.addIssue({ code: "custom", message: "package must declare the accepted Docker and Windows targets exactly once" });
+    if (new Set(targets).size !== targets.length || !targets.includes("docker_linux_x64") || !targets.includes("desktop_windows_x64")) {
+      context.addIssue({ code: "custom", message: "package must declare unique Docker and Windows targets and may declare macOS once" });
     }
   });
 
@@ -350,8 +353,12 @@ export const PackageSourceIndexSchema = z
                 package_version: SemverSchema,
                 descriptor_digest: Sha256DigestSchema,
                 archive_digest: Sha256DigestSchema,
-                targets: z.tuple([z.literal("docker_linux_x64"), z.literal("desktop_windows_x64")]),
-                sources: z.tuple([
+                targets: z.array(z.enum(["docker_linux_x64", "desktop_windows_x64", "desktop_macos_universal"])).min(2).max(3).superRefine((targets, context) => {
+                  if (new Set(targets).size !== targets.length || !targets.includes("docker_linux_x64") || !targets.includes("desktop_windows_x64")) {
+                    context.addIssue({ code: "custom", message: "source targets must include unique Docker and Windows entries and may include macOS" });
+                  }
+                }),
+                sources: z.array(z.discriminatedUnion("environment", [
                   z
                     .object({
                       environment: z.literal("docker_dev"),
@@ -368,9 +375,27 @@ export const PackageSourceIndexSchema = z
                       archive_url: z.string().url().refine(isCredentialFreeHttpsUrl, "desktop archive must use the credential-free BrainDrive HTTPS release origin"),
                     })
                     .strict(),
-                ]),
+                  z
+                    .object({
+                      environment: z.literal("desktop_macos"),
+                      kind: z.literal("release_https"),
+                      descriptor_url: z.string().url().refine(isCredentialFreeHttpsUrl, "desktop descriptor must use the credential-free BrainDrive HTTPS release origin"),
+                      archive_url: z.string().url().refine(isCredentialFreeHttpsUrl, "desktop archive must use the credential-free BrainDrive HTTPS release origin"),
+                    })
+                    .strict(),
+                ])).min(2).max(3).superRefine((sources, context) => {
+                  const environments = sources.map((source) => source.environment);
+                  if (new Set(environments).size !== environments.length || !environments.includes("docker_dev") || !environments.includes("desktop_windows")) {
+                    context.addIssue({ code: "custom", message: "sources must include unique Docker and Windows entries and may include macOS" });
+                  }
+                }),
               })
-              .strict(),
+              .strict()
+              .superRefine((value, context) => {
+                const hasMacTarget = value.targets.includes("desktop_macos_universal");
+                const hasMacSource = value.sources.some((source) => source.environment === "desktop_macos");
+                if (hasMacTarget !== hasMacSource) context.addIssue({ code: "custom", message: "macOS source and target authority must be declared together" });
+              }),
           )
           .min(1)
           .max(1_000),

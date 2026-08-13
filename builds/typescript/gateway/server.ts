@@ -536,7 +536,7 @@ export async function buildServer(rootDir = process.cwd()) {
     auditLog("app_platform.lifecycle.enabled", {
       app_id: "ai.braindrive.resume-builder",
       fixture_source: "repository_fixture",
-      supervisor: process.env.BRAINDRIVE_APP_PLATFORM_TARGET === "desktop_windows_x64" ? "desktop_packaged_node" : "docker_process",
+      supervisor: process.env.BRAINDRIVE_APP_PLATFORM_TARGET === "docker_linux_x64" ? "docker_process" : "desktop_packaged_node",
     });
     app.addHook("onClose", async () => {
       await appMcpHost?.closeAll();
@@ -3474,7 +3474,7 @@ function readBooleanEnv(value: string | undefined, defaultValue = false): boolea
 
 function readAppLifecycleTarget(value: string | undefined): AppLifecycleRuntimeTarget {
   const target = value?.trim() || "docker_linux_x64";
-  if (target === "docker_linux_x64" || target === "desktop_windows_x64") return target;
+  if (target === "docker_linux_x64" || target === "desktop_windows_x64" || target === "desktop_macos_universal") return target;
   throw new Error("BRAINDRIVE_APP_PLATFORM_TARGET must name an accepted Resume Builder runtime target");
 }
 

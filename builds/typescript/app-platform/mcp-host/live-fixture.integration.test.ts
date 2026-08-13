@@ -57,7 +57,7 @@ describe("live signed modern MCP Apps fixture", () => {
   it("binds Brief inference cancellation to the authenticated session and cancels teardown without persistence", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-brief-cancel-")); roots.push(root);
     const lifecycle = await createBriefAppLifecycle({ memoryRoot: path.join(root, "memory"), stateRoot: path.join(root, "host"), hostVersion: "26.7.23" });
-    await lifecycle.install({ version: "1.0.0", idempotencyKey: "brief-cancel-install", approveCapabilities: true });
+    await lifecycle.install({ version: "1.2.0", idempotencyKey: "brief-cancel-install", approveCapabilities: true });
     const started: Array<() => void> = [];
     let lateResolve: (() => void) | undefined;
     const providerCall = vi.fn(async ({ signal }: { signal: AbortSignal }) => {
@@ -131,11 +131,11 @@ describe("live signed modern MCP Apps fixture", () => {
     const memoryRoot = path.join(root, "memory"), stateRoot = path.join(root, "host");
     let lifecycle = await createBriefAppLifecycle({ memoryRoot, stateRoot, hostVersion: "26.7.23" });
     try {
-      const installed = await lifecycle.install({ version: "1.0.0", idempotencyKey: "brief-live-install", approveCapabilities: true });
+      const installed = await lifecycle.install({ version: "1.2.0", idempotencyKey: "brief-live-install", approveCapabilities: true });
       const first = await briefHost(lifecycle);
       const launch = await first.host.launch();
       expect(launch).toMatchObject({ resource: { app_id: "ai.braindrive.brief-builder", uri: "ui://brief-builder/main" }, entry_point: "direct" });
-      expect(launch.resource.html).toContain("Turn your source into a concise");
+      expect(launch.resource.html).toContain("Turn source material into a concise");
       expect(launch.resource.html).not.toMatch(/Career|Resume Builder/);
       expect(launch.allowed_capabilities).toEqual(expect.arrayContaining(["brief.records.read", "brief.approvals.confirm", "app.inference.request"]));
 
@@ -153,7 +153,7 @@ describe("live signed modern MCP Apps fixture", () => {
       await expect(restarted.host.launch()).resolves.toMatchObject({ resource: { uri: "ui://brief-builder/main" } });
       await lifecycle.uninstall({ idempotencyKey: "brief-live-uninstall", installationId: installed.record.installation_id });
       expect((await restarted.store.reopen()).approved?.approved_revision_id).toBe(approved.approved_revision_id);
-      const reinstalled = await lifecycle.reinstall({ version: "1.0.0", idempotencyKey: "brief-live-reinstall", approveCapabilities: true });
+      const reinstalled = await lifecycle.reinstall({ version: "1.2.0", idempotencyKey: "brief-live-reinstall", approveCapabilities: true });
       expect((await restarted.store.reopen()).approved?.approved_revision_id).toBe(approved.approved_revision_id);
       await lifecycle.uninstall({ idempotencyKey: "brief-live-uninstall-again", installationId: reinstalled.record.installation_id });
       await expect(lifecycle.deleteRetainedData({ operationId: crypto.randomUUID(), idempotencyKey: "brief-live-explicit-delete", ownerActorId: lifecycle.ownerActorId, confirmAppId: lifecycle.appId, trustedOwnerConfirmation: true })).resolves.toMatchObject({ app_id: "ai.braindrive.brief-builder", deleted: true });

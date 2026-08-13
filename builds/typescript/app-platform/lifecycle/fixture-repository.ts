@@ -115,6 +115,7 @@ export async function createSyntheticFirstPartyFixtureRepository(
       platform_artifacts: [
         { target: "docker_linux_x64", os: "linux", architecture: "x64", runtime_kind: "packaged_node", entrypoint: "payload/docker/index.js" },
         { target: "desktop_windows_x64", os: "windows", architecture: "x64", runtime_kind: "packaged_node", entrypoint: "payload/docker/index.js" },
+        { target: "desktop_macos_universal", os: "macos", architecture: "universal", runtime_kind: "packaged_node", entrypoint: "payload/docker/index.js" },
       ],
       compatibility: { app_contract: 1, host_min_version: "26.7.23", mcp_protocol: "2026-07-28", mcp_apps: { extension_id: "io.modelcontextprotocol/ui", version: "2026-01-26" }, data_contract_version: 1 },
       primary_resource: { resource_version: 1, uri: `ui://${app.routeKey}/main`, package_path: "payload/ui/main.html", mime_type: "text/html;profile=mcp-app", content_digest: digest(ui) },
@@ -129,7 +130,7 @@ export async function createSyntheticFirstPartyFixtureRepository(
     const descriptor = { payload: descriptorPayload, signature: { signature_version: 1 as const, domain_separator: "BrainDrive-App-Package-v1" as const, canonicalization: "braindrive-canonical-json-v1" as const, signature_algorithm: "ed25519" as const, signing_key_id: releaseKeyId, signature: releaseSigner("BrainDrive-App-Package-v1", descriptorPayload) } };
     const descriptorPath = path.join(appRoot, `${app.version}.descriptor.json`);
     await writeJson(descriptorPath, descriptor);
-    const sourcePayload = { index_version: 2 as const, sequence: 1, prior_index_digest: null, published_at: publishedAt, entries: [{ app_id: app.appId, publisher_id: "ai.braindrive", package_version: app.version, descriptor_digest: canonicalJsonDocumentDigest(descriptor), archive_digest: digest(archive), targets: ["docker_linux_x64", "desktop_windows_x64"], sources: [{ environment: "docker_dev", kind: "repository_fixture", descriptor_fixture_id: `${app.routeKey}-${app.version}-descriptor`, archive_fixture_id: `${app.routeKey}-${app.version}-archive` }, { environment: "desktop_windows", kind: "release_https", descriptor_url: `https://releases.braindrive.ai/apps/${app.routeKey}/${app.version}.descriptor.json`, archive_url: `https://releases.braindrive.ai/apps/${app.routeKey}/${app.version}.bdapp` }] }] };
+    const sourcePayload = { index_version: 2 as const, sequence: 1, prior_index_digest: null, published_at: publishedAt, entries: [{ app_id: app.appId, publisher_id: "ai.braindrive", package_version: app.version, descriptor_digest: canonicalJsonDocumentDigest(descriptor), archive_digest: digest(archive), targets: ["docker_linux_x64", "desktop_windows_x64", "desktop_macos_universal"], sources: [{ environment: "docker_dev", kind: "repository_fixture", descriptor_fixture_id: `${app.routeKey}-${app.version}-descriptor`, archive_fixture_id: `${app.routeKey}-${app.version}-archive` }, { environment: "desktop_windows", kind: "release_https", descriptor_url: `https://releases.braindrive.ai/apps/${app.routeKey}/${app.version}.descriptor.json`, archive_url: `https://releases.braindrive.ai/apps/${app.routeKey}/${app.version}.bdapp` }, { environment: "desktop_macos", kind: "release_https", descriptor_url: `https://releases.braindrive.ai/apps/${app.routeKey}/${app.version}.descriptor.json`, archive_url: `https://releases.braindrive.ai/apps/${app.routeKey}/${app.version}.bdapp` }] }] };
     const sourceIndex = { payload: sourcePayload, signature: { signature_version: 1 as const, domain_separator: "BrainDrive-App-Source-Index-v1" as const, canonicalization: "braindrive-canonical-json-v1" as const, signature_algorithm: "ed25519" as const, signing_key_id: releaseKeyId, signature: releaseSigner("BrainDrive-App-Source-Index-v1", sourcePayload) } };
     const sourceIndexPath = path.join(appRoot, "source-index.json");
     await writeJson(sourceIndexPath, sourceIndex);
@@ -447,6 +448,7 @@ async function loadOrCreateFixtureSource(root: string, versions: string[], autho
       platform_artifacts: [
         { target: "docker_linux_x64", os: "linux", architecture: "x64", runtime_kind: "packaged_node", entrypoint: "payload/docker/index.js" },
         { target: "desktop_windows_x64", os: "windows", architecture: "x64", runtime_kind: "packaged_node", entrypoint: "payload/docker/index.js" },
+        { target: "desktop_macos_universal", os: "macos", architecture: "universal", runtime_kind: "packaged_node", entrypoint: "payload/docker/index.js" },
       ],
       compatibility: { app_contract: 1, host_min_version: "26.7.23", mcp_protocol: "2026-07-28", legacy_mcp_adapter: "2025-11-25", mcp_apps: { extension_id: "io.modelcontextprotocol/ui", version: "2026-01-26" }, data_schema: version === MODERN_FIXTURE_VERSION ? { read_min: 2, read_max: 4, write_version: 4 } : { read_min: 1, read_max: 1, write_version: 1 } },
       requested_capabilities: version === MODERN_FIXTURE_VERSION ? [...MODERN_FIXTURE_CAPABILITIES] : ["career.context.read", "career.facts.read", "career.facts.propose", "career.facts.confirm", "resume.definitions.read", "resume.definitions.write", "resume.jobs.read", "resume.jobs.write", "resume.artifacts.register", "resume.export.request", "resume.operations.read", ...(version === "1.0.0" ? [] : ["app.inference.request" as const])],
@@ -473,10 +475,11 @@ async function loadOrCreateFixtureSource(root: string, versions: string[], autho
     packages[version] = { archivePath, descriptorPath };
     entries.push({
       app_id: "ai.braindrive.resume-builder", publisher_id: "ai.braindrive", package_version: version,
-      descriptor_digest: canonicalJsonDocumentDigest(descriptor), archive_digest: digest(archive), targets: ["docker_linux_x64", "desktop_windows_x64"],
+      descriptor_digest: canonicalJsonDocumentDigest(descriptor), archive_digest: digest(archive), targets: ["docker_linux_x64", "desktop_windows_x64", "desktop_macos_universal"],
       sources: [
         { environment: "docker_dev", kind: "repository_fixture", descriptor_fixture_id: `resume-builder-${version}-descriptor`, archive_fixture_id: `resume-builder-${version}-archive` },
         { environment: "desktop_windows", kind: "release_https", descriptor_url: `https://releases.braindrive.ai/apps/resume-builder/${version}.descriptor.json`, archive_url: `https://releases.braindrive.ai/apps/resume-builder/${version}.bdapp` },
+        { environment: "desktop_macos", kind: "release_https", descriptor_url: `https://releases.braindrive.ai/apps/resume-builder/${version}.descriptor.json`, archive_url: `https://releases.braindrive.ai/apps/resume-builder/${version}.bdapp` },
       ],
     });
   }

@@ -439,7 +439,7 @@ export class TransactionalUpdateService {
   }
 
   private async startCandidate(journal: UpdateJournal, stored: ImmutablePackageRecord, verified: VerifiedPackage, grantId: string) {
-    const desktop = stored.target === "desktop_windows_x64";
+    const desktop = stored.target !== "docker_linux_x64";
     const started = await this.dependencies.supervisor.start({ supervisor_protocol_version: 1, operation_id: journal.operation_id, runtime_role: "candidate", descriptor: { supervisor_protocol_version: 1, runtime_kind: desktop ? "packaged_node" : "container", app_id: RESUME_BUILDER_APP_ID, installation_id: journal.installation_id, package_digest: verified.packageDigest, grant_id: grantId, verified_entrypoint: stored.entrypoint, arguments: [], environment_keys: ["BRAINDRIVE_APP_CONNECTION_TOKEN", "BRAINDRIVE_APP_ID", "BRAINDRIVE_INSTALLATION_ID", "BRAINDRIVE_PACKAGE_DIGEST", "BRAINDRIVE_ENDPOINT_BIND"], package_root_ref: journal.candidate_package_ref_id, cache_root_ref: journal.cache_ref_id, endpoint_policy: { transport: desktop ? "loopback" : "container_internal", authentication: "per_installation_token", public_bind_allowed: false }, resource_policy_version: 1 }, policy: SUPERVISOR_POLICY, requested_at: this.clock().toISOString() });
     if (!started.runtime || !["started", "already_running"].includes(started.outcome)) throw new ContractViolation("ambiguous_runtime_state", "Candidate start did not prove an exact runtime");
     return started;
@@ -477,7 +477,7 @@ export class TransactionalUpdateService {
   }
 
   private async restartPrior(journal: UpdateJournal, stored: ImmutablePackageRecord): Promise<void> {
-    const desktop = stored.target === "desktop_windows_x64";
+    const desktop = stored.target !== "docker_linux_x64";
     const started = await this.dependencies.supervisor.start({ supervisor_protocol_version: 1, operation_id: journal.operation_id, descriptor: { supervisor_protocol_version: 1, runtime_kind: desktop ? "packaged_node" : "container", app_id: RESUME_BUILDER_APP_ID, installation_id: journal.installation_id, package_digest: journal.prior_package_digest, grant_id: journal.prior_grant_id, verified_entrypoint: stored.entrypoint, arguments: [], environment_keys: ["BRAINDRIVE_APP_CONNECTION_TOKEN", "BRAINDRIVE_APP_ID", "BRAINDRIVE_INSTALLATION_ID", "BRAINDRIVE_PACKAGE_DIGEST", "BRAINDRIVE_ENDPOINT_BIND"], package_root_ref: journal.prior_package_ref_id, cache_root_ref: this.ids.next(), endpoint_policy: { transport: desktop ? "loopback" : "container_internal", authentication: "per_installation_token", public_bind_allowed: false }, resource_policy_version: 1 }, policy: SUPERVISOR_POLICY, requested_at: this.clock().toISOString() });
     if (!started.runtime) throw new ContractViolation("ambiguous_runtime_state", "Prior runtime restart failed");
     const ready = await this.dependencies.supervisor.awaitReady({ supervisor_protocol_version: 1, operation_id: journal.operation_id, runtime: started.runtime, deadline_at: new Date(this.clock().getTime() + SUPERVISOR_POLICY.startup_timeout_ms).toISOString() });

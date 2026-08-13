@@ -26,7 +26,7 @@ export type PromotableVerifiedPackage = {
   descriptorDigest: `sha256:${string}`;
   stageRoot: string;
   entrypoint: string;
-  target: "docker_linux_x64" | "desktop_windows_x64";
+  target: "docker_linux_x64" | "desktop_windows_x64" | "desktop_macos_universal";
 };
 
 const StoreMetadataSchema = z.object({
@@ -39,7 +39,7 @@ const StoreMetadataSchema = z.object({
   app_id: CanonicalAppIdSchema,
   publisher_id: CanonicalPublisherIdSchema,
   entrypoint: z.string(),
-  target: z.enum(["docker_linux_x64", "desktop_windows_x64"]),
+  target: z.enum(["docker_linux_x64", "desktop_windows_x64", "desktop_macos_universal"]),
   promoted_at: TimestampSchema,
 }).strict();
 
@@ -59,7 +59,7 @@ export type ImmutablePackageRecord = {
   packageVersion: string;
   contentRoot: string;
   entrypoint: string;
-  target: "docker_linux_x64" | "desktop_windows_x64";
+  target: "docker_linux_x64" | "desktop_windows_x64" | "desktop_macos_universal";
   referenceCount: number;
 };
 

@@ -59,7 +59,7 @@ const GenericSourceIndexSchema = zod.object({
     entries: zod.array(zod.object({
       app_id: CanonicalAppIdSchema, publisher_id: CanonicalPublisherIdSchema, package_version: zod.string(),
       descriptor_digest: zod.string().regex(/^sha256:[a-f0-9]{64}$/), archive_digest: zod.string().regex(/^sha256:[a-f0-9]{64}$/),
-      targets: zod.array(zod.enum(["docker_linux_x64", "desktop_windows_x64"])), sources: zod.array(zod.object({ environment: zod.string(), kind: zod.string() }).passthrough()),
+      targets: zod.array(zod.enum(["docker_linux_x64", "desktop_windows_x64", "desktop_macos_universal"])), sources: zod.array(zod.object({ environment: zod.string(), kind: zod.string() }).passthrough()),
     }).strict()).min(1),
   }).strict(), signature: SignatureSchema,
 }).strict();

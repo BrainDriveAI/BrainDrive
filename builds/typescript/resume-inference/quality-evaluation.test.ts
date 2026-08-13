@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -383,7 +383,7 @@ describe("M7 sanitization, gate precedence, and deletion", () => {
   });
 
   it("deletes only sentinel-marked raw synthetic review artifacts under an accepted bounded contract", async () => {
-    const parent = await mkdtemp(path.join(os.tmpdir(), "bd-m7-review-parent-"));
+    const parent = await realpath(await mkdtemp(path.join(os.tmpdir(), "bd-m7-review-parent-")));
     temporaryRoots.push(parent);
     const workspace = path.join(parent, "bounded-review");
     await mkdir(workspace);
@@ -413,7 +413,7 @@ describe("M7 sanitization, gate precedence, and deletion", () => {
   });
 
   it("refuses deletion without the exact synthetic sentinel and leaves the workspace intact", async () => {
-    const parent = await mkdtemp(path.join(os.tmpdir(), "bd-m7-review-parent-"));
+    const parent = await realpath(await mkdtemp(path.join(os.tmpdir(), "bd-m7-review-parent-")));
     temporaryRoots.push(parent);
     const workspace = path.join(parent, "unmarked-review");
     await mkdir(workspace);
@@ -438,7 +438,7 @@ describe("M7 sanitization, gate precedence, and deletion", () => {
   });
 
   it("refuses mismatched sentinels, symlinks, and broad deletion targets", async () => {
-    const parent = await mkdtemp(path.join(os.tmpdir(), "bd-m7-review-parent-"));
+    const parent = await realpath(await mkdtemp(path.join(os.tmpdir(), "bd-m7-review-parent-")));
     temporaryRoots.push(parent);
     const contract = M7RetentionContractSchema.parse({
       contract_schema_version: 1,

@@ -39,6 +39,13 @@ use uuid::Uuid;
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+#[cfg(target_os = "macos")]
+const DESKTOP_APP_PLATFORM_TARGET: &str = "desktop_macos_universal";
+#[cfg(windows)]
+const DESKTOP_APP_PLATFORM_TARGET: &str = "desktop_windows_x64";
+// Preserve the existing fallback on desktop targets whose Apps runtime is not yet claimed.
+#[cfg(not(any(windows, target_os = "macos")))]
+const DESKTOP_APP_PLATFORM_TARGET: &str = "desktop_windows_x64";
 const BROWSER_ACCESS_DEFAULT_PORT: u16 = 18088;
 const BROWSER_ACCESS_FALLBACK_END_PORT: u16 = 18107;
 const FIREWALL_RULE_NAME: &str = "BrainDrive Browser Access";
@@ -1506,7 +1513,10 @@ fn spawn_gateway(launch: GatewayLaunch<'_>) -> Result<Child, String> {
         .env("BRAINDRIVE_CLIENT_GATEWAY_URL", launch.gateway_base_url)
         .env("BRAINDRIVE_DESKTOP_API_TOKEN", launch.desktop_api_token)
         .env("BRAINDRIVE_APP_PLATFORM_ENABLED", "true")
-        .env("BRAINDRIVE_APP_PLATFORM_TARGET", "desktop_windows_x64")
+        .env(
+            "BRAINDRIVE_APP_PLATFORM_TARGET",
+            DESKTOP_APP_PLATFORM_TARGET,
+        )
         .env(
             "BRAINDRIVE_APP_STATE_ROOT",
             launch.paths.data_root.join("app-platform"),
@@ -1548,7 +1558,14 @@ fn configure_hidden_child_process(command: &mut Command) {
     command.creation_flags(CREATE_NO_WINDOW);
 }
 
-#[cfg(not(windows))]
+#[cfg(unix)]
+fn configure_hidden_child_process(command: &mut Command) {
+    use std::os::unix::process::CommandExt;
+
+    command.process_group(0);
+}
+
+#[cfg(not(any(windows, unix)))]
 fn configure_hidden_child_process(_command: &mut Command) {}
 
 fn pipe_to_log<R>(mut reader: R, path: PathBuf)

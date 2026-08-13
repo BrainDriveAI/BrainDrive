@@ -129,6 +129,13 @@ describe("M1 package byte and signing gate", () => {
     );
   });
 
+  it("accepts an optional macOS universal artifact without invalidating the signed two-target format", () => {
+    const macArtifact = { target: "desktop_macos_universal", os: "macos", architecture: "universal", runtime_kind: "packaged_node", entrypoint: "payload/server/dist/index.js" } as const;
+    expect(PackageManifestSchema.safeParse({ ...manifest, platform_artifacts: [...manifest.platform_artifacts, macArtifact] }).success).toBe(true);
+    expect(PackageManifestSchema.safeParse({ ...manifest, platform_artifacts: [...manifest.platform_artifacts, { ...macArtifact, architecture: "x64" }] }).success).toBe(false);
+    expect(PackageManifestSchema.safeParse({ ...manifest, platform_artifacts: [...manifest.platform_artifacts, macArtifact, macArtifact] }).success).toBe(false);
+  });
+
   it("rejects traversal, duplicate case-folded paths, undeclared entrypoints, and unexpected signature domains", () => {
     expect(PackageManifestSchema.safeParse({ ...manifest, files: [{ ...manifest.files[0], path: "../escape.js" }] }).success).toBe(false);
     expect(PackageManifestSchema.safeParse({ ...manifest, files: [...manifest.files, { ...manifest.files[0], path: "PAYLOAD/server/dist/index.js" }] }).success).toBe(false);
@@ -164,6 +171,19 @@ describe("M1 trust source and revocation gate", () => {
       signature: signature("BrainDrive-App-Source-Index-v1"),
     };
     expect(PackageSourceIndexSchema.safeParse(source).success).toBe(true);
+    const macSource = {
+      ...source,
+      payload: {
+        ...source.payload,
+        entries: [{
+          ...source.payload.entries[0],
+          targets: [...source.payload.entries[0].targets, "desktop_macos_universal"],
+          sources: [...source.payload.entries[0].sources, { environment: "desktop_macos", kind: "release_https", descriptor_url: "https://releases.braindrive.ai/apps/resume-builder/1.0.0/descriptor.json", archive_url: "https://releases.braindrive.ai/apps/resume-builder/1.0.0/resume-builder.bdapp" }],
+        }],
+      },
+    };
+    expect(PackageSourceIndexSchema.safeParse(macSource).success).toBe(true);
+    expect(PackageSourceIndexSchema.safeParse({ ...macSource, payload: { ...macSource.payload, entries: [{ ...macSource.payload.entries[0], sources: source.payload.entries[0].sources }] } }).success).toBe(false);
     const parsedSource = PackageSourceIndexSchema.parse(source);
     expect(() => assertMonotonicSourceIndexCandidate(parsedSource, { ...parsedSource, payload: { ...parsedSource.payload, sequence: 0 } })).toThrowError(/monotonic/);
     expect(() => assertMonotonicSourceIndexCandidate(parsedSource, { ...parsedSource, payload: { ...parsedSource.payload, sequence: 2, prior_index_digest: canonicalJsonDocumentDigest(parsedSource.payload) } })).not.toThrow();

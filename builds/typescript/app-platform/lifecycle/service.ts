@@ -33,7 +33,7 @@ export type LifecycleDependencies = {
   dataAdapter?: AppDataLifecycleAdapter;
   isMemoryMigrationInProgress?: () => boolean;
   runtimeTarget?: {
-    target: "docker_linux_x64" | "desktop_windows_x64";
+    target: "docker_linux_x64" | "desktop_windows_x64" | "desktop_macos_universal";
     runtimeKind: "container" | "packaged_node";
     transport: "container_internal" | "loopback";
   };

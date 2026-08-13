@@ -1,4 +1,6 @@
 use std::process::Child;
+#[cfg(unix)]
+use std::sync::{Arc, Mutex, OnceLock};
 
 #[cfg(windows)]
 use std::os::windows::io::AsRawHandle;
@@ -22,6 +24,57 @@ const PROCESS_MEMORY_LIMIT_BYTES: usize = 512 * 1024 * 1024;
 pub struct ProcessContainment {
     #[cfg(windows)]
     job: isize,
+    #[cfg(unix)]
+    process_groups: Arc<Mutex<Vec<i32>>>,
+}
+
+#[cfg(unix)]
+static ACTIVE_PROCESS_GROUPS: OnceLock<Mutex<Option<Arc<Mutex<Vec<i32>>>>>> = OnceLock::new();
+#[cfg(unix)]
+static EXIT_HANDLER: OnceLock<Result<(), String>> = OnceLock::new();
+
+#[cfg(unix)]
+fn terminate_process_groups(process_groups: &Mutex<Vec<i32>>) -> Result<(), String> {
+    let mut process_groups = process_groups
+        .lock()
+        .map_err(|_| "desktop process containment state is unavailable".to_string())?;
+    for process_group in process_groups.drain(..) {
+        let result = unsafe { libc::kill(-process_group, libc::SIGKILL) };
+        if result != 0 {
+            let error = std::io::Error::last_os_error();
+            if error.raw_os_error() != Some(libc::ESRCH) {
+                return Err("desktop process group could not be terminated".to_string());
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn install_exit_handler(process_groups: &Arc<Mutex<Vec<i32>>>) -> Result<(), String> {
+    let active = ACTIVE_PROCESS_GROUPS.get_or_init(|| Mutex::new(None));
+    *active
+        .lock()
+        .map_err(|_| "desktop process containment state is unavailable".to_string())? =
+        Some(Arc::clone(process_groups));
+
+    EXIT_HANDLER
+        .get_or_init(|| {
+            ctrlc::set_handler(|| {
+                if let Some(active) = ACTIVE_PROCESS_GROUPS.get() {
+                    if let Ok(active) = active.lock() {
+                        if let Some(process_groups) = active.as_ref() {
+                            let _ = terminate_process_groups(process_groups);
+                        }
+                    }
+                }
+                std::process::exit(1);
+            })
+            .map_err(|error| {
+                format!("desktop process exit handler could not be installed: {error}")
+            })
+        })
+        .clone()
 }
 
 impl ProcessContainment {
@@ -66,7 +119,14 @@ impl ProcessContainment {
             return Ok(Self { job: job as isize });
         }
 
-        #[cfg(not(windows))]
+        #[cfg(all(not(windows), unix))]
+        {
+            let process_groups = Arc::new(Mutex::new(Vec::new()));
+            install_exit_handler(&process_groups)?;
+            return Ok(Self { process_groups });
+        }
+
+        #[cfg(not(any(windows, unix)))]
         Ok(Self {})
     }
 
@@ -83,6 +143,11 @@ impl ProcessContainment {
         }
         #[cfg(not(windows))]
         let _ = child;
+        #[cfg(unix)]
+        self.process_groups
+            .lock()
+            .map_err(|_| "desktop process containment state is unavailable".to_string())?
+            .push(child.id() as i32);
         Ok(())
     }
 
@@ -93,7 +158,16 @@ impl ProcessContainment {
                 return Err("desktop process containment could not confirm termination".to_string());
             }
         }
+        #[cfg(unix)]
+        terminate_process_groups(&self.process_groups)?;
         Ok(())
+    }
+}
+
+#[cfg(unix)]
+impl Drop for ProcessContainment {
+    fn drop(&mut self) {
+        let _ = terminate_process_groups(&self.process_groups);
     }
 }
 
@@ -121,18 +195,23 @@ mod tests {
     #[test]
     fn containment_accepts_a_bounded_child() {
         let containment = ProcessContainment::new().unwrap();
-        let mut child = Command::new(std::env::current_exe().unwrap())
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
             .args([
                 "--exact",
                 "process_containment::tests::containment_child",
                 "--ignored",
             ])
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap();
+            .stderr(Stdio::null());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
+        let mut child = command.spawn().unwrap();
         containment.attach(&child).unwrap();
-        let _ = child.kill();
+        containment.terminate_all().unwrap();
         child.wait().unwrap();
     }
 }
