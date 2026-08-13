@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, readdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { FirstPartyAppRegistrationSchema } from "../app-platform/contracts/app-registry.js";
@@ -35,7 +36,7 @@ describe("Brief Builder first-party package and registration", () => {
     const roots = [new URL(".", import.meta.url), new URL("../brief-inference/", import.meta.url), new URL("../../brief_builder/src/", import.meta.url)];
     const files: string[] = [];
     for (const url of roots) {
-      const directory = url.pathname;
+      const directory = fileURLToPath(url);
       for (const name of await readdir(directory)) if (name.endsWith(".ts") && !name.endsWith(".test.ts")) files.push(path.join(directory, name));
     }
     expect(files.length).toBeGreaterThan(5);
