@@ -18,7 +18,7 @@ Built on the [Personal AI Architecture](https://github.com/Personal-AI-Architect
 | **4** | **Earn** | Personal AI systems collaborate and create value across relationships | Vision |
 | **5** | **Decentralize** | Mature governance that depends on no single company | Vision |
 
-**Phases and stages are different.** The five product phases describe long-horizon outcomes. Within Phase 3, the app platform uses a three-stage maturity path: first prove a BrainDrive-built app, then reviewed external apps, then broader open/federated app and capability participation. These stages do not replace the product phases. See the [app-platform summary](https://github.com/BrainDriveAI/BrainDrive-Library/blob/main/projects/production/braindrive-repo/foundation/app-platform-product-specs/README.md) for current scope and the [strategic vision](https://github.com/BrainDriveAI/BrainDrive-Library/blob/main/projects/production/braindrive-repo/foundation/phase-3-capability-ecosystem/vision.md) for the ecosystem direction.
+**Phases and stages are different.** The five product phases describe long-horizon outcomes. Within Phase 3, the app platform uses a three-stage maturity path: first prove a BrainDrive-built app, then reviewed external apps, then broader open/federated app and capability participation. These stages do not replace the product phases.
 
 ---
 
@@ -99,16 +99,6 @@ Open contracts and independent implementation begin earlier; Phase 5 makes their
 - **Community governance** — contributors propose and vote on direction
 - **Distributed stewardship** — no single company controls the open protocols, conformance path, or ecosystem rules
 - **Self-sustaining ecosystem** — runs because it serves its participants
-
----
-
-## Learn More
-
-- [Personal AI Capability Ecosystem — Strategic Vision](https://github.com/BrainDriveAI/BrainDrive-Library/blob/main/projects/production/braindrive-repo/foundation/phase-3-capability-ecosystem/vision.md)
-- [App-Platform Product-Spec Summary](https://github.com/BrainDriveAI/BrainDrive-Library/blob/main/projects/production/braindrive-repo/foundation/app-platform-product-specs/README.md)
-- [Phase 3 Capability Ecosystem — V1 Tactical Cut](https://github.com/BrainDriveAI/BrainDrive-Library/blob/main/projects/production/braindrive-repo/foundation/phase-3-capability-ecosystem/v1-cut.md)
-
----
 
 ## Want to Help?
 
