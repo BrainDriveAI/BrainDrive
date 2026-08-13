@@ -8,8 +8,8 @@
     "osVersion": "10.0.26200 build 26200",
     "architecture": "x64"
   },
-  "sourceTestRevision": "eded3d711d4b78a62a78501a78932c1b82d7053e",
-  "sourceCandidateProof": "source-candidate sha256 bcdf89f04f2d36d6b7dba3b735ca27bb279e5772631c38eb1cf3eae4c5f3b277; entries 1042; revision eded3d711d4b78a62a78501a78932c1b82d7053e",
+  "sourceTestRevision": "38093eb00d394cf024e1e80f07cdad33ddfd4454",
+  "sourceCandidateProof": "source-candidate sha256 15755ef8f5e47d9acf701a9e1575d49baf5e40b7175b7b0e8c9dc0764dd0b82a; entries 1106; revision 38093eb00d394cf024e1e80f07cdad33ddfd4454",
   "cleanBefore": true,
   "cleanAfter": true,
   "toolVersions": {
@@ -23,14 +23,14 @@
   },
   "commands": [
     {
-      "command": "git bundle create <candidate-bundle> eded3d711d4b78a62a78501a78932c1b82d7053e",
+      "command": "git bundle create <candidate-bundle> 38093eb00d394cf024e1e80f07cdad33ddfd4454",
       "workingDirectory": "source repository root",
       "exitCode": 0,
       "result": "pass",
       "summary": "Created a task-owned bundle for the exact committed source candidate without publishing or altering the owner's native checkout."
     },
     {
-      "command": "git -c core.autocrlf=false clone --no-checkout <candidate-bundle> <disposable-clone> && git checkout --detach eded3d711d4b78a62a78501a78932c1b82d7053e",
+      "command": "git -c core.autocrlf=false clone --no-checkout <candidate-bundle> <disposable-clone> && git checkout --detach 38093eb00d394cf024e1e80f07cdad33ddfd4454",
       "workingDirectory": "task-owned Windows projects directory",
       "exitCode": 0,
       "result": "pass",
@@ -69,35 +69,49 @@
       "workingDirectory": "disposable repository builds/typescript directory",
       "exitCode": 0,
       "result": "pass",
-      "summary": "The complete native desktop suite passed: 104 runtime files with 826 tests, 26 web files with 235 tests, and 55 Rust tests with one intentionally ignored test."
+      "summary": "The complete native desktop suite passed: 111 runtime files with 934 tests, 26 web files with 245 tests, and 55 Rust tests with one intentionally ignored test."
+    },
+    {
+      "command": "npx vitest run app-platform/two-app-isolation.test.ts app-platform/lifecycle/desktop-parity.test.ts app-platform/lifecycle/desktop-supervisor-boundary.test.ts app-platform/mcp-host/live-fixture.integration.test.ts brief-domain/package.test.ts",
+      "workingDirectory": "disposable repository builds/typescript directory",
+      "exitCode": 0,
+      "result": "pass",
+      "summary": "The focused native Spec 08 package, two-app isolation, desktop parity, supervisor containment, and signed live-fixture checks passed: five files with 29 tests."
     },
     {
       "command": "Get-NetTCPConnection and Invoke-WebRequest native runtime probes",
       "workingDirectory": "isolated native-Windows desktop session",
       "exitCode": 0,
       "result": "pass",
-      "summary": "Confirmed four distinct listening service ports, a successful gateway health response, rejection of a tokenless protected request, and no listener on the fixed development gateway port."
+      "summary": "Confirmed four distinct dynamic service ports, a successful gateway health response, rejection of a tokenless protected request, and no listener on the fixed development gateway port."
     },
     {
       "command": "Native desktop local-signup and shell observation",
       "workingDirectory": "isolated native-Windows desktop session",
       "exitCode": 0,
       "result": "pass",
-      "summary": "Completed a task-only local signup through the visible desktop window, observed authorized shell requests, and confirmed a responsive main application shell without configuring a model provider."
+      "summary": "Using an exact-window capture and foreground-verified bounded input, completed one task-only local signup and confirmed the responsive authenticated shell without configuring a model provider."
+    },
+    {
+      "command": "Native desktop visible two-app install, launch, uninstall, containment, and restart journey",
+      "workingDirectory": "isolated native-Windows desktop session",
+      "exitCode": 0,
+      "result": "pass",
+      "summary": "Installed and visibly launched Brief Builder 1.0.0 and Resume Builder 4.0.0, observed distinct app processes and random loopback ports, accepted the host-owned Brief uninstall confirmation, proved its process and port stopped while Resume remained active, then restarted the exact task tree and proved authenticated-shell recovery with Brief absent and Resume active on a new isolated process and port."
     }
   ],
   "dynamicGatewayObservation": {
     "result": "pass",
-    "summary": "The desktop supervisor allocated four distinct dynamic loopback ports for the gateway and three MCP services. Every service became healthy, the gateway health probe returned 200, a tokenless protected request returned 403, the fixed development gateway port remained closed, and signup traffic reached the dynamic gateway."
+    "summary": "The desktop supervisor allocated four distinct dynamic loopback ports for the gateway and three MCP services. Every service became healthy, the gateway health probe returned 200, a tokenless protected request returned 403, the fixed development gateway port remained closed, and signup traffic reached the dynamic gateway. The two first-party apps used distinct authenticated random loopback processes; uninstall and restart observations showed no cross-app process or lifecycle leakage."
   },
   "providerIndependentUsableShellBaseline": {
     "result": "pass",
-    "summary": "The native window was visible and responsive, completed one disposable local signup, and displayed the authenticated BrainDrive shell. No model-provider setup was performed, the isolated credential store contained only local-authentication material, and no model response was required to reach or use the shell baseline."
+    "summary": "The exact task-owned native window was captured, visible, responsive, and foreground-verified for bounded input. It completed one disposable local signup, displayed the authenticated BrainDrive shell, and exposed both reviewed first-party app surfaces. No model-provider setup or response was required for the shell and lifecycle baseline."
   },
-  "cleanup": "The automation terminal did not complete shutdown after interactive interrupt signals, so the four observed task-owned launcher, Tauri, web, and desktop processes were explicitly stopped by exact process identity. All child-service and task ports then closed, no task process remained, the isolated application data was removed, and the tracked disposable checkout remained clean.",
+  "cleanup": "Every launch and restart was stopped by the recorded task-owned launcher PID and descendant tree. All observed gateway, MCP, Vite, app-runtime, and app ports closed; the final desktop and Resume app PIDs stopped; no new WebView2 process remained; the owner's checkout stayed clean at its original branch and revision; and only the task-owned clone, bundle, application data, temp files, logs, screenshots, and synthetic credential were removed.",
   "sanitization": "pass",
   "operatorRole": "native Windows Tauri J-05 evidence operator",
   "reviewerRole": "native Windows Tauri J-05 evidence reviewer",
-  "remainingRisk": "Interactive interrupt handling through the automation terminal did not complete desktop shutdown; exact task-owned process cleanup succeeded, but automated development-session shutdown remains a follow-up risk.",
+  "remainingRisk": "This is development-session J-05 and two-app lifecycle evidence, not signed installed-package release evidence or a named-human usefulness/trust review. Live provider and human review gates remain separately blocked.",
   "disposition": "pass"
 }
