@@ -4,9 +4,9 @@
   "candidate": {
     "branch": "feature/resume-builder-app",
     "base_revision": "067f9770468c158f4d2535b09eaf491b102a34c2",
-    "state": "pre_freeze_working_tree_hold",
-    "immutable_source_revision": null,
-    "source_candidate_proof": null
+    "state": "post_freeze_evidence_bound_hold",
+    "immutable_source_revision": "d850ba3a5646f8e322abf562d0acbf03920f8226",
+    "source_candidate_proof": "source-candidate sha256 bd2f8398c077b1464715322f47bacceb7bb79ef77190e0dd94c03608e6257ba0; entries 1106; revision d850ba3a5646f8e322abf562d0acbf03920f8226"
   },
   "decision_gates": {
     "OQ-1": "owner-authorized Brief Builder planning default",
@@ -18,16 +18,15 @@
     "named_evidence": ["static forbidden-surface audit"]
   },
   "evidence_classes": {
-    "automated": "current working-tree source, unit, integration, package, web, browser, Docker, desktop diagnostic, documentation structure/projection, and security checks; the release-evidence documentation failure is recorded separately",
+    "automated": "same-candidate source checks passed: TypeScript 111 files/934 tests, web 26/245, Resume 5/39, Brief 2/5, MCP 2/6, browser mobile 12 passed/14 configured skipped and desktop 7 passed/6 configured skipped, live Docker start/health/HTTP/read-only mounts plus 3 files/21 in-container tests, desktop diagnostics, documentation structure/projection, and current secret scan; the release-evidence documentation hold is recorded separately",
     "native_windows": "blocked: no native Windows environment was available for exact-candidate J-05 and the two-app process/owner journey",
     "brief_live_human": "blocked: no credentialed live controlled provider run or attributable named human usefulness review was available",
     "resume_human": "blocked: automated accepted regression paths ran, but no refreshed same-candidate human outcome/trust review was available",
-    "immutable_candidate": "blocked in the pre-freeze phase; resolved only when the evidence-only matrix binds the clean source commit and canonical candidate proof",
+    "immutable_candidate": "satisfied: this evidence-only matrix binds the clean source commit and canonical source candidate proof",
     "release_evidence": "blocked: native Windows and attributable current human release evidence do not bind the Spec 08 candidate"
   },
   "overall_disposition": "hold",
   "hold_reasons": [
-    "immutable_candidate",
     "native_windows",
     "brief_live_human",
     "resume_human",
