@@ -89,7 +89,9 @@ fn validate_request(request: &NativeExportRequest) -> Result<Vec<u8>, String> {
     if request.mime_type == "text/plain"
         && (std::str::from_utf8(&bytes).is_err()
             || bytes.contains(&0)
-            || bytes.iter().any(|byte| *byte < 0x20 && !matches!(*byte, b'\n' | b'\r' | b'\t')))
+            || bytes
+                .iter()
+                .any(|byte| *byte < 0x20 && !matches!(*byte, b'\n' | b'\r' | b'\t')))
     {
         return Err("native export payload is not accepted UTF-8 text".to_string());
     }
@@ -99,7 +101,8 @@ fn validate_request(request: &NativeExportRequest) -> Result<Vec<u8>, String> {
 fn valid_safe_filename(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
-        && (value.to_ascii_lowercase().ends_with(".pdf") || value.to_ascii_lowercase().ends_with(".txt"))
+        && (value.to_ascii_lowercase().ends_with(".pdf")
+            || value.to_ascii_lowercase().ends_with(".txt"))
         && !value.contains(['/', '\\'])
         && !value.chars().any(char::is_control)
         && value.trim() == value
@@ -176,11 +179,7 @@ mod tests {
 
     #[test]
     fn export_validation_rejects_paths_non_pdf_and_oversized_content() {
-        for filename in [
-            "../resume.pdf",
-            "folder/resume.pdf",
-            " resume.pdf",
-        ] {
+        for filename in ["../resume.pdf", "folder/resume.pdf", " resume.pdf"] {
             assert!(!valid_safe_filename(filename));
         }
         let request = NativeExportRequest {
@@ -201,16 +200,32 @@ mod tests {
             mime_type: "text/plain".to_string(),
             bytes_base64: STANDARD.encode("Zoë 李\nExperience\n"),
         };
-        assert_eq!(validate_request(&request).unwrap(), "Zoë 李\nExperience\n".as_bytes());
-        let wrong_extension = NativeExportRequest { safe_filename: "resume.pdf".to_string(), ..request };
-        assert_eq!(validate_request(&wrong_extension).unwrap_err(), "native export request is invalid");
-        for invalid in [vec![0xc3, 0x28], b"safe\0text".to_vec(), b"safe\x07text".to_vec()] {
+        assert_eq!(
+            validate_request(&request).unwrap(),
+            "Zoë 李\nExperience\n".as_bytes()
+        );
+        let wrong_extension = NativeExportRequest {
+            safe_filename: "resume.pdf".to_string(),
+            ..request
+        };
+        assert_eq!(
+            validate_request(&wrong_extension).unwrap_err(),
+            "native export request is invalid"
+        );
+        for invalid in [
+            vec![0xc3, 0x28],
+            b"safe\0text".to_vec(),
+            b"safe\x07text".to_vec(),
+        ] {
             let invalid_request = NativeExportRequest {
                 safe_filename: "resume.txt".to_string(),
                 mime_type: "text/plain".to_string(),
                 bytes_base64: STANDARD.encode(invalid),
             };
-            assert_eq!(validate_request(&invalid_request).unwrap_err(), "native export payload is not accepted UTF-8 text");
+            assert_eq!(
+                validate_request(&invalid_request).unwrap_err(),
+                "native export payload is not accepted UTF-8 text"
+            );
         }
     }
 
