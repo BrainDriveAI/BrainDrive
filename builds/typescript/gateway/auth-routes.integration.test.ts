@@ -1257,7 +1257,7 @@ describe.sequential("gateway auth route integration", () => {
     });
   });
 
-  it("rejects an unconfigured required-secret provider without changing provider intent", async () => {
+  it("activates OpenRouter without credentials while keeping onboarding unresolved", async () => {
     context = await createTestServer({
       authMode: "local-owner",
       adapterConfig: providerActivationAdapterConfig(),
@@ -1276,25 +1276,53 @@ describe.sequential("gateway auth route integration", () => {
       payload: { active_provider_profile: "openrouter" },
     });
 
+    expect(response.statusCode).toBe(200);
+    expect(parseJson<{
+      active_provider_profile: string | null;
+      provider_activation_revision: number;
+    }>(response.body)).toMatchObject({
+      active_provider_profile: "openrouter",
+      provider_activation_revision: 3,
+    });
+    expect(mockPreferences.active_provider_profile).toBe("openrouter");
+    expect(mockPreferences.provider_activation_revision).toBe(3);
+    expect(mockPreferences.provider_credentials).toBeUndefined();
+
+    const onboardingResponse = await context.app.inject({
+      method: "GET",
+      url: "/settings/onboarding-status",
+      headers: localOwnerAdminHeaders(),
+    });
+    expect(onboardingResponse.statusCode).toBe(200);
+    expect(parseJson<{ onboarding_required: boolean }>(onboardingResponse.body).onboarding_required).toBe(true);
+  });
+
+  it("rejects unconfigured BrainDrive Models without changing provider intent", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: providerActivationAdapterConfig(),
+    });
+    mockPreferences = {
+      ...mockPreferences,
+      default_model: "",
+      active_provider_profile: "ollama",
+      provider_activation_revision: 2,
+    };
+
+    const response = await context.app.inject({
+      method: "PUT",
+      url: "/settings",
+      headers: localOwnerAdminHeaders(),
+      payload: { active_provider_profile: "braindrive-models" },
+    });
+
     expect(response.statusCode).toBe(409);
     expect(parseJson<{ code: string; error: string }>(response.body)).toEqual({
       code: "provider_not_ready",
       error: "Configure this provider before activating it",
     });
-    expect(mockPreferences.active_provider_profile).toBe("braindrive-models");
+    expect(mockPreferences.active_provider_profile).toBe("ollama");
     expect(mockPreferences.provider_activation_revision).toBe(2);
-
-    const events = await readAuditEvents(context, "settings.provider_activation_rejected");
-    expect(events.at(-1)?.details).toEqual({
-      actor_id: "owner",
-      source: "explicit",
-      target_profile: "openrouter",
-      current_profile: "braindrive-models",
-      current_revision: 2,
-      decision: "rejected",
-      readiness: "missing_required_credential",
-      error_code: "provider_not_ready",
-    });
   });
 
   it("activates plain, vault-backed, environment-backed, and keyless providers with monotonic revisions", async () => {

@@ -2534,6 +2534,7 @@ function ProviderSection({
                 profile.id ===
                 (settings.active_provider_profile ?? settings.default_provider_profile);
               const isOllama = profile.provider_id?.toLowerCase() === "ollama";
+              const isOpenRouter = profile.provider_id?.toLowerCase() === "openrouter";
               const isBrainDriveModels = profile.provider_id?.toLowerCase() === "braindrive-models";
               const profileCanUsePlain = profile.credential_mode === "plain" || isOllama;
               const showKeyForProfile = isExpanded && showApiKeyInput;
@@ -2544,6 +2545,7 @@ function ProviderSection({
                   : "OpenRouter";
               const canActivate =
                 isOllama ||
+                isOpenRouter ||
                 profile.credential_mode !== "unset" ||
                 (isBrainDriveModels && settings.braindrive_models_key !== null);
               const panelId = `${providerSectionId}-${profile.id}-panel`;
