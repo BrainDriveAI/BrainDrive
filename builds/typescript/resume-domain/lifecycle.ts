@@ -16,10 +16,13 @@ import {
   RESUME_DATA_RETENTION_MATRIX,
 } from "../app-platform/contracts/data-conformance.js";
 import type {
+  AppDataBackupIdentity,
+  AppDataLifecycleAdapter,
   OwnerDataActivationRequest,
-  OwnerDataLifecycle,
   OwnerDataSchemaCompatibility,
+  RetainedDataDeleteRequest,
 } from "../app-platform/lifecycle/owner-data.js";
+import { validateAppDataBackupIdentity } from "../app-platform/lifecycle/owner-data.js";
 import { ResumeDomainError } from "./errors.js";
 import { ResumeDataStore } from "./store.js";
 import { RESUME_DATA_SCHEMA_VERSION } from "../app-platform/contracts/constants.js";
@@ -46,12 +49,43 @@ export type ResumeDataRepairState = {
   owner_export_available: boolean;
 };
 
-export class ResumeDataLifecycleAdapter implements OwnerDataLifecycle, ResumeLifecycleDataAdapter {
+export class ResumeDataLifecycleAdapter implements AppDataLifecycleAdapter, ResumeLifecycleDataAdapter {
+  readonly retainedClasses = ["career_data", "resume_history", "job_history", "artifact_metadata", "owner_exports", "lifecycle_tombstone"] as const;
+  readonly identity = {
+    adapter_contract_version: 1,
+    app_id: "ai.braindrive.resume-builder",
+    publisher_id: "ai.braindrive",
+    binding_id: "data.resume-builder",
+    data_contract_version: RESUME_DATA_SCHEMA_VERSION,
+  } as const;
+
   constructor(
     private readonly memoryRoot: string,
-    private readonly namespaceRoot = path.join(memoryRoot, "apps", "resume-builder"),
+    readonly namespaceRoot = path.join(memoryRoot, "apps", "resume-builder"),
     private readonly audit: (event: string, details: Record<string, unknown>) => void = () => undefined,
   ) {}
+
+  async validateBackupIdentity(backup: AppDataBackupIdentity): Promise<AppDataBackupIdentity> {
+    return validateAppDataBackupIdentity(this.identity, backup);
+  }
+
+  async deleteRetainedData(request: RetainedDataDeleteRequest): Promise<{ deleted: true; deleted_namespace_digest: `sha256:${string}` }> {
+    if (
+      request.app_id !== this.identity.app_id ||
+      request.trusted_owner_confirmation !== true ||
+      path.resolve(this.namespaceRoot) !== path.resolve(this.memoryRoot, "apps", "resume-builder")
+    ) {
+      throw new ResumeDomainError("denied", "Retained Resume Builder data deletion authority is invalid", 403);
+    }
+    const deletedNamespaceDigest = canonicalInputDigest({
+      app_id: this.identity.app_id,
+      owner_id: request.owner_id,
+      operation_id: request.operation_id,
+      namespace: "host_derived",
+    });
+    await rm(this.namespaceRoot, { recursive: true, force: true });
+    return { deleted: true, deleted_namespace_digest: deletedNamespaceDigest };
+  }
 
   async inspectSchema(request: Parameters<ResumeLifecycleDataAdapter["inspectSchema"]>[0]): Promise<Awaited<ReturnType<ResumeLifecycleDataAdapter["inspectSchema"]>>> {
     const parsed = ResumeLifecycleDataAdapterRequestSchema.parse(request);

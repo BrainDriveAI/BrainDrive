@@ -27,6 +27,10 @@ Date tags may use `YY.M.D`; same-day corrections may use `YY.M.D.N`. Tags with a
 
 Feature branches may add an `Unreleased` section to `CHANGELOG.md` for user-visible additions, changes, fixes, and removals. That section describes development truth only: it does not assign a version, approve a release, populate a compatibility claim, or prove that an artifact was built or published. Release maintainers bind those entries to a normalized immutable candidate under the release-readiness contract below.
 
+### Spec 08 two-app candidate
+
+The current Spec 08 development candidate registers the reviewed Resume Builder and Brief Builder packages through one manifest-driven first-party app platform. This is an internal-beta proof, not a public SDK/ABI, arbitrary package loader, publisher program, marketplace, or third-party distribution promise. Current automated, isolated browser, and Docker checks are green. Release acceptance remains **HOLD** until a clean immutable candidate has matching native-Windows evidence, controlled live-provider and attributable human outcome review, and refreshed REV evidence that passes the canonical release-evidence checks.
+
 ## Branch and tag comparison
 
 From a full repository clone, these Tier A read-only commands compare representative tracked sources without executing a release:

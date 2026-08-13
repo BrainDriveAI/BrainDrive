@@ -1,6 +1,14 @@
-# Resume Builder contract foundation
+# First-party app contract foundation
 
-This directory is the executable contract boundary shared by the BrainDrive app platform and Resume Builder. It contains schemas, deterministic validators, fixtures, and conformance tests; importing these modules alone does not register a route, start a process, create storage, call a provider, or enable an app.
+This directory is the executable contract boundary shared by the BrainDrive app platform and its reviewed first-party apps. It contains schemas, deterministic validators, fixtures, and conformance tests; importing these modules alone does not register a route, start a process, create storage, call a provider, or enable an app.
+
+## Generic first-party registration
+
+`app-registry.ts` defines canonical lower-case app, publisher, route, capability, and inference-purpose identifiers; safe catalog presentation; manifest revision 2; verified package joins; independently reviewed capability/purpose/data-adapter registrations; and the immutable resolved descriptor. `../registry.ts` builds exact app-ID and route-key indexes without reading packages, owner data, or runtime state. Construction is deterministic and side-effect free. Duplicate or folded identities, unsafe metadata, package/registry identity disagreement, and missing reviewed bindings fail closed.
+
+A manifest declares package files and requests authority. It cannot name a host handler, module/import, inference policy, or data adapter. The host registration uses bounded opaque binding IDs that identify reviewed compiled composition; it does not load a manifest-provided path. Generic capability and purpose identifiers are bounded syntax, not grants: the existing Resume capability and purpose enums remain closed product-specific policies, while a generic request becomes resolvable only when the host registration contains the exact app-scoped name and version.
+
+Revision-1 `PackageManifestSchema` is the installed Resume compatibility format. `LegacyResumePackageManifestSchema` and `parseLegacyResumePackageManifestForMigration` make that boundary explicit; the schema accepts only the canonical Resume identity, so another app cannot use it. New generic candidates must use `GenericPackageManifestSchema` revision 2. Milestone 1 does not switch the active package verifier or migrate stored state.
 
 Spec 2's data-specific REQ-001–REQ-040 traceability is recorded separately in `fixtures/spec-02-requirements.json`; `fixtures/requirements.json` remains the accepted cross-spec Resume Builder REQ-001–REQ-034 manifest. `data-conformance.ts` freezes the data-only capability context/request/result, owner-safe state, migration provenance and compatibility, retention, sensitivity, CAS, and transition rules without becoming a runtime route or a second persistence implementation.
 
@@ -26,6 +34,6 @@ Package verification authority is split deliberately: `PackageManifestSchema` de
 
 The valid trust/source/revocation/package-signature fixtures contain mutually verified public keys and signatures. Their one-time private keys were discarded and are not present in the repository, so later runtime fixture generation must use an ephemeral test trust root or release-authority-provided signing material rather than treating conformance vectors as signing credentials.
 
-JSON Schema artifacts are generated from the Zod authorities with `npm run contracts:schemas` from `builds/typescript`. Generated artifacts are checked for drift by the contract tests.
+JSON Schema artifacts are generated from the Zod authorities with `npm run contracts:schemas` from `builds/typescript`. Generic artifacts use the `app-platform/v1` schema namespace; retained Resume-specific artifacts keep the `resume-builder/v1` namespace. Generated artifacts are checked for drift by the contract tests.
 
 The accepted physical namespace is the existing repository-consistent `apps/resume-builder` mapping below the configured memory root. These contracts do not initialize or write that namespace. Data operations use exactly `career.context.read`, `career.facts.read`, `career.facts.propose`, `career.facts.confirm`, `resume.definitions.read`, `resume.definitions.write`, `resume.jobs.read`, `resume.jobs.write`, `resume.artifacts.register`, `resume.export.request`, and `resume.operations.read`; inference remains a separate host capability. The inference allowlist now includes `resume_strategy`, version-2 `tailoring_plan`, `resume_craft_evaluate`, and `resume_craft_repair`. Every purpose remains fixed-policy, bounded to two attempts and one concurrent call, provider-brokered, and no-tools.

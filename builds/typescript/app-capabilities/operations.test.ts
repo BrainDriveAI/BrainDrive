@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { CapabilityOperationCoordinator, type CapabilityOperationRequest } from "./operations.js";
 
 const identity = {
+  appId: "ai.braindrive.resume-builder",
   installationId: "10000000-0000-4000-8000-000000000001",
   connectionId: "10000000-0000-4000-8000-000000000002",
   viewId: "10000000-0000-4000-8000-000000000003",
@@ -44,6 +45,14 @@ describe("M4 replay-safe capability operations", () => {
       statusCode: 409,
     });
     expect(adapter).toHaveBeenCalledTimes(1);
+  });
+
+  it("scopes identical operation and idempotency identities by app and installation", async () => {
+    const coordinator = new CapabilityOperationCoordinator();
+    const adapter = vi.fn(async () => ({ status: "completed" }));
+    await coordinator.execute(request(), adapter);
+    await coordinator.execute(request({ appId: "ai.braindrive.brief-builder" }), adapter);
+    expect(adapter).toHaveBeenCalledTimes(2);
   });
 
   it("enforces size, deadline, cancellation, and per-view rate bounds before side effects", async () => {

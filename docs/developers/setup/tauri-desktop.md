@@ -66,7 +66,7 @@ The shared client handoff was subsequently corrected under focused source tests:
 
 | Claimed platform | J-05 evidence state |
 |---|---|
-| Native Windows | `DEFERRED — REQUIRED BEFORE MILESTONE 7` |
+| Native Windows | Prior J-05 evidence is stale for Spec 08 desktop staging/runtime changes; fresh exact-candidate two-app evidence is required |
 | Native macOS | Configured bundle target; not claimed for V1 J-05 |
 | WSL/Linux | Not claimed for V1 J-05; diagnostics only |
 

@@ -30,6 +30,8 @@ test('evidence records do not embed the self-referential EVIDENCE_REVISION', asy
 test('only declared evidence IDs enter the approved output allowlist', () => {
   assert.equal(isApprovedEvidenceOutput('docs/developers/verification/ai-agent-scorecards/aih-10.md'), true);
   assert.equal(isApprovedEvidenceOutput('docs/developers/verification/human-reviews/rev-08.json'), true);
+  assert.equal(isApprovedEvidenceOutput('builds/typescript/app-platform/contracts/fixtures/spec-08/m8-requirement-evidence.json'), true);
+  assert.equal(isApprovedEvidenceOutput('builds/typescript/app-platform/contracts/fixtures/spec-08/other-evidence.json'), false);
   assert.equal(isApprovedEvidenceOutput('docs/developers/verification/ai-agent-scorecards/aih-zz.md'), false);
   assert.equal(isApprovedEvidenceOutput('docs/developers/verification/human-reviews/rev-99.json'), false);
 });
@@ -79,6 +81,28 @@ test('a clean immutable source revision can carry forward to an evidence-only re
     assert.equal(result.compatible, true);
     assert.deepEqual(result.disallowedPaths, []);
     assert.deepEqual(result.changedPaths, ['docs/developers/verification/platform-reports/windows-j05.json']);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('the exact Spec 08 M8 matrix can carry forward without approving adjacent fixture paths', async () => {
+  const root = await repositoryFixture();
+  try {
+    const sourceTestRevision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+    const directory = resolve(root, 'builds/typescript/app-platform/contracts/fixtures/spec-08');
+    await mkdir(directory, { recursive: true });
+    await writeFile(resolve(directory, 'm8-requirement-evidence.json'), '{"synthetic":true}\n');
+    const evidenceRevision = commit(root, 'M8 evidence only');
+    const accepted = await adjudicateRevisionCompatibility(root, { sourceTestRevision, evidenceRevision });
+    assert.equal(accepted.compatible, true);
+    assert.deepEqual(accepted.disallowedPaths, []);
+
+    await writeFile(resolve(directory, 'other-evidence.json'), '{"synthetic":true}\n');
+    const invalidRevision = commit(root, 'adjacent evidence');
+    const rejected = await adjudicateRevisionCompatibility(root, { sourceTestRevision, evidenceRevision: invalidRevision });
+    assert.equal(rejected.compatible, false);
+    assert.deepEqual(rejected.disallowedPaths, ['builds/typescript/app-platform/contracts/fixtures/spec-08/other-evidence.json']);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

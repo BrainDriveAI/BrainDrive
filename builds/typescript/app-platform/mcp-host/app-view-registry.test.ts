@@ -7,6 +7,7 @@ const packageDigest = `sha256:${"a".repeat(64)}` as const;
 
 function authority(overrides: Partial<AppViewAuthority> = {}): AppViewAuthority {
   return {
+    appId: "ai.braindrive.resume-builder",
     installationId,
     packageDigest,
     lifecycleGeneration: 3,
@@ -43,8 +44,8 @@ describe("M7 app view reconnect registry", () => {
       connectionGeneration: 8,
     });
     expect(resumed.sessionId).not.toBe(first.sessionId);
-    expect(registry.isCurrentSession(first.sessionId)).toBe(false);
-    expect(registry.isCurrentSession(resumed.sessionId)).toBe(true);
+    expect(registry.isCurrentSession(first.appId, first.sessionId)).toBe(false);
+    expect(registry.isCurrentSession(resumed.appId, resumed.sessionId)).toBe(true);
   });
 
   it("rejects stale, mismatched, and racing resume handshakes without replacing the live view", () => {
@@ -61,7 +62,7 @@ describe("M7 app view reconnect registry", () => {
       .toThrowError(expect.objectContaining({ code: "session_closed" }));
     const resumed = registry.commit(registry.plan(authority(), request));
     expect(() => registry.commit(racingPlan)).toThrowError(expect.objectContaining({ code: "session_closed" }));
-    expect(registry.isCurrentSession(resumed.sessionId)).toBe(true);
+    expect(registry.isCurrentSession(resumed.appId, resumed.sessionId)).toBe(true);
   });
 
   it("keeps concurrent views and exact close authority isolated", () => {
@@ -72,9 +73,9 @@ describe("M7 app view reconnect registry", () => {
     expect(first.operationId).not.toBe(second.operationId);
     expect(() => registry.plan(authority())).toThrowError(expect.objectContaining({ code: "denied" }));
 
-    expect(registry.close(first.sessionId)).toEqual({ closed: true, viewId: first.viewId });
-    expect(registry.isCurrentSession(second.sessionId)).toBe(true);
-    expect(registry.close(first.sessionId)).toEqual({ closed: false, viewId: null });
+    expect(registry.close(first.appId, first.sessionId)).toEqual({ closed: true, viewId: first.viewId });
+    expect(registry.isCurrentSession(second.appId, second.sessionId)).toBe(true);
+    expect(registry.close(first.appId, first.sessionId)).toEqual({ closed: false, viewId: null });
     expect(registry.commit(registry.plan(authority()))).toMatchObject({ bridgeGeneration: 1, resumed: false });
   });
 
@@ -89,7 +90,22 @@ describe("M7 app view reconnect registry", () => {
       bridgeGeneration: first.bridgeGeneration,
     })).toThrowError(expect.objectContaining({ code: "session_closed" }));
     now += 1_001;
-    expect(registry.isCurrentSession(first.sessionId)).toBe(false);
+    expect(registry.isCurrentSession(first.appId, first.sessionId)).toBe(false);
     expect(registry.viewCountForTest()).toBe(0);
+  });
+
+  it("uses app identity in indexes and rejects a cross-app reconnect or close swap", () => {
+    const registry = new AppViewRegistry();
+    const first = registry.commit(registry.plan(authority()));
+    const otherApp = "ai.braindrive.brief-builder";
+    expect(() => registry.plan(authority({ appId: otherApp }), {
+      sessionId: first.sessionId,
+      viewId: first.viewId,
+      operationId: first.operationId,
+      bridgeGeneration: first.bridgeGeneration,
+    })).toThrowError(expect.objectContaining({ code: "session_closed" }));
+    expect(registry.isCurrentSession(otherApp, first.sessionId)).toBe(false);
+    expect(registry.close(otherApp, first.sessionId)).toEqual({ closed: false, viewId: null });
+    expect(registry.isCurrentSession(first.appId, first.sessionId)).toBe(true);
   });
 });

@@ -8,6 +8,7 @@ import { MCP_APP_MEDIA_TYPE } from "../contracts/constants.js";
 import { MODERN_FIXTURE_VERSION } from "../lifecycle/fixture-repository.js";
 import { createLifecycleHarness } from "../lifecycle/test-helpers.js";
 import { AppMcpHost } from "./app-host.js";
+import { ResumeAppHostAdapter } from "./resume-host-adapter.js";
 import { ModernMcpAppsClient, identityForRuntime, type McpWireTransport } from "./modern-client.js";
 
 const roots: string[] = [];
@@ -18,12 +19,13 @@ class HostTransport implements McpWireTransport {
   crash = false;
   toolBarrier: Promise<void> | null = null;
   onToolStarted: (() => void) | null = null;
+  constructor(private readonly resourceUri = "ui://resume-builder/main") {}
   async request(method: string): Promise<unknown> {
     if (this.crash) throw new Error("server crash");
     if (method === "server/discover") return { supportedVersions: ["2026-07-28"], capabilities: { tools: {}, resources: {}, extensions: { "io.modelcontextprotocol/ui": { mimeTypes: [MCP_APP_MEDIA_TYPE] } } }, _meta: { "io.modelcontextprotocol/ui": { version: "2026-01-26" }, "io.modelcontextprotocol/serverInfo": { name: "fixture", version: "3.0.0" } } };
-    if (method === "resources/list") return { resources: [{ uri: "ui://resume-builder/main", name: "Resume Builder", mimeType: MCP_APP_MEDIA_TYPE, size: Buffer.byteLength(html) }] };
+    if (method === "resources/list") return { resources: [{ uri: this.resourceUri, name: "Synthetic app", mimeType: MCP_APP_MEDIA_TYPE, size: Buffer.byteLength(html) }] };
     if (method === "resources/templates/list") return { resourceTemplates: [] };
-    if (method === "resources/read") return { contents: [{ uri: "ui://resume-builder/main", mimeType: MCP_APP_MEDIA_TYPE, text: html }] };
+    if (method === "resources/read") return { contents: [{ uri: this.resourceUri, mimeType: MCP_APP_MEDIA_TYPE, text: html }] };
     if (method === "tools/list") return { tools: [{ name: "fixture.status", _meta: { ui: { visibility: ["app"] } } }, { name: "hidden", _meta: { ui: { visibility: ["model"] } } }] };
     if (method === "tools/call") {
       this.onToolStarted?.();
@@ -39,9 +41,21 @@ async function setup() {
   const harness = await createLifecycleHarness(root);
   await harness.service.install({ version: MODERN_FIXTURE_VERSION, idempotencyKey: "m3-install-fixture", approveCapabilities: true });
   const transport = new HostTransport();
-  const host = new AppMcpHost(harness.service, { clientFactory: (connection) => new ModernMcpAppsClient(transport, identityForRuntime(connection)) });
+  const host = new AppMcpHost(new ResumeAppHostAdapter(harness.service, { clientFactory: (connection) => new ModernMcpAppsClient(transport, identityForRuntime(connection, { appId: harness.service.appId, publisherId: harness.service.publisherId, serverId: "resume-builder" })) }));
   const launch = await host.launch();
   return { harness, host, launch, transport };
+}
+
+async function setupSynthetic(app: { appId: string; routeKey: string; displayName: string }) {
+  const root = await mkdtemp(path.join(os.tmpdir(), "bd-mcp-host-synthetic-")); roots.push(root);
+  const harness = await createLifecycleHarness(root, app);
+  await harness.service.install({ version: "1.0.0", idempotencyKey: `m4-install-${app.routeKey}`, approveCapabilities: true });
+  const transport = new HostTransport(`ui://${app.routeKey}/main`);
+  const host = new AppMcpHost(new ResumeAppHostAdapter(harness.service, {
+    routeKey: app.routeKey,
+    clientFactory: (connection) => new ModernMcpAppsClient(transport, identityForRuntime(connection, { appId: app.appId, publisherId: harness.service.publisherId, serverId: app.routeKey })),
+  }));
+  return { harness, host, launch: await host.launch(), transport };
 }
 
 function bridgeMessage(launch: Awaited<ReturnType<AppMcpHost["launch"]>>, installationId: string, overrides: { sent_at?: string; server_id?: string; tool_name?: string } = {}) {
@@ -81,6 +95,18 @@ function appsEnvelope(
 }
 
 describe("session-bound installed-app bridge", () => {
+  it("launches two synthetic registrations through the same host facade and reads each exact verified primary resource", async () => {
+    const resume = await setupSynthetic({ appId: "ai.braindrive.resume-builder", routeKey: "resume-builder", displayName: "Resume Builder" });
+    const brief = await setupSynthetic({ appId: "ai.braindrive.brief-builder", routeKey: "brief-builder", displayName: "Brief Builder" });
+    expect(resume.launch.resource).toMatchObject({ app_id: "ai.braindrive.resume-builder", uri: "ui://resume-builder/main" });
+    expect(brief.launch.resource).toMatchObject({ app_id: "ai.braindrive.brief-builder", uri: "ui://brief-builder/main" });
+    await expect(brief.host.handleAppsBridge(brief.launch.session_id, appsEnvelope(resume.launch, {
+      jsonrpc: "2.0", id: "cross-app-resource", method: "resources/read", params: { uri: resume.launch.resource.uri },
+    }))).rejects.toMatchObject({ code: "bridge_denied" });
+    expect(resume.host.close(brief.launch.session_id)).toBe(false);
+    expect(brief.host.close(brief.launch.session_id)).toBe(true);
+  });
+
   it("routes strict official Apps tool and resource requests without an app-held credential", async () => {
     const { host, launch } = await setup();
     const tool = appsEnvelope(launch, { jsonrpc: "2.0", id: "apps-tool-1", method: "tools/call", params: { name: "fixture.status", arguments: {} } });

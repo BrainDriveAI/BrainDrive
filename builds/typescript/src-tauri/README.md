@@ -29,7 +29,7 @@ This directory owns the native shell, not normal-user desktop installation. The 
 | `capabilities/default.json` | Tauri capability allowlist |
 | `../client_web/src/api/runtime-api-base.ts` | Browser-versus-Tauri API base selection and desktop request header |
 | `../scripts/desktop-prepare-dev.mjs` | Clean-clone creation of the ignored resource root required by Tauri development builds and Cargo tests |
-| `../scripts/desktop-stage-runtime.mjs` | Release-build staging of Node, compiled gateway/MCP, web assets, adapters, starter pack, and the declared Resume Builder UI resource |
+| `../scripts/desktop-stage-runtime.mjs` | Release-build staging of Node, compiled gateway/MCP, web assets, adapters, starter pack, and the declared Resume Builder and Brief Builder UI resources |
 
 During `desktop:dev`, the before-dev hook creates the ignored `desktop-runtime/` resource root when it is absent, then Vite serves the frontend. Rust resolves the source workspace, starts the built MCP package and gateway on free loopback ports, waits for health, and exposes runtime status through a Tauri command. Release builds replace that root with the staged runtime. Generated/staged runtime content is not hand-edited.
 
@@ -58,7 +58,9 @@ Desktop startup creates application data, configuration, secret, and log directo
 
 Optional browser/Tailscale access is not part of basic desktop readiness and must not be enabled as a setup side effect. It has separate network and mutation safeguards in source and tests.
 
-The selected Windows Resume Builder runtime uses the same signed-package verifier, operation journal, restart budget, and retention policy as Docker. Tauri selects `desktop_windows_x64`, enables the app platform below the platform data root, and contains the backend process tree in a Job Object with kill-on-close, a one-logical-CPU-equivalent group ceiling, and a 512 MiB per-process ceiling. The app process binds authenticated random loopback and receives no inherited owner environment. Supervisor log lines are capped at 4 KiB and the file restarts at 1 MiB. The native export command opens the operating-system chooser and returns only a safe file label; renderer receipt finalization happens after the chooser outcome.
+The selected Windows first-party app runtime uses the same signed-package verifier, app-scoped operation journal, three-restart-per-installation budget, and per-app retention policy as Docker. Tauri stages both reviewed packages, selects `desktop_windows_x64`, enables the app platform below the platform data root, and contains the backend process tree and inherited app descendants in a Job Object with kill-on-close, the existing one-logical-CPU-equivalent group ceiling, and a 512 MiB per-process ceiling. At most two first-party apps may be active; Spec 08 does not raise the Windows group CPU ceiling. App processes bind authenticated random loopback and receive no inherited owner environment. Supervisor log lines are capped at 4 KiB and the file restarts at 1 MiB. The native export command opens the operating-system chooser and returns only a safe file label; renderer receipt finalization happens after the chooser outcome.
+
+The JavaScript and PowerShell staging paths both include the two UI resources and pass source-side preflight/tests. Those checks do not prove the changed Spec 08 candidate on native Windows. A fresh native Windows J-05 and two-app lifecycle/process/owner journey on the exact immutable candidate remains required; WSL/Linux diagnostics are not a substitute.
 
 `runtime-api-base.test.ts` covers dynamic gateway resolution, `/api` rewriting, the authoritative desktop transport header, browser proxy behavior, and fail-closed incomplete handoff. These source tests correct the shared boundary but do not turn the preserved WSL diagnostic failure into passing J-05 evidence; native Windows evidence remains required under OPEN-03.
 

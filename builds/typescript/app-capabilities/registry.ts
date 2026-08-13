@@ -1,50 +1,84 @@
 import type { z } from "zod";
 
-import { ResumeDataCapabilityNameSchema } from "../app-platform/contracts/data-conformance.js";
-import { CapabilityNameSchema } from "../app-platform/contracts/package.js";
 import { AppPlatformError } from "../app-platform/lifecycle/errors.js";
+import { CanonicalAppIdSchema, CapabilityIdentifierSchema } from "../app-platform/contracts/app-registry.js";
 
-export type AppDataCapability = z.infer<typeof ResumeDataCapabilityNameSchema>;
-export type AppCapabilityName = z.infer<typeof CapabilityNameSchema>;
-export type AppCapabilityDescriptor = {
-  name: AppCapabilityName;
-  version: 1;
-  audience: "app_data" | "app_export" | "app_inference";
-  effect: "read" | "mutation" | "export" | "inference";
-  maxInputBytes: 262_144;
-  maxDurationMs: 120_000;
+
+export type HostCapabilityContext = {
+  appId: string;
+  installationId: string;
+  packageDigest: `sha256:${string}`;
+  operationId: string;
+  idempotencyKey: string;
+  deadlineAt: number;
+  requestedPurposes: readonly { purpose_id: string; version: number }[];
+  grant: {
+    app_id: string; installation_id: string; package_digest: string; capabilities: readonly string[];
+    revoked_at: string | null; expires_at: string;
+  };
+  signal: AbortSignal;
+  isCancelled: () => boolean;
+  ownerConfirmation: { confirmed: boolean; proofId?: string };
 };
 
-const descriptor = (
-  name: AppCapabilityName,
-  audience: AppCapabilityDescriptor["audience"],
-  effect: AppCapabilityDescriptor["effect"],
-): AppCapabilityDescriptor => ({ name, version: 1, audience, effect, maxInputBytes: 262_144, maxDurationMs: 120_000 });
+export type HostCapabilityRegistration<I = unknown, O = unknown> = {
+  appId: string;
+  name: string;
+  version: number;
+  audience: "app_data" | "app_export" | "app_inference";
+  effect: "read" | "mutation" | "export" | "inference";
+  inputSchema: z.ZodType<I>;
+  resultSchema: z.ZodType<O>;
+  limits: { maxInputBytes: number; maxDurationMs: number; maxCallsPerMinute: number };
+  confirmation: "none" | "owner_confirmation" | "trusted_owner_confirmation";
+  confirmationProjection: { title: string; actionLabel: string } | null;
+  auditProjectionId: string;
+  retryPolicy: "never" | "idempotent_only";
+  idempotencyPolicy: "not_applicable" | "optional" | "required";
+  ownerComponentId: string;
+  handler: { bivarianceHack(input: I, context: HostCapabilityContext): Promise<O> }["bivarianceHack"];
+};
 
-export const APP_CAPABILITY_REGISTRY: readonly AppCapabilityDescriptor[] = Object.freeze([
-  descriptor("career.context.read", "app_data", "read"),
-  descriptor("career.facts.read", "app_data", "read"),
-  descriptor("career.facts.propose", "app_data", "mutation"),
-  descriptor("career.facts.confirm", "app_data", "mutation"),
-  descriptor("resume.definitions.read", "app_data", "read"),
-  descriptor("resume.definitions.write", "app_data", "mutation"),
-  descriptor("resume.jobs.read", "app_data", "read"),
-  descriptor("resume.jobs.write", "app_data", "mutation"),
-  descriptor("resume.artifacts.register", "app_data", "mutation"),
-  descriptor("resume.export.request", "app_export", "export"),
-  descriptor("resume.operations.read", "app_data", "read"),
-  descriptor("app.inference.request", "app_inference", "inference"),
-]);
+function hostKey(appId: string, name: string, version: number): string {
+  return `${appId}:${name}@${version}`;
+}
 
-const byName = new Map(APP_CAPABILITY_REGISTRY.map((entry) => [entry.name, entry]));
+/** Host-owned executable registry. Package metadata can request these keys but cannot add handlers. */
+export class CapabilityRegistry {
+  readonly #entries = new Map<string, HostCapabilityRegistration>();
 
-export function resolveAppCapability(rawName: unknown, rawVersion: unknown): AppCapabilityDescriptor {
-  const name = CapabilityNameSchema.safeParse(rawName);
-  if (!name.success) throw new AppPlatformError("denied", "Capability is unavailable", 403);
-  const entry = byName.get(name.data);
-  if (!entry) throw new AppPlatformError("denied", "Capability is unavailable", 403);
-  if (rawVersion !== entry.version) throw new AppPlatformError("incompatible_schema", "Capability version is unavailable", 409);
-  return entry;
+  constructor(registrations: readonly HostCapabilityRegistration[]) {
+    for (const raw of registrations) {
+      const appId = CanonicalAppIdSchema.safeParse(raw.appId);
+      const name = CapabilityIdentifierSchema.safeParse(raw.name);
+      const validLimits = raw.limits && Object.values(raw.limits).every((value) => Number.isInteger(value) && value > 0);
+      const validSchemas = typeof raw.inputSchema?.safeParse === "function" && typeof raw.resultSchema?.safeParse === "function";
+      const validOwnedIds = [raw.auditProjectionId, raw.ownerComponentId].every((value) => typeof value === "string" && value.trim().length > 0 && value.length <= 128);
+      if (!appId.success || !name.success || !Number.isInteger(raw.version) || raw.version < 1 || raw.version > 65_535 || !validLimits || !validSchemas || !validOwnedIds || typeof raw.handler !== "function") {
+        throw new AppPlatformError("descriptor_invalid", "Capability registration is invalid");
+      }
+      if (raw.confirmation === "none" ? raw.confirmationProjection !== null : raw.confirmationProjection === null) {
+        throw new AppPlatformError("descriptor_invalid", "Capability confirmation policy is incomplete");
+      }
+      if (raw.confirmationProjection && Object.values(raw.confirmationProjection).some((value) => typeof value !== "string" || value.trim().length === 0 || value.length > 256)) {
+        throw new AppPlatformError("descriptor_invalid", "Capability confirmation projection is invalid");
+      }
+      const key = hostKey(appId.data, name.data, raw.version);
+      if (this.#entries.has(key)) throw new AppPlatformError("duplicate_identity", "Capability registration identity is duplicated", 409);
+      this.#entries.set(key, Object.freeze({ ...raw, appId: appId.data, name: name.data }));
+    }
+  }
+
+  resolve(appIdInput: unknown, nameInput: unknown, versionInput: unknown): HostCapabilityRegistration {
+    const appId = CanonicalAppIdSchema.safeParse(appIdInput);
+    const name = CapabilityIdentifierSchema.safeParse(nameInput);
+    if (!appId.success || !name.success) throw new AppPlatformError("denied", "Capability is unavailable", 403);
+    if (!Number.isInteger(versionInput) || (versionInput as number) < 1) throw new AppPlatformError("incompatible_schema", "Capability version is unavailable", 409);
+    const entry = this.#entries.get(hostKey(appId.data, name.data, versionInput as number));
+    if (entry) return entry;
+    const sameName = [...this.#entries.values()].some((candidate) => candidate.appId === appId.data && candidate.name === name.data);
+    throw new AppPlatformError(sameName ? "incompatible_schema" : "denied", sameName ? "Capability version is unavailable" : "Capability is unavailable", sameName ? 409 : 403);
+  }
 }
 
 export function assertCapabilityScope(installedScopes: readonly string[], requestedScopes: readonly string[]): void {

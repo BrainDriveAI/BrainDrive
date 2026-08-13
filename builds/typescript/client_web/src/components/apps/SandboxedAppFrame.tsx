@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
-  callResumeBuilderCapability,
-  closeResumeBuilderSession,
+  AppCapabilityError,
+  callAppCapability,
+  closeAppSession,
   finalizeResumeBuilderExport,
-  sendResumeBuilderAppsBridgeMessage,
-  sendResumeBuilderBridgeMessage,
+  sendAppAppsBridgeMessage,
+  sendAppBridgeMessage,
   type AppLaunch,
+  type HostConfirmationPresentation,
 } from "@/api/apps-adapter";
 import { isTauriRuntime } from "@/api/runtime-api-base";
 import { BrowserActionBroker } from "@/mcp-apps/browser-policy";
@@ -56,6 +58,7 @@ type BridgeEnvelope = {
 
 type PendingOwnerConfirmation = {
   message: BridgeEnvelope;
+  presentation: HostConfirmationPresentation;
   resolve: (value: unknown) => void;
   reject: (reason: Error) => void;
 };
@@ -105,11 +108,17 @@ export async function saveHostResumeExport(result: unknown): Promise<{ safe_dest
 export const saveHostPdfExport = saveHostResumeExport;
 
 export default function SandboxedAppFrame({
+  appKey,
+  appId,
+  appName,
   launch,
   onSessionClosed,
   onReload,
   onOpenSettings,
 }: {
+  appKey: string;
+  appId: string;
+  appName: string;
   launch: AppLaunch;
   onSessionClosed: () => void;
   onReload?: () => Promise<void>;
@@ -148,7 +157,7 @@ export default function SandboxedAppFrame({
       closedRef.current = true;
       controllerRef.current?.requestTeardown();
       controllerRef.current?.close("unmount");
-      void closeResumeBuilderSession(launch.session_id);
+      void closeAppSession(appKey, launch.session_id);
     };
     const browserBroker = new BrowserActionBroker({
       allowedLinkOrigins: ["https://docs.braindrive.ai"],
@@ -164,7 +173,7 @@ export default function SandboxedAppFrame({
       setPendingHostAction({ title, detail, run, resolve, reject });
     });
     const hydrate = (message: BridgeEnvelope): BridgeEnvelope & {
-      app_id: "ai.braindrive.resume-builder";
+      app_id: string;
       installation_id: string;
       view_id: string;
       operation_id: string;
@@ -172,7 +181,7 @@ export default function SandboxedAppFrame({
     } => ({
       bridge_version: 1,
       message_id: message.message_id,
-      app_id: "ai.braindrive.resume-builder",
+      app_id: appId,
       installation_id: launch.installation_id,
       view_id: launch.view_id,
       operation_id: launch.operation_id,
@@ -183,21 +192,8 @@ export default function SandboxedAppFrame({
         : { ...(message.payload ?? {}), token_id: launch.bridge_token_id },
     });
     const handleLegacyMessage = async (message: BridgeEnvelope, signal: AbortSignal): Promise<unknown> => {
-      const isFactConfirmation = message.type === "capability.call" && message.payload?.capability === "career.facts.confirm";
-      const isDefinitionApproval = message.type === "capability.call" && message.payload?.capability === "resume.definitions.write" && message.payload.input?.kind === "approve_definition";
-      const isRevisionOwnerAction = message.type === "capability.call" && message.payload?.capability === "resume.definitions.write" && (
-        message.payload.input?.kind === "revision_proposal" && message.payload.input?.owner_outcome === "edit" ||
-        message.payload.input?.kind === "revision_outcome" && (
-          ["accepted", "rejected", "regenerate"].includes(String(message.payload.input?.state)) ||
-          message.payload.input?.state === "generating" && ["factual", "mixed"].includes(String(message.payload.input?.classification))
-        )
-      );
-      if (isFactConfirmation || isDefinitionApproval || isRevisionOwnerAction) {
-        const decisions = message.payload?.input?.decisions;
-        setAcceptedGroupRevisionIds(new Set(Array.isArray(decisions) ? decisions.flatMap((decision) => decision && typeof decision === "object" && typeof (decision as Record<string, unknown>).fact_revision_id === "string" ? [(decision as Record<string, unknown>).fact_revision_id as string] : []) : []));
-        return await new Promise((resolve, reject) => setPendingConfirmation({ message, resolve, reject }));
-      }
       if (signal.aborted) throw new DOMException("Cancelled", "AbortError");
+      if (message.type === "career.return" && appId !== "ai.braindrive.resume-builder") throw new Error("career_return_requires_trusted_app_adapter");
       if (message.type === "host.action") {
         const action = message.payload?.action;
         const value = message.payload?.value;
@@ -218,9 +214,10 @@ export default function SandboxedAppFrame({
         throw new Error("browser_action_denied");
       }
       if (message.type === "export.request") {
+        if (appId !== "ai.braindrive.resume-builder") throw new Error("export_requires_trusted_app_adapter");
         const requestedFormat = message.payload?.format === "text" ? "text" : "pdf";
         return await requestHostAction(requestedFormat === "text" ? "Export clean resume text?" : "Export resume PDF?", `BrainDrive will prepare the approved ${requestedFormat === "text" ? "clean text" : "PDF"} and initiate the host save flow. The app receives only a safe file label.`, async () => {
-          const response = await sendResumeBuilderBridgeMessage(launch.session_id, hydrate(message));
+          const response = await sendAppBridgeMessage(appKey, launch.session_id, hydrate(message));
           const result = (response as { result?: unknown }).result;
           const prepared = result as { artifact_revision_id?: unknown; artifact_digest?: unknown; safe_destination_label?: unknown };
           if (typeof prepared.artifact_revision_id !== "string" || typeof prepared.artifact_digest !== "string" || typeof prepared.safe_destination_label !== "string") {
@@ -245,16 +242,28 @@ export default function SandboxedAppFrame({
           }
         });
       }
-      const response = await sendResumeBuilderBridgeMessage(launch.session_id, hydrate(message));
-      const result = (response as { result?: unknown }).result;
-      if (message.type === "capability.call" && message.payload?.capability === "career.facts.propose") {
-        const fact = (result as { fact?: { metadata?: { record_id?: unknown }; value?: unknown } } | undefined)?.fact;
-        if (typeof fact?.metadata?.record_id === "string" && typeof fact.value === "string") ownerRecordsRef.current.set(fact.metadata.record_id, { label: "Confirm career fact", detail: ownerFactConfirmationDetail(fact.value) });
+      if (message.type === "capability.call" && typeof message.payload?.capability === "string" && message.payload.input) {
+        try {
+          const operationId = typeof message.payload.request_operation_id === "string" ? message.payload.request_operation_id : message.message_id;
+          const response = await callAppCapability(appKey, message.payload.capability, message.payload.input, operationId, false);
+          const result = response.result;
+          if (appId === "ai.braindrive.resume-builder" && message.payload.capability === "career.facts.propose") {
+            const fact = (result as { fact?: { metadata?: { record_id?: unknown }; value?: unknown } } | undefined)?.fact;
+            if (typeof fact?.metadata?.record_id === "string" && typeof fact.value === "string") ownerRecordsRef.current.set(fact.metadata.record_id, { label: "Confirm career fact", detail: ownerFactConfirmationDetail(fact.value) });
+          }
+          if (appId === "ai.braindrive.resume-builder" && message.payload.capability === "resume.definitions.write") {
+            const definition = (result as { definition?: { metadata?: { record_id?: unknown }; title?: unknown; statements?: unknown[] } } | undefined)?.definition;
+            if (typeof definition?.metadata?.record_id === "string" && typeof definition.title === "string") ownerRecordsRef.current.set(definition.metadata.record_id, { label: "Approve resume version", detail: `${definition.title} · ${definition.statements?.length ?? 0} statements` });
+          }
+          return response;
+        } catch (failure) {
+          if (!(failure instanceof AppCapabilityError) || !failure.confirmation || failure.capability !== message.payload.capability) throw failure;
+          const decisions = message.payload.input.decisions;
+          setAcceptedGroupRevisionIds(new Set(Array.isArray(decisions) ? decisions.flatMap((decision) => decision && typeof decision === "object" && typeof (decision as Record<string, unknown>).fact_revision_id === "string" ? [(decision as Record<string, unknown>).fact_revision_id as string] : []) : []));
+          return await new Promise((resolve, reject) => setPendingConfirmation({ message, presentation: failure.confirmation!, resolve, reject }));
+        }
       }
-      if (message.type === "capability.call" && message.payload?.capability === "resume.definitions.write") {
-        const definition = (result as { definition?: { metadata?: { record_id?: unknown }; title?: unknown; statements?: unknown[] } } | undefined)?.definition;
-        if (typeof definition?.metadata?.record_id === "string" && typeof definition.title === "string") ownerRecordsRef.current.set(definition.metadata.record_id, { label: "Approve resume version", detail: `${definition.title} · ${definition.statements?.length ?? 0} statements` });
-      }
+      const response = await sendAppBridgeMessage(appKey, launch.session_id, hydrate(message));
       return response;
     };
     const controller = new McpAppBridgeController({
@@ -262,11 +271,11 @@ export default function SandboxedAppFrame({
       proxyNonce,
       sendToProxy: (value) => frame.contentWindow?.postMessage(value, "*"),
       onToolCall: async (name, args, _context, signal) => {
-        const response = await sendResumeBuilderAppsBridgeMessage(launch, { jsonrpc: "2.0", id: secureRandomUuid(), method: "tools/call", params: { name, arguments: args } }, signal) as { result?: unknown };
+        const response = await sendAppAppsBridgeMessage(appKey, launch, { jsonrpc: "2.0", id: secureRandomUuid(), method: "tools/call", params: { name, arguments: args } }, signal) as { result?: unknown };
         return response.result;
       },
       onResourceRead: async (uri, _context, signal) => {
-        const response = await sendResumeBuilderAppsBridgeMessage(launch, { jsonrpc: "2.0", id: secureRandomUuid(), method: "resources/read", params: { uri } }, signal) as { result?: unknown };
+        const response = await sendAppAppsBridgeMessage(appKey, launch, { jsonrpc: "2.0", id: secureRandomUuid(), method: "resources/read", params: { uri } }, signal) as { result?: unknown };
         return response.result;
       },
       onOpenLink: (url) => requestHostAction("Open external link?", url, () => browserBroker.openLink(url, true, true)),
@@ -289,7 +298,7 @@ export default function SandboxedAppFrame({
     };
     window.addEventListener("message", onMessage);
     document.addEventListener("visibilitychange", onVisibility);
-    frame.src = createSandboxProxyUrl(proxyNonce);
+    frame.src = createSandboxProxyUrl(proxyNonce, appName);
     const connectionTimeout = window.setTimeout(() => {
       if (controller.state === "ready" || controller.state === "closed") return;
       setStatus("error");
@@ -307,27 +316,29 @@ export default function SandboxedAppFrame({
         if (!cleanupAbort.signal.aborted) close();
       });
     };
-  }, [launch, onOpenSettings, onSessionClosed]);
+  }, [appId, appKey, appName, launch, onOpenSettings, onSessionClosed]);
 
   const confirmationRecord = (() => {
     const input = pendingConfirmation?.message.payload?.input;
-    if (Array.isArray(input?.decisions)) return { label: "Review factual units from one answer", detail: `${input.decisions.length} factual unit${input.decisions.length === 1 ? "" : "s"} will be decided together. Uncheck any unit that should remain unconfirmed.` };
+    const label = pendingConfirmation?.presentation.title ?? "Review owner action";
+    if (Array.isArray(input?.decisions) && appId === "ai.braindrive.resume-builder") return { label, detail: `${input.decisions.length} factual unit${input.decisions.length === 1 ? "" : "s"} will be decided together. Uncheck any unit that should remain unconfirmed.` };
     const recordId = typeof input?.fact_record_id === "string" ? input.fact_record_id : typeof input?.definition_record_id === "string" ? input.definition_record_id : typeof input?.request_record_id === "string" ? input.request_record_id : "";
-    if (input?.kind === "revision_outcome" && input.state === "generating") return { label: "Confirm factual resume revision", detail: "BrainDrive will generate a proposal from the confirmed fact snapshot. This does not approve a resume version." };
-    if (input?.kind === "revision_outcome" && input.state === "accepted") return { label: "Accept revision proposal", detail: "The proposal will remain unapproved until you separately validate and approve the resume version." };
-    if (input?.kind === "revision_outcome" && input.state === "rejected") return { label: "Reject revision proposal", detail: "The approved source remains unchanged and the rejected proposal stays in owner history." };
-    if (input?.kind === "revision_outcome" && input.state === "regenerate") return { label: "Regenerate revision proposal", detail: "BrainDrive will keep the source and request, then make one bounded retry." };
-    if (input?.kind === "revision_proposal" && input.owner_outcome === "edit") return { label: "Save edited revision proposal", detail: "BrainDrive will validate the complete edited successor. Approval remains a separate owner action." };
-    if (input?.decision === "edit_and_accept" && typeof input.edited_value === "string") {
-      return { label: "Confirm corrected career information", detail: input.edited_value };
+    if (appId === "ai.braindrive.resume-builder" && input?.kind === "revision_outcome" && input.state === "generating") return { label, detail: "BrainDrive will generate a proposal from the confirmed fact snapshot. This does not approve a resume version." };
+    if (appId === "ai.braindrive.resume-builder" && input?.kind === "revision_outcome" && input.state === "accepted") return { label, detail: "The proposal will remain unapproved until you separately validate and approve the resume version." };
+    if (appId === "ai.braindrive.resume-builder" && input?.kind === "revision_outcome" && input.state === "rejected") return { label, detail: "The approved source remains unchanged and the rejected proposal stays in owner history." };
+    if (appId === "ai.braindrive.resume-builder" && input?.kind === "revision_outcome" && input.state === "regenerate") return { label, detail: "BrainDrive will keep the source and request, then make one bounded retry." };
+    if (appId === "ai.braindrive.resume-builder" && input?.kind === "revision_proposal" && input.owner_outcome === "edit") return { label, detail: "BrainDrive will validate the complete edited successor. Approval remains a separate owner action." };
+    if (appId === "ai.braindrive.resume-builder" && input?.decision === "edit_and_accept" && typeof input.edited_value === "string") {
+      return { label, detail: input.edited_value };
     }
-    if (input?.decision === "reject") {
-      return { label: "Remove this career information?", detail: "BrainDrive will stop using this item in new resume drafts. Its earlier confirmed version remains in history." };
+    if (appId === "ai.braindrive.resume-builder" && input?.decision === "reject") {
+      return { label, detail: "BrainDrive will stop using this item in new resume drafts. Its earlier confirmed version remains in history." };
     }
-    return ownerRecordsRef.current.get(recordId) ?? { label: "Confirm this owner action", detail: "BrainDrive will validate the saved record and reject stale or unsupported content." };
+    return { label, detail: ownerRecordsRef.current.get(recordId)?.detail ?? "BrainDrive will validate the saved record and reject stale or unsupported content." };
   })();
 
   const confirmationUnits = (() => {
+    if (appId !== "ai.braindrive.resume-builder") return [];
     const input = pendingConfirmation?.message.payload?.input;
     if (!Array.isArray(input?.decisions)) return [];
     return input.decisions.flatMap((candidate) => {
@@ -351,7 +362,8 @@ export default function SandboxedAppFrame({
     }
     try {
       const input = applyGroupedFactDecisions(message.message.payload.input, acceptedGroupRevisionIds);
-      const response = await callResumeBuilderCapability(message.message.payload.capability, input, message.message.message_id, true);
+      const operationId = typeof message.message.payload.request_operation_id === "string" ? message.message.payload.request_operation_id : message.message.message_id;
+      const response = await callAppCapability(appKey, message.message.payload.capability, input, operationId, true);
       message.resolve(response);
     } catch (requestError) {
       message.reject(requestError instanceof Error ? requestError : new Error("recoverable_internal_failure"));
@@ -411,7 +423,7 @@ export default function SandboxedAppFrame({
   };
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col" aria-label="Resume Builder app session">
+    <section className="flex min-h-0 flex-1 flex-col" aria-label={`${appName} app session`}>
       <div className="flex items-center justify-between border-b border-bd-border px-4 py-3 text-sm">
         <span role="status" aria-live="polite">{status === "loading" ? "Connecting securely…" : status === "ready" ? "App ready" : status === "reconnecting" ? "Reconnecting securely…" : status === "disabled" ? "App disabled" : status === "stopped" ? "App stopped" : "App unavailable"}</span>
         <div className="flex gap-2">
@@ -422,13 +434,13 @@ export default function SandboxedAppFrame({
       </div>
       {error ? <div role="alert" className="m-4 rounded-lg border border-bd-danger px-4 py-3 text-sm text-bd-text-primary">{error}</div> : null}
       {pendingConfirmation ? (
-        <div ref={dialogRef} role="dialog" tabIndex={-1} aria-modal="true" aria-labelledby="resume-owner-confirmation-title" aria-describedby="resume-owner-confirmation-detail resume-owner-confirmation-boundary" className="m-4 rounded-xl border border-bd-amber bg-bd-bg-secondary p-4 shadow-xl">
-          <h2 id="resume-owner-confirmation-title" className="font-heading text-lg font-semibold text-bd-text-heading">{confirmationRecord.label}</h2>
-          <p id="resume-owner-confirmation-detail" className="mt-2 text-sm text-bd-text-primary">{confirmationRecord.detail}</p>
+        <div ref={dialogRef} role="dialog" tabIndex={-1} aria-modal="true" aria-labelledby="app-owner-confirmation-title" aria-describedby="app-owner-confirmation-detail app-owner-confirmation-boundary" className="m-4 rounded-xl border border-bd-amber bg-bd-bg-secondary p-4 shadow-xl">
+          <h2 id="app-owner-confirmation-title" className="font-heading text-lg font-semibold text-bd-text-heading">{confirmationRecord.label}</h2>
+          <p id="app-owner-confirmation-detail" className="mt-2 text-sm text-bd-text-primary">{confirmationRecord.detail}</p>
           {confirmationUnits.length ? <fieldset className="mt-3 space-y-2"><legend className="sr-only">Choose factual units to confirm</legend>{confirmationUnits.map((unit) => <label key={unit.revisionId} className="flex items-start gap-2 rounded-lg border border-bd-border p-3 text-sm text-bd-text-primary"><input type="checkbox" className="mt-1" checked={acceptedGroupRevisionIds.has(unit.revisionId)} onChange={(event) => setAcceptedGroupRevisionIds((current) => { const next = new Set(current); if (event.target.checked) next.add(unit.revisionId); else next.delete(unit.revisionId); return next; })} /><span>{unit.detail}</span></label>)}</fieldset> : null}
-          <p id="resume-owner-confirmation-boundary" className="mt-2 text-xs text-bd-text-secondary">This host-owned confirmation prevents the sandboxed app from approving facts or resume versions by itself. Press Escape to cancel and return to the app.</p>
+          <p id="app-owner-confirmation-boundary" className="mt-2 text-xs text-bd-text-secondary">This host-owned confirmation prevents sandboxed app content from approving an owner result by itself. Press Escape to cancel and return to the app.</p>
           <div className="mt-4 flex flex-wrap gap-2">
-            <button ref={confirmButtonRef} type="button" onClick={() => void completeConfirmation(true)} className="rounded-lg bg-bd-amber px-4 py-2 font-semibold text-bd-bg-primary">Confirm</button>
+            <button ref={confirmButtonRef} type="button" onClick={() => void completeConfirmation(true)} className="rounded-lg bg-bd-amber px-4 py-2 font-semibold text-bd-bg-primary">{pendingConfirmation.presentation.actionLabel}</button>
             <button type="button" onClick={() => void completeConfirmation(false)} className="rounded-lg border border-bd-border px-4 py-2 text-bd-text-primary">Cancel</button>
           </div>
         </div>
@@ -446,7 +458,7 @@ export default function SandboxedAppFrame({
       ) : null}
       <iframe
         ref={frameRef}
-        title="Resume Builder sandbox proxy"
+        title={`${appName} sandbox proxy`}
         sandbox={OUTER_PROXY_SANDBOX}
         referrerPolicy="no-referrer"
         allow={VIEW_PERMISSION_POLICY}

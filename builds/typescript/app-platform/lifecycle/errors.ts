@@ -11,6 +11,8 @@ export const AppPlatformErrorCodeSchema = z.enum([
   "validation_failed",
   "recoverable_internal_failure",
   "ambiguous_runtime_state",
+  "active_app_limit_reached",
+  "app_not_found",
   "duplicate_identity",
   "grant_approval_required",
   "grant_missing",
@@ -27,6 +29,7 @@ export const AppPlatformErrorCodeSchema = z.enum([
   "package_archive_invalid",
   "package_cache_missing",
   "package_inventory_invalid",
+  "package_identity_mismatch",
   "package_manifest_invalid",
   "package_not_found",
   "package_oversized",
@@ -71,7 +74,7 @@ export class AppPlatformError extends Error {
     public readonly code: AppPlatformErrorCode,
     message: string,
     public readonly statusCode = 409,
-    public readonly details: { currentRevision?: number } = {},
+    public readonly details: { currentRevision?: number; [key: string]: unknown } = {},
   ) {
     super(message);
     this.name = "AppPlatformError";

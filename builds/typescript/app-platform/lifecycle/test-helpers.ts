@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import { CapabilityTokenBroker } from "./capability-token.js";
-import { createFixtureRepository } from "./fixture-repository.js";
+import { createFixtureRepository, createSyntheticFirstPartyFixtureRepository } from "./fixture-repository.js";
 import { PackageVerifier, type VerifiedPackage } from "./package-verifier.js";
 import { InMemoryAppSupervisor, type RuntimeLaunchDescriptor } from "./process-supervisor.js";
 import { AppLifecycleService, type LifecycleDependencies } from "./service.js";
@@ -51,13 +51,17 @@ export function makeRuntimeDescriptor(verified: VerifiedPackage): RuntimeLaunchD
   };
 }
 
-export async function createLifecycleHarness(root: string) {
-  const store = new AppLifecycleStore(path.join(root, "state"));
-  const repository = await createFixtureRepository(path.join(root, "source"));
+export async function createLifecycleHarness(root: string, app?: { appId: string; routeKey: string; displayName: string }) {
+  const appId = app?.appId ?? "ai.braindrive.resume-builder";
+  const store = new AppLifecycleStore(path.join(root, "state"), { appId });
+  const repository = app
+    ? await createSyntheticFirstPartyFixtureRepository(path.join(root, "source"), [{ ...app, version: "1.0.0" }])
+    : await createFixtureRepository(path.join(root, "source"));
   const supervisor = new InMemoryAppSupervisor();
   const tokenBroker = new CapabilityTokenBroker();
   const ownerDataRoot = path.join(root, "owner-data");
   const dependencies: LifecycleDependencies = {
+    appIdentity: { appId, publisherId: "ai.braindrive" },
     store,
     repository,
     verifier: new PackageVerifier("26.7.23"),
@@ -65,6 +69,13 @@ export async function createLifecycleHarness(root: string) {
     tokenBroker,
     runtimeRoot: path.join(root, "runtime"),
     ownerDataRoot,
+    ownerDataLifecycle: {
+      retainedClasses: app
+        ? ["app_owner_data", "lifecycle_tombstone"]
+        : ["career_data", "resume_history", "job_history", "artifact_metadata", "owner_exports", "lifecycle_tombstone"],
+      prepareActivation: async () => undefined,
+      cleanupDefaultUninstall: async () => undefined,
+    },
   };
   const service = new AppLifecycleService(dependencies);
   await service.initialize();

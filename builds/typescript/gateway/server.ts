@@ -8,10 +8,20 @@ import Fastify from "fastify";
 import type { FastifyReply } from "fastify";
 import { z } from "zod";
 
-import { createAppLifecycle, type AppLifecycleRuntimeTarget } from "../app-platform/lifecycle/bootstrap.js";
-import { registerAppLifecycleRoutes } from "../app-platform/lifecycle/routes.js";
+import { createAppLifecycle, createBriefAppLifecycle, type AppLifecycleRuntimeTarget } from "../app-platform/lifecycle/bootstrap.js";
+import { createAppLifecycleRoutePlatform, registerAppLifecycleRoutes } from "../app-platform/lifecycle/routes.js";
 import { AppMcpHost } from "../app-platform/mcp-host/app-host.js";
-import { registerAppMcpHostRoutes } from "../app-platform/mcp-host/routes.js";
+import { BriefAppHostAdapter } from "../app-platform/mcp-host/brief-host-adapter.js";
+import { ResumeAppHostAdapter } from "../app-platform/mcp-host/resume-host-adapter.js";
+import { createAppMcpHostRoutePlatform, registerAppMcpHostRoutes } from "../app-platform/mcp-host/routes.js";
+import { BriefDataStore } from "../brief-domain/store.js";
+import { BriefDomainService } from "../brief-domain/service.js";
+import { BriefInferenceBroker } from "../brief-inference/broker.js";
+import { createLiveBriefProviderResolver } from "../brief-inference/compatibility.js";
+import { createBriefCapabilityRegistrations } from "../app-capabilities/brief-registry.js";
+import { AppInferenceDispatcher } from "../app-inference/dispatcher.js";
+import { AppInferencePurposeRegistry } from "../app-inference/registry.js";
+import { createBriefInferencePurposeRegistration } from "../app-inference/brief-registration.js";
 import { CareerPlacementAdapter } from "../resume-domain/career.js";
 import { ResumeCapabilityPolicy } from "../resume-domain/capability-policy.js";
 import { ResumeCapabilityRouter } from "../resume-domain/capabilities.js";
@@ -272,8 +282,11 @@ const BASE_PUBLIC_ROUTES = new Set([
   "/auth/signup",
   "/auth/login",
   "/auth/refresh",
-  "/internal/apps/resume-builder/capabilities",
 ]);
+
+function isPrivateAppCapabilityRoute(path: string): boolean {
+  return /^\/internal\/apps\/[a-z0-9]+(?:-[a-z0-9]+)*\/capabilities$/.test(path);
+}
 
 const MANAGED_PROXY_ROUTES = new Set([
   "/account",
@@ -458,7 +471,18 @@ export async function buildServer(rootDir = process.cwd()) {
         isMemoryMigrationInProgress: () => migrationInProgress,
       })
     : null;
+  const briefLifecycleService = appLifecycleService
+    ? await createBriefAppLifecycle({
+        memoryRoot: runtimeConfig.memory_root,
+        hostVersion: appVersion,
+        stateRoot: process.env.BRAINDRIVE_APP_STATE_ROOT?.trim() || undefined,
+        target: readAppLifecycleTarget(process.env.BRAINDRIVE_APP_PLATFORM_TARGET),
+        ownerActorId: authState.actor_id,
+        isMemoryMigrationInProgress: () => migrationInProgress,
+      })
+    : null;
   let appMcpHost: AppMcpHost | null = null;
+  let briefMcpHost: AppMcpHost | null = null;
   const publishedDocumentProviders: PublishedProjectDocumentProvider[] = [];
   if (appLifecycleService) {
     const resumeDataStore = new ResumeDataStore(runtimeConfig.memory_root, appLifecycleService.dependencies.ownerDataRoot);
@@ -484,13 +508,29 @@ export async function buildServer(rootDir = process.cwd()) {
           compatibility,
         });
     const inferenceBroker = new ResumeInferenceBroker(inferenceResolver, auditLog);
-    appMcpHost = new AppMcpHost(appLifecycleService, {
+    appMcpHost = new AppMcpHost(new ResumeAppHostAdapter(appLifecycleService, {
       audit: auditLog,
       capabilityRouter,
       inferenceBroker,
       snapshotBuilder: new ImmutableInferenceSnapshotBuilder(resumeDataStore),
       exportBroker,
-    });
+    }));
+    const briefDataStore = new BriefDataStore(runtimeConfig.memory_root, briefLifecycleService!.dependencies.ownerDataRoot);
+    const briefProviderResolver = process.env.BRAINDRIVE_E2E_BRIEF_INFERENCE_FIXTURE === "1"
+      ? async () => ({
+        providerProfileId: "synthetic-brief-workflow-fixture", modelId: "synthetic-brief-contract-model", compatibility: "brief_structured_no_tools_v1" as const,
+        adapter: { completeStructuredNoTools: async ({ user, signal }: { user: string; signal: AbortSignal }) => {
+          if (signal.aborted) throw new Error("cancelled");
+          const parsed = JSON.parse(user) as { source: string };
+          const quote = parsed.source.split(/(?<=[.!?])\s+/)[0]?.trim() || parsed.source.trim();
+          return { text: JSON.stringify({ title: "Owner source brief", statements: [{ statement_id: randomUUID(), text: quote, support: { kind: "source_quote", quote } }] }), finishReason: "stop" as const };
+        } },
+      })
+      : createLiveBriefProviderResolver({ adapterName: runtimeConfig.provider_adapter, adapterConfig, loadPreferences: loadLivePreferences });
+    const briefInference = new BriefInferenceBroker(briefProviderResolver, auditLog);
+    const briefDomain = new BriefDomainService(briefDataStore);
+    const briefInferenceDispatcher = new AppInferenceDispatcher(new AppInferencePurposeRegistry([createBriefInferencePurposeRegistration(briefInference)]), Date.now, auditLog);
+    briefMcpHost = new AppMcpHost(BriefAppHostAdapter.create(briefLifecycleService!, createBriefCapabilityRegistrations(briefDomain, briefInferenceDispatcher), auditLog));
   }
   if (appLifecycleService) {
     auditLog("app_platform.lifecycle.enabled", {
@@ -500,7 +540,9 @@ export async function buildServer(rootDir = process.cwd()) {
     });
     app.addHook("onClose", async () => {
       await appMcpHost?.closeAll();
+      await briefMcpHost?.closeAll();
       await appLifecycleService.dependencies.supervisor.close();
+      await briefLifecycleService?.dependencies.supervisor.close();
     });
   }
 
@@ -741,7 +783,7 @@ export async function buildServer(rootDir = process.cwd()) {
 
   app.addHook("preHandler", async (request, reply) => {
     const requestPath = stripQueryString(request.url);
-    if (publicRoutes.has(requestPath)) {
+    if (publicRoutes.has(requestPath) || isPrivateAppCapabilityRoute(requestPath)) {
       return;
     }
 
@@ -775,8 +817,14 @@ export async function buildServer(rootDir = process.cwd()) {
   });
 
   if (appLifecycleService) {
-    registerAppLifecycleRoutes(app, appLifecycleService);
-    registerAppMcpHostRoutes(app, appMcpHost!);
+    registerAppLifecycleRoutes(app, createAppLifecycleRoutePlatform([
+      { routeKey: "resume-builder", displayName: "Resume Builder", publisherName: "BrainDrive", availableVersion: "4.0.0", service: appLifecycleService },
+      { routeKey: "brief-builder", displayName: "Brief Builder", publisherName: "BrainDrive", availableVersion: "1.0.0", service: briefLifecycleService! },
+    ], 2));
+    registerAppMcpHostRoutes(app, createAppMcpHostRoutePlatform([
+      { appId: appMcpHost!.appId, routeKey: appMcpHost!.routeKey, host: appMcpHost! },
+      { appId: briefMcpHost!.appId, routeKey: briefMcpHost!.routeKey, host: briefMcpHost! },
+    ]));
   }
 
   app.post("/message", async (request, reply) => {

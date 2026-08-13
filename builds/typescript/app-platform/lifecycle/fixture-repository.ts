@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { canonicalJson, canonicalJsonDocumentDigest, canonicalSignedBytes } from "../contracts/common.js";
+import { GenericPackageManifestSchema } from "../contracts/app-registry.js";
 import type { z } from "zod";
 import {
   PackageDescriptorSchema,
@@ -28,14 +29,117 @@ export type FixtureRepository = {
   sourceIndexPath: string;
   revocationListPath: string;
   packages: Record<string, { archivePath: string; descriptorPath: string }>;
+  packagesByAppVersion?: Record<string, { archivePath: string; descriptorPath: string }>;
   authoritiesByVersion?: Record<string, {
+    trustRootPath: string;
+    sourceIndexPath: string;
+    revocationListPath: string;
+  }>;
+  authoritiesByAppVersion?: Record<string, {
     trustRootPath: string;
     sourceIndexPath: string;
     revocationListPath: string;
   }>;
   signer?: (domain: string, payload: unknown) => string;
   releaseKeyId?: string;
+  signersByAppVersion?: Record<string, (domain: string, payload: unknown) => string>;
+  releaseKeyIdsByAppVersion?: Record<string, string>;
 };
+
+export type SyntheticFirstPartyFixture = {
+  appId: string;
+  routeKey: string;
+  displayName: string;
+  version: string;
+  resourceHtml?: string;
+  requestedCapabilities?: readonly string[];
+  requestedInferencePurposes?: readonly { purpose_id: string; version: number }[];
+};
+
+function appVersionKey(appId: string, version: string): string {
+  return `${appId}@${version}`;
+}
+
+/** Creates task-owned signed generic fixtures; it is not a public package source. */
+export async function createSyntheticFirstPartyFixtureRepository(
+  root: string,
+  apps: readonly SyntheticFirstPartyFixture[],
+): Promise<FixtureRepository> {
+  const packagesByAppVersion: NonNullable<FixtureRepository["packagesByAppVersion"]> = {};
+  const authoritiesByAppVersion: NonNullable<FixtureRepository["authoritiesByAppVersion"]> = {};
+  const signersByAppVersion: NonNullable<FixtureRepository["signersByAppVersion"]> = {};
+  const releaseKeyIdsByAppVersion: NonNullable<FixtureRepository["releaseKeyIdsByAppVersion"]> = {};
+  for (const app of apps) {
+    const appRoot = path.join(root, app.routeKey, app.version);
+    await mkdir(appRoot, { recursive: true });
+    const rootPair = generateKeyPairSync("ed25519");
+    const releasePair = generateKeyPairSync("ed25519");
+    const rootKeyId = `braindrive-app-root-${app.routeKey}-2026`;
+    const releaseKeyId = `braindrive-app-release-${app.routeKey}-2026`;
+    const signWith = (privateKey: typeof rootPair.privateKey, domain: string, payload: unknown) =>
+      sign(null, Buffer.from(canonicalSignedBytes(domain, payload), "utf8"), privateKey).toString("base64");
+    const releaseSigner = (domain: string, payload: unknown) => signWith(releasePair.privateKey, domain, payload);
+    const releaseKey = {
+      key_version: 1 as const, key_id: releaseKeyId, algorithm: "ed25519" as const,
+      public_key: rawPublicKey(releasePair.publicKey), not_before: "2026-01-01T00:00:00.000Z",
+      not_after: "2036-01-01T00:00:00.000Z", status: "active" as const,
+      authorization: { signature_version: 1 as const, domain_separator: "BrainDrive-App-Release-Key-v1" as const, canonicalization: "braindrive-canonical-json-v1" as const, signature_algorithm: "ed25519" as const, signing_key_id: rootKeyId, signature: "" },
+    };
+    releaseKey.authorization.signature = signWith(rootPair.privateKey, releaseKey.authorization.domain_separator, releaseKeyAuthorizationPayload(releaseKey));
+    const trustRoot = TrustRootSchema.parse({ trust_root_version: 1, trust_domain: "braindrive-app-release", root_key: { key_id: rootKeyId, algorithm: "ed25519", public_key: rawPublicKey(rootPair.publicKey), status: "active" }, threshold: 1, release_keys: [releaseKey] });
+    const trustRootPath = path.join(appRoot, "trust-root.json");
+    await writeJson(trustRootPath, trustRoot);
+
+    const uiHtml = app.resourceHtml ?? `<main>${app.displayName}</main>`;
+    const ui = Buffer.from(uiHtml, "utf8");
+    const files = new Map<string, Buffer>([
+      ["payload/docker/index.js", Buffer.from(syntheticFirstPartyServer(app, uiHtml), "utf8")],
+      ["payload/ui/main.html", ui],
+      ["provenance/build.jsonl", Buffer.from(`${canonicalJson({ builder: "braindrive-synthetic-fixture", version: app.version, source: "repository" })}\n`, "utf8")],
+      ["sbom/cyclonedx.json", Buffer.from(`${canonicalJson({ bomFormat: "CycloneDX", specVersion: "1.6", version: 1, components: [] })}\n`, "utf8")],
+    ]);
+    const manifest = GenericPackageManifestSchema.parse({
+      manifest_version: 2, app_id: app.appId, publisher_id: "ai.braindrive", package_version: app.version,
+      catalog: { display_name: app.displayName, summary: `Create owner-controlled ${app.displayName.toLowerCase()} content.`, icon: null, retention_summary: `${app.displayName} owner data is retained after uninstall.` },
+      archive: { format: "zip", profile: "braindrive-zip-v1", compression: "store", layout_version: 1, manifest_path: "manifest.json", undeclared_entries: "reject", links_and_device_nodes: "reject", max_file_count: 256, max_compressed_bytes: 67_108_864, max_uncompressed_bytes: 268_435_456 },
+      files: [...files].map(([filePath, bytes]) => ({ path: filePath, kind: "file", mode: filePath.endsWith("/index.js") ? "executable" : "read_only", size_bytes: bytes.length, digest: digest(bytes) })).sort((a, b) => a.path.localeCompare(b.path)),
+      platform_artifacts: [
+        { target: "docker_linux_x64", os: "linux", architecture: "x64", runtime_kind: "packaged_node", entrypoint: "payload/docker/index.js" },
+        { target: "desktop_windows_x64", os: "windows", architecture: "x64", runtime_kind: "packaged_node", entrypoint: "payload/docker/index.js" },
+      ],
+      compatibility: { app_contract: 1, host_min_version: "26.7.23", mcp_protocol: "2026-07-28", mcp_apps: { extension_id: "io.modelcontextprotocol/ui", version: "2026-01-26" }, data_contract_version: 1 },
+      primary_resource: { resource_version: 1, uri: `ui://${app.routeKey}/main`, package_path: "payload/ui/main.html", mime_type: "text/html;profile=mcp-app", content_digest: digest(ui) },
+      requested_capabilities: (app.requestedCapabilities ?? ["career.context.read"]).map((name) => ({ name, version: 1 })),
+      requested_inference_purposes: app.requestedInferencePurposes ?? [], provenance_path: "provenance/build.jsonl", sbom_path: "sbom/cyclonedx.json", retention_policy: "retain_owner_data_remove_runtime_authority",
+    });
+    const archive = createStoredZip([{ name: "manifest.json", bytes: Buffer.from(`${canonicalJson(manifest)}\n`), executable: false }, ...[...files].map(([name, bytes]) => ({ name, bytes, executable: name.endsWith("/index.js") }))]);
+    const archivePath = path.join(appRoot, `${app.version}.bdapp`);
+    await writeFile(archivePath, archive, { mode: 0o644 });
+    const publishedAt = new Date().toISOString();
+    const descriptorPayload = { descriptor_version: 2 as const, manifest, manifest_digest: canonicalJsonDocumentDigest(manifest), archive: { media_type: "application/vnd.braindrive.app+zip" as const, byte_length: archive.length, digest: digest(archive) }, published_at: publishedAt };
+    const descriptor = { payload: descriptorPayload, signature: { signature_version: 1 as const, domain_separator: "BrainDrive-App-Package-v1" as const, canonicalization: "braindrive-canonical-json-v1" as const, signature_algorithm: "ed25519" as const, signing_key_id: releaseKeyId, signature: releaseSigner("BrainDrive-App-Package-v1", descriptorPayload) } };
+    const descriptorPath = path.join(appRoot, `${app.version}.descriptor.json`);
+    await writeJson(descriptorPath, descriptor);
+    const sourcePayload = { index_version: 2 as const, sequence: 1, prior_index_digest: null, published_at: publishedAt, entries: [{ app_id: app.appId, publisher_id: "ai.braindrive", package_version: app.version, descriptor_digest: canonicalJsonDocumentDigest(descriptor), archive_digest: digest(archive), targets: ["docker_linux_x64", "desktop_windows_x64"], sources: [{ environment: "docker_dev", kind: "repository_fixture", descriptor_fixture_id: `${app.routeKey}-${app.version}-descriptor`, archive_fixture_id: `${app.routeKey}-${app.version}-archive` }, { environment: "desktop_windows", kind: "release_https", descriptor_url: `https://releases.braindrive.ai/apps/${app.routeKey}/${app.version}.descriptor.json`, archive_url: `https://releases.braindrive.ai/apps/${app.routeKey}/${app.version}.bdapp` }] }] };
+    const sourceIndex = { payload: sourcePayload, signature: { signature_version: 1 as const, domain_separator: "BrainDrive-App-Source-Index-v1" as const, canonicalization: "braindrive-canonical-json-v1" as const, signature_algorithm: "ed25519" as const, signing_key_id: releaseKeyId, signature: releaseSigner("BrainDrive-App-Source-Index-v1", sourcePayload) } };
+    const sourceIndexPath = path.join(appRoot, "source-index.json");
+    await writeJson(sourceIndexPath, sourceIndex);
+    const revocationPayload = { revocation_version: 2 as const, sequence: 1, prior_list_digest: null, issued_at: publishedAt, next_update_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(), entries: [] };
+    const revocations = { payload: revocationPayload, signature: { signature_version: 1 as const, domain_separator: "BrainDrive-App-Revocations-v1" as const, canonicalization: "braindrive-canonical-json-v1" as const, signature_algorithm: "ed25519" as const, signing_key_id: releaseKeyId, signature: releaseSigner("BrainDrive-App-Revocations-v1", revocationPayload) } };
+    const revocationListPath = path.join(appRoot, "revocations.json");
+    await writeJson(revocationListPath, revocations);
+    const key = appVersionKey(app.appId, app.version);
+    packagesByAppVersion[key] = { archivePath, descriptorPath };
+    authoritiesByAppVersion[key] = { trustRootPath, sourceIndexPath, revocationListPath };
+    signersByAppVersion[key] = releaseSigner;
+    releaseKeyIdsByAppVersion[key] = releaseKeyId;
+  }
+  const first = apps[0];
+  if (!first) throw new AppPlatformError("package_not_found", "Synthetic first-party fixture catalog is empty");
+  const firstKey = appVersionKey(first.appId, first.version);
+  const firstAuthority = authoritiesByAppVersion[firstKey]!;
+  return { root, ...firstAuthority, packages: {}, packagesByAppVersion, authoritiesByAppVersion, signersByAppVersion, releaseKeyIdsByAppVersion };
+}
 
 export const MODERN_FIXTURE_VERSION = "4.0.0" as const;
 export const MODERN_FIXTURE_CAPABILITIES = [
@@ -69,6 +173,38 @@ server.listen(port, host, () => process.stdout.write(JSON.stringify({event:"fixt
 const stop = () => server.close(() => process.exit(0));
 process.on("SIGTERM", stop); process.on("SIGINT", stop);
 `;
+
+function syntheticFirstPartyServer(app: SyntheticFirstPartyFixture, appHtml: string): string {
+  const uri = `ui://${app.routeKey}/main`;
+  return `import http from "node:http";
+const token = process.env.BRAINDRIVE_APP_CONNECTION_TOKEN;
+const host = "127.0.0.1";
+const port = Number((process.env.BRAINDRIVE_ENDPOINT_BIND || "127.0.0.1:0").split(":").at(-1));
+const appHtml = ${JSON.stringify(appHtml)};
+const uri = ${JSON.stringify(uri)};
+const send = (response, id, result) => { response.writeHead(200, {"content-type":"application/json"}); response.end(JSON.stringify({jsonrpc:"2.0",id,result})); };
+const server = http.createServer((request, response) => {
+  if (request.headers.authorization !== "Bearer " + token) { response.writeHead(401).end(); return; }
+  if (request.url === "/healthz") { response.writeHead(200, {"content-type":"application/json"}); response.end(JSON.stringify({status:"ok",service:"fixture-mcp",app_id:process.env.BRAINDRIVE_APP_ID})); return; }
+  if (request.url !== "/mcp" || request.method !== "POST") { response.writeHead(404).end(); return; }
+  let body = "";
+  request.on("data", (chunk) => { body += chunk; if (body.length > 262144) request.destroy(); });
+  request.on("end", () => {
+    let message; try { message = JSON.parse(body); } catch { response.writeHead(400).end(); return; }
+    if (message.method === "server/discover") { send(response, message.id, {supportedVersions:["2026-07-28"],capabilities:{tools:{listChanged:false},resources:{listChanged:false},extensions:{"io.modelcontextprotocol/ui":{mimeTypes:["text/html;profile=mcp-app"]}}},_meta:{"io.modelcontextprotocol/ui":{version:"2026-01-26"},"io.modelcontextprotocol/serverInfo":{name:${JSON.stringify(`${app.routeKey}-fixture`)},version:${JSON.stringify(app.version)}}}}); return; }
+    if (message.method === "resources/list") { send(response, message.id, {resultType:"complete",ttlMs:0,cacheScope:"private",resources:[{uri,name:${JSON.stringify(app.displayName)},title:${JSON.stringify(app.displayName)},description:${JSON.stringify(`Sandboxed owner ${app.displayName} workflow`)},mimeType:"text/html;profile=mcp-app",size:Buffer.byteLength(appHtml),_meta:{"io.modelcontextprotocol/ui":{version:"2026-01-26"},cachePolicy:"immutable_package_digest"}}]}); return; }
+    if (message.method === "resources/templates/list") { send(response, message.id, {resultType:"complete",ttlMs:0,cacheScope:"private",resourceTemplates:[]}); return; }
+    if (message.method === "resources/read" && message.params?.uri === uri) { send(response, message.id, {resultType:"complete",ttlMs:0,cacheScope:"private",contents:[{uri,mimeType:"text/html;profile=mcp-app",text:appHtml,_meta:{"io.modelcontextprotocol/ui":{version:"2026-01-26"},cachePolicy:"immutable_package_digest"}}]}); return; }
+    if (message.method === "tools/list") { send(response, message.id, {resultType:"complete",ttlMs:0,cacheScope:"private",tools:[{name:"fixture.status",description:"Return the fixture host status",inputSchema:{type:"object",properties:{},additionalProperties:false},_meta:{ui:{visibility:["app"]}}}]}); return; }
+    if (message.method === "tools/call" && message.params?.name === "fixture.status") { send(response, message.id, {resultType:"complete",content:[{type:"text",text:"Fixture ready",annotations:{audience:["user"],priority:1}},{type:"resource_link",name:${JSON.stringify(`${app.routeKey}-ui`)},uri,mimeType:"text/html;profile=mcp-app",size:Buffer.byteLength(appHtml),_meta:{visibility:"app"}}],structuredContent:{ready:true,version:${JSON.stringify(app.version)}},_meta:{"io.modelcontextprotocol/ui":{resourceUri:uri,visibility:["app"]}},isError:false}); return; }
+    response.writeHead(404, {"content-type":"application/json"}); response.end(JSON.stringify({jsonrpc:"2.0",id:message.id,error:{code:-32601,message:"Method not found"}}));
+  });
+});
+server.listen(port, host, () => process.stdout.write(JSON.stringify({event:"fixture.ready"}) + "\\n"));
+const stop = () => server.close(() => process.exit(0));
+process.on("SIGTERM", stop); process.on("SIGINT", stop);
+`;
+}
 
 function modernFixtureServer(appHtml: string, version: string): string {
   return `import http from "node:http";
@@ -308,7 +444,21 @@ async function loadOrCreateFixtureSource(root: string, versions: string[], autho
   return { root, trustRootPath: path.join(root, "trust-root.json"), sourceIndexPath, revocationListPath, packages, signer: releaseSigner, releaseKeyId };
 }
 
-export async function revokeFixtureVersion(repository: FixtureRepository, version: string): Promise<void> {
+export async function revokeFixtureVersion(repository: FixtureRepository, version: string, appId = "ai.braindrive.resume-builder"): Promise<void> {
+  const key = appVersionKey(appId, version);
+  const genericSigner = repository.signersByAppVersion?.[key];
+  const genericReleaseKeyId = repository.releaseKeyIdsByAppVersion?.[key];
+  if (genericSigner && genericReleaseKeyId) {
+    const authority = repository.authoritiesByAppVersion?.[key];
+    const packagePaths = repository.packagesByAppVersion?.[key];
+    if (!authority || !packagePaths) throw new Error("Fixture authority is incomplete");
+    const descriptor = JSON.parse(await readFile(packagePaths.descriptorPath, "utf8")) as { payload: { archive: { digest: string } } };
+    const prior = JSON.parse(await readFile(authority.revocationListPath, "utf8")) as { payload: { sequence: number } };
+    const revokedAt = new Date().toISOString();
+    const payload = { revocation_version: 2 as const, sequence: prior.payload.sequence + 1, prior_list_digest: null, issued_at: revokedAt, next_update_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(), entries: [{ revocation_id: crypto.randomUUID(), publisher_id: "ai.braindrive", app_id: appId, match: { kind: "package_digest", package_digest: descriptor.payload.archive.digest }, reason_code: "critical_defect", revoked_at: revokedAt }] };
+    await writeJson(authority.revocationListPath, { payload, signature: { signature_version: 1, domain_separator: "BrainDrive-App-Revocations-v1", canonicalization: "braindrive-canonical-json-v1", signature_algorithm: "ed25519", signing_key_id: genericReleaseKeyId, signature: genericSigner("BrainDrive-App-Revocations-v1", payload) } });
+    return;
+  }
   if (!repository.signer || !repository.releaseKeyId) throw new Error("Fixture signing authority is unavailable after restart");
   const descriptor = PackageDescriptorSchema.parse(JSON.parse(await readFile(repository.packages[version].descriptorPath, "utf8")));
   const prior = RevocationListSchema.parse(JSON.parse(await readFile(repository.revocationListPath, "utf8")));

@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createFixtureRepository, MODERN_FIXTURE_VERSION, revokeFixtureVersion } from "./fixture-repository.js";
+import { createFixtureRepository, createSyntheticFirstPartyFixtureRepository, MODERN_FIXTURE_VERSION, revokeFixtureVersion } from "./fixture-repository.js";
 import { PackageVerifier } from "./package-verifier.js";
 
 const roots: string[] = [];
@@ -21,6 +21,80 @@ async function setup() {
 }
 
 describe("signed fixture package verification", () => {
+  it("keys same-version packages by verified app identity and rejects every expected-identity mismatch before extraction", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-package-multi-app-"));
+    roots.push(root);
+    const repository = await createSyntheticFirstPartyFixtureRepository(path.join(root, "source"), [
+      { appId: "ai.braindrive.resume-builder", routeKey: "resume-builder", displayName: "Resume Builder", version: "5.0.0" },
+      { appId: "ai.braindrive.brief-builder", routeKey: "brief-builder", displayName: "Brief Builder", version: "5.0.0" },
+    ]);
+    const verifier = new PackageVerifier("26.7.23");
+
+    const catalogPackage = await verifier.verifyForCatalog(repository, "5.0.0", {
+      appId: "ai.braindrive.brief-builder", publisherId: "ai.braindrive",
+    });
+    expect(catalogPackage).toMatchObject({ manifest: { app_id: "ai.braindrive.brief-builder", package_version: "5.0.0" }, trust: { executable_allowed: true } });
+    expect(catalogPackage).not.toHaveProperty("entrypoint");
+    expect(catalogPackage).not.toHaveProperty("packageRoot");
+
+    const resume = await verifier.verifyAndExtract(repository, "5.0.0", path.join(root, "resume-stage"), "candidate_install_or_update", {
+      appId: "ai.braindrive.resume-builder", publisherId: "ai.braindrive",
+    });
+    const brief = await verifier.verifyAndExtract(repository, "5.0.0", path.join(root, "brief-stage"), "candidate_install_or_update", {
+      appId: "ai.braindrive.brief-builder", publisherId: "ai.braindrive",
+    });
+    expect([resume.manifest.app_id, brief.manifest.app_id]).toEqual([
+      "ai.braindrive.resume-builder", "ai.braindrive.brief-builder",
+    ]);
+    expect(repository.packagesByAppVersion?.["ai.braindrive.resume-builder@5.0.0"]?.archivePath)
+      .not.toBe(repository.packagesByAppVersion?.["ai.braindrive.brief-builder@5.0.0"]?.archivePath);
+
+    const resumeKey = "ai.braindrive.resume-builder@5.0.0";
+    const briefKey = "ai.braindrive.brief-builder@5.0.0";
+    repository.packagesByAppVersion![resumeKey] = repository.packagesByAppVersion![briefKey]!;
+    await expect(verifier.verifyAndExtract(repository, "5.0.0", path.join(root, "collision-stage"), "candidate_install_or_update", {
+      appId: "ai.braindrive.resume-builder", publisherId: "ai.braindrive",
+    })).rejects.toMatchObject({ code: "package_signature_invalid" });
+    await expect(readFile(path.join(root, "collision-stage", "payload", "docker", "index.js"))).rejects.toThrow();
+
+    await expect(verifier.verifyAndExtract(repository, "5.0.0", path.join(root, "mismatch-stage"), "candidate_install_or_update", {
+      appId: "ai.braindrive.unknown-builder", publisherId: "ai.braindrive",
+    })).rejects.toMatchObject({ code: "package_not_found" });
+    await expect(readFile(path.join(root, "mismatch-stage", "payload", "docker", "index.js"))).rejects.toThrow();
+
+    repository.packages["5.0.0"] = repository.packagesByAppVersion![briefKey]!;
+    repository.authoritiesByVersion = { "5.0.0": repository.authoritiesByAppVersion![briefKey]! };
+    await expect(verifier.verifyAndExtract(repository, "5.0.0", path.join(root, "no-version-fallback-stage"), "candidate_install_or_update", {
+      appId: "ai.braindrive.unknown-builder", publisherId: "ai.braindrive",
+    })).rejects.toMatchObject({ code: "package_not_found" });
+    await expect(readFile(path.join(root, "no-version-fallback-stage", "payload", "docker", "index.js"))).rejects.toThrow();
+  });
+
+  it("rejects unsafe catalog presentation before signing or catalog projection", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-package-unsafe-catalog-"));
+    roots.push(root);
+    await expect(createSyntheticFirstPartyFixtureRepository(path.join(root, "source"), [
+      { appId: "ai.braindrive.unsafe-builder", routeKey: "unsafe-builder", displayName: "<script>unsafe</script>", version: "1.0.0" },
+    ])).rejects.toThrow();
+  });
+
+  it("applies revocation to the exact app/version authority when versions collide", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-package-app-revocation-"));
+    roots.push(root);
+    const repository = await createSyntheticFirstPartyFixtureRepository(path.join(root, "source"), [
+      { appId: "ai.braindrive.resume-builder", routeKey: "resume-builder", displayName: "Resume Builder", version: "6.0.0" },
+      { appId: "ai.braindrive.brief-builder", routeKey: "brief-builder", displayName: "Brief Builder", version: "6.0.0" },
+    ]);
+    await revokeFixtureVersion(repository, "6.0.0", "ai.braindrive.brief-builder");
+    const verifier = new PackageVerifier("26.7.23");
+    await expect(verifier.verifyAndExtract(repository, "6.0.0", path.join(root, "brief-stage"), "candidate_install_or_update", {
+      appId: "ai.braindrive.brief-builder", publisherId: "ai.braindrive",
+    })).rejects.toMatchObject({ code: "package_revoked" });
+    await expect(verifier.verifyAndExtract(repository, "6.0.0", path.join(root, "resume-stage"), "candidate_install_or_update", {
+      appId: "ai.braindrive.resume-builder", publisherId: "ai.braindrive",
+    })).resolves.toMatchObject({ manifest: { app_id: "ai.braindrive.resume-builder" } });
+  });
+
   it("stores each bundled modern release under an immutable version-specific authority", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-package-release-authority-"));
     roots.push(root);

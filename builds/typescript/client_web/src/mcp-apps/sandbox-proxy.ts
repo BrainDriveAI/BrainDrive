@@ -80,10 +80,12 @@ export function createSafeHostContext(
   };
 }
 
-export function createSandboxProxyUrl(proxyNonce: string): string {
+export function createSandboxProxyUrl(proxyNonce: string, appName = "App"): string {
   if (!/^[A-Za-z0-9._~-]{16,256}$/.test(proxyNonce)) {
     throw new Error("sandbox_proxy_nonce_invalid");
   }
+  const safeAppName = typeof appName === "string" && appName.length > 0 && appName.length <= 80 ? appName : "App";
+  const safeTitleLiteral = JSON.stringify(safeAppName).replaceAll("<", "\\u003c").replaceAll(">", "\\u003e").replaceAll("&", "\\u0026");
   const documentText = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="referrer" content="no-referrer">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src 'self' data: blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
@@ -107,7 +109,7 @@ addEventListener("message",event=>{
       if(!params||typeof params.html!=="string"||params.sandbox!=="allow-scripts")return;
       if(view)view.remove();
       view=document.createElement("iframe");
-      view.title="Resume Builder";
+view.title=${safeTitleLiteral};
       view.setAttribute("sandbox","allow-scripts");
       view.setAttribute("allow","camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'; fullscreen 'none'");
       view.referrerPolicy="no-referrer";

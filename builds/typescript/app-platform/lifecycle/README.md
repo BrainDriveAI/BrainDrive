@@ -10,27 +10,31 @@ The dormant Spec 04 Milestone 3 verified-install kernel is documented in `M3-VER
 
 The dormant Spec 04 Milestone 2 persistence kernel is documented in `M2-DURABLE-STATE.md`. Its `LifecycleStateMachine`, versioned `LifecycleStore`, lease, journal, reconciler, and allowlisted diagnostics have no package-verification, process, gateway, MCP, capability, or owner-memory adapter. The runtime/service material described below is pre-existing later-milestone branch capability and is not imported by that kernel.
 
-This directory is the Milestone 2 runtime boundary for the accepted Resume Builder specifications. It can install and supervise only the signed repository fixture for `ai.braindrive.resume-builder`; it is not a marketplace, a general plugin SDK, or the Resume Builder workflow.
+This directory is the lifecycle/runtime boundary for trusted first-party apps. Spec 08 adds host-derived per-registration lifecycle, idempotency, runtime, and owner-data roots, a reviewed generic data-adapter interface, app/version-keyed first-party package authority, and one parameterized lifecycle route family. The active gateway registers the reviewed Resume Builder and Brief Builder first-party packages through the same platform. This internal-beta proof is not a marketplace, public SDK/ABI, arbitrary package loader, third-party distribution path, or app workflow.
 
 The gateway enables this boundary only when `BRAINDRIVE_APP_PLATFORM_ENABLED=true`. Docker development selects `docker_linux_x64` and persists host-owned installation state at `BRAINDRIVE_APP_STATE_ROOT=/data/app-platform`. Packaged Windows selects `desktop_windows_x64` and uses its Tauri platform data root. Owner career data remains in the separate logical namespace below the configured memory root. Lifecycle policy reaches it only through the narrow `OwnerDataLifecycle` validation/cleanup interface: default uninstall removes abandoned transient stages but retains every durable owner record.
 
 ## Runtime boundaries
 
-- `fixture-repository.ts` generates the legacy version-1/version-2 stored-ZIP fixtures and the independently signed modern MCP Apps fixture, currently Resume Builder `4.0.0`. The modern fixture keeps the same capability set, reads Resume data schemas 1–2, and writes schema 2; legacy fixtures remain schema-1-only for downgrade refusal evidence. Each source uses an ephemeral Ed25519 test authority on first initialization. Only public trust metadata, signed descriptors/index/revocations, archives, SBOM, and provenance are written. No private signing material is stored or logged.
-- `package-verifier.ts` validates the trust root and release-key authorization, source index, descriptor signature, archive digest/length, canonical manifest, complete file inventory, host compatibility, and signed revocation state before extraction. Explicit revocation fails closed.
-- `store.ts` persists the version-1 lifecycle record, version-1 operation journal, grants, verified package metadata, and idempotent results with file/directory sync plus atomic rename. Lifecycle updates require an exact generation compare-and-swap.
+- `fixture-repository.ts` generates the legacy stored-ZIP fixtures, the independently signed modern Resume fixture, and task-owned generic two-app fixtures. Authorities and package paths are indexed by `(app_id, package_version)`, so equal versions cannot collide. Each source uses an ephemeral Ed25519 test authority on first initialization. Only public trust metadata, signed descriptors/index/revocations, archives, SBOM, and provenance are written. No private signing material is stored or logged.
+- `package-verifier.ts` receives the expected registered app/publisher identity and validates it through package lookup, source entry, signed descriptor, canonical archive manifest, target, and signed revocation state before extraction. It also validates the trust root and release-key authorization, archive digest/length, complete file inventory, and host compatibility. Explicit revocation and every identity disagreement fail closed.
+- `store.ts` persists the version-1 lifecycle record, version-1 operation journal, grants, verified package metadata, app-scoped idempotent results, uninstall evidence, and explicit-data-deletion records with file/directory sync plus atomic rename. One app-scoped mutation lock prevents lifecycle work from overlapping retained-data deletion. A durable `prepared` deletion record blocks lifecycle activation after a fault or restart until the exact operation retries and becomes `committed`. Lifecycle updates require an exact generation compare-and-swap and exact registered app identity.
 - `capability-token.ts` issues random, short-lived, audience/install/package/grant/operation-bound one-use tokens. Only token hashes are retained in process memory; disable, update, uninstall, quarantine, crash recovery, and shutdown rotate or revoke authority.
 - `process-supervisor.ts` is the bounded process adapter shared by Docker and packaged Windows. It launches one verified Node entrypoint per active installation, provides only the five allowlisted environment values, authenticates health/MCP access, caps captured output accounting, uses bounded readiness/stop time, and exhausts after three crash restarts with 1/2/4-second policy defaults. Docker reports container-internal transport; Windows reports random authenticated loopback transport.
-- `service.ts` implements install, disable, enable, update, rollback, uninstall/reinstall, cancellation, quarantine, last-known-good retention, and restart reconciliation. It validates retained-data compatibility before package activation/restart and invokes bounded transient cleanup after runtime authority is revoked. The active registry pointer changes only after readiness succeeds.
-- `owner-data.ts` is the narrow host-owned compatibility/cleanup interface. The Resume Builder adapter is implemented in `resume-domain/lifecycle.ts`; lifecycle code does not gain generic memory traversal or deletion authority.
+- `service.ts` implements install, disable, enable, update, rollback, uninstall/reinstall, cancellation, quarantine, last-known-good retention, restart reconciliation, and separately confirmed retained-data deletion. Identity is injected from a validated registration; lifecycle operations and idempotency authority bind that app and installation. It validates retained-data compatibility before package activation/restart and invokes bounded transient cleanup after runtime authority is revoked. The active registry pointer changes only after readiness succeeds.
+- `platform.ts` creates one context per validated first-party registration. Roots are derived solely from the canonical host route key at `state/apps/<route-key>`, `runtime/apps/<route-key>`, and `memory/apps/<route-key>`; manifest/client paths are never accepted.
+- `owner-data.ts` is the narrow host-owned generic data lifecycle interface and adapter-binding/backup-identity gate. Default uninstall retains durable data. Explicit deletion requires trusted owner confirmation bound to the app, is allowed only in `not_installed`, invokes only that app's reviewed adapter, and atomically records content-free app-scoped intent before adapter work. Adapter or final-write failure retains the prepared record for exact idempotent recovery; activation remains unavailable until the committed tombstone is durable.
+- `state-migration.ts` migrates only synthetic/current Resume control-plane JSON from the singleton `state/registry` layout. It validates bounded Resume records, retains a verified pre-migration snapshot, copies to a temporary app root, compares canonical tree digests, atomically renames, and writes a receipt. Missing, repeated, exact partial, corrupt, and conflicting layouts have deterministic safe outcomes. It never receives or traverses the owner-data root.
 - `errors.ts` freezes the lifecycle operation error-code vocabulary as an executable Zod enum; unknown codes fail contract validation.
-- `routes.ts` exposes owner-administration APIs below `/apps/resume-builder`. DTOs omit host paths, connection tokens (except the explicit owner session response), raw package metadata, credentials, and content.
+- `routes.ts` resolves the canonical `:appKey` before request-body or app-state work and exposes one owner-administration handler family below `/apps/:appKey`. `/apps` is sorted by route key and projects only sanitized manifest facts after read-only, app/version-bound verification plus host registration/lifecycle state. Catalog verification checks signatures, identity joins, compatibility, revocation, archive digest, and inventory but does not extract, stage, start, or inspect owner data. Failed verification produces a deterministic unavailable status and no install, launch, update, enable, or recover action. Manifests cannot supply host action labels or executable bindings. Retention classes derive from the reviewed manifest policy; Resume-specific class names are emitted only for Resume Builder. Activation admission is serialized and fail-closed at two active/activating first-party apps. Existing per-process one-CPU/512-MiB containment and three-restart budget are unchanged. DTOs omit host paths, connection tokens (except the explicit owner session response), raw package metadata, credentials, and content.
 
 The existing static MCP configuration and tool registry remain unchanged. The authenticated modern MCP Apps host is documented in `../mcp-host/README.md`; data, inference, and renderer authorities remain in their dedicated modules. Tauri owns only staging, platform configuration, native process-tree containment, and the native save chooser, not a duplicate lifecycle policy.
 
 ## Durable layout and migration
 
-The host state root contains `fixture-source/`, `state/registry/`, and `runtime/`. A missing registry initializes lifecycle schema version 1 in `not_installed`; an invalid or unknown existing record fails startup rather than downgrading or overwriting it. There is no prior app registry to migrate in this repository. Version-1 records are validated by the accepted M1 Zod contracts on every read/write. Package paths are internal references and never enter owner DTOs or content-free lifecycle audit events.
+The host state root contains shared safe fixture/package primitives plus app-scoped `state/apps/<route-key>/registry/` and `runtime/apps/<route-key>/` roots. Owner data remains separately rooted at `memory/apps/<route-key>/`. A missing app registry initializes lifecycle schema version 1 in `not_installed`; an invalid, mismatched, or unknown existing record fails startup rather than downgrading or overwriting it. Version-1 records are validated by the accepted contracts on every read/write. Package paths are internal references and never enter owner DTOs or content-free lifecycle audit events.
+
+On Resume startup, a legacy `state/registry/` tree is treated as immutable migration source evidence. The migration preserves lifecycle generation, installation, package, grant, operation, and idempotency records byte-for-byte beneath the new Resume app root; the receipt binds source, snapshot, and destination digests. An exact destination without a receipt is recovered by receipt completion. Any digest disagreement blocks Resume activation and leaves both layouts intact. Rollback after migration restores code plus the verified pre-migration control snapshot; owner data is never rolled back or reset. Downgrade after new app-scoped writes remains unsupported.
 
 Restart reconciliation applies durable intent:
 
@@ -46,21 +50,15 @@ Install, reinstall, enable, update, rollback, and active restart must first sati
 
 All routes pass through the existing gateway transport and owner authentication hooks, then require `administration` authority:
 
-- `GET /apps/resume-builder`
 - `GET /apps`
-- `GET /apps/resume-builder/status`
-- `GET /apps/resume-builder/inspect`
-- `POST /apps/resume-builder/install`
-- `POST /apps/resume-builder/reinstall`
-- `POST /apps/resume-builder/disable`
-- `POST /apps/resume-builder/enable`
-- `POST /apps/resume-builder/update`
-- `POST /apps/resume-builder/rollback`
-- `POST /apps/resume-builder/uninstall`
-- `POST /apps/resume-builder/recover`
-- `GET /apps/resume-builder/operations/:operationId`
-- `POST /apps/resume-builder/operations/:operationId/cancel`
-- `POST /apps/resume-builder/session`
+- `GET /apps/:appKey`, `/status`, or `/inspect`
+- `POST /apps/:appKey/install`, `/reinstall`, `/disable`, `/enable`, `/update`, `/rollback`, `/uninstall`, or `/recover`
+- `GET /apps/:appKey/operations/:operationId`
+- `POST /apps/:appKey/operations/:operationId/cancel`
+- `POST /apps/:appKey/session`
+- `POST /apps/:appKey/data/delete`
+
+`resume-builder` and `brief-builder` are registered values of the generic route parameter, not separately registered lifecycle aliases. The maintained web adapter exports only app-key-parameterized lifecycle functions; no Resume-only lifecycle endpoint remains.
 
 Mutation bodies carry an owner-generated UUID `operation_id`, a 16–256 character `idempotency_key`, and `expected_generation`. Installed-state actions also carry the exact `installation_id`; install/reinstall require it to be `null`. Install/update/reinstall carry the exact fixture `version` and an explicit capability decision. Uninstall additionally requires `confirm_retained_data: true`. Equivalent retries return the stored committed result; stale generations, cross-install targets, and identity reuse with different input fail before mutation.
 
@@ -77,3 +75,5 @@ Mutation bodies carry an owner-generated UUID `operation_id`, a 16–256 charact
 | REQ-002–REQ-003, REQ-010, REQ-022–REQ-030, REQ-035–REQ-038, REQ-040 | `app-lifecycle.m6.test.ts`, `routes.integration.test.ts`, client adapter/component tests: owner/install/generation binding, stable safe DTOs, selective restart-safe cleanup, retained hashes, fresh identities, transport ambiguity, confirmation/focus, and support-bundle redaction |
 
 Focused verification from `builds/typescript` is `npm run test -- app-platform/lifecycle`. `desktop-parity.test.ts` runs the same lifecycle sequence against both accepted runtime targets and checks that no supervised process remains after disable, uninstall, or shutdown. The milestone gate also requires the full runtime/MCP/web/resume package checks, Compose validation, a controlled live Docker lifecycle/restart/shutdown exercise, and actual build/install/live evidence on the selected native Windows target.
+
+The reviewed Brief Builder service uses the same verifier, immutable package store, process supervisor, app-scoped state, restart budget, and generic route family as Resume Builder. Its signed `1.0.0` package declares Docker Linux x64 and desktop Windows x64 artifacts, while its adapter reports and retains only Brief owner data, approved revision history, and lifecycle evidence on uninstall.

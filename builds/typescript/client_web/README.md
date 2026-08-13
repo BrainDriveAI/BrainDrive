@@ -110,6 +110,8 @@ The client is wired to the current gateway and desktop runtime:
 
 Keep gateway request and response normalization inside `src/api/`. Components should consume adapter or hook interfaces rather than constructing backend URLs directly.
 
+The Apps surface loads the deterministic host catalog from `/api/apps` and renders every verified first-party entry through one card component. Lifecycle and session calls use the host route key from that catalog; card text remains plain React text, privileged controls come only from `available_actions`, and per-app busy/error/session state cannot disable an unrelated card. The sandbox frame keeps the opaque-origin proxy, CSP, nonce/window checks, and bridge limits while labeling the selected app generically. Consequential capability confirmations use a host-authored capability identity/title/action projection. Resume export, Career return, and model-settings recovery remain explicit trusted Resume adapters and are not inherited by other apps.
+
 ## Runtime Modes
 
 `App.tsx` loads runtime configuration before choosing the auth and application flow:
@@ -201,3 +203,5 @@ Use focused Vitest runs while iterating, then run the complete web suite before 
 ## License
 
 BrainDrive is licensed under the [MIT License](../../../LICENSE).
+
+The generic sandbox confirmation dialog consumes host-reviewed presentation for both first-party apps. Brief Builder's product workflow remains inside its signed one-screen package; the shell contributes only app-keyed transport, isolation, and owner confirmation.

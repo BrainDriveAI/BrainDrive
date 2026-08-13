@@ -1,10 +1,11 @@
-import { readFile, readdir } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { readFile, readdir, realpath, stat } from "node:fs/promises";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
 import { assertContentFreeAudit, AuditEventSchema } from "./audit.js";
+import { AppIdentitySchema, GenericPackageManifestSchema } from "./app-registry.js";
 import { canonicalInputDigest, canonicalJson, COMPATIBILITY_MATRIX, CompatibilityMatrixSchema } from "./common.js";
 import {
   ArtifactRecordSchema,
@@ -130,6 +131,24 @@ describe("versioned contract authorities", () => {
     expect(result.content.map((item) => item.type)).toEqual(["text", "resource_link", "resource"]);
     expect(result.structuredContent).toEqual({ ready: true });
     expect(result._meta).toBeDefined();
+  });
+
+  it("freezes the Spec 08 generic identity and manifest-authority fixture corpus", async () => {
+    const corpus = await fixture("spec-08/m1-contract-corpus.json") as {
+      corpus_version: number;
+      valid_identities: unknown[];
+      invalid_identities: unknown[];
+      forbidden_manifest_authority_fields: string[];
+    };
+    expect(corpus.corpus_version).toBe(1);
+    expect(corpus.valid_identities.map((identity) => AppIdentitySchema.parse(identity))).toHaveLength(2);
+    for (const identity of corpus.invalid_identities) expect(AppIdentitySchema.safeParse(identity).success).toBe(false);
+    expect(corpus.forbidden_manifest_authority_fields).toEqual([
+      "handler", "handler_name", "module", "module_path", "import_name", "data_adapter", "inference_policy",
+    ]);
+    for (const field of corpus.forbidden_manifest_authority_fields) {
+      expect(GenericPackageManifestSchema.safeParse({ manifest_version: 2, [field]: "host.internal.execute" }).success).toBe(false);
+    }
   });
 
   it("rejects unknown authority fields while preserving explicit durable extensions", async () => {
@@ -476,6 +495,92 @@ describe("JSON Schema and traceability artifacts", () => {
     expect(releaseReport).toContain("**HOLD — not ready for release approval.**");
     expect(releaseReport).toContain("contracts/fixtures/acceptance-evidence.json");
     expect(releaseReport).toContain("INV-13 blocked");
+  });
+
+  it("maps all 44 Spec 08 requirements and fails release acceptance closed on missing environment or human evidence", async () => {
+    const matrix = await fixture("spec-08/m8-requirement-evidence.json") as {
+      evidence_version: number;
+      milestone: number;
+      candidate: { state: string; immutable_source_revision: string | null; source_candidate_proof: string | null };
+      mapping_convention: {
+        relative_path_base: string;
+        repository_root_prefixes: string[];
+        named_evidence: string[];
+      };
+      evidence_classes: Record<string, string>;
+      overall_disposition: "pass" | "hold";
+      hold_reasons: string[];
+      requirements: Array<{
+        id: string;
+        code: string[];
+        tests: string[];
+        evidence: string[];
+        disposition: string;
+      }>;
+    };
+    expect(matrix.evidence_version).toBe(1);
+    expect(matrix.milestone).toBe(8);
+    expect(matrix.requirements.map(({ id }) => id)).toEqual(
+      Array.from({ length: 44 }, (_, index) => `APP8-REQ-${String(index + 1).padStart(3, "0")}`),
+    );
+    expect(new Set(matrix.requirements.map(({ id }) => id)).size).toBe(44);
+    const repositoryRoot = resolve(directory, "../../../..");
+    const relativePathBase = resolve(repositoryRoot, matrix.mapping_convention.relative_path_base);
+    expect(matrix.mapping_convention.relative_path_base).toBe("builds/typescript");
+    expect(matrix.mapping_convention.repository_root_prefixes).toEqual(["builds/", "docs/", "installer/", "tools/"]);
+    expect(matrix.mapping_convention.named_evidence).toEqual(["static forbidden-surface audit"]);
+    const namedEvidence = new Set(matrix.mapping_convention.named_evidence);
+    let mappingCount = 0;
+    for (const requirement of matrix.requirements) {
+      expect(requirement.code.length, `${requirement.id}: code`).toBeGreaterThan(0);
+      expect(requirement.tests.length, `${requirement.id}: tests`).toBeGreaterThan(0);
+      expect(requirement.evidence.length, `${requirement.id}: evidence`).toBeGreaterThan(0);
+      for (const evidence of requirement.evidence) {
+        expect(matrix.evidence_classes[evidence], `${requirement.id}: ${evidence}`).toBeTypeOf("string");
+      }
+      expect(requirement.disposition, requirement.id).toMatch(/^(automated_pass|environment_hold|human_hold|environment_human_hold|evidence_identity_hold)$/);
+      for (const reference of [...requirement.code, ...requirement.tests]) {
+        mappingCount += 1;
+        if (namedEvidence.has(reference)) continue;
+        expect(reference, `${requirement.id}: mapping must be relative`).not.toBe("");
+        expect(isAbsolute(reference), `${requirement.id}: ${reference}`).toBe(false);
+        expect(reference.includes("\\"), `${requirement.id}: ${reference}`).toBe(false);
+        const base = matrix.mapping_convention.repository_root_prefixes.some((prefix) => reference.startsWith(prefix))
+          ? repositoryRoot
+          : relativePathBase;
+        const candidate = resolve(base, reference);
+        const candidateRelative = relative(repositoryRoot, candidate);
+        expect(candidateRelative === ".." || candidateRelative.startsWith(`..${sep}`), `${requirement.id}: ${reference}`).toBe(false);
+        const resolved = await realpath(candidate);
+        const resolvedRelative = relative(repositoryRoot, resolved);
+        expect(resolvedRelative === ".." || resolvedRelative.startsWith(`..${sep}`), `${requirement.id}: ${reference}`).toBe(false);
+        await expect(stat(resolved), `${requirement.id}: ${reference}`).resolves.toBeTruthy();
+      }
+    }
+    expect(mappingCount).toBe(181);
+    const requiredOutstandingHolds = ["native_windows", "brief_live_human", "resume_human", "release_evidence"];
+    if (matrix.candidate.state === "pre_freeze_working_tree_hold") {
+      expect(matrix.candidate).toMatchObject({ immutable_source_revision: null, source_candidate_proof: null });
+      expect(matrix.hold_reasons).toEqual(["immutable_candidate", ...requiredOutstandingHolds]);
+      expect(matrix.evidence_classes.immutable_candidate).toMatch(/^blocked/);
+    } else {
+      expect(matrix.candidate.state).toBe("post_freeze_evidence_bound_hold");
+      expect(matrix.candidate.immutable_source_revision).toMatch(/^[0-9a-f]{40}$/);
+      expect(matrix.candidate.source_candidate_proof).toMatch(/^source-candidate sha256 [0-9a-f]{64}; entries \d+; revision [0-9a-f]{40}$/);
+      expect(matrix.candidate.source_candidate_proof).toContain(`; revision ${matrix.candidate.immutable_source_revision}`);
+      expect(matrix.hold_reasons).toEqual(requiredOutstandingHolds);
+      expect(matrix.evidence_classes.immutable_candidate).toMatch(/^satisfied:/);
+    }
+    for (const hold of requiredOutstandingHolds) expect(matrix.evidence_classes[hold]).toMatch(/^blocked:/);
+    expect(matrix.requirements.filter(({ disposition }) => disposition !== "automated_pass").map(({ id }) => id)).toEqual([
+      "APP8-REQ-009",
+      "APP8-REQ-027",
+      "APP8-REQ-038",
+      "APP8-REQ-041",
+      "APP8-REQ-042",
+      "APP8-REQ-043",
+    ]);
+    expect(matrix.overall_disposition).toBe("hold");
   });
 
   it("accepts only the content-free audit schema", () => {

@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CareerPlacementAdapter } from "../../resume-domain/career.js";
 import { canonicalInputDigest } from "../contracts/common.js";
 import { ResumeCapabilityRouter } from "../../resume-domain/capabilities.js";
-import { issueHostOwnerCapabilityAuthorization, ResumeCapabilityPolicy } from "../../resume-domain/capability-policy.js";
+import { ResumeCapabilityPolicy } from "../../resume-domain/capability-policy.js";
 import { ResumeDomainService } from "../../resume-domain/service.js";
 import { ResumeDataStore } from "../../resume-domain/store.js";
 import { authority, ownerDecision, proposalInput } from "../../resume-domain/test-helpers.js";
@@ -17,6 +17,7 @@ import type { ModelAdapter } from "../../adapters/base.js";
 import { MODERN_FIXTURE_VERSION } from "../lifecycle/fixture-repository.js";
 import { createLifecycleHarness } from "../lifecycle/test-helpers.js";
 import { AppMcpHost } from "./app-host.js";
+import { ResumeAppHostAdapter } from "./resume-host-adapter.js";
 import { ModernMcpAppsClient, identityForRuntime, type McpWireTransport } from "./modern-client.js";
 
 const html = "<!doctype html><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; connect-src 'none'; form-action 'none'\"><main>Fixture</main>";
@@ -75,8 +76,7 @@ describe("M4 capability bridge", () => {
       },
     };
     const broker = new ResumeInferenceBroker(async () => ({ providerProfileId: "owner-profile", providerId: "ollama", modelId: "local-model", modelClass: "owner_active_compatible", adapter }));
-    const host = new AppMcpHost(harness.service, { capabilityRouter: router, inferenceBroker: broker, snapshotBuilder: new ImmutableInferenceSnapshotBuilder(store), clientFactory: (connection) => new ModernMcpAppsClient(new FixtureTransport(), identityForRuntime(connection)) });
-    const ownerAuthorization = issueHostOwnerCapabilityAuthorization("owner");
+    const host = new AppMcpHost(new ResumeAppHostAdapter(harness.service, { capabilityRouter: router, inferenceBroker: broker, snapshotBuilder: new ImmutableInferenceSnapshotBuilder(store), clientFactory: (connection) => new ModernMcpAppsClient(new FixtureTransport(), identityForRuntime(connection, { appId: harness.service.appId, publisherId: harness.service.publisherId, serverId: "resume-builder" })) }));
     const launch = await host.launch();
     expect(launch.allowed_capabilities).not.toContain("career.facts.confirm");
     expect(launch.allowed_capabilities).toContain("resume.export.request");
@@ -148,9 +148,9 @@ describe("M4 capability bridge", () => {
     expect(inference).toMatchObject({ status: "capability_completed", result: {
       inference_contract_version: 1,
       status: "completed",
+      model_class: "owner_active_compatible",
       provider_profile_id: "owner-profile",
       model_id: "local-model",
-      model_class: "owner_active_compatible",
       events: [{ event: "progress" }, { event: "completed" }],
     } });
     expect(JSON.stringify(inference)).not.toMatch(/api_key|endpoint|prompt_body|authorization|secret_ref|"provider_id":"ollama"/);
@@ -163,7 +163,7 @@ describe("M4 capability bridge", () => {
       providerProfileId: "different-profile", providerId: "openrouter", modelId: "different-model",
       modelClass: "owner_active_compatible", adapter: { async complete() { throw new Error("agent path prohibited"); }, completeStructuredNoTools: reconnectProviderCall },
     }));
-    const reconnectHost = new AppMcpHost(harness.service, { capabilityRouter: router, inferenceBroker: reconnectBroker, snapshotBuilder: new ImmutableInferenceSnapshotBuilder(store), clientFactory: (connection) => new ModernMcpAppsClient(new FixtureTransport(), identityForRuntime(connection)) });
+    const reconnectHost = new AppMcpHost(new ResumeAppHostAdapter(harness.service, { capabilityRouter: router, inferenceBroker: reconnectBroker, snapshotBuilder: new ImmutableInferenceSnapshotBuilder(store), clientFactory: (connection) => new ModernMcpAppsClient(new FixtureTransport(), identityForRuntime(connection, { appId: harness.service.appId, publisherId: harness.service.publisherId, serverId: "resume-builder" })) }));
     const reconnectLaunch = await reconnectHost.launch();
     const reconnectMessage = {
       bridge_version: 1, message_id: crypto.randomUUID(), app_id: "ai.braindrive.resume-builder",
@@ -183,7 +183,7 @@ describe("M4 capability bridge", () => {
     await expect(host.handleBridge(launch.session_id, cancel(crypto.randomUUID()), { origin: "null", sourceMatches: true })).rejects.toMatchObject({ code: "bridge_denied" });
     await expect(host.handleBridge(launch.session_id, message("career.facts.confirm", {}), { origin: "null", sourceMatches: true })).rejects.toMatchObject({ code: "bridge_denied" });
 
-    const proposed = await host.handleOwnerCapability("career.facts.propose", proposalInput(), crypto.randomUUID(), false, ownerAuthorization) as {
+    const proposed = await host.handleOwnerCapability("career.facts.propose", proposalInput(), crypto.randomUUID(), false, "owner") as {
       fact: { metadata: { record_id: string; revision_id: string; revision: number } };
     };
     const confirmationOperation = crypto.randomUUID();
@@ -195,8 +195,11 @@ describe("M4 capability bridge", () => {
       edited_value: null,
       review_note: null,
     };
-    await expect(host.handleOwnerCapability("career.facts.confirm", confirmationInput, confirmationOperation, false, ownerAuthorization)).rejects.toMatchObject({ code: "denied" });
-    const confirmed = await host.handleOwnerCapability("career.facts.confirm", confirmationInput, confirmationOperation, true, ownerAuthorization) as {
+    await expect(host.handleOwnerCapability("career.facts.confirm", confirmationInput, confirmationOperation, false, "owner")).rejects.toMatchObject({
+      code: "denied",
+      details: { confirmation: { title: "Confirm career fact", actionLabel: "Confirm" } },
+    });
+    const confirmed = await host.handleOwnerCapability("career.facts.confirm", confirmationInput, confirmationOperation, true, "owner") as {
       fact: { state: string; confirmation: { operation_id: string; input_revision_id: string; host_mediated: boolean } };
       reused: boolean;
     };
@@ -211,11 +214,11 @@ describe("M4 capability bridge", () => {
       },
       reused: false,
     });
-    await expect(host.handleOwnerCapability("career.facts.confirm", confirmationInput, confirmationOperation, true, ownerAuthorization)).resolves.toMatchObject({ reused: true });
+    await expect(host.handleOwnerCapability("career.facts.confirm", confirmationInput, confirmationOperation, true, "owner")).resolves.toMatchObject({ reused: true });
 
     const groupedProposals = await Promise.all([
-      host.handleOwnerCapability("career.facts.propose", proposalInput("First factual unit from one submission"), crypto.randomUUID(), false, ownerAuthorization),
-      host.handleOwnerCapability("career.facts.propose", proposalInput("Second factual unit from one submission"), crypto.randomUUID(), false, ownerAuthorization),
+      host.handleOwnerCapability("career.facts.propose", proposalInput("First factual unit from one submission"), crypto.randomUUID(), false, "owner"),
+      host.handleOwnerCapability("career.facts.propose", proposalInput("Second factual unit from one submission"), crypto.randomUUID(), false, "owner"),
     ]) as Array<{ fact: { metadata: { record_id: string; revision_id: string; revision: number } } }>;
     const groupedOperation = crypto.randomUUID();
     const groupedInput = {
@@ -228,11 +231,11 @@ describe("M4 capability bridge", () => {
         review_note: null,
       })),
     };
-    await expect(host.handleOwnerCapability("career.facts.confirm", groupedInput, groupedOperation, true, ownerAuthorization)).resolves.toMatchObject({
+    await expect(host.handleOwnerCapability("career.facts.confirm", groupedInput, groupedOperation, true, "owner")).resolves.toMatchObject({
       facts: [{ state: "confirmed", confirmation: { operation_id: groupedOperation } }, { state: "rejected", confirmation: { operation_id: groupedOperation } }],
       reused: false,
     });
-    await expect(host.handleOwnerCapability("career.facts.confirm", groupedInput, groupedOperation, true, ownerAuthorization)).resolves.toMatchObject({ reused: true });
+    await expect(host.handleOwnerCapability("career.facts.confirm", groupedInput, groupedOperation, true, "owner")).resolves.toMatchObject({ reused: true });
     expect(capabilityEvents.filter(({ event }) => event === "app.resume_confirmation.grouped")).toEqual([
       expect.objectContaining({ details: expect.objectContaining({ confirmation_group_count: 1, confirmation_unit_count: 2, used_evidence_count: 1, item_count: 2, timing_class: "human" }) }),
     ]);

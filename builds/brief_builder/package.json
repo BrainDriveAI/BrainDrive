@@ -1,0 +1,25 @@
+{
+  "name": "@braindrive/brief-builder",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Brief Builder sandbox workflow and first-party MCP Apps resource",
+  "license": "MIT",
+  "scripts": {
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "26.1.1",
+    "typescript": "6.0.3",
+    "vitest": "4.1.10"
+  },
+  "braindrive": {
+    "appId": "ai.braindrive.brief-builder",
+    "publisherId": "ai.braindrive",
+    "routeKey": "brief-builder",
+    "primaryResource": "ui://brief-builder/main",
+    "dataSchemaVersion": 1,
+    "inferencePurpose": "brief.generate@1"
+  }
+}

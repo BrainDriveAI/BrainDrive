@@ -8,7 +8,10 @@ import { PURPOSE_LIMITS, PURPOSE_OUTPUT_SCHEMAS } from "../app-platform/contract
 import { CapabilityOperationCoordinator } from "../app-capabilities/operations.js";
 import { testGrant } from "../resume-domain/test-helpers.js";
 import { RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION } from "../resume-inference/policy.js";
-import { AppInferenceCapability, buildProtectedInferenceRequest } from "./capability.js";
+import { ResumeAppInferenceAdapter, buildProtectedInferenceRequest } from "./resume-adapter.js";
+import { AppInferencePurposeRegistry } from "./registry.js";
+import { AppInferenceDispatcher } from "./dispatcher.js";
+import { z } from "zod";
 
 const FACTS = { facts: [] };
 
@@ -95,7 +98,7 @@ describe("M5 protected app inference capability", () => {
       },
       validation: null,
     }));
-    const capability = new AppInferenceCapability({ snapshotBuilder: { build }, broker: { execute, cancel: vi.fn() }, operations: new CapabilityOperationCoordinator({ now: () => Date.parse("2026-08-07T12:00:00.000Z") }) });
+    const capability = new ResumeAppInferenceAdapter({ snapshotBuilder: { build }, broker: { execute, cancel: vi.fn() }, operations: new CapabilityOperationCoordinator({ now: () => Date.parse("2026-08-07T12:00:00.000Z") }) });
     const context = { authority: authority(operationId, idempotencyKey), grant, operationId, idempotencyKey, deadlineAt: Date.parse("2026-08-07T12:01:00.000Z") };
     const [first, duplicate] = await Promise.all([capability.execute(invocation(operationId), context), capability.execute(invocation(operationId), context)]);
     expect(duplicate).toEqual(first);
@@ -104,12 +107,13 @@ describe("M5 protected app inference capability", () => {
     expect(first).toMatchObject({
       inference_contract_version: 1,
       status: "completed",
+      model_class: "owner_active_compatible",
       prompt_policy_id: "braindrive.resume-builder.fixed",
       prompt_policy_version: "8",
       input_digest: canonicalInputDigest(FACTS),
+      output_digest: canonicalInputDigest({ questions: [] }),
       provider_profile_id: "owner-profile",
       model_id: "owner-model",
-      model_class: "owner_active_compatible",
       usage: { available: true },
       events: [{ event: "progress" }, { event: "completed" }],
     });
@@ -134,7 +138,7 @@ describe("M5 protected app inference capability", () => {
       },
       validation: null,
     }));
-    const capability = new AppInferenceCapability({ snapshotBuilder: { build }, broker: { execute, cancel: vi.fn() }, operations: new CapabilityOperationCoordinator({ now: () => Date.parse("2026-08-07T12:00:00.000Z") }) });
+    const capability = new ResumeAppInferenceAdapter({ snapshotBuilder: { build }, broker: { execute, cancel: vi.fn() }, operations: new CapabilityOperationCoordinator({ now: () => Date.parse("2026-08-07T12:00:00.000Z") }) });
     const base = { authority: authority(operationId, idempotencyKey), operationId, idempotencyKey, deadlineAt: Date.parse("2026-08-07T12:01:00.000Z") };
     await expect(capability.execute(invocation(operationId), { ...base, grant: testGrant() })).rejects.toMatchObject({ code: "denied" });
     expect(build).not.toHaveBeenCalled();
@@ -143,11 +147,11 @@ describe("M5 protected app inference capability", () => {
     expect(failure).toMatchObject({
       status: "rejected_incompatible",
       model_class: null,
+      provider_profile_id: null,
+      model_id: null,
       error: { code: "model_incompatible", retryable: false, recovery: "open_model_settings" },
       events: [{ event: "progress" }, { event: "failed", error: { code: "model_incompatible" } }],
     });
-    expect(JSON.stringify(failure)).not.toContain("provider_profile_id");
-    expect(JSON.stringify(failure)).not.toContain("model_id");
   });
 
   it("does not return a completion when durable terminal persistence fails", async () => {
@@ -169,7 +173,7 @@ describe("M5 protected app inference capability", () => {
       await action();
       throw new Error("synthetic atomic persistence failure");
     });
-    const capability = new AppInferenceCapability({ snapshotBuilder: { build }, broker: { execute, cancel: vi.fn() }, persistResult, operations: new CapabilityOperationCoordinator({ now: () => Date.parse("2026-08-07T12:00:00.000Z") }) });
+    const capability = new ResumeAppInferenceAdapter({ snapshotBuilder: { build }, broker: { execute, cancel: vi.fn() }, persistResult, operations: new CapabilityOperationCoordinator({ now: () => Date.parse("2026-08-07T12:00:00.000Z") }) });
     await expect(capability.execute(invocation(operationId), {
       authority: authority(operationId, idempotencyKey), grant, operationId, idempotencyKey,
       deadlineAt: Date.parse("2026-08-07T12:01:00.000Z"),
@@ -177,5 +181,55 @@ describe("M5 protected app inference capability", () => {
     expect(build).toHaveBeenCalledTimes(1);
     expect(execute).toHaveBeenCalledTimes(1);
     expect(persistResult).toHaveBeenCalledTimes(1);
+  });
+
+  it("dispatches only an exact independently registered app purpose before executor work", async () => {
+    const executor = vi.fn(async (input: { source: string }) => ({ summary: input.source }));
+    const registry = new AppInferencePurposeRegistry([{
+      appId: "ai.braindrive.brief-builder",
+      purposeId: "brief.generate",
+      version: 1,
+      inputSchema: z.object({ source: z.string().min(1).max(1_000) }).strict(),
+      outputSchema: z.object({ summary: z.string().min(1).max(1_000) }).strict(),
+      promptPolicyId: "brief.generate.fixed",
+      modelCompatibilityClass: "owner_active_compatible",
+      limits: { maxInputBytes: 4_096, maxInputTokens: 1_024, maxOutputTokens: 512, maxDurationMs: 10_000, maxAttempts: 1 },
+      validationPolicyId: "brief.grounding.v1",
+      retryPolicy: "same_snapshot_only",
+      cancellationPolicy: "required",
+      auditProjectionId: "brief.generate.audit.v1",
+      ownerComponentId: "brief.inference",
+      executor,
+    }]);
+    expect(() => new AppInferencePurposeRegistry([{ ...registry.resolve("ai.braindrive.brief-builder", "brief.generate", 1), promptPolicyId: "" }]))
+      .toThrowError(expect.objectContaining({ code: "descriptor_invalid" }));
+    const audit = vi.fn();
+    const dispatcher = new AppInferenceDispatcher(registry, Date.now, audit);
+    const context = {
+      appId: "ai.braindrive.brief-builder",
+      installationId: "00000000-0000-4000-8000-000000000103",
+      packageDigest: `sha256:${"b".repeat(64)}` as const,
+      requestedPurposes: [{ purpose_id: "brief.generate", version: 1 }],
+      grant: {
+        app_id: "ai.braindrive.brief-builder", installation_id: "00000000-0000-4000-8000-000000000103",
+        package_digest: `sha256:${"b".repeat(64)}` as const, capabilities: ["app.inference.request"],
+        revoked_at: null, expires_at: new Date(Date.now() + 60_000).toISOString(),
+      },
+      operationId: crypto.randomUUID(),
+      idempotencyKey: "testtesttesttest01",
+      deadlineAt: Date.now() + 10_000,
+    };
+    await expect(dispatcher.execute({ purpose_id: "brief.generate", version: 1, input: { source: "Synthetic source" } }, context))
+      .resolves.toEqual({ summary: "Synthetic source" });
+    await expect(dispatcher.execute({ purpose_id: "brief.generate", version: 1, input: { source: "Synthetic source" } }, { ...context, appId: "ai.braindrive.resume-builder" }))
+      .rejects.toMatchObject({ code: "denied" });
+    await expect(dispatcher.execute({ purpose_id: "brief.generate", version: 2, input: { source: "Synthetic source" } }, context))
+      .rejects.toMatchObject({ code: "incompatible_schema" });
+    await expect(dispatcher.execute({ purpose_id: "brief.generate", version: 1, input: { source: "Synthetic source" } }, { ...context, grant: { ...context.grant, capabilities: [] } }))
+      .rejects.toMatchObject({ code: "denied" });
+    expect(executor).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(await dispatcher.execute({ purpose_id: "brief.generate", version: 1, input: { source: "Second" } }, { ...context, operationId: crypto.randomUUID(), idempotencyKey: "testtesttesttest02" })))
+      .not.toMatch(/provider_profile_id|model_id|api_key|credential|endpoint/);
+    expect(JSON.stringify(audit.mock.calls)).not.toMatch(/Synthetic source|Second|provider_profile_id|model_id|credential/);
   });
 });

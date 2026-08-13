@@ -1,7 +1,9 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import { StrictMode } from "react";
+import userEvent from "@testing-library/user-event";
+import { act, StrictMode } from "react";
 
-import { closeResumeBuilderSession } from "@/api/apps-adapter";
+import { AppCapabilityError, callAppCapability, closeAppSession } from "@/api/apps-adapter";
+import { APPS_PROTOCOL_VERSION, BRIDGE_CHANNEL } from "@/mcp-apps/bridge";
 import SandboxedAppFrame, { applyGroupedFactDecisions, isModelSettingsAction, isTrustedSandboxMessage, ownerFactConfirmationDetail, saveHostPdfExport, saveHostResumeExport } from "./SandboxedAppFrame";
 
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
@@ -9,7 +11,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
 
 vi.mock("@/api/apps-adapter", async () => {
   const actual = await vi.importActual<typeof import("@/api/apps-adapter")>("@/api/apps-adapter");
-  return { ...actual, closeResumeBuilderSession: vi.fn(async () => undefined), sendResumeBuilderBridgeMessage: vi.fn(async () => ({ status: "ready" })), callResumeBuilderCapability: vi.fn(async () => ({ result: {} })), finalizeResumeBuilderExport: vi.fn(async (input: { safe_destination_label: string; outcome: string }) => ({ receipt_revision_id: crypto.randomUUID(), safe_destination_label: input.safe_destination_label, outcome: input.outcome })) };
+  return { ...actual, closeAppSession: vi.fn(async () => undefined), sendAppBridgeMessage: vi.fn(async () => ({ status: "ready" })), sendAppAppsBridgeMessage: vi.fn(async () => ({ result: {} })), callAppCapability: vi.fn(async () => ({ result: {} })), finalizeResumeBuilderExport: vi.fn(async (input: { safe_destination_label: string; outcome: string }) => ({ receipt_revision_id: crypto.randomUUID(), safe_destination_label: input.safe_destination_label, outcome: input.outcome })) };
 });
 
 const launch = {
@@ -27,7 +29,7 @@ describe("sandboxed MCP App frame", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("grants scripts only, denies same-origin/navigation/download/device authority, and closes on unmount", async () => {
-    const rendered = render(<SandboxedAppFrame launch={launch} onSessionClosed={() => {}} />);
+    const rendered = render(<SandboxedAppFrame appKey="resume-builder" appId="ai.braindrive.resume-builder" appName="Resume Builder" launch={launch} onSessionClosed={() => {}} />);
     const frame = screen.getByTitle("Resume Builder sandbox proxy");
     expect(frame).toHaveAttribute("sandbox", "allow-scripts allow-same-origin");
     expect(frame.getAttribute("sandbox")).not.toContain("allow-top-navigation");
@@ -43,15 +45,93 @@ describe("sandboxed MCP App frame", () => {
     expect(proxyHtml).not.toContain(launch.bridge_token_id);
     expect(proxyHtml).not.toContain(launch.resource.html);
     rendered.unmount();
-    await waitFor(() => expect(closeResumeBuilderSession).toHaveBeenCalledWith(launch.session_id));
+    await waitFor(() => expect(closeAppSession).toHaveBeenCalledWith("resume-builder", launch.session_id));
   });
 
   it("does not revoke the session during React strict-mode effect replay", async () => {
-    const rendered = render(<StrictMode><SandboxedAppFrame launch={launch} onSessionClosed={() => {}} /></StrictMode>);
+    const rendered = render(<StrictMode><SandboxedAppFrame appKey="resume-builder" appId="ai.braindrive.resume-builder" appName="Resume Builder" launch={launch} onSessionClosed={() => {}} /></StrictMode>);
     await new Promise((resolve) => setTimeout(resolve, 10));
-    expect(closeResumeBuilderSession).not.toHaveBeenCalled();
+    expect(closeAppSession).not.toHaveBeenCalled();
     rendered.unmount();
-    await waitFor(() => expect(closeResumeBuilderSession).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(closeAppSession).toHaveBeenCalledTimes(1));
+  });
+
+  it("uses generic app labels and app-key session routing without granting Resume trusted actions", async () => {
+    const rendered = render(<SandboxedAppFrame appKey="brief-builder" appId="ai.braindrive.brief-builder" appName="Brief Builder" launch={{ ...launch, resource: { ...launch.resource, uri: "ui://brief-builder/main" } }} onSessionClosed={() => {}} />);
+    expect(screen.getByRole("region", { name: "Brief Builder app session" })).toBeInTheDocument();
+    const frame = screen.getByTitle("Brief Builder sandbox proxy");
+    expect(decodeURIComponent(frame.getAttribute("src")!.split(",", 2)[1]!)).toContain('view.title="Brief Builder"');
+    rendered.unmount();
+    await waitFor(() => expect(closeAppSession).toHaveBeenCalledWith("brief-builder", launch.session_id));
+  });
+
+  it("uses only host-projected capability confirmation text and supports cancel then accept", async () => {
+    const ownerState = { state_version: 1 as const, state: "unavailable" as const, safe_message: "Review in BrainDrive.", retryable: false, refresh_required: false, current_revision: null, proposal_preserved: true };
+    vi.mocked(callAppCapability)
+      .mockRejectedValueOnce(new AppCapabilityError("Review in BrainDrive.", 403, "confirmation_required", ownerState, "brief.records.approve", { title: "Approve brief revision", actionLabel: "Approve revision" }))
+      .mockRejectedValueOnce(new AppCapabilityError("Review in BrainDrive.", 403, "confirmation_required", ownerState, "brief.records.approve", { title: "Approve brief revision", actionLabel: "Approve revision" }))
+      .mockResolvedValueOnce({ result: { approved: true } });
+    render(<SandboxedAppFrame appKey="brief-builder" appId="ai.braindrive.brief-builder" appName="Brief Builder" launch={{ ...launch, resource: { ...launch.resource, uri: "ui://brief-builder/main" } }} onSessionClosed={() => {}} />);
+    const frame = screen.getByTitle("Brief Builder sandbox proxy") as HTMLIFrameElement;
+    const proxyHtml = decodeURIComponent(frame.getAttribute("src")!.split(",", 2)[1]!);
+    const nonce = /const NONCE="([^"]+)"/.exec(proxyHtml)?.[1];
+    expect(nonce).toBeTruthy();
+    const send = async (message: unknown, source: "proxy" | "view" = "view") => {
+      await act(async () => {
+        window.dispatchEvent(new MessageEvent("message", { origin: "null", source: frame.contentWindow!, data: { channel: BRIDGE_CHANNEL, direction: "proxy_to_host", proxy_nonce: nonce, source, message } }));
+        await Promise.resolve();
+      });
+    };
+    await send({ jsonrpc: "2.0", method: "ui/notifications/sandbox-proxy-ready", params: {} }, "proxy");
+    await send({ jsonrpc: "2.0", id: "init", method: "ui/initialize", params: { protocolVersion: APPS_PROTOCOL_VERSION, appInfo: { name: "brief", version: "1.0.0" }, appCapabilities: {} } });
+    await send({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} });
+    const firstId = crypto.randomUUID();
+    await send({ bridge_version: 1, message_id: firstId, type: "capability.call", payload: { capability: "brief.records.approve", input: { title: "Forged app approval" } } });
+    expect(await screen.findByRole("dialog", { name: "Approve brief revision" })).not.toHaveTextContent("Forged app approval");
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    const secondId = crypto.randomUUID();
+    await send({ bridge_version: 1, message_id: secondId, type: "capability.call", payload: { capability: "brief.records.approve", input: { record_id: crypto.randomUUID() } } });
+    await userEvent.click(await screen.findByRole("button", { name: "Approve revision" }));
+    await waitFor(() => expect(callAppCapability).toHaveBeenLastCalledWith("brief-builder", "brief.records.approve", expect.any(Object), secondId, true));
+  });
+
+  it("forwards the app-bound request operation identity instead of substituting the bridge envelope identity", async () => {
+    const inferenceLaunch = { ...launch, allowed_capabilities: [...launch.allowed_capabilities, "app.inference.request"] };
+    render(<SandboxedAppFrame appKey="resume-builder" appId="ai.braindrive.resume-builder" appName="Resume Builder" launch={inferenceLaunch} onSessionClosed={() => {}} />);
+    const frame = screen.getByTitle("Resume Builder sandbox proxy") as HTMLIFrameElement;
+    const proxyHtml = decodeURIComponent(frame.getAttribute("src")!.split(",", 2)[1]!);
+    const nonce = /const NONCE="([^"]+)"/.exec(proxyHtml)?.[1];
+    expect(nonce).toBeTruthy();
+    const send = async (message: unknown, source: "proxy" | "view" = "view") => {
+      await act(async () => {
+        window.dispatchEvent(new MessageEvent("message", { origin: "null", source: frame.contentWindow!, data: { channel: BRIDGE_CHANNEL, direction: "proxy_to_host", proxy_nonce: nonce, source, message } }));
+        await Promise.resolve();
+      });
+    };
+    await send({ jsonrpc: "2.0", method: "ui/notifications/sandbox-proxy-ready", params: {} }, "proxy");
+    await send({ jsonrpc: "2.0", id: "init", method: "ui/initialize", params: { protocolVersion: APPS_PROTOCOL_VERSION, appInfo: { name: "resume", version: "4.0.0" }, appCapabilities: {} } });
+    await send({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} });
+    const operationId = crypto.randomUUID();
+    const envelopeId = crypto.randomUUID();
+    await send({
+      bridge_version: 1,
+      message_id: envelopeId,
+      type: "capability.call",
+      payload: {
+        capability: "app.inference.request",
+        input: { operation_id: operationId },
+        request_operation_id: operationId,
+      },
+    });
+    await waitFor(() => expect(callAppCapability).toHaveBeenCalledWith(
+      "resume-builder",
+      "app.inference.request",
+      { operation_id: operationId },
+      operationId,
+      false,
+    ));
+    expect(callAppCapability).not.toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.anything(), envelopeId, expect.anything());
   });
 
   it("requires both the exact iframe window and opaque sandbox origin", () => {

@@ -9,8 +9,8 @@ import {
   MCP_APP_MEDIA_TYPE,
   MCP_LEGACY_PROTOCOL_VERSION,
   MCP_MODERN_PROTOCOL_VERSION,
-  RESUME_BUILDER_APP_ID,
 } from "./constants.js";
+import { CanonicalAppIdSchema } from "./app-registry.js";
 import { CareerReturnSummarySchema } from "./data.js";
 import { ContractViolation } from "./errors.js";
 
@@ -101,7 +101,7 @@ export const CompleteMcpResultSchema = z
 export const McpAppResourceSchema = z
   .object({
     resource_version: z.literal(1),
-    app_id: z.literal(RESUME_BUILDER_APP_ID),
+    app_id: CanonicalAppIdSchema,
     package_digest: Sha256DigestSchema,
     uri: z.string().regex(/^ui:\/\/[A-Za-z0-9._~!$&'()*+,;=:@/-]+$/).max(2_048),
     mime_type: z.literal(MCP_APP_MEDIA_TYPE),
@@ -127,7 +127,7 @@ const BridgeBaseSchema = z
   .object({
     bridge_version: z.literal(APP_BRIDGE_SCHEMA_VERSION),
     message_id: OpaqueIdSchema,
-    app_id: z.literal(RESUME_BUILDER_APP_ID),
+    app_id: CanonicalAppIdSchema,
     installation_id: OpaqueIdSchema,
     view_id: OpaqueIdSchema,
     operation_id: OpaqueIdSchema.nullable(),

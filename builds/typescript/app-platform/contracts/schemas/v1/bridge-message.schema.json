@@ -16,7 +16,9 @@
         },
         "app_id": {
           "type": "string",
-          "const": "ai.braindrive.resume-builder"
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
         },
         "installation_id": {
           "type": "string",
@@ -94,7 +96,9 @@
         },
         "app_id": {
           "type": "string",
-          "const": "ai.braindrive.resume-builder"
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
         },
         "installation_id": {
           "type": "string",
@@ -189,7 +193,9 @@
         },
         "app_id": {
           "type": "string",
-          "const": "ai.braindrive.resume-builder"
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
         },
         "installation_id": {
           "type": "string",
@@ -719,7 +725,9 @@
         },
         "app_id": {
           "type": "string",
-          "const": "ai.braindrive.resume-builder"
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
         },
         "installation_id": {
           "type": "string",
@@ -813,7 +821,9 @@
         },
         "app_id": {
           "type": "string",
-          "const": "ai.braindrive.resume-builder"
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
         },
         "installation_id": {
           "type": "string",
@@ -894,7 +904,9 @@
         },
         "app_id": {
           "type": "string",
-          "const": "ai.braindrive.resume-builder"
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
         },
         "installation_id": {
           "type": "string",
@@ -1002,7 +1014,9 @@
         },
         "app_id": {
           "type": "string",
-          "const": "ai.braindrive.resume-builder"
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
         },
         "installation_id": {
           "type": "string",
@@ -1092,7 +1106,9 @@
         },
         "app_id": {
           "type": "string",
-          "const": "ai.braindrive.resume-builder"
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
         },
         "installation_id": {
           "type": "string",
@@ -1173,7 +1189,9 @@
         },
         "app_id": {
           "type": "string",
-          "const": "ai.braindrive.resume-builder"
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
         },
         "installation_id": {
           "type": "string",
@@ -1472,7 +1490,9 @@
         },
         "app_id": {
           "type": "string",
-          "const": "ai.braindrive.resume-builder"
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
         },
         "installation_id": {
           "type": "string",

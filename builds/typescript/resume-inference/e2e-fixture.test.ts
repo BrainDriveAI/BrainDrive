@@ -96,8 +96,24 @@ describe("Resume Builder isolated E2E inference fixture", () => {
     };
 
     expect(result.changed_statement_ids).toEqual([statementId]);
-    expect(result.statements.find((item) => item.statement_id === statementId)?.text).toBe("Delivered synthetic TypeScript systems.");
+    expect(result.statements.find((item) => item.statement_id === statementId)?.text).toBe("Synthetic TypeScript systems delivered.");
     expect(result.statements.find((item) => item.statement_id === unplannedStatementId)).toEqual(parentWithUnplannedStatement.data.statements[1]);
+  });
+
+  it("plans fixture emphasis on a statement whose wording can change materially", () => {
+    const reorderableId = "10000000-0000-4000-8000-000000000017";
+    const result = synthesizeResumeE2eResult("tailoring_plan", [facts, {
+      ...parent,
+      data: {
+        ...parent.data,
+        statements: [
+          { ...parent.data.statements[0], text: "Synthetic Owner | owner@example.test" },
+          { ...parent.data.statements[0], statement_id: reorderableId, text: "Delivered TypeScript systems and collaborated with product owners." },
+        ],
+      },
+    }, evidenceMatrix]) as { changes: Array<{ statement_id: string }> };
+
+    expect(result.changes).toEqual([expect.objectContaining({ statement_id: reorderableId })]);
   });
 
   it.each([

@@ -15,14 +15,19 @@ import { z } from "zod";
 
 import { canonicalJson, canonicalJsonDocumentDigest, OpaqueIdSchema, Sha256DigestSchema, TimestampSchema } from "../contracts/common.js";
 import { ContractViolation } from "../contracts/errors.js";
+import { CanonicalAppIdSchema, CanonicalPublisherIdSchema, GenericPackageManifestSchema } from "../contracts/app-registry.js";
 import { PackageManifestSchema } from "../contracts/package.js";
 import { syncDirectoryEntry } from "./filesystem-durability.js";
-import type { VerifiedPackage } from "./verified-package.js";
+import type { RuntimePackageManifest } from "./package-verifier.js";
 
-export type PromotableVerifiedPackage = Pick<
-  VerifiedPackage,
-  "manifest" | "packageDigest" | "descriptorDigest" | "stageRoot" | "entrypoint" | "target"
->;
+export type PromotableVerifiedPackage = {
+  manifest: RuntimePackageManifest;
+  packageDigest: `sha256:${string}`;
+  descriptorDigest: `sha256:${string}`;
+  stageRoot: string;
+  entrypoint: string;
+  target: "docker_linux_x64" | "desktop_windows_x64";
+};
 
 const StoreMetadataSchema = z.object({
   package_store_version: z.literal(1),
@@ -31,8 +36,8 @@ const StoreMetadataSchema = z.object({
   manifest_digest: Sha256DigestSchema,
   manifest_path: z.string(),
   package_version: z.string(),
-  app_id: z.literal("ai.braindrive.resume-builder"),
-  publisher_id: z.literal("ai.braindrive"),
+  app_id: CanonicalAppIdSchema,
+  publisher_id: CanonicalPublisherIdSchema,
   entrypoint: z.string(),
   target: z.enum(["docker_linux_x64", "desktop_windows_x64"]),
   promoted_at: TimestampSchema,
@@ -341,7 +346,9 @@ export class ImmutablePackageStore {
     let manifestCandidate: unknown;
     try { manifestCandidate = JSON.parse(manifestBytes.toString("utf8")); }
     catch { throw new ContractViolation("package_file_mismatch", "Stored package manifest is malformed"); }
-    const manifest = PackageManifestSchema.safeParse(manifestCandidate);
+    const manifest = manifestCandidate && typeof manifestCandidate === "object" && (manifestCandidate as { manifest_version?: unknown }).manifest_version === 2
+      ? GenericPackageManifestSchema.safeParse(manifestCandidate)
+      : PackageManifestSchema.safeParse(manifestCandidate);
     if (
       !manifest.success
       || canonicalJsonDocumentDigest(manifest.data) !== metadata.manifest_digest

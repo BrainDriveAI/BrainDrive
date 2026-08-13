@@ -5,6 +5,21 @@ import { fileURLToPath } from "node:url";
 import { z, type ZodType } from "zod";
 
 import { AuditEventSchema, LifecycleDiagnosticEventSchema } from "./audit.js";
+import {
+  AppIdentitySchema,
+  AppOperationBindingSchema,
+  CapabilityRegistrationSchema,
+  CapabilityRequestSchema,
+  CatalogPresentationSchema,
+  DataAdapterRegistrationSchema,
+  FirstPartyAppRegistrationSchema,
+  GenericPackageManifestSchema,
+  InferencePurposeRegistrationSchema,
+  InferencePurposeRequestSchema,
+  PrimaryUiResourceDescriptorSchema,
+  ResolvedAppDescriptorSchema,
+  VerifiedFirstPartyPackageSchema,
+} from "./app-registry.js";
 import { CompatibilityMatrixSchema } from "./common.js";
 import {
   ArtifactRecordSchema,
@@ -117,6 +132,19 @@ import {
 } from "./spec-05-foundation.js";
 
 export const JSON_SCHEMA_AUTHORITIES = {
+  "app-identity": AppIdentitySchema,
+  "app-operation-binding": AppOperationBindingSchema,
+  "app-capability-request": CapabilityRequestSchema,
+  "app-inference-purpose-request": InferencePurposeRequestSchema,
+  "app-catalog-presentation": CatalogPresentationSchema,
+  "app-primary-resource": PrimaryUiResourceDescriptorSchema,
+  "app-capability-registration": CapabilityRegistrationSchema,
+  "app-inference-purpose-registration": InferencePurposeRegistrationSchema,
+  "app-data-adapter-registration": DataAdapterRegistrationSchema,
+  "first-party-app-registration": FirstPartyAppRegistrationSchema,
+  "generic-package-manifest": GenericPackageManifestSchema,
+  "verified-first-party-package": VerifiedFirstPartyPackageSchema,
+  "resolved-app-descriptor": ResolvedAppDescriptorSchema,
   "app-capability-authority": AppCapabilityAuthoritySchema,
   "app-inference-cancel": AppInferenceCancelSchema,
   "app-inference-event": AppInferenceEventSchema,
@@ -235,11 +263,28 @@ export const JSON_SCHEMA_AUTHORITIES = {
 } as const satisfies Record<string, ZodType>;
 
 export function createJsonSchemaCatalog(): Record<string, unknown> {
+  const genericAuthorities = new Set([
+    "app-identity",
+    "app-operation-binding",
+    "app-capability-request",
+    "app-inference-purpose-request",
+    "app-catalog-presentation",
+    "app-primary-resource",
+    "app-capability-registration",
+    "app-inference-purpose-registration",
+    "app-data-adapter-registration",
+    "first-party-app-registration",
+    "generic-package-manifest",
+    "verified-first-party-package",
+    "resolved-app-descriptor",
+  ]);
   return Object.fromEntries(
     Object.entries(JSON_SCHEMA_AUTHORITIES).map(([name, schema]) => [
       name,
       {
-        $id: `https://schemas.braindrive.ai/resume-builder/v1/${name}.schema.json`,
+        $id: genericAuthorities.has(name)
+          ? `https://schemas.braindrive.ai/app-platform/v1/${name}.schema.json`
+          : `https://schemas.braindrive.ai/resume-builder/v1/${name}.schema.json`,
         ...z.toJSONSchema(schema, {
           target: "draft-2020-12",
           io: "input",

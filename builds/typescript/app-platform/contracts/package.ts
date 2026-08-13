@@ -35,6 +35,9 @@ export const CapabilityNameSchema = z.enum([
   "app.inference.request",
 ]);
 
+/** Generic grant/token identifier. The legacy v1 package manifest remains closed above. */
+export const GrantedCapabilityNameSchema = z.string().min(3).max(128).regex(/^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)*$/);
+
 export const PackagePathSchema = z.string().min(1).max(512).superRefine((value, context) => {
   const segments = value.split("/");
   const windowsReserved = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
@@ -238,12 +241,24 @@ export const PackageManifestSchema = z
     }
   });
 
-export function parsePackageManifest(candidate: unknown): z.infer<typeof PackageManifestSchema> {
-  const result = PackageManifestSchema.safeParse(candidate);
+/**
+ * The schema-1 Resume manifest is retained only for the bounded migration and
+ * compatibility path. New first-party candidates use GenericPackageManifestSchema.
+ */
+export const LegacyResumePackageManifestSchema = PackageManifestSchema;
+
+export function parseLegacyResumePackageManifestForMigration(
+  candidate: unknown,
+): z.infer<typeof LegacyResumePackageManifestSchema> {
+  const result = LegacyResumePackageManifestSchema.safeParse(candidate);
   if (!result.success) {
-    throw new ContractViolation("package_descriptor_invalid", "Package manifest violates the strict descriptor contract");
+    throw new ContractViolation("package_descriptor_invalid", "Legacy Resume manifest violates the migration compatibility contract");
   }
   return result.data;
+}
+
+export function parsePackageManifest(candidate: unknown): z.infer<typeof PackageManifestSchema> {
+  return parseLegacyResumePackageManifestForMigration(candidate);
 }
 
 function canonicalBase64Schema(pattern: RegExp, byteLength: number) {
@@ -719,11 +734,11 @@ export const CapabilityGrantSchema = z
     grant_id: OpaqueIdSchema,
     owner_id: OpaqueIdSchema,
     actor_id: OpaqueIdSchema,
-    app_id: z.literal(RESUME_BUILDER_APP_ID),
-    publisher_id: z.literal(RESUME_BUILDER_PUBLISHER_ID),
+    app_id: z.string().min(3).max(128).regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/),
+    publisher_id: z.string().min(3).max(96).regex(/^[a-z0-9]+(?:\.[a-z0-9]+)+$/),
     package_digest: Sha256DigestSchema,
     installation_id: OpaqueIdSchema,
-    capabilities: z.array(CapabilityNameSchema).min(1),
+    capabilities: z.array(GrantedCapabilityNameSchema).min(1),
     record_scopes: z.array(OpaqueIdSchema),
     decision: z
       .object({
@@ -739,6 +754,9 @@ export const CapabilityGrantSchema = z
   })
   .strict()
   .superRefine((value, context) => {
+    if (!value.app_id.startsWith(`${value.publisher_id}.`)) {
+      context.addIssue({ code: "custom", message: "grant app identity must be subordinate to publisher identity" });
+    }
     if (new Set(value.capabilities).size !== value.capabilities.length) {
       context.addIssue({ code: "custom", message: "duplicate_identity" });
     }
@@ -756,11 +774,11 @@ export const CapabilityGrantSchema = z
 export const CapabilityDiffSchema = z
   .object({
     diff_version: z.literal(1),
-    prior_capabilities: z.array(CapabilityNameSchema),
-    requested_capabilities: z.array(CapabilityNameSchema),
-    added: z.array(CapabilityNameSchema),
-    removed: z.array(CapabilityNameSchema),
-    unchanged: z.array(CapabilityNameSchema),
+    prior_capabilities: z.array(GrantedCapabilityNameSchema),
+    requested_capabilities: z.array(GrantedCapabilityNameSchema),
+    added: z.array(GrantedCapabilityNameSchema),
+    removed: z.array(GrantedCapabilityNameSchema),
+    unchanged: z.array(GrantedCapabilityNameSchema),
     decision: z.enum(["no_change", "narrowing_allowed", "owner_approval_required"]),
   })
   .strict()
@@ -801,15 +819,15 @@ export const CapabilityTokenSchema = z
     grant_id: OpaqueIdSchema,
     owner_id: OpaqueIdSchema,
     actor_id: OpaqueIdSchema,
-    app_id: z.literal(RESUME_BUILDER_APP_ID),
-    publisher_id: z.literal(RESUME_BUILDER_PUBLISHER_ID),
+    app_id: z.string().min(3).max(128).regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/),
+    publisher_id: z.string().min(3).max(96).regex(/^[a-z0-9]+(?:\.[a-z0-9]+)+$/),
     package_digest: Sha256DigestSchema,
     installation_id: OpaqueIdSchema,
     connection_id: OpaqueIdSchema,
     view_id: OpaqueIdSchema.nullable(),
     operation_id: OpaqueIdSchema,
     idempotency_key: z.string().min(16).max(256),
-    capabilities: z.array(CapabilityNameSchema).min(1),
+    capabilities: z.array(GrantedCapabilityNameSchema).min(1).max(64),
     record_scopes: z.array(OpaqueIdSchema),
     issued_at: TimestampSchema,
     expires_at: TimestampSchema,
@@ -824,11 +842,11 @@ export const CapabilityTokenSchema = z
     if (new Set(value.capabilities).size !== value.capabilities.length || new Set(value.record_scopes).size !== value.record_scopes.length) {
       context.addIssue({ code: "custom", message: "duplicate_identity" });
     }
-    if (value.audience === "app_inference" && (value.capabilities.length !== 1 || value.capabilities[0] !== "app.inference.request")) {
+    if (["app_inference", "app_export", "app_bridge"].includes(value.audience) && value.capabilities.length !== 1) {
       context.addIssue({ code: "custom", message: "token audience and grant do not agree" });
     }
-    if (value.audience === "app_export" && (value.capabilities.length !== 1 || value.capabilities[0] !== "resume.export.request")) {
-      context.addIssue({ code: "custom", message: "token audience and grant do not agree" });
+    if (value.audience === "app_inference" && value.capabilities[0] !== "app.inference.request") {
+      context.addIssue({ code: "custom", message: "inference token authority is not exact" });
     }
     if (value.audience === "app_bridge" && value.view_id === null) {
       context.addIssue({ code: "custom", message: "bridge tokens require a view binding" });
@@ -866,8 +884,8 @@ export const SUPERVISOR_POLICY = SupervisorPolicySchema.parse({
 });
 
 export function assertGrantSubset(
-  installed: readonly z.infer<typeof CapabilityNameSchema>[],
-  requested: readonly z.infer<typeof CapabilityNameSchema>[],
+  installed: readonly z.infer<typeof GrantedCapabilityNameSchema>[],
+  requested: readonly z.infer<typeof GrantedCapabilityNameSchema>[],
 ): void {
   const allowed = new Set(installed);
   if (requested.some((capability) => !allowed.has(capability))) {

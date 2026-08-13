@@ -152,6 +152,7 @@ describe("sandboxed Resume Builder owner resource", () => {
 
   it("shows a correctable strategy before binding general generation", async () => {
     const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    expect(html).toContain('capability("app.inference.request",request,request.operation_id)');
     for (const text of ["Your resume plan", "Correct information", "Refresh plan", "Review resume plan", "This plan guides presentation. It is not a career fact, score, or approval."]) {
       expect(html).toContain(text);
     }

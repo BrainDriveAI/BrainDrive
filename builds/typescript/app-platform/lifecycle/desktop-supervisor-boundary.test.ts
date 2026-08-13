@@ -6,11 +6,12 @@ import { describe, expect, it } from "vitest";
 const TAURI_ROOT = path.resolve(process.cwd(), "src-tauri");
 
 describe("Spec 05 M6 packaged-desktop supervisor boundary", () => {
-  it("stages packaged Node and compiled gateway JavaScript and selects the Windows loopback adapter", async () => {
-    const [configuration, main, stage] = await Promise.all([
+  it("stages packaged Node, both first-party apps, and compiled gateway JavaScript and selects the Windows loopback adapter", async () => {
+    const [configuration, main, stage, powershellStage] = await Promise.all([
       readFile(path.join(TAURI_ROOT, "tauri.conf.json"), "utf8"),
       readFile(path.join(TAURI_ROOT, "src", "main.rs"), "utf8"),
       readFile(path.resolve(process.cwd(), "scripts", "desktop-stage-runtime.mjs"), "utf8"),
+      readFile(path.resolve(process.cwd(), "scripts", "desktop-stage-runtime.ps1"), "utf8"),
     ]);
 
     expect(configuration).toContain('"desktop-runtime/": "desktop-runtime"');
@@ -20,6 +21,10 @@ describe("Spec 05 M6 packaged-desktop supervisor boundary", () => {
     expect(main).toContain('format!("http://127.0.0.1:{gateway_port}")');
     expect(stage).toMatch(/node|desktop-runtime/);
     expect(stage).toMatch(/dist|typescript/);
+    expect(stage).toContain("briefBuilderRoot");
+    expect(stage).toContain('path.join(outputRoot, "brief_builder", "resources")');
+    expect(powershellStage).toContain("$BriefBuilderRoot");
+    expect(powershellStage).toContain('Join-Path $OutputRoot "brief_builder\\resources"');
   });
 
   it("contains descendants in the Tauri-owned Windows job while granting no iframe shell/process authority", async () => {

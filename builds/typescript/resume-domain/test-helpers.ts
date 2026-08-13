@@ -1,23 +1,30 @@
 import type { CapabilityGrant } from "../app-platform/lifecycle/store.js";
+import { RESUME_BUILDER_APP_ID, RESUME_BUILDER_PUBLISHER_ID } from "../app-platform/contracts/constants.js";
 import type { DataAuthority } from "./service.js";
 import { issueHostOwnerDecisionEvidence } from "./career-data.js";
 
 export const TEST_DIGEST = `sha256:${"a".repeat(64)}` as const;
 
-export function testGrant(overrides: Partial<CapabilityGrant> = {}): CapabilityGrant {
+type ResumeCapabilityGrant = CapabilityGrant & {
+  app_id: typeof RESUME_BUILDER_APP_ID;
+  publisher_id: typeof RESUME_BUILDER_PUBLISHER_ID;
+};
+
+export function testGrant(overrides: Partial<CapabilityGrant> = {}): ResumeCapabilityGrant {
   const now = "2026-08-07T12:00:00.000Z";
   const actorId = "40000000-0000-4000-8000-000000000002";
   return {
     grant_version: 1, grant_revision: 1, revocation_generation: 0,
     grant_id: "40000000-0000-4000-8000-000000000003",
     owner_id: "40000000-0000-4000-8000-000000000001", actor_id: actorId,
-    app_id: "ai.braindrive.resume-builder", publisher_id: "ai.braindrive",
     package_digest: TEST_DIGEST,
     installation_id: "40000000-0000-4000-8000-000000000004",
     capabilities: ["career.context.read", "career.facts.read", "career.facts.propose", "career.facts.confirm", "resume.definitions.read", "resume.definitions.write", "resume.jobs.read", "resume.jobs.write", "resume.artifacts.register", "resume.export.request", "resume.operations.read"],
     record_scopes: [], decision: { decision_id: "40000000-0000-4000-8000-000000000005", decided_by_actor_id: actorId, decided_at: now, outcome: "approved" },
     issued_at: now, expires_at: "2036-01-01T00:00:00.000Z", revoked_at: null,
     ...overrides,
+    app_id: RESUME_BUILDER_APP_ID,
+    publisher_id: RESUME_BUILDER_PUBLISHER_ID,
   };
 }
 

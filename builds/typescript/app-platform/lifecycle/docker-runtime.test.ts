@@ -3,14 +3,15 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-describe("Docker development Resume Builder package boundary", () => {
-  it("mounts the separately buildable package read-only for the enabled fixture", async () => {
+describe("Docker development first-party app package boundary", () => {
+  it("mounts both separately buildable packages read-only for the enabled fixtures", async () => {
     const compose = await readFile(
       resolve(process.cwd(), "../../installer/docker/compose.dev.yml"),
       "utf8",
     );
 
     expect(compose).toContain("../../builds/resume_builder:/app/resume_builder:ro");
+    expect(compose).toContain("../../builds/brief_builder:/app/brief_builder:ro");
   });
 
   it("selects the Docker adapter without publishing an app endpoint, Docker socket, host secret, or extra privilege", async () => {

@@ -4,6 +4,7 @@ import { AppViewStateSchema } from "../contracts/spec-05-foundation.js";
 import { AppPlatformError } from "../lifecycle/errors.js";
 
 export type AppViewAuthority = {
+  appId: string;
   installationId: string;
   packageDigest: `sha256:${string}`;
   lifecycleGeneration: number;
@@ -63,7 +64,7 @@ export class AppViewRegistry {
   plan(authority: AppViewAuthority, resume?: AppViewResumeRequest): AppViewPlan {
     this.prune();
     if (!resume) {
-      if (this.installationViewCount(authority.installationId) >= this.maxViewsPerInstallation) {
+      if (this.installationViewCount(authority.appId, authority.installationId) >= this.maxViewsPerInstallation) {
         throw new AppPlatformError("denied", "Installed app view limit was reached", 429);
       }
       const now = this.now();
@@ -80,8 +81,8 @@ export class AppViewRegistry {
       };
     }
 
-    const viewId = this.sessions.get(resume.sessionId);
-    const current = viewId ? this.views.get(viewId) : undefined;
+    const viewId = this.sessions.get(sessionKey(authority.appId, resume.sessionId));
+    const current = viewId ? this.views.get(viewKey(authority.appId, viewId)) : undefined;
     if (
       !current ||
       current.sessionId !== resume.sessionId ||
@@ -110,19 +111,19 @@ export class AppViewRegistry {
   commit(plan: AppViewPlan): CommittedAppView {
     this.prune();
     if (plan.expectedSessionId === null) {
-      if (this.installationViewCount(plan.installationId) >= this.maxViewsPerInstallation) {
+      if (this.installationViewCount(plan.appId, plan.installationId) >= this.maxViewsPerInstallation) {
         throw new AppPlatformError("denied", "Installed app view limit was reached", 429);
       }
-      if (this.views.has(plan.viewId) || this.sessions.has(plan.sessionId)) {
+      if (this.views.has(viewKey(plan.appId, plan.viewId)) || this.sessions.has(sessionKey(plan.appId, plan.sessionId))) {
         throw new AppPlatformError("duplicate_identity", "App view identity already exists", 409);
       }
     } else {
-      const current = this.views.get(plan.viewId);
+      const current = this.views.get(viewKey(plan.appId, plan.viewId));
       if (
         !current ||
         current.sessionId !== plan.expectedSessionId ||
         current.bridgeGeneration !== plan.expectedBridgeGeneration ||
-        this.sessions.get(plan.expectedSessionId) !== plan.viewId
+        this.sessions.get(sessionKey(plan.appId, plan.expectedSessionId)) !== plan.viewId
       ) {
         throw new AppPlatformError("session_closed", "App view reconnect was superseded", 410);
       }
@@ -140,27 +141,27 @@ export class AppViewRegistry {
       expires_at: plan.expiresAt,
     });
     const supersededSessionId = plan.expectedSessionId;
-    if (supersededSessionId) this.sessions.delete(supersededSessionId);
+    if (supersededSessionId) this.sessions.delete(sessionKey(plan.appId, supersededSessionId));
     const { expectedSessionId: _expectedSessionId, expectedBridgeGeneration: _expectedBridgeGeneration, ...record } = plan;
-    this.views.set(record.viewId, record);
-    this.sessions.set(record.sessionId, record.viewId);
+    this.views.set(viewKey(record.appId, record.viewId), record);
+    this.sessions.set(sessionKey(record.appId, record.sessionId), record.viewId);
     return { ...record, resumed: supersededSessionId !== null, supersededSessionId };
   }
 
-  close(sessionId: string): { closed: boolean; viewId: string | null } {
+  close(appId: string, sessionId: string): { closed: boolean; viewId: string | null } {
     this.prune();
-    const viewId = this.sessions.get(sessionId);
-    const current = viewId ? this.views.get(viewId) : undefined;
+    const viewId = this.sessions.get(sessionKey(appId, sessionId));
+    const current = viewId ? this.views.get(viewKey(appId, viewId)) : undefined;
     if (!current || current.sessionId !== sessionId) return { closed: false, viewId: null };
-    this.sessions.delete(sessionId);
-    this.views.delete(current.viewId);
+    this.sessions.delete(sessionKey(appId, sessionId));
+    this.views.delete(viewKey(appId, current.viewId));
     return { closed: true, viewId: current.viewId };
   }
 
-  isCurrentSession(sessionId: string): boolean {
+  isCurrentSession(appId: string, sessionId: string): boolean {
     this.prune();
-    const viewId = this.sessions.get(sessionId);
-    return viewId !== undefined && this.views.get(viewId)?.sessionId === sessionId;
+    const viewId = this.sessions.get(sessionKey(appId, sessionId));
+    return viewId !== undefined && this.views.get(viewKey(appId, viewId))?.sessionId === sessionId;
   }
 
   clear(): void {
@@ -173,8 +174,8 @@ export class AppViewRegistry {
     return this.views.size;
   }
 
-  private installationViewCount(installationId: string): number {
-    return [...this.views.values()].filter((record) => record.installationId === installationId).length;
+  private installationViewCount(appId: string, installationId: string): number {
+    return [...this.views.values()].filter((record) => record.appId === appId && record.installationId === installationId).length;
   }
 
   private prune(): void {
@@ -182,7 +183,10 @@ export class AppViewRegistry {
     for (const [viewId, record] of this.views) {
       if (Date.parse(record.expiresAt) > now) continue;
       this.views.delete(viewId);
-      this.sessions.delete(record.sessionId);
+      this.sessions.delete(sessionKey(record.appId, record.sessionId));
     }
   }
 }
+
+function viewKey(appId: string, viewId: string): string { return `${appId}:${viewId}`; }
+function sessionKey(appId: string, sessionId: string): string { return `${appId}:${sessionId}`; }

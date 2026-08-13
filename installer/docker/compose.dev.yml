@@ -97,6 +97,7 @@ services:
     volumes:
       - ../../builds/typescript:/app/typescript
       - ../../builds/resume_builder:/app/resume_builder:ro
+      - ../../builds/brief_builder:/app/brief_builder:ro
       - braindrive_dev_app_node_modules:/app/typescript/node_modules
       - ${PAA_LIBRARY_HOST_PATH:-../../builds/typescript/your-memory}:/data/memory
       - braindrive_secrets:/run/paa-secrets

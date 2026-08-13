@@ -3,6 +3,8 @@ import { z } from "zod";
 import { OpaqueIdSchema, Sha256DigestSchema, TimestampSchema } from "./common.js";
 import { ContractViolation } from "./errors.js";
 
+const LifecycleAppIdSchema = z.string().min(3).max(128).regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/);
+
 export const LifecycleStateSchema = z.enum([
   "not_installed",
   "staged",
@@ -80,7 +82,7 @@ export const SuccessfulUseCheckpointSchema = z
 export const LifecycleRecordSchema = z
   .object({
     lifecycle_schema_version: z.literal(1),
-    app_id: z.literal("ai.braindrive.resume-builder"),
+    app_id: LifecycleAppIdSchema,
     installation_id: OpaqueIdSchema.nullable(),
     state: LifecycleStateSchema,
     generation: z.number().int().nonnegative(),
@@ -238,7 +240,7 @@ export const LifecycleOperationSchema = z
     canonical_input_digest: Sha256DigestSchema,
     owner_id: OpaqueIdSchema,
     actor_id: OpaqueIdSchema,
-    app_id: z.literal("ai.braindrive.resume-builder"),
+    app_id: LifecycleAppIdSchema,
     installation_id: OpaqueIdSchema,
     kind: LifecycleOperationKindSchema,
     prior_record_digest: Sha256DigestSchema,

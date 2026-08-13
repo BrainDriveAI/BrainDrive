@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 import { OpaqueIdSchema, Sha256DigestSchema, TimestampSchema } from "./common.js";
-import { RESUME_BUILDER_APP_ID } from "./constants.js";
 import { PackagePathSchema, SupervisorPolicySchema } from "./package.js";
 
 export const SupervisorProtocolVersionSchema = z.literal(1);
@@ -42,7 +41,7 @@ export const RuntimeDescriptorSchema = z
   .object({
     supervisor_protocol_version: SupervisorProtocolVersionSchema,
     runtime_kind: z.enum(["container", "packaged_node"]),
-    app_id: z.literal(RESUME_BUILDER_APP_ID),
+    app_id: z.string().min(3).max(128).regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/),
     installation_id: OpaqueIdSchema,
     package_digest: Sha256DigestSchema,
     grant_id: OpaqueIdSchema,

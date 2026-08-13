@@ -1,13 +1,14 @@
 import { canonicalInputDigest, OpaqueIdSchema } from "../app-platform/contracts/common.js";
+import { CanonicalAppIdSchema } from "../app-platform/contracts/app-registry.js";
 import { AppPlatformError } from "../app-platform/lifecycle/errors.js";
-import { resolveAppCapability, type AppCapabilityName } from "./registry.js";
 
 export type CapabilityOperationRequest = {
+  appId: string;
   installationId: string;
   connectionId: string;
   viewId: string | null;
-  capability: AppCapabilityName;
-  capabilityVersion: 1;
+  capability: string;
+  capabilityVersion: number;
   operationId: string;
   idempotencyKey: string;
   input: unknown;
@@ -17,6 +18,8 @@ export type CapabilityOperationRequest = {
 
 type OperationRecord = {
   inputDigest: string;
+  operationId: string;
+  idempotencyKey: string;
   promise: Promise<unknown>;
   abortController: AbortController;
   completedAt: number | null;
@@ -24,6 +27,7 @@ type OperationRecord = {
 
 export class CapabilityOperationCoordinator {
   private readonly operations = new Map<string, OperationRecord>();
+  private readonly operationIdentities = new Map<string, OperationRecord>();
   private readonly requestTimes = new Map<string, number[]>();
   private readonly now: () => number;
 
@@ -32,35 +36,56 @@ export class CapabilityOperationCoordinator {
   }
 
   async execute<T>(request: CapabilityOperationRequest, adapter: (context: { signal: AbortSignal; isCancelled: () => boolean; idempotencyDecision: "created" }) => Promise<T>): Promise<T> {
-    const policy = resolveAppCapability(request.capability, request.capabilityVersion);
-    this.validateRequest(request, policy.maxInputBytes, policy.maxDurationMs);
-    const inputDigest = canonicalInputDigest({ capability: request.capability, input: request.input });
-    const key = `${request.installationId}:${request.capability}:${request.idempotencyKey}`;
-    const existing = this.operations.get(key);
-    if (existing) {
-      if (existing.inputDigest !== inputDigest) throw new AppPlatformError("idempotency_conflict", "Operation identity was already used", 409);
-      const result = await existing.promise as T;
-      return existing.completedAt === null ? result : this.reusedProjection(result);
+    this.validateRequest(request, 262_144, 120_000);
+    const inputDigest = canonicalInputDigest({
+      capability: request.capability,
+      operation_id: request.operationId,
+      idempotency_key: request.idempotencyKey,
+      input: request.input,
+    });
+    const idempotencyKey = `${request.appId}:${request.installationId}:${request.capability}:${request.idempotencyKey}`;
+    const operationKey = `${request.appId}:${request.installationId}:${request.capability}:${request.operationId}`;
+    const byIdempotency = this.operations.get(idempotencyKey);
+    const byOperation = this.operationIdentities.get(operationKey);
+    if (byIdempotency || byOperation) {
+      if (
+        !byIdempotency || !byOperation || byIdempotency !== byOperation ||
+        byIdempotency.inputDigest !== inputDigest || byIdempotency.operationId !== request.operationId ||
+        byIdempotency.idempotencyKey !== request.idempotencyKey
+      ) {
+        throw new AppPlatformError("idempotency_conflict", "Operation identity was already used", 409);
+      }
+      const result = await byIdempotency.promise as T;
+      return byIdempotency.completedAt === null ? result : this.reusedProjection(result);
     }
     this.enforceRate(request);
 
     const abortController = new AbortController();
-    const record: OperationRecord = { inputDigest, promise: Promise.resolve(undefined), abortController, completedAt: null };
+    const record: OperationRecord = {
+      inputDigest,
+      operationId: request.operationId,
+      idempotencyKey: request.idempotencyKey,
+      promise: Promise.resolve(undefined),
+      abortController,
+      completedAt: null,
+    };
     const action = this.invokeAdapter(request, adapter, abortController).then((result) => {
       record.completedAt = this.now();
       return result;
     }).catch((error) => {
-      this.operations.delete(key);
+      this.operations.delete(idempotencyKey);
+      this.operationIdentities.delete(operationKey);
       throw error;
     });
     record.promise = action;
-    this.operations.set(key, record);
+    this.operations.set(idempotencyKey, record);
+    this.operationIdentities.set(operationKey, record);
     this.prune();
     return action;
   }
 
-  cancel(installationId: string, capability: AppCapabilityName, idempotencyKey: string): boolean {
-    const record = this.operations.get(`${installationId}:${capability}:${idempotencyKey}`);
+  cancel(appId: string, installationId: string, capability: string, idempotencyKey: string): boolean {
+    const record = this.operations.get(`${appId}:${installationId}:${capability}:${idempotencyKey}`);
     if (!record || record.completedAt !== null) return false;
     record.abortController.abort();
     return true;
@@ -91,6 +116,7 @@ export class CapabilityOperationCoordinator {
 
   private validateRequest(request: CapabilityOperationRequest, maxInputBytes: number, maxDurationMs: number): void {
     if (
+      !CanonicalAppIdSchema.safeParse(request.appId).success ||
       !OpaqueIdSchema.safeParse(request.installationId).success ||
       !OpaqueIdSchema.safeParse(request.connectionId).success ||
       (request.viewId !== null && !OpaqueIdSchema.safeParse(request.viewId).success) ||
@@ -108,7 +134,7 @@ export class CapabilityOperationCoordinator {
 
   private enforceRate(request: CapabilityOperationRequest): void {
     const now = this.now();
-    const key = `${request.installationId}:${request.connectionId}:${request.viewId ?? "server"}`;
+    const key = `${request.appId}:${request.installationId}:${request.connectionId}:${request.viewId ?? "server"}`;
     const recent = (this.requestTimes.get(key) ?? []).filter((timestamp) => now - timestamp < 10_000);
     if (recent.length >= 100) throw new AppPlatformError("denied", "Capability request rate exceeded", 429);
     recent.push(now);
@@ -118,7 +144,12 @@ export class CapabilityOperationCoordinator {
   private prune(): void {
     const now = this.now();
     for (const [key, record] of this.operations) {
-      if (record.completedAt !== null && now - record.completedAt > 15 * 60_000) this.operations.delete(key);
+      if (record.completedAt !== null && now - record.completedAt > 15 * 60_000) {
+        this.operations.delete(key);
+        for (const [operationKey, candidate] of this.operationIdentities) {
+          if (candidate === record) this.operationIdentities.delete(operationKey);
+        }
+      }
     }
   }
 

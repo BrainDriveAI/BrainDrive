@@ -115,11 +115,14 @@ export function synthesizeResumeE2eResult(purpose: InferencePurpose, blocks: Dat
       return { evidence: analysis.requirements.map((requirement) => ({ requirement_id: requirement.requirement_id, evidence_status: firstFact ? "supported" : "clarification_needed", supporting_confirmed_fact_revision_ids: firstFact ? [firstFact.revision_id] : [], explanation: firstFact ? "A confirmed owner fact is available for this requirement." : "No confirmed owner fact supports this requirement.", clarification: firstFact ? null : "Add a confirmed fact or leave this requirement unsupported." })) };
     }
     case "tailoring_plan": {
-      const definition = blockData<{ statements: Array<{ statement_id: string }> }>(blocks, "general_resume_definition");
+      const definition = blockData<{ statements: Array<{ statement_id: string; text?: string; display_role?: string }> }>(blocks, "general_resume_definition");
       const evidence = blockData<Array<{ requirement_id: string; requirement_kind: "required" | "preferred" | "responsibility" | "skill" | "credential" | "constraint" | "inferred"; evidence_status: "supported" | "partially_supported" | "unsupported" | "ambiguous" | "clarification_needed"; supporting_confirmed_fact_revision_ids: string[] }>>(blocks, "evidence_matrix");
       const supported = evidence.find((row) => row.evidence_status === "supported");
-      const changes = supported && definition.statements[0]
-        ? [{ change_id: randomUUID(), requirement_id: supported.requirement_id, statement_id: definition.statements[0].statement_id, action: "emphasis" as const, rationale: "Emphasize supported owner evidence.", supporting_confirmed_fact_revision_ids: supported.supporting_confirmed_fact_revision_ids }]
+      const emphasisCandidate = definition.statements.find((candidate) => /\band\b/i.test(candidate.text ?? ""))
+        ?? definition.statements.find((candidate) => candidate.display_role !== "heading" && typeof candidate.text === "string")
+        ?? definition.statements[0];
+      const changes = supported && emphasisCandidate
+        ? [{ change_id: randomUUID(), requirement_id: supported.requirement_id, statement_id: emphasisCandidate.statement_id, action: "emphasis" as const, rationale: "Emphasize supported owner evidence.", supporting_confirmed_fact_revision_ids: supported.supporting_confirmed_fact_revision_ids }]
         : [];
       const decision = decideTargetFit(evidence, changes);
       return { plan_version: 2, threshold_policy_id: TARGET_FIT_THRESHOLD_POLICY.policy_id, threshold_policy_version: TARGET_FIT_THRESHOLD_POLICY.policy_version, fit_class: decision.fit_class, outcome: decision.outcome, no_change_reason: decision.no_change_reason, support_counts: decision.support_counts, changes: decision.material_changes.map((change) => ({ ...change, rationale: "Emphasize supported owner evidence." })) };
@@ -214,6 +217,12 @@ function emphasizedFixtureText(value: string): string {
   if (clauses.length === 2) {
     const second = clauses[1]!;
     return `${second.charAt(0).toUpperCase()}${second.slice(1)}; ${clauses[0]!.charAt(0).toLowerCase()}${clauses[0]!.slice(1)}.`;
+  }
+  const words = trimmed.split(/\s+/);
+  if (words.length > 1) {
+    const first = words.shift()!;
+    words[0] = `${words[0]!.charAt(0).toUpperCase()}${words[0]!.slice(1)}`;
+    return `${words.join(" ")} ${first.charAt(0).toLowerCase()}${first.slice(1)}.`;
   }
   return `${trimmed}.`;
 }

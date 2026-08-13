@@ -1,10 +1,13 @@
 export const APP_CONTRACT_SCHEMA_VERSION = 1 as const;
+export const FIRST_PARTY_APP_REGISTRY_VERSION = 1 as const;
+export const GENERIC_PACKAGE_MANIFEST_VERSION = 2 as const;
 export const RESUME_DATA_SCHEMA_VERSION = 4 as const;
 export const RESUME_INFERENCE_SCHEMA_VERSION = 1 as const;
 export const APP_BRIDGE_SCHEMA_VERSION = 1 as const;
 
 export const RESUME_BUILDER_APP_ID = "ai.braindrive.resume-builder" as const;
 export const RESUME_BUILDER_PUBLISHER_ID = "ai.braindrive" as const;
+export const RESUME_BUILDER_ROUTE_KEY = "resume-builder" as const;
 
 export const MCP_MODERN_PROTOCOL_VERSION = "2026-07-28" as const;
 export const MCP_LEGACY_PROTOCOL_VERSION = "2025-11-25" as const;

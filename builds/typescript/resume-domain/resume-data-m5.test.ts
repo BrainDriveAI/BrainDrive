@@ -206,7 +206,7 @@ describe("M5 scoped Resume Builder capability policy", () => {
     await denied({ ...base, context: { ...base.context, package_digest: `sha256:${"f".repeat(64)}` } });
     await denied({ ...base, context: { ...base.context, granted_capabilities: [capability, "resume.jobs.read"] } });
     await denied({ ...base, context: { ...base.context, expires_at: "2026-08-08T11:59:59.000Z" } });
-    liveGrant = CapabilityGrantSchema.parse({ ...grant, grant_revision: 2, revocation_generation: 1, revoked_at: "2026-08-08T11:59:00.000Z" });
+    liveGrant = testGrant(CapabilityGrantSchema.parse({ ...grant, grant_revision: 2, revocation_generation: 1, revoked_at: "2026-08-08T11:59:00.000Z" }));
     await denied(base);
     liveGrant = null;
     await denied(base);
@@ -214,12 +214,12 @@ describe("M5 scoped Resume Builder capability policy", () => {
 
   it("leaves no side effect when the live installation grant is revoked", async () => {
     const harness = await setup();
-    const revoked = CapabilityGrantSchema.parse({
+    const revoked = testGrant(CapabilityGrantSchema.parse({
       ...harness.grant(),
       grant_revision: 2,
       revocation_generation: 1,
       revoked_at: "2026-08-08T11:59:00.000Z",
-    });
+    }));
     harness.setGrant(revoked);
     const jobText = "This write must remain invisible";
     await expect(harness.router.execute("resume.jobs.write", {

@@ -11,100 +11,45 @@
       "type": "array",
       "items": {
         "type": "string",
-        "enum": [
-          "career.context.read",
-          "career.facts.read",
-          "career.facts.propose",
-          "career.facts.confirm",
-          "resume.definitions.read",
-          "resume.definitions.write",
-          "resume.jobs.read",
-          "resume.jobs.write",
-          "resume.artifacts.register",
-          "resume.export.request",
-          "resume.operations.read",
-          "app.inference.request"
-        ]
+        "minLength": 3,
+        "maxLength": 128,
+        "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
       }
     },
     "requested_capabilities": {
       "type": "array",
       "items": {
         "type": "string",
-        "enum": [
-          "career.context.read",
-          "career.facts.read",
-          "career.facts.propose",
-          "career.facts.confirm",
-          "resume.definitions.read",
-          "resume.definitions.write",
-          "resume.jobs.read",
-          "resume.jobs.write",
-          "resume.artifacts.register",
-          "resume.export.request",
-          "resume.operations.read",
-          "app.inference.request"
-        ]
+        "minLength": 3,
+        "maxLength": 128,
+        "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
       }
     },
     "added": {
       "type": "array",
       "items": {
         "type": "string",
-        "enum": [
-          "career.context.read",
-          "career.facts.read",
-          "career.facts.propose",
-          "career.facts.confirm",
-          "resume.definitions.read",
-          "resume.definitions.write",
-          "resume.jobs.read",
-          "resume.jobs.write",
-          "resume.artifacts.register",
-          "resume.export.request",
-          "resume.operations.read",
-          "app.inference.request"
-        ]
+        "minLength": 3,
+        "maxLength": 128,
+        "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
       }
     },
     "removed": {
       "type": "array",
       "items": {
         "type": "string",
-        "enum": [
-          "career.context.read",
-          "career.facts.read",
-          "career.facts.propose",
-          "career.facts.confirm",
-          "resume.definitions.read",
-          "resume.definitions.write",
-          "resume.jobs.read",
-          "resume.jobs.write",
-          "resume.artifacts.register",
-          "resume.export.request",
-          "resume.operations.read",
-          "app.inference.request"
-        ]
+        "minLength": 3,
+        "maxLength": 128,
+        "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
       }
     },
     "unchanged": {
       "type": "array",
       "items": {
         "type": "string",
-        "enum": [
-          "career.context.read",
-          "career.facts.read",
-          "career.facts.propose",
-          "career.facts.confirm",
-          "resume.definitions.read",
-          "resume.definitions.write",
-          "resume.jobs.read",
-          "resume.jobs.write",
-          "resume.artifacts.register",
-          "resume.export.request",
-          "resume.operations.read",
-          "app.inference.request"
-        ]
+        "minLength": 3,
+        "maxLength": 128,
+        "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
       }
     },
     "decision": {

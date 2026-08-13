@@ -54,6 +54,13 @@ describe("MCP Apps sandbox proxy", () => {
     expect(url).not.toContain(launch.resource.html);
   });
 
+  it("renders a bounded generic title without allowing a manifest string to escape the proxy script", () => {
+    const url = createSandboxProxyUrl("proxy-nonce-for-test", '</script><script>globalThis.forged=true</script>');
+    const html = decodeURIComponent(url.split(",", 2)[1]!);
+    expect(html).not.toContain("</script><script>globalThis.forged");
+    expect(html).toContain("\\u003c/script\\u003e\\u003cscript\\u003e");
+  });
+
   it("constructs a restrictive CSP with no ambient network, form, object, or frame authority", () => {
     const policy = buildViewCsp({
       connectDomains: [],

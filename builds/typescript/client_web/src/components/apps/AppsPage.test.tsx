@@ -6,12 +6,13 @@ import AppsPage from "./AppsPage";
 
 vi.mock("@/api/apps-adapter", async () => {
   const actual = await vi.importActual<typeof import("@/api/apps-adapter")>("@/api/apps-adapter");
-  return { ...actual, getResumeBuilderApp: vi.fn(), mutateResumeBuilderApp: vi.fn(), launchResumeBuilderApp: vi.fn(), closeResumeBuilderSession: vi.fn(), sendResumeBuilderBridgeMessage: vi.fn(), callResumeBuilderCapability: vi.fn() };
+  return { ...actual, getAppCatalog: vi.fn(), getApp: vi.fn(), mutateApp: vi.fn(), launchApp: vi.fn(), closeAppSession: vi.fn(), sendAppBridgeMessage: vi.fn(), callAppCapability: vi.fn() };
 });
 
-const base: appsApi.ResumeBuilderAppStatus = {
+const base: appsApi.AppStatus = {
   contract_version: 1,
   identity: { app_id: "ai.braindrive.resume-builder", display_name: "Resume Builder", publisher_id: "ai.braindrive", publisher_name: "BrainDrive", installation_id: null, package_digest: null },
+  route_key: "resume-builder",
   state: "not_installed", generation: 0,
   version: { installed: null, available: "3.1.0" },
   trust: { status: "not_verified", policy_version: 1, signing_key_id: null, checked_at: null, revocation_status: "not_checked" },
@@ -20,11 +21,24 @@ const base: appsApi.ResumeBuilderAppStatus = {
   capabilities: { requested: ["career.context.read", "app.inference.request"], granted: [] },
   retention: { owner_data_preserved: true, retained_data_present: false, compatibility: "missing", safe_message: "No retained Resume Builder data is present.", uninstall_removes: ["app code", "disposable cache", "runtime authority", "capability grants"], uninstall_retains: ["career data", "resume and job history", "artifact metadata", "owner exports", "lifecycle evidence"] },
   progress: null, recovery: { available: false, action: "none" }, updated_at: "2026-08-07T00:00:00.000Z",
+  catalog: { summary: "Create an evidence-grounded resume.", icon: null, retention_summary: "Resume records remain owner-controlled.", primary_resource_uri: "ui://resume-builder/main", provenance: "verified_first_party_package" },
+  availability: { status: "available", package_digest: `sha256:${"b".repeat(64)}`, error_code: null, safe_message: null },
+  available_actions: ["install"],
 };
 
-function installed(overrides: Partial<appsApi.ResumeBuilderAppStatus> = {}): appsApi.ResumeBuilderAppStatus {
-  return { ...base, state: "active", generation: 2, identity: { ...base.identity, installation_id: crypto.randomUUID(), package_digest: `sha256:${"a".repeat(64)}` }, version: { installed: "3.1.0", available: "3.1.0" }, trust: { ...base.trust, status: "verified", signing_key_id: "braindrive-app-release-fixture-2026", checked_at: "2026-08-07T00:00:00.000Z", revocation_status: "not_revoked_fresh" }, compatibility: { ...base.compatibility, host: true }, capabilities: { ...base.capabilities, granted: [...base.capabilities.requested] }, retention: { ...base.retention, compatibility: "ready" }, ...overrides };
+function installed(overrides: Partial<appsApi.AppStatus> = {}): appsApi.AppStatus {
+  return { ...base, state: "active", generation: 2, identity: { ...base.identity, installation_id: crypto.randomUUID(), package_digest: `sha256:${"a".repeat(64)}` }, version: { installed: "3.1.0", available: "3.1.0" }, trust: { ...base.trust, status: "verified", signing_key_id: "braindrive-app-release-fixture-2026", checked_at: "2026-08-07T00:00:00.000Z", revocation_status: "not_revoked_fresh" }, compatibility: { ...base.compatibility, host: true }, capabilities: { ...base.capabilities, granted: [...base.capabilities.requested] }, retention: { ...base.retention, compatibility: "ready" }, available_actions: ["launch", "disable", "uninstall"], ...overrides };
 }
+
+const brief: appsApi.AppStatus = {
+  ...base,
+  route_key: "brief-builder",
+  identity: { ...base.identity, app_id: "ai.braindrive.brief-builder", display_name: "Brief Builder" },
+  version: { installed: null, available: "1.0.0" },
+  capabilities: { requested: ["brief.sources.read"], granted: [] },
+  retention: { ...base.retention, safe_message: "Owner data is not inspected during catalog reads.", uninstall_retains: ["owner data", "owner exports", "lifecycle evidence"] },
+  catalog: { summary: "Turn source notes into a concise brief.", icon: null, retention_summary: "Approved briefs remain owner-controlled.", primary_resource_uri: "ui://brief-builder/main", provenance: "verified_first_party_package" },
+};
 
 const launch = {
   launch_version: 1 as const, session_id: crypto.randomUUID(), installation_id: crypto.randomUUID(), view_id: crypto.randomUUID(), operation_id: crypto.randomUUID(),
@@ -35,41 +49,82 @@ const launch = {
   allowed_tools: ["fixture.status"], allowed_capabilities: ["career.context.read"], entry_point: "direct" as const,
 };
 
-describe("owner lifecycle Apps surface", () => {
-  beforeEach(() => vi.clearAllMocks());
+describe("manifest-driven Apps surface", () => {
+  beforeEach(() => { vi.clearAllMocks(); vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [brief, base] }); });
+
+  it("renders two deterministic cards from server metadata as plain text and host-authored actions", async () => {
+    render(<AppsPage />);
+    const headings = await screen.findAllByRole("heading", { level: 2 });
+    expect(headings.map((heading) => heading.textContent)).toEqual(["Brief Builder", "Resume Builder"]);
+    expect(screen.getByText("Turn source notes into a concise brief.")).toBeInTheDocument();
+    expect(screen.getByText(/ui:\/\/brief-builder\/main/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Install Brief Builder" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Disable Brief Builder" })).not.toBeInTheDocument();
+  });
+
+  it("renders manifest-looking markup as bounded text and never creates app-authored controls", async () => {
+    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [{ ...brief, identity: { ...brief.identity, display_name: '<a href="https://evil.invalid">Launch</a>' }, catalog: { ...brief.catalog!, summary: '<button>Approve</button><script>bad()</script>' } }, base] });
+    const { container } = render(<AppsPage />);
+    expect(await screen.findByText('<a href="https://evil.invalid">Launch</a>')).toBeInTheDocument();
+    expect(screen.getByText('<button>Approve</button><script>bad()</script>')).toBeInTheDocument();
+    expect(container.querySelector('a[href="https://evil.invalid"]')).toBeNull();
+    expect(container.querySelector("script")).toBeNull();
+  });
+
+  it("keeps one unavailable card isolated without disabling the unrelated app", async () => {
+    const unavailableBrief = { ...brief, availability: { status: "unavailable" as const, package_digest: null, error_code: "package_revoked", safe_message: "This app version is revoked and cannot be installed." }, available_actions: [] };
+    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [unavailableBrief, base] });
+    render(<AppsPage />);
+    expect(await screen.findByText("This app version is revoked and cannot be installed.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Install Brief Builder" })).not.toBeInTheDocument();
+    const resumeInstall = screen.getByRole("button", { name: "Install Resume Builder" });
+    expect(resumeInstall).toBeEnabled();
+    expect(screen.getByRole("alert")).toHaveTextContent("revoked");
+  });
+
+  it("scopes lifecycle busy state to only the selected app card", async () => {
+    let release!: (value: appsApi.AppStatus) => void;
+    vi.mocked(appsApi.mutateApp).mockReturnValue(new Promise((resolve) => { release = resolve; }));
+    const user = userEvent.setup(); render(<AppsPage />);
+    await user.click(await screen.findByRole("button", { name: "Install Brief Builder" }));
+    expect(screen.getByRole("button", { name: "Install Brief Builder" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Install Resume Builder" })).toBeEnabled();
+    release({ ...installed(), route_key: "brief-builder", identity: { ...installed().identity, app_id: "ai.braindrive.brief-builder", display_name: "Brief Builder" } });
+    expect(await screen.findByText("Active and ready")).toBeInTheDocument();
+  });
 
   it("shows identity, trust, source, compatibility, capabilities, retention, and installs from one control", async () => {
-    vi.mocked(appsApi.getResumeBuilderApp).mockResolvedValue(base);
-    vi.mocked(appsApi.mutateResumeBuilderApp).mockResolvedValue(installed());
+    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [base] });
+    vi.mocked(appsApi.mutateApp).mockResolvedValue(installed());
     const user = userEvent.setup(); render(<AppsPage />);
     expect(await screen.findByRole("heading", { name: "Resume Builder" })).toBeInTheDocument();
     expect(screen.getByText("not verified")).toBeInTheDocument();
     expect(screen.getByText("Bundled BrainDrive app source")).toBeInTheDocument();
     expect(screen.getByText("2026-07-28")).toBeInTheDocument();
-    expect(screen.getByText(/retains career data, resume and job history/i)).toBeInTheDocument();
+    expect(screen.getByText(/Uninstall retains career data, resume and job history/i)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Install Resume Builder" }));
-    expect(appsApi.mutateResumeBuilderApp).toHaveBeenCalledWith("install", base);
+    expect(appsApi.mutateApp).toHaveBeenCalledWith("resume-builder", "install", base);
     expect(await screen.findByText("Active and ready")).toBeInTheDocument();
   });
 
   it("offers an explicit owner-approved update for an installed older package", async () => {
-    const prior = installed({ version: { installed: "3.0.2", available: "3.1.0" } });
-    vi.mocked(appsApi.getResumeBuilderApp).mockResolvedValue(prior);
-    vi.mocked(appsApi.mutateResumeBuilderApp).mockResolvedValue(installed());
+    const prior = installed({ version: { installed: "3.0.2", available: "3.1.0" }, available_actions: ["launch", "disable", "uninstall", "update"] });
+    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [prior] });
+    vi.mocked(appsApi.mutateApp).mockResolvedValue(installed());
     const user = userEvent.setup(); render(<AppsPage />);
 
-    await user.click(await screen.findByRole("button", { name: "Update" }));
-    expect(appsApi.mutateResumeBuilderApp).toHaveBeenCalledWith("update", prior);
+    await user.click(await screen.findByRole("button", { name: "Update Resume Builder" }));
+    expect(appsApi.mutateApp).toHaveBeenCalledWith("resume-builder", "update", prior);
     expect(await screen.findByText("Version 3.1.0")).toBeInTheDocument();
   });
 
   it("uses a focused confirmation that states exact removal and retention, supports Escape, and restores focus", async () => {
-    vi.mocked(appsApi.getResumeBuilderApp).mockResolvedValue(installed());
+    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [installed()] });
     const user = userEvent.setup(); render(<AppsPage />);
-    const uninstallButton = await screen.findByRole("button", { name: "Uninstall" });
+    const uninstallButton = await screen.findByRole("button", { name: "Remove app code for Resume Builder" });
     await user.click(uninstallButton);
     expect(screen.getByRole("dialog", { name: "Uninstall Resume Builder?" })).toBeInTheDocument();
-    expect(screen.getByText(/revoke its capability authority/i)).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toHaveTextContent(/capability grants/i);
     expect(screen.getByRole("dialog")).toHaveTextContent(/career data, resume and job history/i);
     expect(screen.getByRole("button", { name: "Uninstall app code" })).toHaveFocus();
     await user.keyboard("{Shift>}{Tab}{/Shift}");
@@ -82,72 +137,72 @@ describe("owner lifecycle Apps surface", () => {
 
   it("submits uninstall once after confirmation and disables duplicate lifecycle controls", async () => {
     const current = installed();
-    vi.mocked(appsApi.getResumeBuilderApp).mockResolvedValue(current);
-    let release!: (value: appsApi.ResumeBuilderAppStatus) => void;
-    vi.mocked(appsApi.mutateResumeBuilderApp).mockReturnValue(new Promise((resolve) => { release = resolve; }));
+    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [current] });
+    let release!: (value: appsApi.AppStatus) => void;
+    vi.mocked(appsApi.mutateApp).mockReturnValue(new Promise((resolve) => { release = resolve; }));
     const user = userEvent.setup(); render(<AppsPage />);
-    await user.click(await screen.findByRole("button", { name: "Uninstall" }));
+    await user.click(await screen.findByRole("button", { name: "Remove app code for Resume Builder" }));
     const confirm = screen.getByRole("button", { name: "Uninstall app code" });
     await user.click(confirm);
-    expect(appsApi.mutateResumeBuilderApp).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("button", { name: "Uninstall" })).toBeDisabled();
-    release({ ...base, generation: 4, retention: { ...base.retention, retained_data_present: true, compatibility: "ready" } });
-    expect(await screen.findByRole("button", { name: "Reinstall Resume Builder" })).toBeInTheDocument();
+    expect(appsApi.mutateApp).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Remove app code for Resume Builder" })).toBeDisabled();
+    release({ ...base, generation: 4, retention: { ...base.retention, retained_data_present: true, compatibility: "ready" }, available_actions: ["install"] });
+    expect(await screen.findByRole("button", { name: "Install Resume Builder" })).toBeInTheDocument();
   });
 
   it("represents progress, quarantined, and recoverable states with readable text and actions", async () => {
     const operationId = crypto.randomUUID();
-    vi.mocked(appsApi.getResumeBuilderApp).mockResolvedValue(installed({ state: "updating", progress: { operation_version: 1, operation_id: operationId, installation_id: crypto.randomUUID(), kind: "update", status: "running", stage: "verifying_package", completed_stages: [], commit_outcome: "not_committed", prior_state: "active", target_state: "active", result_state: null, error_code: null, recovery_action: "none", started_at: "2026-08-07T00:00:00.000Z", updated_at: "2026-08-07T00:00:01.000Z", completed_at: null } }));
+    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [installed({ state: "updating", available_actions: [], progress: { operation_version: 1, operation_id: operationId, installation_id: crypto.randomUUID(), kind: "update", status: "running", stage: "verifying_package", completed_stages: [], commit_outcome: "not_committed", prior_state: "active", target_state: "active", result_state: null, error_code: null, recovery_action: "none", started_at: "2026-08-07T00:00:00.000Z", updated_at: "2026-08-07T00:00:01.000Z", completed_at: null } })] });
     const { rerender } = render(<AppsPage />);
     expect(await screen.findByText("Verifying signed package")).toBeInTheDocument();
-    vi.mocked(appsApi.getResumeBuilderApp).mockResolvedValue(installed({ state: "quarantined", trust: { ...base.trust, status: "quarantined", revocation_status: "revoked" } }));
+    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [installed({ state: "quarantined", available_actions: ["uninstall"], trust: { ...base.trust, status: "quarantined", revocation_status: "revoked" } })] });
     rerender(<AppsPage />);
-    await userEvent.click(screen.getByRole("button", { name: "Refresh app status" }));
+    await userEvent.click(screen.getByRole("button", { name: "Refresh app catalog" }));
     expect(await screen.findByText(/Quarantined because package trust changed/)).toBeInTheDocument();
-    vi.mocked(appsApi.getResumeBuilderApp).mockResolvedValue(installed({ state: "failed_recoverable", recovery: { available: true, action: "retry_recovery_or_reinstall" } }));
-    await userEvent.click(screen.getByRole("button", { name: "Refresh app status" }));
-    expect(await screen.findByRole("button", { name: "Retry recovery" })).toBeInTheDocument();
+    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [installed({ state: "failed_recoverable", available_actions: ["recover", "uninstall"], recovery: { available: true, action: "retry_recovery_or_reinstall" } })] });
+    await userEvent.click(screen.getByRole("button", { name: "Refresh app catalog" }));
+    expect(await screen.findByRole("button", { name: "Retry recovery Resume Builder" })).toBeInTheDocument();
   });
 
   it("reports transport ambiguity only after authoritative refresh evidence", async () => {
     const current = installed();
-    vi.mocked(appsApi.getResumeBuilderApp).mockResolvedValue(current);
-    vi.mocked(appsApi.mutateResumeBuilderApp).mockResolvedValue({ ...current, state: "disabled", generation: 3, request_resolution: "refreshed_after_ambiguous_response" });
+    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [current] });
+    vi.mocked(appsApi.mutateApp).mockResolvedValue({ ...current, state: "disabled", generation: 3, available_actions: ["enable", "uninstall"], request_resolution: "refreshed_after_ambiguous_response" });
     const user = userEvent.setup(); render(<AppsPage />);
-    await user.click(await screen.findByRole("button", { name: "Disable" }));
+    await user.click(await screen.findByRole("button", { name: "Disable Resume Builder" }));
     expect(await screen.findByRole("status")).toHaveTextContent(/response was interrupted/i);
     expect(screen.getByText("Disabled — your saved data is retained")).toBeInTheDocument();
   });
 
   it("returns keyboard focus to Launch after the sandbox session closes and preserves Career entry", async () => {
-    vi.mocked(appsApi.getResumeBuilderApp).mockResolvedValue(installed());
-    vi.mocked(appsApi.launchResumeBuilderApp).mockResolvedValue({ ...launch, entry_point: "career" });
+    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [installed()] });
+    vi.mocked(appsApi.launchApp).mockResolvedValue({ ...launch, entry_point: "career" });
     const user = userEvent.setup(); render(<AppsPage entryPoint="career" />);
     const launchButton = await screen.findByRole("button", { name: "Continue from Career" });
     await user.click(launchButton);
-    expect(appsApi.launchResumeBuilderApp).toHaveBeenCalledWith("career");
+    expect(appsApi.launchApp).toHaveBeenCalledWith("resume-builder", "career");
     await user.click(await screen.findByRole("button", { name: "Close app" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Continue from Career" })).toHaveFocus());
   });
 
   it("reloads through the bounded reconnect handshake before the old session is torn down", async () => {
-    vi.mocked(appsApi.getResumeBuilderApp).mockResolvedValue(installed());
+    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [installed()] });
     const resumed = { ...launch, session_id: crypto.randomUUID(), bridge_generation: 2, resumed: true };
-    vi.mocked(appsApi.launchResumeBuilderApp).mockResolvedValueOnce(launch).mockResolvedValueOnce(resumed);
+    vi.mocked(appsApi.launchApp).mockResolvedValueOnce(launch).mockResolvedValueOnce(resumed);
     const user = userEvent.setup(); render(<AppsPage />);
-    await user.click(await screen.findByRole("button", { name: "Launch" }));
+    await user.click(await screen.findByRole("button", { name: /^Launch$/ }));
     await user.click(await screen.findByRole("button", { name: "Reload app" }));
-    await waitFor(() => expect(appsApi.launchResumeBuilderApp).toHaveBeenLastCalledWith("direct", launch));
-    const reconnectOrder = vi.mocked(appsApi.launchResumeBuilderApp).mock.invocationCallOrder[1]!;
-    const closeIndex = vi.mocked(appsApi.closeResumeBuilderSession).mock.calls.findIndex(([sessionId]) => sessionId === launch.session_id);
-    if (closeIndex >= 0) expect(vi.mocked(appsApi.closeResumeBuilderSession).mock.invocationCallOrder[closeIndex]).toBeGreaterThan(reconnectOrder);
+    await waitFor(() => expect(appsApi.launchApp).toHaveBeenLastCalledWith("resume-builder", "direct", launch));
+    const reconnectOrder = vi.mocked(appsApi.launchApp).mock.invocationCallOrder[1]!;
+    const closeIndex = vi.mocked(appsApi.closeAppSession).mock.calls.findIndex(([appKey, sessionId]) => appKey === "resume-builder" && sessionId === launch.session_id);
+    if (closeIndex >= 0) expect(vi.mocked(appsApi.closeAppSession).mock.invocationCallOrder[closeIndex]).toBeGreaterThan(reconnectOrder);
   });
 
   it("keeps a single-column base layout with responsive enhancement classes", async () => {
-    vi.mocked(appsApi.getResumeBuilderApp).mockResolvedValue(base);
+    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [base] });
     render(<AppsPage />);
     const page = await screen.findByTestId("apps-page");
     expect(page).toHaveClass("px-4");
-    expect(page.querySelector(".sm\\:grid-cols-2")).toBeInTheDocument();
+    expect(screen.getByTestId("app-catalog")).toHaveClass("grid-cols-1", "lg:grid-cols-2");
   });
 });

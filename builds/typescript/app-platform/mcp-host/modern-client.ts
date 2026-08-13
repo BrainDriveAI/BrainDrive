@@ -6,8 +6,6 @@ import {
   MCP_APPS_EXTENSION_VERSION,
   MCP_APP_MEDIA_TYPE,
   MCP_MODERN_PROTOCOL_VERSION,
-  RESUME_BUILDER_APP_ID,
-  RESUME_BUILDER_PUBLISHER_ID,
 } from "../contracts/constants.js";
 import { McpAppResourceSchema } from "../contracts/mcp-app.js";
 import type { AppRuntimeConnection } from "../lifecycle/process-supervisor.js";
@@ -141,7 +139,7 @@ export class ModernMcpAppsClient {
       validateSandboxHtml(verified.text);
       const resource = McpAppResourceSchema.parse({
         resource_version: 1,
-        app_id: RESUME_BUILDER_APP_ID,
+        app_id: this.identity.appId,
         package_digest: packageDigest,
         uri,
         mime_type: MCP_APP_MEDIA_TYPE,
@@ -176,14 +174,14 @@ export class ModernMcpAppsClient {
   }
 }
 
-export function identityForRuntime(connection: AppRuntimeConnection): McpConnectionIdentity {
+export function identityForRuntime(connection: AppRuntimeConnection, app: { appId: string; publisherId: string; serverId: string }): McpConnectionIdentity {
   return {
-    appId: RESUME_BUILDER_APP_ID,
-    publisherId: RESUME_BUILDER_PUBLISHER_ID,
+    appId: app.appId,
+    publisherId: app.publisherId,
     packageDigest: connection.runtime.package_digest as `sha256:${string}`,
     installationId: connection.runtime.installation_id,
     runtimeId: connection.runtime.runtime_id,
-    serverId: "resume-builder",
+    serverId: app.serverId,
     generation: connection.runtime.runtime_generation,
   };
 }
@@ -234,12 +232,12 @@ class WireMcpPeer implements McpPeer {
 
 function fixtureIdentity(): McpConnectionIdentity {
   return {
-    appId: RESUME_BUILDER_APP_ID,
-    publisherId: RESUME_BUILDER_PUBLISHER_ID,
+    appId: "ai.braindrive.synthetic-fixture",
+    publisherId: "ai.braindrive",
     packageDigest: `sha256:${"a".repeat(64)}`,
     installationId: "20000000-0000-4000-8000-000000000001",
     runtimeId: "20000000-0000-4000-8000-000000000002",
-    serverId: "resume-builder-fixture",
+    serverId: "synthetic-fixture",
     generation: 1,
   };
 }
