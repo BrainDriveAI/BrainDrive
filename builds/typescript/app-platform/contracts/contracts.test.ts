@@ -558,28 +558,39 @@ describe("JSON Schema and traceability artifacts", () => {
       }
     }
     expect(mappingCount).toBe(181);
-    const requiredOutstandingHolds = ["native_windows", "brief_live_human", "resume_human", "release_evidence"];
+    const requiredHumanAndReleaseHolds = ["brief_live_human", "resume_human", "release_evidence"];
+    let nativeWindowsSatisfied = false;
     if (matrix.candidate.state === "pre_freeze_working_tree_hold") {
       expect(matrix.candidate).toMatchObject({ immutable_source_revision: null, source_candidate_proof: null });
-      expect(matrix.hold_reasons).toEqual(["immutable_candidate", ...requiredOutstandingHolds]);
+      expect(matrix.hold_reasons).toEqual(["immutable_candidate", "native_windows", ...requiredHumanAndReleaseHolds]);
       expect(matrix.evidence_classes.immutable_candidate).toMatch(/^blocked/);
+      expect(matrix.evidence_classes.native_windows).toMatch(/^blocked:/);
     } else {
       expect(matrix.candidate.state).toBe("post_freeze_evidence_bound_hold");
       expect(matrix.candidate.immutable_source_revision).toMatch(/^[0-9a-f]{40}$/);
       expect(matrix.candidate.source_candidate_proof).toMatch(/^source-candidate sha256 [0-9a-f]{64}; entries \d+; revision [0-9a-f]{40}$/);
       expect(matrix.candidate.source_candidate_proof).toContain(`; revision ${matrix.candidate.immutable_source_revision}`);
-      expect(matrix.hold_reasons).toEqual(requiredOutstandingHolds);
       expect(matrix.evidence_classes.immutable_candidate).toMatch(/^satisfied:/);
+      nativeWindowsSatisfied = matrix.evidence_classes.native_windows.startsWith("satisfied:");
+      if (nativeWindowsSatisfied) {
+        expect(matrix.hold_reasons).toEqual(requiredHumanAndReleaseHolds);
+      } else {
+        expect(matrix.evidence_classes.native_windows).toMatch(/^blocked:/);
+        expect(matrix.hold_reasons).toEqual(["native_windows", ...requiredHumanAndReleaseHolds]);
+      }
     }
-    for (const hold of requiredOutstandingHolds) expect(matrix.evidence_classes[hold]).toMatch(/^blocked:/);
-    expect(matrix.requirements.filter(({ disposition }) => disposition !== "automated_pass").map(({ id }) => id)).toEqual([
-      "APP8-REQ-009",
-      "APP8-REQ-027",
-      "APP8-REQ-038",
-      "APP8-REQ-041",
-      "APP8-REQ-042",
-      "APP8-REQ-043",
-    ]);
+    for (const hold of requiredHumanAndReleaseHolds) expect(matrix.evidence_classes[hold]).toMatch(/^blocked:/);
+    expect(matrix.requirements.filter(({ disposition }) => disposition !== "automated_pass").map(({ id }) => id)).toEqual(
+      nativeWindowsSatisfied
+        ? ["APP8-REQ-027", "APP8-REQ-041", "APP8-REQ-043"]
+        : ["APP8-REQ-009", "APP8-REQ-027", "APP8-REQ-038", "APP8-REQ-041", "APP8-REQ-042", "APP8-REQ-043"],
+    );
+    if (nativeWindowsSatisfied) {
+      for (const id of ["APP8-REQ-009", "APP8-REQ-038", "APP8-REQ-042"]) {
+        expect(matrix.requirements.find((requirement) => requirement.id === id)?.disposition, id).toBe("automated_pass");
+      }
+      expect(matrix.requirements.find(({ id }) => id === "APP8-REQ-041")?.disposition).toBe("human_hold");
+    }
     expect(matrix.overall_disposition).toBe("hold");
   });
 
