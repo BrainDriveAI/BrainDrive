@@ -4,8 +4,9 @@ import { OpaqueIdSchema, Sha256DigestSchema } from "../app-platform/contracts/co
 
 export const BRIEF_GENERATE_PURPOSE = "brief.generate" as const;
 export const BRIEF_GENERATE_VERSION = 1 as const;
-export const BRIEF_PROMPT_POLICY_ID = "brief.generate.fixed.v1" as const;
+export const BRIEF_PROMPT_POLICY_ID = "brief.generate.fixed.v2" as const;
 export const BRIEF_VALIDATION_POLICY_ID = "brief.grounding.v1" as const;
+export const BRIEF_OUTPUT_SCHEMA_ID = "brief.generate.output.v1" as const;
 
 export const BriefGenerateInputSchema = z.object({
   source_revision_id: OpaqueIdSchema,

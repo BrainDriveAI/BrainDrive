@@ -819,7 +819,7 @@ export async function buildServer(rootDir = process.cwd()) {
   if (appLifecycleService) {
     registerAppLifecycleRoutes(app, createAppLifecycleRoutePlatform([
       { routeKey: "resume-builder", displayName: "Resume Builder", publisherName: "BrainDrive", availableVersion: "4.0.0", service: appLifecycleService },
-      { routeKey: "brief-builder", displayName: "Brief Builder", publisherName: "BrainDrive", availableVersion: "1.0.0", service: briefLifecycleService! },
+      { routeKey: "brief-builder", displayName: "Brief Builder", publisherName: "BrainDrive", availableVersion: "1.2.0", service: briefLifecycleService! },
     ], 2));
     registerAppMcpHostRoutes(app, createAppMcpHostRoutePlatform([
       { appId: appMcpHost!.appId, routeKey: appMcpHost!.routeKey, host: appMcpHost! },

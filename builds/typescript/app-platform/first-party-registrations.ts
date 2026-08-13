@@ -20,7 +20,7 @@ export const BRIEF_BUILDER_FIRST_PARTY_REGISTRATION: FirstPartyAppRegistration =
   inference_purpose_registrations: [{
     registration_version: 1, app_id: "ai.braindrive.brief-builder", key: { purpose_id: "brief.generate", version: 1 },
     binding_id: "inference.brief-builder.generate", input_schema_id: "brief.generate.input.v1", output_schema_id: "brief.generate.output.v1",
-    prompt_policy_id: "brief.generate.fixed.v1", model_compatibility_class: "owner_active_compatible",
+    prompt_policy_id: "brief.generate.fixed.v2", model_compatibility_class: "owner_active_compatible",
     limits: { max_input_bytes: 65_536, max_input_tokens: 16_384, max_output_tokens: 2_048, max_duration_ms: 30_000, max_attempts: 2 },
     validation_policy_id: "brief.grounding.v1", retry_policy: "same_snapshot_only", cancellation_policy: "required",
     audit_projection_id: "audit.brief-builder.generate.v1", owner_component_id: "brief-builder.inference",

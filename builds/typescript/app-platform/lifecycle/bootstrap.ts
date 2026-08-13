@@ -69,7 +69,8 @@ export async function createBriefAppLifecycle(input: { memoryRoot: string; hostV
   const resourcePath = briefResourceCandidates().find((candidate) => existsSync(candidate));
   if (!resourcePath) throw new Error("Brief Builder UI package resource is missing");
   const repository = await createSyntheticFirstPartyFixtureRepository(path.join(stateRoot, "fixture-source-brief"), [{
-    appId: "ai.braindrive.brief-builder", routeKey: "brief-builder", displayName: "Brief Builder", version: "1.0.0",
+    appId: "ai.braindrive.brief-builder", routeKey: "brief-builder", displayName: "Brief Builder", version: "1.2.0",
+    summary: "Summarize source material into a concise, supported brief you can review, edit, and approve.",
     resourceHtml: await readFile(resourcePath, "utf8"),
     requestedCapabilities: ["brief.records.read", "brief.records.write", "brief.approvals.confirm", "app.inference.request"],
     requestedInferencePurposes: [{ purpose_id: "brief.generate", version: 1 }],

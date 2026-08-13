@@ -1,7 +1,8 @@
 import type { Ref } from "react";
-import { AppWindow, ShieldCheck } from "lucide-react";
+import { AppWindow, Info, ShieldCheck } from "lucide-react";
 
 import type { AppLifecycleAction, AppStatus } from "@/api/apps-adapter";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 const stateCopy: Record<string, string> = {
   not_installed: "Not installed",
@@ -43,11 +44,23 @@ const actionLabel: Record<string, string> = {
   uninstall: "Uninstall",
 };
 
+const appDescriptionCopy: Record<string, { short: string; long: string }> = {
+  "ai.braindrive.brief-builder": {
+    short: "Summarize source material.",
+    long: "Summarize source material into a concise, supported brief you can review, edit, and approve.",
+  },
+  "ai.braindrive.resume-builder": {
+    short: "Build an evidence-grounded resume.",
+    long: "Create, tailor, review, and export resumes using your confirmed career information.",
+  },
+};
+
 export default function AppCatalogCard({
   app,
   busy,
   error,
   notice,
+  compact = false,
   launchLabel,
   launchButtonRef,
   uninstallButtonRef,
@@ -57,6 +70,7 @@ export default function AppCatalogCard({
   busy: AppLifecycleAction | "launch" | null;
   error?: string;
   notice?: string;
+  compact?: boolean;
   launchLabel?: string;
   launchButtonRef?: Ref<HTMLButtonElement>;
   uninstallButtonRef?: Ref<HTMLButtonElement>;
@@ -65,23 +79,39 @@ export default function AppCatalogCard({
   const titleId = `app-${app.route_key}-title`;
   const actions = app.available_actions ?? [];
   const catalog = app.catalog;
+  const fallbackDescription = appDescriptionCopy[app.identity.app_id];
+  const shortDescription = fallbackDescription?.short ?? catalog?.summary ?? `Open ${app.identity.display_name}.`;
+  const longDescription = catalog?.summary ?? fallbackDescription?.long ?? shortDescription;
 
   return (
-    <article className="rounded-xl border border-bd-border bg-bd-bg-secondary p-5 sm:p-6" aria-labelledby={titleId} data-app-key={app.route_key}>
+    <article className="flex h-full flex-col rounded-xl border border-bd-border bg-bd-bg-secondary p-5 sm:p-6" aria-labelledby={titleId} data-app-key={app.route_key}>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex gap-3">
-          <div className="rounded-lg bg-bd-bg-tertiary p-3 text-bd-amber"><AppWindow aria-hidden="true" /></div>
+          <div className="flex size-12 shrink-0 items-center justify-center rounded-lg bg-bd-bg-tertiary text-bd-amber"><AppWindow aria-hidden="true" /></div>
           <div>
             <h2 id={titleId} className="font-heading text-xl font-semibold text-bd-text-heading">{app.identity.display_name}</h2>
             <p className="text-sm text-bd-text-secondary">By {app.identity.publisher_name}</p>
             <p className="mt-1 break-all text-xs text-bd-text-muted">{app.identity.app_id}</p>
-            {catalog?.summary ? <p className="mt-3 text-sm text-bd-text-primary">{catalog.summary}</p> : null}
           </div>
         </div>
-        <div className="text-left sm:text-right">
-          <p className="font-medium text-bd-text-primary">{stateCopy[app.state] ?? app.state}</p>
+        <div className="shrink-0 whitespace-nowrap text-left sm:text-right">
+          <p className="whitespace-nowrap font-medium text-bd-text-primary">{stateCopy[app.state] ?? app.state}</p>
           <p className="text-xs text-bd-text-muted">{app.version.installed ? `Version ${app.version.installed}` : `Available ${app.version.available}`}</p>
         </div>
+      </div>
+
+      <div className="mt-3 flex w-full items-center gap-1.5 text-sm text-bd-text-primary">
+        <p>{shortDescription}</p>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button type="button" aria-label={`More about ${app.identity.display_name}`} className="shrink-0 rounded-full text-bd-text-secondary hover:text-bd-text-heading focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bd-amber">
+              <Info size={15} aria-hidden="true" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" sideOffset={8} className="max-w-72 leading-relaxed">
+            {longDescription}
+          </TooltipContent>
+        </Tooltip>
       </div>
 
       {error ? <div role="alert" className="mt-4 rounded-lg border border-bd-danger px-4 py-3 text-sm text-bd-text-primary">{error}</div> : null}
@@ -89,7 +119,7 @@ export default function AppCatalogCard({
       {app.availability?.status === "unavailable" ? <div role="alert" className="mt-4 rounded-lg border border-bd-danger px-4 py-3 text-sm text-bd-text-primary">{app.availability.safe_message ?? "This app is unavailable."}</div> : null}
       {app.progress ? <div className="mt-5 rounded-lg border border-bd-border bg-bd-bg-tertiary p-4" role="status" aria-live="polite"><p className="font-medium text-bd-text-primary">{stageCopy[app.progress.stage] ?? "Lifecycle operation in progress"}</p><p className="mt-1 text-xs text-bd-text-secondary">Operation {app.progress.operation_id} · {app.progress.status}</p></div> : null}
 
-      <div className="mt-5 grid gap-5 text-sm sm:grid-cols-2">
+      {!compact ? <div className="mt-5 grid gap-5 text-sm sm:grid-cols-2">
         <section aria-labelledby={`${titleId}-trust`}>
           <h3 id={`${titleId}-trust`} className="flex items-center gap-2 font-heading font-semibold text-bd-text-heading"><ShieldCheck size={16} aria-hidden="true" />Trust and source</h3>
           <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-bd-text-secondary">
@@ -113,9 +143,9 @@ export default function AppCatalogCard({
           <p className="mt-1 text-bd-text-secondary">It removes {app.retention.uninstall_removes.join(", ") || "no host authority"}.</p>
           {catalog ? <p className="mt-2 break-all text-xs text-bd-text-muted">Primary resource: {catalog.primary_resource_uri}{catalog.icon ? ` · Icon: ${catalog.icon.package_path}` : ""}</p> : null}
         </section>
-      </div>
+      </div> : null}
 
-      <div className="mt-6 flex flex-wrap gap-2" aria-label={`${app.identity.display_name} controls`}>
+      <div className="mt-auto flex flex-wrap gap-2 pt-6" aria-label={`${app.identity.display_name} controls`}>
         {actions.map((action) => {
           const isPrimary = ["install", "reinstall", "launch", "enable", "recover"].includes(action);
           const label = action === "launch" && launchLabel ? launchLabel : actionLabel[action];

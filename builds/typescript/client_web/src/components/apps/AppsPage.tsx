@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { Maximize2, Minimize2, RefreshCw } from "lucide-react";
 
 import {
   getApp,
@@ -10,6 +10,7 @@ import {
   type AppLifecycleAction,
   type AppStatus,
 } from "@/api/apps-adapter";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import AppCatalogCard from "./AppCatalogCard";
 import SandboxedAppFrame from "./SandboxedAppFrame";
 
@@ -28,6 +29,7 @@ export default function AppsPage({ entryPoint = "direct", onOpenSettings, onSess
   const [errorsByApp, setErrorsByApp] = useState<Record<string, string | undefined>>({});
   const [noticesByApp, setNoticesByApp] = useState<Record<string, string | undefined>>({});
   const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [compactCards, setCompactCards] = useState(true);
   const [confirmUninstallKey, setConfirmUninstallKey] = useState<string | null>(null);
   const launchButtonRefs = useRef(new Map<string, HTMLButtonElement>());
   const uninstallButtonRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -112,7 +114,17 @@ export default function AppsPage({ entryPoint = "direct", onOpenSettings, onSess
       <div className="mx-auto w-full max-w-4xl">
         <div className="mb-6 flex items-start justify-between gap-4">
           <div><p className="text-xs uppercase tracking-[0.16em] text-bd-text-muted">Apps</p><h1 className="mt-1 font-heading text-2xl font-semibold text-bd-text-heading">Your Apps</h1></div>
-          <button type="button" aria-label="Refresh app catalog" onClick={() => void refresh()} className="rounded-md p-2 text-bd-text-secondary hover:bg-bd-bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber"><RefreshCw size={18} /></button>
+          <div className="flex items-center gap-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button type="button" aria-label={compactCards ? "Show detailed cards" : "Show compact cards"} aria-pressed={compactCards} onClick={() => setCompactCards((current) => !current)} className="rounded-md p-2 text-bd-text-secondary hover:bg-bd-bg-hover hover:text-bd-text-heading focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber">
+                  {compactCards ? <Maximize2 size={18} aria-hidden="true" /> : <Minimize2 size={18} aria-hidden="true" />}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={8}>{compactCards ? "Show detailed cards" : "Show compact cards"}</TooltipContent>
+            </Tooltip>
+            <button type="button" aria-label="Refresh app catalog" onClick={() => void refresh()} className="rounded-md p-2 text-bd-text-secondary hover:bg-bd-bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber"><RefreshCw size={18} /></button>
+          </div>
         </div>
         {catalogError ? <div role="alert" className="mb-4 rounded-lg border border-bd-danger px-4 py-3 text-sm text-bd-text-primary">{catalogError}</div> : null}
         {!apps ? <p aria-live="polite" className="text-bd-text-secondary">Loading app catalog…</p> : (
@@ -123,6 +135,7 @@ export default function AppsPage({ entryPoint = "direct", onOpenSettings, onSess
               busy={busyByApp[app.route_key] ?? null}
               error={errorsByApp[app.route_key]}
               notice={noticesByApp[app.route_key]}
+              compact={compactCards}
               launchLabel={app.identity.app_id === RESUME_BUILDER_APP_ID && entryPoint === "career" ? "Continue from Career" : undefined}
               launchButtonRef={(node) => { if (node) launchButtonRefs.current.set(app.route_key, node); else launchButtonRefs.current.delete(app.route_key); }}
               uninstallButtonRef={(node) => { if (node) uninstallButtonRefs.current.set(app.route_key, node); else uninstallButtonRefs.current.delete(app.route_key); }}

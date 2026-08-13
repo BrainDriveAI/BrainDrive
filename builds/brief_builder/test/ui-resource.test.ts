@@ -9,9 +9,18 @@ describe("Brief Builder primary resource", () => {
     expect(html).toContain("connect-src 'none'");
     expect(html).toContain('aria-live="polite"');
     expect(html).toContain('for="source"');
-    expect(html).toContain("Review and approve in BrainDrive");
-    expect(html).toContain("Reject this draft");
+    expect(html).toContain('role="tablist"');
+    expect(html).toContain('id="tab-source"');
+    expect(html).toContain('id="tab-brief"');
+    expect(html).toContain('class="brief-document"');
+    expect(html).toContain("Key points");
+    expect(html).toContain("View supporting sources");
+    expect(html).toContain("Show source for statement");
+    expect(html).toContain("Review and approve");
+    expect(html).toContain("Reject draft");
     expect(html).toContain("The draft was rejected. Your prior approved revision is unchanged.");
+    expect(html).toContain("Your selected BrainDrive model is not yet compatible with Brief Builder. Choose a compatible model in BrainDrive Settings.");
+    expect(html).toContain('errorCode==="protocol_incompatible"?errorCode:"safe_failure"');
     expect(html).toContain('rpcRequest("ui/initialize"');
     expect(html).toContain('rpcNotify("ui/notifications/initialized"');
     expect(html).toContain("crypto.getRandomValues");
@@ -23,6 +32,6 @@ describe("Brief Builder primary resource", () => {
 
   it("declares only the accepted package identity and surface", async () => {
     const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
-    expect(packageJson).toMatchObject({ name: "@braindrive/brief-builder", braindrive: { appId: "ai.braindrive.brief-builder", routeKey: "brief-builder", primaryResource: "ui://brief-builder/main", inferencePurpose: "brief.generate@1" } });
+    expect(packageJson).toMatchObject({ name: "@braindrive/brief-builder", version: "1.2.0", braindrive: { appId: "ai.braindrive.brief-builder", routeKey: "brief-builder", primaryResource: "ui://brief-builder/main", inferencePurpose: "brief.generate@1" } });
   });
 });

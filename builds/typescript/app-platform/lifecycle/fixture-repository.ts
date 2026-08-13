@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { canonicalJson, canonicalJsonDocumentDigest, canonicalSignedBytes } from "../contracts/common.js";
 import { GenericPackageManifestSchema } from "../contracts/app-registry.js";
-import type { z } from "zod";
+import { z } from "zod";
 import {
   PackageDescriptorSchema,
   PackageManifestSchema,
@@ -22,6 +22,13 @@ type Manifest = z.infer<typeof PackageManifestSchema>;
 type Descriptor = z.infer<typeof PackageDescriptorSchema>;
 type SourceIndex = z.infer<typeof PackageSourceIndexSchema>;
 type Revocations = z.infer<typeof RevocationListSchema>;
+
+const PersistedGenericSourceIndexSchema = z.object({
+  payload: z.object({
+    index_version: z.literal(2),
+    entries: z.array(z.object({ app_id: z.string().min(1), package_version: z.string().min(1) }).passthrough()).min(1),
+  }).passthrough(),
+}).passthrough();
 
 export type FixtureRepository = {
   root: string;
@@ -50,6 +57,7 @@ export type SyntheticFirstPartyFixture = {
   appId: string;
   routeKey: string;
   displayName: string;
+  summary?: string;
   version: string;
   resourceHtml?: string;
   requestedCapabilities?: readonly string[];
@@ -65,8 +73,9 @@ export async function createSyntheticFirstPartyFixtureRepository(
   root: string,
   apps: readonly SyntheticFirstPartyFixture[],
 ): Promise<FixtureRepository> {
-  const packagesByAppVersion: NonNullable<FixtureRepository["packagesByAppVersion"]> = {};
-  const authoritiesByAppVersion: NonNullable<FixtureRepository["authoritiesByAppVersion"]> = {};
+  const retained = await loadPersistedSyntheticFirstPartySources(root, new Set(apps.map((app) => appVersionKey(app.appId, app.version))));
+  const packagesByAppVersion: NonNullable<FixtureRepository["packagesByAppVersion"]> = { ...retained.packages };
+  const authoritiesByAppVersion: NonNullable<FixtureRepository["authoritiesByAppVersion"]> = { ...retained.authorities };
   const signersByAppVersion: NonNullable<FixtureRepository["signersByAppVersion"]> = {};
   const releaseKeyIdsByAppVersion: NonNullable<FixtureRepository["releaseKeyIdsByAppVersion"]> = {};
   for (const app of apps) {
@@ -100,7 +109,7 @@ export async function createSyntheticFirstPartyFixtureRepository(
     ]);
     const manifest = GenericPackageManifestSchema.parse({
       manifest_version: 2, app_id: app.appId, publisher_id: "ai.braindrive", package_version: app.version,
-      catalog: { display_name: app.displayName, summary: `Create owner-controlled ${app.displayName.toLowerCase()} content.`, icon: null, retention_summary: `${app.displayName} owner data is retained after uninstall.` },
+      catalog: { display_name: app.displayName, summary: app.summary ?? `Create owner-controlled ${app.displayName.toLowerCase()} content.`, icon: null, retention_summary: `${app.displayName} owner data is retained after uninstall.` },
       archive: { format: "zip", profile: "braindrive-zip-v1", compression: "store", layout_version: 1, manifest_path: "manifest.json", undeclared_entries: "reject", links_and_device_nodes: "reject", max_file_count: 256, max_compressed_bytes: 67_108_864, max_uncompressed_bytes: 268_435_456 },
       files: [...files].map(([filePath, bytes]) => ({ path: filePath, kind: "file", mode: filePath.endsWith("/index.js") ? "executable" : "read_only", size_bytes: bytes.length, digest: digest(bytes) })).sort((a, b) => a.path.localeCompare(b.path)),
       platform_artifacts: [
@@ -139,6 +148,43 @@ export async function createSyntheticFirstPartyFixtureRepository(
   const firstKey = appVersionKey(first.appId, first.version);
   const firstAuthority = authoritiesByAppVersion[firstKey]!;
   return { root, ...firstAuthority, packages: {}, packagesByAppVersion, authoritiesByAppVersion, signersByAppVersion, releaseKeyIdsByAppVersion };
+}
+
+async function loadPersistedSyntheticFirstPartySources(root: string, currentKeys: ReadonlySet<string>): Promise<{
+  packages: NonNullable<FixtureRepository["packagesByAppVersion"]>;
+  authorities: NonNullable<FixtureRepository["authoritiesByAppVersion"]>;
+}> {
+  const packages: NonNullable<FixtureRepository["packagesByAppVersion"]> = {};
+  const authorities: NonNullable<FixtureRepository["authoritiesByAppVersion"]> = {};
+  let routes;
+  try { routes = await readdir(root, { withFileTypes: true }); }
+  catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return { packages, authorities };
+    throw error;
+  }
+  for (const route of routes.filter((entry) => entry.isDirectory())) {
+    const routeRoot = path.join(root, route.name);
+    const versions = await readdir(routeRoot, { withFileTypes: true });
+    for (const version of versions.filter((entry) => entry.isDirectory())) {
+      const authorityRoot = path.join(routeRoot, version.name);
+      try {
+        const sourceIndexPath = path.join(authorityRoot, "source-index.json");
+        const sourceIndex = PersistedGenericSourceIndexSchema.parse(JSON.parse(await readFile(sourceIndexPath, "utf8")));
+        for (const entry of sourceIndex.payload.entries) {
+          const key = appVersionKey(entry.app_id, entry.package_version);
+          if (currentKeys.has(key)) continue;
+          if (packages[key]) throw new AppPlatformError("source_index_signature_invalid", `Duplicate persisted fixture authority for ${key}`);
+          packages[key] = { archivePath: path.join(authorityRoot, `${entry.package_version}.bdapp`), descriptorPath: path.join(authorityRoot, `${entry.package_version}.descriptor.json`) };
+          authorities[key] = { trustRootPath: path.join(authorityRoot, "trust-root.json"), sourceIndexPath, revocationListPath: path.join(authorityRoot, "revocations.json") };
+        }
+      } catch (error) {
+        if (error instanceof Error && "code" in error && error.code === "ENOENT") continue;
+        if (error instanceof AppPlatformError) throw error;
+        throw new AppPlatformError("source_index_signature_invalid", "Persisted first-party fixture source is malformed or unreadable");
+      }
+    }
+  }
+  return { packages, authorities };
 }
 
 export const MODERN_FIXTURE_VERSION = "4.0.0" as const;

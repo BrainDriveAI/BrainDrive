@@ -107,6 +107,23 @@ describe("signed fixture package verification", () => {
     expect(repository.authoritiesByVersion?.[MODERN_FIXTURE_VERSION]?.sourceIndexPath).toBe(path.join(authorityRoot, "source-index.json"));
   });
 
+  it("retains prior signed first-party app versions when publishing a changed package", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-package-first-party-update-"));
+    roots.push(root);
+    const sourceRoot = path.join(root, "source");
+    await createSyntheticFirstPartyFixtureRepository(sourceRoot, [
+      { appId: "ai.braindrive.brief-builder", routeKey: "brief-builder", displayName: "Brief Builder", version: "1.0.0", resourceHtml: "<main>Old brief</main>" },
+    ]);
+    const repository = await createSyntheticFirstPartyFixtureRepository(sourceRoot, [
+      { appId: "ai.braindrive.brief-builder", routeKey: "brief-builder", displayName: "Brief Builder", version: "1.1.0", resourceHtml: "<main>Updated brief</main>" },
+    ]);
+    const verifier = new PackageVerifier("26.7.23");
+    await expect(verifier.verifyForCatalog(repository, "1.0.0", { appId: "ai.braindrive.brief-builder", publisherId: "ai.braindrive" }))
+      .resolves.toMatchObject({ manifest: { package_version: "1.0.0" } });
+    await expect(verifier.verifyForCatalog(repository, "1.1.0", { appId: "ai.braindrive.brief-builder", publisherId: "ai.braindrive" }))
+      .resolves.toMatchObject({ manifest: { package_version: "1.1.0" } });
+  });
+
   it("discovers retained version-specific modern authorities across app patch releases", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-package-retained-authorities-"));
     roots.push(root);
