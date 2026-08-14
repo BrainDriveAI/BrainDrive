@@ -267,7 +267,7 @@ export class AtomicPackageInstaller {
       await this.dependencies.grants.persist(grant);
       journal = await this.advance(journal, "grant_persisted");
 
-      const desktop = verified.target === "desktop_windows_x64";
+      const desktop = verified.target !== "docker_linux_x64";
       const started = await this.dependencies.supervisor.start({
         supervisor_protocol_version: 1,
         operation_id: request.operationId,

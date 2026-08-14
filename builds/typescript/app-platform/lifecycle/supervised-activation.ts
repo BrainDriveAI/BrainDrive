@@ -175,7 +175,7 @@ export class SupervisedLifecycleService {
         if (!snapshot.active.package_ref_id) throw new ContractViolation("conflict", "Active package reference is unavailable");
         const cacheRootRef = this.ids.next();
         const connectionId = this.ids.next();
-        const desktop = verified.target === "desktop_windows_x64";
+        const desktop = verified.target !== "docker_linux_x64";
         const started = await this.dependencies.supervisor.start({
           supervisor_protocol_version: 1,
           operation_id: input.operationId,

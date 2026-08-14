@@ -104,7 +104,7 @@ export const GenericPackageManifestSchema = z
     catalog: CatalogPresentationSchema,
     archive: ArchivePolicySchema,
     files: z.array(PackageFileSchema).min(3).max(256),
-    platform_artifacts: z.array(PlatformArtifactSchema).length(2),
+    platform_artifacts: z.array(PlatformArtifactSchema).min(2).max(3),
     compatibility: z
       .object({
         app_contract: z.literal(APP_CONTRACT_SCHEMA_VERSION),
@@ -156,7 +156,7 @@ export const GenericPackageManifestSchema = z
       }
     }
     const targets = value.platform_artifacts.map((artifact) => artifact.target);
-    if (new Set(targets).size !== 2 || !targets.includes("docker_linux_x64") || !targets.includes("desktop_windows_x64")) {
+    if (new Set(targets).size !== targets.length || !targets.includes("docker_linux_x64") || !targets.includes("desktop_windows_x64")) {
       context.addIssue({ code: "custom", path: ["platform_artifacts"], message: "package must declare the accepted targets exactly once" });
     }
     const primary = files.get(value.primary_resource.package_path);

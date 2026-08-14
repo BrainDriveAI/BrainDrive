@@ -59,78 +59,110 @@
                 "pattern": "^sha256:[a-f0-9]{64}$"
               },
               "targets": {
+                "minItems": 2,
+                "maxItems": 3,
                 "type": "array",
-                "prefixItems": [
-                  {
-                    "type": "string",
-                    "const": "docker_linux_x64"
-                  },
-                  {
-                    "type": "string",
-                    "const": "desktop_windows_x64"
-                  }
-                ]
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "docker_linux_x64",
+                    "desktop_windows_x64",
+                    "desktop_macos_universal"
+                  ]
+                }
               },
               "sources": {
+                "minItems": 2,
+                "maxItems": 3,
                 "type": "array",
-                "prefixItems": [
-                  {
-                    "type": "object",
-                    "properties": {
-                      "environment": {
-                        "type": "string",
-                        "const": "docker_dev"
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "environment": {
+                          "type": "string",
+                          "const": "docker_dev"
+                        },
+                        "kind": {
+                          "type": "string",
+                          "const": "repository_fixture"
+                        },
+                        "descriptor_fixture_id": {
+                          "type": "string",
+                          "pattern": "^[a-z0-9][a-z0-9._-]{2,127}$"
+                        },
+                        "archive_fixture_id": {
+                          "type": "string",
+                          "pattern": "^[a-z0-9][a-z0-9._-]{2,127}$"
+                        }
                       },
-                      "kind": {
-                        "type": "string",
-                        "const": "repository_fixture"
-                      },
-                      "descriptor_fixture_id": {
-                        "type": "string",
-                        "pattern": "^[a-z0-9][a-z0-9._-]{2,127}$"
-                      },
-                      "archive_fixture_id": {
-                        "type": "string",
-                        "pattern": "^[a-z0-9][a-z0-9._-]{2,127}$"
-                      }
+                      "required": [
+                        "environment",
+                        "kind",
+                        "descriptor_fixture_id",
+                        "archive_fixture_id"
+                      ],
+                      "additionalProperties": false
                     },
-                    "required": [
-                      "environment",
-                      "kind",
-                      "descriptor_fixture_id",
-                      "archive_fixture_id"
-                    ],
-                    "additionalProperties": false
-                  },
-                  {
-                    "type": "object",
-                    "properties": {
-                      "environment": {
-                        "type": "string",
-                        "const": "desktop_windows"
+                    {
+                      "type": "object",
+                      "properties": {
+                        "environment": {
+                          "type": "string",
+                          "const": "desktop_windows"
+                        },
+                        "kind": {
+                          "type": "string",
+                          "const": "release_https"
+                        },
+                        "descriptor_url": {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        "archive_url": {
+                          "type": "string",
+                          "format": "uri"
+                        }
                       },
-                      "kind": {
-                        "type": "string",
-                        "const": "release_https"
-                      },
-                      "descriptor_url": {
-                        "type": "string",
-                        "format": "uri"
-                      },
-                      "archive_url": {
-                        "type": "string",
-                        "format": "uri"
-                      }
+                      "required": [
+                        "environment",
+                        "kind",
+                        "descriptor_url",
+                        "archive_url"
+                      ],
+                      "additionalProperties": false
                     },
-                    "required": [
-                      "environment",
-                      "kind",
-                      "descriptor_url",
-                      "archive_url"
-                    ],
-                    "additionalProperties": false
-                  }
-                ]
+                    {
+                      "type": "object",
+                      "properties": {
+                        "environment": {
+                          "type": "string",
+                          "const": "desktop_macos"
+                        },
+                        "kind": {
+                          "type": "string",
+                          "const": "release_https"
+                        },
+                        "descriptor_url": {
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        "archive_url": {
+                          "type": "string",
+                          "format": "uri"
+                        }
+                      },
+                      "required": [
+                        "environment",
+                        "kind",
+                        "descriptor_url",
+                        "archive_url"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
               }
             },
             "required": [

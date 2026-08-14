@@ -44,7 +44,7 @@ type Registration = {
 export type InstalledAppSupervisorAdapterOptions = {
   packages: ImmutablePackageStore;
   processSupervisor: AppSupervisor;
-  target?: "docker_linux_x64" | "desktop_windows_x64";
+  target?: "docker_linux_x64" | "desktop_windows_x64" | "desktop_macos_universal";
   tokenAuthority?: Pick<CapabilityTokenBroker, "revokeInstallation" | "permitInstallation" | "isRevoked">;
   grants?: InstallationGrantStore;
   ids?: { next(): string };
@@ -86,7 +86,7 @@ export class InstalledAppSupervisorAdapter implements InstalledAppSupervisor {
     catch { return this.startFailure("descriptor_invalid"); }
     try {
       if (this.options.target) {
-        const desktop = this.options.target === "desktop_windows_x64";
+        const desktop = this.options.target !== "docker_linux_x64";
         if (
           request.descriptor.runtime_kind !== (desktop ? "packaged_node" : "container")
           || request.descriptor.endpoint_policy.transport !== (desktop ? "loopback" : "container_internal")

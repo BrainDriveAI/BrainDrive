@@ -245,7 +245,7 @@
             },
             "platform_artifacts": {
               "minItems": 2,
-              "maxItems": 2,
+              "maxItems": 3,
               "type": "array",
               "items": {
                 "type": "object",
@@ -254,19 +254,24 @@
                     "type": "string",
                     "enum": [
                       "docker_linux_x64",
-                      "desktop_windows_x64"
+                      "desktop_windows_x64",
+                      "desktop_macos_universal"
                     ]
                   },
                   "os": {
                     "type": "string",
                     "enum": [
                       "linux",
-                      "windows"
+                      "windows",
+                      "macos"
                     ]
                   },
                   "architecture": {
                     "type": "string",
-                    "const": "x64"
+                    "enum": [
+                      "x64",
+                      "universal"
+                    ]
                   },
                   "runtime_kind": {
                     "type": "string",

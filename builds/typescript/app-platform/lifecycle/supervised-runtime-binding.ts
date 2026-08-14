@@ -7,7 +7,7 @@ import type { InstallationGrantStore } from "./install-grants.js";
 import { ProcessAppSupervisor } from "./process-supervisor.js";
 import type { ImmutablePackageStore } from "./verified-package-store.js";
 
-export type SupervisedRuntimeTarget = "docker_linux_x64" | "desktop_windows_x64";
+export type SupervisedRuntimeTarget = "docker_linux_x64" | "desktop_windows_x64" | "desktop_macos_universal";
 
 export type SupervisedRuntimeBinding = {
   target: SupervisedRuntimeTarget;
@@ -60,7 +60,7 @@ export function createSupervisedRuntimeBinding(input: BindingInput): SupervisedR
     negotiator: input.negotiator,
   });
   installedSupervisor = supervisor;
-  const desktop = input.target === "desktop_windows_x64";
+  const desktop = input.target !== "docker_linux_x64";
   return {
     target: input.target,
     runtimeKind: desktop ? "packaged_node" : "container",

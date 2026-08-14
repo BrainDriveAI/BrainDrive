@@ -104,7 +104,7 @@ export type PackageInspection = {
     revocationStatus: "not_revoked_fresh";
   };
   source: {
-    environment: "docker_dev" | "desktop_windows";
+    environment: "docker_dev" | "desktop_windows" | "desktop_macos";
     kind: "repository_fixture" | "release_https";
     sourceId: string;
   };
@@ -130,7 +130,7 @@ export type VerifiedPackage = {
 
 export type VerifyPackageRequest = {
   version: string;
-  environment: "docker_dev" | "desktop_windows";
+  environment: "docker_dev" | "desktop_windows" | "desktop_macos";
   target: Target;
   hostVersion: string;
   supportedCapabilities: readonly z.infer<typeof CapabilityNameSchema>[];
@@ -332,7 +332,7 @@ export class VerifiedPackageVerifier {
     let step: VerificationStep = "source_allowlist";
     const passed = (value: VerificationStep) => this.diagnostic?.({ event: "app.package.verify", step: value, outcome: "passed", errorCode: null });
     try {
-      if (!(["docker_dev", "desktop_windows"] as const).includes(request.environment) || !(["docker_linux_x64", "desktop_windows_x64"] as const).includes(request.target)) {
+      if (!(["docker_dev", "desktop_windows", "desktop_macos"] as const).includes(request.environment) || !(["docker_linux_x64", "desktop_windows_x64", "desktop_macos_universal"] as const).includes(request.target)) {
         throw new ContractViolation("package_source_untrusted", "Package environment or target is outside the source allowlist");
       }
       const trustRoot = parseStrict(TrustRootSchema, boundedJson(request.trustRootBytes, MAX_METADATA_BYTES, "package_source_untrusted"), "package_source_untrusted", "Package trust root violates its strict schema");

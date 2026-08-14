@@ -70,8 +70,10 @@ async function exercise(target: AppLifecycleRuntimeTarget) {
 describe("Docker and packaged desktop lifecycle parity", () => {
   it("converges on the same states, authentication, LKG, retention, and fresh reinstall authority", async () => {
     const dockerStates = await exercise("docker_linux_x64");
-    const desktopStates = await exercise("desktop_windows_x64");
-    expect(desktopStates).toEqual(dockerStates);
-    expect(desktopStates).toEqual(["active", "disabled", "active", "active", "active", "not_installed", "active"]);
-  }, 30_000);
+    const windowsStates = await exercise("desktop_windows_x64");
+    const macStates = await exercise("desktop_macos_universal");
+    expect(windowsStates).toEqual(dockerStates);
+    expect(macStates).toEqual(dockerStates);
+    expect(macStates).toEqual(["active", "disabled", "active", "active", "active", "not_installed", "active"]);
+  }, 45_000);
 });

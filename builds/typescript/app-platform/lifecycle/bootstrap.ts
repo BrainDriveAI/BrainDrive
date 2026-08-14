@@ -15,7 +15,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-export type AppLifecycleRuntimeTarget = "docker_linux_x64" | "desktop_windows_x64";
+export type AppLifecycleRuntimeTarget = "docker_linux_x64" | "desktop_windows_x64" | "desktop_macos_universal";
 
 export async function createAppLifecycle(input: { memoryRoot: string; hostVersion: string; stateRoot?: string; target?: AppLifecycleRuntimeTarget; ownerActorId?: string; isMemoryMigrationInProgress?: () => boolean }): Promise<AppLifecycleService> {
   const stateRoot = path.resolve(input.stateRoot ?? path.join(path.dirname(input.memoryRoot), "app-platform-host"));
@@ -44,7 +44,7 @@ export async function createAppLifecycle(input: { memoryRoot: string; hostVersio
     dataAdapter,
     isMemoryMigrationInProgress: input.isMemoryMigrationInProgress,
     ownerActorId: input.ownerActorId,
-    runtimeTarget: target === "desktop_windows_x64"
+    runtimeTarget: target !== "docker_linux_x64"
       ? { target, runtimeKind: "packaged_node", transport: "loopback" }
       : { target, runtimeKind: "container", transport: "container_internal" },
     audit: auditLog,
@@ -90,7 +90,7 @@ export async function createBriefAppLifecycle(input: { memoryRoot: string; hostV
     immutablePackages: new ImmutablePackageStore(stateRoot), runtimeRoot: path.join(stateRoot, "runtime", "apps", "brief-builder"),
     ownerDataRoot, ownerDataLifecycle: dataAdapter, dataAdapter,
     isMemoryMigrationInProgress: input.isMemoryMigrationInProgress, ownerActorId: input.ownerActorId,
-    runtimeTarget: target === "desktop_windows_x64" ? { target, runtimeKind: "packaged_node", transport: "loopback" } : { target, runtimeKind: "container", transport: "container_internal" },
+    runtimeTarget: target !== "docker_linux_x64" ? { target, runtimeKind: "packaged_node", transport: "loopback" } : { target, runtimeKind: "container", transport: "container_internal" },
     audit: auditLog,
   });
   await service.initialize();

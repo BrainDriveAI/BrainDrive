@@ -31,7 +31,7 @@ export function makeGrant(): CapabilityGrant {
 }
 
 export function makeRuntimeDescriptor(verified: VerifiedPackage): RuntimeLaunchDescriptor {
-  const desktop = verified.target === "desktop_windows_x64";
+  const desktop = verified.target !== "docker_linux_x64";
   const artifact = verified.manifest.platform_artifacts.find((candidate) => candidate.target === verified.target)!;
   return {
     supervisor_protocol_version: 1,

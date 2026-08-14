@@ -23,7 +23,7 @@ This directory owns the native shell, not normal-user desktop installation. The 
 |---|---|
 | `tauri.conf.json` | Dev/build hooks, Vite URL, windows, bundle targets, and embedded resource declaration |
 | `src/main.rs` | Native lifecycle, dynamic loopback-port selection, persistent platform desktop data/config/secrets/log paths, MCP and gateway supervision, desktop transport token, app-platform target configuration, window readiness, browser-access boundary |
-| `src/process_containment.rs` | Windows Job Object containment for the fixed runtime children and inherited app descendants, with kill-on-close orphan protection |
+| `src/process_containment.rs` | Windows Job Object or Unix process-group containment for fixed runtime children and inherited app descendants, with shutdown orphan protection |
 | `src/native_export.rs` | Native PDF save chooser, bounded request validation, atomic commit, and safe-label-only result |
 | `src/tailscale_access.rs` / `src/tailscale_runtime.rs` | Platform discovery and guarded optional Tailscale browser-access lifecycle |
 | `capabilities/default.json` | Tauri capability allowlist |
@@ -52,23 +52,23 @@ These commands do not need a model-provider credential for build, test, runtime 
 
 ## Configuration, platform claims, and data safety
 
-The bundle configuration targets Windows, macOS, and Linux. Configured output targets are not support claims. V1 J-05 claims native Windows; macOS and Linux remain configured but unclaimed for V1. WSL/Linux may run preflight, tests, builds, and launch diagnostics, but is not a claimed J-05 environment unless separately adopted and evidenced. Report the actual OS/toolchain used and never translate another environment into native Windows evidence.
+The bundle configuration targets Windows, macOS, and Linux. Configured output targets are not support claims. V1 J-05 claims native Windows and native macOS; Linux remains configured but unclaimed. WSL/Linux may run preflight, tests, builds, and launch diagnostics, but cannot satisfy either native report. Report the actual OS/toolchain used and never translate one environment into another platform's evidence.
 
 Desktop startup creates application data, configuration, secret, and log directories through Tauri platform paths. Controlled runs must use isolated task-specific platform data roots; do not inspect or overwrite an existing owner's desktop state.
 
 Optional browser/Tailscale access is not part of basic desktop readiness and must not be enabled as a setup side effect. It has separate network and mutation safeguards in source and tests.
 
-The selected Windows first-party app runtime uses the same signed-package verifier, app-scoped operation journal, three-restart-per-installation budget, and per-app retention policy as Docker. Tauri stages both reviewed packages, selects `desktop_windows_x64`, enables the app platform below the platform data root, and contains the backend process tree and inherited app descendants in a Job Object with kill-on-close, the existing one-logical-CPU-equivalent group ceiling, and a 512 MiB per-process ceiling. At most two first-party apps may be active; Spec 08 does not raise the Windows group CPU ceiling. App processes bind authenticated random loopback and receive no inherited owner environment. Supervisor log lines are capped at 4 KiB and the file restarts at 1 MiB. The native export command opens the operating-system chooser and returns only a safe file label; renderer receipt finalization happens after the chooser outcome.
+The native first-party app runtime uses the same signed-package verifier, app-scoped operation journal, three-restart-per-installation budget, and per-app retention policy as Docker. Tauri stages both reviewed packages, selects `desktop_windows_x64` on Windows or `desktop_macos_universal` on macOS, and enables the app platform below the platform data root. Windows contains the backend tree in a kill-on-close Job Object with the existing one-logical-CPU-equivalent group ceiling and 512 MiB per-process ceiling. macOS launches each fixed backend child as a separate process group and terminates those groups on controlled shutdown, signal handling, or containment drop so Node descendants do not survive the shell. At most two first-party apps may be active. App processes bind authenticated random loopback and receive no inherited owner environment. Supervisor log lines are capped at 4 KiB and the file restarts at 1 MiB. The native export command opens the operating-system chooser and returns only a safe file label; renderer receipt finalization happens after the chooser outcome.
 
-The JavaScript and PowerShell staging paths both include the two UI resources and pass source-side preflight/tests. Those checks do not prove the changed Spec 08 candidate on native Windows. A fresh native Windows J-05 and two-app lifecycle/process/owner journey on the exact immutable candidate remains required; WSL/Linux diagnostics are not a substitute.
+The JavaScript and PowerShell staging paths both include the two UI resources and pass source-side preflight/tests. Those checks do not prove the changed Spec 08 candidate on either native platform. Fresh native Windows and macOS J-05 plus the two-app lifecycle/process/owner journey on the exact immutable candidate remain required; WSL/Linux diagnostics are not a substitute.
 
-`runtime-api-base.test.ts` covers dynamic gateway resolution, `/api` rewriting, the authoritative desktop transport header, browser proxy behavior, and fail-closed incomplete handoff. These source tests correct the shared boundary but do not turn the preserved WSL diagnostic failure into passing J-05 evidence; native Windows evidence remains required under OPEN-03.
+`runtime-api-base.test.ts` covers dynamic gateway resolution, `/api` rewriting, the authoritative desktop transport header, browser proxy behavior, and fail-closed incomplete handoff. These source tests correct the shared boundary but do not turn the preserved WSL diagnostic failure into passing J-05 evidence; both native reports remain required under OPEN-03.
 
 ## Verification routing
 
 - Rust shell, native chooser, or process containment: `cargo fmt --manifest-path Cargo.toml -- --check`, focused Cargo test, then `npm run desktop:test`.
 - Web/Tauri adapter: focused Vitest, web lint/typecheck/test/build, then desktop tests.
-- Dev/build hook or embedded runtime: `npm run desktop:preflight`, `npm run desktop:stage-runtime`, controlled `npm run desktop:dev`, and a native Windows `npm run desktop:build:windows` plus install/live matrix when release packaging changed.
+- Dev/build hook or embedded runtime: `npm run desktop:preflight`, `npm run desktop:stage-runtime`, controlled `npm run desktop:dev`, and the platform command (`desktop:build:windows` or unsigned `desktop:build:mac`) plus install/live matrix when release packaging changed.
 - Remote browser/Tailscale behavior: focused Rust/bridge tests plus the separate authorized manual boundary.
 
 See [change verification](../../../docs/developers/verification.md) for the broader matrix and [safe debugging](../../../docs/developers/debugging.md) for evidence rules.

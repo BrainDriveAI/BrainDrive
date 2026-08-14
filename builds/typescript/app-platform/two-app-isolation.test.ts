@@ -254,14 +254,14 @@ describe("Spec 08 M7 generated two-app attack matrix", () => {
 });
 
 describe("Spec 08 M7 two-app lifecycle failure isolation", () => {
-  it("runs two real package process trees concurrently within the conservative admission policy", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "bd-m7-live-two-apps-")); roots.push(root);
-    const resume = await createAppLifecycle({ memoryRoot: path.join(root, "memory"), stateRoot: path.join(root, "resume-host"), hostVersion: "26.7.23" });
-    const brief = await createBriefAppLifecycle({ memoryRoot: path.join(root, "memory"), stateRoot: path.join(root, "brief-host"), hostVersion: "26.7.23" });
+  it.each(["docker_linux_x64", "desktop_macos_universal"] as const)("runs two real %s package process trees concurrently within the conservative admission policy", async (target) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), `bd-m7-live-two-apps-${target}-`)); roots.push(root);
+    const resume = await createAppLifecycle({ memoryRoot: path.join(root, "memory"), stateRoot: path.join(root, "resume-host"), hostVersion: "26.7.23", target });
+    const brief = await createBriefAppLifecycle({ memoryRoot: path.join(root, "memory"), stateRoot: path.join(root, "brief-host"), hostVersion: "26.7.23", target });
     try {
       const [resumeInstalled, briefInstalled] = await Promise.all([
         resume.install({ version: "1.0.0", idempotencyKey: "m7-live-resume-install", approveCapabilities: true }),
-        brief.install({ version: "1.0.0", idempotencyKey: "m7-live-brief-install", approveCapabilities: true }),
+        brief.install({ version: "1.2.0", idempotencyKey: `m7-live-brief-install-${target}`, approveCapabilities: true }),
       ]);
       const resumeId = resumeInstalled.record.installation_id!;
       const briefId = briefInstalled.record.installation_id!;
