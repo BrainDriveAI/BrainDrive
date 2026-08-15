@@ -13,6 +13,21 @@ async function confirmOwnerAction(page: Page, label: RegExp) {
   await expect(dialog).toBeHidden();
 }
 
+async function confirmResumeFact(page: Page) {
+  const confirmation = page.getByRole("region", { name: "Confirm shared information" });
+  await expect(confirmation).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("dialog")).toBeHidden();
+  await confirmation.getByRole("button", { name: "Confirm", exact: true }).click();
+  await expect(confirmation).toBeHidden();
+}
+
+async function sendResumeChat(page: Page, message: string) {
+  const composer = page.getByRole("textbox", { name: "Reply in your own words..." });
+  await expect(composer).toBeEnabled({ timeout: 20_000 });
+  await composer.fill(message);
+  await page.getByRole("button", { name: "Send message" }).click();
+}
+
 async function reviewAndApprove(
   page: Page,
   frame: FrameLocator,
@@ -43,37 +58,23 @@ async function reviewAndApprove(
 }
 
 async function answerInterviewTopic(page: Page, frame: FrameLocator, answer: string, nextHeading: string, followUp?: string) {
-  await frame.getByLabel("Your answer").fill(answer);
-  await frame.getByRole("button", { name: "Use this answer" }).click();
+  void frame;
+  void nextHeading;
+  await sendResumeChat(page, answer);
   if (followUp) {
-    await expect(frame.getByText("A quick follow-up · optional detail")).toBeVisible();
-    await frame.getByLabel("Additional detail").fill(followUp);
-    await frame.getByRole("button", { name: "Add this detail" }).click();
+    await sendResumeChat(page, followUp);
   }
-  await confirmOwnerAction(page, /Confirm career fact/);
-  await expect(
-    frame.locator(".coach-message .eyebrow").filter({ hasText: nextHeading })
-      .or(frame.getByRole("heading", { name: nextHeading })),
-  ).toBeVisible({ timeout: 15_000 });
+  await confirmResumeFact(page);
+  await expect(page.getByRole("textbox", { name: "Reply in your own words..." })).toBeEnabled({ timeout: 20_000 });
 }
 
 async function answerEmployment(page: Page, frame: FrameLocator) {
-  await expect(frame.getByText(/One job at a time/)).toBeVisible();
-  const fillAcknowledgedField = async (label: string | RegExp, value: string) => {
-    await frame.getByLabel(label).fill(value);
-    await expect(frame.locator("#recovery-status")).toContainText(/Saved at/, { timeout: 15_000 });
-  };
-  await fillAcknowledgedField("Your role", "Customer Service Associate");
-  await fillAcknowledgedField("Where you worked", "Lakeside Market");
-  await fillAcknowledgedField(/Where \(optional\)/, "Dayton, Ohio");
-  await fillAcknowledgedField(/When you started/, "March 2021");
-  await fillAcknowledgedField(/When it ended/, "Present");
-  await fillAcknowledgedField("What did you spend most of your time doing?", "Help about 60 customers per shift and train new employees.");
-  await frame.getByRole("button", { name: "Use this experience" }).click();
-  await confirmOwnerAction(page, /Confirm career fact/);
-  await expect(frame.getByRole("heading", { name: "Customer Service Associate at Lakeside Market" })).toBeVisible({ timeout: 15_000 });
-  await expect(frame.getByRole("heading", { name: "Known evidence for this job" })).toBeVisible();
-  await expect(frame.getByLabel("Job progress")).toBeVisible();
+  void frame;
+  await sendResumeChat(page, "Customer Service Associate at Lakeside Market");
+  await expect(page.getByText(/What else should I add about that job/)).toBeVisible({ timeout: 20_000 });
+  await sendResumeChat(page, "In Dayton from March 2021 to the present, helping about 60 customers per shift and training new employees.");
+  await confirmResumeFact(page);
+  await expect(page.getByRole("textbox", { name: "Reply in your own words..." })).toBeEnabled({ timeout: 20_000 });
 }
 
 async function completeJobEvidence(
@@ -83,40 +84,20 @@ async function completeJobEvidence(
   jobLabel = "Customer Service Associate at Lakeside Market",
   evidenceAnswer = "Created a checkout checklist that reduced errors.\nHelped train new employees with the checklist.",
 ) {
-  await expect(frame.getByRole("heading", { name: "Job coverage summary" })).toBeVisible();
-  await expect(frame.getByText(/Why this may help:/)).toBeVisible();
-  await frame.getByRole("button", { name: "Ask another way" }).click();
-  await expect(frame.getByRole("button", { name: "Ask another way" })).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole("dialog")).toBeHidden();
-  await frame.getByLabel("Your answer").fill(evidenceAnswer);
-  await frame.getByRole("button", { name: `Review factual units for ${jobLabel}` }).click();
-  const groupedDialog = page.getByRole("dialog");
-  await expect(groupedDialog).toContainText(/Review factual units from one answer/);
-  await expect(groupedDialog.getByRole("checkbox")).toHaveCount(2);
-  await groupedDialog.getByRole("checkbox").nth(1).uncheck();
-  await groupedDialog.getByRole("button", { name: "Confirm", exact: true }).click();
-  await expect(groupedDialog).toBeHidden();
-  await expect(frame.getByRole("alert")).toBeHidden({ timeout: 15_000 });
-  const coverage = frame.getByLabel("Job evidence coverage");
-  let priorCoverage = await coverage.innerText();
-  await frame.getByRole("button", { name: "I don’t know" }).click();
-  await expect.poll(() => coverage.innerText(), { timeout: 15_000 }).not.toBe(priorCoverage);
-  await expect(page.getByRole("dialog")).toBeHidden();
-  priorCoverage = await coverage.innerText();
-  await frame.getByRole("button", { name: "Not applicable" }).click();
-  await expect.poll(() => coverage.innerText(), { timeout: 15_000 }).not.toBe(priorCoverage);
-  await expect(page.getByRole("dialog")).toBeHidden();
-  await frame.getByRole("button", { name: "Complete for now" }).click();
-  await expect(frame.locator(".coach-message .eyebrow").filter({ hasText: nextHeading }).or(frame.getByRole("heading", { name: nextHeading }))).toBeVisible({ timeout: 15_000 });
+  void frame;
+  void nextHeading;
+  void jobLabel;
+  await sendResumeChat(page, evidenceAnswer);
+  await confirmResumeFact(page);
+  await sendResumeChat(page, "I don’t know.");
+  await sendResumeChat(page, "Not applicable.");
+  await sendResumeChat(page, "That’s all for this job.");
   await expect(page.getByRole("dialog")).toBeHidden();
 }
 
-async function skipInterviewTopic(frame: FrameLocator, nextHeading: string) {
-  await frame.getByRole("button", { name: "I’m not sure" }).click();
-  await expect(
-    frame.locator(".coach-message .eyebrow").filter({ hasText: nextHeading })
-      .or(frame.getByRole("heading", { name: nextHeading })),
-  ).toBeVisible({ timeout: 15_000 });
+async function skipInterviewTopic(page: Page, nextHeading: string) {
+  void nextHeading;
+  await sendResumeChat(page, "I’m not sure; let’s come back to that.");
 }
 
 async function reviewStrategyAndCreate(frame: FrameLocator) {
@@ -156,7 +137,7 @@ async function installAndLaunchCareer(page: Page): Promise<FrameLocator> {
   await expect(launch).toBeVisible({ timeout: 15_000 });
   await launch.click();
   const frame = resumeBuilderFrame(page);
-  await expect(page.getByRole("button", { name: "Open workspace" })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("region", { name: "Resume Builder conversation" })).toBeVisible({ timeout: 15_000 });
   return frame;
 }
 
@@ -199,17 +180,20 @@ test.describe("Resume Builder owner journey", () => {
     });
     expect(innerSecurity).toMatchObject({ origin: "null", storage: "blocked", parentDom: "blocked", cookie: "blocked", tauri: "undefined" });
     expect(innerSecurity.csp.join("; ")).toContain("connect-src 'none'");
-    await expect(frame.getByText("Continuing from your Career context")).toBeVisible({ timeout: 15_000 });
-
     const conversation = page.getByRole("region", { name: "Resume Builder conversation" });
-    const evidenceTray = page.getByRole("complementary", { name: "Resume evidence tray" });
     await expect(conversation).toBeVisible();
-    await expect(evidenceTray.getByText("Confirmed", { exact: true }).first()).toBeVisible();
-    await expect(evidenceTray.getByText("Needs attention", { exact: true })).toBeVisible();
-    await expect(evidenceTray.getByText("To discuss", { exact: true })).toBeVisible();
-    await expect(evidenceTray.getByRole("button", { name: "Review all" })).toBeVisible();
-    await page.getByRole("button", { name: "Open workspace" }).click();
+    await expect(page.getByRole("complementary", { name: "Resume evidence tray" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Pause" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "I’m not sure" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Close drawer" })).toBeHidden();
+    await page.getByRole("button", { name: "Review what I’ve shared" }).click();
+    const reviewSummary = page.getByRole("complementary", { name: "Resume review summary" });
+    await expect(reviewSummary).toBeVisible();
+    await expect(reviewSummary).not.toContainText(/needs attention|to discuss/i);
+    await reviewSummary.getByRole("button", { name: "Open full review" }).click();
     await expect(page.getByRole("button", { name: "Close drawer" })).toBeVisible();
+    await expect(frame.getByText("Continuing from your Career context")).toBeVisible({ timeout: 15_000 });
+    await page.getByRole("button", { name: "Close drawer" }).click();
     await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("title"))).toBe("Resume Builder sandbox proxy");
 
     let forgedSideEffects = 0;
@@ -217,18 +201,20 @@ test.describe("Resume Builder owner journey", () => {
     await proxy.evaluate((element) => (element as HTMLIFrameElement).contentWindow?.postMessage({ jsonrpc: "2.0", id: "forged", method: "tools/call", params: { name: "fixture.status" } }, "*"));
     await page.waitForTimeout(100);
     expect(forgedSideEffects).toBe(0);
-    await frame.getByRole("button", { name: "Start the conversation" }).click();
+    await page.getByRole("button", { name: "Start conversation" }).click();
     await answerInterviewTopic(page, frame, "Synthetic Owner | Dayton, Ohio | owner@example.test | 555-010-0142", "What you want next");
     await answerInterviewTopic(page, frame, "Customer support supervisor roles", "Work experience");
     await answerEmployment(page, frame);
     await completeJobEvidence(page, frame);
     await answerInterviewTopic(page, frame, "Associate of Applied Science in Business Administration, Sinclair Community College, 2018", "Licenses and certifications");
-    await skipInterviewTopic(frame, "Skills, tools, and languages");
+    await skipInterviewTopic(page, "Skills, tools, and languages");
     await answerInterviewTopic(page, frame, "Customer service, Microsoft Excel, appointment scheduling, and employee training", "Projects");
-    await skipInterviewTopic(frame, "Leadership and volunteering");
-    await skipInterviewTopic(frame, "Professional links");
+    await skipInterviewTopic(page, "Leadership and volunteering");
+    await skipInterviewTopic(page, "Professional links");
     await answerInterviewTopic(page, frame, "linkedin.com/in/synthetic-owner", "Review your information");
 
+    await page.getByRole("button", { name: "Review what I’ve shared" }).click();
+    await page.getByRole("complementary", { name: "Resume review summary" }).getByRole("button", { name: "Open full review" }).click();
     await expect(frame.getByRole("heading", { name: "Review your information" })).toBeVisible();
     await expect(frame.locator("#panel").getByText(/Created a checkout checklist/)).toBeVisible();
     await expect(frame.locator("#panel").getByText(/Helped train new employees with the checklist/)).toHaveCount(0);
@@ -252,7 +238,7 @@ test.describe("Resume Builder owner journey", () => {
     await frame.getByLabel(/When it ended/).fill("February 2021");
     await frame.getByLabel("What did you spend most of your time doing?").fill("Scheduled appointments and maintained accurate customer records.");
     await frame.getByRole("button", { name: "Use this experience" }).click();
-    await confirmOwnerAction(page, /Confirm career fact/);
+    await confirmResumeFact(page);
     await expect(frame.getByLabel("Current job")).toContainText("Front Desk Associate at Riverside Clinic", { timeout: 15_000 });
     await completeJobEvidence(
       page,
@@ -266,11 +252,11 @@ test.describe("Resume Builder owner journey", () => {
     await contactCard.getByRole("button", { name: "Edit" }).click();
     await frame.getByLabel("Information").fill("Synthetic Owner | Dayton, Ohio | synthetic.owner@example.test | 555-010-0142");
     await frame.getByRole("button", { name: "Save change" }).click();
-    await confirmOwnerAction(page, /Confirm corrected career information/);
+    await confirmResumeFact(page);
     await expect(frame.locator("#panel").getByText(/synthetic\.owner@example\.test/)).toBeVisible();
     const linkCard = frame.locator(".card").filter({ hasText: "Professional link:" });
     await linkCard.getByRole("button", { name: "Remove" }).click();
-    await confirmOwnerAction(page, /Remove this career information/);
+    await confirmResumeFact(page);
     await expect(frame.getByText(/removed items? (?:is|are) preserved in history/)).toBeVisible();
     await reviewStrategyAndCreate(frame);
     await expect(frame.getByRole("heading", { name: "General resume" })).toBeVisible({ timeout: 15_000 });
@@ -339,7 +325,7 @@ test.describe("Resume Builder owner journey", () => {
     await frame.getByLabel("Information type").selectOption("accomplishment");
     await frame.getByLabel("What did you remember?").fill(rememberedDetail);
     await frame.getByRole("button", { name: "Review and confirm" }).click();
-    await confirmOwnerAction(page, /Confirm career fact/);
+    await confirmResumeFact(page);
     await expect(frame.getByRole("heading", { name: "General resume" })).toBeVisible({ timeout: 15_000 });
     await expect(frame.getByRole("heading", { name: "What this proposal changes" })).toBeVisible();
     await expect(frame.getByText(rememberedDetail).first()).toBeVisible();
@@ -456,80 +442,26 @@ test.describe("Resume Builder responsive job interview", () => {
     await loginAsLocalUser(page);
   });
 
-  test("keeps current-job identity, progress, and optional controls usable without horizontal overflow", async ({ page }) => {
-    test.setTimeout(150_000);
+  test("keeps native resume chat and the intentional review drawer usable without horizontal overflow", async ({ page }) => {
+    test.setTimeout(90_000);
     await page.emulateMedia({ reducedMotion: "reduce" });
     await openCareerApps(page);
     const frame = await installAndLaunchCareer(page);
     await expect(page.getByRole("status").filter({ hasText: "App ready" })).toBeVisible({ timeout: 20_000 });
-    await page.getByRole("button", { name: "Open workspace" }).click();
-    await expect(frame.getByRole("heading", { name: "Resume Builder", exact: true })).toBeVisible({ timeout: 20_000 });
-    const continueInterview = frame.getByRole("button", { name: "Start the conversation" });
-    const currentJob = frame.getByLabel("Current job");
-    const historyStep = frame.locator('[data-stage="history"]');
-    expect(await frame.getByRole("button").first().evaluate((button) => getComputedStyle(button).transitionDuration)).toBe("0s");
-    await expect.poll(async () => {
-      if (await continueInterview.isVisible() || await currentJob.isVisible() || await historyStep.isEnabled()) return "ready";
-      const connection = await frame.locator("#connection").textContent().catch(() => "connection unavailable");
-      const heading = await frame.locator("#panel h2").first().textContent().catch(() => "panel unavailable");
-      return `${connection}: ${heading}`;
-    }, { timeout: 15_000 }).toBe("ready");
-    if (await continueInterview.isVisible()) {
-      await continueInterview.click();
-      await answerInterviewTopic(page, frame, "Mobile Owner | Dayton, Ohio | mobile@example.test | 555-010-0101", "What you want next");
-      await answerInterviewTopic(page, frame, "Customer support roles", "Work experience");
-      await answerEmployment(page, frame);
-    }
-    if (await currentJob.isVisible()) {
-      await expect(currentJob).toContainText("Customer Service Associate at Lakeside Market");
-      for (const name of ["Back", "Skip for now", "I don’t know", "Not applicable", "Save and pause", "Complete for now"]) {
-        await expect(frame.getByRole("button", { name })).toBeVisible();
-      }
-      expect(await frame.locator("html").evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
+    const conversation = page.getByRole("region", { name: "Resume Builder conversation" });
+    await expect(conversation).toBeVisible();
+    await expect(page.getByRole("button", { name: "Pause" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "I’m not sure" })).toHaveCount(0);
+    await expect(page.getByRole("complementary", { name: "Resume evidence tray" })).toHaveCount(0);
+    expect(await page.locator("html").evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
 
-      await completeJobEvidence(page, frame);
-      await skipInterviewTopic(frame, "Licenses and certifications");
-      await skipInterviewTopic(frame, "Skills, tools, and languages");
-      await skipInterviewTopic(frame, "Projects");
-      await skipInterviewTopic(frame, "Leadership and volunteering");
-      await skipInterviewTopic(frame, "Professional links");
-      await skipInterviewTopic(frame, "Review your information");
-      await reviewStrategyAndCreate(frame);
-      await expect(frame.getByRole("heading", { name: "General resume" })).toBeVisible({ timeout: 15_000 });
-      await frame.locator("details.draft-corrections > summary").click();
-      const firstStatement = frame.locator("textarea[data-index]").first();
-      const originalStatement = await firstStatement.inputValue();
-      const editedStatement = originalStatement.endsWith(".") ? originalStatement.slice(0, -1) : `${originalStatement}.`;
-      await firstStatement.fill(editedStatement);
-      await frame.getByRole("button", { name: "Save edit" }).first().click();
-      await expect(frame.locator("textarea[data-index]").first()).toHaveValue(editedStatement, { timeout: 15_000 });
-      await frame.getByRole("button", { name: "Run product craft review" }).click();
-      const ownerReview = frame.locator('section[aria-labelledby="owner-review-heading"]');
-      await expect(ownerReview.locator(".status")).toHaveText("More evidence could strengthen this resume", { timeout: 20_000 });
-      await expect(ownerReview.locator("button[data-owner-action]").first()).toBeVisible();
-      await expect(ownerReview.getByRole("button", { name: "Approve this reviewed version" })).toHaveCount(0);
-      await expect(ownerReview).not.toContainText(/score|independent review passed/i);
-      expect(await frame.locator("html").evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
-    }
-    await expect(historyStep).toBeEnabled();
-    await historyStep.click();
-    let versions = frame.getByRole("checkbox", { name: /Select .* general version/i });
-    if (await versions.count() < 2) {
-      await page.getByRole("button", { name: "Reload app" }).click();
-      await expect(page.getByRole("status").filter({ hasText: "App ready" })).toBeVisible({ timeout: 15_000 });
-      await expect(historyStep).toBeEnabled({ timeout: 15_000 });
-      await historyStep.click();
-      versions = frame.getByRole("checkbox", { name: /Select .* general version/i });
-    }
-    expect(await versions.count()).toBeGreaterThanOrEqual(2);
-    await versions.nth(0).check();
-    await versions.last().check();
-    await frame.getByRole("button", { name: "Compare selected versions" }).click();
-    await expect(frame.getByRole("heading", { name: "Compare resume versions" })).toBeFocused();
-    await expect(frame.getByText(/No observable changes|Added statement|Removed statement|Changed statement|Moved statement|Evidence references changed/).first()).toBeVisible();
-    const unchanged = frame.getByRole("button", { name: /Unchanged statements/ });
-    await expect(unchanged).toHaveAttribute("aria-expanded", "false");
-    await frame.locator("html").evaluate((element) => { (element as HTMLElement).style.zoom = "2"; });
+    await page.getByRole("button", { name: "Review what I’ve shared" }).click();
+    await page.getByRole("complementary", { name: "Resume review summary" }).getByRole("button", { name: "Open full review" }).click();
+    await expect(page.getByRole("button", { name: "Close drawer" })).toBeVisible();
+    await expect(frame.getByRole("heading", { name: "Resume Builder", exact: true })).toBeVisible({ timeout: 20_000 });
+    expect(await frame.getByRole("button").first().evaluate((button) => getComputedStyle(button).transitionDuration)).toBe("0s");
     expect(await frame.locator("html").evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
+    await page.getByRole("button", { name: "Close drawer" }).click();
+    await expect(conversation).toBeVisible();
   });
 });

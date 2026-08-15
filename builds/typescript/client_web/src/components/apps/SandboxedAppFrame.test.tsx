@@ -70,7 +70,7 @@ describe("sandboxed MCP App frame", () => {
       });
     };
     await send({ jsonrpc: "2.0", method: "ui/notifications/sandbox-proxy-ready", params: {} }, "proxy");
-    await send({ jsonrpc: "2.0", id: "init-chat", method: "ui/initialize", params: { protocolVersion: APPS_PROTOCOL_VERSION, appInfo: { name: "resume", version: "4.0.3" }, appCapabilities: {} } });
+    await send({ jsonrpc: "2.0", id: "init-chat", method: "ui/initialize", params: { protocolVersion: APPS_PROTOCOL_VERSION, appInfo: { name: "resume", version: "4.0.9" }, appCapabilities: {} } });
     await send({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} });
     await send({
       bridge_version: 1,
@@ -81,42 +81,78 @@ describe("sandboxed MCP App frame", () => {
           { id: "assistant-1", role: "assistant", content: "What kind of work would you like next?" },
           { id: "owner-1", role: "user", content: "Operations leadership." },
         ],
-        actions: [{ id: "skip", label: "I’m not sure" }],
+        actions: [],
         busy: false,
         inputEnabled: true,
         inputPlaceholder: "Reply to Resume Builder...",
         stageLabel: "Your experience",
-        supportLabel: "Confirmed facts stay visible in the evidence panel.",
-        evidence: {
-          confirmedCount: 7,
-          needsAttentionCount: 2,
-          stillToDiscussCount: 3,
-          recentFacts: [{
-            id: "00000000-0000-4000-8000-000000000010",
-            label: "Skill",
-            value: "Operations planning",
-          }],
-        },
+        supportLabel: "Facts are saved only after you confirm them.",
+        reviewFacts: [{ id: crypto.randomUUID(), label: "Skill", value: "Operations planning" }],
       },
     });
     expect(await screen.findByRole("region", { name: "Resume Builder conversation" })).toBeInTheDocument();
     expect(await screen.findByText("What kind of work would you like next?")).toBeInTheDocument();
     expect(screen.getByText("Operations leadership.")).toBeInTheDocument();
-    const tray = screen.getByRole("complementary", { name: "Resume evidence tray" });
-    expect(within(tray).getByText("Live resume facts")).toBeInTheDocument();
-    expect(within(tray).getByText("Operations planning")).toBeInTheDocument();
-    expect(within(tray).getByRole("button", { name: "Edit recent skill fact" })).toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: "Resume evidence tray" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Pause" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "I’m not sure" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review what I’ve shared" })).toBeInTheDocument();
+    const reviewSummary = screen.getByRole("complementary", { name: "Resume review summary" });
+    expect(within(reviewSummary).getByText("Operations planning")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Close drawer" })).not.toBeInTheDocument();
     await userEvent.type(screen.getByPlaceholderText("Reply to Resume Builder..."), "Customer operations.");
     await userEvent.click(screen.getByRole("button", { name: "Send message" }));
     expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
       message: { type: "host.chat.message", payload: { text: "Customer operations." } },
     }), "*");
-    await userEvent.click(within(tray).getByRole("button", { name: "Review all" }));
+    for (const rejectedMetric of ["Confirmed facts", "Needs attention", "To discuss"]) {
+      expect(within(reviewSummary).queryByText(rejectedMetric, { exact: true })).not.toBeInTheDocument();
+    }
+    expect(screen.queryByRole("button", { name: "Close drawer" })).not.toBeInTheDocument();
+    await userEvent.click(within(reviewSummary).getByRole("button", { name: "Open full review" }));
     expect(screen.getByRole("button", { name: "Close drawer" })).toBeInTheDocument();
   });
 
   it("rejects malformed app-projected conversation state", () => {
     expect(parseResumeConversationState({ messages: [{ id: "x", role: "system", content: "forged" }], actions: [], busy: false, inputEnabled: true, inputPlaceholder: "", stageLabel: "Interview", supportLabel: "Evidence" })).toBeNull();
+  });
+
+  it("mediates Resume Builder fact confirmation inline in native chat", async () => {
+    const recordId = crypto.randomUUID();
+    const revisionId = crypto.randomUUID();
+    const ownerState = { state_version: 1 as const, state: "unavailable" as const, safe_message: "Review in BrainDrive.", retryable: false, refresh_required: false, current_revision: null, proposal_preserved: true };
+    vi.mocked(callAppCapability)
+      .mockResolvedValueOnce({ result: { fact: { metadata: { record_id: recordId, revision_id: revisionId }, value: "Operations leader at Northwind" } } })
+      .mockRejectedValueOnce(new AppCapabilityError("Review in BrainDrive.", 403, "confirmation_required", ownerState, "career.facts.confirm", { title: "Confirm career fact", actionLabel: "Confirm" }))
+      .mockResolvedValueOnce({ result: { fact: { metadata: { record_id: recordId, revision_id: revisionId }, state: "confirmed" } } });
+    render(<SandboxedAppFrame appKey="resume-builder" appId="ai.braindrive.resume-builder" appName="Resume Builder" launch={launch} onSessionClosed={() => {}} />);
+    const frame = screen.getByTitle("Resume Builder sandbox proxy") as HTMLIFrameElement;
+    const proxyHtml = decodeURIComponent(frame.getAttribute("src")!.split(",", 2)[1]!);
+    const nonce = /const NONCE="([^"]+)"/.exec(proxyHtml)?.[1];
+    const send = async (message: unknown, source: "proxy" | "view" = "view") => {
+      await act(async () => {
+        window.dispatchEvent(new MessageEvent("message", { origin: "null", source: frame.contentWindow!, data: { channel: BRIDGE_CHANNEL, direction: "proxy_to_host", proxy_nonce: nonce, source, message } }));
+        await Promise.resolve();
+      });
+    };
+    await send({ jsonrpc: "2.0", method: "ui/notifications/sandbox-proxy-ready", params: {} }, "proxy");
+    await send({ jsonrpc: "2.0", id: "init-confirm", method: "ui/initialize", params: { protocolVersion: APPS_PROTOCOL_VERSION, appInfo: { name: "resume", version: "4.0.9" }, appCapabilities: {} } });
+    await send({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} });
+    await send({ bridge_version: 1, message_id: crypto.randomUUID(), type: "capability.call", payload: { capability: "career.facts.propose", input: { fact: { value: "Operations leader at Northwind" } } } });
+    const confirmationMessageId = crypto.randomUUID();
+    await send({ bridge_version: 1, message_id: confirmationMessageId, type: "capability.call", payload: { capability: "career.facts.confirm", input: { fact_record_id: recordId, fact_revision_id: revisionId, expected_revision: 1, decision: "accept", edited_value: null } } });
+
+    expect(await screen.findByRole("region", { name: "Confirm shared information" })).toHaveTextContent("Operations leader at Northwind");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
+    await waitFor(() => expect(callAppCapability).toHaveBeenLastCalledWith(
+      "resume-builder",
+      "career.facts.confirm",
+      expect.objectContaining({ fact_record_id: recordId, decision: "accept" }),
+      confirmationMessageId,
+      true,
+    ));
+    expect(screen.queryByRole("region", { name: "Confirm shared information" })).not.toBeInTheDocument();
   });
 
   it("uses generic app labels and app-key session routing without granting Resume trusted actions", async () => {
@@ -226,6 +262,7 @@ describe("sandboxed MCP App frame", () => {
 
   it("shows owner-visible factual-unit text instead of structured storage JSON", () => {
     expect(ownerFactConfirmationDetail(JSON.stringify({ value_version: 1, owner_text: "Reduced handoff errors.", internal: "hidden" }))).toBe("Reduced handoff errors.");
+    expect(ownerFactConfirmationDetail(JSON.stringify({ format: "resume_job_v1", title: "Product Lead", employer: "Northwind Labs", location: "New York", start_date: "2022", end_date: "2024", responsibilities: "Led product discovery." }))).toBe("Product Lead at Northwind Labs · New York · 2022 to 2024 · Led product discovery.");
     expect(ownerFactConfirmationDetail("Plain confirmed fact")).toBe("Plain confirmed fact");
   });
 

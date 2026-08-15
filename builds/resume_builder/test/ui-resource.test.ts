@@ -53,21 +53,22 @@ describe("sandboxed Resume Builder owner resource", () => {
     expect(html).toContain('state.stage="tailored_review";render();focusPanel()');
   });
 
-  it("presents intake as a conversation with a live, correctable evidence ledger", async () => {
+  it("presents native chat as the sole ordinary intake surface with intentional review", async () => {
     const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
     for (const text of [
       "Let’s build the story your resume can prove",
       "One useful question at a time",
       "Your evidence ledger",
-      "Confirmed facts",
-      "Still to discuss",
-      "Marked uncertain",
       "Edit confirmed fact",
       "Fact-backed fallback ready",
       "If model output is unusable",
       "Readable first generated draft",
       "Correct draft wording directly",
       "Create first draft",
+      "What was your role, and where did you work?",
+      "What else should I add about that job",
+      "Open structured editor",
+      "Reply in your own words",
     ]) expect(html).toContain(text);
     expect(html).toContain('id="fact-snapshot"');
     expect(html).toContain('aria-label="Resume evidence ledger"');
@@ -79,13 +80,24 @@ describe("sandboxed Resume Builder owner resource", () => {
     expect(html).toContain('message?.type==="host.chat.message"');
     expect(html).toContain('message?.type==="host.chat.action"');
     expect(html).toContain("durableConversationMessages()");
+    expect(html).toContain("conversationReviewFacts()");
+    expect(html).toContain("function isFreshConversation()");
+    expect(html).toContain('if(isFreshConversation())return "interview"');
+    expect(html).toContain("Welcome — I’ll help you build a resume one useful question at a time.");
+    expect(html).toContain('stageLabel:isFreshConversation()?"Getting started"');
     expect(html).toContain("interview_turns");
     expect(html).toContain('classList.add("native-chat-hosted")');
-    expect(html).toContain("conversationEvidence()");
-    expect(html).toContain("needsAttentionCount");
-    expect(html).toContain("stillToDiscussCount");
-    expect(html).toContain("confirmed.slice(-2)");
+    expect(html).toContain("parseEmploymentIdentity");
+    expect(html).toContain("naturalChatIntent");
+    expect(html).toContain('question_id!=="employment-chat"');
+    expect(html).toContain('id:"employment-draft-owner"');
+    expect(html).toContain('message?.type==="host.chat.correction"');
     expect(html).toContain('actionId.startsWith("edit_fact_")');
+    expect(html).not.toContain("conversationEvidence()");
+    const actions = html.slice(html.indexOf("function conversationActions"), html.indexOf("function conversationState"));
+    expect(actions).not.toContain('label:"Pause"');
+    expect(actions).not.toContain('label:"I’m not sure"');
+    expect(actions).not.toContain('label:"Skip for now"');
   });
 
   it("keeps privileged browser/network authority outside the package resource", async () => {

@@ -18,9 +18,10 @@ import { OUTER_PROXY_SANDBOX, VIEW_PERMISSION_POLICY, createSandboxProxyUrl } fr
 import { secureRandomUuid } from "@/utils/browser-crypto";
 import { openExternalUrl } from "@/utils/external-url";
 import ResumeBuilderConversation, {
+  type ResumeInlineConfirmation,
   type ResumeConversationState,
 } from "./ResumeBuilderConversation";
-import ResumeEvidenceTray from "./ResumeEvidenceTray";
+import ResumeReviewRail from "./ResumeReviewRail";
 
 const EMPTY_RESUME_CONVERSATION: ResumeConversationState = {
   messages: [{ id: "resume-chat-loading", role: "assistant", content: "Loading your saved resume conversation..." }],
@@ -29,13 +30,8 @@ const EMPTY_RESUME_CONVERSATION: ResumeConversationState = {
   inputEnabled: false,
   inputPlaceholder: "Reply to Resume Builder...",
   stageLabel: "Connecting",
-  supportLabel: "Your evidence and workflow controls appear in the supporting panel.",
-  evidence: {
-    confirmedCount: 0,
-    needsAttentionCount: 0,
-    stillToDiscussCount: 0,
-    recentFacts: [],
-  },
+  supportLabel: "Facts are saved only after you confirm them in this conversation.",
+  reviewFacts: [],
 };
 
 export function parseResumeConversationState(value: unknown): ResumeConversationState | null {
@@ -62,12 +58,8 @@ export function parseResumeConversationState(value: unknown): ResumeConversation
   if (typeof candidate.inputPlaceholder !== "string" || candidate.inputPlaceholder.length > 160) return null;
   if (typeof candidate.stageLabel !== "string" || candidate.stageLabel.length > 80) return null;
   if (typeof candidate.supportLabel !== "string" || candidate.supportLabel.length > 240) return null;
-  if (!candidate.evidence || typeof candidate.evidence !== "object" || Array.isArray(candidate.evidence)) return null;
-  const evidence = candidate.evidence as Record<string, unknown>;
-  const counts = [evidence.confirmedCount, evidence.needsAttentionCount, evidence.stillToDiscussCount];
-  if (!counts.every((count) => Number.isInteger(count) && Number(count) >= 0 && Number(count) <= 10_000)) return null;
-  if (!Array.isArray(evidence.recentFacts) || evidence.recentFacts.length > 2) return null;
-  const recentFacts = evidence.recentFacts.flatMap((item) => {
+  if (!Array.isArray(candidate.reviewFacts) || candidate.reviewFacts.length > 4) return null;
+  const reviewFacts = candidate.reviewFacts.flatMap((item) => {
     if (!item || typeof item !== "object" || Array.isArray(item)) return [];
     const fact = item as Record<string, unknown>;
     if (typeof fact.id !== "string" || !/^[0-9a-f-]{36}$/i.test(fact.id)) return [];
@@ -75,7 +67,7 @@ export function parseResumeConversationState(value: unknown): ResumeConversation
     if (typeof fact.value !== "string" || fact.value.length === 0 || fact.value.length > 16_384) return [];
     return [{ id: fact.id, label: fact.label, value: fact.value }];
   });
-  if (recentFacts.length !== evidence.recentFacts.length) return null;
+  if (reviewFacts.length !== candidate.reviewFacts.length) return null;
   return {
     messages,
     actions,
@@ -84,12 +76,7 @@ export function parseResumeConversationState(value: unknown): ResumeConversation
     inputPlaceholder: candidate.inputPlaceholder,
     stageLabel: candidate.stageLabel,
     supportLabel: candidate.supportLabel,
-    evidence: {
-      confirmedCount: Number(evidence.confirmedCount),
-      needsAttentionCount: Number(evidence.needsAttentionCount),
-      stillToDiscussCount: Number(evidence.stillToDiscussCount),
-      recentFacts,
-    },
+    reviewFacts,
   };
 }
 
@@ -116,7 +103,26 @@ export function applyGroupedFactDecisions(input: Record<string, unknown>, accept
 
 export function ownerFactConfirmationDetail(value: string): string {
   try {
-    const parsed = JSON.parse(value) as { owner_text?: unknown; text?: unknown };
+    const parsed = JSON.parse(value) as {
+      format?: unknown;
+      title?: unknown;
+      employer?: unknown;
+      location?: unknown;
+      start_date?: unknown;
+      end_date?: unknown;
+      responsibilities?: unknown;
+      owner_text?: unknown;
+      text?: unknown;
+    };
+    if (parsed.format === "resume_job_v1" && typeof parsed.title === "string" && typeof parsed.employer === "string") {
+      const dates = [parsed.start_date, parsed.end_date].filter((item): item is string => typeof item === "string" && Boolean(item.trim())).join(" to ");
+      return [
+        `${parsed.title} at ${parsed.employer}`,
+        typeof parsed.location === "string" ? parsed.location : "",
+        dates,
+        typeof parsed.responsibilities === "string" ? parsed.responsibilities : "",
+      ].filter((item) => item.trim()).join(" · ");
+    }
     if (typeof parsed.owner_text === "string" && parsed.owner_text.trim()) return parsed.owner_text;
     if (typeof parsed.text === "string" && parsed.text.trim()) return parsed.text;
   } catch {
@@ -214,7 +220,9 @@ export default function SandboxedAppFrame({
   const [acceptedGroupRevisionIds, setAcceptedGroupRevisionIds] = useState<Set<string>>(new Set());
   const [pendingHostAction, setPendingHostAction] = useState<PendingHostAction | null>(null);
   const [resumeConversation, setResumeConversation] = useState<ResumeConversationState>(EMPTY_RESUME_CONVERSATION);
-  const [isEvidenceDrawerOpen, setIsEvidenceDrawerOpen] = useState(false);
+  const [resumeReviewMode, setResumeReviewMode] = useState<"closed" | "summary" | "workspace">(
+    appId === "ai.braindrive.resume-builder" ? "summary" : "closed",
+  );
 
   useEffect(() => {
     if (pendingConfirmation || pendingHostAction) confirmButtonRef.current?.focus();
@@ -228,7 +236,7 @@ export default function SandboxedAppFrame({
     setStatus("loading");
     setError(null);
     setResumeConversation(EMPTY_RESUME_CONVERSATION);
-    setIsEvidenceDrawerOpen(false);
+    setResumeReviewMode(appId === "ai.braindrive.resume-builder" ? "summary" : "closed");
     const frame = frameRef.current;
     if (!frame) return;
     const proxyNonce = secureRandomUuid();
@@ -437,6 +445,21 @@ export default function SandboxedAppFrame({
     });
   })();
 
+  const isResumeFactConfirmation = appId === "ai.braindrive.resume-builder"
+    && pendingConfirmation?.message.payload?.capability === "career.facts.confirm";
+  const resumeInlineConfirmation: ResumeInlineConfirmation | null = isResumeFactConfirmation && pendingConfirmation
+    ? {
+        id: pendingConfirmation.message.message_id,
+        title: confirmationUnits.length > 1
+          ? "Please confirm these related details before I use them."
+          : "Please confirm what I heard before I use it.",
+        details: confirmationUnits.length > 0
+          ? confirmationUnits.map((unit) => unit.detail)
+          : [confirmationRecord.detail],
+        confirmLabel: "Confirm",
+      }
+    : null;
+
   const completeConfirmation = async (confirmed: boolean) => {
     const message = pendingConfirmation;
     setPendingConfirmation(null);
@@ -454,6 +477,16 @@ export default function SandboxedAppFrame({
     } catch (requestError) {
       message.reject(requestError instanceof Error ? requestError : new Error("recoverable_internal_failure"));
     } finally { frameRef.current?.focus(); }
+  };
+
+  const editResumeConfirmation = () => {
+    const message = pendingConfirmation;
+    if (!message || !isResumeFactConfirmation) return;
+    setPendingConfirmation(null);
+    message.reject(new Error("cancelled"));
+    window.setTimeout(() => {
+      controllerRef.current?.notifyView({ type: "host.chat.correction", payload: {} });
+    }, 0);
   };
 
   const completeHostAction = async (confirmed: boolean) => {
@@ -516,8 +549,8 @@ export default function SandboxedAppFrame({
 
   const sendResumeChatAction = (actionId: string) => {
     if (resumeConversation.busy) return;
-    if (["create_draft", "open_details", "review_facts"].includes(actionId) || actionId.startsWith("edit_fact_")) {
-      setIsEvidenceDrawerOpen(true);
+    if (["create_draft", "open_employment_editor", "review_facts"].includes(actionId) || actionId.startsWith("edit_fact_")) {
+      setResumeReviewMode("workspace");
     }
     const sent = controllerRef.current?.notifyView({ type: "host.chat.action", payload: { actionId } }) ?? false;
     if (!sent) {
@@ -527,8 +560,12 @@ export default function SandboxedAppFrame({
     setResumeConversation((current) => ({ ...current, busy: true, actions: [] }));
   };
 
-  const openEvidenceReview = () => {
-    setIsEvidenceDrawerOpen(true);
+  const openResumeReview = () => {
+    setResumeReviewMode("summary");
+  };
+
+  const openResumeWorkspace = () => {
+    setResumeReviewMode("workspace");
     sendResumeChatAction("review_facts");
   };
 
@@ -547,18 +584,15 @@ export default function SandboxedAppFrame({
       <div className="flex items-center justify-between border-b border-bd-border px-4 py-3 text-sm">
         <span role="status" aria-live="polite">{status === "loading" ? "Connecting securely…" : status === "ready" ? "App ready" : status === "reconnecting" ? "Reconnecting securely…" : status === "disabled" ? "App disabled" : status === "stopped" ? "App stopped" : "App unavailable"}</span>
         <div className="flex gap-2">
-          <button type="button" onClick={() => {
-            if (appId === "ai.braindrive.resume-builder") setIsEvidenceDrawerOpen(true);
-            queueMicrotask(() => frameRef.current?.focus());
-          }} className="rounded-md px-3 py-2 text-bd-text-secondary hover:bg-bd-bg-hover">
-            {appId === "ai.braindrive.resume-builder" ? "Open workspace" : "Enter app"}
-          </button>
+          {appId !== "ai.braindrive.resume-builder" ? (
+            <button type="button" onClick={() => frameRef.current?.focus()} className="rounded-md px-3 py-2 text-bd-text-secondary hover:bg-bd-bg-hover">Enter app</button>
+          ) : null}
           {onReload ? <button type="button" onClick={() => void reload()} className="rounded-md px-3 py-2 text-bd-text-secondary hover:bg-bd-bg-hover">Reload app</button> : null}
           <button type="button" onClick={closeAndReturn} className="rounded-md px-3 py-2 text-bd-text-secondary hover:bg-bd-bg-hover">Close app</button>
         </div>
       </div>
       {error ? <div role="alert" className="m-4 rounded-lg border border-bd-danger px-4 py-3 text-sm text-bd-text-primary">{error}</div> : null}
-      {pendingConfirmation ? (
+      {pendingConfirmation && !isResumeFactConfirmation ? (
         <div ref={dialogRef} role="dialog" tabIndex={-1} aria-modal="true" aria-labelledby="app-owner-confirmation-title" aria-describedby="app-owner-confirmation-detail app-owner-confirmation-boundary" className="m-4 rounded-xl border border-bd-amber bg-bd-bg-secondary p-4 shadow-xl">
           <h2 id="app-owner-confirmation-title" className="font-heading text-lg font-semibold text-bd-text-heading">{confirmationRecord.label}</h2>
           <p id="app-owner-confirmation-detail" className="mt-2 text-sm text-bd-text-primary">{confirmationRecord.detail}</p>
@@ -586,20 +620,25 @@ export default function SandboxedAppFrame({
           <div className="flex min-h-[26rem] min-w-0 flex-1 border-b border-bd-border lg:min-h-0 lg:border-b-0">
             <ResumeBuilderConversation
               conversation={resumeConversation}
+              confirmation={resumeInlineConfirmation}
               onSend={sendResumeChatMessage}
               onAction={sendResumeChatAction}
+              onConfirm={() => void completeConfirmation(true)}
+              onEditConfirmation={editResumeConfirmation}
+              onOpenReview={openResumeReview}
             />
           </div>
-          {!isEvidenceDrawerOpen ? (
-            <ResumeEvidenceTray
-              evidence={resumeConversation.evidence}
-              onOpenReview={openEvidenceReview}
+          {resumeReviewMode === "summary" ? (
+            <ResumeReviewRail
+              facts={resumeConversation.reviewFacts}
+              onClose={() => setResumeReviewMode("closed")}
               onEditFact={(factId) => sendResumeChatAction(`edit_fact_${factId}`)}
+              onOpenWorkspace={openResumeWorkspace}
             />
           ) : null}
           <div
-            aria-hidden={!isEvidenceDrawerOpen}
-            className={isEvidenceDrawerOpen
+            aria-hidden={resumeReviewMode !== "workspace"}
+            className={resumeReviewMode === "workspace"
               ? "flex min-h-[22rem] min-w-0 flex-col border-t border-bd-border bg-bd-bg-primary lg:w-[48%] lg:border-l lg:border-t-0"
               : "pointer-events-none absolute bottom-0 right-0 h-0 w-0 overflow-hidden opacity-0"
             }
@@ -608,7 +647,7 @@ export default function SandboxedAppFrame({
               <span className="text-xs uppercase tracking-[0.14em] text-bd-text-muted">Evidence &amp; resume workspace</span>
               <button
                 type="button"
-                onClick={() => setIsEvidenceDrawerOpen(false)}
+                onClick={() => setResumeReviewMode("closed")}
                 className="flex items-center gap-1 rounded-md px-2 py-1.5 text-xs text-bd-text-secondary hover:bg-bd-bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber"
               >
                 <X size={14} aria-hidden="true" />
