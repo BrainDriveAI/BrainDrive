@@ -44,29 +44,32 @@ async function reviewAndApprove(
 
 async function answerInterviewTopic(page: Page, frame: FrameLocator, answer: string, nextHeading: string, followUp?: string) {
   await frame.getByLabel("Your answer").fill(answer);
-  await frame.getByRole("button", { name: "Save answer" }).click();
+  await frame.getByRole("button", { name: "Use this answer" }).click();
   if (followUp) {
-    await expect(frame.getByRole("heading", { name: "A quick follow-up" })).toBeVisible();
+    await expect(frame.getByText("A quick follow-up · optional detail")).toBeVisible();
     await frame.getByLabel("Additional detail").fill(followUp);
     await frame.getByRole("button", { name: "Add this detail" }).click();
   }
   await confirmOwnerAction(page, /Confirm career fact/);
-  await expect(frame.getByRole("heading", { name: nextHeading })).toBeVisible({ timeout: 15_000 });
+  await expect(
+    frame.locator(".coach-message .eyebrow").filter({ hasText: nextHeading })
+      .or(frame.getByRole("heading", { name: nextHeading })),
+  ).toBeVisible({ timeout: 15_000 });
 }
 
 async function answerEmployment(page: Page, frame: FrameLocator) {
-  await expect(frame.getByRole("heading", { name: "One job at a time" })).toBeVisible();
+  await expect(frame.getByText(/One job at a time/)).toBeVisible();
   const fillAcknowledgedField = async (label: string | RegExp, value: string) => {
     await frame.getByLabel(label).fill(value);
     await expect(frame.locator("#recovery-status")).toContainText(/Saved at/, { timeout: 15_000 });
   };
-  await fillAcknowledgedField("Job title", "Customer Service Associate");
-  await fillAcknowledgedField("Employer", "Lakeside Market");
-  await fillAcknowledgedField(/Location/, "Dayton, Ohio");
-  await fillAcknowledgedField(/Started/, "March 2021");
-  await fillAcknowledgedField(/Ended/, "Present");
-  await fillAcknowledgedField("What did you do?", "Help about 60 customers per shift and train new employees.");
-  await frame.getByRole("button", { name: "Save this job" }).click();
+  await fillAcknowledgedField("Your role", "Customer Service Associate");
+  await fillAcknowledgedField("Where you worked", "Lakeside Market");
+  await fillAcknowledgedField(/Where \(optional\)/, "Dayton, Ohio");
+  await fillAcknowledgedField(/When you started/, "March 2021");
+  await fillAcknowledgedField(/When it ended/, "Present");
+  await fillAcknowledgedField("What did you spend most of your time doing?", "Help about 60 customers per shift and train new employees.");
+  await frame.getByRole("button", { name: "Use this experience" }).click();
   await confirmOwnerAction(page, /Confirm career fact/);
   await expect(frame.getByRole("heading", { name: "Customer Service Associate at Lakeside Market" })).toBeVisible({ timeout: 15_000 });
   await expect(frame.getByRole("heading", { name: "Known evidence for this job" })).toBeVisible();
@@ -104,13 +107,16 @@ async function completeJobEvidence(
   await expect.poll(() => coverage.innerText(), { timeout: 15_000 }).not.toBe(priorCoverage);
   await expect(page.getByRole("dialog")).toBeHidden();
   await frame.getByRole("button", { name: "Complete for now" }).click();
-  await expect(frame.getByRole("heading", { name: nextHeading })).toBeVisible({ timeout: 15_000 });
+  await expect(frame.locator(".coach-message .eyebrow").filter({ hasText: nextHeading }).or(frame.getByRole("heading", { name: nextHeading }))).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("dialog")).toBeHidden();
 }
 
 async function skipInterviewTopic(frame: FrameLocator, nextHeading: string) {
   await frame.getByRole("button", { name: "I’m not sure" }).click();
-  await expect(frame.getByRole("heading", { name: nextHeading })).toBeVisible({ timeout: 15_000 });
+  await expect(
+    frame.locator(".coach-message .eyebrow").filter({ hasText: nextHeading })
+      .or(frame.getByRole("heading", { name: nextHeading })),
+  ).toBeVisible({ timeout: 15_000 });
 }
 
 async function reviewStrategyAndCreate(frame: FrameLocator) {
@@ -124,8 +130,8 @@ async function reviewStrategyAndCreate(frame: FrameLocator) {
   await expect(frame.getByText("This plan guides presentation. It is not a career fact, score, or approval.")).toBeVisible();
   await expect(frame.getByRole("button", { name: "Correct information" })).toBeVisible();
   await expect(frame.getByRole("button", { name: "Refresh plan" })).toBeVisible();
-  await expect(frame.getByRole("button", { name: "Create general draft" })).toBeVisible({ timeout: 20_000 });
-  await frame.getByRole("button", { name: "Create general draft" }).click();
+  await expect(frame.getByRole("button", { name: "Create first draft" })).toBeVisible({ timeout: 20_000 });
+  await frame.getByRole("button", { name: "Create first draft" }).click();
 }
 
 async function openCareerApps(page: Page) {
@@ -150,7 +156,7 @@ async function installAndLaunchCareer(page: Page): Promise<FrameLocator> {
   await expect(launch).toBeVisible({ timeout: 15_000 });
   await launch.click();
   const frame = resumeBuilderFrame(page);
-  await expect(page.getByRole("button", { name: "Enter app" })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("button", { name: "Open workspace" })).toBeVisible({ timeout: 15_000 });
   return frame;
 }
 
@@ -195,7 +201,15 @@ test.describe("Resume Builder owner journey", () => {
     expect(innerSecurity.csp.join("; ")).toContain("connect-src 'none'");
     await expect(frame.getByText("Continuing from your Career context")).toBeVisible({ timeout: 15_000 });
 
-    await page.getByRole("button", { name: "Enter app" }).click();
+    const conversation = page.getByRole("region", { name: "Resume Builder conversation" });
+    const evidenceTray = page.getByRole("complementary", { name: "Resume evidence tray" });
+    await expect(conversation).toBeVisible();
+    await expect(evidenceTray.getByText("Confirmed", { exact: true }).first()).toBeVisible();
+    await expect(evidenceTray.getByText("Needs attention", { exact: true })).toBeVisible();
+    await expect(evidenceTray.getByText("To discuss", { exact: true })).toBeVisible();
+    await expect(evidenceTray.getByRole("button", { name: "Review all" })).toBeVisible();
+    await page.getByRole("button", { name: "Open workspace" }).click();
+    await expect(page.getByRole("button", { name: "Close drawer" })).toBeVisible();
     await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("title"))).toBe("Resume Builder sandbox proxy");
 
     let forgedSideEffects = 0;
@@ -203,7 +217,7 @@ test.describe("Resume Builder owner journey", () => {
     await proxy.evaluate((element) => (element as HTMLIFrameElement).contentWindow?.postMessage({ jsonrpc: "2.0", id: "forged", method: "tools/call", params: { name: "fixture.status" } }, "*"));
     await page.waitForTimeout(100);
     expect(forgedSideEffects).toBe(0);
-    await frame.getByRole("button", { name: "Continue to interview" }).click();
+    await frame.getByRole("button", { name: "Start the conversation" }).click();
     await answerInterviewTopic(page, frame, "Synthetic Owner | Dayton, Ohio | owner@example.test | 555-010-0142", "What you want next");
     await answerInterviewTopic(page, frame, "Customer support supervisor roles", "Work experience");
     await answerEmployment(page, frame);
@@ -216,8 +230,8 @@ test.describe("Resume Builder owner journey", () => {
     await answerInterviewTopic(page, frame, "linkedin.com/in/synthetic-owner", "Review your information");
 
     await expect(frame.getByRole("heading", { name: "Review your information" })).toBeVisible();
-    await expect(frame.getByText(/Created a checkout checklist/)).toBeVisible();
-    await expect(frame.getByText(/Helped train new employees with the checklist/)).toHaveCount(0);
+    await expect(frame.locator("#panel").getByText(/Created a checkout checklist/)).toBeVisible();
+    await expect(frame.locator("#panel").getByText(/Helped train new employees with the checklist/)).toHaveCount(0);
     await expect(frame.getByRole("button", { name: "Reopen interview" })).toBeVisible();
     await frame.getByRole("button", { name: "Reopen interview" }).click();
     await expect(frame.getByRole("heading", { name: "Job coverage summary" })).toBeVisible({ timeout: 15_000 });
@@ -231,13 +245,13 @@ test.describe("Resume Builder owner journey", () => {
     await frame.getByRole("button", { name: "Complete for now" }).click();
     await expect(frame.getByRole("heading", { name: "Review your information" })).toBeVisible({ timeout: 15_000 });
     await frame.getByRole("button", { name: "Add another job" }).click();
-    await frame.getByLabel("Job title").fill("Front Desk Associate");
-    await frame.getByLabel("Employer").fill("Riverside Clinic");
-    await frame.getByLabel(/Location/).fill("Dayton, Ohio");
-    await frame.getByLabel(/Started/).fill("June 2018");
-    await frame.getByLabel(/Ended/).fill("February 2021");
-    await frame.getByLabel("What did you do?").fill("Scheduled appointments and maintained accurate customer records.");
-    await frame.getByRole("button", { name: "Save this job" }).click();
+    await frame.getByLabel("Your role").fill("Front Desk Associate");
+    await frame.getByLabel("Where you worked").fill("Riverside Clinic");
+    await frame.getByLabel(/Where \(optional\)/).fill("Dayton, Ohio");
+    await frame.getByLabel(/When you started/).fill("June 2018");
+    await frame.getByLabel(/When it ended/).fill("February 2021");
+    await frame.getByLabel("What did you spend most of your time doing?").fill("Scheduled appointments and maintained accurate customer records.");
+    await frame.getByRole("button", { name: "Use this experience" }).click();
     await confirmOwnerAction(page, /Confirm career fact/);
     await expect(frame.getByLabel("Current job")).toContainText("Front Desk Associate at Riverside Clinic", { timeout: 15_000 });
     await completeJobEvidence(
@@ -253,7 +267,7 @@ test.describe("Resume Builder owner journey", () => {
     await frame.getByLabel("Information").fill("Synthetic Owner | Dayton, Ohio | synthetic.owner@example.test | 555-010-0142");
     await frame.getByRole("button", { name: "Save change" }).click();
     await confirmOwnerAction(page, /Confirm corrected career information/);
-    await expect(frame.getByText(/synthetic\.owner@example\.test/)).toBeVisible();
+    await expect(frame.locator("#panel").getByText(/synthetic\.owner@example\.test/)).toBeVisible();
     const linkCard = frame.locator(".card").filter({ hasText: "Professional link:" });
     await linkCard.getByRole("button", { name: "Remove" }).click();
     await confirmOwnerAction(page, /Remove this career information/);
@@ -448,9 +462,9 @@ test.describe("Resume Builder responsive job interview", () => {
     await openCareerApps(page);
     const frame = await installAndLaunchCareer(page);
     await expect(page.getByRole("status").filter({ hasText: "App ready" })).toBeVisible({ timeout: 20_000 });
-    await page.getByRole("button", { name: "Enter app" }).click();
+    await page.getByRole("button", { name: "Open workspace" }).click();
     await expect(frame.getByRole("heading", { name: "Resume Builder", exact: true })).toBeVisible({ timeout: 20_000 });
-    const continueInterview = frame.getByRole("button", { name: "Continue to interview" });
+    const continueInterview = frame.getByRole("button", { name: "Start the conversation" });
     const currentJob = frame.getByLabel("Current job");
     const historyStep = frame.locator('[data-stage="history"]');
     expect(await frame.getByRole("button").first().evaluate((button) => getComputedStyle(button).transitionDuration)).toBe("0s");
@@ -482,6 +496,7 @@ test.describe("Resume Builder responsive job interview", () => {
       await skipInterviewTopic(frame, "Review your information");
       await reviewStrategyAndCreate(frame);
       await expect(frame.getByRole("heading", { name: "General resume" })).toBeVisible({ timeout: 15_000 });
+      await frame.locator("details.draft-corrections > summary").click();
       const firstStatement = frame.locator("textarea[data-index]").first();
       const originalStatement = await firstStatement.inputValue();
       const editedStatement = originalStatement.endsWith(".") ? originalStatement.slice(0, -1) : `${originalStatement}.`;

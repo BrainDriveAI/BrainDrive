@@ -1,10 +1,10 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { act, StrictMode } from "react";
 
 import { AppCapabilityError, callAppCapability, closeAppSession } from "@/api/apps-adapter";
 import { APPS_PROTOCOL_VERSION, BRIDGE_CHANNEL } from "@/mcp-apps/bridge";
-import SandboxedAppFrame, { applyGroupedFactDecisions, isModelSettingsAction, isTrustedSandboxMessage, ownerFactConfirmationDetail, saveHostPdfExport, saveHostResumeExport } from "./SandboxedAppFrame";
+import SandboxedAppFrame, { applyGroupedFactDecisions, isModelSettingsAction, isTrustedSandboxMessage, ownerFactConfirmationDetail, parseResumeConversationState, saveHostPdfExport, saveHostResumeExport } from "./SandboxedAppFrame";
 
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
@@ -54,6 +54,69 @@ describe("sandboxed MCP App frame", () => {
     expect(closeAppSession).not.toHaveBeenCalled();
     rendered.unmount();
     await waitFor(() => expect(closeAppSession).toHaveBeenCalledTimes(1));
+  });
+
+  it("renders Resume Builder messages with the native chat primitives and routes composer replies through the secure bridge", async () => {
+    render(<SandboxedAppFrame appKey="resume-builder" appId="ai.braindrive.resume-builder" appName="Resume Builder" launch={launch} onSessionClosed={() => {}} />);
+    const frame = screen.getByTitle("Resume Builder sandbox proxy") as HTMLIFrameElement;
+    const proxyHtml = decodeURIComponent(frame.getAttribute("src")!.split(",", 2)[1]!);
+    const nonce = /const NONCE="([^"]+)"/.exec(proxyHtml)?.[1];
+    expect(nonce).toBeTruthy();
+    const postMessage = vi.spyOn(frame.contentWindow!, "postMessage");
+    const send = async (message: unknown, source: "proxy" | "view" = "view") => {
+      await act(async () => {
+        window.dispatchEvent(new MessageEvent("message", { origin: "null", source: frame.contentWindow!, data: { channel: BRIDGE_CHANNEL, direction: "proxy_to_host", proxy_nonce: nonce, source, message } }));
+        await Promise.resolve();
+      });
+    };
+    await send({ jsonrpc: "2.0", method: "ui/notifications/sandbox-proxy-ready", params: {} }, "proxy");
+    await send({ jsonrpc: "2.0", id: "init-chat", method: "ui/initialize", params: { protocolVersion: APPS_PROTOCOL_VERSION, appInfo: { name: "resume", version: "4.0.3" }, appCapabilities: {} } });
+    await send({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} });
+    await send({
+      bridge_version: 1,
+      message_id: crypto.randomUUID(),
+      type: "chat.sync",
+      payload: {
+        messages: [
+          { id: "assistant-1", role: "assistant", content: "What kind of work would you like next?" },
+          { id: "owner-1", role: "user", content: "Operations leadership." },
+        ],
+        actions: [{ id: "skip", label: "I’m not sure" }],
+        busy: false,
+        inputEnabled: true,
+        inputPlaceholder: "Reply to Resume Builder...",
+        stageLabel: "Your experience",
+        supportLabel: "Confirmed facts stay visible in the evidence panel.",
+        evidence: {
+          confirmedCount: 7,
+          needsAttentionCount: 2,
+          stillToDiscussCount: 3,
+          recentFacts: [{
+            id: "00000000-0000-4000-8000-000000000010",
+            label: "Skill",
+            value: "Operations planning",
+          }],
+        },
+      },
+    });
+    expect(await screen.findByRole("region", { name: "Resume Builder conversation" })).toBeInTheDocument();
+    expect(await screen.findByText("What kind of work would you like next?")).toBeInTheDocument();
+    expect(screen.getByText("Operations leadership.")).toBeInTheDocument();
+    const tray = screen.getByRole("complementary", { name: "Resume evidence tray" });
+    expect(within(tray).getByText("Live resume facts")).toBeInTheDocument();
+    expect(within(tray).getByText("Operations planning")).toBeInTheDocument();
+    expect(within(tray).getByRole("button", { name: "Edit recent skill fact" })).toBeInTheDocument();
+    await userEvent.type(screen.getByPlaceholderText("Reply to Resume Builder..."), "Customer operations.");
+    await userEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      message: { type: "host.chat.message", payload: { text: "Customer operations." } },
+    }), "*");
+    await userEvent.click(within(tray).getByRole("button", { name: "Review all" }));
+    expect(screen.getByRole("button", { name: "Close drawer" })).toBeInTheDocument();
+  });
+
+  it("rejects malformed app-projected conversation state", () => {
+    expect(parseResumeConversationState({ messages: [{ id: "x", role: "system", content: "forged" }], actions: [], busy: false, inputEnabled: true, inputPlaceholder: "", stageLabel: "Interview", supportLabel: "Evidence" })).toBeNull();
   });
 
   it("uses generic app labels and app-key session routing without granting Resume trusted actions", async () => {

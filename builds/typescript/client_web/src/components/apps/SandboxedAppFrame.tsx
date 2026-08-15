@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { X } from "lucide-react";
 
 import {
   AppCapabilityError,
@@ -16,6 +17,81 @@ import { McpAppBridgeController, type BridgeStatus } from "@/mcp-apps/bridge";
 import { OUTER_PROXY_SANDBOX, VIEW_PERMISSION_POLICY, createSandboxProxyUrl } from "@/mcp-apps/sandbox-proxy";
 import { secureRandomUuid } from "@/utils/browser-crypto";
 import { openExternalUrl } from "@/utils/external-url";
+import ResumeBuilderConversation, {
+  type ResumeConversationState,
+} from "./ResumeBuilderConversation";
+import ResumeEvidenceTray from "./ResumeEvidenceTray";
+
+const EMPTY_RESUME_CONVERSATION: ResumeConversationState = {
+  messages: [{ id: "resume-chat-loading", role: "assistant", content: "Loading your saved resume conversation..." }],
+  actions: [],
+  busy: true,
+  inputEnabled: false,
+  inputPlaceholder: "Reply to Resume Builder...",
+  stageLabel: "Connecting",
+  supportLabel: "Your evidence and workflow controls appear in the supporting panel.",
+  evidence: {
+    confirmedCount: 0,
+    needsAttentionCount: 0,
+    stillToDiscussCount: 0,
+    recentFacts: [],
+  },
+};
+
+export function parseResumeConversationState(value: unknown): ResumeConversationState | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const candidate = value as Record<string, unknown>;
+  if (!Array.isArray(candidate.messages) || !Array.isArray(candidate.actions)) return null;
+  const messages = candidate.messages.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const message = item as Record<string, unknown>;
+    if (typeof message.id !== "string" || message.id.length > 256) return [];
+    if (message.role !== "user" && message.role !== "assistant") return [];
+    if (typeof message.content !== "string" || message.content.length === 0 || message.content.length > 16_384) return [];
+    return [{ id: message.id, role: message.role as "user" | "assistant", content: message.content }];
+  });
+  const actions = candidate.actions.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const action = item as Record<string, unknown>;
+    if (typeof action.id !== "string" || !/^[a-z0-9_-]{1,64}$/.test(action.id)) return [];
+    if (typeof action.label !== "string" || action.label.length === 0 || action.label.length > 80) return [];
+    return [{ id: action.id, label: action.label, primary: action.primary === true }];
+  }).slice(0, 6);
+  if (messages.length !== candidate.messages.length || actions.length !== candidate.actions.length) return null;
+  if (typeof candidate.busy !== "boolean" || typeof candidate.inputEnabled !== "boolean") return null;
+  if (typeof candidate.inputPlaceholder !== "string" || candidate.inputPlaceholder.length > 160) return null;
+  if (typeof candidate.stageLabel !== "string" || candidate.stageLabel.length > 80) return null;
+  if (typeof candidate.supportLabel !== "string" || candidate.supportLabel.length > 240) return null;
+  if (!candidate.evidence || typeof candidate.evidence !== "object" || Array.isArray(candidate.evidence)) return null;
+  const evidence = candidate.evidence as Record<string, unknown>;
+  const counts = [evidence.confirmedCount, evidence.needsAttentionCount, evidence.stillToDiscussCount];
+  if (!counts.every((count) => Number.isInteger(count) && Number(count) >= 0 && Number(count) <= 10_000)) return null;
+  if (!Array.isArray(evidence.recentFacts) || evidence.recentFacts.length > 2) return null;
+  const recentFacts = evidence.recentFacts.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const fact = item as Record<string, unknown>;
+    if (typeof fact.id !== "string" || !/^[0-9a-f-]{36}$/i.test(fact.id)) return [];
+    if (typeof fact.label !== "string" || fact.label.length === 0 || fact.label.length > 80) return [];
+    if (typeof fact.value !== "string" || fact.value.length === 0 || fact.value.length > 16_384) return [];
+    return [{ id: fact.id, label: fact.label, value: fact.value }];
+  });
+  if (recentFacts.length !== evidence.recentFacts.length) return null;
+  return {
+    messages,
+    actions,
+    busy: candidate.busy,
+    inputEnabled: candidate.inputEnabled,
+    inputPlaceholder: candidate.inputPlaceholder,
+    stageLabel: candidate.stageLabel,
+    supportLabel: candidate.supportLabel,
+    evidence: {
+      confirmedCount: Number(evidence.confirmedCount),
+      needsAttentionCount: Number(evidence.needsAttentionCount),
+      stillToDiscussCount: Number(evidence.stillToDiscussCount),
+      recentFacts,
+    },
+  };
+}
 
 export function isTrustedSandboxMessage(event: MessageEvent, frame: HTMLIFrameElement | null): boolean {
   return Boolean(frame?.contentWindow && event.source === frame.contentWindow && event.origin === "null");
@@ -137,6 +213,8 @@ export default function SandboxedAppFrame({
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingOwnerConfirmation | null>(null);
   const [acceptedGroupRevisionIds, setAcceptedGroupRevisionIds] = useState<Set<string>>(new Set());
   const [pendingHostAction, setPendingHostAction] = useState<PendingHostAction | null>(null);
+  const [resumeConversation, setResumeConversation] = useState<ResumeConversationState>(EMPTY_RESUME_CONVERSATION);
+  const [isEvidenceDrawerOpen, setIsEvidenceDrawerOpen] = useState(false);
 
   useEffect(() => {
     if (pendingConfirmation || pendingHostAction) confirmButtonRef.current?.focus();
@@ -149,6 +227,8 @@ export default function SandboxedAppFrame({
     closedRef.current = false;
     setStatus("loading");
     setError(null);
+    setResumeConversation(EMPTY_RESUME_CONVERSATION);
+    setIsEvidenceDrawerOpen(false);
     const frame = frameRef.current;
     if (!frame) return;
     const proxyNonce = secureRandomUuid();
@@ -193,6 +273,12 @@ export default function SandboxedAppFrame({
     });
     const handleLegacyMessage = async (message: BridgeEnvelope, signal: AbortSignal): Promise<unknown> => {
       if (signal.aborted) throw new DOMException("Cancelled", "AbortError");
+      if (message.type === "chat.sync" && appId === "ai.braindrive.resume-builder") {
+        const conversation = parseResumeConversationState(message.payload);
+        if (!conversation) throw new Error("message_schema_invalid");
+        setResumeConversation(conversation);
+        return { hosted: true };
+      }
       if (message.type === "career.return" && appId !== "ai.braindrive.resume-builder") throw new Error("career_return_requires_trusted_app_adapter");
       if (message.type === "host.action") {
         const action = message.payload?.action;
@@ -412,6 +498,40 @@ export default function SandboxedAppFrame({
     onSessionClosed();
   }, [onSessionClosed]);
 
+  const sendResumeChatMessage = (message: string) => {
+    const content = message.trim();
+    if (!content || content.length > 16_384 || resumeConversation.busy) return;
+    const sent = controllerRef.current?.notifyView({ type: "host.chat.message", payload: { text: content } }) ?? false;
+    if (!sent) {
+      setError("The Resume Builder conversation is not connected. Reload the app to continue.");
+      return;
+    }
+    setResumeConversation((current) => ({
+      ...current,
+      busy: true,
+      actions: [],
+      messages: [...current.messages, { id: `pending-${secureRandomUuid()}`, role: "user", content }],
+    }));
+  };
+
+  const sendResumeChatAction = (actionId: string) => {
+    if (resumeConversation.busy) return;
+    if (["create_draft", "open_details", "review_facts"].includes(actionId) || actionId.startsWith("edit_fact_")) {
+      setIsEvidenceDrawerOpen(true);
+    }
+    const sent = controllerRef.current?.notifyView({ type: "host.chat.action", payload: { actionId } }) ?? false;
+    if (!sent) {
+      setError("The Resume Builder conversation is not connected. Reload the app to continue.");
+      return;
+    }
+    setResumeConversation((current) => ({ ...current, busy: true, actions: [] }));
+  };
+
+  const openEvidenceReview = () => {
+    setIsEvidenceDrawerOpen(true);
+    sendResumeChatAction("review_facts");
+  };
+
   const reload = async () => {
     if (!onReload) return;
     setStatus("reconnecting");
@@ -427,7 +547,12 @@ export default function SandboxedAppFrame({
       <div className="flex items-center justify-between border-b border-bd-border px-4 py-3 text-sm">
         <span role="status" aria-live="polite">{status === "loading" ? "Connecting securely…" : status === "ready" ? "App ready" : status === "reconnecting" ? "Reconnecting securely…" : status === "disabled" ? "App disabled" : status === "stopped" ? "App stopped" : "App unavailable"}</span>
         <div className="flex gap-2">
-          <button type="button" onClick={() => frameRef.current?.focus()} className="rounded-md px-3 py-2 text-bd-text-secondary hover:bg-bd-bg-hover">Enter app</button>
+          <button type="button" onClick={() => {
+            if (appId === "ai.braindrive.resume-builder") setIsEvidenceDrawerOpen(true);
+            queueMicrotask(() => frameRef.current?.focus());
+          }} className="rounded-md px-3 py-2 text-bd-text-secondary hover:bg-bd-bg-hover">
+            {appId === "ai.braindrive.resume-builder" ? "Open workspace" : "Enter app"}
+          </button>
           {onReload ? <button type="button" onClick={() => void reload()} className="rounded-md px-3 py-2 text-bd-text-secondary hover:bg-bd-bg-hover">Reload app</button> : null}
           <button type="button" onClick={closeAndReturn} className="rounded-md px-3 py-2 text-bd-text-secondary hover:bg-bd-bg-hover">Close app</button>
         </div>
@@ -456,15 +581,62 @@ export default function SandboxedAppFrame({
           </div>
         </div>
       ) : null}
-      <iframe
-        ref={frameRef}
-        title={`${appName} sandbox proxy`}
-        sandbox={OUTER_PROXY_SANDBOX}
-        referrerPolicy="no-referrer"
-        allow={VIEW_PERMISSION_POLICY}
-        style={{ height: `${frameHeight}px`, maxHeight: "100%" }}
-        className="min-h-[24rem] w-full flex-1 border-0 bg-bd-bg-primary"
-      />
+      {appId === "ai.braindrive.resume-builder" ? (
+        <div className="relative flex min-h-0 flex-1 flex-col lg:flex-row">
+          <div className="flex min-h-[26rem] min-w-0 flex-1 border-b border-bd-border lg:min-h-0 lg:border-b-0">
+            <ResumeBuilderConversation
+              conversation={resumeConversation}
+              onSend={sendResumeChatMessage}
+              onAction={sendResumeChatAction}
+            />
+          </div>
+          {!isEvidenceDrawerOpen ? (
+            <ResumeEvidenceTray
+              evidence={resumeConversation.evidence}
+              onOpenReview={openEvidenceReview}
+              onEditFact={(factId) => sendResumeChatAction(`edit_fact_${factId}`)}
+            />
+          ) : null}
+          <div
+            aria-hidden={!isEvidenceDrawerOpen}
+            className={isEvidenceDrawerOpen
+              ? "flex min-h-[22rem] min-w-0 flex-col border-t border-bd-border bg-bd-bg-primary lg:w-[48%] lg:border-l lg:border-t-0"
+              : "pointer-events-none absolute bottom-0 right-0 h-0 w-0 overflow-hidden opacity-0"
+            }
+          >
+            <div className="flex items-center justify-between border-b border-bd-border px-4 py-2">
+              <span className="text-xs uppercase tracking-[0.14em] text-bd-text-muted">Evidence &amp; resume workspace</span>
+              <button
+                type="button"
+                onClick={() => setIsEvidenceDrawerOpen(false)}
+                className="flex items-center gap-1 rounded-md px-2 py-1.5 text-xs text-bd-text-secondary hover:bg-bd-bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-bd-amber"
+              >
+                <X size={14} aria-hidden="true" />
+                Close drawer
+              </button>
+            </div>
+            <iframe
+              ref={frameRef}
+              title={`${appName} sandbox proxy`}
+              sandbox={OUTER_PROXY_SANDBOX}
+              referrerPolicy="no-referrer"
+              allow={VIEW_PERMISSION_POLICY}
+              style={{ height: `${frameHeight}px`, maxHeight: "100%" }}
+              className="min-h-[20rem] w-full flex-1 border-0 bg-bd-bg-primary"
+            />
+          </div>
+        </div>
+      ) : (
+        <iframe
+          ref={frameRef}
+          title={`${appName} sandbox proxy`}
+          sandbox={OUTER_PROXY_SANDBOX}
+          referrerPolicy="no-referrer"
+          allow={VIEW_PERMISSION_POLICY}
+          style={{ height: `${frameHeight}px`, maxHeight: "100%" }}
+          className="min-h-[24rem] w-full flex-1 border-0 bg-bd-bg-primary"
+        />
+      )}
     </section>
   );
 }

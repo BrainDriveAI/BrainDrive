@@ -53,6 +53,41 @@ describe("sandboxed Resume Builder owner resource", () => {
     expect(html).toContain('state.stage="tailored_review";render();focusPanel()');
   });
 
+  it("presents intake as a conversation with a live, correctable evidence ledger", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    for (const text of [
+      "Let’s build the story your resume can prove",
+      "One useful question at a time",
+      "Your evidence ledger",
+      "Confirmed facts",
+      "Still to discuss",
+      "Marked uncertain",
+      "Edit confirmed fact",
+      "Fact-backed fallback ready",
+      "If model output is unusable",
+      "Readable first generated draft",
+      "Correct draft wording directly",
+      "Create first draft",
+    ]) expect(html).toContain(text);
+    expect(html).toContain('id="fact-snapshot"');
+    expect(html).toContain('aria-label="Resume evidence ledger"');
+    expect(html).toContain("renderSnapshot()");
+    expect(html).toContain('class="coach-message"');
+    expect(html).toContain('class="answer-composer"');
+    expect(html).toContain('button.dataset.factId');
+    expect(html).toContain('request("chat.sync",payload)');
+    expect(html).toContain('message?.type==="host.chat.message"');
+    expect(html).toContain('message?.type==="host.chat.action"');
+    expect(html).toContain("durableConversationMessages()");
+    expect(html).toContain("interview_turns");
+    expect(html).toContain('classList.add("native-chat-hosted")');
+    expect(html).toContain("conversationEvidence()");
+    expect(html).toContain("needsAttentionCount");
+    expect(html).toContain("stillToDiscussCount");
+    expect(html).toContain("confirmed.slice(-2)");
+    expect(html).toContain('actionId.startsWith("edit_fact_")');
+  });
+
   it("keeps privileged browser/network authority outside the package resource", async () => {
     const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
     expect(html).toContain("default-src 'none'");

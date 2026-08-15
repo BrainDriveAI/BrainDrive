@@ -63,6 +63,15 @@ export class McpAppBridgeController {
 
   get state(): LifecycleState { return this.lifecycle; }
 
+  notifyView(message: unknown): boolean {
+    if (this.lifecycle !== "ready") return false;
+    if (encodedBytes(message) > MAX_BRIDGE_MESSAGE_BYTES || objectDepth(message) > MAX_BRIDGE_DEPTH) {
+      return false;
+    }
+    this.send(message);
+    return true;
+  }
+
   async receive(event: MessageEvent, proxyWindow: Window): Promise<boolean> {
     if (this.lifecycle === "closed") return false;
     if (event.source !== proxyWindow) return this.violation("source_window_mismatch");
@@ -258,7 +267,7 @@ function validOpenLink(value: Record<string, unknown>): value is { url: string }
 function validDownload(value: Record<string, unknown>): value is { contents: unknown[] } { return exactKeys(value, ["contents"]) && Array.isArray(value.contents) && value.contents.length <= 16; }
 function validDisplayMode(value: Record<string, unknown>): boolean { return exactKeys(value, ["mode"]) && value.mode === "inline"; }
 function validKnownMethod(method: string): boolean { return ["tools/call", "resources/read", "ui/open-link", "ui/download-file", "ui/request-display-mode", "ping"].includes(method); }
-function validLegacyDraft(value: unknown): value is LegacyMessageDraft { return isRecord(value) && exactKeys(value, ["bridge_version", "message_id", "type", "payload"]) && value.bridge_version === 1 && typeof value.message_id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.message_id) && typeof value.type === "string" && ["bridge.ready", "capability.call", "export.request", "operation.cancel", "career.return", "host.action"].includes(value.type) && isRecord(value.payload); }
+function validLegacyDraft(value: unknown): value is LegacyMessageDraft { return isRecord(value) && exactKeys(value, ["bridge_version", "message_id", "type", "payload"]) && value.bridge_version === 1 && typeof value.message_id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.message_id) && typeof value.type === "string" && ["bridge.ready", "capability.call", "export.request", "operation.cancel", "career.return", "host.action", "chat.sync"].includes(value.type) && isRecord(value.payload); }
 function exactKeys(value: Record<string, unknown>, keys: string[], optional: string[] = []): boolean { const allowed = new Set(keys); if (Object.keys(value).some((key) => !allowed.has(key))) return false; return keys.filter((key) => !optional.includes(key)).every((key) => key in value); }
 function encodedBytes(value: unknown): number { try { return new TextEncoder().encode(JSON.stringify(value)).byteLength; } catch { return Number.POSITIVE_INFINITY; } }
 function objectDepth(value: unknown, seen = new Set<object>()): number { if (!isRecord(value) && !Array.isArray(value)) return 0; if (seen.has(value)) return Number.POSITIVE_INFINITY; seen.add(value); const children = Array.isArray(value) ? value : Object.values(value); const depth = 1 + children.reduce((max, child) => Math.max(max, objectDepth(child, seen)), 0); seen.delete(value); return depth; }

@@ -370,6 +370,7 @@ export class ResumeCapabilityRouter {
         artifacts,
         exports,
         interview,
+        interview_turns: allHistory.filter((record) => record.record_type === "source" && record.source_kind === "owner_interview"),
         jobs,
         job_history: allHistory.filter((record) => record.record_type === "job_description"),
         revision_requests: revisionRequests,
