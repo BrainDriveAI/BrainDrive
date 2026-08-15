@@ -163,6 +163,30 @@ function request(purpose: InferencePurpose, overrides: Record<string, unknown> =
   });
 }
 
+function dialogueRequestWithoutEmployment(currentUserMessage: string): z.infer<typeof InferenceRequestSchema> {
+  const inferenceRequest = request("resume_dialogue");
+  const facts = { facts: [FACTS[0]!] };
+  const context = {
+    dialogue_version: 1,
+    messages: [
+      { role: "assistant", content: "What specific growth did you help create?" },
+      { role: "user", content: currentUserMessage },
+    ],
+    current_user_message: currentUserMessage,
+    requested_mode: "intake",
+  };
+  inferenceRequest.data_blocks = [
+    { category: "confirmed_fact_snapshot", content_digest: canonicalInputDigest(facts), schema_id: "resume.confirmed-facts.v1", schema_version: 1, data: facts },
+    { category: "dialogue_context", content_digest: canonicalInputDigest(context), schema_id: "resume.dialogue-context.v1", schema_version: 1, data: context },
+  ];
+  inferenceRequest.input_snapshot = {
+    fact_snapshot_revision: 1,
+    fact_snapshot_digest: canonicalInputDigest(facts.facts),
+    record_revision_ids: [FACT_ID],
+  };
+  return InferenceRequestSchema.parse(inferenceRequest);
+}
+
 function adapter(handler: (request: StructuredCompletionRequest, call: number) => Promise<string> | string) {
   let calls = 0;
   const captured: StructuredCompletionRequest[] = [];
@@ -305,6 +329,58 @@ describe("ResumeInferenceBroker", () => {
     expect(validationModel.captured[1]?.system).toContain("Preserve every statement not named by a finding");
     expect(validationModel.captured[1]?.user).toContain(rejected.statement_id);
     expect(validationModel.captured[1]?.user).toContain("Factual wording exceeds its confirmed supporting facts");
+  });
+
+  it("keeps a dialogue turn while filtering role-specific operations without confirmed employment", async () => {
+    const current = "Revenue grew by 40% and customer retention improved.";
+    const invalid = {
+      dialogue_version: 1,
+      assistant_message: "Those metrics add useful specificity. Which role and employer should they be associated with?",
+      turn_disposition: "capture_and_continue",
+      fact_operations: [
+        { operation: "capture", fact_kind: "job_evidence", source_quote: "Revenue grew by 40%", text: "Revenue grew by 40%", job_fact_revision_id: INTERVIEW_JOB_ID, dimension: "outcomes" },
+        { operation: "capture", fact_kind: "job_evidence", source_quote: "customer retention improved", text: "Customer retention improved", job_fact_revision_id: INTERVIEW_JOB_ID, dimension: "outcomes" },
+      ],
+      suggested_action: "none",
+    };
+    const model = adapter(() => JSON.stringify(invalid));
+    const events: Array<{ event: string; details: Record<string, unknown> }> = [];
+    const completion = await new ResumeInferenceBroker(async () => provider(model.value), (event, details) => events.push({ event, details })).execute(dialogueRequestWithoutEmployment(current));
+
+    expect(completion.inference).toMatchObject({
+      status: "completed",
+      attempt_count: 2,
+      result: {
+        assistant_message: invalid.assistant_message,
+        turn_disposition: "respond_only",
+        fact_operations: [],
+      },
+    });
+    expect(completion.validation?.accepted).toBe(true);
+    expect(events.at(-1)?.details).toMatchObject({ repair: "deterministic_dialogue_filter" });
+  });
+
+  it("persists valid dialogue operations while filtering only invalid associations", async () => {
+    const current = "Revenue grew by 40% and I use Tableau.";
+    const skillOperation = { operation: "capture", fact_kind: "skill", value: "Tableau", source_quote: "Tableau" };
+    const mixed = {
+      dialogue_version: 1,
+      assistant_message: "That gives useful context. Which role and employer does the growth belong to?",
+      turn_disposition: "capture_and_continue",
+      fact_operations: [
+        { operation: "capture", fact_kind: "job_evidence", source_quote: "Revenue grew by 40%", text: "Revenue grew by 40%", job_fact_revision_id: INTERVIEW_JOB_ID, dimension: "outcomes" },
+        skillOperation,
+      ],
+      suggested_action: "none",
+    };
+    const model = adapter(() => JSON.stringify(mixed));
+    const completion = await new ResumeInferenceBroker(async () => provider(model.value)).execute(dialogueRequestWithoutEmployment(current));
+
+    expect(completion.inference).toMatchObject({
+      status: "completed",
+      result: { turn_disposition: "capture_and_continue", fact_operations: [skillOperation] },
+    });
+    expect(completion.validation?.accepted).toBe(true);
   });
 
   it("uses fact-only deterministic repair when structural repair consumes the second provider call", async () => {

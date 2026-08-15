@@ -163,7 +163,7 @@ export class ResumeInferenceBroker {
       let response: StructuredCompletionResponse | null = null;
       let validation: ValidationReport | null = null;
       let repairContext: ResumeRepairContext | undefined;
-      let repair: "provider_validation_repair" | "deterministic_fact_fallback" | "deterministic_strategy_fallback" | "deterministic_guidance_fallback" | "host_owned_structure" | "deterministic_craft_evaluation" | null = null;
+      let repair: "provider_validation_repair" | "deterministic_dialogue_filter" | "deterministic_fact_fallback" | "deterministic_strategy_fallback" | "deterministic_guidance_fallback" | "host_owned_structure" | "deterministic_craft_evaluation" | null = null;
       for (let attempt = 1; attempt <= request.limits.attempts; attempt += 1) {
         throwIfAborted(signal);
         attempts = attempt;
@@ -236,6 +236,18 @@ export class ResumeInferenceBroker {
         throw new ResumeInferenceError("schema_validation_failed", "Provider output failed the accepted schema after one structural repair");
       }
       throwIfAborted(signal);
+      if (!validation.accepted && request.purpose === "resume_dialogue") {
+        const filtered = filterInvalidDialogueFactOperations(result, request.data_blocks);
+        if (filtered !== null) {
+          const filteredResult = parsePurposeResult(request.purpose, request.output_schema_id, filtered);
+          const filteredValidation = validateInferenceClaims(request.purpose, filteredResult, request.data_blocks);
+          if (filteredValidation.accepted) {
+            result = filteredResult;
+            validation = filteredValidation;
+            repair = "deterministic_dialogue_filter";
+          }
+        }
+      }
       if (!validation.accepted) {
         try {
           const repaired = repairResumeDraftFromConfirmedFacts(request.purpose, result, validation, request.data_blocks);
@@ -358,6 +370,28 @@ export class ResumeInferenceBroker {
     }
     return {};
   }
+}
+
+function filterInvalidDialogueFactOperations(result: unknown, dataBlocks: InferenceRequest["data_blocks"]): unknown | null {
+  const dialogue = result as {
+    fact_operations?: unknown[];
+    suggested_action?: string;
+    turn_disposition?: string;
+  };
+  if (!Array.isArray(dialogue.fact_operations) || dialogue.fact_operations.length === 0) return null;
+  const acceptedOperations = dialogue.fact_operations.filter((operation) => validateInferenceClaims(
+    "resume_dialogue",
+    { ...dialogue, fact_operations: [operation] },
+    dataBlocks,
+  ).accepted);
+  if (acceptedOperations.length === dialogue.fact_operations.length) return null;
+  return {
+    ...dialogue,
+    fact_operations: acceptedOperations,
+    turn_disposition: acceptedOperations.length === 0 && dialogue.suggested_action !== "create_draft"
+      ? "respond_only"
+      : dialogue.turn_disposition,
+  };
 }
 
 function operationInputDigest(request: InferenceRequest): `sha256:${string}` {
