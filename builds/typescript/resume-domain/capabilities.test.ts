@@ -495,6 +495,40 @@ describe("named Resume Builder data capabilities", () => {
     expect(events.at(-1)).toMatchObject({ event: "app.capability.completed", details: { capability: "resume.definitions.write", outcome: "committed" } });
   });
 
+  it("routes fact proposals linked to durable interview-turn provenance", async () => {
+    const { router, grant } = await setup();
+    const turn = await router.execute("resume.definitions.write", {
+      kind: "interview_turn",
+      turn: {
+        transcript_version: 1,
+        turn_id: crypto.randomUUID(),
+        session_id: crypto.randomUUID(),
+        prompt_version: "resume-dialogue-1",
+        topic: "model_dialogue",
+        question: "What name should appear on your resume?",
+        answer: "Synthetic Owner",
+        follow_up: null,
+        action: "answered",
+        occurred_at: "2026-08-07T12:00:00.000Z",
+      },
+      sensitivity: "sensitive",
+      linked_confirmed_fact_revision_id: null,
+    }, context(grant, undefined, "resume.definitions.write")) as { turn: { metadata: { revision_id: string } } };
+
+    const proposed = await router.execute("career.facts.propose", {
+      source_revision_ids: [turn.turn.metadata.revision_id],
+      fact: {
+        fact_kind: "identity",
+        state: "suggested",
+        value: "Synthetic Owner",
+        sensitivity: "sensitive",
+      },
+    }, context(grant, undefined, "career.facts.propose")) as { fact: { value: string; source_revision_ids: string[] } };
+
+    expect(proposed.fact.value).toBe("Synthetic Owner");
+    expect(proposed.fact.source_revision_ids).toEqual([turn.turn.metadata.revision_id]);
+  });
+
   it("routes recovery save, restore, conflict, and discard with content-free state-change events", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-resume-recovery-audit-")); roots.push(root);
     const store = new ResumeDataStore(root, undefined, {}, false);

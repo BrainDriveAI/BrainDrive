@@ -168,7 +168,9 @@ export class ResumeCapabilityRouter {
           result = await this.read("career_fact", ReadInputSchema.parse(input).record_id, authority);
           break;
         case "career.facts.propose":
-          result = await this.domain.proposeFact(input, authority);
+          result = isLinkedFactProposal(input)
+            ? await this.domain.proposeFactFromSources(input, authority)
+            : await this.domain.proposeFact(input, authority);
           break;
         case "career.facts.confirm":
           result = GroupFactConfirmationCapabilityInputSchema.safeParse(input).success
@@ -849,4 +851,11 @@ export class ResumeCapabilityRouter {
     if (error.code === "conflict" || error.code === "idempotency_conflict") return "conflict";
     return "failed";
   }
+}
+
+function isLinkedFactProposal(input: unknown): input is Record<string, unknown> {
+  return typeof input === "object"
+    && input !== null
+    && !Array.isArray(input)
+    && Object.prototype.hasOwnProperty.call(input, "source_revision_ids");
 }
