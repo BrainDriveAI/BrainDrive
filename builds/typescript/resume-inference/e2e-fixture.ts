@@ -51,6 +51,50 @@ export function synthesizeResumeE2eResult(purpose: InferencePurpose, blocks: Dat
   const facts = canonicalizeFacts(blockData<{ facts: ConfirmedFact[] }>(blocks, "confirmed_fact_snapshot").facts);
   const firstFact = facts[0];
   switch (purpose) {
+    case "resume_dialogue": {
+      const dialogue = blockData<{ current_user_message: string | null }>(blocks, "dialogue_context");
+      const current = dialogue.current_user_message?.trim() ?? "";
+      if (!current) {
+        return {
+          dialogue_version: 1,
+          assistant_message: "Welcome — I’ll help you build a resume through a real conversation. What kind of work would you like this resume to support?",
+          turn_disposition: "respond_only",
+          fact_operations: [],
+          suggested_action: "none",
+        };
+      }
+      if (/last role|all (?:my )?roles/i.test(current)) {
+        return {
+          dialogue_version: 1,
+          assistant_message: "Let’s start with your most recent role so we can give it enough context, then we’ll add any earlier roles that strengthen the resume. What was your most recent role, and where did you work?",
+          turn_disposition: "respond_only",
+          fact_operations: [],
+          suggested_action: "none",
+        };
+      }
+      const role = current.match(/(?:worked|work|was|served)?\s*(?:as\s+)?(?:an?\s+)?(.+?)\s+(?:at|for|with)\s+(.+?)[.!]?$/i);
+      if (role?.[1] && role[2]) {
+        return {
+          dialogue_version: 1,
+          assistant_message: `I heard ${role[1].trim()} at ${role[2].trim()}. What did you handle most often in that role?`,
+          turn_disposition: "capture_and_continue",
+          fact_operations: [{
+            operation: "capture",
+            fact_kind: "employment",
+            source_quote: current,
+            employment: { title: role[1].trim(), employer: role[2].trim(), location: null, start_date: null, end_date: null, responsibilities: null },
+          }],
+          suggested_action: "none",
+        };
+      }
+      return {
+        dialogue_version: 1,
+        assistant_message: "Thanks — I understand. What would be most useful for me to know next about your experience?",
+        turn_disposition: "respond_only",
+        fact_operations: [],
+        suggested_action: "none",
+      };
+    }
     case "interview_assist":
       {
         const summary = blockData<{ active_job_fact_revision_id: string; requested_opportunity_id: string; requested_dimension: string; opportunity_kind: "qualitative" | "metric"; value_category: "distinct_accomplishment" | "decision_useful_outcome" | "scope_or_scale" | "tools_in_use" | "progression" | "core_responsibility" }>(blocks, "job_evidence_summary");

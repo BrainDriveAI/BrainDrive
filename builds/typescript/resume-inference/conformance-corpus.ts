@@ -2,7 +2,12 @@ import { canonicalInputDigest } from "../app-platform/contracts/common.js";
 import type { InferencePurpose } from "../app-platform/contracts/inference.js";
 import { CRAFT_EVIDENCE_LIMITED_POLICY, PRODUCT_CRAFT_EVALUATOR, evaluateCraftProposal, extractCraftAnchorEvidence, type CraftEvaluationContext } from "./craft-evaluator.js";
 import { CORRECTED_CRAFT_REPORT_SCHEMA_DIGEST, CORRECTED_CRAFT_REPORT_SCHEMA_ID, CORRECTED_PROMPT_POLICY_DIGEST } from "./quality-evaluation.js";
-import { RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION } from "./policy.js";
+import {
+  RESUME_DIALOGUE_PROMPT_POLICY_ID,
+  RESUME_DIALOGUE_PROMPT_POLICY_VERSION,
+  RESUME_PROMPT_POLICY_ID,
+  RESUME_PROMPT_POLICY_VERSION,
+} from "./policy.js";
 import { RESUME_QUALITY_POLICY_IDENTITY, buildEvidenceAnnotations } from "./strategy.js";
 import { TARGET_FIT_THRESHOLD_POLICY } from "./target-fit.js";
 import { RESUME_HOST_ASSISTANCE_POLICY_DIGEST } from "./host-assistance.js";
@@ -179,7 +184,7 @@ function revisionRequest(state: "submitted" | "generating") {
   };
 }
 
-type ConformanceBlockCategory = "confirmed_fact_snapshot" | "job_description" | "general_resume_definition" | "job_analysis" | "evidence_matrix" | "job_evidence_summary" | "revision_instruction" | "evidence_annotations" | "quality_policy" | "resume_strategy" | "target_fit_policy" | "target_fit_analysis" | "deterministic_findings" | "craft_anchor_evidence" | "craft_gate_policy" | "craft_quality_report" | "craft_repair_scope";
+type ConformanceBlockCategory = "confirmed_fact_snapshot" | "dialogue_context" | "job_description" | "general_resume_definition" | "job_analysis" | "evidence_matrix" | "job_evidence_summary" | "revision_instruction" | "evidence_annotations" | "quality_policy" | "resume_strategy" | "target_fit_policy" | "target_fit_analysis" | "deterministic_findings" | "craft_anchor_evidence" | "craft_gate_policy" | "craft_quality_report" | "craft_repair_scope";
 
 function block(category: ConformanceBlockCategory, schemaId: string, data: unknown) {
   return { category, content_digest: canonicalInputDigest(data), schema_id: schemaId, schema_version: 1 as const, data };
@@ -241,6 +246,17 @@ export function conformanceBlocks(purpose: InferencePurpose) {
       ? [...facts, jobEvidenceFact]
       : facts;
   const blocks = [block("confirmed_fact_snapshot", "resume.confirmed-facts.v1", { facts: purposeFacts })];
+  if (purpose === "resume_dialogue") {
+    blocks.push(block("dialogue_context", "resume.dialogue-context.v1", {
+      dialogue_version: 1,
+      messages: [
+        { role: "assistant", content: "Tell me about the work experience you want to include." },
+        { role: "user", content: "Do you mean my last role or all my roles?" },
+      ],
+      current_user_message: "Do you mean my last role or all my roles?",
+      requested_mode: "intake",
+    }));
+  }
   if (purpose === "resume_strategy") {
     blocks.push(block("evidence_annotations", "resume.evidence-annotations.v1", buildEvidenceAnnotations(purposeFacts, [])));
     blocks.push(block("quality_policy", "resume.quality-policy-identity.v1", RESUME_QUALITY_POLICY_IDENTITY));
@@ -267,5 +283,8 @@ export function conformanceBlocks(purpose: InferencePurpose) {
 }
 
 export function conformanceCorpusDigest(purpose: InferencePurpose): string {
-  return canonicalInputDigest({ corpus_version: RESUME_MODEL_CONFORMANCE_CORPUS_VERSION, binding: RESUME_MODEL_CONFORMANCE_BINDING, purpose, blocks: conformanceBlocks(purpose) });
+  const binding = purpose === "resume_dialogue"
+    ? { ...RESUME_MODEL_CONFORMANCE_BINDING, prompt_policy_id: RESUME_DIALOGUE_PROMPT_POLICY_ID, prompt_policy_version: RESUME_DIALOGUE_PROMPT_POLICY_VERSION }
+    : RESUME_MODEL_CONFORMANCE_BINDING;
+  return canonicalInputDigest({ corpus_version: RESUME_MODEL_CONFORMANCE_CORPUS_VERSION, binding, purpose, blocks: conformanceBlocks(purpose) });
 }

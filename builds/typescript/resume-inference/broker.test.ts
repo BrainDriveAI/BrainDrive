@@ -7,7 +7,7 @@ import { canonicalInputDigest } from "../app-platform/contracts/common.js";
 import { InferenceDataBlockSchema, InferenceRequestSchema, PURPOSE_LIMITS, PURPOSE_OUTPUT_SCHEMAS, type InferencePurpose } from "../app-platform/contracts/inference.js";
 import type { ModelAdapter, StructuredCompletionRequest } from "../adapters/base.js";
 import { ResumeInferenceBroker } from "./broker.js";
-import { RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION } from "./policy.js";
+import { RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION, promptPolicyIdentity } from "./policy.js";
 import { CRAFT_EVIDENCE_LIMITED_POLICY, LEGACY_CRAFT_EVIDENCE_LIMITED_POLICY, craftContextFromBlocks, evaluateCraftProposal, extractCraftAnchorEvidence } from "./craft-evaluator.js";
 import { TARGET_FIT_THRESHOLD_POLICY } from "./target-fit.js";
 
@@ -42,6 +42,7 @@ function envelope(recordType: string, recordId: string, revisionId: string) {
 }
 
 const outputs: Record<InferencePurpose, unknown> = {
+  resume_dialogue: { dialogue_version: 1, assistant_message: "Let’s start with your most recent role, then add earlier roles that strengthen the resume. What was your most recent role?", turn_disposition: "respond_only", fact_operations: [], suggested_action: "none" },
   interview_assist: { questions: [{ question_id: randomUUID(), job_fact_revision_id: INTERVIEW_JOB_ID, opportunity_id: INTERVIEW_OPPORTUNITY_ID, dimension: "accomplishments", opportunity_kind: "qualitative", value_category: "distinct_accomplishment", selection_method: "deterministic_value", prompt: "What did you build in this role? A qualitative answer is enough.", rationale: "Phrase the selected evidence opportunity." }] },
   general_resume_draft: { title: "Resume", statements: [{ statement_id: randomUUID(), kind: "factual", text: "Built product 20%", supporting_confirmed_fact_revision_ids: [FACT_ID] }], section_order: ["experience"], omissions: [] },
   job_description_analyze: { requirements: [{ requirement_id: randomUUID(), requirement_kind: "required", source_span: "Build products", inferred: false, normalized_requirement: "Build products" }] },
@@ -63,6 +64,10 @@ function dataBlocks(purpose: InferencePurpose) {
   const blocks: Array<z.infer<typeof InferenceDataBlockSchema>> = [];
   const facts = { facts: FACTS };
   blocks.push({ category: "confirmed_fact_snapshot", content_digest: canonicalInputDigest(facts), schema_id: "resume.confirmed-facts.v1", schema_version: 1, data: facts });
+  if (purpose === "resume_dialogue") {
+    const data = { dialogue_version: 1, messages: [{ role: "assistant", content: "Tell me about your experience." }, { role: "user", content: "Do you mean my last role or all my roles?" }], current_user_message: "Do you mean my last role or all my roles?", requested_mode: "intake" };
+    blocks.push({ category: "dialogue_context", content_digest: canonicalInputDigest(data), schema_id: "resume.dialogue-context.v1", schema_version: 1, data });
+  }
   if (purpose === "interview_assist") {
     const data = { active_job_fact_revision_id: INTERVIEW_JOB_ID, active_job_revision: 1, requested_opportunity_id: INTERVIEW_OPPORTUNITY_ID, requested_dimension: "accomplishments", opportunity_kind: "qualitative", value_category: "distinct_accomplishment", dimensions: [] };
     blocks.push({ category: "job_evidence_summary", content_digest: canonicalInputDigest(data), schema_id: "resume.job-evidence-summary.v2", schema_version: 1, data });
@@ -137,6 +142,7 @@ function dataBlocks(purpose: InferencePurpose) {
 
 function request(purpose: InferencePurpose, overrides: Record<string, unknown> = {}): z.infer<typeof InferenceRequestSchema> {
   const now = new Date();
+  const promptPolicy = promptPolicyIdentity(purpose);
   const revisionPurpose = purpose === "resume_revision_classify" || purpose === "resume_revision_draft";
   const requestBlocks = dataBlocks(purpose);
   const blockRevisionIds = requestBlocks.flatMap((candidate) => {
@@ -149,7 +155,7 @@ function request(purpose: InferencePurpose, overrides: Record<string, unknown> =
     request_id: randomUUID(), owner_id: randomUUID(), actor_id: randomUUID(), app_id: "ai.braindrive.resume-builder",
     installation_id: randomUUID(), operation_id: randomUUID(), grant_id: randomUUID(), purpose,
     input_snapshot: { fact_snapshot_revision: 1, fact_snapshot_digest: canonicalInputDigest(FACTS), record_revision_ids: recordRevisionIds },
-    data_blocks: requestBlocks, prompt_policy_id: RESUME_PROMPT_POLICY_ID, prompt_policy_version: RESUME_PROMPT_POLICY_VERSION,
+    data_blocks: requestBlocks, prompt_policy_id: promptPolicy.id, prompt_policy_version: promptPolicy.version,
     output_schema_id: PURPOSE_OUTPUT_SCHEMAS[purpose], output_schema_version: 1,
     capability_requirements: { text_generation: true, complete_structured_json: true, minimum_context_tokens: PURPOSE_LIMITS[purpose].input_tokens, model_tools: false },
     limits: PURPOSE_LIMITS[purpose], requested_at: now.toISOString(), deadline_at: new Date(now.getTime() + PURPOSE_LIMITS[purpose].duration_ms).toISOString(),
@@ -209,6 +215,16 @@ describe("ResumeInferenceBroker", () => {
     const valid = request("interview_assist");
     valid.data_blocks[0]!.content_digest = `sha256:${"0".repeat(64)}`;
     await expect(broker.execute(valid)).rejects.toMatchObject({ code: "invalid_request" });
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it("requires the dialogue-specific prompt identity before provider resolution", async () => {
+    const resolve = vi.fn();
+    const broker = new ResumeInferenceBroker(resolve);
+    await expect(broker.execute(request("resume_dialogue", {
+      prompt_policy_id: RESUME_PROMPT_POLICY_ID,
+      prompt_policy_version: RESUME_PROMPT_POLICY_VERSION,
+    }))).rejects.toMatchObject({ code: "denied" });
     expect(resolve).not.toHaveBeenCalled();
   });
 

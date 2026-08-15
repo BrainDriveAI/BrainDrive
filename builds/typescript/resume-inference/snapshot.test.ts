@@ -262,4 +262,42 @@ describe("immutable inference snapshot", () => {
       record_revision_ids: [source.definition.metadata.revision_id, submitted.request.metadata.revision_id],
     }, grant)).rejects.toMatchObject({ code: "validation_failed" });
   });
+
+  it("accepts only one bounded dialogue context and keeps provider authority outside the snapshot", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-inference-dialogue-")); roots.push(root);
+    const store = new ResumeDataStore(root, undefined, {}, false);
+    const grant = testGrant({ capabilities: [...testGrant().capabilities, "app.inference.request"] });
+    await store.initialize(grant.owner_id);
+    const builder = new ImmutableInferenceSnapshotBuilder(store, () => new Date("2026-08-15T12:00:00.000Z"));
+    const context = {
+      dialogue_version: 1,
+      messages: [
+        { role: "assistant", content: "Would you like to start with your work history?" },
+        { role: "user", content: "Do you mean my last role or all my roles?" },
+      ],
+      current_user_message: "Do you mean my last role or all my roles?",
+      requested_mode: "intake",
+    };
+    const request = await builder.build({
+      inference_contract_version: 1,
+      purpose: "resume_dialogue",
+      operation_id: crypto.randomUUID(),
+      fact_revision_ids: [],
+      derived_blocks: [{ category: "dialogue_context", schema_id: "resume.dialogue-context.v1", data: context }],
+    }, grant);
+    expect(request).toMatchObject({ purpose: "resume_dialogue", prompt_policy_id: "braindrive.resume-builder.dialogue", prompt_policy_version: "1" });
+    expect(request.data_blocks).toEqual(expect.arrayContaining([expect.objectContaining({ category: "dialogue_context", data: context })]));
+    expect(JSON.stringify(request)).not.toContain("provider_profile_id");
+
+    await expect(builder.build({
+      inference_contract_version: 1,
+      purpose: "resume_dialogue",
+      operation_id: crypto.randomUUID(),
+      fact_revision_ids: [],
+      derived_blocks: [
+        { category: "dialogue_context", schema_id: "resume.dialogue-context.v1", data: context },
+        { category: "dialogue_context", schema_id: "resume.dialogue-context.v1", data: context },
+      ],
+    }, grant)).rejects.toMatchObject({ code: "invalid_request" });
+  });
 });

@@ -15,6 +15,48 @@ const blocks = (value: string) => {
 };
 
 describe("deterministic claim gate", () => {
+  it("allows natural clarification while rejecting question capture, invented sources, and model-owned save claims", () => {
+    const current = "Do you mean my last role or all my roles?";
+    const facts = { facts: [{
+      revision_id: JOB_ID,
+      fact_kind: "employment",
+      value: JSON.stringify({ format: "resume_job_v1", title: "Coordinator", employer: "Northwind" }),
+      source_revision_ids: [randomUUID()],
+    }] };
+    const context = {
+      dialogue_version: 1,
+      messages: [{ role: "assistant", content: "Tell me about your work history." }, { role: "user", content: current }],
+      current_user_message: current,
+      requested_mode: "intake",
+    };
+    const dialogueBlocks = [
+      { category: "confirmed_fact_snapshot" as const, content_digest: canonicalInputDigest(facts), schema_id: "resume.confirmed-facts.v1", schema_version: 1 as const, data: facts },
+      { category: "dialogue_context" as const, content_digest: canonicalInputDigest(context), schema_id: "resume.dialogue-context.v1", schema_version: 1 as const, data: context },
+    ];
+    const clarification = {
+      dialogue_version: 1,
+      assistant_message: "Let’s start with your most recent role, then add earlier roles that strengthen the resume. What was your most recent role?",
+      turn_disposition: "respond_only",
+      fact_operations: [],
+      suggested_action: "none",
+    };
+    expect(validateInferenceClaims("resume_dialogue", clarification, dialogueBlocks).accepted).toBe(true);
+    expect(validateInferenceClaims("resume_dialogue", {
+      ...clarification,
+      turn_disposition: "capture_and_continue",
+      fact_operations: [{ operation: "capture", fact_kind: "skill", value: "last role", source_quote: "last role" }],
+    }, dialogueBlocks).accepted).toBe(false);
+    expect(validateInferenceClaims("resume_dialogue", {
+      ...clarification,
+      assistant_message: "I saved and confirmed that for your resume.",
+    }, dialogueBlocks).accepted).toBe(false);
+    expect(validateInferenceClaims("resume_dialogue", {
+      ...clarification,
+      turn_disposition: "capture_and_continue",
+      fact_operations: [{ operation: "capture", fact_kind: "job_evidence", text: current, source_quote: current, job_fact_revision_id: randomUUID(), dimension: "outcomes" }],
+    }, dialogueBlocks).accepted).toBe(false);
+  });
+
   it("allows supported wording and blocks missing provenance, metrics, dates, and titles", () => {
     const cases = [
       ["Built product 20% in 2025 as Engineer", true],

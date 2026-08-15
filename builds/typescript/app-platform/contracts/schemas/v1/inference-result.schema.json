@@ -20,6 +20,7 @@
     "purpose": {
       "type": "string",
       "enum": [
+        "resume_dialogue",
         "interview_assist",
         "general_resume_draft",
         "job_description_analyze",

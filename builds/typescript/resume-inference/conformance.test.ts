@@ -53,6 +53,33 @@ describe("Resume Builder provider conformance safety", () => {
     expect(JSON.stringify({ result, diagnostics })).not.toMatch(/private provider|credential-shaped/);
   });
 
+  it("records the dialogue-specific prompt identity in compatibility evidence", async () => {
+    const purpose = "resume_dialogue" as const;
+    const blocks = conformanceBlocks(purpose);
+    const adapter = {
+      completeStructuredNoTools: async () => ({
+        text: JSON.stringify(synthesizeResumeE2eResult(purpose, blocks)),
+        finishReason: "stop",
+        usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+      }),
+    } as unknown as ModelAdapter;
+
+    const result = await runResumeModelConformance({
+      adapter,
+      providerProfileId: "synthetic-provider-class",
+      modelId: "synthetic-model-class",
+      purposes: [purpose],
+      testedAt: new Date("2026-08-15T12:00:00.000Z"),
+    });
+
+    expect(result.entries).toEqual([expect.objectContaining({
+      purpose,
+      prompt_policy_id: "braindrive.resume-builder.dialogue",
+      prompt_policy_version: "1",
+      compatible: true,
+    })]);
+  });
+
   it("uses one constrained validation repair before recording non-conformance", async () => {
     const purpose = "interview_assist" as const;
     const blocks = conformanceBlocks(purpose);

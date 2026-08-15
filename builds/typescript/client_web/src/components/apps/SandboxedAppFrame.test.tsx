@@ -70,7 +70,7 @@ describe("sandboxed MCP App frame", () => {
       });
     };
     await send({ jsonrpc: "2.0", method: "ui/notifications/sandbox-proxy-ready", params: {} }, "proxy");
-    await send({ jsonrpc: "2.0", id: "init-chat", method: "ui/initialize", params: { protocolVersion: APPS_PROTOCOL_VERSION, appInfo: { name: "resume", version: "4.0.9" }, appCapabilities: {} } });
+    await send({ jsonrpc: "2.0", id: "init-chat", method: "ui/initialize", params: { protocolVersion: APPS_PROTOCOL_VERSION, appInfo: { name: "resume", version: "4.1.0" }, appCapabilities: {} } });
     await send({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} });
     await send({
       bridge_version: 1,
@@ -87,7 +87,8 @@ describe("sandboxed MCP App frame", () => {
         inputPlaceholder: "Reply to Resume Builder...",
         stageLabel: "Your experience",
         supportLabel: "Facts are saved only after you confirm them.",
-        reviewFacts: [{ id: crypto.randomUUID(), label: "Skill", value: "Operations planning" }],
+        confirmedEmploymentRevisionIds: [],
+        reviewFacts: [{ id: crypto.randomUUID(), revisionId: crypto.randomUUID(), kind: "skill", label: "Skill", value: "Operations planning", storedValue: "Operations planning" }],
       },
     });
     expect(await screen.findByRole("region", { name: "Resume Builder conversation" })).toBeInTheDocument();
@@ -103,7 +104,7 @@ describe("sandboxed MCP App frame", () => {
     await userEvent.type(screen.getByPlaceholderText("Reply to Resume Builder..."), "Customer operations.");
     await userEvent.click(screen.getByRole("button", { name: "Send message" }));
     expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
-      message: { type: "host.chat.message", payload: { text: "Customer operations." } },
+      message: { type: "host.chat.message", payload: { text: "Customer operations.", messageId: expect.any(String) } },
     }), "*");
     for (const rejectedMetric of ["Confirmed facts", "Needs attention", "To discuss"]) {
       expect(within(reviewSummary).queryByText(rejectedMetric, { exact: true })).not.toBeInTheDocument();
@@ -115,6 +116,69 @@ describe("sandboxed MCP App frame", () => {
 
   it("rejects malformed app-projected conversation state", () => {
     expect(parseResumeConversationState({ messages: [{ id: "x", role: "system", content: "forged" }], actions: [], busy: false, inputEnabled: true, inputPlaceholder: "", stageLabel: "Interview", supportLabel: "Evidence" })).toBeNull();
+  });
+
+  it("commits only host-validated dialogue facts with durable provenance and no ordinary confirmation dialog", async () => {
+    const sourceRevisionId = crypto.randomUUID();
+    const factRecordId = crypto.randomUUID();
+    const factRevisionId = crypto.randomUUID();
+    vi.mocked(callAppCapability)
+      .mockResolvedValueOnce({ result: { turn: { metadata: { revision_id: sourceRevisionId } } } })
+      .mockResolvedValueOnce({ result: { fact: { metadata: { record_id: factRecordId, revision_id: factRevisionId, revision: 1 } } } })
+      .mockResolvedValueOnce({ result: { facts: [{ metadata: { record_id: factRecordId, revision_id: factRevisionId }, state: "confirmed" }] } });
+    render(<SandboxedAppFrame appKey="resume-builder" appId="ai.braindrive.resume-builder" appName="Resume Builder" launch={launch} onSessionClosed={() => {}} />);
+    const frame = screen.getByTitle("Resume Builder sandbox proxy") as HTMLIFrameElement;
+    const proxyHtml = decodeURIComponent(frame.getAttribute("src")!.split(",", 2)[1]!);
+    const nonce = /const NONCE="([^"]+)"/.exec(proxyHtml)?.[1];
+    const postMessage = vi.spyOn(frame.contentWindow!, "postMessage");
+    const send = async (message: unknown, source: "proxy" | "view" = "view") => {
+      await act(async () => {
+        window.dispatchEvent(new MessageEvent("message", { origin: "null", source: frame.contentWindow!, data: { channel: BRIDGE_CHANNEL, direction: "proxy_to_host", proxy_nonce: nonce, source, message } }));
+        await Promise.resolve();
+      });
+    };
+    await send({ jsonrpc: "2.0", method: "ui/notifications/sandbox-proxy-ready", params: {} }, "proxy");
+    await send({ jsonrpc: "2.0", id: "init-dialogue-commit", method: "ui/initialize", params: { protocolVersion: APPS_PROTOCOL_VERSION, appInfo: { name: "resume", version: "4.1.0" }, appCapabilities: {} } });
+    await send({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} });
+    await send({
+      bridge_version: 1,
+      message_id: crypto.randomUUID(),
+      type: "chat.sync",
+      payload: {
+        messages: [{ id: "assistant-1", role: "assistant", content: "What was your most recent role, and where did you work?" }],
+        actions: [], busy: false, inputEnabled: true, inputPlaceholder: "Reply in your own words...", stageLabel: "Getting started",
+        supportLabel: "Review shows information captured from your words.", confirmedEmploymentRevisionIds: [], reviewFacts: [],
+      },
+    });
+    const ownerMessage = "I was Director of Operations at Northwind.";
+    await userEvent.type(await screen.findByPlaceholderText("Reply in your own words..."), ownerMessage);
+    await userEvent.click(screen.getByRole("button", { name: "Send message" }));
+    const outbound = postMessage.mock.calls.map(([value]) => value as { message?: { type?: string; payload?: { messageId?: string } } }).find((value) => value.message?.type === "host.chat.message");
+    const messageId = outbound?.message?.payload?.messageId;
+    expect(messageId).toMatch(/^[0-9a-f-]{36}$/i);
+
+    await send({
+      bridge_version: 1,
+      message_id: crypto.randomUUID(),
+      type: "chat.turn.commit",
+      payload: {
+        messageId,
+        assistantMessage: "That gives us a useful starting point. What kind of work did you lead there?",
+        factOperations: [{ operation: "capture", fact_kind: "employment", source_quote: "Director of Operations at Northwind", employment: { title: "Director of Operations", employer: "Northwind", location: null, start_date: null, end_date: null, responsibilities: null } }],
+      },
+    });
+
+    await waitFor(() => expect(callAppCapability).toHaveBeenCalledTimes(3));
+    expect(callAppCapability).toHaveBeenNthCalledWith(1, "resume-builder", "resume.definitions.write", expect.objectContaining({
+      kind: "interview_turn",
+      turn: expect.objectContaining({ prompt_version: "resume-dialogue-1", question: "What was your most recent role, and where did you work?", answer: ownerMessage }),
+    }), expect.any(String), false);
+    expect(callAppCapability).toHaveBeenNthCalledWith(2, "resume-builder", "career.facts.propose", expect.objectContaining({
+      source_revision_ids: [sourceRevisionId],
+      fact: expect.objectContaining({ fact_kind: "employment", state: "suggested" }),
+    }), expect.any(String), false);
+    expect(callAppCapability).toHaveBeenNthCalledWith(3, "resume-builder", "career.facts.confirm", expect.objectContaining({ decisions: [expect.objectContaining({ fact_revision_id: factRevisionId, decision: "accept" })] }), expect.any(String), true);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("mediates Resume Builder fact confirmation inline in native chat", async () => {
@@ -136,7 +200,7 @@ describe("sandboxed MCP App frame", () => {
       });
     };
     await send({ jsonrpc: "2.0", method: "ui/notifications/sandbox-proxy-ready", params: {} }, "proxy");
-    await send({ jsonrpc: "2.0", id: "init-confirm", method: "ui/initialize", params: { protocolVersion: APPS_PROTOCOL_VERSION, appInfo: { name: "resume", version: "4.0.9" }, appCapabilities: {} } });
+    await send({ jsonrpc: "2.0", id: "init-confirm", method: "ui/initialize", params: { protocolVersion: APPS_PROTOCOL_VERSION, appInfo: { name: "resume", version: "4.1.0" }, appCapabilities: {} } });
     await send({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} });
     await send({ bridge_version: 1, message_id: crypto.randomUUID(), type: "capability.call", payload: { capability: "career.facts.propose", input: { fact: { value: "Operations leader at Northwind" } } } });
     const confirmationMessageId = crypto.randomUUID();

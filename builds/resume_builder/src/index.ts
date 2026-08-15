@@ -19,6 +19,7 @@ export type ResumeBuilderPackageContract = {
 };
 
 export const RESUME_INFERENCE_PURPOSES = [
+  "resume_dialogue",
   "interview_assist",
   "general_resume_draft",
   "job_description_analyze",

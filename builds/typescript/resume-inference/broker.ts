@@ -6,7 +6,7 @@ import {
 } from "../app-platform/contracts/inference.js";
 import type { StructuredCompletionResponse } from "../adapters/base.js";
 import type { z } from "zod";
-import { RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION, buildPolicyMessages, type ResumeRepairContext } from "./policy.js";
+import { buildPolicyMessages, promptPolicyIdentity, type ResumeRepairContext } from "./policy.js";
 import { classifyInferenceError, ResumeInferenceError } from "./errors.js";
 import { parsePurposeResult, purposeJsonSchema } from "./results.js";
 import { validateInferenceClaims, type ValidationReport } from "./validators.js";
@@ -81,7 +81,8 @@ export class ResumeInferenceBroker {
     const parsed = InferenceRequestSchema.safeParse(raw);
     if (!parsed.success) throw new ResumeInferenceError("invalid_request", "Inference request failed the accepted contract");
     const request = parsed.data;
-    if (request.prompt_policy_id !== RESUME_PROMPT_POLICY_ID || request.prompt_policy_version !== RESUME_PROMPT_POLICY_VERSION) {
+    const promptPolicy = promptPolicyIdentity(request.purpose);
+    if (request.prompt_policy_id !== promptPolicy.id || request.prompt_policy_version !== promptPolicy.version) {
       throw new ResumeInferenceError("denied", "Inference prompt policy is not accepted");
     }
     if (encodedByteLength(request.data_blocks) > request.limits.input_bytes) {

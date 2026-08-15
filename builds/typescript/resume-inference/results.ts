@@ -19,6 +19,81 @@ import { type InferencePurpose, PURPOSE_OUTPUT_SCHEMAS } from "../app-platform/c
 
 const SupportIdsSchema = z.array(OpaqueIdSchema).max(32);
 
+export const ResumeDialogueContextSchema = z.object({
+  dialogue_version: z.literal(1),
+  messages: z.array(z.object({
+    role: z.enum(["user", "assistant"]),
+    content: z.string().min(1).max(16_384),
+  }).strict()).max(40),
+  current_user_message: z.string().min(1).max(16_384).nullable(),
+  requested_mode: z.enum(["intake", "review", "draft_readiness"]),
+}).strict().superRefine((value, context) => {
+  if (value.current_user_message !== null && value.messages.at(-1)?.role !== "user") {
+    context.addIssue({ code: "custom", path: ["messages"], message: "dialogue context with a current message must end with the owner turn" });
+  }
+  if (value.current_user_message !== null && value.messages.at(-1)?.content !== value.current_user_message) {
+    context.addIssue({ code: "custom", path: ["current_user_message"], message: "current owner message must match the final dialogue turn" });
+  }
+});
+
+const DialogueSourceQuoteSchema = z.string().min(1).max(16_384);
+const DialogueSimpleFactOperationSchema = z.object({
+  operation: z.literal("capture"),
+  fact_kind: z.enum(["identity", "contact", "education", "skill", "credential", "project", "preference"]),
+  value: z.string().min(1).max(16_384),
+  source_quote: DialogueSourceQuoteSchema,
+}).strict();
+const DialogueEmploymentOperationSchema = z.object({
+  operation: z.literal("capture"),
+  fact_kind: z.literal("employment"),
+  source_quote: DialogueSourceQuoteSchema,
+  employment: z.object({
+    title: z.string().min(1).max(256),
+    employer: z.string().min(1).max(256),
+    location: z.string().max(256).nullable(),
+    start_date: z.string().max(128).nullable(),
+    end_date: z.string().max(128).nullable(),
+    responsibilities: z.string().max(8_192).nullable(),
+  }).strict(),
+}).strict();
+const DialogueAccomplishmentOperationSchema = z.object({
+  operation: z.literal("capture"),
+  fact_kind: z.literal("accomplishment"),
+  source_quote: DialogueSourceQuoteSchema,
+  text: z.string().min(1).max(8_192),
+  job_fact_revision_id: OpaqueIdSchema.nullable(),
+}).strict();
+const DialogueJobEvidenceOperationSchema = z.object({
+  operation: z.literal("capture"),
+  fact_kind: z.literal("job_evidence"),
+  source_quote: DialogueSourceQuoteSchema,
+  text: z.string().min(1).max(8_192),
+  job_fact_revision_id: OpaqueIdSchema,
+  dimension: JobEvidenceDimensionSchema.exclude(["identity"]),
+}).strict();
+
+export const ResumeDialogueFactOperationSchema = z.union([
+  DialogueSimpleFactOperationSchema,
+  DialogueEmploymentOperationSchema,
+  DialogueAccomplishmentOperationSchema,
+  DialogueJobEvidenceOperationSchema,
+]);
+
+export const ResumeDialogueResultSchema = z.object({
+  dialogue_version: z.literal(1),
+  assistant_message: z.string().min(1).max(4_096),
+  turn_disposition: z.enum(["respond_only", "capture_and_continue", "offer_draft"]),
+  fact_operations: z.array(ResumeDialogueFactOperationSchema).max(8),
+  suggested_action: z.enum(["none", "review", "create_draft"]),
+}).strict().superRefine((value, context) => {
+  if (value.turn_disposition === "respond_only" && value.fact_operations.length > 0) {
+    context.addIssue({ code: "custom", path: ["fact_operations"], message: "respond-only dialogue cannot propose fact operations" });
+  }
+  if ((value.turn_disposition === "offer_draft") !== (value.suggested_action === "create_draft")) {
+    context.addIssue({ code: "custom", message: "draft offer disposition and action must agree" });
+  }
+});
+
 export const GeneratedStatementSchema = z.object({
   statement_id: OpaqueIdSchema,
   section_id: NonEmptyStringSchema.default("experience"),
@@ -222,6 +297,7 @@ export const ResumeRevisionDraftResultSchema = z.object({
 export const ResumeGuidanceResultSchema = GuidanceResultSchema;
 
 export const PURPOSE_RESULT_SCHEMAS = {
+  resume_dialogue: ResumeDialogueResultSchema,
   interview_assist: InterviewAssistResultSchema,
   general_resume_draft: GeneralResumeDraftResultSchema,
   job_description_analyze: JobDescriptionAnalyzeResultSchema,

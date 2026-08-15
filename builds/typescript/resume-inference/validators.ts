@@ -32,6 +32,7 @@ const PROTECTED_TOKEN = /(?:\b\d+(?:[.,]\d+)?%?\b|\b(?:jan(?:uary)?|feb(?:ruary)
 export function validateInferenceClaims(purpose: InferencePurpose, result: unknown, dataBlocks: DataBlock[]): ValidationReport {
   const findings: Finding[] = [];
   const facts = confirmedFacts(dataBlocks);
+  if (purpose === "resume_dialogue") findings.push(...validateResumeDialogue(result, dataBlocks, facts));
   if (purpose === "interview_assist") findings.push(...validateInterviewAssist(result, dataBlocks));
   if (purpose === "resume_strategy") findings.push(...validateStrategy(result, dataBlocks));
   if (purpose === "general_resume_draft" || purpose === "targeted_resume_draft") {
@@ -69,6 +70,50 @@ export function validateInferenceClaims(purpose: InferencePurpose, result: unkno
     findings,
     accepted: !findings.some((finding) => finding.severity === "error"),
   };
+}
+
+function validateResumeDialogue(result: unknown, dataBlocks: DataBlock[], facts: Map<string, string>): Finding[] {
+  const findings: Finding[] = [];
+  const value = result as {
+    assistant_message?: string;
+    fact_operations?: Array<{ source_quote?: string; job_fact_revision_id?: string | null }>;
+  };
+  const context = dataBlocks.find((block) => block.category === "dialogue_context")?.data as {
+    current_user_message?: string | null;
+  } | undefined;
+  const current = context?.current_user_message ?? null;
+  const operations = value.fact_operations ?? [];
+  if (current === null && operations.length > 0) {
+    findings.push(finding("missing_provenance", null, "An opening dialogue turn cannot propose owner facts"));
+    return findings;
+  }
+  const normalizedCurrent = normalize(current ?? "");
+  const pureQuestion = /^(?:do|does|did|should|would|could|can|what|which|who|why|how|when|where|is|are|am|was|were)\b/.test(normalizedCurrent) && normalizedCurrent.endsWith("?");
+  if (pureQuestion && operations.length > 0) {
+    findings.push(finding("unsupported_claim", null, "A clarification question cannot be treated as a factual answer"));
+  }
+  for (const operation of operations) {
+    const quote = typeof operation.source_quote === "string" ? normalize(operation.source_quote) : "";
+    if (!quote || !normalizedCurrent.includes(quote)) {
+      findings.push(finding("missing_provenance", null, "Every dialogue fact operation requires an exact quote from the current owner message"));
+    }
+    if (operation.job_fact_revision_id) {
+      const jobValue = facts.get(operation.job_fact_revision_id);
+      if (!jobValue) findings.push(finding("lineage_invalid", null, "Role-specific dialogue evidence must reference one confirmed employment fact"));
+      else {
+        try {
+          const parsed = JSON.parse(jobValue) as { format?: unknown };
+          if (parsed.format !== "resume_job_v1") findings.push(finding("lineage_invalid", null, "Role-specific dialogue evidence must reference structured confirmed employment"));
+        } catch {
+          findings.push(finding("lineage_invalid", null, "Role-specific dialogue evidence must reference structured confirmed employment"));
+        }
+      }
+    }
+  }
+  if (/\b(?:i|we|braindrive)\s+(?:have\s+)?(?:saved|confirmed|approved)\b/i.test(value.assistant_message ?? "")) {
+    findings.push(finding("schema_invalid", null, "Dialogue may not claim that model-proposed facts or owner actions were committed"));
+  }
+  return findings;
 }
 
 export function evaluateDefinitionDeterministicGates(definition: { statements: GeneratedStatement[] }, dataBlocks: DataBlock[]): {

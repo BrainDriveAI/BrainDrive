@@ -4,8 +4,9 @@ import { createResumeInferenceMcpOperations, RESUME_INFERENCE_MCP_RESOURCES, RES
 
 describe("Resume Builder inference MCP surface", () => {
   it("declares the preserved, purpose-minimum, strategy, and craft app-visible operations", () => {
-    expect(RESUME_INFERENCE_PURPOSES).toHaveLength(12);
+    expect(RESUME_INFERENCE_PURPOSES).toHaveLength(13);
     expect(RESUME_INFERENCE_PURPOSES).toEqual(expect.arrayContaining([
+      "resume_dialogue",
       "resume_revision_classify", "resume_revision_draft", "resume_guidance",
       "resume_strategy", "resume_craft_evaluate", "resume_craft_repair",
     ]));

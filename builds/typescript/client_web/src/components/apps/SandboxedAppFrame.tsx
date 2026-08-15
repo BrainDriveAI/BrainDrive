@@ -22,6 +22,11 @@ import ResumeBuilderConversation, {
   type ResumeConversationState,
 } from "./ResumeBuilderConversation";
 import ResumeReviewRail from "./ResumeReviewRail";
+import {
+  parseResumeDialogueCommitPayload,
+  resumeDialogueFactValue,
+  resumeDialogueSensitivity,
+} from "./resume-dialogue-mediation";
 
 const EMPTY_RESUME_CONVERSATION: ResumeConversationState = {
   messages: [{ id: "resume-chat-loading", role: "assistant", content: "Loading your saved resume conversation..." }],
@@ -30,7 +35,8 @@ const EMPTY_RESUME_CONVERSATION: ResumeConversationState = {
   inputEnabled: false,
   inputPlaceholder: "Reply to Resume Builder...",
   stageLabel: "Connecting",
-  supportLabel: "Facts are saved only after you confirm them in this conversation.",
+  supportLabel: "Review shows information captured from your words.",
+  confirmedEmploymentRevisionIds: [],
   reviewFacts: [],
 };
 
@@ -58,14 +64,18 @@ export function parseResumeConversationState(value: unknown): ResumeConversation
   if (typeof candidate.inputPlaceholder !== "string" || candidate.inputPlaceholder.length > 160) return null;
   if (typeof candidate.stageLabel !== "string" || candidate.stageLabel.length > 80) return null;
   if (typeof candidate.supportLabel !== "string" || candidate.supportLabel.length > 240) return null;
+  if (!Array.isArray(candidate.confirmedEmploymentRevisionIds) || candidate.confirmedEmploymentRevisionIds.length > 100 || candidate.confirmedEmploymentRevisionIds.some((id) => typeof id !== "string" || !/^[0-9a-f-]{36}$/i.test(id))) return null;
   if (!Array.isArray(candidate.reviewFacts) || candidate.reviewFacts.length > 4) return null;
   const reviewFacts = candidate.reviewFacts.flatMap((item) => {
     if (!item || typeof item !== "object" || Array.isArray(item)) return [];
     const fact = item as Record<string, unknown>;
     if (typeof fact.id !== "string" || !/^[0-9a-f-]{36}$/i.test(fact.id)) return [];
+    if (typeof fact.revisionId !== "string" || !/^[0-9a-f-]{36}$/i.test(fact.revisionId)) return [];
+    if (typeof fact.kind !== "string" || fact.kind.length === 0 || fact.kind.length > 64) return [];
     if (typeof fact.label !== "string" || fact.label.length === 0 || fact.label.length > 80) return [];
     if (typeof fact.value !== "string" || fact.value.length === 0 || fact.value.length > 16_384) return [];
-    return [{ id: fact.id, label: fact.label, value: fact.value }];
+    if (typeof fact.storedValue !== "string" || fact.storedValue.length === 0 || fact.storedValue.length > 16_384) return [];
+    return [{ id: fact.id, revisionId: fact.revisionId, kind: fact.kind, label: fact.label, value: fact.value, storedValue: fact.storedValue }];
   });
   if (reviewFacts.length !== candidate.reviewFacts.length) return null;
   return {
@@ -76,6 +86,7 @@ export function parseResumeConversationState(value: unknown): ResumeConversation
     inputPlaceholder: candidate.inputPlaceholder,
     stageLabel: candidate.stageLabel,
     supportLabel: candidate.supportLabel,
+    confirmedEmploymentRevisionIds: candidate.confirmedEmploymentRevisionIds as string[],
     reviewFacts,
   };
 }
@@ -153,6 +164,12 @@ type PendingHostAction = {
   reject: (reason: Error) => void;
 };
 
+type PendingResumeDialogueSubmission = {
+  messageId: string;
+  ownerMessage: string;
+  precedingAssistantMessage: string;
+};
+
 export async function saveHostResumeExport(result: unknown): Promise<{ safe_destination_label: string; definition: unknown; parse_back: unknown }> {
   const value = result as { filename?: unknown; mime_type?: unknown; bytes_base64?: unknown; safe_destination_label?: unknown; definition?: unknown; parse_back?: unknown };
   if (typeof value.filename !== "string" || typeof value.mime_type !== "string" || typeof value.bytes_base64 !== "string" || typeof value.safe_destination_label !== "string") {
@@ -213,6 +230,9 @@ export default function SandboxedAppFrame({
   const ownerRecordsRef = useRef(new Map<string, { label: string; detail: string }>());
   const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
+  const resumeDialogueSessionRef = useRef(secureRandomUuid());
+  const pendingResumeDialogueRef = useRef<PendingResumeDialogueSubmission | null>(null);
+  const resumeConversationRef = useRef<ResumeConversationState>(EMPTY_RESUME_CONVERSATION);
   const [status, setStatus] = useState<BridgeStatus>("loading");
   const [error, setError] = useState<string | null>(null);
   const [frameHeight, setFrameHeight] = useState(720);
@@ -236,7 +256,10 @@ export default function SandboxedAppFrame({
     setStatus("loading");
     setError(null);
     setResumeConversation(EMPTY_RESUME_CONVERSATION);
+    resumeConversationRef.current = EMPTY_RESUME_CONVERSATION;
     setResumeReviewMode(appId === "ai.braindrive.resume-builder" ? "summary" : "closed");
+    resumeDialogueSessionRef.current = secureRandomUuid();
+    pendingResumeDialogueRef.current = null;
     const frame = frameRef.current;
     if (!frame) return;
     const proxyNonce = secureRandomUuid();
@@ -284,8 +307,80 @@ export default function SandboxedAppFrame({
       if (message.type === "chat.sync" && appId === "ai.braindrive.resume-builder") {
         const conversation = parseResumeConversationState(message.payload);
         if (!conversation) throw new Error("message_schema_invalid");
+        resumeConversationRef.current = conversation;
         setResumeConversation(conversation);
         return { hosted: true };
+      }
+      if (message.type === "chat.turn.commit" && appId === "ai.braindrive.resume-builder") {
+        const pending = pendingResumeDialogueRef.current;
+        const employmentRevisionIds = new Set(resumeConversationRef.current.confirmedEmploymentRevisionIds);
+        const payload = pending
+          ? parseResumeDialogueCommitPayload(message.payload, pending.ownerMessage, employmentRevisionIds)
+          : null;
+        if (!pending || !payload || payload.messageId !== pending.messageId) throw new Error("message_schema_invalid");
+        const occurredAt = new Date().toISOString();
+        const maximumSensitivity = payload.factOperations.some((operation) => resumeDialogueSensitivity(operation) === "sensitive")
+          ? "sensitive"
+          : "standard";
+        const turn = {
+          transcript_version: 1,
+          turn_id: secureRandomUuid(),
+          session_id: resumeDialogueSessionRef.current,
+          prompt_version: "resume-dialogue-1",
+          topic: "model_dialogue",
+          question: pending.precedingAssistantMessage,
+          answer: pending.ownerMessage,
+          follow_up: {
+            question: payload.assistantMessage,
+            answer: null,
+            outcome: "continued_without_answer",
+          },
+          action: "answered",
+          occurred_at: occurredAt,
+        };
+        const recorded = await callAppCapability(appKey, "resume.definitions.write", {
+          kind: "interview_turn",
+          turn,
+          sensitivity: maximumSensitivity,
+          linked_confirmed_fact_revision_id: null,
+        }, secureRandomUuid(), false);
+        const sourceRevisionId = (recorded.result as { turn?: { metadata?: { revision_id?: unknown } } }).turn?.metadata?.revision_id;
+        if (typeof sourceRevisionId !== "string") throw new Error("recoverable_internal_failure");
+        const proposals: Array<{ fact: { metadata: { record_id: string; revision_id: string; revision: number } } }> = [];
+        for (const operation of payload.factOperations) {
+          const value = resumeDialogueFactValue(operation);
+          const duplicate = resumeConversationRef.current.reviewFacts.some((fact) => fact.kind === operation.fact_kind && fact.storedValue === value);
+          if (duplicate) continue;
+          const proposed = await callAppCapability(appKey, "career.facts.propose", {
+            source_revision_ids: [sourceRevisionId],
+            fact: {
+              fact_kind: operation.fact_kind,
+              state: "suggested",
+              value,
+              sensitivity: resumeDialogueSensitivity(operation),
+            },
+          }, secureRandomUuid(), false);
+          const fact = (proposed.result as { fact?: { metadata?: { record_id?: unknown; revision_id?: unknown; revision?: unknown } } }).fact;
+          if (typeof fact?.metadata?.record_id !== "string" || typeof fact.metadata.revision_id !== "string" || typeof fact.metadata.revision !== "number") {
+            throw new Error("recoverable_internal_failure");
+          }
+          proposals.push({ fact: { metadata: { record_id: fact.metadata.record_id, revision_id: fact.metadata.revision_id, revision: fact.metadata.revision } } });
+        }
+        let facts: unknown[] = [];
+        if (proposals.length > 0) {
+          const decisions = proposals.map(({ fact }) => ({
+            fact_record_id: fact.metadata.record_id,
+            fact_revision_id: fact.metadata.revision_id,
+            expected_revision: fact.metadata.revision,
+            decision: "accept",
+            edited_value: null,
+            review_note: "Captured from the owner's Resume Builder conversation",
+          }));
+          const confirmed = await callAppCapability(appKey, "career.facts.confirm", { decisions }, secureRandomUuid(), true);
+          facts = Array.isArray((confirmed.result as { facts?: unknown[] }).facts) ? (confirmed.result as { facts: unknown[] }).facts : [];
+        }
+        pendingResumeDialogueRef.current = null;
+        return { committed: true, source_revision_id: sourceRevisionId, facts };
       }
       if (message.type === "career.return" && appId !== "ai.braindrive.resume-builder") throw new Error("career_return_requires_trusted_app_adapter");
       if (message.type === "host.action") {
@@ -534,8 +629,16 @@ export default function SandboxedAppFrame({
   const sendResumeChatMessage = (message: string) => {
     const content = message.trim();
     if (!content || content.length > 16_384 || resumeConversation.busy) return;
-    const sent = controllerRef.current?.notifyView({ type: "host.chat.message", payload: { text: content } }) ?? false;
+    const messageId = secureRandomUuid();
+    const precedingAssistantMessage = [...resumeConversation.messages].reverse().find((item) => item.role === "assistant")?.content;
+    if (!precedingAssistantMessage) {
+      setError("The Resume Builder conversation is not ready. Reload the app to continue.");
+      return;
+    }
+    pendingResumeDialogueRef.current = { messageId, ownerMessage: content, precedingAssistantMessage };
+    const sent = controllerRef.current?.notifyView({ type: "host.chat.message", payload: { text: content, messageId } }) ?? false;
     if (!sent) {
+      pendingResumeDialogueRef.current = null;
       setError("The Resume Builder conversation is not connected. Reload the app to continue.");
       return;
     }
@@ -543,7 +646,7 @@ export default function SandboxedAppFrame({
       ...current,
       busy: true,
       actions: [],
-      messages: [...current.messages, { id: `pending-${secureRandomUuid()}`, role: "user", content }],
+      messages: [...current.messages, { id: `pending-${messageId}`, role: "user", content }],
     }));
   };
 

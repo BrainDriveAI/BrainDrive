@@ -1,6 +1,6 @@
 import { InferencePurposeSchema, ModelCompatibilityEntrySchema, PURPOSE_OUTPUT_SCHEMAS, type InferencePurpose } from "../app-platform/contracts/inference.js";
 import type { ModelAdapter } from "../adapters/base.js";
-import { buildPolicyMessages, RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION, type ResumeRepairContext } from "./policy.js";
+import { buildPolicyMessages, promptPolicyIdentity, type ResumeRepairContext } from "./policy.js";
 import { parsePurposeResult, purposeJsonSchema } from "./results.js";
 import { validateInferenceClaims, type ValidationReport } from "./validators.js";
 import { conformanceBlocks, conformanceCorpusDigest } from "./conformance-corpus.js";
@@ -91,14 +91,15 @@ export async function runResumeModelConformance(input: {
         : validation?.findings.map(({ code, safe_message }) => ({ code, safe_message })) ?? [],
     });
     const compatible = schemaSuccess && validationAccepted;
+    const promptPolicy = promptPolicyIdentity(purpose);
     entries.push(ModelCompatibilityEntrySchema.parse({
       registry_version: 1,
       provider_profile_id: input.providerProfileId,
       model_id: input.modelId,
       purpose,
       output_schema_id: PURPOSE_OUTPUT_SCHEMAS[purpose],
-      prompt_policy_id: RESUME_PROMPT_POLICY_ID,
-      prompt_policy_version: RESUME_PROMPT_POLICY_VERSION,
+      prompt_policy_id: promptPolicy.id,
+      prompt_policy_version: promptPolicy.version,
       compatible,
       fixture_corpus_digest: conformanceCorpusDigest(purpose),
       tested_at: testedAt,

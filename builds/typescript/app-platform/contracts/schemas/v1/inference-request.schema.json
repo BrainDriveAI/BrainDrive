@@ -44,6 +44,7 @@
     "purpose": {
       "type": "string",
       "enum": [
+        "resume_dialogue",
         "interview_assist",
         "general_resume_draft",
         "job_description_analyze",
@@ -97,6 +98,7 @@
             "type": "string",
             "enum": [
               "confirmed_fact_snapshot",
+              "dialogue_context",
               "presentation_preferences",
               "general_resume_definition",
               "job_description",

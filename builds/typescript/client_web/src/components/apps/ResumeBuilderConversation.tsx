@@ -24,10 +24,14 @@ export type ResumeConversationState = {
   inputPlaceholder: string;
   stageLabel: string;
   supportLabel: string;
+  confirmedEmploymentRevisionIds: string[];
   reviewFacts: Array<{
     id: string;
+    revisionId: string;
+    kind: string;
     label: string;
     value: string;
+    storedValue: string;
   }>;
 };
 
@@ -74,7 +78,7 @@ export default function ResumeBuilderConversation({
           <MessageList
             messages={conversation.messages}
             isTyping={conversation.busy && !confirmation}
-            typingStatus={conversation.busy && !confirmation ? "Saving your answer..." : undefined}
+            typingStatus={conversation.busy && !confirmation ? "Thinking..." : undefined}
           >
             {conversation.actions.length > 0 ? (
               <div className="flex flex-wrap gap-2 py-3" aria-label="Conversation actions">

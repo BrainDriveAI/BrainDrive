@@ -52,6 +52,7 @@ function permutations<T>(values: T[]): T[][] {
 describe("Resume Builder isolated E2E inference fixture", () => {
   it("produces contract-valid outputs for every accepted purpose without entering the agent loop", () => {
     const cases = {
+      resume_dialogue: [facts, { category: "dialogue_context", data: { dialogue_version: 1, messages: [{ role: "assistant", content: "Tell me about your work history." }, { role: "user", content: "Do you mean my last role or all my roles?" }], current_user_message: "Do you mean my last role or all my roles?", requested_mode: "intake" } }],
       interview_assist: [facts, jobEvidenceSummary],
       general_resume_draft: [facts],
       job_description_analyze: [facts, job],

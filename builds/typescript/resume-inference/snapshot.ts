@@ -15,7 +15,8 @@ import { JobEvidenceDimensionSchema, JobEvidenceValueSchema, ResumeDefinitionRec
 import type { CapabilityGrant } from "../app-platform/lifecycle/store.js";
 import type { ResumeDataRecord, ResumeDataStore } from "../resume-domain/store.js";
 import { ResumeInferenceError } from "./errors.js";
-import { RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION } from "./policy.js";
+import { promptPolicyIdentity } from "./policy.js";
+import { ResumeDialogueContextSchema } from "./results.js";
 import { CRAFT_EVIDENCE_LIMITED_POLICY, craftContextFromBlocks, extractCraftAnchorEvidence } from "./craft-evaluator.js";
 import { evaluateResumeQuality } from "./quality-runtime.js";
 import { buildEvidenceAnnotations, canonicalizeCoverage, canonicalizeFacts, RESUME_QUALITY_POLICY_IDENTITY } from "./strategy.js";
@@ -40,7 +41,7 @@ export const InferenceInvocationSchema = z.object({
   record_revision_ids: z.array(OpaqueIdSchema).max(64).default([]),
   presentation_preferences: z.record(z.string(), z.string().max(2_048)).default({}),
   derived_blocks: z.array(z.object({
-    category: z.enum(["job_analysis", "evidence_matrix", "owner_edit", "revision_instruction", "definition_comparison", "deterministic_findings", "job_evidence_summary", "coverage_summary", "resume_strategy", "target_fit_analysis", "craft_quality_report", "craft_repair_scope", "evidence_annotations", "quality_policy", "target_fit_policy"]),
+    category: z.enum(["dialogue_context", "job_analysis", "evidence_matrix", "owner_edit", "revision_instruction", "definition_comparison", "deterministic_findings", "job_evidence_summary", "coverage_summary", "resume_strategy", "target_fit_analysis", "craft_quality_report", "craft_repair_scope", "evidence_annotations", "quality_policy", "target_fit_policy"]),
     schema_id: z.string().min(1).max(512),
     data: z.unknown(),
   }).strict()).max(8).default([]),
@@ -116,6 +117,7 @@ export class ImmutableInferenceSnapshotBuilder {
       source_revision_ids: record.record_type === "career_fact" ? record.source_revision_ids : [],
     }));
     if (input.purpose === "interview_assist") this.validateInterviewAssist(input, requestedFactRecords);
+    if (input.purpose === "resume_dialogue") this.validateDialogue(input);
     this.validateRevisionPurpose(input.purpose, related);
     this.validateGuidancePurpose(input, related);
     await this.validatePersuasivePurpose(input, related, factRecords, grant);
@@ -158,6 +160,7 @@ export class ImmutableInferenceSnapshotBuilder {
       throw new ResumeInferenceError("invalid_request", "Inference snapshot exceeds the purpose byte budget");
     }
     const requestedAt = this.now();
+    const promptPolicy = promptPolicyIdentity(input.purpose);
     const request = InferenceRequestSchema.parse({
       inference_schema_version: 1,
       request_id: input.request_id ?? randomUUID(),
@@ -174,8 +177,8 @@ export class ImmutableInferenceSnapshotBuilder {
         record_revision_ids: records.map((record) => record.metadata.revision_id),
       },
       data_blocks: dataBlocks,
-      prompt_policy_id: RESUME_PROMPT_POLICY_ID,
-      prompt_policy_version: RESUME_PROMPT_POLICY_VERSION,
+      prompt_policy_id: promptPolicy.id,
+      prompt_policy_version: promptPolicy.version,
       output_schema_id: PURPOSE_OUTPUT_SCHEMAS[input.purpose],
       output_schema_version: 1,
       capability_requirements: {
@@ -226,6 +229,19 @@ export class ImmutableInferenceSnapshotBuilder {
           throw new ResumeInferenceError("validation_failed", "Interview evidence summary contains a cross-job or mismatched revision");
         }
       }
+    }
+  }
+
+  private validateDialogue(input: InferenceInvocation): void {
+    const dialogue = input.derived_blocks.filter((candidate) => candidate.category === "dialogue_context");
+    if (dialogue.length !== 1 || dialogue[0]?.schema_id !== "resume.dialogue-context.v1") {
+      throw new ResumeInferenceError("invalid_request", "Resume dialogue requires one bounded visible conversation context");
+    }
+    if (!ResumeDialogueContextSchema.safeParse(dialogue[0].data).success) {
+      throw new ResumeInferenceError("invalid_request", "Resume dialogue context is invalid");
+    }
+    if (input.record_revision_ids.length > 0 || input.derived_blocks.some((candidate) => candidate.category !== "dialogue_context")) {
+      throw new ResumeInferenceError("invalid_request", "Resume dialogue accepts only confirmed facts and visible conversation context");
     }
   }
 
