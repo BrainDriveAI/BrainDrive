@@ -17,7 +17,7 @@ export type ResumeInlineConfirmation = {
 };
 
 export type ResumeConversationState = {
-  messages: Message[];
+  messages: Array<Message & { sourceRevisionId?: string }>;
   actions: ResumeConversationAction[];
   busy: boolean;
   inputEnabled: boolean;

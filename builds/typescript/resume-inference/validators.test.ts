@@ -57,6 +57,35 @@ describe("deterministic claim gate", () => {
     }, dialogueBlocks).accepted).toBe(false);
   });
 
+  it("accepts cross-turn owner-grounded employment but rejects a fabricated employer", () => {
+    const current = "Northwind is the correct name and spelling. 2020 to 2024";
+    const context = {
+      dialogue_version: 1,
+      messages: [
+        { role: "assistant", content: "What was your title and employer?" },
+        { role: "user", content: "I was Director of Operations at the company." },
+        { role: "assistant", content: "Please confirm the company name and dates." },
+        { role: "user", content: current },
+      ],
+      current_user_message: current,
+      requested_mode: "intake",
+    };
+    const dialogueBlocks = [{ category: "dialogue_context" as const, content_digest: canonicalInputDigest(context), schema_id: "resume.dialogue-context.v1", schema_version: 1 as const, data: context }];
+    const result = {
+      dialogue_version: 1,
+      assistant_message: "Thanks. What result from that role are you proudest of?",
+      turn_disposition: "capture_and_continue",
+      fact_operations: [{ operation: "capture", fact_kind: "employment", source_quote: current, employment: { title: "Director of Operations", employer: "Northwind", location: null, start_date: "2020", end_date: "2024", responsibilities: null } }],
+      suggested_action: "none",
+    };
+
+    expect(validateInferenceClaims("resume_dialogue", result, dialogueBlocks).accepted).toBe(true);
+    expect(validateInferenceClaims("resume_dialogue", {
+      ...result,
+      fact_operations: [{ ...result.fact_operations[0], employment: { ...result.fact_operations[0]!.employment, employer: "Contoso" } }],
+    }, dialogueBlocks).accepted).toBe(false);
+  });
+
   it("allows supported wording and blocks missing provenance, metrics, dates, and titles", () => {
     const cases = [
       ["Built product 20% in 2025 as Engineer", true],

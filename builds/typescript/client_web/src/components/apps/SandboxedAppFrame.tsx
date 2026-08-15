@@ -23,6 +23,7 @@ import ResumeBuilderConversation, {
 } from "./ResumeBuilderConversation";
 import ResumeReviewRail from "./ResumeReviewRail";
 import {
+  employmentCandidateFromInterviewTurns,
   parseResumeDialogueCommitPayload,
   resumeDialogueFactValue,
   resumeDialogueSensitivity,
@@ -50,7 +51,8 @@ export function parseResumeConversationState(value: unknown): ResumeConversation
     if (typeof message.id !== "string" || message.id.length > 256) return [];
     if (message.role !== "user" && message.role !== "assistant") return [];
     if (typeof message.content !== "string" || message.content.length === 0 || message.content.length > 16_384) return [];
-    return [{ id: message.id, role: message.role as "user" | "assistant", content: message.content }];
+    if (message.sourceRevisionId !== undefined && (message.role !== "user" || typeof message.sourceRevisionId !== "string" || !/^[0-9a-f-]{36}$/i.test(message.sourceRevisionId))) return [];
+    return [{ id: message.id, role: message.role as "user" | "assistant", content: message.content, ...(typeof message.sourceRevisionId === "string" ? { sourceRevisionId: message.sourceRevisionId } : {}) }];
   });
   const actions = candidate.actions.flatMap((item) => {
     if (!item || typeof item !== "object" || Array.isArray(item)) return [];
@@ -314,8 +316,11 @@ export default function SandboxedAppFrame({
       if (message.type === "chat.turn.commit" && appId === "ai.braindrive.resume-builder") {
         const pending = pendingResumeDialogueRef.current;
         const employmentRevisionIds = new Set(resumeConversationRef.current.confirmedEmploymentRevisionIds);
+        const priorOwnerMessages = resumeConversationRef.current.messages.flatMap((candidate) => candidate.role === "user" && candidate.sourceRevisionId
+          ? [{ content: candidate.content, sourceRevisionId: candidate.sourceRevisionId }]
+          : []);
         const payload = pending
-          ? parseResumeDialogueCommitPayload(message.payload, pending.ownerMessage, employmentRevisionIds)
+          ? parseResumeDialogueCommitPayload(message.payload, pending.ownerMessage, employmentRevisionIds, priorOwnerMessages)
           : null;
         if (!pending || !payload || payload.messageId !== pending.messageId) throw new Error("message_schema_invalid");
         const occurredAt = new Date().toISOString();
@@ -351,8 +356,9 @@ export default function SandboxedAppFrame({
           const value = resumeDialogueFactValue(operation);
           const duplicate = resumeConversationRef.current.reviewFacts.some((fact) => fact.kind === operation.fact_kind && fact.storedValue === value);
           if (duplicate) continue;
+          const supportingSourceRevisionIds = operation.fact_kind === "employment" ? operation.supporting_source_revision_ids ?? [] : [];
           const proposed = await callAppCapability(appKey, "career.facts.propose", {
-            source_revision_ids: [sourceRevisionId],
+            source_revision_ids: [...new Set([sourceRevisionId, ...supportingSourceRevisionIds])],
             fact: {
               fact_kind: operation.fact_kind,
               state: "suggested",
@@ -381,6 +387,38 @@ export default function SandboxedAppFrame({
         }
         pendingResumeDialogueRef.current = null;
         return { committed: true, source_revision_id: sourceRevisionId, facts };
+      }
+      if (message.type === "chat.employment.reconcile" && appId === "ai.braindrive.resume-builder") {
+        const [workspaceResult, factsResult] = await Promise.all([
+          callAppCapability(appKey, "resume.definitions.read", { view: "workspace" }, secureRandomUuid(), false),
+          callAppCapability(appKey, "career.facts.read", {}, secureRandomUuid(), false),
+        ]);
+        const currentFacts = Array.isArray(factsResult.result) ? factsResult.result as Array<{ fact_kind?: unknown; state?: unknown; value?: unknown }> : [];
+        if (currentFacts.some((fact) => fact.fact_kind === "employment" && fact.state === "confirmed")) return { committed: false, reason: "employment_exists" };
+        const workspace = workspaceResult.result as { interview_turns?: unknown };
+        const candidate = employmentCandidateFromInterviewTurns(workspace?.interview_turns);
+        if (!candidate) return { committed: false, reason: "insufficient_grounding" };
+        const operation = { operation: "capture" as const, fact_kind: "employment" as const, source_quote: candidate.sourceQuote, employment: candidate.employment };
+        const value = resumeDialogueFactValue(operation);
+        if (currentFacts.some((fact) => fact.fact_kind === "employment" && fact.value === value)) return { committed: false, reason: "duplicate" };
+        const proposed = await callAppCapability(appKey, "career.facts.propose", {
+          source_revision_ids: candidate.sourceRevisionIds,
+          fact: { fact_kind: "employment", state: "suggested", value, sensitivity: "standard" },
+        }, secureRandomUuid(), false);
+        const fact = (proposed.result as { fact?: { metadata?: { record_id?: unknown; revision_id?: unknown; revision?: unknown } } }).fact;
+        if (typeof fact?.metadata?.record_id !== "string" || typeof fact.metadata.revision_id !== "string" || typeof fact.metadata.revision !== "number") throw new Error("recoverable_internal_failure");
+        const confirmed = await callAppCapability(appKey, "career.facts.confirm", {
+          decisions: [{
+            fact_record_id: fact.metadata.record_id,
+            fact_revision_id: fact.metadata.revision_id,
+            expected_revision: fact.metadata.revision,
+            decision: "accept",
+            edited_value: null,
+            review_note: "Reconciled from exact owner-stated role and employer details in the Resume Builder conversation",
+          }],
+        }, secureRandomUuid(), true);
+        const confirmedFacts = Array.isArray((confirmed.result as { facts?: unknown[] }).facts) ? (confirmed.result as { facts: unknown[] }).facts : [];
+        return { committed: true, fact: confirmedFacts[0] ?? null };
       }
       if (message.type === "career.return" && appId !== "ai.braindrive.resume-builder") throw new Error("career_return_requires_trusted_app_adapter");
       if (message.type === "host.action") {

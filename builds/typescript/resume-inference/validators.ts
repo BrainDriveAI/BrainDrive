@@ -76,10 +76,16 @@ function validateResumeDialogue(result: unknown, dataBlocks: DataBlock[], facts:
   const findings: Finding[] = [];
   const value = result as {
     assistant_message?: string;
-    fact_operations?: Array<{ source_quote?: string; job_fact_revision_id?: string | null }>;
+    fact_operations?: Array<{
+      fact_kind?: string;
+      source_quote?: string;
+      job_fact_revision_id?: string | null;
+      employment?: { title?: unknown; employer?: unknown; location?: unknown; start_date?: unknown; end_date?: unknown; responsibilities?: unknown };
+    }>;
   };
   const context = dataBlocks.find((block) => block.category === "dialogue_context")?.data as {
     current_user_message?: string | null;
+    messages?: Array<{ role?: string; content?: string }>;
   } | undefined;
   const current = context?.current_user_message ?? null;
   const operations = value.fact_operations ?? [];
@@ -88,6 +94,7 @@ function validateResumeDialogue(result: unknown, dataBlocks: DataBlock[], facts:
     return findings;
   }
   const normalizedCurrent = normalize(current ?? "");
+  const ownerMessages = (context?.messages ?? []).flatMap((message) => message.role === "user" && typeof message.content === "string" ? [normalize(message.content)] : []);
   const pureQuestion = /^(?:do|does|did|should|would|could|can|what|which|who|why|how|when|where|is|are|am|was|were)\b/.test(normalizedCurrent) && normalizedCurrent.endsWith("?");
   if (pureQuestion && operations.length > 0) {
     findings.push(finding("unsupported_claim", null, "A clarification question cannot be treated as a factual answer"));
@@ -96,6 +103,25 @@ function validateResumeDialogue(result: unknown, dataBlocks: DataBlock[], facts:
     const quote = typeof operation.source_quote === "string" ? normalize(operation.source_quote) : "";
     if (!quote || !normalizedCurrent.includes(quote)) {
       findings.push(finding("missing_provenance", null, "Every dialogue fact operation requires an exact quote from the current owner message"));
+    }
+    if (operation.fact_kind === "employment") {
+      const employment = operation.employment;
+      const requiredFields = [employment?.title, employment?.employer];
+      const optionalFields = [employment?.location, employment?.start_date, employment?.end_date, employment?.responsibilities].filter((field) => field !== null && field !== undefined);
+      for (const field of [...requiredFields, ...optionalFields]) {
+        const normalizedField = typeof field === "string" ? normalize(field) : "";
+        if (!normalizedField || !ownerMessages.some((message) => message.includes(normalizedField))) {
+          findings.push(finding("missing_provenance", null, "Every employment field must preserve exact owner-stated wording from the visible conversation"));
+        }
+      }
+      const correctedEmployer = /^(.+?)\s+is\s+the\s+correct\s+(?:company\s+)?name(?:\s+and\s+spelling)?\b/.exec(normalizedCurrent)?.[1]?.trim();
+      if (correctedEmployer && normalize(String(employment?.employer ?? "")) !== correctedEmployer) {
+        findings.push(finding("unsupported_claim", null, "An explicit employer correction must be used exactly"));
+      }
+      const dateRange = /\b(?:from\s+)?((?:19|20)\d{2})\s+(?:to|through|[-–—])\s+(present|current|(?:19|20)\d{2})\b/.exec(normalizedCurrent);
+      if (dateRange && (normalize(String(employment?.start_date ?? "")) !== dateRange[1] || normalize(String(employment?.end_date ?? "")) !== dateRange[2])) {
+        findings.push(finding("unsupported_claim", null, "Explicit owner-stated employment dates must be preserved exactly"));
+      }
     }
     if (operation.job_fact_revision_id) {
       const jobValue = facts.get(operation.job_fact_revision_id);

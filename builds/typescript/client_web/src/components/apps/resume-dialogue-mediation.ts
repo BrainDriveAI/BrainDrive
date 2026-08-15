@@ -1,6 +1,6 @@
 export type ResumeDialogueFactOperation =
   | { operation: "capture"; fact_kind: "identity" | "contact" | "education" | "skill" | "credential" | "project" | "preference"; value: string; source_quote: string }
-  | { operation: "capture"; fact_kind: "employment"; source_quote: string; employment: { title: string; employer: string; location: string | null; start_date: string | null; end_date: string | null; responsibilities: string | null } }
+  | { operation: "capture"; fact_kind: "employment"; source_quote: string; supporting_source_revision_ids?: string[]; employment: { title: string; employer: string; location: string | null; start_date: string | null; end_date: string | null; responsibilities: string | null } }
   | { operation: "capture"; fact_kind: "accomplishment"; source_quote: string; text: string; job_fact_revision_id: string | null }
   | { operation: "capture"; fact_kind: "job_evidence"; source_quote: string; text: string; job_fact_revision_id: string; dimension: "responsibilities" | "accomplishments" | "outcomes" | "tools" | "scope" | "progression" };
 
@@ -13,6 +13,24 @@ export type ResumeDialogueCommitPayload = {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SIMPLE_FACT_KINDS = new Set(["identity", "contact", "education", "skill", "credential", "project", "preference"]);
 const JOB_DIMENSIONS = new Set(["responsibilities", "accomplishments", "outcomes", "tools", "scope", "progression"]);
+
+export type GroundedOwnerMessage = {
+  content: string;
+  sourceRevisionId: string;
+};
+
+export type GroundedEmploymentCandidate = {
+  sourceQuote: string;
+  sourceRevisionIds: string[];
+  employment: {
+    title: string;
+    employer: string;
+    location: null;
+    start_date: string | null;
+    end_date: string | null;
+    responsibilities: null;
+  };
+};
 
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
@@ -27,10 +45,106 @@ function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boo
   return Object.keys(value).sort().join("|") === [...keys].sort().join("|");
 }
 
+function normalizedGrounding(value: string): string {
+  return value.normalize("NFKC").replace(/\s+/g, " ").trim().toLocaleLowerCase("en-US");
+}
+
+function containsGrounding(haystack: string, needle: string): boolean {
+  const normalizedNeedle = normalizedGrounding(needle);
+  return Boolean(normalizedNeedle) && normalizedGrounding(haystack).includes(normalizedNeedle);
+}
+
+function cleanEmploymentSegment(value: string): string {
+  return value.replace(/\s+/g, " ").replace(/^[,;:\s]+|[,;:\s]+$/g, "").trim();
+}
+
+function explicitEmploymentIdentity(answer: string): { title: string; employer: string } | null {
+  const called = /\b(?:it|the company|the business)\s+(?:was\s+)?called\s+(.+?)\s+and\s+i\s+was\s+(?:the\s+|an?\s+)?(.+?)\s+(?:of|at)\s+(?:that|the)\s+(?:company|business)\b/i.exec(answer);
+  if (called) {
+    const employer = cleanEmploymentSegment(called[1] ?? "");
+    const title = cleanEmploymentSegment(called[2] ?? "");
+    if (title && employer) return { title, employer };
+  }
+  const roleAt = /\bi\s+(?:worked|work|was|served)\s+(?:as\s+)?(?:the\s+|an?\s+)?(.+?)\s+(?:at|for|with)\s+(.+?)(?=\s+(?:from\s+)?(?:19|20)\d{2}\b|[.!?]|$)/i.exec(answer);
+  if (!roleAt) return null;
+  const title = cleanEmploymentSegment(roleAt[1] ?? "");
+  const employer = cleanEmploymentSegment(roleAt[2] ?? "");
+  return title && employer ? { title, employer } : null;
+}
+
+function explicitDateRange(answer: string): { start_date: string; end_date: string } | null {
+  const match = /\b(?:from\s+)?((?:19|20)\d{2}|(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(?:19|20)\d{2})\s+(?:to|through|[-–—])\s+(present|current|(?:19|20)\d{2}|(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(?:19|20)\d{2})\b/i.exec(answer);
+  return match ? { start_date: match[1]!, end_date: match[2]! } : null;
+}
+
+function correctedEmployer(answer: string): string | null {
+  const match = /^\s*(.+?)\s+is\s+the\s+correct\s+(?:company\s+)?name(?:\s+and\s+spelling)?\b/i.exec(answer);
+  return match ? cleanEmploymentSegment(match[1] ?? "") || null : null;
+}
+
+function correctedTitle(answer: string): string | null {
+  const match = /\b(?:my|the)\s+(?:title|role)\s+(?:was|is)\s+(.+?)(?=[.!?]|$)/i.exec(answer);
+  return match ? cleanEmploymentSegment(match[1] ?? "") || null : null;
+}
+
+export function employmentCandidateFromInterviewTurns(value: unknown): GroundedEmploymentCandidate | null {
+  if (!Array.isArray(value)) return null;
+  const turns = value.flatMap((candidate) => {
+    const source = record(candidate);
+    const metadata = record(source?.metadata);
+    const extensions = record(source?.extensions);
+    const turn = record(extensions?.interview_turn);
+    const answer = boundedString(turn?.answer, 16_384);
+    const question = boundedString(turn?.question, 16_384);
+    const revisionId = boundedString(metadata?.revision_id, 64);
+    const occurredAt = boundedString(turn?.occurred_at, 128);
+    if (!answer || !revisionId || !UUID.test(revisionId)) return [];
+    return [{ answer, question: question ?? "", revisionId, occurredAt: occurredAt ?? "" }];
+  }).sort((left, right) => left.occurredAt.localeCompare(right.occurredAt));
+  let candidate: GroundedEmploymentCandidate | null = null;
+  for (const turn of turns) {
+    const identity = explicitEmploymentIdentity(turn.answer);
+    if (identity) {
+      const dates = explicitDateRange(turn.answer);
+      candidate = {
+        sourceQuote: turn.answer,
+        sourceRevisionIds: [turn.revisionId],
+        employment: {
+          title: identity.title,
+          employer: identity.employer,
+          location: null,
+          start_date: dates?.start_date ?? null,
+          end_date: dates?.end_date ?? null,
+          responsibilities: null,
+        },
+      };
+      continue;
+    }
+    if (!candidate) continue;
+    const employer = correctedEmployer(turn.answer);
+    const title = correctedTitle(turn.answer);
+    const dates = explicitDateRange(turn.answer);
+    const dateAnswer = dates && (employer || title || /\b(?:what|which)\s+(?:years|dates)|\bwhen\b|\bstart(?:ed)?\b.*\b(?:end(?:ed)?|sold|left)|\bemployment dates\b/i.test(turn.question)) ? dates : null;
+    if (!employer && !title && !dateAnswer) continue;
+    candidate = {
+      sourceQuote: turn.answer,
+      sourceRevisionIds: [...new Set([...candidate.sourceRevisionIds, turn.revisionId])],
+      employment: {
+        ...candidate.employment,
+        ...(employer ? { employer } : {}),
+        ...(title ? { title } : {}),
+        ...(dateAnswer ? dateAnswer : {}),
+      },
+    };
+  }
+  return candidate;
+}
+
 export function parseResumeDialogueCommitPayload(
   value: unknown,
   ownerMessage: string,
   confirmedEmploymentRevisionIds: ReadonlySet<string>,
+  priorOwnerMessages: readonly GroundedOwnerMessage[] = [],
 ): ResumeDialogueCommitPayload | null {
   const payload = record(value);
   if (!payload || !exactKeys(payload, ["messageId", "assistantMessage", "factOperations"])) return null;
@@ -64,7 +178,21 @@ export function parseResumeDialogueCommitPayload(
       const endDate = boundedString(employment.end_date, 128, true);
       const responsibilities = boundedString(employment.responsibilities, 8_192, true);
       if (!title || !employer || location === undefined || startDate === undefined || endDate === undefined || responsibilities === undefined) return null;
-      factOperations.push({ operation: "capture", fact_kind: "employment", source_quote: sourceQuote, employment: { title, employer, location, start_date: startDate, end_date: endDate, responsibilities } });
+      const fields = [title, employer, location, startDate, endDate, responsibilities].filter((item): item is string => typeof item === "string" && Boolean(item));
+      const supportingSourceRevisionIds = new Set<string>();
+      for (const field of fields) {
+        if (containsGrounding(ownerMessage, field)) continue;
+        const supporting = [...priorOwnerMessages].reverse().find((message) => UUID.test(message.sourceRevisionId) && containsGrounding(message.content, field));
+        if (!supporting) return null;
+        supportingSourceRevisionIds.add(supporting.sourceRevisionId);
+      }
+      const correction = correctedEmployer(ownerMessage);
+      if (correction && normalizedGrounding(correction) !== normalizedGrounding(employer)) return null;
+      const titleCorrection = correctedTitle(ownerMessage);
+      if (titleCorrection && normalizedGrounding(titleCorrection) !== normalizedGrounding(title)) return null;
+      const dates = explicitDateRange(ownerMessage);
+      if (dates && (normalizedGrounding(dates.start_date) !== normalizedGrounding(startDate ?? "") || normalizedGrounding(dates.end_date) !== normalizedGrounding(endDate ?? ""))) return null;
+      factOperations.push({ operation: "capture", fact_kind: "employment", source_quote: sourceQuote, supporting_source_revision_ids: [...supportingSourceRevisionIds], employment: { title, employer, location, start_date: startDate, end_date: endDate, responsibilities } });
       continue;
     }
     if (factKind === "accomplishment") {

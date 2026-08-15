@@ -68,6 +68,7 @@ describe("sandboxed Resume Builder owner resource", () => {
       "Reply in your own words",
       "resume_dialogue",
       "chat.turn.commit",
+      "chat.employment.reconcile",
       "I couldn’t safely process that turn",
     ]) expect(html).toContain(text);
     expect(html).toContain('id="fact-snapshot"');
@@ -80,6 +81,7 @@ describe("sandboxed Resume Builder owner resource", () => {
     expect(html).toContain('message?.type==="host.chat.message"');
     expect(html).toContain('message?.type==="host.chat.action"');
     expect(html).toContain("durableConversationMessages()");
+    expect(html).toContain("sourceRevisionId:record.metadata.revision_id");
     expect(html).toContain("conversationReviewFacts()");
     expect(html).toContain("function isFreshConversation()");
     expect(html).toContain('if(isFreshConversation())return "interview"');

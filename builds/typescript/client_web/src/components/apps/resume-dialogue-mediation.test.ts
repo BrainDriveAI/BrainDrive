@@ -1,4 +1,5 @@
 import {
+  employmentCandidateFromInterviewTurns,
   parseResumeDialogueCommitPayload,
   resumeDialogueFactValue,
   resumeDialogueSensitivity,
@@ -29,6 +30,65 @@ describe("Resume Builder dialogue mediation", () => {
 
     expect(parsed?.factOperations).toHaveLength(2);
     expect(parsed?.factOperations[1]).toMatchObject({ fact_kind: "accomplishment", job_fact_revision_id: jobRevisionId });
+  });
+
+  it("reconciles a role, corrected employer, and dates from exact adjacent owner turns", () => {
+    const roleSourceRevisionId = crypto.randomUUID();
+    const correctionSourceRevisionId = crypto.randomUUID();
+    const candidate = employmentCandidateFromInterviewTurns([
+      {
+        metadata: { revision_id: roleSourceRevisionId },
+        extensions: { interview_turn: { occurred_at: "2026-08-15T12:00:00.000Z", answer: "It was called ACME ACME and I was the founder and CEO of that company." } },
+      },
+      {
+        metadata: { revision_id: correctionSourceRevisionId },
+        extensions: { interview_turn: { occurred_at: "2026-08-15T12:01:00.000Z", answer: "Acme Ventures is the correct name and spelling. 2015 to 2025" } },
+      },
+    ]);
+
+    expect(candidate).toEqual({
+      sourceQuote: "Acme Ventures is the correct name and spelling. 2015 to 2025",
+      sourceRevisionIds: [roleSourceRevisionId, correctionSourceRevisionId],
+      employment: {
+        title: "founder and CEO",
+        employer: "Acme Ventures",
+        location: null,
+        start_date: "2015",
+        end_date: "2025",
+        responsibilities: null,
+      },
+    });
+  });
+
+  it("does not create employment without an owner-stated employer", () => {
+    expect(employmentCandidateFromInterviewTurns([{
+      metadata: { revision_id: crypto.randomUUID() },
+      extensions: { interview_turn: { occurred_at: "2026-08-15T12:00:00.000Z", answer: "I was the CEO, but which role do you want to discuss?" } },
+    }])).toBeNull();
+  });
+
+  it("grounds cross-turn employment and attaches a later metric to the confirmed role", () => {
+    const roleSourceRevisionId = crypto.randomUUID();
+    const jobRevisionId = crypto.randomUUID();
+    const ownerMessage = "Northwind is the correct name. 2020 to 2024";
+    const employment = parseResumeDialogueCommitPayload({
+      messageId,
+      assistantMessage: "Thanks. What changed because of your work there?",
+      factOperations: [{ operation: "capture", fact_kind: "employment", source_quote: ownerMessage, employment: { title: "Director of Operations", employer: "Northwind", location: null, start_date: "2020", end_date: "2024", responsibilities: null } }],
+    }, ownerMessage, new Set(), [{ content: "I was Director of Operations at the company.", sourceRevisionId: roleSourceRevisionId }]);
+    expect(employment?.factOperations[0]).toMatchObject({ fact_kind: "employment", supporting_source_revision_ids: [roleSourceRevisionId] });
+
+    const metricMessage = "I reduced onboarding time by 30%.";
+    const metric = parseResumeDialogueCommitPayload({
+      messageId,
+      assistantMessage: "That is useful evidence. What did you change to get that result?",
+      factOperations: [{ operation: "capture", fact_kind: "job_evidence", source_quote: metricMessage, text: metricMessage, job_fact_revision_id: jobRevisionId, dimension: "outcomes" }],
+    }, metricMessage, new Set([jobRevisionId]));
+    expect(JSON.parse(resumeDialogueFactValue(metric!.factOperations[0]!))).toMatchObject({
+      association: "job",
+      job_fact_revision_id: jobRevisionId,
+      owner_text: metricMessage,
+    });
   });
 
   it("rejects invented source quotes and unknown job associations", () => {
