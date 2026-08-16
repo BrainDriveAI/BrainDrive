@@ -23,13 +23,18 @@ function replaceApp(apps: AppStatus[], next: AppStatus): AppStatus[] {
   return apps.map((candidate) => candidate.route_key === next.route_key ? next : candidate);
 }
 
-export default function AppsPage({ entryPoint = "direct", onOpenSettings, onSessionClosed }: { entryPoint?: "direct" | "career"; onOpenSettings?: () => void; onSessionClosed?: () => void }) {
+export default function AppsPage({ entryPoint = "direct", onOpenSettings, onSessionClosed, onNativeAppActiveChange }: { entryPoint?: "direct" | "career"; onOpenSettings?: () => void; onSessionClosed?: () => void; onNativeAppActiveChange?: (active: boolean) => void }) {
   const [apps, setApps] = useState<AppStatus[] | null>(null);
   const [selected, setSelected] = useState<SelectedSession | null>(null);
   const [busyByApp, setBusyByApp] = useState<Record<string, BusyState | undefined>>({});
   const [errorsByApp, setErrorsByApp] = useState<Record<string, string | undefined>>({});
   const [noticesByApp, setNoticesByApp] = useState<Record<string, string | undefined>>({});
   const [catalogError, setCatalogError] = useState<string | null>(null);
+
+  useEffect(() => {
+    onNativeAppActiveChange?.(selected?.appId === RESUME_BUILDER_APP_ID);
+    return () => onNativeAppActiveChange?.(false);
+  }, [onNativeAppActiveChange, selected?.appId]);
   const [compactCards, setCompactCards] = useState(true);
   const [confirmUninstallKey, setConfirmUninstallKey] = useState<string | null>(null);
   const launchButtonRefs = useRef(new Map<string, HTMLButtonElement>());
