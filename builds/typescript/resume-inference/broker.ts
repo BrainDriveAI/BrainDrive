@@ -645,7 +645,9 @@ function filterStructurallyInvalidTranscriptExtraction(
   return structural === null ? null : mediateTranscriptExtraction(structural, dataBlocks).result;
 }
 
-function mediateDialogueDisposition(
+// Quarantined pending the conversational-app architecture decision. The live
+// Resume Builder path uses native chat and does not invoke this legacy broker.
+function _mediateDialogueDisposition(
   result: unknown,
   dataBlocks: InferenceRequest["data_blocks"],
 ): { result: unknown; changed: boolean } {
@@ -850,7 +852,7 @@ function safeDialogueAssistantMessage(
   return "I’m with you. What would you like to cover next about your experience?";
 }
 
-function filterInvalidDialogueFactOperations(result: unknown, dataBlocks: InferenceRequest["data_blocks"]): unknown | null {
+function _filterInvalidDialogueFactOperations(result: unknown, dataBlocks: InferenceRequest["data_blocks"]): unknown | null {
   const dialogue = result as {
     fact_operations?: unknown[];
     suggested_action?: string;
@@ -878,7 +880,7 @@ function filterInvalidDialogueFactOperations(result: unknown, dataBlocks: Infere
   };
 }
 
-function normalizeProposedDialogueDraftAction(result: unknown, dataBlocks: InferenceRequest["data_blocks"]): unknown {
+function _normalizeProposedDialogueDraftAction(result: unknown, dataBlocks: InferenceRequest["data_blocks"]): unknown {
   if (!result || typeof result !== "object" || Array.isArray(result)) return result;
   const dialogue = result as { draft_action?: unknown };
   const normalizedDraftAction = normalizeDialogueDraftAction(dialogue.draft_action, dataBlocks);

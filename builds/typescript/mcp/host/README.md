@@ -1,5 +1,7 @@
 # Spec 05 modern MCP connection core
 
+> **Resume Builder status (2026-08-16):** Resume Builder's sandboxed MCP UI is quarantined pending the portable conversational-app architecture decision. The live Resume Builder route currently uses host-native chat and an app-private document workspace. This host remains the intended surface-app path; it is not the live Resume Builder owner experience.
+
 This directory owns the Milestone 2 protocol seam for installed MCP Apps. It does not own app rendering, bridge messages, named data capabilities, inference, package execution, subscriptions, or supervisor lifecycle.
 
 ## Profiles and connection authority

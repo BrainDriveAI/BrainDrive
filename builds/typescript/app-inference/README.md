@@ -1,5 +1,7 @@
 # Credential-isolated app inference capability
 
+> **Resume Builder status (2026-08-16):** this capability remains the non-live sandbox/reference path for Resume Builder while the team decides the portable conversational-app contract. The live Resume Builder uses normal native chat and does not invoke `AppInferenceCapability`. This remains active generic host infrastructure and may serve other apps; do not use Resume Builder's current native path as evidence that its app-inference integration is live.
+
 This directory is the Spec 05 Milestone 5 transport and projection boundary around the accepted Spec 03 Resume Builder broker. It does not resolve providers, read credentials, build prompts, validate generated claims, or implement repair. Those responsibilities remain in `resume-inference/`, the provider adapter, and the trusted gateway composition.
 
 Spec 08 Milestone 4 adds a generic host registry and dispatcher keyed by exact `(app_id, purpose_id, version)`. The independently reviewed registration owns input/output schemas, prompt-policy identity, model compatibility class, budgets, validation, retry, cancellation, audit, and its executor. Dispatch checks app/install/package grant authority and the exact verified manifest request before executor, snapshot, provider, or persistence work. A manifest cannot create policy, select a provider, name executable host code, or supply credentials. The existing Resume implementation remains an explicit adapter with unchanged protected-broker semantics.
