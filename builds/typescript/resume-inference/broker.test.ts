@@ -383,6 +383,39 @@ describe("ResumeInferenceBroker", () => {
     expect(completion.validation?.accepted).toBe(true);
   });
 
+  it("keeps the conversation while dropping a structurally invalid role operation", async () => {
+    const malformed = {
+      dialogue_version: 1,
+      assistant_message: "That South Korea growth is useful evidence. I need the FXCM role linked before I can attach it safely.",
+      turn_disposition: "capture_and_continue",
+      fact_operations: [{
+        operation: "capture",
+        fact_kind: "job_evidence",
+        source_quote: "Grew the S. Korea market from 0 to over 50 million a year in revenues",
+        text: "Grew the S. Korea market from 0 to over 50 million a year in revenues",
+        job_fact_revision_id: null,
+        dimension: "outcomes",
+      }],
+      suggested_action: "none",
+    };
+    const model = adapter(() => JSON.stringify(malformed));
+    const events: Array<{ event: string; details: Record<string, unknown> }> = [];
+    const completion = await new ResumeInferenceBroker(async () => provider(model.value), (event, details) => events.push({ event, details }))
+      .execute(dialogueRequestWithoutEmployment("Grew the S. Korea market from 0 to over 50 million a year in revenues"));
+
+    expect(completion.inference).toMatchObject({
+      status: "completed",
+      attempt_count: 2,
+      result: {
+        assistant_message: malformed.assistant_message,
+        turn_disposition: "respond_only",
+        fact_operations: [],
+      },
+    });
+    expect(completion.validation?.accepted).toBe(true);
+    expect(events.at(-1)?.details).toMatchObject({ repair: "deterministic_dialogue_structure_filter" });
+  });
+
   it("uses fact-only deterministic repair when structural repair consumes the second provider call", async () => {
     const rejected = { ...outputs.general_resume_draft as object, statements: [{ statement_id: randomUUID(), kind: "factual", text: "Invented metric 99%", supporting_confirmed_fact_revision_ids: [FACT_ID] }] };
     const validationModel = adapter((_input, call) => call === 1 ? "{}" : JSON.stringify(rejected));

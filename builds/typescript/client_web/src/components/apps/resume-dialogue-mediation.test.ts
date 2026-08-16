@@ -1,5 +1,6 @@
 import {
   employmentCandidateFromInterviewTurns,
+  employmentCandidatesFromInterviewTurns,
   parseResumeDialogueCommitPayload,
   resumeDialogueFactValue,
   resumeDialogueSensitivity,
@@ -65,6 +66,28 @@ describe("Resume Builder dialogue mediation", () => {
       metadata: { revision_id: crypto.randomUUID() },
       extensions: { interview_turn: { occurred_at: "2026-08-15T12:00:00.000Z", answer: "I was the CEO, but which role do you want to discuss?" } },
     }])).toBeNull();
+  });
+
+  it("finds each distinct grounded role and ignores an ambiguous role mention", () => {
+    const candidates = employmentCandidatesFromInterviewTurns([
+      {
+        metadata: { revision_id: crypto.randomUUID() },
+        extensions: { interview_turn: { occurred_at: "2026-08-15T12:00:00.000Z", answer: "I was Director at Northwind from 2018 to 2020." } },
+      },
+      {
+        metadata: { revision_id: crypto.randomUUID() },
+        extensions: { interview_turn: { occurred_at: "2026-08-15T12:01:00.000Z", answer: "I was Head of Global Sales for FXCM a currency trading firm where I led the global team." } },
+      },
+      {
+        metadata: { revision_id: crypto.randomUUID() },
+        extensions: { interview_turn: { occurred_at: "2026-08-15T12:02:00.000Z", answer: "I had another leadership role, but which one do you want?" } },
+      },
+    ]);
+
+    expect(candidates.map((candidate) => candidate.employment)).toEqual([
+      expect.objectContaining({ title: "Director", employer: "Northwind", start_date: "2018", end_date: "2020" }),
+      expect.objectContaining({ title: "Head of Global Sales", employer: "FXCM", start_date: null, end_date: null }),
+    ]);
   });
 
   it("grounds cross-turn employment and attaches a later metric to the confirmed role", () => {

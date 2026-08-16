@@ -58,6 +58,13 @@ function cleanEmploymentSegment(value: string): string {
   return value.replace(/\s+/g, " ").replace(/^[,;:\s]+|[,;:\s]+$/g, "").trim();
 }
 
+function cleanEmployer(value: string): string {
+  return cleanEmploymentSegment(value).replace(
+    /\s+(?:an?|the)\s+(?:(?:[a-z][\w-]*)\s+){0,5}(?:company|firm|business|startup|organization|agency|nonprofit)\s*$/i,
+    "",
+  ).trim();
+}
+
 function explicitEmploymentIdentity(answer: string): { title: string; employer: string } | null {
   const called = /\b(?:it|the company|the business)\s+(?:was\s+)?called\s+(.+?)\s+and\s+i\s+was\s+(?:the\s+|an?\s+)?(.+?)\s+(?:of|at)\s+(?:that|the)\s+(?:company|business)\b/i.exec(answer);
   if (called) {
@@ -65,10 +72,10 @@ function explicitEmploymentIdentity(answer: string): { title: string; employer: 
     const title = cleanEmploymentSegment(called[2] ?? "");
     if (title && employer) return { title, employer };
   }
-  const roleAt = /\bi\s+(?:worked|work|was|served)\s+(?:as\s+)?(?:the\s+|an?\s+)?(.+?)\s+(?:at|for|with)\s+(.+?)(?=\s+(?:from\s+)?(?:19|20)\d{2}\b|[.!?]|$)/i.exec(answer);
+  const roleAt = /\bi\s+(?:worked|work|was|served)\s+(?:as\s+)?(?:the\s+|an?\s+)?(.+?)\s+(?:at|for|with)\s+(.+?)(?=\s+(?:where|which|when|and\s+i)\b|\s+(?:from\s+)?(?:19|20)\d{2}\b|[.!?]|$)/i.exec(answer);
   if (!roleAt) return null;
   const title = cleanEmploymentSegment(roleAt[1] ?? "");
-  const employer = cleanEmploymentSegment(roleAt[2] ?? "");
+  const employer = cleanEmployer(roleAt[2] ?? "");
   return title && employer ? { title, employer } : null;
 }
 
@@ -87,8 +94,8 @@ function correctedTitle(answer: string): string | null {
   return match ? cleanEmploymentSegment(match[1] ?? "") || null : null;
 }
 
-export function employmentCandidateFromInterviewTurns(value: unknown): GroundedEmploymentCandidate | null {
-  if (!Array.isArray(value)) return null;
+export function employmentCandidatesFromInterviewTurns(value: unknown): GroundedEmploymentCandidate[] {
+  if (!Array.isArray(value)) return [];
   const turns = value.flatMap((candidate) => {
     const source = record(candidate);
     const metadata = record(source?.metadata);
@@ -101,12 +108,12 @@ export function employmentCandidateFromInterviewTurns(value: unknown): GroundedE
     if (!answer || !revisionId || !UUID.test(revisionId)) return [];
     return [{ answer, question: question ?? "", revisionId, occurredAt: occurredAt ?? "" }];
   }).sort((left, right) => left.occurredAt.localeCompare(right.occurredAt));
-  let candidate: GroundedEmploymentCandidate | null = null;
+  const candidates: GroundedEmploymentCandidate[] = [];
   for (const turn of turns) {
     const identity = explicitEmploymentIdentity(turn.answer);
     if (identity) {
       const dates = explicitDateRange(turn.answer);
-      candidate = {
+      candidates.push({
         sourceQuote: turn.answer,
         sourceRevisionIds: [turn.revisionId],
         employment: {
@@ -117,16 +124,17 @@ export function employmentCandidateFromInterviewTurns(value: unknown): GroundedE
           end_date: dates?.end_date ?? null,
           responsibilities: null,
         },
-      };
+      });
       continue;
     }
+    const candidate = candidates.at(-1) ?? null;
     if (!candidate) continue;
     const employer = correctedEmployer(turn.answer);
     const title = correctedTitle(turn.answer);
     const dates = explicitDateRange(turn.answer);
     const dateAnswer = dates && (employer || title || /\b(?:what|which)\s+(?:years|dates)|\bwhen\b|\bstart(?:ed)?\b.*\b(?:end(?:ed)?|sold|left)|\bemployment dates\b/i.test(turn.question)) ? dates : null;
     if (!employer && !title && !dateAnswer) continue;
-    candidate = {
+    candidates[candidates.length - 1] = {
       sourceQuote: turn.answer,
       sourceRevisionIds: [...new Set([...candidate.sourceRevisionIds, turn.revisionId])],
       employment: {
@@ -137,7 +145,38 @@ export function employmentCandidateFromInterviewTurns(value: unknown): GroundedE
       },
     };
   }
-  return candidate;
+  const byIdentity = new Map<string, GroundedEmploymentCandidate>();
+  for (const candidate of candidates) {
+    const key = `${normalizedGrounding(candidate.employment.title)}\u0000${normalizedGrounding(candidate.employment.employer)}`;
+    const prior = byIdentity.get(key);
+    byIdentity.set(key, prior ? {
+      ...candidate,
+      sourceRevisionIds: [...new Set([...prior.sourceRevisionIds, ...candidate.sourceRevisionIds])],
+      employment: {
+        ...candidate.employment,
+        start_date: candidate.employment.start_date ?? prior.employment.start_date,
+        end_date: candidate.employment.end_date ?? prior.employment.end_date,
+      },
+    } : candidate);
+  }
+  return [...byIdentity.values()];
+}
+
+export function employmentCandidateFromInterviewTurns(value: unknown): GroundedEmploymentCandidate | null {
+  return employmentCandidatesFromInterviewTurns(value).at(-1) ?? null;
+}
+
+export function employmentIdentityKey(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    const parsed = record(JSON.parse(value));
+    if (parsed?.format !== "resume_job_v1" || typeof parsed.title !== "string" || typeof parsed.employer !== "string") return null;
+    const title = normalizedGrounding(parsed.title);
+    const employer = normalizedGrounding(parsed.employer);
+    return title && employer ? `${title}\u0000${employer}` : null;
+  } catch {
+    return null;
+  }
 }
 
 export function parseResumeDialogueCommitPayload(

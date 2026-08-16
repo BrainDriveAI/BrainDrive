@@ -23,7 +23,8 @@ import ResumeBuilderConversation, {
 } from "./ResumeBuilderConversation";
 import ResumeReviewRail from "./ResumeReviewRail";
 import {
-  employmentCandidateFromInterviewTurns,
+  employmentCandidatesFromInterviewTurns,
+  employmentIdentityKey,
   parseResumeDialogueCommitPayload,
   resumeDialogueFactValue,
   resumeDialogueSensitivity,
@@ -394,31 +395,44 @@ export default function SandboxedAppFrame({
           callAppCapability(appKey, "career.facts.read", {}, secureRandomUuid(), false),
         ]);
         const currentFacts = Array.isArray(factsResult.result) ? factsResult.result as Array<{ fact_kind?: unknown; state?: unknown; value?: unknown }> : [];
-        if (currentFacts.some((fact) => fact.fact_kind === "employment" && fact.state === "confirmed")) return { committed: false, reason: "employment_exists" };
         const workspace = workspaceResult.result as { interview_turns?: unknown };
-        const candidate = employmentCandidateFromInterviewTurns(workspace?.interview_turns);
-        if (!candidate) return { committed: false, reason: "insufficient_grounding" };
-        const operation = { operation: "capture" as const, fact_kind: "employment" as const, source_quote: candidate.sourceQuote, employment: candidate.employment };
-        const value = resumeDialogueFactValue(operation);
-        if (currentFacts.some((fact) => fact.fact_kind === "employment" && fact.value === value)) return { committed: false, reason: "duplicate" };
-        const proposed = await callAppCapability(appKey, "career.facts.propose", {
-          source_revision_ids: candidate.sourceRevisionIds,
-          fact: { fact_kind: "employment", state: "suggested", value, sensitivity: "standard" },
-        }, secureRandomUuid(), false);
-        const fact = (proposed.result as { fact?: { metadata?: { record_id?: unknown; revision_id?: unknown; revision?: unknown } } }).fact;
-        if (typeof fact?.metadata?.record_id !== "string" || typeof fact.metadata.revision_id !== "string" || typeof fact.metadata.revision !== "number") throw new Error("recoverable_internal_failure");
-        const confirmed = await callAppCapability(appKey, "career.facts.confirm", {
-          decisions: [{
-            fact_record_id: fact.metadata.record_id,
-            fact_revision_id: fact.metadata.revision_id,
-            expected_revision: fact.metadata.revision,
-            decision: "accept",
-            edited_value: null,
-            review_note: "Reconciled from exact owner-stated role and employer details in the Resume Builder conversation",
-          }],
-        }, secureRandomUuid(), true);
-        const confirmedFacts = Array.isArray((confirmed.result as { facts?: unknown[] }).facts) ? (confirmed.result as { facts: unknown[] }).facts : [];
-        return { committed: true, fact: confirmedFacts[0] ?? null };
+        const candidates = employmentCandidatesFromInterviewTurns(workspace?.interview_turns);
+        if (candidates.length === 0) return { committed: false, reason: "insufficient_grounding", facts: [] };
+        const knownIdentities = new Set(currentFacts
+          .filter((fact) => fact.fact_kind === "employment" && fact.state === "confirmed")
+          .flatMap((fact) => {
+            const key = employmentIdentityKey(fact.value);
+            return key ? [key] : [];
+          }));
+        const committedFacts: unknown[] = [];
+        for (const candidate of candidates) {
+          const operation = { operation: "capture" as const, fact_kind: "employment" as const, source_quote: candidate.sourceQuote, employment: candidate.employment };
+          const value = resumeDialogueFactValue(operation);
+          const identity = employmentIdentityKey(value);
+          if (!identity || knownIdentities.has(identity)) continue;
+          const proposed = await callAppCapability(appKey, "career.facts.propose", {
+            source_revision_ids: candidate.sourceRevisionIds,
+            fact: { fact_kind: "employment", state: "suggested", value, sensitivity: "standard" },
+          }, secureRandomUuid(), false);
+          const fact = (proposed.result as { fact?: { metadata?: { record_id?: unknown; revision_id?: unknown; revision?: unknown } } }).fact;
+          if (typeof fact?.metadata?.record_id !== "string" || typeof fact.metadata.revision_id !== "string" || typeof fact.metadata.revision !== "number") throw new Error("recoverable_internal_failure");
+          const confirmed = await callAppCapability(appKey, "career.facts.confirm", {
+            decisions: [{
+              fact_record_id: fact.metadata.record_id,
+              fact_revision_id: fact.metadata.revision_id,
+              expected_revision: fact.metadata.revision,
+              decision: "accept",
+              edited_value: null,
+              review_note: "Reconciled from exact owner-stated role and employer details in the Resume Builder conversation",
+            }],
+          }, secureRandomUuid(), true);
+          const confirmedFacts = Array.isArray((confirmed.result as { facts?: unknown[] }).facts) ? (confirmed.result as { facts: unknown[] }).facts : [];
+          committedFacts.push(...confirmedFacts);
+          knownIdentities.add(identity);
+        }
+        return committedFacts.length > 0
+          ? { committed: true, facts: committedFacts }
+          : { committed: false, reason: "no_new_grounded_employment", facts: [] };
       }
       if (message.type === "career.return" && appId !== "ai.braindrive.resume-builder") throw new Error("career_return_requires_trusted_app_adapter");
       if (message.type === "host.action") {

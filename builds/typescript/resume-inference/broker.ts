@@ -8,7 +8,7 @@ import type { StructuredCompletionResponse } from "../adapters/base.js";
 import type { z } from "zod";
 import { buildPolicyMessages, promptPolicyIdentity, type ResumeRepairContext } from "./policy.js";
 import { classifyInferenceError, ResumeInferenceError } from "./errors.js";
-import { parsePurposeResult, purposeJsonSchema } from "./results.js";
+import { parsePurposeResult, purposeJsonSchema, ResumeDialogueFactOperationSchema } from "./results.js";
 import { validateInferenceClaims, type ValidationReport } from "./validators.js";
 import type { ResolvedInferenceProvider } from "./compatibility.js";
 import { repairResumeDraftFromConfirmedFacts } from "./repair.js";
@@ -160,10 +160,11 @@ export class ResumeInferenceBroker {
         return { inference, validation };
       }
       let result: unknown;
+      let structuralCandidate: unknown;
       let response: StructuredCompletionResponse | null = null;
       let validation: ValidationReport | null = null;
       let repairContext: ResumeRepairContext | undefined;
-      let repair: "provider_validation_repair" | "deterministic_dialogue_filter" | "deterministic_fact_fallback" | "deterministic_strategy_fallback" | "deterministic_guidance_fallback" | "host_owned_structure" | "deterministic_craft_evaluation" | null = null;
+      let repair: "provider_validation_repair" | "deterministic_dialogue_filter" | "deterministic_dialogue_structure_filter" | "deterministic_fact_fallback" | "deterministic_strategy_fallback" | "deterministic_guidance_fallback" | "host_owned_structure" | "deterministic_craft_evaluation" | null = null;
       for (let attempt = 1; attempt <= request.limits.attempts; attempt += 1) {
         throwIfAborted(signal);
         attempts = attempt;
@@ -191,7 +192,8 @@ export class ResumeInferenceBroker {
         }
         try {
           if (response.text.trim().length === 0) throw new Error("empty structured result");
-          result = parsePurposeResult(request.purpose, request.output_schema_id, JSON.parse(response.text));
+          structuralCandidate = JSON.parse(response.text);
+          result = parsePurposeResult(request.purpose, request.output_schema_id, structuralCandidate);
           if (request.purpose === "resume_strategy") result = canonicalizeStrategyResultFromBlocks(result, request.data_blocks);
           result = normalizeHostOwnedResult(request.purpose, result, request.data_blocks);
           if (["tailoring_plan", "targeted_resume_draft", "resume_revision_draft"].includes(request.purpose)) repair = "host_owned_structure";
@@ -230,6 +232,14 @@ export class ResumeInferenceBroker {
           result = parsePurposeResult(request.purpose, request.output_schema_id, fallback);
           validation = validateInferenceClaims(request.purpose, result, request.data_blocks);
           repair = "deterministic_strategy_fallback";
+        }
+      }
+      if (request.purpose === "resume_dialogue" && (result === undefined || validation === null)) {
+        const filtered = filterStructurallyInvalidDialogueResult(structuralCandidate);
+        if (filtered !== null) {
+          result = parsePurposeResult(request.purpose, request.output_schema_id, filtered);
+          validation = validateInferenceClaims(request.purpose, result, request.data_blocks);
+          repair = "deterministic_dialogue_structure_filter";
         }
       }
       if (response === null || result === undefined || validation === null) {
@@ -370,6 +380,26 @@ export class ResumeInferenceBroker {
     }
     return {};
   }
+}
+
+function filterStructurallyInvalidDialogueResult(result: unknown): unknown | null {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return null;
+  const dialogue = result as Record<string, unknown>;
+  const assistantMessage = typeof dialogue.assistant_message === "string" ? dialogue.assistant_message.trim() : "";
+  if (assistantMessage.length === 0 || assistantMessage.length > 4_096) return null;
+  const operations = Array.isArray(dialogue.fact_operations)
+    ? dialogue.fact_operations.slice(0, 8).flatMap((operation) => {
+      const parsed = ResumeDialogueFactOperationSchema.safeParse(operation);
+      return parsed.success ? [parsed.data] : [];
+    })
+    : [];
+  return {
+    dialogue_version: 1,
+    assistant_message: assistantMessage,
+    turn_disposition: operations.length > 0 ? "capture_and_continue" : "respond_only",
+    fact_operations: operations,
+    suggested_action: "none",
+  };
 }
 
 function filterInvalidDialogueFactOperations(result: unknown, dataBlocks: InferenceRequest["data_blocks"]): unknown | null {
