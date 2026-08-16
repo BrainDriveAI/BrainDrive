@@ -187,6 +187,42 @@ function dialogueRequestWithoutEmployment(currentUserMessage: string): z.infer<t
   return InferenceRequestSchema.parse(inferenceRequest);
 }
 
+function dialogueRequestWithEmployment(
+  currentUserMessage: string,
+  jobs: Array<{ revisionId: string; title: string; employer: string }>,
+): z.infer<typeof InferenceRequestSchema> {
+  const inferenceRequest = dialogueRequestWithoutEmployment(currentUserMessage);
+  const facts = {
+    facts: [FACTS[0]!, ...jobs.map((job) => ({
+      revision_id: job.revisionId,
+      fact_kind: "employment",
+      value: JSON.stringify({
+        format: "resume_job_v1",
+        title: job.title,
+        employer: job.employer,
+        location: "",
+        start_date: "",
+        end_date: "",
+        responsibilities: "",
+      }),
+      source_revision_ids: [randomUUID()],
+    }))],
+  };
+  inferenceRequest.data_blocks[0] = {
+    category: "confirmed_fact_snapshot",
+    content_digest: canonicalInputDigest(facts),
+    schema_id: "resume.confirmed-facts.v1",
+    schema_version: 1,
+    data: facts,
+  };
+  inferenceRequest.input_snapshot = {
+    fact_snapshot_revision: 1,
+    fact_snapshot_digest: canonicalInputDigest(facts.facts),
+    record_revision_ids: facts.facts.map((fact) => fact.revision_id),
+  };
+  return InferenceRequestSchema.parse(inferenceRequest);
+}
+
 function adapter(handler: (request: StructuredCompletionRequest, call: number) => Promise<string> | string) {
   let calls = 0;
   const captured: StructuredCompletionRequest[] = [];
@@ -381,6 +417,70 @@ describe("ResumeInferenceBroker", () => {
     expect(completion.inference).toMatchObject({
       status: "completed",
       result: { turn_disposition: "capture_and_continue", fact_operations: [skillOperation] },
+    });
+    expect(completion.validation?.accepted).toBe(true);
+  });
+
+  it("rebinds role evidence to one confirmed employment named exactly by the owner", async () => {
+    const current = "At Acme Labs I grew annual revenue by 40 percent.";
+    const operation = {
+      operation: "capture",
+      fact_kind: "job_evidence",
+      source_quote: "grew annual revenue by 40 percent",
+      text: "Grew annual revenue by 40 percent",
+      job_fact_revision_id: randomUUID(),
+      dimension: "outcomes",
+    };
+    const proposed = {
+      dialogue_version: 1,
+      assistant_message: "That is a useful, specific result. What else changed because of your work at Acme Labs?",
+      turn_disposition: "capture_and_continue",
+      fact_operations: [operation],
+      suggested_action: "none",
+      draft_action: null,
+    };
+    const model = adapter(() => JSON.stringify(proposed));
+    const completion = await new ResumeInferenceBroker(async () => provider(model.value)).execute(dialogueRequestWithEmployment(current, [
+      { revisionId: INTERVIEW_JOB_ID, title: "Product Lead", employer: "Acme Labs" },
+    ]));
+
+    expect(completion.inference).toMatchObject({
+      status: "completed",
+      attempt_count: 1,
+      result: {
+        fact_operations: [{ ...operation, job_fact_revision_id: INTERVIEW_JOB_ID }],
+      },
+    });
+    expect(completion.validation?.accepted).toBe(true);
+  });
+
+  it("does not rebind role evidence when owner wording matches more than one employment", async () => {
+    const current = "As Product Lead I grew annual revenue by 40 percent.";
+    const operation = {
+      operation: "capture",
+      fact_kind: "job_evidence",
+      source_quote: "grew annual revenue by 40 percent",
+      text: "Grew annual revenue by 40 percent",
+      job_fact_revision_id: randomUUID(),
+      dimension: "outcomes",
+    };
+    const model = adapter(() => JSON.stringify({
+      dialogue_version: 1,
+      assistant_message: "Which employer should I associate that result with?",
+      turn_disposition: "capture_and_continue",
+      fact_operations: [operation],
+      suggested_action: "none",
+      draft_action: null,
+    }));
+    const completion = await new ResumeInferenceBroker(async () => provider(model.value)).execute(dialogueRequestWithEmployment(current, [
+      { revisionId: INTERVIEW_JOB_ID, title: "Product Lead", employer: "Acme Labs" },
+      { revisionId: JOB_ID, title: "Product Lead", employer: "Northwind Partners" },
+    ]));
+
+    expect(completion.inference).toMatchObject({
+      status: "completed",
+      attempt_count: 1,
+      result: { fact_operations: [], turn_disposition: "respond_only" },
     });
     expect(completion.validation?.accepted).toBe(true);
   });

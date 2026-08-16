@@ -460,18 +460,23 @@ function mediateDialogueDisposition(
     normalizedDraftAction !== null,
     0,
   );
-  const acceptedOperations = operations.filter((operation) => validateInferenceClaims(
-    "resume_dialogue",
-    {
-      ...dialogue,
-      assistant_message: provisionalMessage,
-      fact_operations: [operation],
-      draft_action: null,
-      suggested_action: "none",
-      turn_disposition: "capture_and_continue",
-    },
-    dataBlocks,
-  ).accepted);
+  const acceptedOperations = operations.flatMap((operation) => {
+    const validateOperation = (candidate: unknown) => validateInferenceClaims(
+      "resume_dialogue",
+      {
+        ...dialogue,
+        assistant_message: provisionalMessage,
+        fact_operations: [candidate],
+        draft_action: null,
+        suggested_action: "none",
+        turn_disposition: "capture_and_continue",
+      },
+      dataBlocks,
+    ).accepted;
+    if (validateOperation(operation)) return [operation];
+    const rebound = rebindDialogueOperationToGroundedEmployment(operation, dataBlocks);
+    return rebound !== null && validateOperation(rebound) ? [rebound] : [];
+  });
   const acceptedDraftAction = normalizedDraftAction !== null && validateInferenceClaims(
     "resume_dialogue",
     {
@@ -508,6 +513,41 @@ function mediateDialogueDisposition(
     result: mediated,
     changed: canonicalInputDigest(mediated) !== canonicalInputDigest(result),
   };
+}
+
+function rebindDialogueOperationToGroundedEmployment(
+  operation: unknown,
+  dataBlocks: InferenceRequest["data_blocks"],
+): unknown | null {
+  const parsedOperation = ResumeDialogueFactOperationSchema.safeParse(operation);
+  if (!parsedOperation.success || !["job_evidence", "accomplishment"].includes(parsedOperation.data.fact_kind)) return null;
+  const context = dataBlocks.find((block) => block.category === "dialogue_context")?.data as {
+    current_user_message?: unknown;
+  } | undefined;
+  if (typeof context?.current_user_message !== "string") return null;
+  const ownerMessage = normalizeDialogueAssociationText(context.current_user_message);
+  const snapshot = dataBlocks.find((block) => block.category === "confirmed_fact_snapshot")?.data as {
+    facts?: Array<{ revision_id?: unknown; fact_kind?: unknown; value?: unknown }>;
+  } | undefined;
+  const candidates = (snapshot?.facts ?? []).flatMap((fact) => {
+    if (fact.fact_kind !== "employment" || typeof fact.revision_id !== "string" || typeof fact.value !== "string") return [];
+    try {
+      const value = JSON.parse(fact.value) as { format?: unknown; title?: unknown; employer?: unknown };
+      if (value.format !== "resume_job_v1" || typeof value.title !== "string" || typeof value.employer !== "string") return [];
+      const title = normalizeDialogueAssociationText(value.title);
+      const employer = normalizeDialogueAssociationText(value.employer);
+      if ((!title || !ownerMessage.includes(title)) && (!employer || !ownerMessage.includes(employer))) return [];
+      return [{ revisionId: fact.revision_id }];
+    } catch {
+      return [];
+    }
+  });
+  if (candidates.length !== 1) return null;
+  return { ...parsedOperation.data, job_fact_revision_id: candidates[0]!.revisionId };
+}
+
+function normalizeDialogueAssociationText(value: string): string {
+  return value.normalize("NFKC").toLocaleLowerCase("en-US").replace(/\s+/g, " ").trim();
 }
 
 function safeDialogueAssistantMessage(
