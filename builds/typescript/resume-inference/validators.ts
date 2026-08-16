@@ -173,7 +173,7 @@ function isExplicitDraftRequest(ownerMessage: string): boolean {
 }
 
 function isAcceptedDraftOffer(ownerMessage: string, precedingAssistantMessage: string): boolean {
-  return /^(?:no[,\s]*(?:that(?:'s| is) (?:everything|all)|nothing else)|that(?:'s| is) (?:everything|all)|yes|go ahead|please do|sounds good|i(?:'m| am) ready)[.!]?$/i.test(ownerMessage.trim())
+  return /^(?:no[,\s]*(?:that(?:'s| is) (?:everything|all)|nothing else)|that(?:'s| is) (?:everything|all)|yes|go ahead|please do|sounds good|i(?:'m| am) ready)(?:\s+i think)?[.!]?$/i.test(ownerMessage.trim())
     && /\b(?:draft|resume|start|generate|put (?:it|one) together|anything else|anything more)\b/i.test(precedingAssistantMessage);
 }
 

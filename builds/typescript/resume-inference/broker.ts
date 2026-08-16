@@ -196,6 +196,7 @@ export class ResumeInferenceBroker {
           result = parsePurposeResult(request.purpose, request.output_schema_id, structuralCandidate);
           if (request.purpose === "resume_strategy") result = canonicalizeStrategyResultFromBlocks(result, request.data_blocks);
           result = normalizeHostOwnedResult(request.purpose, result, request.data_blocks);
+          if (request.purpose === "resume_dialogue") result = normalizeProposedDialogueDraftAction(result, request.data_blocks);
           if (["tailoring_plan", "targeted_resume_draft", "resume_revision_draft"].includes(request.purpose)) repair = "host_owned_structure";
           validation = validateInferenceClaims(request.purpose, result, request.data_blocks);
           if (validation.accepted) {
@@ -272,6 +273,18 @@ export class ResumeInferenceBroker {
           }
         } catch {
           // The original deterministic rejection remains authoritative when the bounded fallback cannot produce a valid result.
+        }
+      }
+      if (!validation.accepted && request.purpose === "general_resume_draft" && resultCitesOnlySnapshotFacts(result, request.data_blocks)) {
+        const fallback = deterministicHostFallback(request.purpose, request.data_blocks);
+        if (fallback !== null) {
+          const fallbackResult = parsePurposeResult(request.purpose, request.output_schema_id, fallback);
+          const fallbackValidation = validateInferenceClaims(request.purpose, fallbackResult, request.data_blocks);
+          if (fallbackValidation.accepted) {
+            result = fallbackResult;
+            validation = fallbackValidation;
+            repair = "deterministic_fact_fallback";
+          }
         }
       }
       if (!validation.accepted) {
@@ -410,20 +423,78 @@ function filterInvalidDialogueFactOperations(result: unknown, dataBlocks: Infere
     fact_operations?: unknown[];
     suggested_action?: string;
     turn_disposition?: string;
+    draft_action?: unknown;
   };
-  if (!Array.isArray(dialogue.fact_operations) || dialogue.fact_operations.length === 0) return null;
-  const acceptedOperations = dialogue.fact_operations.filter((operation) => validateInferenceClaims(
+  const operations = Array.isArray(dialogue.fact_operations) ? dialogue.fact_operations : [];
+  const acceptedOperations = operations.filter((operation) => validateInferenceClaims(
     "resume_dialogue",
-    { ...dialogue, fact_operations: [operation] },
+    { ...dialogue, fact_operations: [operation], draft_action: null, suggested_action: "none" },
     dataBlocks,
   ).accepted);
-  if (acceptedOperations.length === dialogue.fact_operations.length) return null;
+  const normalizedDraftAction = normalizeDialogueDraftAction(dialogue.draft_action, dataBlocks);
+  const factOperationsChanged = acceptedOperations.length !== operations.length;
+  const draftActionChanged = normalizedDraftAction !== null
+    && canonicalInputDigest(normalizedDraftAction) !== canonicalInputDigest(dialogue.draft_action);
+  if (!factOperationsChanged && !draftActionChanged) return null;
   return {
     ...dialogue,
     fact_operations: acceptedOperations,
+    ...(draftActionChanged ? { draft_action: normalizedDraftAction } : {}),
     turn_disposition: acceptedOperations.length === 0 && dialogue.suggested_action !== "create_draft"
       ? "respond_only"
       : dialogue.turn_disposition,
+  };
+}
+
+function normalizeProposedDialogueDraftAction(result: unknown, dataBlocks: InferenceRequest["data_blocks"]): unknown {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return result;
+  const dialogue = result as { draft_action?: unknown };
+  const normalizedDraftAction = normalizeDialogueDraftAction(dialogue.draft_action, dataBlocks);
+  return normalizedDraftAction === null ? result : { ...dialogue, draft_action: normalizedDraftAction };
+}
+
+function resultCitesOnlySnapshotFacts(result: unknown, dataBlocks: InferenceRequest["data_blocks"]): boolean {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return false;
+  const snapshot = dataBlocks.find((block) => block.category === "confirmed_fact_snapshot")?.data as { facts?: Array<{ revision_id?: unknown }> } | undefined;
+  const allowed = new Set((snapshot?.facts ?? []).flatMap((fact) => typeof fact.revision_id === "string" ? [fact.revision_id] : []));
+  const statements = (result as { statements?: unknown }).statements;
+  if (!Array.isArray(statements)) return false;
+  return statements.every((statement) => {
+    if (!statement || typeof statement !== "object" || Array.isArray(statement)) return false;
+    const support = (statement as { supporting_confirmed_fact_revision_ids?: unknown }).supporting_confirmed_fact_revision_ids;
+    return Array.isArray(support) && support.every((revisionId) => typeof revisionId === "string" && allowed.has(revisionId));
+  });
+}
+
+function normalizeDialogueDraftAction(
+  value: unknown,
+  dataBlocks: InferenceRequest["data_blocks"],
+): { action: "create_general_draft"; intent: "explicit_request" | "accepted_offer"; source_quote: string } | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const action = value as { action?: unknown; intent?: unknown; source_quote?: unknown };
+  if (action.action !== "create_general_draft") return null;
+  const context = dataBlocks.find((block) => block.category === "dialogue_context")?.data as {
+    current_user_message?: unknown;
+    messages?: Array<{ role?: unknown; content?: unknown }>;
+  } | undefined;
+  const ownerMessage = typeof context?.current_user_message === "string" ? context.current_user_message : "";
+  const messages = context?.messages ?? [];
+  let precedingAssistantMessage = "";
+  for (let index = messages.length - 2; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role === "assistant" && typeof message.content === "string") {
+      precedingAssistantMessage = message.content;
+      break;
+    }
+  }
+  const explicitRequest = /\b(?:create|generate|write|start|make|show|build|put together)\b[^.!?]{0,100}\b(?:draft|resume)\b|\b(?:draft|resume)\b[^.!?]{0,100}\b(?:create|generate|write|start|make|show|build|put together)\b/i.test(ownerMessage);
+  const acceptedOffer = /^(?:no[,\s]*(?:that(?:'s| is) (?:everything|all)|nothing else)|that(?:'s| is) (?:everything|all)|yes|go ahead|please do|sounds good|i(?:'m| am) ready)(?:\s+i think)?[.!]?$/i.test(ownerMessage.trim())
+    && /\b(?:draft|resume|start|generate|put (?:it|one) together|anything else|anything more)\b/i.test(precedingAssistantMessage);
+  if (!explicitRequest && !acceptedOffer) return null;
+  return {
+    action: "create_general_draft",
+    intent: explicitRequest ? "explicit_request" : "accepted_offer",
+    source_quote: ownerMessage,
   };
 }
 

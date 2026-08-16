@@ -111,7 +111,7 @@ describe("deterministic claim gate", () => {
   });
 
   it("accepts a bounded draft proposal while deriving accepted-offer intent from the conversation", () => {
-    const current = "No, that's everything.";
+    const current = "no that's everything I think";
     const context = {
       dialogue_version: 1,
       messages: [

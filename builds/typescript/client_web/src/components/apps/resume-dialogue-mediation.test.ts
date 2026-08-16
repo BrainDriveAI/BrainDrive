@@ -36,6 +36,14 @@ describe("Resume Builder dialogue mediation", () => {
       draftAction: { action: "create_general_draft", intent: "explicit_request", source_quote: accepted },
     }, accepted, new Set(), [], "Would you like to add anything else, or should I start your draft?")).toMatchObject({ draftAction: { intent: "accepted_offer" } });
 
+    const naturalAccepted = "no that's everything I think";
+    expect(parseResumeDialogueCommitPayload({
+      messageId,
+      assistantMessage: "I can ask BrainDrive to start a fact-backed draft.",
+      factOperations: [],
+      draftAction: { action: "create_general_draft", intent: "explicit_request", source_quote: naturalAccepted },
+    }, naturalAccepted, new Set(), [], "Would you like to add anything else, or should I start your draft?")).toMatchObject({ draftAction: { intent: "accepted_offer", source_quote: naturalAccepted } });
+
     expect(parseResumeDialogueCommitPayload({
       messageId,
       assistantMessage: "What would you like to discuss next?",

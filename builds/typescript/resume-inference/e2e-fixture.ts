@@ -96,7 +96,7 @@ export function synthesizeResumeE2eResult(purpose: InferencePurpose, blocks: Dat
         };
       }
       const explicitDraft = /\b(?:create|generate|write|start|make|show|build|put together)\b[^.!?]{0,80}\b(?:draft|resume)\b|\b(?:draft|resume)\b[^.!?]{0,80}\b(?:create|generate|write|start|make|show|build|put together)\b/i.test(current);
-      const acceptedOffer = /^(?:no[,\s]*(?:that(?:'s| is) (?:everything|all)|nothing else)|that(?:'s| is) (?:everything|all)|yes|go ahead|please do|sounds good|i(?:'m| am) ready)[.!]?$/i.test(current)
+      const acceptedOffer = /^(?:no[,\s]*(?:that(?:['’]s| is) (?:everything|all)|nothing else)|that(?:['’]s| is) (?:everything|all)|yes|go ahead|please do|sounds good|i(?:['’]m| am) ready)(?:\s+i think)?[.!]?$/i.test(current)
         && /\b(?:draft|resume|start|generate|put (?:it|one) together|anything else)\b/i.test(precedingAssistant);
       if (explicitDraft || acceptedOffer) {
         return {

@@ -48,6 +48,12 @@ Sandbox actions keep bearer authority entirely in the host session. App-server a
 
 Inference tokens use only the `app_inference` audience and the exact inference capability. The [M5 adapter](../../app-inference/README.md) validates the versioned invocation, clamps its budget to the accepted purpose ceiling, constructs the frozen protected request with `tools: false` and fallback disabled, and then invokes the existing Spec 03 broker. Safe progress/terminal events, usage availability, validation findings, and a model class cross the app boundary; provider/model IDs, credentials, secret references, endpoints, policy messages, immutable context, and raw provider bodies do not. Configuration recovery opens the existing BrainDrive Settings modal and adds no app-owned selector. For Milestone 6 revision transitions, the trusted host—not the sandbox—issues the distinct factual/mixed pre-generation confirmation and the Accept, owner Edit, Reject, or Regenerate outcome confirmation. Definition approval remains a later, separate host action.
 
+### Resume conversation mediation
+
+Resume Builder reuses the trusted web client's native message list and composer as its sole ordinary intake surface. The sandbox publishes a bounded conversation projection—visible messages, busy/input state, compact review facts, and explicit correction actions—through `chat.sync`; it does not render a second intake form or receive host DOM authority. Each owner reply is sent to one `resume_dialogue` inference contract whose result contains natural assistant text, schema-bound fact proposals, and an optional draft-intent proposal. The host mediator independently validates the exact current owner message, quoted evidence, schema, employment association, duplicates, and draft readiness before persisting anything. Clarifications and digressions can therefore remain model-led while durable fact, provenance, editing, lifecycle, approval, export, and permission authority stay in the host.
+
+Ordinary accepted facts appear quietly in the always-visible compact review rail. Full evidence and resume workflow surfaces require a deliberate Review action. The host alone emits draft-start and draft-ready states after accepting current owner intent and completing the durable writes; model text cannot claim those actions. Invalid proposals, ungrounded associations, provider/auth/policy failures, and rejected draft intent fail closed without trusted writes. The sandbox requests a model opening only for a genuinely empty durable conversation; reconnecting views render history and a ready composer without synthesizing another turn.
+
 ## Owner routes and web surface
 
 When `BRAINDRIVE_APP_PLATFORM_ENABLED=true`, the existing owner-administration lifecycle routes are joined by one app-parameterized family used by the reviewed Resume Builder and Brief Builder registrations:
@@ -74,7 +80,10 @@ npm run web:test -- --run src/mcp-apps src/components/apps/SandboxedAppFrame.tes
 npm run web:typecheck
 npm run web:build
 npm run test -- app-platform/mcp-host/app-view-registry.test.ts app-platform/mcp-host/parity-normalizer.test.ts app-platform/mcp-host/live-fixture.integration.test.ts
+npm run resume:eval
 ```
+
+`resume:eval` combines the dialogue-schema and host-safety checks, native-chat mediation tests, sandbox resource contract, and a disposable browser journey through draft creation and deliberate review. Set `BRAINDRIVE_RESUME_EVAL_LIVE=1` only in an owner-configured environment to add the credential-bearing provider conformance case. The fixture journey is not a substitute for at least one visible controlled live-provider interview before dogfood handoff.
 
 The M4 evidence and frozen scope/token matrix are recorded in [`app-capabilities/SPEC-05-M4-VERIFICATION.md`](../../app-capabilities/SPEC-05-M4-VERIFICATION.md).
 

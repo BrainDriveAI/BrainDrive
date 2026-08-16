@@ -6,6 +6,16 @@ The trusted host validates every proposed operation against the strict dialogue 
 
 The resource uses only the MCP Apps bridge. A zero-data launch requests a genuine model welcome and first question; returning owners resume from durable visible turns. Clarifications and digressions are sent through the same dialogue contract as factual answers. The compact rail stays visible and honest when empty, while the complete ledger and resume workspace remain behind a deliberate full-review action. Existing coverage, strategy, tailoring, revision, quality review, approval, rendering, and artifact-lineage services remain host-owned and unchanged.
 
+## Conversation product contract
+
+The native BrainDrive message thread and composer are the sole primary intake surface. `resume_dialogue` is one bounded model contract: natural assistant text, zero or more schema-bound fact proposals, and an optional draft-intent proposal. One host mediator validates that result and is the only component allowed to persist facts or start consequential work. The model may handle clarification, scope questions, corrections, and digressions naturally, but it never receives durable-write, approval, export, permission, provider-selection, or filesystem authority.
+
+The host is the system of record for exact owner quotes, provenance, schema validity, employment association, duplicate handling, edits, permissions, strategy, draft lifecycle, approval, and export. Ordinary valid captures appear quietly in the compact right rail and remain directly editable. Explicit confirmation is reserved for material ambiguity, corrections that change trusted meaning, approval, and export. The main chat has no Pause or uncertainty buttons, interview checklist, progress counters, or structured employment form. A structured editor is a deliberate fallback only when natural language cannot establish a safe association.
+
+The rail remains visible on first launch and describes its empty state honestly. It is not a progress dashboard. Full evidence, correction history, planning, and resume versions open only through deliberate Review. Draft progress is host-authored: the assistant may propose an action, but no generation claim appears until the mediator accepts exact current owner intent and readiness. Provider/auth/policy/schema failures preserve the conversation and trusted data, then expose a clear retry or settings recovery. The fact-only draft fallback may run only from the immutable confirmed snapshot and persisted strategy, never from foreign or unlinked model citations.
+
+Returning sessions do not ask the model to invent an opening continuation from an old assistant turn. They display durable history and leave the composer ready; only a genuinely empty thread requests a model welcome.
+
 Before general generation, the resource creates and persists one current strategy, then shows its owner-readable history shape, section order, optional-summary choice, role emphasis/density, must-use count, omissions, and unresolved-gap count. Correct-information and reopen controls return to the existing fact/coverage paths; Refresh plan reruns the bounded strategy purpose. This inspection is not a fact confirmation or approval. General generation then binds the exact strategy, fact/coverage heads, prompt and quality policy identities, and the same opaque provider/model IDs. Provider failure or identity drift writes no definition.
 
 Before approval, the resource requests and persists a score-free C1–C7/T1–T3 product craft report over the current proposal and its exact strategy/target context. The surface renders the domain's typed state, copy, findings, and allowed actions without translating a raw verdict. Blocking findings precede secondary guidance. Run review, bounded repair, add evidence, manual revision, owner approval, prior-version retention, and exit remain separate controls; only `product_craft_passed` exposes approval. The repaired successor is never auto-approved and must be reviewed again. Missing, stale, failing, incomplete, and evidence-limited review states cannot create ordinary owner approval.
@@ -16,7 +26,7 @@ Spec 07 Milestone 5 returns the host-produced Career summary v2 after approval. 
 
 Spec 07 Milestone 6 separates that independent review from the one final owner approval. The proposal surface consolidates current evidence coverage, strategy, target-fit, craft findings, intentional omissions, and unresolved uncertainty without a score or prediction. Preview consumes a strict host parity result and disables only representations that failed independent reconstruction; verified clean text remains selectable when safe and the approved source stays unchanged. Host dialogs expose screen-reader names/descriptions, initial focus, Tab containment, Escape cancellation, and focus restoration. Semantic interaction diagnostics require zero redundant confirmations, zero non-fact dialogs, at most one grouped fact confirmation per submission, and one final approval. The numeric release threshold remains blocked on `RB7-OQ-2`; this implementation does not invent one.
 
-Spec 06 Milestone 2 enables acknowledged exact-slot recovery only. The resource waits 1.5 seconds after editing, flushes on submit/Pause/Continue, and displays `Saved` only for the host-acknowledged digest. Relaunch restores the exact session/job/question/field value, saved time, and input focus. Response loss is reconciled by deterministic operation lookup; failure and CAS conflict preserve local text and expose Retry, use-local, use-saved, and draft-only Discard controls. Browser storage is not used. Draft content remains outside fact provenance and inference until submit atomically clears it and links the visible turn.
+Spec 06 Milestone 2 exact-slot recovery remains available inside the deliberate supporting workspace. The primary chat has no Pause/Continue controls. Supporting edits display `Saved` only for the host-acknowledged digest; response loss and CAS conflict preserve local text and expose bounded recovery controls. Browser storage is not used, and unsent content remains outside fact provenance.
 
 Version 4.0.0 now activates the Spec 06 Milestone 4 remembered-detail flow in addition to the Milestone 3 job-evidence interview. A returning owner can select a saved job, use an exact job-label match, choose general career context, or correct a saved fact. Ambiguous and missing matches write nothing. Exact duplicate information records the owner action without a second confirmation or regenerated resume. Confirmed changes generate one proposed general successor from the exact current fact snapshot; failure keeps the fact and approved source safe for retry.
 
@@ -30,7 +40,7 @@ Spec 06 Milestone 7 makes clean text the always-available approved-resume recove
 
 After a general resume is approved, BrainDrive exposes the latest approved version in Career as the read-only `General Resume` Markdown document. This uses the gateway's generic app-published document provider, not Resume Builder-specific Career UI. The host derives and refreshes the document path/content from the authoritative approved definition; the sandbox receives no project filesystem access and drafts cannot replace the published version.
 
-The interview asks for contact details, direction, jobs with associated accomplishments, education, credentials, skills, projects, leadership or volunteering, and professional links. Owners may skip any topic and revisit skipped topics from review. Follow-ups help identify outcomes without requiring metrics and never invent information. Approval refreshes the authoritative workspace and opens Preview; Preview remains available for an approved definition and History remains available whenever a definition exists.
+The dialogue chooses the next useful question from the visible conversation and confirmed state; it does not march through a scripted topic form. It can cover contact details, direction, employment, role-linked evidence, education, credentials, skills, projects, leadership, volunteering, and links as relevant. Owners can defer or express uncertainty in natural language. Follow-ups may seek useful outcomes without requiring metrics and never invent information. The deliberate Review workspace remains the place to inspect gaps, correct facts, and access later approval, preview, export, and history paths.
 
 It intentionally has no independent provider adapter, credential access, owner filesystem authority, production lifecycle process, Docker service, or desktop sidecar. Provider execution stays inside BrainDrive's host broker. `RUNTIME_ENABLED` remains `false` for this package process, and it exposes no `start`, `dev`, or execution script; the installed signed fixture runtime is supervised by the app platform.
 
@@ -40,3 +50,17 @@ Commands:
 npm run test
 npm run build
 ```
+
+Before a dogfood handoff, run the combined deterministic, host, resource, and isolated-browser evaluation from `builds/typescript`:
+
+```bash
+npm run resume:eval
+```
+
+When an owner credential is configured in that environment, add the controlled live-provider conformance gate:
+
+```bash
+BRAINDRIVE_RESUME_EVAL_LIVE=1 npm run resume:eval
+```
+
+Synthetic fixtures prove workflow and safety only. At least one controlled live-provider interview through visible draft/review is required before asking an owner to test a new dialogue build.

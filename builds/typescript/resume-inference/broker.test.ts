@@ -414,6 +414,77 @@ describe("ResumeInferenceBroker", () => {
     expect(completion.validation?.accepted).toBe(true);
   });
 
+  it("rebinds a proposed draft action to the exact natural owner acceptance", async () => {
+    const current = "no that's everything I think";
+    const inferenceRequest = dialogueRequestWithoutEmployment(current);
+    const context = {
+      dialogue_version: 1,
+      messages: [
+        { role: "assistant", content: "Would you like to add anything else, or should I start your draft?" },
+        { role: "user", content: current },
+      ],
+      current_user_message: current,
+      requested_mode: "intake",
+    };
+    inferenceRequest.data_blocks[1] = { category: "dialogue_context", content_digest: canonicalInputDigest(context), schema_id: "resume.dialogue-context.v1", schema_version: 1, data: context };
+    const proposed = {
+      dialogue_version: 1,
+      assistant_message: "I can ask BrainDrive to start the draft now.",
+      turn_disposition: "offer_draft",
+      fact_operations: [],
+      suggested_action: "create_draft",
+      draft_action: { action: "create_general_draft", intent: "explicit_request", source_quote: "No, that's everything I think." },
+    };
+    const model = adapter(() => JSON.stringify(proposed));
+    const completion = await new ResumeInferenceBroker(async () => provider(model.value)).execute(InferenceRequestSchema.parse(inferenceRequest));
+
+    expect(completion.inference).toMatchObject({
+      status: "completed",
+      result: { draft_action: { action: "create_general_draft", intent: "accepted_offer", source_quote: current } },
+    });
+    expect(completion.validation?.accepted).toBe(true);
+    expect(completion.inference.attempt_count).toBe(1);
+  });
+
+  it("preserves valid facts while independently normalizing a draft action", async () => {
+    const current = "I use Tableau; create my resume draft";
+    const inferenceRequest = dialogueRequestWithoutEmployment(current);
+    const context = {
+      dialogue_version: 1,
+      messages: [
+        { role: "assistant", content: "Tell me any final skill, then I can start your resume draft." },
+        { role: "user", content: current },
+      ],
+      current_user_message: current,
+      requested_mode: "intake",
+    };
+    inferenceRequest.data_blocks[1] = { category: "dialogue_context", content_digest: canonicalInputDigest(context), schema_id: "resume.dialogue-context.v1", schema_version: 1, data: context };
+    const proposed = {
+      dialogue_version: 1,
+      assistant_message: "I captured that skill and can ask BrainDrive to start the draft.",
+      turn_disposition: "capture_and_continue",
+      fact_operations: [{
+        operation: "capture",
+        fact_kind: "skill",
+        value: "Tableau",
+        source_quote: "Tableau",
+      }],
+      suggested_action: "create_draft",
+      draft_action: { action: "create_general_draft", intent: "accepted_offer", source_quote: "Create my resume draft." },
+    };
+    const model = adapter(() => JSON.stringify(proposed));
+    const completion = await new ResumeInferenceBroker(async () => provider(model.value)).execute(InferenceRequestSchema.parse(inferenceRequest));
+
+    expect(completion.inference).toMatchObject({
+      status: "completed",
+      result: {
+        fact_operations: proposed.fact_operations,
+        draft_action: { action: "create_general_draft", intent: "explicit_request", source_quote: current },
+      },
+    });
+    expect(completion.validation?.accepted).toBe(true);
+  });
+
   it("keeps the conversation while dropping a structurally invalid role operation", async () => {
     const malformed = {
       dialogue_version: 1,
@@ -462,6 +533,26 @@ describe("ResumeInferenceBroker", () => {
     expect(validationModel.calls()).toBe(2);
     expect(events.at(-1)?.details).toMatchObject({ repair: "deterministic_fact_fallback" });
     expect(JSON.stringify(events)).not.toContain("Built product");
+  });
+
+  it("falls back to a complete fact-backed draft when bounded repair cannot satisfy draft structure", async () => {
+    const incomplete = {
+      ...outputs.general_resume_draft as object,
+      statements: [{
+        statement_id: randomUUID(),
+        section_id: "summary",
+        kind: "factual",
+        text: "Invented executive claim",
+        supporting_confirmed_fact_revision_ids: [FACT_ID],
+      }],
+      section_order: ["summary"],
+    };
+    const model = adapter(() => JSON.stringify(incomplete));
+    const completion = await new ResumeInferenceBroker(async () => provider(model.value)).execute(request("general_resume_draft"));
+
+    expect(completion.inference).toMatchObject({ status: "completed", result: { title: "Resume" } });
+    expect(completion.validation?.accepted).toBe(true);
+    expect(completion.inference.result).not.toEqual(incomplete);
   });
 
   it("remains fail-closed when cited support cannot be repaired from the immutable snapshot", async () => {
