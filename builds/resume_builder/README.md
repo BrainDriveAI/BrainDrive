@@ -63,4 +63,6 @@ When an owner credential is configured in that environment, add the controlled l
 BRAINDRIVE_RESUME_EVAL_LIVE=1 npm run resume:eval
 ```
 
+For a controlled browser journey against an already running Docker development app, provide the disposable local test login through `BRAINDRIVE_E2E_IDENTIFIER` and `BRAINDRIVE_E2E_PASSWORD`, set `BRAINDRIVE_E2E_BASE_URL`, and run with `BRAINDRIVE_RESUME_EVAL_LIVE_BROWSER=1`. The browser gate uses the configured provider and must reach an actual draft and deliberate review; it is opt-in so ordinary test runs never consume owner credentials or provider capacity.
+
 Synthetic fixtures prove workflow and safety only. At least one controlled live-provider interview through visible draft/review is required before asking an owner to test a new dialogue build.

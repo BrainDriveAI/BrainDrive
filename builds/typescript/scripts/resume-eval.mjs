@@ -36,6 +36,15 @@ if (process.env.BRAINDRIVE_RESUME_EVAL_LIVE === "1") {
   });
 }
 
+if (process.env.BRAINDRIVE_RESUME_EVAL_LIVE_BROWSER === "1") {
+  steps.push({
+    name: "live-provider browser journey",
+    command: "./client_web/node_modules/.bin/playwright",
+    args: ["test", "--config=client_web/playwright.config.ts", "--project=desktop-chrome", "client_web/e2e/resume-builder-live-provider.spec.ts"],
+    env: { BRAINDRIVE_E2E_BROWSER_ACCESS: "1" },
+  });
+}
+
 const results = [];
 for (const step of steps) {
   process.stdout.write(`\n[resume-eval] ${step.name}\n`);
@@ -56,5 +65,6 @@ for (const step of remaining) process.stdout.write(`SKIP  ${step.name}\n`);
 
 const failed = results.some((result) => !result.passed);
 const ranLive = steps.some((step) => step.name === "live-provider conformance");
-process.stdout.write(`LIVE  ${ranLive ? "requested" : "not requested (set BRAINDRIVE_RESUME_EVAL_LIVE=1 when an owner credential is available)"}\n`);
+const ranLiveBrowser = steps.some((step) => step.name === "live-provider browser journey");
+process.stdout.write(`LIVE  ${ranLive ? "conformance requested" : "conformance not requested"}; ${ranLiveBrowser ? "browser journey requested" : "browser journey not requested"}\n`);
 if (failed) process.exitCode = 1;
