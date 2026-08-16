@@ -465,7 +465,7 @@ function mediateDialogueDisposition(
     normalizedDraftAction !== null,
     0,
   );
-  const acceptedOperations = operations.flatMap((operation) => {
+  const acceptedModelOperations = operations.flatMap((operation) => {
     const validateOperation = (candidate: unknown) => validateInferenceClaims(
       "resume_dialogue",
       {
@@ -482,6 +482,15 @@ function mediateDialogueDisposition(
     const rebound = rebindDialogueOperationToGroundedEmployment(operation, dataBlocks);
     return rebound !== null && validateOperation(rebound) ? [rebound] : [];
   });
+  const groundedHostEvidence = acceptedModelOperations.some((operation) => {
+    const candidate = operation as { fact_kind?: unknown; job_fact_revision_id?: unknown };
+    return ["job_evidence", "accomplishment"].includes(String(candidate.fact_kind)) && typeof candidate.job_fact_revision_id === "string";
+  })
+    ? null
+    : groundedOwnerEvidenceOperation(dataBlocks);
+  const acceptedOperations = groundedHostEvidence === null
+    ? acceptedModelOperations
+    : [...acceptedModelOperations, groundedHostEvidence];
   const acceptedDraftAction = normalizedDraftAction !== null && validateInferenceClaims(
     "resume_dialogue",
     {
@@ -542,7 +551,51 @@ function rebindDialogueOperationToGroundedEmployment(
     current_user_message?: unknown;
   } | undefined;
   if (typeof context?.current_user_message !== "string") return null;
-  const ownerMessage = normalizeDialogueAssociationText(context.current_user_message);
+  const revisionId = groundedEmploymentRevisionId(context.current_user_message, dataBlocks);
+  if (revisionId === null) return null;
+  const rebound = ResumeDialogueFactOperationSchema.safeParse({ ...candidate, job_fact_revision_id: revisionId });
+  return rebound.success ? rebound.data : null;
+}
+
+function groundedOwnerEvidenceOperation(dataBlocks: InferenceRequest["data_blocks"]): unknown | null {
+  const context = dataBlocks.find((block) => block.category === "dialogue_context")?.data as {
+    current_user_message?: unknown;
+  } | undefined;
+  if (typeof context?.current_user_message !== "string") return null;
+  const ownerText = context.current_user_message.trim();
+  const normalized = normalizeDialogueAssociationText(ownerText);
+  const isQuestion = /^(?:do|does|did|should|would|could|can|what|which|who|why|how|when|where|is|are|am|was|were)\b/.test(normalized)
+    && normalized.endsWith("?");
+  const containsConcreteEvidence = /\b(?!(?:19|20)\d{2}\b)\d+(?:[.,]\d+)?\s*(?:%|percent|people|employees|members|reports|users|customers|clients|partners|million|billion|thousand|k|m|b)?\b/i.test(ownerText)
+    || /\b(?:grew|increased|reduced|decreased|improved|expanded|generated|saved|delivered|launched|built|created|led|managed|hired|scaled|won|earned|recognized|awarded|partnered)\b/i.test(ownerText);
+  if (isQuestion || !containsConcreteEvidence) return null;
+  const revisionId = groundedEmploymentRevisionId(ownerText, dataBlocks);
+  if (revisionId === null) return null;
+  const operation = ResumeDialogueFactOperationSchema.safeParse({
+    operation: "capture",
+    fact_kind: "job_evidence",
+    source_quote: ownerText,
+    text: ownerText,
+    job_fact_revision_id: revisionId,
+    dimension: "outcomes",
+  });
+  if (!operation.success) return null;
+  const validation = validateInferenceClaims("resume_dialogue", {
+    dialogue_version: 1,
+    assistant_message: "I heard that. What would you like to cover next about your experience?",
+    turn_disposition: "capture_and_continue",
+    fact_operations: [operation.data],
+    suggested_action: "none",
+    draft_action: null,
+  }, dataBlocks);
+  return validation.accepted ? operation.data : null;
+}
+
+function groundedEmploymentRevisionId(
+  ownerText: string,
+  dataBlocks: InferenceRequest["data_blocks"],
+): string | null {
+  const ownerMessage = normalizeDialogueAssociationText(ownerText);
   const snapshot = dataBlocks.find((block) => block.category === "confirmed_fact_snapshot")?.data as {
     facts?: Array<{ revision_id?: unknown; fact_kind?: unknown; value?: unknown }>;
   } | undefined;
@@ -559,9 +612,7 @@ function rebindDialogueOperationToGroundedEmployment(
       return [];
     }
   });
-  if (candidates.length !== 1) return null;
-  const rebound = ResumeDialogueFactOperationSchema.safeParse({ ...candidate, job_fact_revision_id: candidates[0]!.revisionId });
-  return rebound.success ? rebound.data : null;
+  return candidates.length === 1 ? candidates[0]!.revisionId : null;
 }
 
 function normalizeDialogueAssociationText(value: string): string {

@@ -493,6 +493,59 @@ describe("ResumeInferenceBroker", () => {
     expect(completion.validation?.accepted).toBe(true);
   });
 
+  it("preserves exact grounded owner evidence when the model omits fact operations", async () => {
+    const current = "At Acme Labs I grew annual revenue by 40 percent and led a team of 12.";
+    const model = adapter(() => JSON.stringify({
+      dialogue_version: 1,
+      assistant_message: "That shows meaningful scale. What is another result you are proud of?",
+      turn_disposition: "respond_only",
+      fact_operations: [],
+      suggested_action: "none",
+      draft_action: null,
+    }));
+    const completion = await new ResumeInferenceBroker(async () => provider(model.value)).execute(dialogueRequestWithEmployment(current, [
+      { revisionId: INTERVIEW_JOB_ID, title: "Product Lead", employer: "Acme Labs" },
+    ]));
+
+    expect(completion.inference).toMatchObject({
+      status: "completed",
+      attempt_count: 1,
+      result: {
+        turn_disposition: "capture_and_continue",
+        fact_operations: [{
+          operation: "capture",
+          fact_kind: "job_evidence",
+          source_quote: current,
+          text: current,
+          job_fact_revision_id: INTERVIEW_JOB_ID,
+          dimension: "outcomes",
+        }],
+      },
+    });
+    expect(completion.validation?.accepted).toBe(true);
+  });
+
+  it("does not turn a role clarification into host-grounded evidence", async () => {
+    const current = "At Acme Labs, do you want all of my responsibilities or just the biggest results?";
+    const model = adapter(() => JSON.stringify({
+      dialogue_version: 1,
+      assistant_message: "Start with the biggest results, and we can add responsibilities that give them context.",
+      turn_disposition: "respond_only",
+      fact_operations: [],
+      suggested_action: "none",
+      draft_action: null,
+    }));
+    const completion = await new ResumeInferenceBroker(async () => provider(model.value)).execute(dialogueRequestWithEmployment(current, [
+      { revisionId: INTERVIEW_JOB_ID, title: "Product Lead", employer: "Acme Labs" },
+    ]));
+
+    expect(completion.inference).toMatchObject({
+      status: "completed",
+      result: { turn_disposition: "respond_only", fact_operations: [] },
+    });
+    expect(completion.validation?.accepted).toBe(true);
+  });
+
   it("does not rebind role evidence when owner wording matches more than one employment", async () => {
     const current = "As Product Lead I grew annual revenue by 40 percent.";
     const operation = {
