@@ -33,7 +33,7 @@ import { createLiveProviderResolver, ModelCompatibilityRegistry, VERSIONED_MODEL
 import { createResumeE2eFixtureProviderResolver } from "../resume-inference/e2e-fixture.js";
 import { ImmutableInferenceSnapshotBuilder } from "../resume-inference/snapshot.js";
 import { ResumeExportBroker } from "../resume-renderer/export-broker.js";
-import { buildResumeBuilderChatContext, ensureResumeWorkspace, readResumeWorkspaceDocument, renderResumeFromProfile } from "./resume-workspace.js";
+import { buildResumeBuilderChatContext, ensureResumeWorkspace, readResumeWorkspaceDocument, renderResumeFromProfile, updateResumeWorkspaceDocument } from "./resume-workspace.js";
 
 import { createGatewayAdapter } from "../adapters/gateway.js";
 import {
@@ -2056,11 +2056,23 @@ export async function buildServer(rootDir = process.cwd()) {
   app.get("/apps/resume-builder/workspace/:document", async (request, reply) => {
     authorize(request.authContext, "memory_access");
     const document = (request.params as { document?: string }).document;
-    if (document !== "profile" && document !== "resume") {
+    if (document !== "agent" && document !== "interview" && document !== "profile" && document !== "resume") {
       reply.code(404).send({ error: "Resume Builder document not found" });
       return;
     }
     return { content: await readResumeWorkspaceDocument(runtimeConfig.memory_root, document) };
+  });
+
+  app.put("/apps/resume-builder/workspace/:document", async (request, reply) => {
+    authorize(request.authContext, "memory_access");
+    const document = (request.params as { document?: string }).document;
+    const content = (request.body as { content?: unknown } | undefined)?.content;
+    if ((document !== "agent" && document !== "interview" && document !== "profile") || typeof content !== "string") {
+      reply.code(400).send({ error: "Invalid Resume Builder document update" });
+      return;
+    }
+    await updateResumeWorkspaceDocument(runtimeConfig.memory_root, document, content);
+    return { ok: true };
   });
 
   app.post("/apps/resume-builder/workspace/render", async (request, reply) => {

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, FileText, MessageSquare, Sparkles } from "lucide-react";
+import { ArrowLeft, FileText, MessageSquare, Pencil, Save, Settings2, Sparkles } from "lucide-react";
 
 import { authenticatedFetch } from "@/api/auth-adapter";
 import { GATEWAY_BASE_URL } from "@/api/gateway-adapter";
 import ChatPanel from "@/components/chat/ChatPanel";
 
-type ResumeView = "chat" | "profile" | "resume";
+type ResumeDocument = "agent" | "interview" | "profile" | "resume";
+type ResumeView = "chat" | ResumeDocument;
 
 type ResumeBlock =
   | { kind: "heading"; level: 1 | 2 | 3; text: string }
@@ -50,10 +51,17 @@ function ResumePreview({ content }: { content: string }) {
   </article>;
 }
 
-async function readWorkspaceDocument(document: "profile" | "resume"): Promise<string> {
+async function readWorkspaceDocument(document: ResumeDocument): Promise<string> {
   const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/apps/resume-builder/workspace/${document}`);
   if (!response.ok) throw new Error("Could not load this Resume Builder document.");
   return ((await response.json()) as { content: string }).content;
+}
+
+async function updateWorkspaceDocument(document: Exclude<ResumeDocument, "resume">, content: string): Promise<void> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/apps/resume-builder/workspace/${document}`, {
+    method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ content }),
+  });
+  if (!response.ok) throw new Error("Could not save this Resume Builder document.");
 }
 
 async function renderResume(): Promise<string> {
@@ -71,9 +79,13 @@ export default function ResumeBuilderNativeApp({ onClose, onOpenSettings }: { on
   const [documentContent, setDocumentContent] = useState<string>("");
   const [documentError, setDocumentError] = useState<string | null>(null);
   const [isRendering, setIsRendering] = useState(false);
+  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [draftContent, setDraftContent] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
 
-  const showDocument = useCallback(async (next: "profile" | "resume") => {
-    setView(next); setDocumentError(null); setDocumentContent("");
+  const showDocument = useCallback(async (next: ResumeDocument) => {
+    setView(next); setDocumentError(null); setDocumentContent(""); setIsEditing(false);
     try { setDocumentContent(await readWorkspaceDocument(next)); }
     catch (error) { setDocumentError(error instanceof Error ? error.message : "Could not load this document."); }
   }, []);
@@ -92,15 +104,38 @@ export default function ResumeBuilderNativeApp({ onClose, onOpenSettings }: { on
     finally { setIsRendering(false); }
   };
 
+  const saveDocument = async () => {
+    if (view === "chat" || view === "resume") return;
+    setIsSaving(true); setDocumentError(null);
+    try { await updateWorkspaceDocument(view, draftContent); setDocumentContent(draftContent); setIsEditing(false); }
+    catch (error) { setDocumentError(error instanceof Error ? error.message : "Could not save this document."); }
+    finally { setIsSaving(false); }
+  };
+
+  const selectView = (next: ResumeView) => {
+    if (next === "chat") { setView("chat"); setIsEditing(false); return; }
+    void showDocument(next);
+  };
+
+  const Navigation = () => <aside className="w-56 shrink-0 border-r border-bd-border bg-bd-bg-secondary px-3 py-4" aria-label="Resume Builder workspace">
+    <p className="px-2 text-xs font-medium uppercase tracking-[0.14em] text-bd-text-muted">Resume Builder</p>
+    <div className="mt-2 space-y-1">
+      <button type="button" onClick={() => selectView("chat")} className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm ${view === "chat" ? "bg-bd-bg-hover text-bd-text-heading" : "text-bd-text-secondary hover:bg-bd-bg-hover"}`}><MessageSquare size={15} />Conversation</button>
+      <button type="button" onClick={() => selectView("profile")} className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm ${view === "profile" ? "bg-bd-bg-hover text-bd-text-heading" : "text-bd-text-secondary hover:bg-bd-bg-hover"}`}><Sparkles size={15} />Your Resume Profile</button>
+      <button type="button" onClick={() => selectView("resume")} className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm ${view === "resume" ? "bg-bd-bg-hover text-bd-text-heading" : "text-bd-text-secondary hover:bg-bd-bg-hover"}`}><FileText size={15} />Your Resume</button>
+    </div>
+    <button type="button" onClick={() => setIsAdvancedOpen((value) => !value)} className="mt-5 flex w-full items-center justify-between rounded-md px-2 py-2 text-xs text-bd-text-muted hover:bg-bd-bg-hover"><span>{isAdvancedOpen ? "Hide advanced" : "Show advanced"}</span><Settings2 size={14} /></button>
+    {isAdvancedOpen ? <div className="space-y-1 border-l border-bd-border pl-2"><p className="px-2 pt-2 text-[10px] font-medium uppercase tracking-[0.14em] text-bd-text-muted">Advanced</p>
+      <button type="button" onClick={() => selectView("agent")} className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm ${view === "agent" ? "bg-bd-bg-hover text-bd-text-heading" : "text-bd-text-secondary hover:bg-bd-bg-hover"}`}><FileText size={14} />Agent Instructions</button>
+      <button type="button" onClick={() => selectView("interview")} className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm ${view === "interview" ? "bg-bd-bg-hover text-bd-text-heading" : "text-bd-text-secondary hover:bg-bd-bg-hover"}`}><FileText size={14} />Interview Guide</button>
+    </div> : null}
+  </aside>;
+
   return <div className="flex min-h-0 flex-1 flex-col bg-bd-bg-chat" data-testid="resume-builder-native-app">
     <header className="flex items-center justify-between border-b border-bd-border bg-bd-bg-secondary px-4 py-3 sm:px-6">
       <div className="flex items-center gap-3"><button type="button" onClick={onClose} aria-label="Back to Apps" className="rounded-md p-2 text-bd-text-secondary hover:bg-bd-bg-hover"><ArrowLeft size={18} /></button><div><p className="text-xs uppercase tracking-[0.14em] text-bd-text-muted">BrainDrive</p><h1 className="font-heading text-base font-semibold text-bd-text-heading">Resume Builder</h1></div></div>
-      <nav className="flex items-center gap-1" aria-label="Resume Builder sections">
-        <button type="button" onClick={() => setView("chat")} className={`rounded-md px-3 py-2 text-sm ${view === "chat" ? "bg-bd-bg-hover text-bd-text-heading" : "text-bd-text-secondary hover:bg-bd-bg-hover"}`}><MessageSquare className="mr-1 inline" size={15} />Conversation</button>
-        <button type="button" onClick={() => void showDocument("profile")} className={`rounded-md px-3 py-2 text-sm ${view === "profile" ? "bg-bd-bg-hover text-bd-text-heading" : "text-bd-text-secondary hover:bg-bd-bg-hover"}`}><Sparkles className="mr-1 inline" size={15} />Resume Profile</button>
-        <button type="button" onClick={() => void showDocument("resume")} className={`rounded-md px-3 py-2 text-sm ${view === "resume" ? "bg-bd-bg-hover text-bd-text-heading" : "text-bd-text-secondary hover:bg-bd-bg-hover"}`}><FileText className="mr-1 inline" size={15} />Resume</button>
-      </nav>
     </header>
-    {view === "chat" ? <ChatPanel activeConversationId={conversationId} draftKey="resume-builder" isEmpty={conversationId === null} introProjectId="resume-builder" messageMetadata={{ resume_builder: true }} onConversationComplete={completeConversation} onOpenSettings={onOpenSettings} /> : <main className="min-h-0 flex-1 overflow-y-auto px-6 py-8"><div className="mx-auto max-w-3xl rounded-xl border border-bd-border bg-bd-bg-secondary p-6"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="font-heading text-xl font-semibold text-bd-text-heading">{view === "profile" ? "Resume Profile" : "Resume"}</h2>{view === "profile" ? <button type="button" onClick={() => void createResume()} disabled={isRendering} className="rounded-md bg-bd-amber px-3 py-2 text-sm font-medium text-bd-bg-primary disabled:opacity-60">{isRendering ? "Creating resume…" : "Create resume"}</button> : null}</div>{documentError ? <p className="mt-4 text-sm text-bd-danger">{documentError}</p> : view === "resume" ? <ResumePreview content={documentContent} /> : <pre className="mt-5 whitespace-pre-wrap font-sans text-sm leading-6 text-bd-text-primary">{documentContent || "Loading…"}</pre>}</div></main>}
+    <div className="flex min-h-0 flex-1 overflow-hidden"><Navigation />
+    {view === "chat" ? <ChatPanel activeConversationId={conversationId} draftKey="resume-builder" isEmpty={conversationId === null} introProjectId="resume-builder" messageMetadata={{ resume_builder: true }} onConversationComplete={completeConversation} onOpenSettings={onOpenSettings} /> : <main className="min-h-0 flex-1 overflow-y-auto px-6 py-8"><div className="mx-auto max-w-3xl rounded-xl border border-bd-border bg-bd-bg-secondary p-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-heading text-xl font-semibold text-bd-text-heading">{view === "agent" ? "Agent Instructions" : view === "interview" ? "Interview Guide" : view === "profile" ? "Your Resume Profile" : "Your Resume"}</h2>{view === "resume" ? <p className="mt-1 text-sm text-bd-text-muted">Rendered from Your Resume Profile. Edit the profile to change the source.</p> : null}</div><div className="flex items-center gap-2">{view === "profile" ? <button type="button" onClick={() => void createResume()} disabled={isRendering} className="rounded-md bg-bd-amber px-3 py-2 text-sm font-medium text-bd-bg-primary disabled:opacity-60">{isRendering ? "Creating resume…" : "Create resume"}</button> : null}{view !== "resume" ? <button type="button" onClick={() => { setDraftContent(documentContent); setIsEditing(true); }} className="rounded-md border border-bd-border px-3 py-2 text-sm text-bd-text-secondary hover:bg-bd-bg-hover"><Pencil className="mr-1 inline" size={14} />Edit</button> : null}</div></div>{documentError ? <p className="mt-4 text-sm text-bd-danger">{documentError}</p> : isEditing ? <><textarea aria-label={`Edit ${view}`} value={draftContent} onChange={(event) => setDraftContent(event.target.value)} className="mt-5 min-h-96 w-full rounded-md border border-bd-border bg-bd-bg-primary p-3 font-mono text-sm leading-6 text-bd-text-primary focus:border-bd-amber focus:outline-none" /><div className="mt-3 flex justify-end gap-2"><button type="button" onClick={() => setIsEditing(false)} className="rounded-md px-3 py-2 text-sm text-bd-text-secondary hover:bg-bd-bg-hover">Cancel</button><button type="button" onClick={() => void saveDocument()} disabled={isSaving} className="rounded-md bg-bd-amber px-3 py-2 text-sm font-medium text-bd-bg-primary disabled:opacity-60"><Save className="mr-1 inline" size={14} />{isSaving ? "Saving…" : "Save changes"}</button></div></> : view === "resume" ? <ResumePreview content={documentContent} /> : <pre className="mt-5 whitespace-pre-wrap font-sans text-sm leading-6 text-bd-text-primary">{documentContent || "Loading…"}</pre>}</div></main>}</div>
   </div>;
 }
