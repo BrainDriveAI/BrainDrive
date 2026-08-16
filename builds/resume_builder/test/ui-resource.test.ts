@@ -69,7 +69,7 @@ describe("sandboxed Resume Builder owner resource", () => {
       "resume_dialogue",
       "chat.turn.commit",
       "chat.employment.reconcile",
-      "I couldn’t safely process that turn",
+      "I couldn’t get a safe conversational result for that turn",
     ]) expect(html).toContain(text);
     expect(html).toContain('id="fact-snapshot"');
     expect(html).toContain('aria-label="Resume evidence ledger"');
@@ -80,6 +80,10 @@ describe("sandboxed Resume Builder owner resource", () => {
     expect(html).toContain('request("chat.sync",payload)');
     expect(html).toContain('message?.type==="host.chat.message"');
     expect(html).toContain('message?.type==="host.chat.action"');
+    expect(html).toContain('request("chat.turn.recover",{messageId,recoveryKind:recovery.kind})');
+    expect(html).toContain('state.dialogue.recoveryCommitted=recoveryCommitted');
+    expect(html).toContain('id:"retry_dialogue",label:"Try again",primary:false');
+    expect(html).toContain('content:state.dialogue.lastFailedMessage');
     expect(html).toContain("durableConversationMessages()");
     expect(html).toContain("sourceRevisionId:record.metadata.revision_id");
     expect(html).toContain("conversationReviewFacts()");

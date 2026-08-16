@@ -4,7 +4,7 @@ import { act, StrictMode } from "react";
 
 import { AppCapabilityError, callAppCapability, closeAppSession } from "@/api/apps-adapter";
 import { APPS_PROTOCOL_VERSION, BRIDGE_CHANNEL } from "@/mcp-apps/bridge";
-import SandboxedAppFrame, { applyGroupedFactDecisions, isModelSettingsAction, isTrustedSandboxMessage, ownerFactConfirmationDetail, parseResumeConversationState, saveHostPdfExport, saveHostResumeExport } from "./SandboxedAppFrame";
+import SandboxedAppFrame, { applyGroupedFactDecisions, hostResumeDialogueRecoveryMessage, isModelSettingsAction, isTrustedSandboxMessage, ownerFactConfirmationDetail, parseResumeConversationState, saveHostPdfExport, saveHostResumeExport } from "./SandboxedAppFrame";
 
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
@@ -27,6 +27,12 @@ const launch = {
 
 describe("sandboxed MCP App frame", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it("uses host-owned non-blocking recovery copy that preserves the conversation", () => {
+    expect(hostResumeDialogueRecoveryMessage("provider_unavailable")).toContain("Your message is still here");
+    expect(hostResumeDialogueRecoveryMessage("turn_unreadable")).toContain("earlier conversation are still here");
+    expect(hostResumeDialogueRecoveryMessage("turn_unreadable")).toContain("no resume facts were changed");
+  });
 
   it("grants scripts only, denies same-origin/navigation/download/device authority, and closes on unmount", async () => {
     const rendered = render(<SandboxedAppFrame appKey="resume-builder" appId="ai.braindrive.resume-builder" appName="Resume Builder" launch={launch} onSessionClosed={() => {}} />);

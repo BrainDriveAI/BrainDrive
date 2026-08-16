@@ -174,6 +174,14 @@ type PendingResumeDialogueSubmission = {
   precedingAssistantMessage: string;
 };
 
+export type ResumeDialogueRecoveryKind = "provider_unavailable" | "turn_unreadable";
+
+export function hostResumeDialogueRecoveryMessage(kind: ResumeDialogueRecoveryKind): string {
+  return kind === "provider_unavailable"
+    ? "I can’t reach the configured model right now. Your message is still here, and no resume facts were changed. You can keep talking or try this turn again when the provider is available."
+    : "I couldn’t get a safe conversational result for that turn. Your message and earlier conversation are still here, and no resume facts were changed. You can reply normally or try this turn again.";
+}
+
 export async function saveHostResumeExport(result: unknown): Promise<{ safe_destination_label: string; definition: unknown; parse_back: unknown }> {
   const value = result as { filename?: unknown; mime_type?: unknown; bytes_base64?: unknown; safe_destination_label?: unknown; definition?: unknown; parse_back?: unknown };
   if (typeof value.filename !== "string" || typeof value.mime_type !== "string" || typeof value.bytes_base64 !== "string" || typeof value.safe_destination_label !== "string") {
@@ -314,6 +322,38 @@ export default function SandboxedAppFrame({
         resumeConversationRef.current = conversation;
         setResumeConversation(conversation);
         return { hosted: true };
+      }
+      if (message.type === "chat.turn.recover" && appId === "ai.braindrive.resume-builder") {
+        const pending = pendingResumeDialogueRef.current;
+        const payload = message.payload;
+        const messageId = payload?.messageId;
+        const recoveryKind = payload?.recoveryKind;
+        if (!pending || messageId !== pending.messageId || (recoveryKind !== "provider_unavailable" && recoveryKind !== "turn_unreadable")) {
+          throw new Error("message_schema_invalid");
+        }
+        const assistantMessage = hostResumeDialogueRecoveryMessage(recoveryKind);
+        const occurredAt = new Date().toISOString();
+        const recorded = await callAppCapability(appKey, "resume.definitions.write", {
+          kind: "interview_turn",
+          turn: {
+            transcript_version: 1,
+            turn_id: secureRandomUuid(),
+            session_id: resumeDialogueSessionRef.current,
+            prompt_version: "resume-dialogue-1",
+            topic: "model_dialogue",
+            question: pending.precedingAssistantMessage,
+            answer: pending.ownerMessage,
+            follow_up: { question: assistantMessage, answer: null, outcome: "continued_without_answer" },
+            action: "answered",
+            occurred_at: occurredAt,
+          },
+          sensitivity: "sensitive",
+          linked_confirmed_fact_revision_id: null,
+        }, secureRandomUuid(), false);
+        const sourceRevisionId = (recorded.result as { turn?: { metadata?: { revision_id?: unknown } } }).turn?.metadata?.revision_id;
+        if (typeof sourceRevisionId !== "string") throw new Error("recoverable_internal_failure");
+        pendingResumeDialogueRef.current = null;
+        return { committed: true, source_revision_id: sourceRevisionId, assistant_message: assistantMessage };
       }
       if (message.type === "chat.turn.commit" && appId === "ai.braindrive.resume-builder") {
         const pending = pendingResumeDialogueRef.current;
@@ -720,8 +760,26 @@ export default function SandboxedAppFrame({
     if (["create_draft", "open_employment_editor", "review_facts"].includes(actionId) || actionId.startsWith("edit_fact_")) {
       setResumeReviewMode("workspace");
     }
-    const sent = controllerRef.current?.notifyView({ type: "host.chat.action", payload: { actionId } }) ?? false;
+    let retryMessageId: string | undefined;
+    if (actionId === "retry_dialogue") {
+      let lastUserIndex = -1;
+      for (let index = resumeConversation.messages.length - 1; index >= 0; index -= 1) {
+        if (resumeConversation.messages[index]?.role === "user") {
+          lastUserIndex = index;
+          break;
+        }
+      }
+      const ownerMessage = lastUserIndex >= 0 ? resumeConversation.messages[lastUserIndex]?.content : undefined;
+      const precedingAssistantMessage = lastUserIndex > 0
+        ? [...resumeConversation.messages.slice(0, lastUserIndex)].reverse().find((item) => item.role === "assistant")?.content
+        : undefined;
+      if (!ownerMessage || !precedingAssistantMessage) return;
+      retryMessageId = secureRandomUuid();
+      pendingResumeDialogueRef.current = { messageId: retryMessageId, ownerMessage, precedingAssistantMessage };
+    }
+    const sent = controllerRef.current?.notifyView({ type: "host.chat.action", payload: { actionId, ...(retryMessageId ? { messageId: retryMessageId } : {}) } }) ?? false;
     if (!sent) {
+      if (retryMessageId) pendingResumeDialogueRef.current = null;
       setError("The Resume Builder conversation is not connected. Reload the app to continue.");
       return;
     }

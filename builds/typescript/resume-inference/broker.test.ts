@@ -350,7 +350,7 @@ describe("ResumeInferenceBroker", () => {
 
     expect(completion.inference).toMatchObject({
       status: "completed",
-      attempt_count: 2,
+      attempt_count: 1,
       result: {
         assistant_message: invalid.assistant_message,
         turn_disposition: "respond_only",
@@ -358,7 +358,7 @@ describe("ResumeInferenceBroker", () => {
       },
     });
     expect(completion.validation?.accepted).toBe(true);
-    expect(events.at(-1)?.details).toMatchObject({ repair: "deterministic_dialogue_filter" });
+    expect(events.at(-1)?.details).toMatchObject({ repair: "deterministic_dialogue_disposition" });
   });
 
   it("persists valid dialogue operations while filtering only invalid associations", async () => {
@@ -446,6 +446,79 @@ describe("ResumeInferenceBroker", () => {
     expect(completion.inference.attempt_count).toBe(1);
   });
 
+  it("disposes a rejected host-action claim without dropping grounded facts or retrying the provider", async () => {
+    const current = "I use Tableau.";
+    const operation = {
+      operation: "capture",
+      fact_kind: "skill",
+      value: "Tableau",
+      source_quote: "Tableau",
+    };
+    const rejected = {
+      dialogue_version: 1,
+      assistant_message: "I am generating your resume now.",
+      turn_disposition: "capture_and_continue",
+      fact_operations: [operation],
+      suggested_action: "none",
+      draft_action: null,
+    };
+    const model = adapter(() => JSON.stringify(rejected));
+    const completion = await new ResumeInferenceBroker(async () => provider(model.value))
+      .execute(dialogueRequestWithoutEmployment(current));
+
+    expect(completion.inference).toMatchObject({
+      status: "completed",
+      attempt_count: 1,
+      result: {
+        assistant_message: "I heard that. What would you like me to understand next about your experience?",
+        fact_operations: [operation],
+        draft_action: null,
+      },
+    });
+    expect(completion.validation?.accepted).toBe(true);
+    expect(model.calls()).toBe(1);
+  });
+
+  it("preserves safe dialogue and valid facts across mixed invalid proposal samples", async () => {
+    for (let seed = 0; seed < 24; seed += 1) {
+      const tool = `Tool${seed}`;
+      const current = `I use ${tool}.`;
+      const validOperation = { operation: "capture", fact_kind: "skill", value: tool, source_quote: tool };
+      const invalidOperation = {
+        operation: "capture",
+        fact_kind: "job_evidence",
+        source_quote: current,
+        text: current,
+        job_fact_revision_id: randomUUID(),
+        dimension: "outcomes",
+      };
+      const assistantMessage = seed % 3 === 0
+        ? "I saved that for your resume."
+        : seed % 3 === 1
+          ? "I am generating your resume now."
+          : `Thanks for sharing ${tool}. Which role did you use it in?`;
+      const proposed = {
+        dialogue_version: 1,
+        assistant_message: assistantMessage,
+        turn_disposition: "capture_and_continue",
+        fact_operations: [validOperation, invalidOperation],
+        suggested_action: "none",
+        draft_action: null,
+      };
+      const model = adapter(() => JSON.stringify(proposed));
+      const completion = await new ResumeInferenceBroker(async () => provider(model.value))
+        .execute(dialogueRequestWithoutEmployment(current));
+
+      expect(completion.inference).toMatchObject({
+        status: "completed",
+        attempt_count: 1,
+        result: { fact_operations: [validOperation], draft_action: null },
+      });
+      expect(completion.validation?.accepted).toBe(true);
+      expect((completion.inference.result as { assistant_message: string }).assistant_message).not.toMatch(/\b(?:saved|generating)\b/i);
+    }
+  });
+
   it("preserves valid facts while independently normalizing a draft action", async () => {
     const current = "I use Tableau; create my resume draft";
     const inferenceRequest = dialogueRequestWithoutEmployment(current);
@@ -508,7 +581,7 @@ describe("ResumeInferenceBroker", () => {
 
     expect(completion.inference).toMatchObject({
       status: "completed",
-      attempt_count: 2,
+      attempt_count: 1,
       result: {
         assistant_message: malformed.assistant_message,
         turn_disposition: "respond_only",

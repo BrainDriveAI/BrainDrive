@@ -43,6 +43,16 @@ test("conversation-first journey reaches a fact-backed draft and deliberate revi
   await expect(rail).toContainText("Confirmed details will appear here");
   await expect(conversation.getByRole("button", { name: /Pause|I’m not sure/ })).toHaveCount(0);
 
+  await send(page, "[evaluation] simulate provider loss");
+  await expect(conversation).toContainText("[evaluation] simulate provider loss");
+  await expect(conversation).toContainText("Your message is still here");
+  await expect(conversation).toContainText(/Welcome.+real conversation/i);
+  await expect(rail).toContainText("Confirmed details will appear here");
+  const retry = conversation.getByRole("button", { name: "Try again" });
+  await expect(retry).toBeVisible();
+  await expect(retry).toHaveClass(/border-bd-border/);
+  await expect(page.getByRole("textbox", { name: "Reply in your own words..." })).toBeEnabled();
+
   await send(page, "Do you mean my most recent role or all my roles?");
   await expect(conversation).toContainText(/start with your most recent role/i);
   await send(page, "I am targeting startup operations roles.");

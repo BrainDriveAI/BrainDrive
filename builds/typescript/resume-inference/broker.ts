@@ -164,7 +164,7 @@ export class ResumeInferenceBroker {
       let response: StructuredCompletionResponse | null = null;
       let validation: ValidationReport | null = null;
       let repairContext: ResumeRepairContext | undefined;
-      let repair: "provider_validation_repair" | "deterministic_dialogue_filter" | "deterministic_dialogue_structure_filter" | "deterministic_fact_fallback" | "deterministic_strategy_fallback" | "deterministic_guidance_fallback" | "host_owned_structure" | "deterministic_craft_evaluation" | null = null;
+      let repair: "provider_validation_repair" | "deterministic_dialogue_disposition" | "deterministic_dialogue_filter" | "deterministic_dialogue_structure_filter" | "deterministic_fact_fallback" | "deterministic_strategy_fallback" | "deterministic_guidance_fallback" | "host_owned_structure" | "deterministic_craft_evaluation" | null = null;
       for (let attempt = 1; attempt <= request.limits.attempts; attempt += 1) {
         throwIfAborted(signal);
         attempts = attempt;
@@ -196,7 +196,12 @@ export class ResumeInferenceBroker {
           result = parsePurposeResult(request.purpose, request.output_schema_id, structuralCandidate);
           if (request.purpose === "resume_strategy") result = canonicalizeStrategyResultFromBlocks(result, request.data_blocks);
           result = normalizeHostOwnedResult(request.purpose, result, request.data_blocks);
-          if (request.purpose === "resume_dialogue") result = normalizeProposedDialogueDraftAction(result, request.data_blocks);
+          if (request.purpose === "resume_dialogue") {
+            result = normalizeProposedDialogueDraftAction(result, request.data_blocks);
+            const mediated = mediateDialogueDisposition(result, request.data_blocks);
+            result = mediated.result;
+            if (mediated.changed) repair = "deterministic_dialogue_disposition";
+          }
           if (["tailoring_plan", "targeted_resume_draft", "resume_revision_draft"].includes(request.purpose)) repair = "host_owned_structure";
           validation = validateInferenceClaims(request.purpose, result, request.data_blocks);
           if (validation.accepted) {
@@ -211,6 +216,25 @@ export class ResumeInferenceBroker {
             };
           }
         } catch {
+          if (request.purpose === "resume_dialogue") {
+            const filtered = filterStructurallyInvalidDialogueResult(structuralCandidate);
+            if (filtered !== null) {
+              try {
+                const parsed = parsePurposeResult(request.purpose, request.output_schema_id, filtered);
+                const mediated = mediateDialogueDisposition(parsed, request.data_blocks);
+                const mediatedResult = parsePurposeResult(request.purpose, request.output_schema_id, mediated.result);
+                const mediatedValidation = validateInferenceClaims(request.purpose, mediatedResult, request.data_blocks);
+                if (mediatedValidation.accepted) {
+                  result = mediatedResult;
+                  validation = mediatedValidation;
+                  repair = "deterministic_dialogue_structure_filter";
+                  break;
+                }
+              } catch {
+                // An unreadable dialogue remains eligible for the one bounded provider repair.
+              }
+            }
+          }
           if (attempt < request.limits.attempts) repairContext = { kind: "structural" };
         }
       }
@@ -416,6 +440,106 @@ function filterStructurallyInvalidDialogueResult(result: unknown): unknown | nul
     suggested_action: draftAction ? "create_draft" : "none",
     draft_action: draftAction,
   };
+}
+
+function mediateDialogueDisposition(
+  result: unknown,
+  dataBlocks: InferenceRequest["data_blocks"],
+): { result: unknown; changed: boolean } {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return { result, changed: false };
+  const dialogue = result as {
+    assistant_message?: unknown;
+    fact_operations?: unknown;
+    draft_action?: unknown;
+  };
+  const operations = Array.isArray(dialogue.fact_operations) ? dialogue.fact_operations : [];
+  const normalizedDraftAction = normalizeDialogueDraftAction(dialogue.draft_action, dataBlocks);
+  const provisionalMessage = safeDialogueAssistantMessage(
+    typeof dialogue.assistant_message === "string" ? dialogue.assistant_message : "",
+    dataBlocks,
+    normalizedDraftAction !== null,
+    0,
+  );
+  const acceptedOperations = operations.filter((operation) => validateInferenceClaims(
+    "resume_dialogue",
+    {
+      ...dialogue,
+      assistant_message: provisionalMessage,
+      fact_operations: [operation],
+      draft_action: null,
+      suggested_action: "none",
+      turn_disposition: "capture_and_continue",
+    },
+    dataBlocks,
+  ).accepted);
+  const acceptedDraftAction = normalizedDraftAction !== null && validateInferenceClaims(
+    "resume_dialogue",
+    {
+      ...dialogue,
+      assistant_message: provisionalMessage,
+      fact_operations: [],
+      draft_action: normalizedDraftAction,
+      suggested_action: "create_draft",
+      turn_disposition: "offer_draft",
+    },
+    dataBlocks,
+  ).accepted
+    ? normalizedDraftAction
+    : null;
+  const assistantMessage = safeDialogueAssistantMessage(
+    typeof dialogue.assistant_message === "string" ? dialogue.assistant_message : "",
+    dataBlocks,
+    acceptedDraftAction !== null,
+    acceptedOperations.length,
+  );
+  const mediated = {
+    ...dialogue,
+    assistant_message: assistantMessage,
+    fact_operations: acceptedOperations,
+    draft_action: acceptedDraftAction,
+    suggested_action: acceptedDraftAction ? "create_draft" : "none",
+    turn_disposition: acceptedDraftAction
+      ? "offer_draft"
+      : acceptedOperations.length > 0
+        ? "capture_and_continue"
+        : "respond_only",
+  };
+  return {
+    result: mediated,
+    changed: canonicalInputDigest(mediated) !== canonicalInputDigest(result),
+  };
+}
+
+function safeDialogueAssistantMessage(
+  value: string,
+  dataBlocks: InferenceRequest["data_blocks"],
+  hasDraftAction: boolean,
+  acceptedOperationCount: number,
+): string {
+  const segments = value.trim().match(/[^.!?]+[.!?]?/g) ?? [];
+  const safeSegments = segments.filter((segment) => validateInferenceClaims(
+    "resume_dialogue",
+    {
+      dialogue_version: 1,
+      assistant_message: segment.trim(),
+      turn_disposition: "respond_only",
+      fact_operations: [],
+      suggested_action: "none",
+      draft_action: null,
+    },
+    dataBlocks,
+  ).accepted);
+  const safeMessage = safeSegments.map((segment) => segment.trim()).filter(Boolean).join(" ");
+  if (safeMessage) return safeMessage;
+  const context = dataBlocks.find((block) => block.category === "dialogue_context")?.data as {
+    current_user_message?: string | null;
+  } | undefined;
+  if (context?.current_user_message === null || context?.current_user_message === undefined) {
+    return "Welcome — I’ll help you build a resume through a real conversation. What kind of work would you like this resume to support?";
+  }
+  if (hasDraftAction) return "I understand that you want a draft. I can ask BrainDrive to start a fact-backed draft now.";
+  if (acceptedOperationCount > 0) return "I heard that. What would you like me to understand next about your experience?";
+  return "I’m with you. What would you like to cover next about your experience?";
 }
 
 function filterInvalidDialogueFactOperations(result: unknown, dataBlocks: InferenceRequest["data_blocks"]): unknown | null {

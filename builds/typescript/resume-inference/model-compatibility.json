@@ -8,13 +8,13 @@
       "purpose": "resume_dialogue",
       "output_schema_id": "resume.dialogue-turn.v1",
       "prompt_policy_id": "braindrive.resume-builder.dialogue",
-      "prompt_policy_version": "3",
+      "prompt_policy_version": "4",
       "compatible": true,
-      "fixture_corpus_digest": "sha256:2488de11bff8a32a001298291f27e5e68d232243c1e5c18917faa0ca88d2caf4",
-      "tested_at": "2026-08-16T00:42:29.218Z",
+      "fixture_corpus_digest": "sha256:7a73cbeddd1b3a4cbb5eba0cc27edf6826e23c86ed032fd76bc8345d878db5af",
+      "tested_at": "2026-08-16T01:54:29.542Z",
       "zero_unsupported_claim_gate": true,
       "schema_success_rate": 1,
-      "latency_p95_ms": 9151
+      "latency_p95_ms": 4352
     },
     {
       "registry_version": 1,

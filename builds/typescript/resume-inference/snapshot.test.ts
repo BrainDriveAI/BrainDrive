@@ -285,7 +285,7 @@ describe("immutable inference snapshot", () => {
       fact_revision_ids: [],
       derived_blocks: [{ category: "dialogue_context", schema_id: "resume.dialogue-context.v1", data: context }],
     }, grant);
-    expect(request).toMatchObject({ purpose: "resume_dialogue", prompt_policy_id: "braindrive.resume-builder.dialogue", prompt_policy_version: "3" });
+    expect(request).toMatchObject({ purpose: "resume_dialogue", prompt_policy_id: "braindrive.resume-builder.dialogue", prompt_policy_version: "4" });
     expect(request.data_blocks).toEqual(expect.arrayContaining([expect.objectContaining({ category: "dialogue_context", data: context })]));
     expect(JSON.stringify(request)).not.toContain("provider_profile_id");
 

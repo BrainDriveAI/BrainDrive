@@ -342,7 +342,14 @@ export function createResumeE2eFixtureProviderResolver(): (purpose: InferencePur
     const adapter: ModelAdapter = {
       async complete() { throw new Error("Synthetic Resume Builder provider cannot enter the agent loop"); },
       async completeStructuredNoTools(request) {
-        const result = synthesizeResumeE2eResult(purpose, parseBlocks(request));
+        const blocks = parseBlocks(request);
+        const dialogue = purpose === "resume_dialogue"
+          ? blockData<{ current_user_message: string | null }>(blocks, "dialogue_context")
+          : null;
+        if (dialogue?.current_user_message === "[evaluation] simulate provider loss") {
+          throw new Error("Synthetic network unavailable");
+        }
+        const result = synthesizeResumeE2eResult(purpose, blocks);
         return { text: JSON.stringify(result), finishReason: "stop", usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 } };
       },
     };
