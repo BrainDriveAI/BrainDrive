@@ -100,6 +100,7 @@
             "enum": [
               "confirmed_fact_snapshot",
               "dialogue_context",
+              "transcript_snapshot",
               "presentation_preferences",
               "general_resume_definition",
               "job_description",

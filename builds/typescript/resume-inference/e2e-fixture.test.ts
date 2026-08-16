@@ -50,33 +50,36 @@ function permutations<T>(values: T[]): T[][] {
 }
 
 describe("Resume Builder isolated E2E inference fixture", () => {
-  it("emits a bounded accepted-offer draft action without claiming generation", () => {
+  it("lets the model decide to save a bounded resume version without claiming host execution", () => {
     const owner = "No, that's everything.";
+    const assistantId = "10000000-0000-4000-8000-000000000020";
+    const ownerId = "10000000-0000-4000-8000-000000000021";
     const result = synthesizeResumeE2eResult("resume_dialogue", [facts, {
       category: "dialogue_context",
       data: {
-        dialogue_version: 1,
+        dialogue_version: 2,
         messages: [
-          { role: "assistant", content: "Would you like to add anything else, or should I ask BrainDrive to start your draft?" },
-          { role: "user", content: owner },
+          { message_id: assistantId, role: "assistant", content: "Would you like to add anything else, or should I draft it?", source_revision_id: null },
+          { message_id: ownerId, role: "user", content: owner, source_revision_id: null },
         ],
+        current_message_id: ownerId,
         current_user_message: owner,
-        requested_mode: "draft_readiness",
+        resume_state: { facts: facts.data.facts.map((fact, index) => ({ record_id: `20000000-0000-4000-8000-00000000000${index + 1}`, revision: 1, ...fact, source_revision_ids: ["30000000-0000-4000-8000-000000000001"] })), definitions: [] },
+        tool_results: [],
       },
     }]) as Record<string, unknown>;
 
     expect(() => PURPOSE_RESULT_SCHEMAS.resume_dialogue.parse(result)).not.toThrow();
     expect(result).toMatchObject({
-      turn_disposition: "offer_draft",
-      suggested_action: "create_draft",
-      draft_action: { action: "create_general_draft", intent: "accepted_offer", source_quote: owner },
+      dialogue_version: 2,
+      actions: [{ action: "save_resume_version", title: "General Resume" }],
     });
     expect(result.assistant_message).not.toMatch(/(?:generating|started|underway)/i);
   });
 
   it("produces contract-valid outputs for every accepted purpose without entering the agent loop", () => {
     const cases = {
-      resume_dialogue: [facts, { category: "dialogue_context", data: { dialogue_version: 1, messages: [{ role: "assistant", content: "Tell me about your work history." }, { role: "user", content: "Do you mean my last role or all my roles?" }], current_user_message: "Do you mean my last role or all my roles?", requested_mode: "intake" } }],
+      resume_dialogue: [facts, { category: "dialogue_context", data: { dialogue_version: 2, messages: [{ message_id: "10000000-0000-4000-8000-000000000022", role: "assistant", content: "Tell me about your work history.", source_revision_id: null }, { message_id: "10000000-0000-4000-8000-000000000023", role: "user", content: "Do you mean my last role or all my roles?", source_revision_id: null }], current_message_id: "10000000-0000-4000-8000-000000000023", current_user_message: "Do you mean my last role or all my roles?", resume_state: { facts: [], definitions: [] }, tool_results: [] } }],
       resume_transcript_extract: [facts, { category: "transcript_snapshot", data: { transcript_version: 1, turns: [{ source_revision_id: "10000000-0000-4000-8000-000000000099", occurred_at: "2026-08-15T12:00:00.000Z", assistant: "Tell me about your role.", owner: "I worked as Product Lead at Acme Labs from 2020 to 2024.", follow_up: "What changed?" }] } }],
       interview_assist: [facts, jobEvidenceSummary],
       general_resume_draft: [facts],

@@ -20,13 +20,47 @@ import { type InferencePurpose, PURPOSE_OUTPUT_SCHEMAS } from "../app-platform/c
 const SupportIdsSchema = z.array(OpaqueIdSchema).max(32);
 
 export const ResumeDialogueContextSchema = z.object({
-  dialogue_version: z.literal(1),
+  dialogue_version: z.literal(2),
   messages: z.array(z.object({
+    message_id: OpaqueIdSchema,
     role: z.enum(["user", "assistant"]),
     content: z.string().min(1).max(16_384),
+    source_revision_id: OpaqueIdSchema.nullable(),
   }).strict()).max(40),
+  current_message_id: OpaqueIdSchema.nullable(),
   current_user_message: z.string().min(1).max(16_384).nullable(),
-  requested_mode: z.enum(["intake", "review", "draft_readiness"]),
+  resume_state: z.object({
+    facts: z.array(z.object({
+      record_id: OpaqueIdSchema,
+      revision_id: OpaqueIdSchema,
+      revision: z.number().int().positive(),
+      fact_kind: z.enum(["identity", "contact", "employment", "education", "skill", "credential", "accomplishment", "project", "preference", "job_evidence"]),
+      value: z.string().min(1).max(16_384),
+      source_revision_ids: z.array(OpaqueIdSchema).min(1).max(64),
+    }).strict()).max(500),
+    definitions: z.array(z.object({
+      record_id: OpaqueIdSchema,
+      revision_id: OpaqueIdSchema,
+      revision: z.number().int().positive(),
+      title: z.string().min(1).max(256),
+      status: z.enum(["draft", "proposed", "approved"]),
+      statements: z.array(z.object({
+        statement_id: OpaqueIdSchema,
+        section_id: NonEmptyStringSchema,
+        kind: z.enum(["factual", "presentation"]),
+        display_role: z.enum(["heading", "bullet", "line"]).optional(),
+        text: z.string().min(1).max(8_192),
+        supporting_confirmed_fact_revision_ids: z.array(OpaqueIdSchema).max(32),
+      }).strict()).min(1).max(500),
+      section_order: z.array(NonEmptyStringSchema).min(1).max(32),
+    }).strict()).max(50),
+  }).strict(),
+  tool_results: z.array(z.object({
+    action_id: OpaqueIdSchema,
+    status: z.enum(["executed", "requires_owner_confirmation", "rejected"]),
+    code: z.string().min(1).max(64),
+    message: z.string().min(1).max(512),
+  }).strict()).max(32),
 }).strict().superRefine((value, context) => {
   if (value.current_user_message !== null && value.messages.at(-1)?.role !== "user") {
     context.addIssue({ code: "custom", path: ["messages"], message: "dialogue context with a current message must end with the owner turn" });
@@ -34,74 +68,90 @@ export const ResumeDialogueContextSchema = z.object({
   if (value.current_user_message !== null && value.messages.at(-1)?.content !== value.current_user_message) {
     context.addIssue({ code: "custom", path: ["current_user_message"], message: "current owner message must match the final dialogue turn" });
   }
+  if ((value.current_user_message === null) !== (value.current_message_id === null)) {
+    context.addIssue({ code: "custom", path: ["current_message_id"], message: "current message identity and content must appear together" });
+  }
+  if (value.current_message_id !== null && value.messages.at(-1)?.message_id !== value.current_message_id) {
+    context.addIssue({ code: "custom", path: ["current_message_id"], message: "current message identity must match the final dialogue turn" });
+  }
 });
 
-const DialogueSourceQuoteSchema = z.string().min(1).max(16_384);
-const DialogueSimpleFactOperationSchema = z.object({
-  operation: z.literal("capture"),
-  fact_kind: z.enum(["identity", "contact", "education", "skill", "credential", "project", "preference"]),
-  value: z.string().min(1).max(16_384),
-  source_quote: DialogueSourceQuoteSchema,
-}).strict();
-const DialogueEmploymentOperationSchema = z.object({
-  operation: z.literal("capture"),
-  fact_kind: z.literal("employment"),
-  source_quote: DialogueSourceQuoteSchema,
-  employment: z.object({
-    title: z.string().min(1).max(256),
-    employer: z.string().min(1).max(256),
-    location: z.string().max(256).nullable(),
-    start_date: z.string().max(128).nullable(),
-    end_date: z.string().max(128).nullable(),
-    responsibilities: z.string().max(8_192).nullable(),
-  }).strict(),
-}).strict();
-const DialogueAccomplishmentOperationSchema = z.object({
-  operation: z.literal("capture"),
-  fact_kind: z.literal("accomplishment"),
-  source_quote: DialogueSourceQuoteSchema,
-  text: z.string().min(1).max(8_192),
-  job_fact_revision_id: OpaqueIdSchema.nullable(),
-}).strict();
-const DialogueJobEvidenceOperationSchema = z.object({
-  operation: z.literal("capture"),
-  fact_kind: z.literal("job_evidence"),
-  source_quote: DialogueSourceQuoteSchema,
-  text: z.string().min(1).max(8_192),
-  job_fact_revision_id: OpaqueIdSchema,
-  dimension: JobEvidenceDimensionSchema.exclude(["identity"]),
+export const ResumeDialogueSourceReferenceSchema = z.object({
+  message_id: OpaqueIdSchema,
+  quote: z.string().min(1).max(16_384),
 }).strict();
 
-export const ResumeDialogueFactOperationSchema = z.union([
-  DialogueSimpleFactOperationSchema,
-  DialogueEmploymentOperationSchema,
-  DialogueAccomplishmentOperationSchema,
-  DialogueJobEvidenceOperationSchema,
+const ResumeDialogueFactBodySchema = {
+  action_id: OpaqueIdSchema,
+  fact_kind: z.enum(["identity", "contact", "employment", "education", "skill", "credential", "accomplishment", "project", "preference"]),
+  value: z.string().min(1).max(16_384),
+  source_references: z.array(ResumeDialogueSourceReferenceSchema).min(1).max(32),
+} as const;
+
+export const ResumeDialogueCreateFactActionSchema = z.object({
+  ...ResumeDialogueFactBodySchema,
+  action: z.literal("create_fact"),
+}).strict();
+
+export const ResumeDialogueUpdateFactActionSchema = z.object({
+  ...ResumeDialogueFactBodySchema,
+  action: z.literal("update_fact"),
+  record_id: OpaqueIdSchema,
+  expected_revision: z.number().int().positive(),
+}).strict();
+
+export const ResumeDialogueFactActionSchema = z.discriminatedUnion("action", [
+  ResumeDialogueCreateFactActionSchema,
+  ResumeDialogueUpdateFactActionSchema,
 ]);
 
 export const ResumeDialogueDraftActionSchema = z.object({
-  action: z.literal("create_general_draft"),
-  intent: z.enum(["explicit_request", "accepted_offer"]),
-  source_quote: DialogueSourceQuoteSchema,
+  action_id: OpaqueIdSchema,
+  action: z.literal("save_resume_version"),
+  base_definition_revision_id: OpaqueIdSchema.nullable(),
+  title: z.string().min(1).max(256),
+  statements: z.array(z.object({
+    statement_id: OpaqueIdSchema,
+    section_id: NonEmptyStringSchema,
+    kind: z.literal("factual"),
+    display_role: z.enum(["heading", "bullet", "line"]).optional(),
+    text: z.string().min(1).max(8_192),
+    supporting_fact_refs: z.array(OpaqueIdSchema).min(1).max(32),
+  }).strict()).min(1).max(500),
+  section_order: z.array(NonEmptyStringSchema).min(1).max(32),
+  presentation_preferences: z.record(z.string(), z.string().max(2_048)),
+  locale: z.string().min(2).max(35),
+  page_intent: z.enum(["one_page", "two_pages", "concise", "detailed"]),
+  template_id: z.literal("ats-basic"),
+  template_version: z.literal("1"),
 }).strict();
 
+export const ResumeDialogueExportActionSchema = z.object({
+  action_id: OpaqueIdSchema,
+  action: z.literal("request_export"),
+  definition_revision_id: OpaqueIdSchema.nullable(),
+  format: z.enum(["pdf", "text"]),
+}).strict();
+
+export const ResumeDialogueActionSchema = z.discriminatedUnion("action", [
+  ResumeDialogueCreateFactActionSchema,
+  ResumeDialogueUpdateFactActionSchema,
+  ResumeDialogueDraftActionSchema,
+  ResumeDialogueExportActionSchema,
+]);
+
+/** @deprecated Kept only so older migration helpers can parse without becoming a runtime path. */
+export const ResumeDialogueFactOperationSchema: z.ZodTypeAny = z.any();
+
 export const ResumeDialogueResultSchema = z.object({
-  dialogue_version: z.literal(1),
+  dialogue_version: z.literal(2),
   assistant_message: z.string().min(1).max(4_096),
-  turn_disposition: z.enum(["respond_only", "capture_and_continue", "offer_draft"]),
-  fact_operations: z.array(ResumeDialogueFactOperationSchema).max(8),
-  suggested_action: z.enum(["none", "review", "create_draft"]),
-  draft_action: ResumeDialogueDraftActionSchema.nullable(),
+  actions: z.array(ResumeDialogueActionSchema).max(32),
 }).strict().superRefine((value, context) => {
-  if (value.turn_disposition === "respond_only" && value.fact_operations.length > 0) {
-    context.addIssue({ code: "custom", path: ["fact_operations"], message: "respond-only dialogue cannot propose fact operations" });
-  }
-  if ((value.turn_disposition === "offer_draft") !== (value.suggested_action === "create_draft")) {
-    context.addIssue({ code: "custom", message: "draft offer disposition and action must agree" });
-  }
-  if ((value.suggested_action === "create_draft") !== (value.draft_action !== null)) {
-    context.addIssue({ code: "custom", path: ["draft_action"], message: "a draft suggestion requires one bounded draft action" });
-  }
+  const actionIds = value.actions.map((action) => action.action_id);
+  if (new Set(actionIds).size !== actionIds.length) context.addIssue({ code: "custom", path: ["actions"], message: "action identities must be unique" });
+  if (value.actions.filter((action) => action.action === "save_resume_version").length > 1) context.addIssue({ code: "custom", path: ["actions"], message: "one turn may save at most one resume version" });
+  if (value.actions.filter((action) => action.action === "request_export").length > 1) context.addIssue({ code: "custom", path: ["actions"], message: "one turn may request at most one export" });
 });
 
 export const ResumeTranscriptSnapshotSchema = z.object({

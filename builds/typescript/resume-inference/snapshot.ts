@@ -235,7 +235,7 @@ export class ImmutableInferenceSnapshotBuilder {
 
   private validateDialogue(input: InferenceInvocation): void {
     const dialogue = input.derived_blocks.filter((candidate) => candidate.category === "dialogue_context");
-    if (dialogue.length !== 1 || dialogue[0]?.schema_id !== "resume.dialogue-context.v1") {
+    if (dialogue.length !== 1 || dialogue[0]?.schema_id !== "resume.dialogue-context.v2") {
       throw new ResumeInferenceError("invalid_request", "Resume dialogue requires one bounded visible conversation context");
     }
     if (!ResumeDialogueContextSchema.safeParse(dialogue[0].data).success) {

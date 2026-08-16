@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { canonicalInputDigest, encodedByteLength } from "../app-platform/contracts/common.js";
 import {
   InferenceRequestSchema,
@@ -11,6 +13,7 @@ import { classifyInferenceError, ResumeInferenceError } from "./errors.js";
 import {
   parsePurposeResult,
   purposeJsonSchema,
+  ResumeDialogueActionSchema,
   ResumeDialogueFactOperationSchema,
   ResumeTranscriptFactProposalSchema,
   ResumeTranscriptGapSchema,
@@ -203,10 +206,9 @@ export class ResumeInferenceBroker {
           if (request.purpose === "resume_strategy") result = canonicalizeStrategyResultFromBlocks(result, request.data_blocks);
           result = normalizeHostOwnedResult(request.purpose, result, request.data_blocks);
           if (request.purpose === "resume_dialogue") {
-            result = normalizeProposedDialogueDraftAction(result, request.data_blocks);
-            const mediated = mediateDialogueDisposition(result, request.data_blocks);
+            const mediated = filterInvalidDialogueActions(result, request.data_blocks);
             result = mediated.result;
-            if (mediated.changed) repair = "deterministic_dialogue_disposition";
+            if (mediated.changed) repair = "deterministic_dialogue_filter";
           }
           if (request.purpose === "resume_transcript_extract") {
             const mediated = mediateTranscriptExtraction(result, request.data_blocks);
@@ -243,9 +245,7 @@ export class ResumeInferenceBroker {
             const filtered = filterStructurallyInvalidDialogueResult(structuralCandidate, request.data_blocks);
             if (filtered !== null) {
               try {
-                const parsed = parsePurposeResult(request.purpose, request.output_schema_id, filtered);
-                const mediated = mediateDialogueDisposition(parsed, request.data_blocks);
-                const mediatedResult = parsePurposeResult(request.purpose, request.output_schema_id, mediated.result);
+                const mediatedResult = parsePurposeResult(request.purpose, request.output_schema_id, filtered);
                 const mediatedValidation = validateInferenceClaims(request.purpose, mediatedResult, request.data_blocks);
                 if (mediatedValidation.accepted) {
                   result = mediatedResult;
@@ -319,7 +319,7 @@ export class ResumeInferenceBroker {
       }
       throwIfAborted(signal);
       if (!validation.accepted && request.purpose === "resume_dialogue") {
-        const filtered = filterInvalidDialogueFactOperations(result, request.data_blocks);
+        const filtered = filterInvalidDialogueActions(result, request.data_blocks).result;
         if (filtered !== null) {
           const filteredResult = parsePurposeResult(request.purpose, request.output_schema_id, filtered);
           const filteredValidation = validateInferenceClaims(request.purpose, filteredResult, request.data_blocks);
@@ -487,23 +487,87 @@ function filterStructurallyInvalidDialogueResult(
   const dialogue = result as Record<string, unknown>;
   const assistantMessage = typeof dialogue.assistant_message === "string" ? dialogue.assistant_message.trim() : "";
   if (assistantMessage.length === 0 || assistantMessage.length > 4_096) return null;
-  const operations = Array.isArray(dialogue.fact_operations)
-    ? dialogue.fact_operations.slice(0, 8).flatMap((operation) => {
-      const parsed = ResumeDialogueFactOperationSchema.safeParse(operation);
-      if (parsed.success) return [parsed.data];
-      const rebound = rebindDialogueOperationToGroundedEmployment(operation, dataBlocks);
-      return rebound === null ? [] : [rebound];
+  const actions = Array.isArray(dialogue.actions)
+    ? dialogue.actions.slice(0, 32).flatMap((action) => {
+      const parsed = ResumeDialogueActionSchema.safeParse(action);
+      return parsed.success ? [parsed.data] : [];
     })
     : [];
-  const draftAction = normalizeDialogueDraftAction(dialogue.draft_action, dataBlocks);
-  return {
-    dialogue_version: 1,
+  const requestedDraft = Array.isArray(dialogue.actions)
+    && dialogue.actions.some((action) => (action as { action?: unknown })?.action === "save_resume_version");
+  if (requestedDraft && !actions.some((action) => action.action === "save_resume_version")) {
+    const fallback = factOnlyDialogueDraftFallback(actions, dataBlocks);
+    if (fallback !== null) actions.push(fallback);
+  }
+  return filterInvalidDialogueActions({
+    dialogue_version: 2,
     assistant_message: assistantMessage,
-    turn_disposition: draftAction ? "offer_draft" : operations.length > 0 ? "capture_and_continue" : "respond_only",
-    fact_operations: operations,
-    suggested_action: draftAction ? "create_draft" : "none",
-    draft_action: draftAction,
+    actions,
+  }, dataBlocks).result;
+}
+
+function factOnlyDialogueDraftFallback(
+  parsedActions: Array<z.infer<typeof ResumeDialogueActionSchema>>,
+  dataBlocks: InferenceRequest["data_blocks"],
+): z.infer<typeof ResumeDialogueActionSchema> | null {
+  const context = dataBlocks.find((block) => block.category === "dialogue_context")?.data as {
+    resume_state?: { facts?: Array<{ revision_id?: unknown; fact_kind?: unknown; value?: unknown }> };
+  } | undefined;
+  const confirmed = dataBlocks.find((block) => block.category === "confirmed_fact_snapshot")?.data as {
+    facts?: Array<{ revision_id?: unknown; fact_kind?: unknown; value?: unknown }>;
+  } | undefined;
+  const contextualFacts = context?.resume_state?.facts?.length ? context.resume_state.facts : (confirmed?.facts ?? []);
+  const existing = contextualFacts.flatMap((fact) =>
+    typeof fact.revision_id === "string" && typeof fact.fact_kind === "string" && typeof fact.value === "string"
+      ? [{ support: fact.revision_id, fact_kind: fact.fact_kind, value: fact.value }]
+      : []);
+  const proposed = parsedActions.flatMap((action) => action.action === "create_fact" || action.action === "update_fact"
+    ? [{ support: action.action_id, fact_kind: action.fact_kind, value: action.value }]
+    : []);
+  const facts = [...existing, ...proposed];
+  if (facts.length === 0) return null;
+  const sectionFor = (kind: string) => ({
+    identity: "contact", contact: "contact", employment: "experience", accomplishment: "experience",
+    job_evidence: "experience", education: "education", skill: "skills", credential: "certifications",
+    project: "projects", preference: "summary",
+  } as Record<string, string>)[kind] ?? "experience";
+  const sectionOrder = [...new Set(facts.map((fact) => sectionFor(fact.fact_kind)))];
+  return {
+    action_id: randomUUID(),
+    action: "save_resume_version",
+    base_definition_revision_id: null,
+    title: "Resume",
+    statements: facts.map((fact) => ({
+      statement_id: randomUUID(),
+      section_id: sectionFor(fact.fact_kind),
+      kind: "factual" as const,
+      display_role: fact.fact_kind === "employment" ? "heading" as const : "bullet" as const,
+      text: fact.value,
+      supporting_fact_refs: [fact.support],
+    })),
+    section_order: sectionOrder,
+    presentation_preferences: {},
+    locale: "en-US",
+    page_intent: "concise",
+    template_id: "ats-basic",
+    template_version: "1",
   };
+}
+
+function filterInvalidDialogueActions(
+  result: unknown,
+  dataBlocks: InferenceRequest["data_blocks"],
+): { result: unknown; changed: boolean } {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return { result, changed: false };
+  const dialogue = result as { actions?: unknown[] };
+  const actions = Array.isArray(dialogue.actions) ? dialogue.actions : [];
+  const factActions = actions.filter((action) => ["create_fact", "update_fact"].includes(String((action as { action?: unknown })?.action)));
+  const accepted = actions.filter((action) => {
+    const candidateActions = (action as { action?: unknown })?.action === "save_resume_version" ? [...factActions, action] : [action];
+    return validateInferenceClaims("resume_dialogue", { ...dialogue, actions: candidateActions }, dataBlocks).accepted;
+  });
+  const filtered = { ...dialogue, actions: accepted };
+  return { result: filtered, changed: canonicalInputDigest(filtered) !== canonicalInputDigest(result) };
 }
 
 function transcriptExtractionCandidate(
@@ -670,8 +734,9 @@ function rebindDialogueOperationToGroundedEmployment(
   const parsedOperation = ResumeDialogueFactOperationSchema.safeParse(operation);
   let candidate: Record<string, unknown>;
   if (parsedOperation.success) {
-    if (!["job_evidence", "accomplishment"].includes(parsedOperation.data.fact_kind)) return null;
-    candidate = parsedOperation.data;
+    const legacyOperation = parsedOperation.data as Record<string, unknown>;
+    if (!["job_evidence", "accomplishment"].includes(String(legacyOperation.fact_kind))) return null;
+    candidate = legacyOperation;
   } else {
     if (!operation || typeof operation !== "object" || Array.isArray(operation)) return null;
     const raw = operation as Record<string, unknown>;

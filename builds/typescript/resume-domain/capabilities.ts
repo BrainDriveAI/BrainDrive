@@ -38,6 +38,12 @@ const InterviewTurnCapabilityInputSchema = z.object({
   sensitivity: z.enum(["standard", "sensitive", "highly_sensitive"]),
   linked_confirmed_fact_revision_id: z.string().uuid().nullable(),
 }).strict();
+const ModelTurnCapabilityInputSchema = z.object({
+  kind: z.literal("model_turn"),
+  turn: z.record(z.string(), z.unknown()),
+  sensitivity: z.enum(["standard", "sensitive", "highly_sensitive"]),
+  actions: z.array(z.record(z.string(), z.unknown())).max(32),
+}).strict();
 const InterviewRecoverySaveCapabilityInputSchema = z.object({
   kind: z.literal("interview_recovery_save"),
   recovery: z.record(z.string(), z.unknown()),
@@ -190,6 +196,7 @@ export class ResumeCapabilityRouter {
         case "resume.definitions.write": {
           const interview = InterviewCapabilityInputSchema.safeParse(input);
           const interviewTurn = InterviewTurnCapabilityInputSchema.safeParse(input);
+          const modelTurn = ModelTurnCapabilityInputSchema.safeParse(input);
           const recoverySave = InterviewRecoverySaveCapabilityInputSchema.safeParse(input);
           const recoveryDiscard = InterviewRecoveryDiscardCapabilityInputSchema.safeParse(input);
           const progressSubmit = InterviewProgressSubmitCapabilityInputSchema.safeParse(input);
@@ -224,6 +231,8 @@ export class ResumeCapabilityRouter {
               ? await this.domain.discardInterviewRecovery(recoveryDiscard.data.progress, authority)
               : progressSubmit.success
                 ? await this.domain.submitInterviewProgress(progressSubmit.data.progress, authority)
+          : modelTurn.success
+            ? await this.domain.commitModelTurn(modelTurn.data, authority)
           : interviewTurn.success
             ? await this.domain.recordInterviewTurn(interviewTurn.data, authority)
             : interview.success

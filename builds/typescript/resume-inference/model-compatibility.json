@@ -6,15 +6,15 @@
       "provider_profile_id": "braindrive-models",
       "model_id": "braindrive-models-default",
       "purpose": "resume_dialogue",
-      "output_schema_id": "resume.dialogue-turn.v1",
+      "output_schema_id": "resume.dialogue-turn.v2",
       "prompt_policy_id": "braindrive.resume-builder.dialogue",
-      "prompt_policy_version": "4",
+      "prompt_policy_version": "8",
       "compatible": true,
-      "fixture_corpus_digest": "sha256:7a73cbeddd1b3a4cbb5eba0cc27edf6826e23c86ed032fd76bc8345d878db5af",
-      "tested_at": "2026-08-16T01:54:29.542Z",
+      "fixture_corpus_digest": "sha256:0b794f0bc27dc57bd6f8a5eefb5e43be28d3e29bacd74c84eebbd2e7bc608fbf",
+      "tested_at": "2026-08-16T13:49:29.635Z",
       "zero_unsupported_claim_gate": true,
       "schema_success_rate": 1,
-      "latency_p95_ms": 4352
+      "latency_p95_ms": 15730
     },
     {
       "registry_version": 1,

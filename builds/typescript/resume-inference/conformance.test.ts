@@ -53,7 +53,7 @@ describe("Resume Builder provider conformance safety", () => {
     expect(JSON.stringify({ result, diagnostics })).not.toMatch(/private provider|credential-shaped/);
   });
 
-  it("records the dialogue-specific prompt identity in compatibility evidence", async () => {
+  it("records the dialogue-specific prompt identity while enforcing the draft action gate", async () => {
     const purpose = "resume_dialogue" as const;
     const blocks = conformanceBlocks(purpose);
     const adapter = {
@@ -75,8 +75,8 @@ describe("Resume Builder provider conformance safety", () => {
     expect(result.entries).toEqual([expect.objectContaining({
       purpose,
       prompt_policy_id: "braindrive.resume-builder.dialogue",
-      prompt_policy_version: "4",
-      compatible: true,
+      prompt_policy_version: "8",
+      compatible: false,
     })]);
   });
 

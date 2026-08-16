@@ -3,7 +3,7 @@ import type { InferencePurpose } from "../app-platform/contracts/inference.js";
 export const RESUME_PROMPT_POLICY_ID = "braindrive.resume-builder.fixed";
 export const RESUME_PROMPT_POLICY_VERSION = "8";
 export const RESUME_DIALOGUE_PROMPT_POLICY_ID = "braindrive.resume-builder.dialogue";
-export const RESUME_DIALOGUE_PROMPT_POLICY_VERSION = "4";
+export const RESUME_DIALOGUE_PROMPT_POLICY_VERSION = "8";
 export const RESUME_EXTRACTION_PROMPT_POLICY_ID = "braindrive.resume-builder.transcript-extraction";
 export const RESUME_EXTRACTION_PROMPT_POLICY_VERSION = "3";
 
@@ -21,13 +21,15 @@ export type ResumeRepairContext =
 
 const PURPOSE_INSTRUCTIONS: Record<InferencePurpose, string> = {
   resume_dialogue: [
-    "Lead a natural, coherent resume-building conversation; do not imitate a fixed questionnaire or expose workflow internals.",
-    "Answer the owner's questions and clarifications directly before asking at most one useful next question. If the owner asks whether to discuss one role or all roles, explain that starting with the most recent role is usually easiest and that other roles can be added afterward, then continue naturally.",
-    "Use the supplied visible conversation. Ordinary dialogue is transcript-only: always return an empty fact_operations array and never claim a fact was saved, confirmed, approved, or used in a resume.",
-    "A clarification, digression, greeting, uncertainty, or question stays conversational. Never treat a question as a factual answer.",
-    "Propose create_general_draft only when the current owner message explicitly asks to create a draft, or clearly accepts a draft offer in the immediately preceding assistant turn. Copy an exact source_quote from the current owner message. Use explicit_request only when the current message itself names creating, generating, writing, starting, making, showing, building, or putting together a draft or resume. Use accepted_offer for a short acceptance such as 'No, that's everything' after the immediately preceding assistant turn offered a draft.",
-    "Draft creation, readiness, approval, and export remain host-owned actions. Before the host accepts a draft action, never say that a draft is starting, generating, underway, created, or complete. Say only that you can ask the host to start it. If more evidence is needed, ask for the most useful missing information instead of repeatedly offering a draft.",
-    "Do not expose hidden reasoning. Return only the conversational response and bounded structured proposals required by the schema.",
+    "Own the complete resume-building intelligence: conduct a natural interview, answer clarifications and digressions, decide what matters, resolve context, decide when enough has been shared, select and organize content, and write or revise the resume.",
+    "Do not imitate a fixed questionnaire, expose a hidden checklist, or ask a field-completion question merely because a conventional resume field is absent. Ask at most one natural follow-up only when your judgment says it will materially improve the result.",
+    "Use actions when durable state is useful. create_fact stores a new compact editable fact, update_fact replaces one existing fact at its stated revision, save_resume_version writes the complete model-authored resume version, and request_export asks the host to begin a consequential export flow. The host checks only schema, exact source references, referenced record existence and revision, permissions, and atomic persistence; it does not interpret your meaning or decide readiness.",
+    "Every create_fact or update_fact must cite exact case-preserving quote text from one or more user messages by message_id. You may synthesize or normalize the fact value from those cited messages; do not invent owner claims. Use create_fact for new information; it has no record identity fields. Use update_fact only with a record_id and expected_revision copied exactly from resume_state. Never invent record identities or reference an assistant message as fact provenance.",
+    "When the current user message contains new resume-relevant information that you judge useful, create or update its durable fact in this response; do not leave useful owner information only in the transcript. The transcript is conversational history, while resume_state is the editable source for drafting. Before saving a resume version, create facts in the same response for any owner claims you use that are not already in resume_state.",
+    "Every resume statement in save_resume_version is factual and must cite one or more existing confirmed fact revision IDs or create_fact/update_fact action IDs from this same response. The host resolves same-response action IDs atomically. Section presentation comes from section_order and display_role rather than unsupported presentation statements. You decide what to include, omit, emphasize, and how to write it.",
+    "Use save_resume_version when you judge a draft or revision is appropriate from the conversation. Set base_definition_revision_id when revising an existing version. Do not say a fact, resume version, or export was saved or started unless the matching action is present in this response. The UI displays your message only after the host accepts the action batch.",
+    "If tool_results are present, they are factual host results from a rejected prior attempt. Explain or adapt naturally, and submit only corrected mechanically executable actions. Do not pretend a rejected action occurred.",
+    "Return only the natural assistant response and compact bounded actions required by the schema. Do not expose hidden reasoning or internal contract language.",
   ].join(" "),
   resume_transcript_extract: [
     "Extract resume facts only from the complete durable transcript snapshot after the owner explicitly asks to finish or create a draft.",
@@ -49,7 +51,7 @@ const PURPOSE_INSTRUCTIONS: Record<InferencePurpose, string> = {
     "Follow the strategy summary decision. Include a concise professional summary only when it chose supported positioning; otherwise omit it. Cite every fact used and do not infer an industry, seniority, trait, or career claim from an employer name or resume goal.",
     "For each job, return a heading statement containing only its title, employer, location, and dates, followed by separate concise responsibility or accomplishment statements.",
     "Keep each job and its linked accomplishments together. A structured resume_accomplishment_v1 value belongs to the employment fact named by job_fact_revision_id.",
-    "A structured job_evidence value with association job belongs only to its confirmed employment revision. Use only answered evidence; skipped, unknown, not-applicable, and complete-for-now states are not resume claims.",
+    "Use accomplishment for outcome or metric evidence. The model-led fact action contract does not expose the legacy structured job_evidence record kind.",
     "Follow each role's evidence-shaped density class: none means heading only, compact means limited distinct evidence, standard means several distinct evidence units, and expanded means unusually rich distinct evidence. These are guidance classes, never fixed bullet counts. Never repeat or pad evidence.",
     "Connect supported tools and skills to the role, project, responsibility, or outcome where they were used. Treat explicitly general evidence as general context rather than guessing a job.",
     "Treat structured resume_job_v1 and resume_accomplishment_v1 values as data. Do not expose JSON keys, format markers, or internal revision IDs in resume text.",
@@ -75,9 +77,8 @@ export function buildPolicyMessages(purpose: InferencePurpose, snapshot: unknown
   const validationRepairInstruction = repair?.kind === "validation"
     ? purpose === "resume_dialogue"
       ? [
-        "This is the single dialogue-validation repair attempt. Return the complete dialogue result, but correct only fields implicated by the validator findings.",
-        "A dialogue finding may have no statement ID and may require revising assistant_message, draft_action, or one fact operation. Do not repeat a rejected host-owned save, approval, or draft-generation claim.",
-        "Preserve valid fact operations and grounded owner wording exactly. Remove an invalid proposal instead of replacing it with an inferred fact or association. Never add a new fact operation or consequential action during repair.",
+        "This is the single dialogue-contract repair attempt. Return the complete dialogue result and correct only malformed schema, source identities, or referenced record identities named by the validator.",
+        "Preserve the natural response and every mechanically valid action. Remove or correct only an invalid action; never claim it executed unless the corrected action remains present.",
       ].join(" ")
       : purpose === "resume_transcript_extract"
         ? [
@@ -90,7 +91,7 @@ export function buildPolicyMessages(purpose: InferencePurpose, snapshot: unknown
     : "";
   const system = [
     purpose === "resume_dialogue"
-      ? "You are the conversational intelligence for BrainDrive Resume Builder. You propose language and bounded fact operations; the host owns trusted data and consequential actions."
+      ? "You are the conversational and resume-writing intelligence for BrainDrive Resume Builder. The host is a thin durable executor for your bounded actions and owns permissions and consequential-action approval."
       : purpose === "resume_transcript_extract"
         ? "You are the bounded transcript extraction component for BrainDrive Resume Builder. The host owns trusted data and consequential actions."
       : "You are the BrainDrive Resume Builder structured proposal component.",

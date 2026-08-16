@@ -23,7 +23,7 @@ import ResumeBuilderConversation, {
 } from "./ResumeBuilderConversation";
 import ResumeReviewRail from "./ResumeReviewRail";
 import {
-  parseResumeDialogueCommitPayload,
+  parseResumeModelTurnCommitPayload,
 } from "./resume-dialogue-mediation";
 
 const EMPTY_RESUME_CONVERSATION: ResumeConversationState = {
@@ -352,21 +352,17 @@ export default function SandboxedAppFrame({
       }
       if (message.type === "chat.turn.commit" && appId === "ai.braindrive.resume-builder") {
         const pending = pendingResumeDialogueRef.current;
-        const employmentRevisionIds = new Set(resumeConversationRef.current.confirmedEmploymentRevisionIds);
-        const priorOwnerMessages = resumeConversationRef.current.messages.flatMap((candidate) => candidate.role === "user" && candidate.sourceRevisionId
-          ? [{ content: candidate.content, sourceRevisionId: candidate.sourceRevisionId }]
-          : []);
         const payload = pending
-          ? parseResumeDialogueCommitPayload(message.payload, pending.ownerMessage, employmentRevisionIds, priorOwnerMessages, pending.precedingAssistantMessage)
+          ? parseResumeModelTurnCommitPayload(message.payload)
           : null;
         if (!pending || !payload || payload.messageId !== pending.messageId) throw new Error("message_schema_invalid");
         const occurredAt = new Date().toISOString();
         const turn = {
           transcript_version: 1,
-          turn_id: secureRandomUuid(),
+          turn_id: payload.messageId,
           session_id: resumeDialogueSessionRef.current,
-          prompt_version: "resume-dialogue-1",
-          topic: payload.draftAction ? "model_dialogue_completion" : "model_dialogue",
+          prompt_version: "resume-model-led-1",
+          topic: payload.actions.some((action) => action.action === "save_resume_version") ? "model_resume_version" : "model_dialogue",
           question: pending.precedingAssistantMessage,
           answer: pending.ownerMessage,
           follow_up: {
@@ -377,42 +373,35 @@ export default function SandboxedAppFrame({
           action: "answered",
           occurred_at: occurredAt,
         };
-        const recorded = await callAppCapability(appKey, "resume.definitions.write", {
-          kind: "interview_turn",
-          turn,
-          sensitivity: "sensitive",
-          linked_confirmed_fact_revision_id: null,
-        }, secureRandomUuid(), false);
+        let recorded;
+        try {
+          recorded = await callAppCapability(appKey, "resume.definitions.write", {
+            kind: "model_turn",
+            turn,
+            sensitivity: "sensitive",
+            actions: payload.actions,
+          }, secureRandomUuid(), false);
+        } catch (failure) {
+          const code = failure instanceof AppCapabilityError ? failure.code ?? "validation_failed" : "recoverable_internal_failure";
+          return {
+            committed: false,
+            action_results: payload.actions.map((action) => ({
+              action_id: action.action_id,
+              status: "rejected",
+              code,
+              message: failure instanceof AppCapabilityError ? failure.ownerState.safe_message : "The host could not execute this action batch.",
+            })),
+          };
+        }
         const sourceRevisionId = (recorded.result as { turn?: { metadata?: { revision_id?: unknown } } }).turn?.metadata?.revision_id;
         if (typeof sourceRevisionId !== "string") throw new Error("recoverable_internal_failure");
         pendingResumeDialogueRef.current = null;
         return {
           committed: true,
           source_revision_id: sourceRevisionId,
-          draft_action: payload.draftAction
-            ? { accepted: true, action: payload.draftAction.action, intent: payload.draftAction.intent }
-            : null,
+          action_results: (recorded.result as { action_results?: unknown }).action_results ?? [],
+          definition: (recorded.result as { definition?: unknown }).definition ?? null,
         };
-      }
-      if (message.type === "chat.transcript.extract" && appId === "ai.braindrive.resume-builder") {
-        const extraction = message.payload?.extraction;
-        if (!extraction || typeof extraction !== "object" || Array.isArray(extraction)) throw new Error("message_schema_invalid");
-        const workspaceResult = await callAppCapability(appKey, "resume.definitions.read", { view: "workspace" }, secureRandomUuid(), false);
-        const workspace = workspaceResult.result as { interview_turns?: unknown };
-        const transcriptRevisionIds = Array.isArray(workspace.interview_turns) ? workspace.interview_turns.flatMap((record) => {
-          if (!record || typeof record !== "object" || Array.isArray(record)) return [];
-          const candidate = record as { metadata?: { revision_id?: unknown }; extensions?: { interview_turn?: { session_id?: unknown } } };
-          return (candidate.extensions?.interview_turn?.session_id === resumeDialogueSessionRef.current || (candidate.extensions?.interview_turn as { prompt_version?: unknown } | undefined)?.prompt_version === "resume-dialogue-1") && typeof candidate.metadata?.revision_id === "string"
-            ? [candidate.metadata.revision_id]
-            : [];
-        }) : [];
-        if (transcriptRevisionIds.length === 0) throw new Error("recoverable_internal_failure");
-        const confirmed = await callAppCapability(appKey, "career.facts.confirm", {
-          kind: "transcript_extraction_batch",
-          extraction,
-          transcript_revision_ids: transcriptRevisionIds,
-        }, secureRandomUuid(), true);
-        return confirmed.result;
       }
       if (message.type === "career.return" && appId !== "ai.braindrive.resume-builder") throw new Error("career_return_requires_trusted_app_adapter");
       if (message.type === "host.action") {
@@ -722,6 +711,11 @@ export default function SandboxedAppFrame({
     sendResumeChatAction("review_facts");
   };
 
+  const editResumeFact = (factId: string) => {
+    setResumeReviewMode("workspace");
+    sendResumeChatAction(`edit_fact_${factId}`);
+  };
+
   const reload = async () => {
     if (!onReload) return;
     setStatus("reconnecting");
@@ -785,7 +779,7 @@ export default function SandboxedAppFrame({
             <ResumeReviewRail
               facts={resumeConversation.reviewFacts}
               onClose={() => setResumeReviewMode("closed")}
-              onEditFact={(factId) => sendResumeChatAction(`edit_fact_${factId}`)}
+              onEditFact={editResumeFact}
               onOpenWorkspace={openResumeWorkspace}
             />
           ) : null}

@@ -52,113 +52,78 @@ export function synthesizeResumeE2eResult(purpose: InferencePurpose, blocks: Dat
   const firstFact = facts[0];
   switch (purpose) {
     case "resume_dialogue": {
-      const dialogue = blockData<{ current_user_message: string | null; messages?: Array<{ role: "user" | "assistant"; content: string }> }>(blocks, "dialogue_context");
+      const dialogue = blockData<{
+        current_message_id: string | null;
+        current_user_message: string | null;
+        messages?: Array<{ role: "user" | "assistant"; content: string }>;
+        resume_state?: { facts?: ConfirmedFact[] };
+      }>(blocks, "dialogue_context");
       const current = dialogue.current_user_message?.trim() ?? "";
       const precedingAssistant = [...(dialogue.messages ?? [])].reverse().find((message) => message.role === "assistant")?.content ?? "";
       if (!current) {
         return {
-          dialogue_version: 1,
+          dialogue_version: 2,
           assistant_message: "Welcome — I’ll help you build a resume through a real conversation. What kind of work would you like this resume to support?",
-          turn_disposition: "respond_only",
-          fact_operations: [],
-          suggested_action: "none",
-          draft_action: null,
+          actions: [],
         };
       }
-      if (/last role|all (?:my )?roles/i.test(current)) {
+      if (/last role|all (?:my )?roles|why do you ask|why are you asking|how will you use|what happens to/i.test(current)) {
         return {
-          dialogue_version: 1,
-          assistant_message: "Let’s start with your most recent role so we can give it enough context, then we’ll add any earlier roles that strengthen the resume. What was your most recent role, and where did you work?",
-          turn_disposition: "respond_only",
-          fact_operations: [],
-          suggested_action: "none",
-          draft_action: null,
-        };
-      }
-      if (/\b(?:targeting|looking for|seeking|want)\b[^.!?]{0,120}\b(?:role|roles|job|jobs)\b/i.test(current)) {
-        return {
-          dialogue_version: 1,
-          assistant_message: "That gives us a direction. Let’s start with your most recent role, then add earlier roles that strengthen the story. What was your title and employer?",
-          turn_disposition: "capture_and_continue",
-          fact_operations: [{ operation: "capture", fact_kind: "preference", value: current, source_quote: current }],
-          suggested_action: "none",
-          draft_action: null,
-        };
-      }
-      if (/\b(?:why do you ask|why are you asking|how will you use|what happens to)\b/i.test(current)) {
-        return {
-          dialogue_version: 1,
-          assistant_message: "I ask for concrete details so the draft can stay specific and traceable to your words. We can keep this brief. Which role would you like to cover next?",
-          turn_disposition: "respond_only",
-          fact_operations: [],
-          suggested_action: "none",
-          draft_action: null,
+          dialogue_version: 2,
+          assistant_message: /last role|all (?:my )?roles/i.test(current)
+            ? "Let’s start with your most recent role, then add earlier roles when they strengthen the story. What was that role?"
+            : "I use concrete details so the resume stays specific and traceable to your words. We can keep this brief—what would you like to cover next?",
+          actions: [],
         };
       }
       const explicitDraft = /\b(?:create|generate|write|start|make|show|build|put together)\b[^.!?]{0,80}\b(?:draft|resume)\b|\b(?:draft|resume)\b[^.!?]{0,80}\b(?:create|generate|write|start|make|show|build|put together)\b/i.test(current);
       const acceptedOffer = /^(?:no[,\s]*(?:that(?:['’]s| is) (?:everything|all)|nothing else)|that(?:['’]s| is) (?:everything|all)|yes|go ahead|please do|sounds good|i(?:['’]m| am) ready)(?:\s+i think)?[.!]?$/i.test(current)
         && /\b(?:draft|resume|start|generate|put (?:it|one) together|anything else)\b/i.test(precedingAssistant);
       if (explicitDraft || acceptedOffer) {
+        const availableFacts = dialogue.resume_state?.facts ?? facts;
+        const draftSectionFor = (kind: string) => ({
+          identity: "contact", contact: "contact", employment: "experience", accomplishment: "experience", job_evidence: "experience",
+          education: "education", skill: "skills", credential: "certifications", project: "projects", preference: "summary",
+        } as Record<string, string>)[kind] ?? "experience";
+        if (availableFacts.length === 0) {
+          return { dialogue_version: 2, assistant_message: "I can draft it, but I need at least one detail you want represented first. What experience should anchor it?", actions: [] };
+        }
         return {
-          dialogue_version: 1,
-          assistant_message: "I have your request. I can ask BrainDrive to start a fact-backed general draft now.",
-          turn_disposition: "offer_draft",
-          fact_operations: [],
-          suggested_action: "create_draft",
-          draft_action: { action: "create_general_draft", intent: explicitDraft ? "explicit_request" : "accepted_offer", source_quote: current },
-        };
-      }
-      const role = current.match(/(?:i\s+)?(?:worked|work|was|served)\s+(?:as\s+)?(?:the\s+|an?\s+)?(.+?)\s+(?:at|for|with)\s+(.+?)(?=,?\s+(?:from\s+)?(?:19|20)\d{2}\b|[.!?]|$)/i);
-      if (role?.[1] && role[2]) {
-        const dateRange = current.match(/\b(?:from\s+)?((?:19|20)\d{2})\s+(?:to|through|[-–—])\s+(present|current|(?:19|20)\d{2})\b/i);
-        return {
-          dialogue_version: 1,
-          assistant_message: `I heard ${role[1].trim()} at ${role[2].trim()}. What is one specific result or responsibility from that role that belongs on the resume?`,
-          turn_disposition: "capture_and_continue",
-          fact_operations: [{
-            operation: "capture",
-            fact_kind: "employment",
-            source_quote: current,
-            employment: { title: role[1].trim(), employer: role[2].trim(), location: null, start_date: dateRange?.[1] ?? null, end_date: dateRange?.[2] ?? null, responsibilities: null },
+          dialogue_version: 2,
+          assistant_message: "I’ve prepared a resume version from what you shared for BrainDrive to save.",
+          actions: [{
+            action_id: randomUUID(),
+            action: "save_resume_version",
+            base_definition_revision_id: null,
+            title: "General Resume",
+            statements: availableFacts.map((fact) => ({
+              statement_id: randomUUID(),
+              section_id: draftSectionFor(fact.fact_kind),
+              kind: "factual",
+              display_role: fact.fact_kind === "employment" ? "heading" : "bullet",
+              text: fact.value,
+              supporting_fact_refs: [fact.revision_id],
+            })),
+            section_order: [...new Set(availableFacts.map((fact) => draftSectionFor(fact.fact_kind)))],
+            presentation_preferences: {},
+            locale: "en-US",
+            page_intent: "concise",
+            template_id: "ats-basic",
+            template_version: "1",
           }],
-          suggested_action: "none",
-          draft_action: null,
         };
       }
-      const employmentFacts = facts.flatMap((fact) => {
-        if (fact.fact_kind !== "employment") return [];
-        const job = structuredFact<StructuredJob>(fact);
-        return job?.format === "resume_job_v1" ? [{ fact, job }] : [];
-      });
-      const namedJob = employmentFacts.find(({ job }) => current.toLocaleLowerCase("en-US").includes(job.employer.toLocaleLowerCase("en-US")));
-      const activeJob = namedJob ?? employmentFacts.at(-1);
-      if (activeJob && /\b(?:%|percent|revenue|traffic|team|employees|users|customers|reduced|grew|increased|saved|launched|led|managed)\b/i.test(current)) {
-        return {
-          dialogue_version: 1,
-          assistant_message: "That is useful role-specific evidence. Is there another role you want represented, or should we cover education next?",
-          turn_disposition: "capture_and_continue",
-          fact_operations: [{ operation: "capture", fact_kind: "job_evidence", source_quote: current, text: current, job_fact_revision_id: activeJob.fact.revision_id, dimension: /\b(?:%|percent|revenue|traffic|reduced|grew|increased|saved)\b/i.test(current) ? "outcomes" : "scope" }],
-          suggested_action: "none",
-          draft_action: null,
-        };
-      }
-      if (/\b(?:degree|bachelor|master|mba|phd|university|college|education)\b/i.test(current)) {
-        return {
-          dialogue_version: 1,
-          assistant_message: "I heard that education detail. Would you like to add anything else, or should I ask BrainDrive to start your draft?",
-          turn_disposition: "capture_and_continue",
-          fact_operations: [{ operation: "capture", fact_kind: "education", value: current, source_quote: current }],
-          suggested_action: "none",
-          draft_action: null,
-        };
-      }
+      const factKind = /\b(?:degree|bachelor|master|mba|phd|university|college|education)\b/i.test(current)
+        ? "education"
+        : /\b(?:worked|work|served|role|employer)\b/i.test(current)
+          ? "employment"
+          : /\b(?:email|phone|address|linkedin)\b/i.test(current)
+            ? "contact"
+            : "accomplishment";
       return {
-        dialogue_version: 1,
-        assistant_message: "Thanks — I understand. What would be most useful for me to know next about your experience?",
-        turn_disposition: "respond_only",
-        fact_operations: [],
-        suggested_action: "none",
-        draft_action: null,
+        dialogue_version: 2,
+        assistant_message: "That’s useful context. What else would help me tell the strongest, most accurate version of your story?",
+        actions: [{ action_id: randomUUID(), action: "create_fact", fact_kind: factKind, value: current, source_references: [{ message_id: dialogue.current_message_id!, quote: current }] }],
       };
     }
     case "resume_transcript_extract": {

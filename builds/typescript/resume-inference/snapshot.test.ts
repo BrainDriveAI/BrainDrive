@@ -270,22 +270,24 @@ describe("immutable inference snapshot", () => {
     await store.initialize(grant.owner_id);
     const builder = new ImmutableInferenceSnapshotBuilder(store, () => new Date("2026-08-15T12:00:00.000Z"));
     const context = {
-      dialogue_version: 1,
+      dialogue_version: 2,
       messages: [
-        { role: "assistant", content: "Would you like to start with your work history?" },
-        { role: "user", content: "Do you mean my last role or all my roles?" },
+        { message_id: "73000000-0000-4000-8000-000000000041", role: "assistant", content: "Would you like to start with your work history?", source_revision_id: null },
+        { message_id: "73000000-0000-4000-8000-000000000042", role: "user", content: "Do you mean my last role or all my roles?", source_revision_id: null },
       ],
+      current_message_id: "73000000-0000-4000-8000-000000000042",
       current_user_message: "Do you mean my last role or all my roles?",
-      requested_mode: "intake",
+      resume_state: { facts: [], definitions: [] },
+      tool_results: [],
     };
     const request = await builder.build({
       inference_contract_version: 1,
       purpose: "resume_dialogue",
       operation_id: crypto.randomUUID(),
       fact_revision_ids: [],
-      derived_blocks: [{ category: "dialogue_context", schema_id: "resume.dialogue-context.v1", data: context }],
+      derived_blocks: [{ category: "dialogue_context", schema_id: "resume.dialogue-context.v2", data: context }],
     }, grant);
-    expect(request).toMatchObject({ purpose: "resume_dialogue", prompt_policy_id: "braindrive.resume-builder.dialogue", prompt_policy_version: "4" });
+    expect(request).toMatchObject({ purpose: "resume_dialogue", prompt_policy_id: "braindrive.resume-builder.dialogue", prompt_policy_version: "8" });
     expect(request.data_blocks).toEqual(expect.arrayContaining([expect.objectContaining({ category: "dialogue_context", data: context })]));
     expect(JSON.stringify(request)).not.toContain("provider_profile_id");
 
@@ -295,8 +297,8 @@ describe("immutable inference snapshot", () => {
       operation_id: crypto.randomUUID(),
       fact_revision_ids: [],
       derived_blocks: [
-        { category: "dialogue_context", schema_id: "resume.dialogue-context.v1", data: context },
-        { category: "dialogue_context", schema_id: "resume.dialogue-context.v1", data: context },
+        { category: "dialogue_context", schema_id: "resume.dialogue-context.v2", data: context },
+        { category: "dialogue_context", schema_id: "resume.dialogue-context.v2", data: context },
       ],
     }, grant)).rejects.toMatchObject({ code: "invalid_request" });
   });

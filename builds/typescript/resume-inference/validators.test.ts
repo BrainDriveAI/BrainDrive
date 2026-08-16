@@ -15,7 +15,22 @@ const blocks = (value: string) => {
 };
 
 describe("deterministic claim gate", () => {
-  it("allows natural clarification while rejecting question capture, invented sources, and model-owned save claims", () => {
+  it("validates only bright-line dialogue action references, not model judgment", () => {
+    const assistantId = randomUUID();
+    const ownerId = randomUUID();
+    const ownerText = "Do you mean my last role or all my roles?";
+    const context = { dialogue_version: 2, messages: [{ message_id: assistantId, role: "assistant", content: "Tell me about your work history.", source_revision_id: null }, { message_id: ownerId, role: "user", content: ownerText, source_revision_id: null }], current_message_id: ownerId, current_user_message: ownerText, resume_state: { facts: [], definitions: [] }, tool_results: [] };
+    const dialogueBlocks = [
+      ...blocks("Built product 20%"),
+      { category: "dialogue_context" as const, content_digest: canonicalInputDigest(context), schema_id: "resume.dialogue-context.v2", schema_version: 1 as const, data: context },
+    ];
+    const actionId = randomUUID();
+    const valid = { dialogue_version: 2, assistant_message: "Start with the most recent role; we can add the rest later.", actions: [{ action_id: actionId, action: "create_fact", fact_kind: "preference", value: "Start with the most recent role", source_references: [{ message_id: ownerId, quote: ownerText }] }] };
+    expect(validateInferenceClaims("resume_dialogue", valid, dialogueBlocks).accepted).toBe(true);
+    expect(validateInferenceClaims("resume_dialogue", { ...valid, actions: [{ ...valid.actions[0], source_references: [{ message_id: ownerId, quote: "not owner text" }] }] }, dialogueBlocks).accepted).toBe(false);
+  });
+
+  it.skip("legacy per-turn field capture validator (superseded by model action contract)", () => {
     const current = "Do you mean my last role or all my roles?";
     const facts = { facts: [{
       revision_id: JOB_ID,
@@ -58,7 +73,7 @@ describe("deterministic claim gate", () => {
     }, dialogueBlocks).accepted).toBe(false);
   });
 
-  it("accepts cross-turn owner-grounded employment but rejects a fabricated employer", () => {
+  it.skip("legacy host employment interpretation validator (superseded by cited model actions)", () => {
     const current = "Northwind is the correct name and spelling. 2020 to 2024";
     const context = {
       dialogue_version: 1,
@@ -88,7 +103,7 @@ describe("deterministic claim gate", () => {
     }, dialogueBlocks).accepted).toBe(false);
   });
 
-  it("grounds draft intent and rejects pre-authorization generation claims", () => {
+  it.skip("legacy host draft-intent interpretation validator (model now owns readiness)", () => {
     const current = "Please create my resume draft now.";
     const context = {
       dialogue_version: 1,
@@ -110,7 +125,7 @@ describe("deterministic claim gate", () => {
     expect(validateInferenceClaims("resume_dialogue", { ...result, draft_action: { ...result.draft_action, source_quote: "create a resume" } }, dialogueBlocks).accepted).toBe(false);
   });
 
-  it("accepts a bounded draft proposal while deriving accepted-offer intent from the conversation", () => {
+  it.skip("legacy accepted-offer derivation validator (model now owns readiness)", () => {
     const current = "no that's everything I think";
     const context = {
       dialogue_version: 1,
@@ -157,7 +172,7 @@ describe("deterministic claim gate", () => {
     expect(validateInferenceClaims("resume_transcript_extract", { extraction_version: 1, proposals: [{ ...proposal, citations: [{ source_revision_id: sourceRevisionId, quote: "Director at Contoso" }] }], gaps: [] }, extractionBlocks).accepted).toBe(false);
   });
 
-  it("rejects non-fact control markers from dialogue capture", () => {
+  it.skip("legacy control-marker interpretation validator (model now owns meaning)", () => {
     const current = "Before Acme Ventures, I was VP of Global Sales at Nova Markets from 2008 to 2015.";
     const context = {
       dialogue_version: 1,

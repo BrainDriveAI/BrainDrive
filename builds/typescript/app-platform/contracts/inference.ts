@@ -40,7 +40,7 @@ export const InferencePurposeSchema = z.enum([
 export type InferencePurpose = z.infer<typeof InferencePurposeSchema>;
 
 export const PURPOSE_OUTPUT_SCHEMAS = {
-  resume_dialogue: "resume.dialogue-turn.v1",
+  resume_dialogue: "resume.dialogue-turn.v2",
   resume_transcript_extract: "resume.transcript-extraction.v1",
   interview_assist: "resume.interview-assist.v2",
   general_resume_draft: "resume.general-draft.v1",

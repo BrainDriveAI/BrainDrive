@@ -657,7 +657,6 @@ export class ResumeDataStore {
       if (
         context.targetId !== null ||
         context.expectedRevision !== null ||
-        expectedIds.length !== records.length ||
         expectedIds.some((recordId) => !ids.has(recordId) || !Number.isSafeInteger(context.expectedRevisions?.[recordId]) || context.expectedRevisions![recordId]! <= 0)
       ) {
         throw new ResumeDomainError("conflict", "Grouped expected revisions do not match the candidate records");

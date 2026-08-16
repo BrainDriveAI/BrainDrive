@@ -94,7 +94,7 @@ describe("sandboxed MCP App frame", () => {
         stageLabel: "Your experience",
         supportLabel: "Facts are saved only after you confirm them.",
         confirmedEmploymentRevisionIds: [],
-        reviewFacts: [{ id: crypto.randomUUID(), revisionId: crypto.randomUUID(), kind: "skill", label: "Skill", value: "Operations planning", storedValue: "Operations planning" }],
+        reviewFacts: [{ id: "11111111-1111-4111-8111-111111111111", revisionId: crypto.randomUUID(), kind: "skill", label: "Skill", value: "Operations planning", storedValue: "Operations planning" }],
       },
     });
     expect(await screen.findByRole("region", { name: "Resume Builder conversation" })).toBeInTheDocument();
@@ -107,6 +107,26 @@ describe("sandboxed MCP App frame", () => {
     const reviewSummary = screen.getByRole("complementary", { name: "Resume review summary" });
     expect(within(reviewSummary).getByText("Operations planning")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Close drawer" })).not.toBeInTheDocument();
+    await userEvent.click(within(reviewSummary).getByRole("button", { name: "Edit" }));
+    expect(screen.getByRole("button", { name: "Close drawer" })).toBeInTheDocument();
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      message: { type: "host.chat.action", payload: { actionId: "edit_fact_11111111-1111-4111-8111-111111111111" } },
+    }), "*");
+    await userEvent.click(screen.getByRole("button", { name: "Close drawer" }));
+    await userEvent.click(screen.getByRole("button", { name: "Review what I’ve shared" }));
+    await send({
+      bridge_version: 1, message_id: crypto.randomUUID(), type: "chat.sync",
+      payload: {
+        messages: [
+          { id: "assistant-1", role: "assistant", content: "What kind of work would you like next?" },
+          { id: "owner-1", role: "user", content: "Operations leadership." },
+        ],
+        actions: [], busy: false, inputEnabled: true, inputPlaceholder: "Reply to Resume Builder...",
+        stageLabel: "Your experience", supportLabel: "Facts are saved only after you confirm them.", confirmedEmploymentRevisionIds: [],
+        reviewFacts: [{ id: "11111111-1111-4111-8111-111111111111", revisionId: crypto.randomUUID(), kind: "skill", label: "Skill", value: "Operations planning", storedValue: "Operations planning" }],
+      },
+    });
+    await waitFor(() => expect(screen.getByPlaceholderText("Reply to Resume Builder...")).toBeEnabled());
     await userEvent.type(screen.getByPlaceholderText("Reply to Resume Builder..."), "Customer operations.");
     await userEvent.click(screen.getByRole("button", { name: "Send message" }));
     expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
@@ -116,15 +136,13 @@ describe("sandboxed MCP App frame", () => {
       expect(within(reviewSummary).queryByText(rejectedMetric, { exact: true })).not.toBeInTheDocument();
     }
     expect(screen.queryByRole("button", { name: "Close drawer" })).not.toBeInTheDocument();
-    await userEvent.click(within(reviewSummary).getByRole("button", { name: "Open full review" }));
-    expect(screen.getByRole("button", { name: "Close drawer" })).toBeInTheDocument();
   });
 
   it("rejects malformed app-projected conversation state", () => {
     expect(parseResumeConversationState({ messages: [{ id: "x", role: "system", content: "forged" }], actions: [], busy: false, inputEnabled: true, inputPlaceholder: "", stageLabel: "Interview", supportLabel: "Evidence" })).toBeNull();
   });
 
-  it("commits ordinary dialogue as durable transcript without writing trusted facts", async () => {
+  it("commits one model-led turn and its bounded actions through the atomic domain capability", async () => {
     const sourceRevisionId = crypto.randomUUID();
     vi.mocked(callAppCapability)
       .mockResolvedValueOnce({ result: { turn: { metadata: { revision_id: sourceRevisionId } } } });
@@ -140,7 +158,7 @@ describe("sandboxed MCP App frame", () => {
       });
     };
     await send({ jsonrpc: "2.0", method: "ui/notifications/sandbox-proxy-ready", params: {} }, "proxy");
-    await send({ jsonrpc: "2.0", id: "init-dialogue-commit", method: "ui/initialize", params: { protocolVersion: APPS_PROTOCOL_VERSION, appInfo: { name: "resume", version: "4.1.0" }, appCapabilities: {} } });
+    await send({ jsonrpc: "2.0", id: "init-dialogue-commit", method: "ui/initialize", params: { protocolVersion: APPS_PROTOCOL_VERSION, appInfo: { name: "resume", version: "5.0.0" }, appCapabilities: {} } });
     await send({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} });
     await send({
       bridge_version: 1,
@@ -158,6 +176,7 @@ describe("sandboxed MCP App frame", () => {
     const outbound = postMessage.mock.calls.map(([value]) => value as { message?: { type?: string; payload?: { messageId?: string } } }).find((value) => value.message?.type === "host.chat.message");
     const messageId = outbound?.message?.payload?.messageId;
     expect(messageId).toMatch(/^[0-9a-f-]{36}$/i);
+    const actionId = crypto.randomUUID();
 
     await send({
       bridge_version: 1,
@@ -166,30 +185,21 @@ describe("sandboxed MCP App frame", () => {
       payload: {
         messageId,
         assistantMessage: "That gives us a useful starting point. What kind of work did you lead there?",
-        draftAction: null,
-        factOperations: [],
+        actions: [{ action_id: actionId, action: "create_fact", fact_kind: "employment", value: "Director of Operations at Northwind", source_references: [{ message_id: messageId, quote: "Director of Operations at Northwind" }] }],
       },
     });
 
     await waitFor(() => expect(callAppCapability).toHaveBeenCalledTimes(1));
     expect(callAppCapability).toHaveBeenNthCalledWith(1, "resume-builder", "resume.definitions.write", expect.objectContaining({
-      kind: "interview_turn",
-      turn: expect.objectContaining({ prompt_version: "resume-dialogue-1", question: "What was your most recent role, and where did you work?", answer: ownerMessage }),
+      kind: "model_turn",
+      turn: expect.objectContaining({ turn_id: messageId, prompt_version: "resume-model-led-1", question: "What was your most recent role, and where did you work?", answer: ownerMessage }),
+      actions: [expect.objectContaining({ action_id: actionId, action: "create_fact" })],
     }), expect.any(String), false);
-    expect(callAppCapability).not.toHaveBeenCalledWith("resume-builder", "career.facts.propose", expect.anything(), expect.anything(), expect.anything());
-    expect(callAppCapability).not.toHaveBeenCalledWith("resume-builder", "career.facts.confirm", expect.anything(), expect.anything(), expect.anything());
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("routes bounded transcript extraction through one host-owned atomic fact capability", async () => {
-    const roleSourceRevisionId = crypto.randomUUID();
-    const correctionSourceRevisionId = crypto.randomUUID();
-    vi.mocked(callAppCapability)
-      .mockResolvedValueOnce({ result: { interview_turns: [
-        { metadata: { revision_id: roleSourceRevisionId }, extensions: { interview_turn: { prompt_version: "resume-dialogue-1", occurred_at: "2026-08-15T12:00:00.000Z", answer: "It was called ACME ACME and I was the founder and CEO of that company." } } },
-        { metadata: { revision_id: correctionSourceRevisionId }, extensions: { interview_turn: { prompt_version: "resume-dialogue-1", occurred_at: "2026-08-15T12:01:00.000Z", answer: "Acme Ventures is the correct name and spelling. 2015 to 2025" } } },
-      ] } })
-      .mockResolvedValueOnce({ result: { facts: [], dispositions: [], gaps: [], ready: true, follow_up: null } });
+  it("does not expose the deprecated transcript extraction bridge", async () => {
+    vi.mocked(callAppCapability).mockResolvedValue({ result: {} });
     render(<SandboxedAppFrame appKey="resume-builder" appId="ai.braindrive.resume-builder" appName="Resume Builder" launch={launch} onSessionClosed={() => {}} />);
     const frame = screen.getByTitle("Resume Builder sandbox proxy") as HTMLIFrameElement;
     const proxyHtml = decodeURIComponent(frame.getAttribute("src")!.split(",", 2)[1]!);
@@ -201,17 +211,10 @@ describe("sandboxed MCP App frame", () => {
       });
     };
     await send({ jsonrpc: "2.0", method: "ui/notifications/sandbox-proxy-ready", params: {} }, "proxy");
-    await send({ jsonrpc: "2.0", id: "init-employment-reconcile", method: "ui/initialize", params: { protocolVersion: APPS_PROTOCOL_VERSION, appInfo: { name: "resume", version: "4.1.0" }, appCapabilities: {} } });
+    await send({ jsonrpc: "2.0", id: "init-no-extraction", method: "ui/initialize", params: { protocolVersion: APPS_PROTOCOL_VERSION, appInfo: { name: "resume", version: "5.0.0" }, appCapabilities: {} } });
     await send({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} });
-    const extraction = { extraction_version: 1, proposals: [], gaps: [] };
-    await send({ bridge_version: 1, message_id: crypto.randomUUID(), type: "chat.transcript.extract", payload: { extraction } });
-
-    await waitFor(() => expect(callAppCapability).toHaveBeenCalledTimes(2));
-    expect(callAppCapability).toHaveBeenNthCalledWith(2, "resume-builder", "career.facts.confirm", {
-      kind: "transcript_extraction_batch",
-      extraction,
-      transcript_revision_ids: [roleSourceRevisionId, correctionSourceRevisionId],
-    }, expect.any(String), true);
+    await send({ bridge_version: 1, message_id: crypto.randomUUID(), type: "chat.transcript.extract", payload: {} });
+    await waitFor(() => expect(callAppCapability).not.toHaveBeenCalled());
   });
 
   it("does not expose the removed incremental employment reconciliation bridge", async () => {

@@ -66,6 +66,127 @@ function submittedTurn(sessionId: string, answer: string) {
 }
 
 describe("Resume domain invariants", () => {
+  it("atomically persists a cited model turn, editable fact, and model-authored resume version", async () => {
+    const { store, service } = await setup();
+    const turnId = crypto.randomUUID();
+    const factActionId = crypto.randomUUID();
+    const draftActionId = crypto.randomUUID();
+    const ownerText = "I was CEO at Acme Labs and grew annual revenue by 40 percent.";
+    const result = await service.commitModelTurn({
+      kind: "model_turn",
+      turn: {
+        transcript_version: 1,
+        turn_id: turnId,
+        session_id: crypto.randomUUID(),
+        prompt_version: "resume-model-led-1",
+        topic: "model_resume_version",
+        question: "Tell me about work you want represented.",
+        answer: ownerText,
+        follow_up: { question: "I made a first draft from that experience.", answer: null, outcome: "continued_without_answer" },
+        action: "answered",
+        occurred_at: "2026-08-07T12:00:00.000Z",
+      },
+      sensitivity: "sensitive",
+      actions: [
+        { action_id: factActionId, action: "create_fact", fact_kind: "employment", value: JSON.stringify({ title: "CEO", employer: "Acme Labs", result: "grew annual revenue by 40 percent" }), source_references: [{ message_id: turnId, quote: ownerText }] },
+        { action_id: draftActionId, action: "save_resume_version", base_definition_revision_id: null, title: "CEO Resume", statements: [{ statement_id: crypto.randomUUID(), section_id: "experience", kind: "factual", display_role: "bullet", text: "Grew annual revenue by 40 percent as CEO of Acme Labs.", supporting_fact_refs: [factActionId] }], section_order: ["experience"], presentation_preferences: {}, locale: "en-US", page_intent: "one_page", template_id: "ats-basic", template_version: "1" },
+      ],
+    }, authority("resume.definitions.write"));
+
+    expect(result.turn.extensions).toMatchObject({ model_led_contract_version: 1 });
+    expect(result.facts).toHaveLength(1);
+    expect(result.definition).toMatchObject({ status: "draft", policy_version: "model-led-v1", strategy_binding: null });
+    expect(result.definition?.statements[0]?.supporting_confirmed_fact_revision_ids).toEqual([result.facts[0]!.metadata.revision_id]);
+    expect((await store.list("source")).length).toBe(1);
+    expect((await store.list("career_fact")).length).toBe(1);
+    expect((await store.list("resume_definition")).length).toBe(1);
+  });
+
+  it("persists a multi-fact model revision with unstructured owner job evidence", async () => {
+    const { store, service } = await setup();
+    const firstTurnId = crypto.randomUUID();
+    const firstFactActionId = crypto.randomUUID();
+    const first = await service.commitModelTurn({
+      kind: "model_turn",
+      turn: {
+        transcript_version: 1, turn_id: firstTurnId, session_id: crypto.randomUUID(), prompt_version: "resume-model-led-1",
+        topic: "model_resume_version", question: "What should the first version include?", answer: "I was Product Lead at Harbor Systems.",
+        follow_up: { question: "I saved a first version.", answer: null, outcome: "continued_without_answer" }, action: "answered",
+        occurred_at: "2026-08-07T12:00:00.000Z",
+      },
+      sensitivity: "sensitive",
+      actions: [
+        { action_id: firstFactActionId, action: "create_fact", fact_kind: "employment", value: "Product Lead at Harbor Systems", source_references: [{ message_id: firstTurnId, quote: "Product Lead at Harbor Systems" }] },
+        { action_id: crypto.randomUUID(), action: "save_resume_version", base_definition_revision_id: null, title: "Product Resume", statements: [{ statement_id: crypto.randomUUID(), section_id: "experience", kind: "factual", display_role: "line", text: "Product Lead at Harbor Systems", supporting_fact_refs: [firstFactActionId] }], section_order: ["experience"], presentation_preferences: {}, locale: "en-US", page_intent: "concise", template_id: "ats-basic", template_version: "1" },
+      ],
+    }, authority("resume.definitions.write"));
+
+    const revisionTurnId = crypto.randomUUID();
+    const employmentActionId = crypto.randomUUID();
+    const evidenceActionId = crypto.randomUUID();
+    const educationActionId = crypto.randomUUID();
+    const revised = await service.commitModelTurn({
+      kind: "model_turn",
+      turn: {
+        transcript_version: 1, turn_id: revisionTurnId, session_id: crypto.randomUUID(), prompt_version: "resume-model-led-1",
+        topic: "model_resume_version", question: "What else belongs in it?",
+        answer: "At Cedar Labs I grew revenue 30 percent, and I earned a BS from State University.",
+        follow_up: { question: "I saved the expanded version.", answer: null, outcome: "continued_without_answer" }, action: "answered",
+        occurred_at: "2026-08-07T12:01:00.000Z",
+      },
+      sensitivity: "sensitive",
+      actions: [
+        { action_id: employmentActionId, action: "create_fact", fact_kind: "employment", value: "Cedar Labs", source_references: [{ message_id: revisionTurnId, quote: "Cedar Labs" }] },
+        { action_id: evidenceActionId, action: "create_fact", fact_kind: "accomplishment", value: "grew revenue 30 percent", source_references: [{ message_id: revisionTurnId, quote: "grew revenue 30 percent" }] },
+        { action_id: educationActionId, action: "create_fact", fact_kind: "education", value: "BS from State University", source_references: [{ message_id: revisionTurnId, quote: "BS from State University" }] },
+        { action_id: crypto.randomUUID(), action: "save_resume_version", base_definition_revision_id: first.definition!.metadata.revision_id, title: "Product Resume", statements: [
+          { statement_id: crypto.randomUUID(), section_id: "experience", kind: "factual", display_role: "heading", text: "Cedar Labs", supporting_fact_refs: [employmentActionId] },
+          { statement_id: crypto.randomUUID(), section_id: "experience", kind: "factual", display_role: "bullet", text: "Grew revenue 30 percent.", supporting_fact_refs: [evidenceActionId] },
+          { statement_id: crypto.randomUUID(), section_id: "education", kind: "factual", display_role: "line", text: "BS, State University", supporting_fact_refs: [educationActionId] },
+        ], section_order: ["experience", "education"], presentation_preferences: {}, locale: "en-US", page_intent: "detailed", template_id: "ats-basic", template_version: "1" },
+      ],
+    }, authority("resume.definitions.write"));
+
+    expect(revised.facts).toHaveLength(3);
+    expect(revised.definition).toMatchObject({ parent_definition_revision_id: first.definition!.metadata.revision_id, successor_context: null });
+    expect((await store.list("career_fact")).length).toBe(4);
+    expect((await store.list("resume_definition")).length).toBe(2);
+  });
+
+  it("fails a model action batch closed when an owner quote or referenced fact is unavailable", async () => {
+    const { store, service } = await setup();
+    const turnId = crypto.randomUUID();
+    await expect(service.commitModelTurn({
+      kind: "model_turn",
+      turn: { transcript_version: 1, turn_id: turnId, session_id: crypto.randomUUID(), prompt_version: "resume-model-led-1", topic: "model_dialogue", question: "What should I know?", answer: "I led a support team.", follow_up: { question: "Tell me more.", answer: null, outcome: "continued_without_answer" }, action: "answered", occurred_at: "2026-08-07T12:00:00.000Z" },
+      sensitivity: "standard",
+      actions: [{ action_id: crypto.randomUUID(), action: "create_fact", fact_kind: "employment", value: "Director at Invented Corp", source_references: [{ message_id: turnId, quote: "Invented Corp" }] }],
+    }, authority("resume.definitions.write"))).rejects.toMatchObject({ code: "validation_failed" });
+    expect(await store.list("source")).toEqual([]);
+    expect(await store.list("career_fact")).toEqual([]);
+  });
+
+  it("uses revision preconditions for model-led fact corrections and preserves prior owner history", async () => {
+    const { store, service } = await setup();
+    const firstTurnId = crypto.randomUUID();
+    const first = await service.commitModelTurn({
+      kind: "model_turn",
+      turn: { transcript_version: 1, turn_id: firstTurnId, session_id: crypto.randomUUID(), prompt_version: "resume-model-led-1", topic: "model_dialogue", question: "What was your title?", answer: "My title was Chief Executive Officer.", follow_up: { question: "Thanks. What did you accomplish?", answer: null, outcome: "continued_without_answer" }, action: "answered", occurred_at: "2026-08-07T12:00:00.000Z" },
+      sensitivity: "standard",
+      actions: [{ action_id: crypto.randomUUID(), action: "create_fact", fact_kind: "employment", value: "Chief Executive Officer", source_references: [{ message_id: firstTurnId, quote: "Chief Executive Officer" }] }],
+    }, authority("resume.definitions.write"));
+    const fact = first.facts[0]!;
+    const correctionTurnId = crypto.randomUUID();
+    const corrected = await service.commitModelTurn({
+      kind: "model_turn",
+      turn: { transcript_version: 1, turn_id: correctionTurnId, session_id: crypto.randomUUID(), prompt_version: "resume-model-led-1", topic: "model_dialogue", question: "Anything to correct?", answer: "Use CEO instead.", follow_up: { question: "Updated to CEO.", answer: null, outcome: "continued_without_answer" }, action: "answered", occurred_at: "2026-08-07T12:00:00.000Z" },
+      sensitivity: "standard",
+      actions: [{ action_id: crypto.randomUUID(), action: "update_fact", record_id: fact.metadata.record_id, expected_revision: 1, fact_kind: "employment", value: "CEO", source_references: [{ message_id: correctionTurnId, quote: "CEO" }] }],
+    }, authority("resume.definitions.write"));
+    expect(corrected.facts[0]).toMatchObject({ value: "CEO", supersedes_fact_revision_id: fact.metadata.revision_id, metadata: { revision: 2 } });
+    expect((await store.allRevisions()).filter((record) => record.record_type === "career_fact")).toHaveLength(2);
+  });
+
   it("persists an exact strategy binding and blocks approval after the confirmed snapshot changes", async () => {
     const { service } = await setup();
     const confirmed = await confirmedFact(service);

@@ -115,112 +115,63 @@ function validateTranscriptExtraction(result: unknown, dataBlocks: DataBlock[], 
 function validateResumeDialogue(result: unknown, dataBlocks: DataBlock[], facts: Map<string, string>): Finding[] {
   const findings: Finding[] = [];
   const value = result as {
-    assistant_message?: string;
-    draft_action?: { action?: string; intent?: string; source_quote?: string } | null;
-    fact_operations?: Array<{
-      fact_kind?: string;
-      source_quote?: string;
-      value?: string;
-      text?: string;
-      job_fact_revision_id?: string | null;
-      employment?: { title?: unknown; employer?: unknown; location?: unknown; start_date?: unknown; end_date?: unknown; responsibilities?: unknown };
+    actions?: Array<{
+      action_id?: string;
+      action?: string;
+      record_id?: string | null;
+      expected_revision?: number | null;
+      source_references?: Array<{ message_id?: string; quote?: string }>;
+      base_definition_revision_id?: string | null;
+      statements?: Array<{ kind?: string; supporting_fact_refs?: string[] }>;
+      definition_revision_id?: string | null;
     }>;
   };
   const context = dataBlocks.find((block) => block.category === "dialogue_context")?.data as {
-    current_user_message?: string | null;
-    messages?: Array<{ role?: string; content?: string }>;
+    messages?: Array<{ message_id?: string; role?: string; content?: string; source_revision_id?: string | null }>;
+    resume_state?: {
+      facts?: Array<{ record_id?: string; revision_id?: string; revision?: number }>;
+      definitions?: Array<{ revision_id?: string }>;
+    };
   } | undefined;
-  const current = context?.current_user_message ?? null;
-  const messages = context?.messages ?? [];
-  const operations = value.fact_operations ?? [];
-  if (current === null && operations.length > 0) {
-    findings.push(finding("missing_provenance", null, "An opening dialogue turn cannot propose owner facts"));
-    return findings;
-  }
-  const normalizedCurrent = normalize(current ?? "");
-  const ownerMessages = messages.flatMap((message) => message.role === "user" && typeof message.content === "string" ? [normalize(message.content)] : []);
-  const pureQuestion = /^(?:do|does|did|should|would|could|can|what|which|who|why|how|when|where|is|are|am|was|were)\b/.test(normalizedCurrent) && normalizedCurrent.endsWith("?");
-  if (pureQuestion && operations.length > 0) {
-    findings.push(finding("unsupported_claim", null, "A clarification question cannot be treated as a factual answer"));
-  }
-  if (value.draft_action) {
-    const quote = typeof value.draft_action.source_quote === "string" ? normalize(value.draft_action.source_quote) : "";
-    if (!quote || !normalizedCurrent.includes(quote) || pureQuestion) {
-      findings.push(finding("missing_provenance", null, "A draft action requires an exact non-question owner request or acceptance quote"));
-    }
-    const precedingAssistant = [...messages].reverse().find((message, index, reversed) => {
-      if (message.role !== "assistant" || typeof message.content !== "string") return false;
-      return reversed.slice(0, index).some((later) => later.role === "user" && normalize(later.content ?? "") === normalizedCurrent);
-    })?.content ?? "";
-    if (!isExplicitDraftRequest(current ?? "") && !isAcceptedDraftOffer(current ?? "", precedingAssistant)) {
-      findings.push(finding("unsupported_claim", null, "A draft action requires an explicit owner request or acceptance of the immediately preceding draft offer"));
-    }
-  }
-  for (const operation of operations) {
-    const quote = typeof operation.source_quote === "string" ? normalize(operation.source_quote) : "";
-    if (!quote || !normalizedCurrent.includes(quote)) {
-      findings.push(finding("missing_provenance", null, "Every dialogue fact operation requires an exact quote from the current owner message"));
-    }
-    const proposedFactText = operation.fact_kind === "accomplishment" || operation.fact_kind === "job_evidence"
-      ? operation.text
-      : operation.fact_kind === "employment" ? null : operation.value;
-    if (typeof proposedFactText === "string" && isNonFactControlMarker(proposedFactText)) {
-      findings.push(finding("unsupported_claim", null, "Dialogue control markers cannot be persisted as owner facts"));
-    }
-    if (operation.fact_kind === "employment") {
-      const employment = operation.employment;
-      const requiredFields = [employment?.title, employment?.employer];
-      const optionalFields = [employment?.location, employment?.start_date, employment?.end_date, employment?.responsibilities].filter((field) => field !== null && field !== undefined);
-      for (const field of [...requiredFields, ...optionalFields]) {
-        const normalizedField = typeof field === "string" ? normalize(field) : "";
-        if (!normalizedField || !ownerMessages.some((message) => message.includes(normalizedField))) {
-          findings.push(finding("missing_provenance", null, "Every employment field must preserve exact owner-stated wording from the visible conversation"));
+  const ownerMessages = new Map((context?.messages ?? []).flatMap((message) =>
+    message.role === "user" && typeof message.message_id === "string" && typeof message.content === "string"
+      ? [[message.message_id, message.content] as const]
+      : []));
+  const factState = context?.resume_state?.facts ?? [];
+  const factRevisionIds = new Set([
+    ...facts.keys(),
+    ...factState.flatMap((fact) => typeof fact.revision_id === "string" ? [fact.revision_id] : []),
+  ]);
+  const factActions = new Set((value.actions ?? []).flatMap((action) => (action.action === "create_fact" || action.action === "update_fact") && typeof action.action_id === "string" ? [action.action_id] : []));
+  const definitionRevisionIds = new Set((context?.resume_state?.definitions ?? []).flatMap((definition) => typeof definition.revision_id === "string" ? [definition.revision_id] : []));
+  for (const action of value.actions ?? []) {
+    if (action.action === "create_fact" || action.action === "update_fact") {
+      for (const reference of action.source_references ?? []) {
+        const ownerText = typeof reference.message_id === "string" ? ownerMessages.get(reference.message_id) : undefined;
+        if (!ownerText || typeof reference.quote !== "string" || !ownerText.includes(reference.quote)) {
+          findings.push(finding("missing_provenance", null, "A fact action must cite an exact quote from the referenced owner message"));
         }
       }
-      const correctedEmployer = /^(.+?)\s+is\s+the\s+correct\s+(?:company\s+)?name(?:\s+and\s+spelling)?\b/.exec(normalizedCurrent)?.[1]?.trim();
-      if (correctedEmployer && normalize(String(employment?.employer ?? "")) !== correctedEmployer) {
-        findings.push(finding("unsupported_claim", null, "An explicit employer correction must be used exactly"));
-      }
-      const dateRange = /\b(?:from\s+)?((?:19|20)\d{2})\s+(?:to|through|[-–—])\s+(present|current|(?:19|20)\d{2})\b/.exec(normalizedCurrent);
-      if (dateRange && (normalize(String(employment?.start_date ?? "")) !== dateRange[1] || normalize(String(employment?.end_date ?? "")) !== dateRange[2])) {
-        findings.push(finding("unsupported_claim", null, "Explicit owner-stated employment dates must be preserved exactly"));
+      if (action.action === "update_fact") {
+        const current = factState.find((fact) => fact.record_id === action.record_id);
+        if (!current || current.revision !== action.expected_revision) findings.push(finding("lineage_invalid", null, "A fact update must reference the current record revision"));
       }
     }
-    if (operation.job_fact_revision_id) {
-      const jobValue = facts.get(operation.job_fact_revision_id);
-      if (!jobValue) findings.push(finding("lineage_invalid", null, "Role-specific dialogue evidence must reference one confirmed employment fact"));
-      else {
-        try {
-          const parsed = JSON.parse(jobValue) as { format?: unknown };
-          if (parsed.format !== "resume_job_v1") findings.push(finding("lineage_invalid", null, "Role-specific dialogue evidence must reference structured confirmed employment"));
-        } catch {
-          findings.push(finding("lineage_invalid", null, "Role-specific dialogue evidence must reference structured confirmed employment"));
+    if (action.action === "save_resume_version") {
+      if (action.base_definition_revision_id !== null && !definitionRevisionIds.has(action.base_definition_revision_id ?? "")) {
+        findings.push(finding("lineage_invalid", null, "A resume revision must reference an available base definition"));
+      }
+      for (const statement of action.statements ?? []) {
+        for (const reference of statement.supporting_fact_refs ?? []) {
+          if (!factRevisionIds.has(reference) && !factActions.has(reference)) findings.push(finding("lineage_invalid", null, "A factual resume statement must reference an available fact or same-turn fact action"));
         }
       }
     }
-  }
-  if (/\b(?:i|we|braindrive)\s+(?:have\s+)?(?:saved|confirmed|approved)\b/i.test(value.assistant_message ?? "")) {
-    findings.push(finding("schema_invalid", null, "Dialogue may not claim that model-proposed facts or owner actions were committed"));
-  }
-  if (/\b(?:i|we|braindrive)\s+(?:(?:will|'ll|am|are|is)\s+)?(?:now\s+)?(?:start(?:ed|ing)?|generat(?:e|ed|ing)|creat(?:e|ed|ing)|build(?:ing)?)\s+(?:your\s+|the\s+|a\s+)?(?:draft|resume)\b/i.test(value.assistant_message ?? "")) {
-    findings.push(finding("schema_invalid", null, "Dialogue may not claim draft generation before the host accepts the action"));
+    if (action.action === "request_export" && action.definition_revision_id !== null && !definitionRevisionIds.has(action.definition_revision_id ?? "")) {
+      findings.push(finding("lineage_invalid", null, "An export request must reference an available resume definition"));
+    }
   }
   return findings;
-}
-
-function isExplicitDraftRequest(ownerMessage: string): boolean {
-  return /\b(?:create|generate|write|start|make|show|build|recreate|regenerate|rewrite|rebuild|put together)\b[^.!?]{0,100}\b(?:draft|resume)\b|\b(?:draft|resume)\b[^.!?]{0,100}\b(?:create|generate|write|start|make|show|build|recreate|regenerate|rewrite|rebuild|put together)\b/i.test(ownerMessage);
-}
-
-function isAcceptedDraftOffer(ownerMessage: string, precedingAssistantMessage: string): boolean {
-  return /^(?:no[,\s]*(?:that(?:'s| is) (?:everything|all)|nothing else)|that(?:'s| is) (?:everything|all)|yes|go ahead|please do|sounds good|i(?:'m| am) ready)(?:\s+i think)?[.!]?$/i.test(ownerMessage.trim())
-    && /\b(?:draft|resume|start|generate|put (?:it|one) together|anything else|anything more)\b/i.test(precedingAssistantMessage);
-}
-
-function isNonFactControlMarker(value: string): boolean {
-  const normalized = value.normalize("NFKC").trim().toLocaleLowerCase("en-US");
-  return /^:?\s*skip\s*:?/.test(normalized)
-    || /^(?:none|n\/a|not applicable|no (?:fact|detail|information|accomplishment)s? (?:stated|provided|given)(?: in this message)?)\.?$/.test(normalized);
 }
 
 export function evaluateDefinitionDeterministicGates(definition: { statements: GeneratedStatement[] }, dataBlocks: DataBlock[]): {

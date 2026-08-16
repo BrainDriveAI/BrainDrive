@@ -52,7 +52,7 @@ import {
   requireHostOwnerDecisionEvidence,
 } from "./career-data.js";
 import { RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION } from "../resume-inference/policy.js";
-import { ResumeTranscriptExtractionResultSchema, ResumeTranscriptSnapshotSchema } from "../resume-inference/results.js";
+import { ResumeDialogueActionSchema, ResumeTranscriptExtractionResultSchema, ResumeTranscriptSnapshotSchema } from "../resume-inference/results.js";
 import { validateInferenceClaims } from "../resume-inference/validators.js";
 import { evaluateDefinitionDeterministicGates } from "../resume-inference/validators.js";
 import { assertBoundQualityReport, evaluateResumeQuality } from "../resume-inference/quality-runtime.js";
@@ -140,6 +140,13 @@ const ProposalInputSchema = z.object({
 const LinkedProposalInputSchema = z.object({
   source_revision_ids: z.array(OpaqueIdSchema).min(1).max(25),
   fact: ProposalInputSchema.shape.fact,
+}).strict();
+
+const ModelTurnInputSchema = z.object({
+  kind: z.literal("model_turn"),
+  turn: InterviewTurnAuditSchema,
+  sensitivity: z.enum(["standard", "sensitive", "highly_sensitive"]),
+  actions: z.array(ResumeDialogueActionSchema).max(32),
 }).strict();
 
 const GroupConfirmationInputSchema = z.object({
@@ -2614,6 +2621,179 @@ export class ResumeDomainService {
     });
     const result = await this.store.commit([turn], this.mutation(authority, input, "interview_turn", null, null));
     return { turn: SourceRecordSchema.parse(result.records[0]), reused: result.reused };
+  }
+
+  async commitModelTurn(raw: unknown, authority: DataAuthority): Promise<{
+    turn: z.infer<typeof SourceRecordSchema>;
+    facts: z.infer<typeof CareerFactRecordSchema>[];
+    definition: z.infer<typeof ResumeDefinitionRecordSchema> | null;
+    action_results: Array<{ action_id: string; status: "executed" | "requires_owner_confirmation"; code: string; message: string }>;
+    reused: boolean;
+  }> {
+    try {
+      return await this.commitModelTurnValidated(raw, authority);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        const paths = [...new Set(error.issues.map((issue) => issue.path.length > 0 ? issue.path.join(".") : "model_turn"))].slice(0, 8);
+        throw new ResumeDomainError("invalid_input", `The model action batch failed mechanical schema checks at ${paths.join(", ")}`, 400);
+      }
+      throw error;
+    }
+  }
+
+  private async commitModelTurnValidated(raw: unknown, authority: DataAuthority): Promise<{
+    turn: z.infer<typeof SourceRecordSchema>;
+    facts: z.infer<typeof CareerFactRecordSchema>[];
+    definition: z.infer<typeof ResumeDefinitionRecordSchema> | null;
+    action_results: Array<{ action_id: string; status: "executed" | "requires_owner_confirmation"; code: string; message: string }>;
+    reused: boolean;
+  }> {
+    this.authorize(authority, "resume.definitions.write");
+    const input = ModelTurnInputSchema.parse(raw);
+    if (input.turn.answer === null || input.turn.follow_up === null) throw new ResumeDomainError("invalid_input", "A model turn requires one owner message and one assistant response", 400);
+    const timestamp = this.now().toISOString();
+    const sourceRevisionId = randomUUID();
+    const turn = SourceRecordSchema.parse({
+      ...this.envelope("source", input.turn.turn_id, sourceRevisionId, 1, null, input.sensitivity, "durable_owner_data", authority, timestamp),
+      source_kind: "owner_interview",
+      safe_label: "Resume conversation turn",
+      content_digest: canonicalInputDigest(input.turn),
+      captured_at: input.turn.occurred_at,
+      source_ref: randomUUID(),
+      untrusted_content: true,
+      extensions: { interview_turn: input.turn, model_led_contract_version: 1 },
+    });
+    const priorSources = (await this.store.list("source", authority.grant.record_scopes))
+      .filter((record): record is z.infer<typeof SourceRecordSchema> => record.record_type === "source" && record.source_kind === "owner_interview");
+    const ownerMessageById = new Map<string, { source: z.infer<typeof SourceRecordSchema>; text: string }>();
+    for (const source of priorSources) {
+      const parsed = InterviewTurnAuditSchema.safeParse(source.extensions.interview_turn);
+      if (parsed.success && parsed.data.answer !== null) ownerMessageById.set(parsed.data.turn_id, { source, text: parsed.data.answer });
+    }
+    ownerMessageById.set(input.turn.turn_id, { source: turn, text: input.turn.answer });
+
+    const currentFacts = (await this.store.list("career_fact", authority.grant.record_scopes))
+      .filter((record): record is z.infer<typeof CareerFactRecordSchema> => record.record_type === "career_fact" && record.state === "confirmed");
+    const factsByRevision = new Map(currentFacts.map((fact) => [fact.metadata.revision_id, fact]));
+    const factsByRecord = new Map(currentFacts.map((fact) => [fact.metadata.record_id, fact]));
+    const factActions = input.actions.filter((action) => action.action === "create_fact" || action.action === "update_fact");
+    const factUpdates = factActions.filter((action) => action.action === "update_fact");
+    if (new Set(factUpdates.map((action) => action.record_id)).size !== factUpdates.length) {
+      throw new ResumeDomainError("invalid_input", "A model turn may update a fact record only once", 400);
+    }
+    const expectedRevisions: Record<string, number> = {};
+    const factByAction = new Map<string, z.infer<typeof CareerFactRecordSchema>>();
+    const factRecords: z.infer<typeof CareerFactRecordSchema>[] = [];
+    for (const action of factActions) {
+      const sources = action.source_references.map((reference) => {
+        const resolved = ownerMessageById.get(reference.message_id);
+        if (!resolved || !resolved.text.includes(reference.quote)) throw new ResumeDomainError("validation_failed", "A fact source quote does not match its owner message");
+        return resolved.source;
+      });
+      const uniqueSources = [...new Map(sources.map((source) => [source.metadata.revision_id, source])).values()];
+      const prior = action.action === "update_fact" ? factsByRecord.get(action.record_id) : null;
+      if (action.action === "update_fact" && (!prior || prior.metadata.revision !== action.expected_revision)) throw new ResumeDomainError("conflict", "A fact update references a stale or unavailable record", 409);
+      if (prior) expectedRevisions[prior.metadata.record_id] = prior.metadata.revision;
+      const proof = OwnerConfirmationProofSchema.parse({
+        confirmation_id: randomUUID(), owner_id: authority.grant.owner_id, actor_id: authority.grant.actor_id,
+        host_mediated: true, decision: prior ? "edit_and_accept" : "accept", confirmed_at: timestamp,
+        operation_id: authority.operationId, input_revision_id: uniqueSources[0]!.metadata.revision_id,
+      });
+      const fact = CareerFactRecordSchema.parse({
+        ...this.envelope(
+          "career_fact",
+          prior?.metadata.record_id ?? randomUUID(),
+          randomUUID(),
+          prior ? prior.metadata.revision + 1 : 1,
+          prior?.metadata.revision_id ?? null,
+          this.maxSensitivity([input.sensitivity, ...uniqueSources.map((source) => source.sensitivity)]),
+          "durable_owner_data",
+          authority,
+          timestamp,
+        ),
+        fact_kind: action.fact_kind,
+        state: "confirmed",
+        value: action.value,
+        source_revision_ids: uniqueSources.map((source) => source.metadata.revision_id),
+        confirmation: proof,
+        supersedes_fact_revision_id: prior?.metadata.revision_id ?? null,
+        review: { reviewed_at: null, review_note: "Model-organized from cited owner conversation; editable in Review" },
+        extensions: { model_action_id: action.action_id, model_led_contract_version: 1 },
+      });
+      factRecords.push(fact);
+      factByAction.set(action.action_id, fact);
+      factsByRevision.set(fact.metadata.revision_id, fact);
+    }
+
+    const draftAction = input.actions.find((action) => action.action === "save_resume_version");
+    let definition: z.infer<typeof ResumeDefinitionRecordSchema> | null = null;
+    if (draftAction?.action === "save_resume_version") {
+      let parent: z.infer<typeof ResumeDefinitionRecordSchema> | null = null;
+      if (draftAction.base_definition_revision_id) {
+        const record = await this.store.readRevision(draftAction.base_definition_revision_id, authority.grant.record_scopes);
+        if (record.record_type !== "resume_definition" || record.definition_kind !== "general") throw new ResumeDomainError("validation_failed", "A resume revision base must be an available general definition");
+        parent = ResumeDefinitionRecordSchema.parse(record);
+      }
+      const statements = draftAction.statements.map((statement) => {
+        const supports = statement.supporting_fact_refs.map((reference) => factByAction.get(reference)?.metadata.revision_id ?? reference);
+        for (const support of supports) {
+          if (!factsByRevision.has(support)) throw new ResumeDomainError("validation_failed", "A resume statement references an unavailable fact");
+        }
+        const { supporting_fact_refs: _references, ...body } = statement;
+        return ResumeStatementSchema.parse({ ...body, supporting_confirmed_fact_revision_ids: supports });
+      });
+      const selectedFactRevisionIds = [...new Set(statements.flatMap((statement) => statement.supporting_confirmed_fact_revision_ids))];
+      const selectedFacts = selectedFactRevisionIds.map((revisionId) => factsByRevision.get(revisionId)!);
+      definition = ResumeDefinitionRecordSchema.parse({
+        ...this.envelope("resume_definition", randomUUID(), randomUUID(), 1, null, this.maxSensitivity(selectedFacts.map((fact) => fact.sensitivity)), "durable_owner_data", authority, timestamp),
+        definition_kind: "general",
+        status: "draft",
+        title: draftAction.title,
+        statements,
+        selected_fact_revision_ids: selectedFactRevisionIds,
+        section_order: draftAction.section_order,
+        presentation_preferences: draftAction.presentation_preferences,
+        locale: draftAction.locale,
+        page_intent: draftAction.page_intent,
+        template_id: draftAction.template_id,
+        template_version: draftAction.template_version,
+        parent_definition_revision_id: parent?.metadata.revision_id ?? null,
+        job_revision_id: null,
+        policy_version: "model-led-v1",
+        prompt_policy_version: null,
+        strategy_binding: null,
+        approved_at: null,
+        approval_evidence: null,
+        // A model-led draft is directly parented by the selected base version.
+        // Legacy successor contexts describe separate, durable revision-request
+        // workflows and must not be fabricated when no such request exists.
+        successor_context: null,
+        extensions: { model_action_id: draftAction.action_id, model_led_contract_version: 1 },
+      });
+    }
+    const exportAction = input.actions.find((action) => action.action === "request_export");
+    if (exportAction?.action === "request_export" && exportAction.definition_revision_id) {
+      const referenced = await this.store.readRevision(exportAction.definition_revision_id, authority.grant.record_scopes);
+      if (referenced.record_type !== "resume_definition") throw new ResumeDomainError("validation_failed", "An export request must reference an available resume definition");
+    }
+    if (exportAction && !definition && !exportAction.definition_revision_id) throw new ResumeDomainError("validation_failed", "An export request requires an available resume version");
+    const records: ResumeDataRecord[] = [turn, ...factRecords, ...(definition ? [definition] : [])];
+    const mutation = this.mutation(authority, input, "model_turn", null, null);
+    if (Object.keys(expectedRevisions).length > 0) mutation.expectedRevisions = expectedRevisions;
+    const committed = await this.store.commit(records, mutation);
+    const committedTurn = SourceRecordSchema.parse(committed.records.find((record) => record.record_type === "source"));
+    const committedFacts = committed.records.filter((record): record is z.infer<typeof CareerFactRecordSchema> => record.record_type === "career_fact").map((record) => CareerFactRecordSchema.parse(record));
+    const committedDefinition = committed.records.find((record) => record.record_type === "resume_definition");
+    const actionResults = input.actions.map((action) => action.action === "request_export"
+      ? { action_id: action.action_id, status: "requires_owner_confirmation" as const, code: "owner_confirmation_required", message: "The resume is ready for the owner to confirm an export from Review." }
+      : { action_id: action.action_id, status: "executed" as const, code: "committed", message: action.action === "save_resume_version" ? "The resume version was saved." : "The cited resume information was saved." });
+    return {
+      turn: committedTurn,
+      facts: committedFacts,
+      definition: committedDefinition?.record_type === "resume_definition" ? ResumeDefinitionRecordSchema.parse(committedDefinition) : null,
+      action_results: actionResults,
+      reused: committed.reused,
+    };
   }
 
   async readRecords(recordType: ResumeDataRecord["record_type"], authority: DataAuthority): Promise<ResumeDataRecord[]> {

@@ -242,21 +242,29 @@ export function conformanceBlocks(purpose: InferencePurpose) {
     return blocks;
   }
   const changedM3Purpose = ["interview_assist", "general_resume_draft", "targeted_resume_draft"].includes(purpose);
-  const purposeFacts = purpose === "interview_assist"
+  const purposeFacts = purpose === "resume_dialogue"
+    ? []
+    : purpose === "interview_assist"
     ? [facts[1], facts[2], jobEvidenceFact]
     : changedM3Purpose
       ? [...facts, jobEvidenceFact]
       : facts;
   const blocks = [block("confirmed_fact_snapshot", "resume.confirmed-facts.v1", { facts: purposeFacts })];
   if (purpose === "resume_dialogue") {
-    blocks.push(block("dialogue_context", "resume.dialogue-context.v1", {
-      dialogue_version: 1,
+    blocks.push(block("dialogue_context", "resume.dialogue-context.v2", {
+      dialogue_version: 2,
       messages: [
-        { role: "assistant", content: "Tell me about the work experience you want to include." },
-        { role: "user", content: "Do you mean my last role or all my roles?" },
+        { message_id: "73000000-0000-4000-8000-000000000041", role: "assistant", content: "Tell me about a role that matters for the resume you want.", source_revision_id: null },
+        { message_id: "73000000-0000-4000-8000-000000000042", role: "user", content: "I was Operations Coordinator at Northstar Health from March 2022 to Present, coordinating schedules for 25 staff across 4 sites.", source_revision_id: null },
+        { message_id: "73000000-0000-4000-8000-000000000043", role: "assistant", content: "What outcome from that work should stand out?", source_revision_id: null },
+        { message_id: "73000000-0000-4000-8000-000000000044", role: "user", content: "I standardized intake and reduced incomplete forms from 18 percent to 6 percent.", source_revision_id: null },
+        { message_id: "73000000-0000-4000-8000-000000000045", role: "assistant", content: "What would you like to do next?", source_revision_id: null },
+        { message_id: "73000000-0000-4000-8000-000000000046", role: "user", content: "That is everything. Create my general resume draft now.", source_revision_id: null },
       ],
-      current_user_message: "Do you mean my last role or all my roles?",
-      requested_mode: "intake",
+      current_message_id: "73000000-0000-4000-8000-000000000046",
+      current_user_message: "That is everything. Create my general resume draft now.",
+      resume_state: { facts: [], definitions: [] },
+      tool_results: [],
     }));
   }
   if (purpose === "resume_transcript_extract") {

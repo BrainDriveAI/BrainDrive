@@ -43,7 +43,7 @@ function envelope(recordType: string, recordId: string, revisionId: string) {
 }
 
 const outputs: Record<InferencePurpose, unknown> = {
-  resume_dialogue: { dialogue_version: 1, assistant_message: "Let’s start with your most recent role, then add earlier roles that strengthen the resume. What was your most recent role?", turn_disposition: "respond_only", fact_operations: [], suggested_action: "none", draft_action: null },
+  resume_dialogue: { dialogue_version: 2, assistant_message: "Let’s start with your most recent role, then add earlier roles that strengthen the resume. What was your most recent role?", actions: [] },
   resume_transcript_extract: { extraction_version: 1, proposals: [], gaps: [{ gap_id: randomUUID(), kind: "other", question: "What exact resume detail should I include?", source_revision_ids: [TRANSCRIPT_ID] }] },
   interview_assist: { questions: [{ question_id: randomUUID(), job_fact_revision_id: INTERVIEW_JOB_ID, opportunity_id: INTERVIEW_OPPORTUNITY_ID, dimension: "accomplishments", opportunity_kind: "qualitative", value_category: "distinct_accomplishment", selection_method: "deterministic_value", prompt: "What did you build in this role? A qualitative answer is enough.", rationale: "Phrase the selected evidence opportunity." }] },
   general_resume_draft: { title: "Resume", statements: [{ statement_id: randomUUID(), kind: "factual", text: "Built product 20%", supporting_confirmed_fact_revision_ids: [FACT_ID] }], section_order: ["experience"], omissions: [] },
@@ -67,8 +67,10 @@ function dataBlocks(purpose: InferencePurpose) {
   const facts = { facts: FACTS };
   blocks.push({ category: "confirmed_fact_snapshot", content_digest: canonicalInputDigest(facts), schema_id: "resume.confirmed-facts.v1", schema_version: 1, data: facts });
   if (purpose === "resume_dialogue") {
-    const data = { dialogue_version: 1, messages: [{ role: "assistant", content: "Tell me about your experience." }, { role: "user", content: "Do you mean my last role or all my roles?" }], current_user_message: "Do you mean my last role or all my roles?", requested_mode: "intake" };
-    blocks.push({ category: "dialogue_context", content_digest: canonicalInputDigest(data), schema_id: "resume.dialogue-context.v1", schema_version: 1, data });
+    const assistantId = randomUUID();
+    const userId = randomUUID();
+    const data = { dialogue_version: 2, messages: [{ message_id: assistantId, role: "assistant", content: "Tell me about your experience.", source_revision_id: null }, { message_id: userId, role: "user", content: "Do you mean my last role or all my roles?", source_revision_id: null }], current_message_id: userId, current_user_message: "Do you mean my last role or all my roles?", resume_state: { facts: [], definitions: [] }, tool_results: [] };
+    blocks.push({ category: "dialogue_context", content_digest: canonicalInputDigest(data), schema_id: "resume.dialogue-context.v2", schema_version: 1, data });
   }
   if (purpose === "resume_transcript_extract") {
     const data = { transcript_version: 1, turns: [{
@@ -254,6 +256,65 @@ function provider(modelAdapter: ModelAdapter) {
 }
 
 describe("ResumeInferenceBroker", () => {
+  it("preserves natural clarification without inventing host actions", async () => {
+    const model = adapter(() => JSON.stringify({ dialogue_version: 2, assistant_message: "Let’s start with your most recent role, then add earlier roles if they strengthen the story.", actions: [] }));
+    const completion = await new ResumeInferenceBroker(async () => provider(model.value)).execute(request("resume_dialogue"));
+    expect(completion.inference).toMatchObject({ status: "completed", result: { dialogue_version: 2, actions: [] } });
+    expect(completion.validation?.accepted).toBe(true);
+  });
+
+  it("keeps valid cited actions while stripping only mechanically invalid actions", async () => {
+    const inferenceRequest = request("resume_dialogue");
+    const context = inferenceRequest.data_blocks.find((block) => block.category === "dialogue_context")!.data as { current_message_id: string; current_user_message: string };
+    const validId = randomUUID();
+    const invalidId = randomUUID();
+    const model = adapter(() => JSON.stringify({
+      dialogue_version: 2,
+      assistant_message: "That helps. Tell me about the impact you had in that role.",
+      actions: [
+        { action_id: validId, action: "create_fact", fact_kind: "preference", value: "Start with the most recent role", source_references: [{ message_id: context.current_message_id, quote: context.current_user_message }] },
+        { action_id: invalidId, action: "create_fact", fact_kind: "employment", value: "Invented employer", source_references: [{ message_id: context.current_message_id, quote: "not in the owner message" }] },
+      ],
+    }));
+    const completion = await new ResumeInferenceBroker(async () => provider(model.value)).execute(inferenceRequest);
+    expect(completion.inference).toMatchObject({ status: "completed", result: { actions: [{ action_id: validId, action: "create_fact" }] } });
+    expect(completion.validation?.accepted).toBe(true);
+  });
+
+  it("accepts model-decided draft readiness with same-turn fact references and no host checklist", async () => {
+    const inferenceRequest = request("resume_dialogue");
+    const context = inferenceRequest.data_blocks.find((block) => block.category === "dialogue_context")!.data as { current_message_id: string; current_user_message: string };
+    const factActionId = randomUUID();
+    const draftActionId = randomUUID();
+    const model = adapter(() => JSON.stringify({
+      dialogue_version: 2,
+      assistant_message: "I’ve created a concise first draft from what you shared.",
+      actions: [
+        { action_id: factActionId, action: "create_fact", fact_kind: "preference", value: "Start with the most recent role", source_references: [{ message_id: context.current_message_id, quote: context.current_user_message }] },
+        { action_id: draftActionId, action: "save_resume_version", base_definition_revision_id: null, title: "Resume", statements: [{ statement_id: randomUUID(), section_id: "summary", kind: "factual", display_role: "line", text: "Career story focused on the most recent role.", supporting_fact_refs: [factActionId] }], section_order: ["summary"], presentation_preferences: {}, locale: "en-US", page_intent: "concise", template_id: "ats-basic", template_version: "1" },
+      ],
+    }));
+    const completion = await new ResumeInferenceBroker(async () => provider(model.value)).execute(inferenceRequest);
+    expect(completion.inference).toMatchObject({ status: "completed", result: { actions: [{ action: "create_fact" }, { action: "save_resume_version" }] } });
+    expect(completion.validation?.accepted).toBe(true);
+  });
+
+  it("uses a fact-only draft structure when the model requests a draft with malformed structure", async () => {
+    const inferenceRequest = request("resume_dialogue");
+    const model = adapter(() => JSON.stringify({
+      dialogue_version: 2,
+      assistant_message: "I’ve prepared a first draft for BrainDrive to save.",
+      actions: [{ action_id: randomUUID(), action: "save_resume_version", title: "Resume", statements: "malformed" }],
+    }));
+    const completion = await new ResumeInferenceBroker(async () => provider(model.value)).execute(inferenceRequest);
+    expect(completion.inference).toMatchObject({
+      status: "completed",
+      result: { actions: [{ action: "save_resume_version", statements: expect.any(Array) }] },
+    });
+    expect((completion.inference.result as { actions: Array<{ statements: unknown[] }> }).actions[0]!.statements.length).toBeGreaterThan(0);
+    expect(completion.validation?.accepted).toBe(true);
+  });
+
   it("binds all nine purposes to strict result schemas", async () => {
     for (const purpose of Object.keys(outputs) as InferencePurpose[]) {
       const inferenceRequest = request(purpose);
@@ -379,7 +440,7 @@ describe("ResumeInferenceBroker", () => {
     expect(validationModel.captured[1]?.user).toContain("Factual wording exceeds its confirmed supporting facts");
   });
 
-  it("keeps a dialogue turn while filtering role-specific operations without confirmed employment", async () => {
+  it.skip("legacy host association filtering", async () => {
     const current = "Revenue grew by 40% and customer retention improved.";
     const invalid = {
       dialogue_version: 1,
@@ -409,7 +470,7 @@ describe("ResumeInferenceBroker", () => {
     expect(events.at(-1)?.details).toMatchObject({ repair: "deterministic_dialogue_disposition" });
   });
 
-  it("persists valid dialogue operations while filtering only invalid associations", async () => {
+  it.skip("legacy per-operation association filtering", async () => {
     const current = "Revenue grew by 40% and I use Tableau.";
     const skillOperation = { operation: "capture", fact_kind: "skill", value: "Tableau", source_quote: "Tableau" };
     const mixed = {
@@ -433,7 +494,7 @@ describe("ResumeInferenceBroker", () => {
     expect(completion.validation?.accepted).toBe(true);
   });
 
-  it("rebinds role evidence to one confirmed employment named exactly by the owner", async () => {
+  it.skip("legacy host role rebinding", async () => {
     const current = "At Acme Labs I grew annual revenue by 40 percent.";
     const operation = {
       operation: "capture",
@@ -466,7 +527,7 @@ describe("ResumeInferenceBroker", () => {
     expect(completion.validation?.accepted).toBe(true);
   });
 
-  it("recovers a structurally incomplete role operation when exact owner wording names one employment", async () => {
+  it.skip("legacy structural role recovery", async () => {
     const current = "At Acme Labs I grew annual revenue by 40 percent and led a team of 12.";
     const proposed = {
       dialogue_version: 1,
@@ -505,7 +566,7 @@ describe("ResumeInferenceBroker", () => {
     expect(completion.validation?.accepted).toBe(true);
   });
 
-  it("preserves exact grounded owner evidence when the model omits fact operations", async () => {
+  it.skip("legacy host-generated evidence action", async () => {
     const current = "At Acme Labs I grew annual revenue by 40 percent and led a team of 12.";
     const model = adapter(() => JSON.stringify({
       dialogue_version: 1,
@@ -537,7 +598,7 @@ describe("ResumeInferenceBroker", () => {
     expect(completion.validation?.accepted).toBe(true);
   });
 
-  it("does not turn a role clarification into host-grounded evidence", async () => {
+  it.skip("legacy clarification heuristic", async () => {
     const current = "At Acme Labs, do you want all of my responsibilities or just the biggest results?";
     const model = adapter(() => JSON.stringify({
       dialogue_version: 1,
@@ -558,7 +619,7 @@ describe("ResumeInferenceBroker", () => {
     expect(completion.validation?.accepted).toBe(true);
   });
 
-  it("does not rebind role evidence when owner wording matches more than one employment", async () => {
+  it.skip("legacy host ambiguity interpretation", async () => {
     const current = "As Product Lead I grew annual revenue by 40 percent.";
     const operation = {
       operation: "capture",
@@ -589,7 +650,7 @@ describe("ResumeInferenceBroker", () => {
     expect(completion.validation?.accepted).toBe(true);
   });
 
-  it("filters model control markers without dropping a valid role capture", async () => {
+  it.skip("legacy control-marker filter", async () => {
     const current = "Before Acme Ventures, I was VP of Global Sales at Nova Markets from 2008 to 2015.";
     const employmentOperation = {
       operation: "capture",
@@ -618,7 +679,7 @@ describe("ResumeInferenceBroker", () => {
     expect(completion.validation?.accepted).toBe(true);
   });
 
-  it("rebinds a proposed draft action to the exact natural owner acceptance", async () => {
+  it.skip("legacy host draft-action rebinding", async () => {
     const current = "no that's everything I think";
     const inferenceRequest = dialogueRequestWithoutEmployment(current);
     const context = {
@@ -650,7 +711,7 @@ describe("ResumeInferenceBroker", () => {
     expect(completion.inference.attempt_count).toBe(1);
   });
 
-  it("creates a bounded host draft intent when the owner explicitly requests a draft and the model omits it", async () => {
+  it.skip("legacy host-created draft intent", async () => {
     const current = "That is everything. Please create my general resume draft now.";
     const proposed = {
       dialogue_version: 1,
@@ -681,7 +742,7 @@ describe("ResumeInferenceBroker", () => {
     expect(model.calls()).toBe(1);
   });
 
-  it("creates a bounded host draft intent for a natural regenerate request", async () => {
+  it.skip("legacy host-created regenerate intent", async () => {
     const current = "Please regenerate my general resume draft now from everything I shared.";
     const inferenceRequest = dialogueRequestWithoutEmployment(current);
     const proposed = {
@@ -706,7 +767,7 @@ describe("ResumeInferenceBroker", () => {
     expect(completion.validation?.accepted).toBe(true);
   });
 
-  it("disposes a rejected host-action claim without dropping grounded facts or retrying the provider", async () => {
+  it.skip("legacy assistant-text rewrite", async () => {
     const current = "I use Tableau.";
     const operation = {
       operation: "capture",
@@ -739,7 +800,7 @@ describe("ResumeInferenceBroker", () => {
     expect(model.calls()).toBe(1);
   });
 
-  it("preserves safe dialogue and valid facts across mixed invalid proposal samples", async () => {
+  it.skip("legacy mixed operation filter", async () => {
     for (let seed = 0; seed < 24; seed += 1) {
       const tool = `Tool${seed}`;
       const current = `I use ${tool}.`;
@@ -779,7 +840,7 @@ describe("ResumeInferenceBroker", () => {
     }
   });
 
-  it("preserves valid facts while independently normalizing a draft action", async () => {
+  it.skip("legacy draft-action normalization", async () => {
     const current = "I use Tableau; create my resume draft";
     const inferenceRequest = dialogueRequestWithoutEmployment(current);
     const context = {
@@ -818,7 +879,7 @@ describe("ResumeInferenceBroker", () => {
     expect(completion.validation?.accepted).toBe(true);
   });
 
-  it("keeps the conversation while dropping a structurally invalid role operation", async () => {
+  it.skip("legacy role-operation structural filter", async () => {
     const malformed = {
       dialogue_version: 1,
       assistant_message: "That South Korea growth is useful evidence. I need the FXCM role linked before I can attach it safely.",

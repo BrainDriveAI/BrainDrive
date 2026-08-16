@@ -67,9 +67,7 @@ describe("sandboxed Resume Builder owner resource", () => {
       "Create first draft",
       "Reply in your own words",
       "resume_dialogue",
-      "resume_transcript_extract",
       "chat.turn.commit",
-      "chat.transcript.extract",
       "I couldn’t get a safe conversational result for that turn",
     ]) expect(html).toContain(text);
     expect(html).toContain('id="fact-snapshot"');
@@ -84,16 +82,20 @@ describe("sandboxed Resume Builder owner resource", () => {
     expect(html).toContain('request("chat.turn.recover",{messageId,recoveryKind:recovery.kind})');
     expect(html).toContain('state.dialogue.recoveryCommitted=recoveryCommitted');
     expect(html).toContain('id:"retry_dialogue",label:"Try again",primary:false');
-    expect(html).toContain('content:state.dialogue.lastFailedMessage');
+    expect(html).toContain('content:state.dialogue.assistantMessage');
     expect(html).toContain("durableConversationMessages()");
-    expect(html).toContain("sourceRevisionId:record.metadata.revision_id");
+    expect(html).toContain('role:"user",content:chatAnswerText(turn),sourceRevisionId:record.metadata.revision_id');
+    expect(html).not.toContain('role:"assistant",content:turn.question,sourceRevisionId');
+    expect(html).not.toContain('role:"assistant",content:turn.follow_up.question,sourceRevisionId');
     expect(html).toContain("conversationReviewFacts()");
     expect(html).toContain("function isFreshConversation()");
     expect(html).toContain('if(isFreshConversation())return "interview"');
     expect(html).toContain('durableConversationMessages().length===0)void runModelDialogue(null,null)');
-    expect(html).toContain('prompt_version==="resume-dialogue-1"');
-    expect(html).toContain('transcriptExtractionPending()&&!state.extractionRunning');
-    expect(html).toContain('if(state.extractionRunning)return');
+    expect(html).toContain('prompt_version==="resume-model-led-1"');
+    expect(html).toContain('schema_id:"resume.dialogue-context.v2"');
+    expect(html).toContain("actions:result.actions");
+    expect(html).not.toContain("resume_transcript_extract");
+    expect(html).not.toContain("chat.transcript.extract");
     expect(html).toContain('stageLabel:state.facts.some');
     expect(html).toContain("interview_turns");
     expect(html).toContain('classList.add("native-chat-hosted")');
@@ -223,19 +225,16 @@ describe("sandboxed Resume Builder owner resource", () => {
     expect(create).toContain("completion.provider_profile_id!==strategy.provider_profile_id");
   });
 
-  it("mediates model draft intent through host authorization before generation", async () => {
+  it("sends one model-led response/action contract to the thin host mediator", async () => {
     const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
     const dialogue = html.slice(html.indexOf("async function runModelDialogue"), html.indexOf("async function handleHostChatMessage"));
-    const createGeneral = html.slice(html.indexOf("async function createGeneral"), html.indexOf("function impactCard"));
-    expect(dialogue).toContain("draftAction:result.draft_action");
-    expect(dialogue).toContain("factOperations:[]");
-    expect(dialogue).not.toContain("factOperations:result.fact_operations");
-    expect(dialogue).toContain("draftDecision?.accepted");
-    expect(dialogue).toContain("startGeneralDraftFromDialogue");
-    expect(dialogue.indexOf('request("chat.turn.commit"')).toBeLessThan(dialogue.indexOf("startGeneralDraftFromDialogue"));
-    expect(html).toContain("BrainDrive accepted your request and is creating a fact-backed general draft now.");
-    expect(html).toContain("Your first fact-backed draft is ready.");
-    expect(createGeneral.indexOf("Your first fact-backed draft is ready.")).toBeLessThan(createGeneral.indexOf("await reload()"));
+    expect(dialogue).toContain('schema_id:"resume.dialogue-context.v2"');
+    expect(dialogue).toContain("actions:result.actions");
+    expect(dialogue).toContain("committed?.action_results");
+    expect(dialogue).not.toContain("draftDecision");
+    expect(dialogue).not.toContain("startGeneralDraftFromDialogue");
+    expect(dialogue).not.toContain("evaluateResumeDraftReadiness");
+    expect(html).not.toContain("transcriptExtractionPending");
   });
 
   it("exposes remembered-detail disambiguation, duplicate reuse, successor generation, and impact notice", async () => {

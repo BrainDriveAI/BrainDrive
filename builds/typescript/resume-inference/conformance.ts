@@ -16,7 +16,7 @@ export async function runResumeModelConformance(input: {
   modelId: string;
   testedAt?: Date;
   purposes?: InferencePurpose[];
-  onDiagnostic?: (diagnostic: { purpose: InferencePurpose; schemaSuccess: boolean; findings: Array<{ code: string; safe_message: string }> }) => void;
+  onDiagnostic?: (diagnostic: { purpose: InferencePurpose; schemaSuccess: boolean; findings: Array<{ code: string; safe_message: string }>; observedActionKinds?: string[] }) => void;
 }) {
   if (!input.adapter.completeStructuredNoTools) throw new Error("Adapter lacks structured no-tools completion");
   const testedAt = (input.testedAt ?? new Date()).toISOString();
@@ -28,6 +28,7 @@ export async function runResumeModelConformance(input: {
     let schemaSuccess = false;
     let validation: ValidationReport | null = null;
     let providerFailed = false;
+    let structuralFindings: Array<{ code: string; safe_message: string }> = [];
     let repairContext: ResumeRepairContext | undefined;
     if (purpose === "resume_craft_evaluate") {
       const fallback = deterministicHostFallback(purpose, blocks);
@@ -67,7 +68,14 @@ export async function runResumeModelConformance(input: {
             findings: validation.findings.map(({ code, statement_id, safe_message }) => ({ code, statement_id, safe_message })),
           };
         }
-      } catch {
+      } catch (error) {
+        const issues = error && typeof error === "object" && Array.isArray((error as { issues?: unknown }).issues)
+          ? (error as { issues: Array<{ code?: unknown; path?: unknown; message?: unknown }> }).issues
+          : [];
+        structuralFindings = issues.slice(0, 12).map((issue) => ({
+          code: typeof issue.code === "string" ? issue.code : "schema_invalid",
+          safe_message: `${Array.isArray(issue.path) ? issue.path.join(".") : "result"}: ${typeof issue.message === "string" ? issue.message : "schema mismatch"}`,
+        }));
         if (attempt < 2) repairContext = { kind: "structural" };
       }
     }
@@ -82,13 +90,29 @@ export async function runResumeModelConformance(input: {
         }
       }
     }
-    const validationAccepted = validation?.accepted ?? false;
+    const dialogueHasDurableAction = purpose !== "resume_dialogue" || (
+      parsed !== null
+      && typeof parsed === "object"
+      && Array.isArray((parsed as { actions?: unknown }).actions)
+      && (parsed as { actions: Array<{ action?: unknown }> }).actions.some((action) => action.action === "create_fact")
+      && (parsed as { actions: Array<{ action?: unknown }> }).actions.some((action) => action.action === "save_resume_version")
+    );
+    const validationAccepted = (validation?.accepted ?? false) && dialogueHasDurableAction;
     input.onDiagnostic?.({
       purpose,
       schemaSuccess,
+      ...(purpose === "resume_dialogue" ? {
+        observedActionKinds: parsed !== null && typeof parsed === "object" && Array.isArray((parsed as { actions?: unknown }).actions)
+          ? (parsed as { actions: Array<{ action?: unknown }> }).actions.flatMap((action) => typeof action.action === "string" ? [action.action] : [])
+          : [],
+      } : {}),
       findings: providerFailed
         ? [{ code: "provider_non_conformance", safe_message: "The provider operation did not produce conformance evidence" }]
-        : validation?.findings.map(({ code, safe_message }) => ({ code, safe_message })) ?? [],
+        : !schemaSuccess && structuralFindings.length > 0
+          ? structuralFindings
+          : !dialogueHasDurableAction
+          ? [{ code: "dialogue_action_missing", safe_message: "The explicit draft conformance case did not produce grounded fact and resume-version actions" }]
+          : validation?.findings.map(({ code, safe_message }) => ({ code, safe_message })) ?? structuralFindings,
     });
     const compatible = schemaSuccess && validationAccepted;
     const promptPolicy = promptPolicyIdentity(purpose);
