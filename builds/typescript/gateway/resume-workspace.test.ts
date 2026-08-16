@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 
 import {
+  RESUME_AGENT_PATH,
   RESUME_DOCUMENT_PATH,
   RESUME_PROFILE_PATH,
   buildResumeBuilderChatContext,
@@ -17,6 +18,10 @@ describe("Resume Builder private workspace", () => {
     const memoryRoot = await mkdtemp(path.join(tmpdir(), "resume-workspace-"));
     try {
       await ensureResumeWorkspace(memoryRoot);
+      const agent = await readFile(path.join(memoryRoot, RESUME_AGENT_PATH), "utf8");
+      expect(agent).toContain("owner-authorized Career page context");
+      expect(agent).toContain("Begin from-scratch interviewing only when they have no existing material");
+      expect(agent).toContain("current resume-specific understanding");
       expect(await readFile(path.join(memoryRoot, RESUME_PROFILE_PATH), "utf8")).toContain("# Resume Profile");
       await expect(renderResumeFromProfile(memoryRoot)).rejects.toThrow("Resume Profile is not ready yet");
 
