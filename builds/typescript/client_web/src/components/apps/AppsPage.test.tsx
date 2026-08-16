@@ -195,27 +195,29 @@ describe("manifest-driven Apps surface", () => {
     expect(screen.getByText("Disabled — your saved data is retained")).toBeInTheDocument();
   });
 
-  it("returns keyboard focus to Launch after the sandbox session closes and preserves Career entry", async () => {
+  it("opens Resume Builder on native chat and returns keyboard focus to Launch", async () => {
     vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [installed()] });
     vi.mocked(appsApi.launchApp).mockResolvedValue({ ...launch, entry_point: "career" });
     const user = userEvent.setup(); renderApps(<AppsPage entryPoint="career" />);
     const launchButton = await screen.findByRole("button", { name: "Continue from Career" });
     await user.click(launchButton);
     expect(appsApi.launchApp).toHaveBeenCalledWith("resume-builder", "career");
-    await user.click(await screen.findByRole("button", { name: "Close app" }));
+    expect(await screen.findByTestId("resume-builder-native-app")).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Back to Apps" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Continue from Career" })).toHaveFocus());
   });
 
-  it("reloads through the bounded reconnect handshake before the old session is torn down", async () => {
-    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [installed()] });
+  it("keeps the bounded reconnect handshake for non-Resume sandboxed apps", async () => {
+    const installedBrief = installed({ route_key: "brief-builder", identity: { ...brief.identity, installation_id: crypto.randomUUID(), package_digest: `sha256:${"a".repeat(64)}` } });
+    vi.mocked(appsApi.getAppCatalog).mockResolvedValue({ catalog_version: 1, apps: [installedBrief] });
     const resumed = { ...launch, session_id: crypto.randomUUID(), bridge_generation: 2, resumed: true };
     vi.mocked(appsApi.launchApp).mockResolvedValueOnce(launch).mockResolvedValueOnce(resumed);
     const user = userEvent.setup(); renderApps(<AppsPage />);
-    await user.click(await screen.findByRole("button", { name: /^Launch$/ }));
+    await user.click(await screen.findByRole("button", { name: "Launch" }));
     await user.click(await screen.findByRole("button", { name: "Reload app" }));
-    await waitFor(() => expect(appsApi.launchApp).toHaveBeenLastCalledWith("resume-builder", "direct", launch));
+    await waitFor(() => expect(appsApi.launchApp).toHaveBeenLastCalledWith("brief-builder", "direct", launch));
     const reconnectOrder = vi.mocked(appsApi.launchApp).mock.invocationCallOrder[1]!;
-    const closeIndex = vi.mocked(appsApi.closeAppSession).mock.calls.findIndex(([appKey, sessionId]) => appKey === "resume-builder" && sessionId === launch.session_id);
+    const closeIndex = vi.mocked(appsApi.closeAppSession).mock.calls.findIndex(([appKey, sessionId]) => appKey === "brief-builder" && sessionId === launch.session_id);
     if (closeIndex >= 0) expect(vi.mocked(appsApi.closeAppSession).mock.invocationCallOrder[closeIndex]).toBeGreaterThan(reconnectOrder);
   });
 

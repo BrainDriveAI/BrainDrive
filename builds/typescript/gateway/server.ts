@@ -33,6 +33,7 @@ import { createLiveProviderResolver, ModelCompatibilityRegistry, VERSIONED_MODEL
 import { createResumeE2eFixtureProviderResolver } from "../resume-inference/e2e-fixture.js";
 import { ImmutableInferenceSnapshotBuilder } from "../resume-inference/snapshot.js";
 import { ResumeExportBroker } from "../resume-renderer/export-broker.js";
+import { buildResumeBuilderChatContext, ensureResumeWorkspace, readResumeWorkspaceDocument, renderResumeFromProfile } from "./resume-workspace.js";
 
 import { createGatewayAdapter } from "../adapters/gateway.js";
 import {
@@ -853,6 +854,7 @@ export async function buildServer(rootDir = process.cwd()) {
     }
 
     const { conversationId, message: currentUserMessage } = conversations.persistUserMessage(requestedConversationId, body);
+    const isResumeBuilderConversation = body.metadata?.resume_builder === true;
     const projectId = isProjectMetadata(body.metadata) ? body.metadata.project.trim() : null;
     if (isProjectMetadata(body.metadata)) {
       await projects.attachConversation(body.metadata.project.trim(), conversationId);
@@ -874,9 +876,10 @@ export async function buildServer(rootDir = process.cwd()) {
     // Without this, the AI sees the base prompt but doesn't know which project
     // files to read — it would read all projects and behave like the root agent.
     const projectFiles = projectId ? (await projects.listProjectFiles(projectId))?.files ?? [] : [];
+    if (isResumeBuilderConversation) await ensureResumeWorkspace(runtimeConfig.memory_root);
     const projectContext = projectId
       ? buildProjectChatContext(projectId, projectFiles)
-      : "";
+      : isResumeBuilderConversation ? buildResumeBuilderChatContext() : "";
     const finalPrompt = promptWithSkills.prompt + projectContext;
 
     const correlationId = crypto.randomUUID();
@@ -2048,6 +2051,29 @@ export async function buildServer(rootDir = process.cwd()) {
     await writeFileAsync(profilePath, body.content, "utf8");
     await commitMemoryChange(runtimeConfig.memory_root, "Update owner profile via UI").catch(() => {});
     return { ok: true };
+  });
+
+  app.get("/apps/resume-builder/workspace/:document", async (request, reply) => {
+    authorize(request.authContext, "memory_access");
+    const document = (request.params as { document?: string }).document;
+    if (document !== "profile" && document !== "resume") {
+      reply.code(404).send({ error: "Resume Builder document not found" });
+      return;
+    }
+    return { content: await readResumeWorkspaceDocument(runtimeConfig.memory_root, document) };
+  });
+
+  app.post("/apps/resume-builder/workspace/render", async (request, reply) => {
+    authorize(request.authContext, "memory_access");
+    try {
+      return { content: await renderResumeFromProfile(runtimeConfig.memory_root) };
+    } catch (error) {
+      if (error instanceof Error && error.message === "Resume Profile is not ready yet") {
+        reply.code(409).send({ error: "Ask Resume Builder to create your Resume Profile first." });
+        return;
+      }
+      throw error;
+    }
   });
 
   app.get("/agent", async (request, reply) => {

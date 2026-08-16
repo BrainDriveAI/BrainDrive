@@ -33,6 +33,7 @@ function formatToolStatus(toolName: string): string {
 type ChatPanelProps = {
   activeConversationId: string | null;
   activeProjectId?: string | null;
+  introProjectId?: string | null;
   draftKey?: string | null;
   isEmpty?: boolean;
   onConversationComplete?: (conversationId: string) => void;
@@ -57,6 +58,7 @@ function mapConversationMessages(conversation: ConversationDetail): Message[] {
 export default function ChatPanel({
   activeConversationId,
   activeProjectId,
+  introProjectId,
   draftKey = null,
   isEmpty = false,
   onConversationComplete,
@@ -274,7 +276,7 @@ export default function ChatPanel({
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
           {shouldShowConversation ? (shouldShowEmptyState ? (
             <EmptyState
-              projectId={activeProjectId}
+              projectId={introProjectId ?? activeProjectId}
               onSuggestionClick={(suggestion) => append(suggestion, { metadata: messageMetadata })}
             />
           ) : (

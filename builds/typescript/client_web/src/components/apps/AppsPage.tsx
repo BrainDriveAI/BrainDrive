@@ -13,6 +13,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import AppCatalogCard from "./AppCatalogCard";
 import SandboxedAppFrame from "./SandboxedAppFrame";
+import ResumeBuilderNativeApp from "./ResumeBuilderNativeApp";
 
 const RESUME_BUILDER_APP_ID = "ai.braindrive.resume-builder";
 type BusyState = AppLifecycleAction | "launch";
@@ -107,7 +108,8 @@ export default function AppsPage({ entryPoint = "direct", onOpenSettings, onSess
     await mutate(uninstallApp, "uninstall");
   };
 
-  if (selected) return <SandboxedAppFrame appKey={selected.appKey} appId={selected.appId} appName={selected.appName} launch={selected.launch} onSessionClosed={closeSession} onReload={reloadSession} onOpenSettings={selected.appId === RESUME_BUILDER_APP_ID ? onOpenSettings : undefined} />;
+  if (selected?.appId === RESUME_BUILDER_APP_ID) return <ResumeBuilderNativeApp onClose={closeSession} onOpenSettings={onOpenSettings} />;
+  if (selected) return <SandboxedAppFrame appKey={selected.appKey} appId={selected.appId} appName={selected.appName} launch={selected.launch} onSessionClosed={closeSession} onReload={reloadSession} onOpenSettings={undefined} />;
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8" data-testid="apps-page">
