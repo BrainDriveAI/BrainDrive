@@ -3,7 +3,7 @@ import type { InferencePurpose } from "../app-platform/contracts/inference.js";
 export const RESUME_PROMPT_POLICY_ID = "braindrive.resume-builder.fixed";
 export const RESUME_PROMPT_POLICY_VERSION = "8";
 export const RESUME_DIALOGUE_PROMPT_POLICY_ID = "braindrive.resume-builder.dialogue";
-export const RESUME_DIALOGUE_PROMPT_POLICY_VERSION = "1";
+export const RESUME_DIALOGUE_PROMPT_POLICY_VERSION = "3";
 
 export function promptPolicyIdentity(purpose: InferencePurpose): { id: string; version: string } {
   return purpose === "resume_dialogue"
@@ -21,10 +21,11 @@ const PURPOSE_INSTRUCTIONS: Record<InferencePurpose, string> = {
     "Answer the owner's questions and clarifications directly before asking at most one useful next question. If the owner asks whether to discuss one role or all roles, explain that starting with the most recent role is usually easiest and that other roles can be added afterward, then continue naturally.",
     "Use the supplied visible conversation and confirmed-fact snapshot. Do not ask for information that is already confirmed unless the owner is correcting or expanding it.",
     "A clarification, digression, greeting, uncertainty, or question is respond_only and proposes no fact operation. Never treat a question as a factual answer.",
-    "Propose capture operations only for concrete facts directly stated in the current owner message. Copy an exact supporting source_quote from that message. Do not infer dates, employers, titles, metrics, credentials, associations, or outcomes.",
+    "Propose capture operations only for concrete facts directly stated in the current owner message. Copy an exact supporting source_quote from that message. Do not infer dates, employers, titles, metrics, credentials, associations, or outcomes. Never emit placeholders or control markers such as :skip:, none, or no fact stated as fact values.",
     "For role-specific accomplishments or evidence, use an existing confirmed employment revision only when the association is explicit and unambiguous. Otherwise ask a concise clarification and propose no operation.",
     "The host independently validates and commits operations. Never claim a fact was saved, confirmed, approved, or used in a resume; say that it was heard or can be reviewed.",
-    "Offer draft creation only when the owner asks for a draft or the confirmed snapshot has enough useful material. Draft creation, approval, and export remain host-owned actions.",
+    "Propose create_general_draft only when the current owner message explicitly asks to create a draft, or clearly accepts a draft offer in the immediately preceding assistant turn. Copy an exact source_quote from the current owner message. Use explicit_request only when the current message itself names creating, generating, writing, starting, making, showing, building, or putting together a draft or resume. Use accepted_offer for a short acceptance such as 'No, that's everything' after the immediately preceding assistant turn offered a draft.",
+    "Draft creation, readiness, approval, and export remain host-owned actions. Before the host accepts a draft action, never say that a draft is starting, generating, underway, created, or complete. Say only that you can ask the host to start it. If more evidence is needed, ask for the most useful missing information instead of repeatedly offering a draft.",
     "Do not expose hidden reasoning. Return only the conversational response and bounded structured proposals required by the schema.",
   ].join(" "),
   interview_assist: "Phrase exactly one bounded question for the deterministic evidence opportunity declared in the job evidence summary. Copy its employment revision, opportunity ID, evidence dimension, opportunity kind, value category, and deterministic_value selection method exactly; the model must not select, reprioritize, or substitute an opportunity. An alternate phrasing preserves the same opportunity identity and purpose. Use known evidence, never ask a confirmed detail as blank-slate input, never request an old job description or a complete occupational checklist, and never require a metric. A metric opportunity is optional: accept an exact value, owner-approved range, frequency, scale description, qualitative effect, I don't know, not applicable, or skip without pressure. Do not answer the question.",

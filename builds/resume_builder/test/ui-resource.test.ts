@@ -215,6 +215,17 @@ describe("sandboxed Resume Builder owner resource", () => {
     expect(create).toContain("completion.provider_profile_id!==strategy.provider_profile_id");
   });
 
+  it("mediates model draft intent through host authorization before generation", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    const dialogue = html.slice(html.indexOf("async function runModelDialogue"), html.indexOf("async function handleHostChatMessage"));
+    expect(dialogue).toContain("draftAction:result.draft_action");
+    expect(dialogue).toContain("draftDecision?.accepted");
+    expect(dialogue).toContain("startGeneralDraftFromDialogue");
+    expect(dialogue.indexOf('request("chat.turn.commit"')).toBeLessThan(dialogue.indexOf("startGeneralDraftFromDialogue"));
+    expect(html).toContain("BrainDrive accepted your request and is creating a fact-backed general draft now.");
+    expect(html).toContain("Your first fact-backed draft is ready.");
+  });
+
   it("exposes remembered-detail disambiguation, duplicate reuse, successor generation, and impact notice", async () => {
     const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
     for (const text of [

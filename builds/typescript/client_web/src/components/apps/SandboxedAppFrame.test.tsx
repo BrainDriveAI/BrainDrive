@@ -164,6 +164,7 @@ describe("sandboxed MCP App frame", () => {
       payload: {
         messageId,
         assistantMessage: "That gives us a useful starting point. What kind of work did you lead there?",
+        draftAction: null,
         factOperations: [{ operation: "capture", fact_kind: "employment", source_quote: "Director of Operations at Northwind", employment: { title: "Director of Operations", employer: "Northwind", location: null, start_date: null, end_date: null, responsibilities: null } }],
       },
     });

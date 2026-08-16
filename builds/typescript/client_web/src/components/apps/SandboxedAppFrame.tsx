@@ -23,6 +23,7 @@ import ResumeBuilderConversation, {
 } from "./ResumeBuilderConversation";
 import ResumeReviewRail from "./ResumeReviewRail";
 import {
+  evaluateResumeDraftReadiness,
   employmentCandidatesFromInterviewTurns,
   employmentIdentityKey,
   parseResumeDialogueCommitPayload,
@@ -321,7 +322,7 @@ export default function SandboxedAppFrame({
           ? [{ content: candidate.content, sourceRevisionId: candidate.sourceRevisionId }]
           : []);
         const payload = pending
-          ? parseResumeDialogueCommitPayload(message.payload, pending.ownerMessage, employmentRevisionIds, priorOwnerMessages)
+          ? parseResumeDialogueCommitPayload(message.payload, pending.ownerMessage, employmentRevisionIds, priorOwnerMessages, pending.precedingAssistantMessage)
           : null;
         if (!pending || !payload || payload.messageId !== pending.messageId) throw new Error("message_schema_invalid");
         const occurredAt = new Date().toISOString();
@@ -386,8 +387,20 @@ export default function SandboxedAppFrame({
           const confirmed = await callAppCapability(appKey, "career.facts.confirm", { decisions }, secureRandomUuid(), true);
           facts = Array.isArray((confirmed.result as { facts?: unknown[] }).facts) ? (confirmed.result as { facts: unknown[] }).facts : [];
         }
+        const draftReadiness = payload.draftAction
+          ? evaluateResumeDraftReadiness(employmentRevisionIds, resumeConversationRef.current.reviewFacts)
+          : null;
         pendingResumeDialogueRef.current = null;
-        return { committed: true, source_revision_id: sourceRevisionId, facts };
+        return {
+          committed: true,
+          source_revision_id: sourceRevisionId,
+          facts,
+          draft_action: payload.draftAction
+            ? draftReadiness?.ready
+              ? { accepted: true, action: payload.draftAction.action, intent: payload.draftAction.intent }
+              : { accepted: false, reason: draftReadiness?.reason, message: draftReadiness?.message }
+            : null,
+        };
       }
       if (message.type === "chat.employment.reconcile" && appId === "ai.braindrive.resume-builder") {
         const [workspaceResult, factsResult] = await Promise.all([

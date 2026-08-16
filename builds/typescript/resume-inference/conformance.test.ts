@@ -75,7 +75,7 @@ describe("Resume Builder provider conformance safety", () => {
     expect(result.entries).toEqual([expect.objectContaining({
       purpose,
       prompt_policy_id: "braindrive.resume-builder.dialogue",
-      prompt_policy_version: "1",
+      prompt_policy_version: "3",
       compatible: true,
     })]);
   });

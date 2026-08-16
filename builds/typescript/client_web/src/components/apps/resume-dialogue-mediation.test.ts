@@ -1,4 +1,5 @@
 import {
+  evaluateResumeDraftReadiness,
   employmentCandidateFromInterviewTurns,
   employmentCandidatesFromInterviewTurns,
   parseResumeDialogueCommitPayload,
@@ -13,8 +14,56 @@ describe("Resume Builder dialogue mediation", () => {
     expect(parseResumeDialogueCommitPayload({
       messageId,
       assistantMessage: "Let’s start with your most recent role and add earlier roles afterward.",
+      draftAction: null,
       factOperations: [{ operation: "capture", fact_kind: "employment", source_quote: "my last role", employment: { title: "Last role", employer: "Unknown", location: null, start_date: null, end_date: null, responsibilities: null } }],
     }, "Do you mean my last role or all my roles?", new Set())).toBeNull();
+  });
+
+  it("accepts only grounded explicit or offered draft intent", () => {
+    const explicit = "Please create my resume draft now.";
+    expect(parseResumeDialogueCommitPayload({
+      messageId,
+      assistantMessage: "I can ask BrainDrive to start a fact-backed draft.",
+      factOperations: [],
+      draftAction: { action: "create_general_draft", intent: "explicit_request", source_quote: explicit },
+    }, explicit, new Set())).toMatchObject({ draftAction: { intent: "explicit_request" } });
+
+    const accepted = "No, that's everything.";
+    expect(parseResumeDialogueCommitPayload({
+      messageId,
+      assistantMessage: "I can ask BrainDrive to start a fact-backed draft.",
+      factOperations: [],
+      draftAction: { action: "create_general_draft", intent: "explicit_request", source_quote: accepted },
+    }, accepted, new Set(), [], "Would you like to add anything else, or should I start your draft?")).toMatchObject({ draftAction: { intent: "accepted_offer" } });
+
+    expect(parseResumeDialogueCommitPayload({
+      messageId,
+      assistantMessage: "What would you like to discuss next?",
+      factOperations: [],
+      draftAction: { action: "create_general_draft", intent: "accepted_offer", source_quote: accepted },
+    }, accepted, new Set(), [], "What else would you like me to know?")).toBeNull();
+  });
+
+  it("rejects model control markers instead of persisting them as owner facts", () => {
+    const ownerMessage = "Before Acme Ventures, I was VP of Global Sales at Nova Markets from 2008 to 2015.";
+    expect(parseResumeDialogueCommitPayload({
+      messageId,
+      assistantMessage: "What were your standout accomplishments there?",
+      draftAction: null,
+      factOperations: [{
+        operation: "capture",
+        fact_kind: "accomplishment",
+        source_quote: ownerMessage,
+        text: ":skip: no accomplishment stated in this message",
+        job_fact_revision_id: null,
+      }],
+    }, ownerMessage, new Set())).toBeNull();
+  });
+
+  it("requires employment and supporting evidence before host draft authorization", () => {
+    expect(evaluateResumeDraftReadiness(new Set(), [{ kind: "education" }])).toMatchObject({ ready: false, reason: "missing_employment" });
+    expect(evaluateResumeDraftReadiness(new Set([crypto.randomUUID()]), [{ kind: "employment" }])).toMatchObject({ ready: false, reason: "missing_supporting_evidence" });
+    expect(evaluateResumeDraftReadiness(new Set([crypto.randomUUID()]), [{ kind: "employment" }, { kind: "accomplishment" }])).toEqual({ ready: true });
   });
 
   it("accepts exact owner-grounded employment and a known job association", () => {
@@ -23,6 +72,7 @@ describe("Resume Builder dialogue mediation", () => {
     const parsed = parseResumeDialogueCommitPayload({
       messageId,
       assistantMessage: "That gives me a useful starting point. What did you change to cut onboarding time?",
+      draftAction: null,
       factOperations: [
         { operation: "capture", fact_kind: "employment", source_quote: "Director of Operations at Northwind", employment: { title: "Director of Operations", employer: "Northwind", location: null, start_date: null, end_date: null, responsibilities: null } },
         { operation: "capture", fact_kind: "accomplishment", source_quote: "I cut onboarding time by 30%", text: "Cut onboarding time by 30%", job_fact_revision_id: jobRevisionId },
@@ -109,6 +159,7 @@ describe("Resume Builder dialogue mediation", () => {
     const employment = parseResumeDialogueCommitPayload({
       messageId,
       assistantMessage: "Thanks. What changed because of your work there?",
+      draftAction: null,
       factOperations: [{ operation: "capture", fact_kind: "employment", source_quote: ownerMessage, employment: { title: "Director of Operations", employer: "Northwind", location: null, start_date: "2020", end_date: "2024", responsibilities: null } }],
     }, ownerMessage, new Set(), [{ content: "I was Director of Operations at the company.", sourceRevisionId: roleSourceRevisionId }]);
     expect(employment?.factOperations[0]).toMatchObject({ fact_kind: "employment", supporting_source_revision_ids: [roleSourceRevisionId] });
@@ -117,6 +168,7 @@ describe("Resume Builder dialogue mediation", () => {
     const metric = parseResumeDialogueCommitPayload({
       messageId,
       assistantMessage: "That is useful evidence. What did you change to get that result?",
+      draftAction: null,
       factOperations: [{ operation: "capture", fact_kind: "job_evidence", source_quote: metricMessage, text: metricMessage, job_fact_revision_id: jobRevisionId, dimension: "outcomes" }],
     }, metricMessage, new Set([jobRevisionId]));
     expect(JSON.parse(resumeDialogueFactValue(metric!.factOperations[0]!))).toMatchObject({
@@ -131,12 +183,14 @@ describe("Resume Builder dialogue mediation", () => {
     expect(parseResumeDialogueCommitPayload({
       messageId,
       assistantMessage: "How did you measure that improvement?",
+      draftAction: null,
       factOperations: [{ operation: "capture", fact_kind: "accomplishment", source_quote: "I improved onboarding by 30%", text: "Improved onboarding by 30%", job_fact_revision_id: null }],
     }, ownerMessage, new Set())).toBeNull();
 
     expect(parseResumeDialogueCommitPayload({
       messageId,
       assistantMessage: "What was the outcome?",
+      draftAction: null,
       factOperations: [{ operation: "capture", fact_kind: "job_evidence", source_quote: ownerMessage, text: ownerMessage, job_fact_revision_id: crypto.randomUUID(), dimension: "outcomes" }],
     }, ownerMessage, new Set())).toBeNull();
   });

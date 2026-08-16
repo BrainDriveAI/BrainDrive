@@ -8,7 +8,7 @@ import type { StructuredCompletionResponse } from "../adapters/base.js";
 import type { z } from "zod";
 import { buildPolicyMessages, promptPolicyIdentity, type ResumeRepairContext } from "./policy.js";
 import { classifyInferenceError, ResumeInferenceError } from "./errors.js";
-import { parsePurposeResult, purposeJsonSchema, ResumeDialogueFactOperationSchema } from "./results.js";
+import { parsePurposeResult, purposeJsonSchema, ResumeDialogueDraftActionSchema, ResumeDialogueFactOperationSchema } from "./results.js";
 import { validateInferenceClaims, type ValidationReport } from "./validators.js";
 import type { ResolvedInferenceProvider } from "./compatibility.js";
 import { repairResumeDraftFromConfirmedFacts } from "./repair.js";
@@ -393,12 +393,15 @@ function filterStructurallyInvalidDialogueResult(result: unknown): unknown | nul
       return parsed.success ? [parsed.data] : [];
     })
     : [];
+  const parsedDraftAction = ResumeDialogueDraftActionSchema.safeParse(dialogue.draft_action);
+  const draftAction = parsedDraftAction.success ? parsedDraftAction.data : null;
   return {
     dialogue_version: 1,
     assistant_message: assistantMessage,
-    turn_disposition: operations.length > 0 ? "capture_and_continue" : "respond_only",
+    turn_disposition: draftAction ? "offer_draft" : operations.length > 0 ? "capture_and_continue" : "respond_only",
     fact_operations: operations,
-    suggested_action: "none",
+    suggested_action: draftAction ? "create_draft" : "none",
+    draft_action: draftAction,
   };
 }
 

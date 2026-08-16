@@ -39,6 +39,7 @@ describe("deterministic claim gate", () => {
       turn_disposition: "respond_only",
       fact_operations: [],
       suggested_action: "none",
+      draft_action: null,
     };
     expect(validateInferenceClaims("resume_dialogue", clarification, dialogueBlocks).accepted).toBe(true);
     expect(validateInferenceClaims("resume_dialogue", {
@@ -77,6 +78,7 @@ describe("deterministic claim gate", () => {
       turn_disposition: "capture_and_continue",
       fact_operations: [{ operation: "capture", fact_kind: "employment", source_quote: current, employment: { title: "Director of Operations", employer: "Northwind", location: null, start_date: "2020", end_date: "2024", responsibilities: null } }],
       suggested_action: "none",
+      draft_action: null,
     };
 
     expect(validateInferenceClaims("resume_dialogue", result, dialogueBlocks).accepted).toBe(true);
@@ -84,6 +86,75 @@ describe("deterministic claim gate", () => {
       ...result,
       fact_operations: [{ ...result.fact_operations[0], employment: { ...result.fact_operations[0]!.employment, employer: "Contoso" } }],
     }, dialogueBlocks).accepted).toBe(false);
+  });
+
+  it("grounds draft intent and rejects pre-authorization generation claims", () => {
+    const current = "Please create my resume draft now.";
+    const context = {
+      dialogue_version: 1,
+      messages: [{ role: "assistant", content: "Would you like me to ask BrainDrive to create a draft?" }, { role: "user", content: current }],
+      current_user_message: current,
+      requested_mode: "draft_readiness",
+    };
+    const dialogueBlocks = [{ category: "dialogue_context" as const, content_digest: canonicalInputDigest(context), schema_id: "resume.dialogue-context.v1", schema_version: 1 as const, data: context }];
+    const result = {
+      dialogue_version: 1,
+      assistant_message: "I can ask BrainDrive to start a fact-backed general draft now.",
+      turn_disposition: "offer_draft",
+      fact_operations: [],
+      suggested_action: "create_draft",
+      draft_action: { action: "create_general_draft", intent: "explicit_request", source_quote: current },
+    };
+    expect(validateInferenceClaims("resume_dialogue", result, dialogueBlocks).accepted).toBe(true);
+    expect(validateInferenceClaims("resume_dialogue", { ...result, assistant_message: "I am generating your resume now." }, dialogueBlocks).accepted).toBe(false);
+    expect(validateInferenceClaims("resume_dialogue", { ...result, draft_action: { ...result.draft_action, source_quote: "create a resume" } }, dialogueBlocks).accepted).toBe(false);
+  });
+
+  it("accepts a bounded draft proposal while deriving accepted-offer intent from the conversation", () => {
+    const current = "No, that's everything.";
+    const context = {
+      dialogue_version: 1,
+      messages: [
+        { role: "assistant", content: "Would you like to add anything else, or would you like me to start putting together a draft of your resume?" },
+        { role: "user", content: current },
+      ],
+      current_user_message: current,
+      requested_mode: "intake",
+    };
+    const dialogueBlocks = [{ category: "dialogue_context" as const, content_digest: canonicalInputDigest(context), schema_id: "resume.dialogue-context.v1", schema_version: 1 as const, data: context }];
+    const proposed = {
+      dialogue_version: 1,
+      assistant_message: "I can ask BrainDrive to start your fact-backed draft now.",
+      turn_disposition: "offer_draft",
+      fact_operations: [],
+      suggested_action: "create_draft",
+      draft_action: { action: "create_general_draft", intent: "explicit_request", source_quote: current },
+    };
+    expect(validateInferenceClaims("resume_dialogue", proposed, dialogueBlocks).accepted).toBe(true);
+    expect(validateInferenceClaims("resume_dialogue", {
+      ...proposed,
+      draft_action: { ...proposed.draft_action, source_quote: "Please do." },
+    }, dialogueBlocks).accepted).toBe(false);
+  });
+
+  it("rejects non-fact control markers from dialogue capture", () => {
+    const current = "Before Acme Ventures, I was VP of Global Sales at Nova Markets from 2008 to 2015.";
+    const context = {
+      dialogue_version: 1,
+      messages: [{ role: "assistant", content: "What was your prior role?" }, { role: "user", content: current }],
+      current_user_message: current,
+      requested_mode: "intake",
+    };
+    const dialogueBlocks = [{ category: "dialogue_context" as const, content_digest: canonicalInputDigest(context), schema_id: "resume.dialogue-context.v1", schema_version: 1 as const, data: context }];
+    const result = {
+      dialogue_version: 1,
+      assistant_message: "What did you accomplish in that role?",
+      turn_disposition: "capture_and_continue",
+      fact_operations: [{ operation: "capture", fact_kind: "accomplishment", source_quote: current, text: ":skip: no accomplishment stated in this message", job_fact_revision_id: null }],
+      suggested_action: "none",
+      draft_action: null,
+    };
+    expect(validateInferenceClaims("resume_dialogue", result, dialogueBlocks).accepted).toBe(false);
   });
 
   it("allows supported wording and blocks missing provenance, metrics, dates, and titles", () => {

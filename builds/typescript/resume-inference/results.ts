@@ -79,18 +79,28 @@ export const ResumeDialogueFactOperationSchema = z.union([
   DialogueJobEvidenceOperationSchema,
 ]);
 
+export const ResumeDialogueDraftActionSchema = z.object({
+  action: z.literal("create_general_draft"),
+  intent: z.enum(["explicit_request", "accepted_offer"]),
+  source_quote: DialogueSourceQuoteSchema,
+}).strict();
+
 export const ResumeDialogueResultSchema = z.object({
   dialogue_version: z.literal(1),
   assistant_message: z.string().min(1).max(4_096),
   turn_disposition: z.enum(["respond_only", "capture_and_continue", "offer_draft"]),
   fact_operations: z.array(ResumeDialogueFactOperationSchema).max(8),
   suggested_action: z.enum(["none", "review", "create_draft"]),
+  draft_action: ResumeDialogueDraftActionSchema.nullable(),
 }).strict().superRefine((value, context) => {
   if (value.turn_disposition === "respond_only" && value.fact_operations.length > 0) {
     context.addIssue({ code: "custom", path: ["fact_operations"], message: "respond-only dialogue cannot propose fact operations" });
   }
   if ((value.turn_disposition === "offer_draft") !== (value.suggested_action === "create_draft")) {
     context.addIssue({ code: "custom", message: "draft offer disposition and action must agree" });
+  }
+  if ((value.suggested_action === "create_draft") !== (value.draft_action !== null)) {
+    context.addIssue({ code: "custom", path: ["draft_action"], message: "a draft suggestion requires one bounded draft action" });
   }
 });
 

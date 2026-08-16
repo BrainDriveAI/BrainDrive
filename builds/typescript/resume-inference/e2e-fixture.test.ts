@@ -50,6 +50,30 @@ function permutations<T>(values: T[]): T[][] {
 }
 
 describe("Resume Builder isolated E2E inference fixture", () => {
+  it("emits a bounded accepted-offer draft action without claiming generation", () => {
+    const owner = "No, that's everything.";
+    const result = synthesizeResumeE2eResult("resume_dialogue", [facts, {
+      category: "dialogue_context",
+      data: {
+        dialogue_version: 1,
+        messages: [
+          { role: "assistant", content: "Would you like to add anything else, or should I ask BrainDrive to start your draft?" },
+          { role: "user", content: owner },
+        ],
+        current_user_message: owner,
+        requested_mode: "draft_readiness",
+      },
+    }]) as Record<string, unknown>;
+
+    expect(() => PURPOSE_RESULT_SCHEMAS.resume_dialogue.parse(result)).not.toThrow();
+    expect(result).toMatchObject({
+      turn_disposition: "offer_draft",
+      suggested_action: "create_draft",
+      draft_action: { action: "create_general_draft", intent: "accepted_offer", source_quote: owner },
+    });
+    expect(result.assistant_message).not.toMatch(/(?:generating|started|underway)/i);
+  });
+
   it("produces contract-valid outputs for every accepted purpose without entering the agent loop", () => {
     const cases = {
       resume_dialogue: [facts, { category: "dialogue_context", data: { dialogue_version: 1, messages: [{ role: "assistant", content: "Tell me about your work history." }, { role: "user", content: "Do you mean my last role or all my roles?" }], current_user_message: "Do you mean my last role or all my roles?", requested_mode: "intake" } }],

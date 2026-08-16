@@ -8,7 +8,18 @@ export type ResumeDialogueCommitPayload = {
   messageId: string;
   assistantMessage: string;
   factOperations: ResumeDialogueFactOperation[];
+  draftAction: ResumeDialogueDraftAction | null;
 };
+
+export type ResumeDialogueDraftAction = {
+  action: "create_general_draft";
+  intent: "explicit_request" | "accepted_offer";
+  source_quote: string;
+};
+
+export type ResumeDraftReadiness =
+  | { ready: true }
+  | { ready: false; reason: "missing_employment" | "missing_supporting_evidence"; message: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SIMPLE_FACT_KINDS = new Set(["identity", "contact", "education", "skill", "credential", "project", "preference"]);
@@ -52,6 +63,12 @@ function normalizedGrounding(value: string): string {
 function containsGrounding(haystack: string, needle: string): boolean {
   const normalizedNeedle = normalizedGrounding(needle);
   return Boolean(normalizedNeedle) && normalizedGrounding(haystack).includes(normalizedNeedle);
+}
+
+function isNonFactControlMarker(value: string): boolean {
+  const normalized = normalizedGrounding(value);
+  return /^:?\s*skip\s*:?/.test(normalized)
+    || /^(?:none|n\/a|not applicable|no (?:fact|detail|information|accomplishment)s? (?:stated|provided|given)(?: in this message)?)\.?$/.test(normalized);
 }
 
 function cleanEmploymentSegment(value: string): string {
@@ -184,14 +201,18 @@ export function parseResumeDialogueCommitPayload(
   ownerMessage: string,
   confirmedEmploymentRevisionIds: ReadonlySet<string>,
   priorOwnerMessages: readonly GroundedOwnerMessage[] = [],
+  precedingAssistantMessage = "",
 ): ResumeDialogueCommitPayload | null {
   const payload = record(value);
-  if (!payload || !exactKeys(payload, ["messageId", "assistantMessage", "factOperations"])) return null;
+  if (!payload || !exactKeys(payload, ["messageId", "assistantMessage", "factOperations", "draftAction"])) return null;
   const messageId = boundedString(payload.messageId, 64);
   const assistantMessage = boundedString(payload.assistantMessage, 4_096);
   if (!messageId || !UUID.test(messageId) || !assistantMessage || !Array.isArray(payload.factOperations) || payload.factOperations.length > 8) return null;
   const pureQuestion = /^(?:do|does|did|should|would|could|can|what|which|who|why|how|when|where|is|are|am|was|were)\b/i.test(ownerMessage.trim()) && ownerMessage.trim().endsWith("?");
   if (pureQuestion && payload.factOperations.length > 0) return null;
+  const draftAction = parseResumeDialogueDraftAction(payload.draftAction, ownerMessage, precedingAssistantMessage);
+  if (payload.draftAction !== null && !draftAction) return null;
+  if (pureQuestion && draftAction) return null;
   const factOperations: ResumeDialogueFactOperation[] = [];
   for (const candidate of payload.factOperations) {
     const operation = record(candidate);
@@ -202,7 +223,7 @@ export function parseResumeDialogueCommitPayload(
     if (SIMPLE_FACT_KINDS.has(factKind)) {
       if (!exactKeys(operation, ["operation", "fact_kind", "value", "source_quote"])) return null;
       const factValue = boundedString(operation.value, 16_384);
-      if (!factValue) return null;
+      if (!factValue || isNonFactControlMarker(factValue)) return null;
       factOperations.push({ operation: "capture", fact_kind: factKind as Extract<ResumeDialogueFactOperation, { value: string }>["fact_kind"], value: factValue, source_quote: sourceQuote });
       continue;
     }
@@ -238,7 +259,7 @@ export function parseResumeDialogueCommitPayload(
       if (!exactKeys(operation, ["operation", "fact_kind", "source_quote", "text", "job_fact_revision_id"])) return null;
       const text = boundedString(operation.text, 8_192);
       const jobId = operation.job_fact_revision_id === null ? null : boundedString(operation.job_fact_revision_id, 64);
-      if (!text || (jobId !== null && (!jobId || !UUID.test(jobId) || !confirmedEmploymentRevisionIds.has(jobId)))) return null;
+      if (!text || isNonFactControlMarker(text) || (jobId !== null && (!jobId || !UUID.test(jobId) || !confirmedEmploymentRevisionIds.has(jobId)))) return null;
       factOperations.push({ operation: "capture", fact_kind: "accomplishment", source_quote: sourceQuote, text, job_fact_revision_id: jobId });
       continue;
     }
@@ -247,13 +268,45 @@ export function parseResumeDialogueCommitPayload(
       const text = boundedString(operation.text, 8_192);
       const jobId = boundedString(operation.job_fact_revision_id, 64);
       const dimension = boundedString(operation.dimension, 64);
-      if (!text || !jobId || !UUID.test(jobId) || !confirmedEmploymentRevisionIds.has(jobId) || !dimension || !JOB_DIMENSIONS.has(dimension)) return null;
+      if (!text || isNonFactControlMarker(text) || !jobId || !UUID.test(jobId) || !confirmedEmploymentRevisionIds.has(jobId) || !dimension || !JOB_DIMENSIONS.has(dimension)) return null;
       factOperations.push({ operation: "capture", fact_kind: "job_evidence", source_quote: sourceQuote, text, job_fact_revision_id: jobId, dimension: dimension as Extract<ResumeDialogueFactOperation, { fact_kind: "job_evidence" }>["dimension"] });
       continue;
     }
     return null;
   }
-  return { messageId, assistantMessage, factOperations };
+  return { messageId, assistantMessage, factOperations, draftAction };
+}
+
+export function parseResumeDialogueDraftAction(
+  value: unknown,
+  ownerMessage: string,
+  precedingAssistantMessage: string,
+): ResumeDialogueDraftAction | null {
+  if (value === null) return null;
+  const action = record(value);
+  if (!action || !exactKeys(action, ["action", "intent", "source_quote"])) return null;
+  const sourceQuote = boundedString(action.source_quote, 16_384);
+  if (action.action !== "create_general_draft" || !sourceQuote || !ownerMessage.normalize("NFKC").includes(sourceQuote.normalize("NFKC"))) return null;
+  const explicitRequest = /\b(?:create|generate|write|start|make|show|build|put together)\b[^.!?]{0,100}\b(?:draft|resume)\b|\b(?:draft|resume)\b[^.!?]{0,100}\b(?:create|generate|write|start|make|show|build|put together)\b/i.test(ownerMessage);
+  const acceptedOffer = /^(?:no[,\s]*(?:that(?:'s| is) (?:everything|all)|nothing else)|that(?:'s| is) (?:everything|all)|yes|go ahead|please do|sounds good|i(?:'m| am) ready)[.!]?$/i.test(ownerMessage.trim())
+    && /\b(?:draft|resume|start|generate|put (?:it|one) together|anything else|anything more)\b/i.test(precedingAssistantMessage);
+  if (action.intent !== "explicit_request" && action.intent !== "accepted_offer") return null;
+  if (explicitRequest) return { action: "create_general_draft", intent: "explicit_request", source_quote: sourceQuote };
+  if (acceptedOffer) return { action: "create_general_draft", intent: "accepted_offer", source_quote: sourceQuote };
+  return null;
+}
+
+export function evaluateResumeDraftReadiness(
+  confirmedEmploymentRevisionIds: ReadonlySet<string>,
+  reviewFacts: readonly { kind: string }[],
+): ResumeDraftReadiness {
+  if (confirmedEmploymentRevisionIds.size === 0) {
+    return { ready: false, reason: "missing_employment", message: "Before I create a useful draft, I need at least one role and employer from you." };
+  }
+  if (!reviewFacts.some((fact) => fact.kind !== "employment")) {
+    return { ready: false, reason: "missing_supporting_evidence", message: "I have your role. Before I create a useful draft, tell me one accomplishment, responsibility, skill, or education detail to include." };
+  }
+  return { ready: true };
 }
 
 export function resumeDialogueFactValue(operation: ResumeDialogueFactOperation): string {

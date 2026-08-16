@@ -76,9 +76,12 @@ function validateResumeDialogue(result: unknown, dataBlocks: DataBlock[], facts:
   const findings: Finding[] = [];
   const value = result as {
     assistant_message?: string;
+    draft_action?: { action?: string; intent?: string; source_quote?: string } | null;
     fact_operations?: Array<{
       fact_kind?: string;
       source_quote?: string;
+      value?: string;
+      text?: string;
       job_fact_revision_id?: string | null;
       employment?: { title?: unknown; employer?: unknown; location?: unknown; start_date?: unknown; end_date?: unknown; responsibilities?: unknown };
     }>;
@@ -88,21 +91,41 @@ function validateResumeDialogue(result: unknown, dataBlocks: DataBlock[], facts:
     messages?: Array<{ role?: string; content?: string }>;
   } | undefined;
   const current = context?.current_user_message ?? null;
+  const messages = context?.messages ?? [];
   const operations = value.fact_operations ?? [];
   if (current === null && operations.length > 0) {
     findings.push(finding("missing_provenance", null, "An opening dialogue turn cannot propose owner facts"));
     return findings;
   }
   const normalizedCurrent = normalize(current ?? "");
-  const ownerMessages = (context?.messages ?? []).flatMap((message) => message.role === "user" && typeof message.content === "string" ? [normalize(message.content)] : []);
+  const ownerMessages = messages.flatMap((message) => message.role === "user" && typeof message.content === "string" ? [normalize(message.content)] : []);
   const pureQuestion = /^(?:do|does|did|should|would|could|can|what|which|who|why|how|when|where|is|are|am|was|were)\b/.test(normalizedCurrent) && normalizedCurrent.endsWith("?");
   if (pureQuestion && operations.length > 0) {
     findings.push(finding("unsupported_claim", null, "A clarification question cannot be treated as a factual answer"));
+  }
+  if (value.draft_action) {
+    const quote = typeof value.draft_action.source_quote === "string" ? normalize(value.draft_action.source_quote) : "";
+    if (!quote || !normalizedCurrent.includes(quote) || pureQuestion) {
+      findings.push(finding("missing_provenance", null, "A draft action requires an exact non-question owner request or acceptance quote"));
+    }
+    const precedingAssistant = [...messages].reverse().find((message, index, reversed) => {
+      if (message.role !== "assistant" || typeof message.content !== "string") return false;
+      return reversed.slice(0, index).some((later) => later.role === "user" && normalize(later.content ?? "") === normalizedCurrent);
+    })?.content ?? "";
+    if (!isExplicitDraftRequest(current ?? "") && !isAcceptedDraftOffer(current ?? "", precedingAssistant)) {
+      findings.push(finding("unsupported_claim", null, "A draft action requires an explicit owner request or acceptance of the immediately preceding draft offer"));
+    }
   }
   for (const operation of operations) {
     const quote = typeof operation.source_quote === "string" ? normalize(operation.source_quote) : "";
     if (!quote || !normalizedCurrent.includes(quote)) {
       findings.push(finding("missing_provenance", null, "Every dialogue fact operation requires an exact quote from the current owner message"));
+    }
+    const proposedFactText = operation.fact_kind === "accomplishment" || operation.fact_kind === "job_evidence"
+      ? operation.text
+      : operation.fact_kind === "employment" ? null : operation.value;
+    if (typeof proposedFactText === "string" && isNonFactControlMarker(proposedFactText)) {
+      findings.push(finding("unsupported_claim", null, "Dialogue control markers cannot be persisted as owner facts"));
     }
     if (operation.fact_kind === "employment") {
       const employment = operation.employment;
@@ -139,7 +162,25 @@ function validateResumeDialogue(result: unknown, dataBlocks: DataBlock[], facts:
   if (/\b(?:i|we|braindrive)\s+(?:have\s+)?(?:saved|confirmed|approved)\b/i.test(value.assistant_message ?? "")) {
     findings.push(finding("schema_invalid", null, "Dialogue may not claim that model-proposed facts or owner actions were committed"));
   }
+  if (/\b(?:i|we|braindrive)\s+(?:(?:will|'ll|am|are|is)\s+)?(?:now\s+)?(?:start(?:ed|ing)?|generat(?:e|ed|ing)|creat(?:e|ed|ing)|build(?:ing)?)\s+(?:your\s+|the\s+|a\s+)?(?:draft|resume)\b/i.test(value.assistant_message ?? "")) {
+    findings.push(finding("schema_invalid", null, "Dialogue may not claim draft generation before the host accepts the action"));
+  }
   return findings;
+}
+
+function isExplicitDraftRequest(ownerMessage: string): boolean {
+  return /\b(?:create|generate|write|start|make|show|build|put together)\b[^.!?]{0,100}\b(?:draft|resume)\b|\b(?:draft|resume)\b[^.!?]{0,100}\b(?:create|generate|write|start|make|show|build|put together)\b/i.test(ownerMessage);
+}
+
+function isAcceptedDraftOffer(ownerMessage: string, precedingAssistantMessage: string): boolean {
+  return /^(?:no[,\s]*(?:that(?:'s| is) (?:everything|all)|nothing else)|that(?:'s| is) (?:everything|all)|yes|go ahead|please do|sounds good|i(?:'m| am) ready)[.!]?$/i.test(ownerMessage.trim())
+    && /\b(?:draft|resume|start|generate|put (?:it|one) together|anything else|anything more)\b/i.test(precedingAssistantMessage);
+}
+
+function isNonFactControlMarker(value: string): boolean {
+  const normalized = value.normalize("NFKC").trim().toLocaleLowerCase("en-US");
+  return /^:?\s*skip\s*:?/.test(normalized)
+    || /^(?:none|n\/a|not applicable|no (?:fact|detail|information|accomplishment)s? (?:stated|provided|given)(?: in this message)?)\.?$/.test(normalized);
 }
 
 export function evaluateDefinitionDeterministicGates(definition: { statements: GeneratedStatement[] }, dataBlocks: DataBlock[]): {

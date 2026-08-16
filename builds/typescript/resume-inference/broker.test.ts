@@ -42,7 +42,7 @@ function envelope(recordType: string, recordId: string, revisionId: string) {
 }
 
 const outputs: Record<InferencePurpose, unknown> = {
-  resume_dialogue: { dialogue_version: 1, assistant_message: "Let’s start with your most recent role, then add earlier roles that strengthen the resume. What was your most recent role?", turn_disposition: "respond_only", fact_operations: [], suggested_action: "none" },
+  resume_dialogue: { dialogue_version: 1, assistant_message: "Let’s start with your most recent role, then add earlier roles that strengthen the resume. What was your most recent role?", turn_disposition: "respond_only", fact_operations: [], suggested_action: "none", draft_action: null },
   interview_assist: { questions: [{ question_id: randomUUID(), job_fact_revision_id: INTERVIEW_JOB_ID, opportunity_id: INTERVIEW_OPPORTUNITY_ID, dimension: "accomplishments", opportunity_kind: "qualitative", value_category: "distinct_accomplishment", selection_method: "deterministic_value", prompt: "What did you build in this role? A qualitative answer is enough.", rationale: "Phrase the selected evidence opportunity." }] },
   general_resume_draft: { title: "Resume", statements: [{ statement_id: randomUUID(), kind: "factual", text: "Built product 20%", supporting_confirmed_fact_revision_ids: [FACT_ID] }], section_order: ["experience"], omissions: [] },
   job_description_analyze: { requirements: [{ requirement_id: randomUUID(), requirement_kind: "required", source_span: "Build products", inferred: false, normalized_requirement: "Build products" }] },
@@ -342,6 +342,7 @@ describe("ResumeInferenceBroker", () => {
         { operation: "capture", fact_kind: "job_evidence", source_quote: "customer retention improved", text: "Customer retention improved", job_fact_revision_id: INTERVIEW_JOB_ID, dimension: "outcomes" },
       ],
       suggested_action: "none",
+      draft_action: null,
     };
     const model = adapter(() => JSON.stringify(invalid));
     const events: Array<{ event: string; details: Record<string, unknown> }> = [];
@@ -372,6 +373,7 @@ describe("ResumeInferenceBroker", () => {
         skillOperation,
       ],
       suggested_action: "none",
+      draft_action: null,
     };
     const model = adapter(() => JSON.stringify(mixed));
     const completion = await new ResumeInferenceBroker(async () => provider(model.value)).execute(dialogueRequestWithoutEmployment(current));
@@ -379,6 +381,35 @@ describe("ResumeInferenceBroker", () => {
     expect(completion.inference).toMatchObject({
       status: "completed",
       result: { turn_disposition: "capture_and_continue", fact_operations: [skillOperation] },
+    });
+    expect(completion.validation?.accepted).toBe(true);
+  });
+
+  it("filters model control markers without dropping a valid role capture", async () => {
+    const current = "Before Acme Ventures, I was VP of Global Sales at Nova Markets from 2008 to 2015.";
+    const employmentOperation = {
+      operation: "capture",
+      fact_kind: "employment",
+      source_quote: current,
+      employment: { title: "VP of Global Sales", employer: "Nova Markets", location: null, start_date: "2008", end_date: "2015", responsibilities: null },
+    };
+    const mixed = {
+      dialogue_version: 1,
+      assistant_message: "What were your standout accomplishments there?",
+      turn_disposition: "capture_and_continue",
+      fact_operations: [
+        employmentOperation,
+        { operation: "capture", fact_kind: "accomplishment", source_quote: current, text: ":skip:", job_fact_revision_id: null },
+      ],
+      suggested_action: "none",
+      draft_action: null,
+    };
+    const model = adapter(() => JSON.stringify(mixed));
+    const completion = await new ResumeInferenceBroker(async () => provider(model.value)).execute(dialogueRequestWithoutEmployment(current));
+
+    expect(completion.inference).toMatchObject({
+      status: "completed",
+      result: { fact_operations: [employmentOperation] },
     });
     expect(completion.validation?.accepted).toBe(true);
   });
@@ -397,6 +428,7 @@ describe("ResumeInferenceBroker", () => {
         dimension: "outcomes",
       }],
       suggested_action: "none",
+      draft_action: null,
     };
     const model = adapter(() => JSON.stringify(malformed));
     const events: Array<{ event: string; details: Record<string, unknown> }> = [];

@@ -52,8 +52,9 @@ export function synthesizeResumeE2eResult(purpose: InferencePurpose, blocks: Dat
   const firstFact = facts[0];
   switch (purpose) {
     case "resume_dialogue": {
-      const dialogue = blockData<{ current_user_message: string | null }>(blocks, "dialogue_context");
+      const dialogue = blockData<{ current_user_message: string | null; messages?: Array<{ role: "user" | "assistant"; content: string }> }>(blocks, "dialogue_context");
       const current = dialogue.current_user_message?.trim() ?? "";
+      const precedingAssistant = [...(dialogue.messages ?? [])].reverse().find((message) => message.role === "assistant")?.content ?? "";
       if (!current) {
         return {
           dialogue_version: 1,
@@ -61,6 +62,7 @@ export function synthesizeResumeE2eResult(purpose: InferencePurpose, blocks: Dat
           turn_disposition: "respond_only",
           fact_operations: [],
           suggested_action: "none",
+          draft_action: null,
         };
       }
       if (/last role|all (?:my )?roles/i.test(current)) {
@@ -70,21 +72,84 @@ export function synthesizeResumeE2eResult(purpose: InferencePurpose, blocks: Dat
           turn_disposition: "respond_only",
           fact_operations: [],
           suggested_action: "none",
+          draft_action: null,
         };
       }
-      const role = current.match(/(?:worked|work|was|served)?\s*(?:as\s+)?(?:an?\s+)?(.+?)\s+(?:at|for|with)\s+(.+?)[.!]?$/i);
-      if (role?.[1] && role[2]) {
+      if (/\b(?:targeting|looking for|seeking|want)\b[^.!?]{0,120}\b(?:role|roles|job|jobs)\b/i.test(current)) {
         return {
           dialogue_version: 1,
-          assistant_message: `I heard ${role[1].trim()} at ${role[2].trim()}. What did you handle most often in that role?`,
+          assistant_message: "That gives us a direction. Let’s start with your most recent role, then add earlier roles that strengthen the story. What was your title and employer?",
+          turn_disposition: "capture_and_continue",
+          fact_operations: [{ operation: "capture", fact_kind: "preference", value: current, source_quote: current }],
+          suggested_action: "none",
+          draft_action: null,
+        };
+      }
+      if (/\b(?:why do you ask|why are you asking|how will you use|what happens to)\b/i.test(current)) {
+        return {
+          dialogue_version: 1,
+          assistant_message: "I ask for concrete details so the draft can stay specific and traceable to your words. We can keep this brief. Which role would you like to cover next?",
+          turn_disposition: "respond_only",
+          fact_operations: [],
+          suggested_action: "none",
+          draft_action: null,
+        };
+      }
+      const explicitDraft = /\b(?:create|generate|write|start|make|show|build|put together)\b[^.!?]{0,80}\b(?:draft|resume)\b|\b(?:draft|resume)\b[^.!?]{0,80}\b(?:create|generate|write|start|make|show|build|put together)\b/i.test(current);
+      const acceptedOffer = /^(?:no[,\s]*(?:that(?:'s| is) (?:everything|all)|nothing else)|that(?:'s| is) (?:everything|all)|yes|go ahead|please do|sounds good|i(?:'m| am) ready)[.!]?$/i.test(current)
+        && /\b(?:draft|resume|start|generate|put (?:it|one) together|anything else)\b/i.test(precedingAssistant);
+      if (explicitDraft || acceptedOffer) {
+        return {
+          dialogue_version: 1,
+          assistant_message: "I have your request. I can ask BrainDrive to start a fact-backed general draft now.",
+          turn_disposition: "offer_draft",
+          fact_operations: [],
+          suggested_action: "create_draft",
+          draft_action: { action: "create_general_draft", intent: explicitDraft ? "explicit_request" : "accepted_offer", source_quote: current },
+        };
+      }
+      const role = current.match(/(?:i\s+)?(?:worked|work|was|served)\s+(?:as\s+)?(?:the\s+|an?\s+)?(.+?)\s+(?:at|for|with)\s+(.+?)(?=,?\s+(?:from\s+)?(?:19|20)\d{2}\b|[.!?]|$)/i);
+      if (role?.[1] && role[2]) {
+        const dateRange = current.match(/\b(?:from\s+)?((?:19|20)\d{2})\s+(?:to|through|[-–—])\s+(present|current|(?:19|20)\d{2})\b/i);
+        return {
+          dialogue_version: 1,
+          assistant_message: `I heard ${role[1].trim()} at ${role[2].trim()}. What is one specific result or responsibility from that role that belongs on the resume?`,
           turn_disposition: "capture_and_continue",
           fact_operations: [{
             operation: "capture",
             fact_kind: "employment",
             source_quote: current,
-            employment: { title: role[1].trim(), employer: role[2].trim(), location: null, start_date: null, end_date: null, responsibilities: null },
+            employment: { title: role[1].trim(), employer: role[2].trim(), location: null, start_date: dateRange?.[1] ?? null, end_date: dateRange?.[2] ?? null, responsibilities: null },
           }],
           suggested_action: "none",
+          draft_action: null,
+        };
+      }
+      const employmentFacts = facts.flatMap((fact) => {
+        if (fact.fact_kind !== "employment") return [];
+        const job = structuredFact<StructuredJob>(fact);
+        return job?.format === "resume_job_v1" ? [{ fact, job }] : [];
+      });
+      const namedJob = employmentFacts.find(({ job }) => current.toLocaleLowerCase("en-US").includes(job.employer.toLocaleLowerCase("en-US")));
+      const activeJob = namedJob ?? employmentFacts.at(-1);
+      if (activeJob && /\b(?:%|percent|revenue|traffic|team|employees|users|customers|reduced|grew|increased|saved|launched|led|managed)\b/i.test(current)) {
+        return {
+          dialogue_version: 1,
+          assistant_message: "That is useful role-specific evidence. Is there another role you want represented, or should we cover education next?",
+          turn_disposition: "capture_and_continue",
+          fact_operations: [{ operation: "capture", fact_kind: "job_evidence", source_quote: current, text: current, job_fact_revision_id: activeJob.fact.revision_id, dimension: /\b(?:%|percent|revenue|traffic|reduced|grew|increased|saved)\b/i.test(current) ? "outcomes" : "scope" }],
+          suggested_action: "none",
+          draft_action: null,
+        };
+      }
+      if (/\b(?:degree|bachelor|master|mba|phd|university|college|education)\b/i.test(current)) {
+        return {
+          dialogue_version: 1,
+          assistant_message: "I heard that education detail. Would you like to add anything else, or should I ask BrainDrive to start your draft?",
+          turn_disposition: "capture_and_continue",
+          fact_operations: [{ operation: "capture", fact_kind: "education", value: current, source_quote: current }],
+          suggested_action: "none",
+          draft_action: null,
         };
       }
       return {
@@ -93,6 +158,7 @@ export function synthesizeResumeE2eResult(purpose: InferencePurpose, blocks: Dat
         turn_disposition: "respond_only",
         fact_operations: [],
         suggested_action: "none",
+        draft_action: null,
       };
     }
     case "interview_assist":
