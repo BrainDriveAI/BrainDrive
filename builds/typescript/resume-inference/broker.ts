@@ -8,7 +8,7 @@ import type { StructuredCompletionResponse } from "../adapters/base.js";
 import type { z } from "zod";
 import { buildPolicyMessages, promptPolicyIdentity, type ResumeRepairContext } from "./policy.js";
 import { classifyInferenceError, ResumeInferenceError } from "./errors.js";
-import { parsePurposeResult, purposeJsonSchema, ResumeDialogueDraftActionSchema, ResumeDialogueFactOperationSchema } from "./results.js";
+import { parsePurposeResult, purposeJsonSchema, ResumeDialogueFactOperationSchema } from "./results.js";
 import { validateInferenceClaims, type ValidationReport } from "./validators.js";
 import type { ResolvedInferenceProvider } from "./compatibility.js";
 import { repairResumeDraftFromConfirmedFacts } from "./repair.js";
@@ -435,8 +435,7 @@ function filterStructurallyInvalidDialogueResult(
       return rebound === null ? [] : [rebound];
     })
     : [];
-  const parsedDraftAction = ResumeDialogueDraftActionSchema.safeParse(dialogue.draft_action);
-  const draftAction = parsedDraftAction.success ? parsedDraftAction.data : null;
+  const draftAction = normalizeDialogueDraftAction(dialogue.draft_action, dataBlocks);
   return {
     dialogue_version: 1,
     assistant_message: assistantMessage,
@@ -690,9 +689,6 @@ function normalizeDialogueDraftAction(
   value: unknown,
   dataBlocks: InferenceRequest["data_blocks"],
 ): { action: "create_general_draft"; intent: "explicit_request" | "accepted_offer"; source_quote: string } | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const action = value as { action?: unknown; intent?: unknown; source_quote?: unknown };
-  if (action.action !== "create_general_draft") return null;
   const context = dataBlocks.find((block) => block.category === "dialogue_context")?.data as {
     current_user_message?: unknown;
     messages?: Array<{ role?: unknown; content?: unknown }>;

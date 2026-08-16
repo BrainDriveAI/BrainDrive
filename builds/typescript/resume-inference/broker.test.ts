@@ -638,6 +638,37 @@ describe("ResumeInferenceBroker", () => {
     expect(completion.inference.attempt_count).toBe(1);
   });
 
+  it("creates a bounded host draft intent when the owner explicitly requests a draft and the model omits it", async () => {
+    const current = "That is everything. Please create my general resume draft now.";
+    const proposed = {
+      dialogue_version: 1,
+      assistant_message: "I can help with the next step.",
+      turn_disposition: "respond_only",
+      fact_operations: [],
+      suggested_action: "none",
+      draft_action: null,
+    };
+    const model = adapter(() => JSON.stringify(proposed));
+    const completion = await new ResumeInferenceBroker(async () => provider(model.value))
+      .execute(dialogueRequestWithoutEmployment(current));
+
+    expect(completion.inference).toMatchObject({
+      status: "completed",
+      attempt_count: 1,
+      result: {
+        draft_action: {
+          action: "create_general_draft",
+          intent: "explicit_request",
+          source_quote: current,
+        },
+        suggested_action: "create_draft",
+        turn_disposition: "offer_draft",
+      },
+    });
+    expect(completion.validation?.accepted).toBe(true);
+    expect(model.calls()).toBe(1);
+  });
+
   it("disposes a rejected host-action claim without dropping grounded facts or retrying the provider", async () => {
     const current = "I use Tableau.";
     const operation = {
