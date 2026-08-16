@@ -41,7 +41,6 @@ test("live provider completes a model-led interview and creates a reviewable dra
   await send(page, "Before that, I was an Analyst at Northwind Partners from 2017 to 2020.");
   await expect(rail).toContainText(/Analyst.+Northwind Partners/i, { timeout: 60_000 });
   await send(page, "At Northwind Partners I reduced reporting time by 30 percent.");
-  await expect(rail).toContainText(/30 percent|30%/i, { timeout: 60_000 });
   await send(page, "Why does the employer association matter?");
   await send(page, "I earned a BS in Economics from State University in 2017.");
   const composer = page.getByRole("textbox", { name: "Reply in your own words..." });
@@ -57,5 +56,6 @@ test("live provider completes a model-led interview and creates a reviewable dra
   await frame.getByRole("button", { name: "General resume" }).click();
   await expect(frame.locator("#panel")).toContainText(/Acme Labs/, { timeout: 30_000 });
   await expect(frame.locator("#panel")).toContainText(/Northwind Partners/);
-  await expect(frame.locator("#panel")).toContainText(/40%|40 percent|30%|30 percent/i);
+  await expect(frame.locator("#panel")).toContainText(/40%|40 percent/i);
+  await expect(frame.locator("#panel")).toContainText(/30%|30 percent/i);
 });
