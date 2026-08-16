@@ -19,10 +19,12 @@ describe("Resume Builder private workspace", () => {
       expect(await readFile(path.join(memoryRoot, RESUME_PROFILE_PATH), "utf8")).toContain("# Resume Profile");
       await expect(renderResumeFromProfile(memoryRoot)).rejects.toThrow("Resume Profile is not ready yet");
 
-      await writeFile(path.join(memoryRoot, RESUME_PROFILE_PATH), "# Resume Profile\n\n## Experience\n\n- Led a launch that increased revenue 40%.\n", "utf8");
+      await writeFile(path.join(memoryRoot, RESUME_PROFILE_PATH), "# Resume Profile\n\n## Contact\n\n- **Name:** Alex Lee\n- **Email:** alex@example.com\n\n## Experience\n\n- Led a launch that increased revenue 40%.\n", "utf8");
       const resume = await renderResumeFromProfile(memoryRoot);
 
-      expect(resume).toContain("# Resume");
+      expect(resume).toContain("# Alex Lee");
+      expect(resume).toContain("alex@example.com");
+      expect(resume).not.toContain("## Contact");
       expect(resume).toContain("increased revenue 40%");
       expect(await readFile(path.join(memoryRoot, RESUME_DOCUMENT_PATH), "utf8")).toBe(resume);
     } finally {
