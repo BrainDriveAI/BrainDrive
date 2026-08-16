@@ -2,6 +2,7 @@ import path from "node:path";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 import { commitMemoryChange, ensureGitReady } from "../git.js";
+import { renderResumeMarkdownPdf } from "../resume-renderer/renderer.js";
 
 export const RESUME_WORKSPACE_ROOT = "apps/resume-builder";
 export const RESUME_AGENT_PATH = `${RESUME_WORKSPACE_ROOT}/AGENT.md`;
@@ -67,6 +68,14 @@ export async function renderResumeFromProfile(memoryRoot: string): Promise<strin
   await writeFile(path.join(memoryRoot, RESUME_DOCUMENT_PATH), resume, "utf8");
   await commitMemoryChange(memoryRoot, "Render Resume Builder resume from profile");
   return resume;
+}
+
+export async function exportResumePdfFromDocument(memoryRoot: string): Promise<{ filename: string; mime_type: "application/pdf"; bytes_base64: string }> {
+  await ensureResumeWorkspace(memoryRoot);
+  const resume = await readFile(path.join(memoryRoot, RESUME_DOCUMENT_PATH), "utf8");
+  if (resume.trim() === INITIAL_FILES[RESUME_DOCUMENT_PATH].trim()) throw new Error("Resume is not ready yet");
+  const pdf = renderResumeMarkdownPdf(resume);
+  return { filename: "resume.pdf", mime_type: "application/pdf", bytes_base64: pdf.bytes.toString("base64") };
 }
 
 function formatResumeFromProfile(profile: string): string {

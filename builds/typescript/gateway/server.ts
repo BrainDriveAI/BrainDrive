@@ -33,7 +33,7 @@ import { createLiveProviderResolver, ModelCompatibilityRegistry, VERSIONED_MODEL
 import { createResumeE2eFixtureProviderResolver } from "../resume-inference/e2e-fixture.js";
 import { ImmutableInferenceSnapshotBuilder } from "../resume-inference/snapshot.js";
 import { ResumeExportBroker } from "../resume-renderer/export-broker.js";
-import { buildResumeBuilderChatContext, ensureResumeWorkspace, readResumeWorkspaceDocument, renderResumeFromProfile, updateResumeWorkspaceDocument } from "./resume-workspace.js";
+import { buildResumeBuilderChatContext, ensureResumeWorkspace, exportResumePdfFromDocument, readResumeWorkspaceDocument, renderResumeFromProfile, updateResumeWorkspaceDocument } from "./resume-workspace.js";
 
 import { createGatewayAdapter } from "../adapters/gateway.js";
 import {
@@ -2082,6 +2082,19 @@ export async function buildServer(rootDir = process.cwd()) {
     } catch (error) {
       if (error instanceof Error && error.message === "Resume Profile is not ready yet") {
         reply.code(409).send({ error: "Ask Resume Builder to create your Resume Profile first." });
+        return;
+      }
+      throw error;
+    }
+  });
+
+  app.post("/apps/resume-builder/workspace/export-pdf", async (request, reply) => {
+    authorize(request.authContext, "memory_access");
+    try {
+      return await exportResumePdfFromDocument(runtimeConfig.memory_root);
+    } catch (error) {
+      if (error instanceof Error && error.message === "Resume is not ready yet") {
+        reply.code(409).send({ error: "Create your resume before exporting it." });
         return;
       }
       throw error;

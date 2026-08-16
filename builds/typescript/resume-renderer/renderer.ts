@@ -49,6 +49,44 @@ export type RenderedCleanText = {
   logical_lines: string[];
 };
 
+export type RenderedMarkdownResumePdf = Pick<RenderedResume, "format" | "mime_type" | "bytes" | "artifact_digest" | "input_digest" | "logical_lines" | "parsed_lines" | "page_count" | "template_id" | "template_version" | "renderer_id" | "renderer_version" | "font_manifest_digest">;
+
+/** Renders the already-created Resume document. It deliberately does not read or interpret a Resume Profile. */
+export function renderResumeMarkdownPdf(markdown: string): RenderedMarkdownResumePdf {
+  const entries: LogicalResumeEntry[] = [];
+  for (const rawLine of markdown.split("\n")) {
+    const line = rawLine.trim();
+    if (!line || line === "---") continue;
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      const text = sanitizeResumeText(heading[2]!.replace(/\*\*/g, ""));
+      if (!text) continue;
+      entries.push({ text, role: heading[1]!.length === 1 ? "title" : heading[1]!.length === 2 ? "section" : "heading", section_id: null, statement_id: null });
+      continue;
+    }
+    const bullet = line.match(/^-\s+(.+)$/);
+    const text = sanitizeResumeText(`${bullet ? "- " : ""}${(bullet?.[1] ?? line).replace(/\*\*/g, "")}`);
+    if (text) entries.push({ text, role: bullet ? "bullet" : "line", section_id: null, statement_id: null });
+  }
+  if (entries.length === 0) throw new ResumeDomainError("validation_failed", "Resume is empty and cannot be exported");
+  const wrappedEntries = entries.flatMap((entry) => wrapLine(entry.text).map((text) => ({ ...entry, text })));
+  if (wrappedEntries.length > MAX_LINES_PER_PAGE * MAX_PAGES) throw new ResumeDomainError("validation_failed", "Resume exceeds the accepted two-page renderer limit");
+  const pages = chunk(wrappedEntries, MAX_LINES_PER_PAGE);
+  const bytes = buildPdf(pages);
+  const logical_lines = wrappedEntries.map((entry) => entry.text);
+  const parsed_lines = parseBackPdf(bytes);
+  if (JSON.stringify(parsed_lines) !== JSON.stringify(logical_lines)) throw new ResumeDomainError("validation_failed", "Rendered resume failed logical-order parse-back validation");
+  return {
+    format: "pdf", mime_type: "application/pdf", bytes,
+    artifact_digest: `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
+    input_digest: canonicalInputDigest({ resume_markdown: markdown }),
+    logical_lines, parsed_lines, page_count: pages.length,
+    template_id: RESUME_TEMPLATE_ID, template_version: RESUME_TEMPLATE_VERSION,
+    renderer_id: RESUME_RENDERER_ID, renderer_version: RESUME_RENDERER_VERSION,
+    font_manifest_digest: RESUME_FONT_MANIFEST_DIGEST,
+  };
+}
+
 export function sanitizeResumeText(value: string): string {
   return value
     .normalize("NFKC")

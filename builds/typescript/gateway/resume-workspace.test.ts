@@ -8,6 +8,7 @@ import {
   RESUME_PROFILE_PATH,
   buildResumeBuilderChatContext,
   ensureResumeWorkspace,
+  exportResumePdfFromDocument,
   renderResumeFromProfile,
 } from "./resume-workspace.js";
 
@@ -27,6 +28,9 @@ describe("Resume Builder private workspace", () => {
       expect(resume).not.toContain("## Contact");
       expect(resume).toContain("increased revenue 40%");
       expect(await readFile(path.join(memoryRoot, RESUME_DOCUMENT_PATH), "utf8")).toBe(resume);
+      const pdf = await exportResumePdfFromDocument(memoryRoot);
+      expect(pdf.filename).toBe("resume.pdf");
+      expect(Buffer.from(pdf.bytes_base64, "base64").subarray(0, 8).toString("latin1")).toBe("%PDF-1.4");
     } finally {
       await rm(memoryRoot, { recursive: true, force: true });
     }

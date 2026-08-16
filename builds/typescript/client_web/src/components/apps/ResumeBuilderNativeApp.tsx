@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, FileText, MessageSquare, Pencil, Save, Settings2, Sparkles } from "lucide-react";
+import { ArrowLeft, Download, FileText, MessageSquare, Pencil, Save, Settings2, Sparkles } from "lucide-react";
 
 import { authenticatedFetch } from "@/api/auth-adapter";
 import { GATEWAY_BASE_URL } from "@/api/gateway-adapter";
@@ -73,6 +73,16 @@ async function renderResume(): Promise<string> {
   return ((await response.json()) as { content: string }).content;
 }
 
+async function exportResumePdf(): Promise<{ filename: string; bytesBase64: string }> {
+  const response = await authenticatedFetch(`${GATEWAY_BASE_URL}/apps/resume-builder/workspace/export-pdf`, { method: "POST" });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error ?? "Could not export the resume PDF.");
+  }
+  const body = (await response.json()) as { filename: string; bytes_base64: string };
+  return { filename: body.filename, bytesBase64: body.bytes_base64 };
+}
+
 export default function ResumeBuilderNativeApp({ onClose, onOpenSettings }: { onClose: () => void; onOpenSettings?: () => void }) {
   const [view, setView] = useState<ResumeView>("chat");
   const [conversationId, setConversationId] = useState<string | null>(() => window.localStorage.getItem("resume-builder-conversation-id"));
@@ -83,6 +93,7 @@ export default function ResumeBuilderNativeApp({ onClose, onOpenSettings }: { on
   const [isEditing, setIsEditing] = useState(false);
   const [draftContent, setDraftContent] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   const showDocument = useCallback(async (next: ResumeDocument) => {
     setView(next); setDocumentError(null); setDocumentContent(""); setIsEditing(false);
@@ -112,6 +123,17 @@ export default function ResumeBuilderNativeApp({ onClose, onOpenSettings }: { on
     finally { setIsSaving(false); }
   };
 
+  const downloadPdf = async () => {
+    setIsExporting(true); setDocumentError(null);
+    try {
+      const pdf = await exportResumePdf();
+      const bytes = Uint8Array.from(atob(pdf.bytesBase64), (character) => character.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+      const link = document.createElement("a"); link.href = url; link.download = pdf.filename; link.click(); URL.revokeObjectURL(url);
+    } catch (error) { setDocumentError(error instanceof Error ? error.message : "Could not export the resume PDF."); }
+    finally { setIsExporting(false); }
+  };
+
   const selectView = (next: ResumeView) => {
     if (next === "chat") { setView("chat"); setIsEditing(false); return; }
     void showDocument(next);
@@ -138,7 +160,7 @@ export default function ResumeBuilderNativeApp({ onClose, onOpenSettings }: { on
   return <div className="flex min-h-0 flex-1 bg-bd-bg-chat" data-testid="resume-builder-native-app">
     <Navigation />
     <ChatPanel activeConversationId={conversationId} draftKey="resume-builder" isEmpty={conversationId === null} introProjectId="resume-builder" messageMetadata={{ resume_builder: true }} onConversationComplete={completeConversation} onOpenSettings={onOpenSettings} onSendMessage={() => selectView("chat")} contentOverride={view === "chat" ? undefined : <section className="flex min-w-0 flex-1 flex-col bg-bd-bg-chat text-bd-text-primary">
-      <header className="border-b border-bd-border/80 bg-bd-bg-chat/90 px-4 py-3 backdrop-blur-sm sm:px-6"><div className="mx-auto flex w-full max-w-[780px] items-center justify-between gap-3"><div className="min-w-0"><p className="text-[11px] uppercase tracking-[0.24em] text-bd-text-muted">Resume Builder</p><h1 className="truncate font-heading text-lg text-bd-text-heading">{fileName}</h1></div><div className="flex shrink-0 items-center gap-2"><button type="button" onClick={() => selectView("chat")} className="rounded-md px-3 py-2 text-sm text-bd-text-secondary hover:bg-bd-bg-secondary hover:text-bd-text-heading"><ArrowLeft className="mr-1 inline" size={16} />Back to chat</button>{view === "profile" ? <button type="button" onClick={() => void createResume()} disabled={isRendering} className="rounded-md bg-bd-amber px-3 py-2 text-sm font-medium text-bd-bg-primary disabled:opacity-60">{isRendering ? "Creating resume…" : "Create resume"}</button> : null}{view !== "resume" && !isEditing ? <button type="button" onClick={() => { setDraftContent(documentContent); setIsEditing(true); }} className="rounded-md px-3 py-2 text-sm text-bd-text-secondary hover:bg-bd-bg-secondary hover:text-bd-text-heading"><Pencil className="mr-1 inline" size={16} />Edit</button> : null}</div></div></header>
+      <header className="border-b border-bd-border/80 bg-bd-bg-chat/90 px-4 py-3 backdrop-blur-sm sm:px-6"><div className="mx-auto flex w-full max-w-[780px] items-center justify-between gap-3"><div className="min-w-0"><p className="text-[11px] uppercase tracking-[0.24em] text-bd-text-muted">Resume Builder</p><h1 className="truncate font-heading text-lg text-bd-text-heading">{fileName}</h1></div><div className="flex shrink-0 items-center gap-2"><button type="button" onClick={() => selectView("chat")} className="rounded-md px-3 py-2 text-sm text-bd-text-secondary hover:bg-bd-bg-secondary hover:text-bd-text-heading"><ArrowLeft className="mr-1 inline" size={16} />Back to chat</button>{view === "profile" ? <button type="button" onClick={() => void createResume()} disabled={isRendering} className="rounded-md bg-bd-amber px-3 py-2 text-sm font-medium text-bd-bg-primary disabled:opacity-60">{isRendering ? "Creating resume…" : "Create resume"}</button> : null}{view === "resume" ? <button type="button" onClick={() => void downloadPdf()} disabled={isExporting} className="rounded-md bg-bd-amber px-3 py-2 text-sm font-medium text-bd-bg-primary disabled:opacity-60"><Download className="mr-1 inline" size={16} />{isExporting ? "Preparing PDF…" : "Export PDF"}</button> : null}{view !== "resume" && !isEditing ? <button type="button" onClick={() => { setDraftContent(documentContent); setIsEditing(true); }} className="rounded-md px-3 py-2 text-sm text-bd-text-secondary hover:bg-bd-bg-secondary hover:text-bd-text-heading"><Pencil className="mr-1 inline" size={16} />Edit</button> : null}</div></div></header>
       <main className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6"><div className="mx-auto w-full max-w-[780px]"><h2 className="font-heading text-2xl font-semibold text-bd-text-heading">{title}</h2>{view === "resume" ? <p className="mt-1 text-sm text-bd-text-muted">Rendered from Your Resume Profile. Edit the profile to change the source.</p> : null}{documentError ? <p className="mt-4 text-sm text-bd-danger">{documentError}</p> : isEditing ? <><textarea aria-label={`Edit ${view}`} value={draftContent} onChange={(event) => setDraftContent(event.target.value)} className="mt-5 min-h-[420px] w-full rounded-2xl border border-bd-border bg-bd-bg-secondary px-5 py-4 font-mono text-sm leading-7 text-bd-text-primary outline-none focus:border-bd-amber/60" /><div className="mt-3 flex justify-end gap-2"><button type="button" onClick={() => setIsEditing(false)} className="rounded-md px-3 py-2 text-sm text-bd-text-secondary hover:bg-bd-bg-hover">Cancel</button><button type="button" onClick={() => void saveDocument()} disabled={isSaving} className="rounded-md bg-bd-amber px-3 py-2 text-sm font-medium text-bd-bg-primary disabled:opacity-60"><Save className="mr-1 inline" size={14} />{isSaving ? "Saving…" : "Save"}</button></div></> : view === "resume" ? <ResumePreview content={documentContent} /> : <pre className="mt-5 whitespace-pre-wrap font-sans text-[15px] leading-7 text-bd-text-primary">{documentContent || "Loading…"}</pre>}</div></main>
     </section>} />
   </div>;
