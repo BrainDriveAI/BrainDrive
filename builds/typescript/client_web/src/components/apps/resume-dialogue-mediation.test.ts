@@ -126,6 +126,25 @@ describe("Resume Builder dialogue mediation", () => {
     }])).toBeNull();
   });
 
+  it("creates employment from an explicitly named recent role and employer", () => {
+    const candidate = employmentCandidateFromInterviewTurns([{
+      metadata: { revision_id: crypto.randomUUID() },
+      extensions: {
+        interview_turn: {
+          occurred_at: "2026-08-15T12:00:00.000Z",
+          answer: "My most recent role was Product Lead at Acme Labs from 2020 to 2024.",
+        },
+      },
+    }]);
+
+    expect(candidate?.employment).toEqual(expect.objectContaining({
+      title: "Product Lead",
+      employer: "Acme Labs",
+      start_date: "2020",
+      end_date: "2024",
+    }));
+  });
+
   it("does not turn a long aspirational startup description into employment", () => {
     expect(employmentCandidateFromInterviewTurns([{
       metadata: { revision_id: crypto.randomUUID() },
