@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-import { getConversation, type ConversationDetail } from "@/api/gateway-adapter";
+import { GatewayNotFoundError, getConversation, type ConversationDetail } from "@/api/gateway-adapter";
 import { useGatewayChat } from "@/api/useGatewayChat";
 import type { Message } from "@/types/ui";
 
@@ -37,6 +37,7 @@ type ChatPanelProps = {
   draftKey?: string | null;
   isEmpty?: boolean;
   onConversationComplete?: (conversationId: string) => void;
+  onConversationMissing?: (conversationId: string) => void;
   messageMetadata?: Record<string, unknown>;
   contentOverride?: ReactNode;
   onSendMessage?: () => void;
@@ -62,6 +63,7 @@ export default function ChatPanel({
   draftKey = null,
   isEmpty = false,
   onConversationComplete,
+  onConversationMissing,
   messageMetadata,
   contentOverride,
   onSendMessage,
@@ -123,6 +125,14 @@ export default function ChatPanel({
           return;
         }
 
+        // A saved conversation can disappear after an owner resets their local
+        // BrainDrive data or changes accounts. Let the owning surface clear its
+        // persisted pointer rather than leaving native chat permanently stuck.
+        if (loadError instanceof GatewayNotFoundError) {
+          onConversationMissing?.(activeConversationId);
+          return;
+        }
+
         setHistoryError(loadError instanceof Error ? loadError.message : String(loadError));
         setConnectionStatus("disconnected");
       });
@@ -130,7 +140,7 @@ export default function ChatPanel({
     return () => {
       cancelled = true;
     };
-  }, [activeConversationId]);
+  }, [activeConversationId, onConversationMissing]);
 
   useEffect(() => {
     if (error) {

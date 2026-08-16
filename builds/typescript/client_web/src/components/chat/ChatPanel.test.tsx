@@ -1,6 +1,7 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+import { GatewayNotFoundError, getConversation } from "@/api/gateway-adapter";
 import type { Message } from "@/types/ui";
 
 import ChatPanel from "./ChatPanel";
@@ -10,6 +11,11 @@ const useGatewayChatMock = vi.fn();
 vi.mock("@/api/useGatewayChat", () => ({
   useGatewayChat: (...args: unknown[]) => useGatewayChatMock(...args),
 }));
+
+vi.mock("@/api/gateway-adapter", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/api/gateway-adapter")>();
+  return { ...actual, getConversation: vi.fn() };
+});
 
 function makeHookState(overrides: Partial<{
   messages: Message[];
@@ -46,6 +52,8 @@ function makeHookState(overrides: Partial<{
 describe("ChatPanel typing indicator behavior", () => {
   beforeEach(() => {
     useGatewayChatMock.mockReset();
+    vi.mocked(getConversation).mockReset();
+    vi.mocked(getConversation).mockResolvedValue({ id: "conversation", messages: [] } as never);
   });
 
   it("shows typing indicator before first assistant delta", () => {
@@ -159,6 +167,25 @@ describe("ChatPanel typing indicator behavior", () => {
 
     expect(screen.queryByRole("button", { name: "Start New Conversation" })).not.toBeInTheDocument();
     expect(hookState.startNewConversation).not.toHaveBeenCalled();
+  });
+
+  it("reports a missing persisted conversation so its owner can recover", async () => {
+    const onConversationMissing = vi.fn();
+    useGatewayChatMock.mockReturnValue(makeHookState());
+    vi.mocked(getConversation).mockRejectedValue(new GatewayNotFoundError("Conversation not found"));
+
+    render(
+      <ChatPanel
+        activeConversationId="missing-conversation"
+        isEmpty={false}
+        onConversationMissing={onConversationMissing}
+      />
+    );
+
+    await waitFor(() => {
+      expect(onConversationMissing).toHaveBeenCalledWith("missing-conversation");
+    });
+    expect(screen.queryByText("Conversation not found")).not.toBeInTheDocument();
   });
 
   it("does not expose retired document upload controls", () => {
