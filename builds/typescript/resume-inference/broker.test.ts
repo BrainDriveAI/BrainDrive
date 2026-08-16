@@ -454,6 +454,45 @@ describe("ResumeInferenceBroker", () => {
     expect(completion.validation?.accepted).toBe(true);
   });
 
+  it("recovers a structurally incomplete role operation when exact owner wording names one employment", async () => {
+    const current = "At Acme Labs I grew annual revenue by 40 percent and led a team of 12.";
+    const proposed = {
+      dialogue_version: 1,
+      assistant_message: "That gives the role useful scale. What other operational result are you proud of?",
+      turn_disposition: "capture_and_continue",
+      fact_operations: [{
+        operation: "capture",
+        fact_kind: "job_evidence",
+        source_quote: "grew annual revenue by 40 percent",
+        text: "Grew annual revenue by 40 percent",
+        job_fact_revision_id: null,
+        dimension: "outcomes",
+      }],
+      suggested_action: "none",
+      draft_action: null,
+    };
+    const model = adapter(() => JSON.stringify(proposed));
+    const completion = await new ResumeInferenceBroker(async () => provider(model.value)).execute(dialogueRequestWithEmployment(current, [
+      { revisionId: INTERVIEW_JOB_ID, title: "Product Lead", employer: "Acme Labs" },
+    ]));
+
+    expect(completion.inference).toMatchObject({
+      status: "completed",
+      attempt_count: 1,
+      result: {
+        fact_operations: [{
+          operation: "capture",
+          fact_kind: "job_evidence",
+          source_quote: "grew annual revenue by 40 percent",
+          text: "Grew annual revenue by 40 percent",
+          job_fact_revision_id: INTERVIEW_JOB_ID,
+          dimension: "outcomes",
+        }],
+      },
+    });
+    expect(completion.validation?.accepted).toBe(true);
+  });
+
   it("does not rebind role evidence when owner wording matches more than one employment", async () => {
     const current = "As Product Lead I grew annual revenue by 40 percent.";
     const operation = {

@@ -217,7 +217,7 @@ export class ResumeInferenceBroker {
           }
         } catch {
           if (request.purpose === "resume_dialogue") {
-            const filtered = filterStructurallyInvalidDialogueResult(structuralCandidate);
+            const filtered = filterStructurallyInvalidDialogueResult(structuralCandidate, request.data_blocks);
             if (filtered !== null) {
               try {
                 const parsed = parsePurposeResult(request.purpose, request.output_schema_id, filtered);
@@ -260,7 +260,7 @@ export class ResumeInferenceBroker {
         }
       }
       if (request.purpose === "resume_dialogue" && (result === undefined || validation === null)) {
-        const filtered = filterStructurallyInvalidDialogueResult(structuralCandidate);
+        const filtered = filterStructurallyInvalidDialogueResult(structuralCandidate, request.data_blocks);
         if (filtered !== null) {
           result = parsePurposeResult(request.purpose, request.output_schema_id, filtered);
           validation = validateInferenceClaims(request.purpose, result, request.data_blocks);
@@ -419,7 +419,10 @@ export class ResumeInferenceBroker {
   }
 }
 
-function filterStructurallyInvalidDialogueResult(result: unknown): unknown | null {
+function filterStructurallyInvalidDialogueResult(
+  result: unknown,
+  dataBlocks: InferenceRequest["data_blocks"],
+): unknown | null {
   if (!result || typeof result !== "object" || Array.isArray(result)) return null;
   const dialogue = result as Record<string, unknown>;
   const assistantMessage = typeof dialogue.assistant_message === "string" ? dialogue.assistant_message.trim() : "";
@@ -427,7 +430,9 @@ function filterStructurallyInvalidDialogueResult(result: unknown): unknown | nul
   const operations = Array.isArray(dialogue.fact_operations)
     ? dialogue.fact_operations.slice(0, 8).flatMap((operation) => {
       const parsed = ResumeDialogueFactOperationSchema.safeParse(operation);
-      return parsed.success ? [parsed.data] : [];
+      if (parsed.success) return [parsed.data];
+      const rebound = rebindDialogueOperationToGroundedEmployment(operation, dataBlocks);
+      return rebound === null ? [] : [rebound];
     })
     : [];
   const parsedDraftAction = ResumeDialogueDraftActionSchema.safeParse(dialogue.draft_action);
@@ -520,7 +525,19 @@ function rebindDialogueOperationToGroundedEmployment(
   dataBlocks: InferenceRequest["data_blocks"],
 ): unknown | null {
   const parsedOperation = ResumeDialogueFactOperationSchema.safeParse(operation);
-  if (!parsedOperation.success || !["job_evidence", "accomplishment"].includes(parsedOperation.data.fact_kind)) return null;
+  let candidate: Record<string, unknown>;
+  if (parsedOperation.success) {
+    if (!["job_evidence", "accomplishment"].includes(parsedOperation.data.fact_kind)) return null;
+    candidate = parsedOperation.data;
+  } else {
+    if (!operation || typeof operation !== "object" || Array.isArray(operation)) return null;
+    const raw = operation as Record<string, unknown>;
+    if (raw.operation !== "capture" || !["job_evidence", "accomplishment"].includes(String(raw.fact_kind))) return null;
+    if (typeof raw.source_quote !== "string" || typeof raw.text !== "string") return null;
+    candidate = raw.fact_kind === "job_evidence"
+      ? { operation: "capture", fact_kind: "job_evidence", source_quote: raw.source_quote, text: raw.text, job_fact_revision_id: raw.job_fact_revision_id, dimension: raw.dimension }
+      : { operation: "capture", fact_kind: "accomplishment", source_quote: raw.source_quote, text: raw.text, job_fact_revision_id: raw.job_fact_revision_id };
+  }
   const context = dataBlocks.find((block) => block.category === "dialogue_context")?.data as {
     current_user_message?: unknown;
   } | undefined;
@@ -543,7 +560,8 @@ function rebindDialogueOperationToGroundedEmployment(
     }
   });
   if (candidates.length !== 1) return null;
-  return { ...parsedOperation.data, job_fact_revision_id: candidates[0]!.revisionId };
+  const rebound = ResumeDialogueFactOperationSchema.safeParse({ ...candidate, job_fact_revision_id: candidates[0]!.revisionId });
+  return rebound.success ? rebound.data : null;
 }
 
 function normalizeDialogueAssociationText(value: string): string {
