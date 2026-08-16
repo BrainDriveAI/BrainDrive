@@ -201,6 +201,22 @@ describe("sandboxed MCP App frame", () => {
     expect(screen.getByPlaceholderText("Reply in your own words...")).toBeEnabled();
     expect(screen.queryByText("Thinking…")).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    // A delayed sandbox projection used to replace the completed native turn
+    // with its older busy snapshot, leaving only the typing indicator visible.
+    await send({
+      bridge_version: 1,
+      message_id: crypto.randomUUID(),
+      type: "chat.sync",
+      payload: {
+        messages: [{ id: "assistant-1", role: "assistant", content: "What was your most recent role, and where did you work?" }],
+        actions: [], busy: true, inputEnabled: false, inputPlaceholder: "Reply in your own words...", stageLabel: "Thinking",
+        supportLabel: "Review shows information captured from your words.", confirmedEmploymentRevisionIds: [], reviewFacts: [],
+      },
+    });
+    expect(screen.getByText("That gives us a useful starting point. What kind of work did you lead there?")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Reply in your own words...")).toBeEnabled();
+    expect(screen.queryByText("Thinking…")).not.toBeInTheDocument();
   });
 
   it("does not expose the deprecated transcript extraction bridge", async () => {

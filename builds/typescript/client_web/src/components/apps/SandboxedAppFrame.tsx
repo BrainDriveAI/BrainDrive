@@ -169,6 +169,13 @@ type PendingResumeDialogueSubmission = {
   precedingAssistantMessage: string;
 };
 
+type DeliveredResumeTurn = {
+  messageId: string;
+  ownerMessage: string;
+  assistantMessage: string;
+  sourceRevisionId?: string;
+};
+
 export type ResumeDialogueRecoveryKind = "provider_unavailable" | "turn_unreadable";
 
 export function hostResumeDialogueRecoveryMessage(kind: ResumeDialogueRecoveryKind): string {
@@ -239,6 +246,7 @@ export default function SandboxedAppFrame({
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const resumeDialogueSessionRef = useRef(secureRandomUuid());
   const pendingResumeDialogueRef = useRef<PendingResumeDialogueSubmission | null>(null);
+  const deliveredResumeTurnsRef = useRef(new Map<string, DeliveredResumeTurn>());
   const resumeConversationRef = useRef<ResumeConversationState>(EMPTY_RESUME_CONVERSATION);
   const [status, setStatus] = useState<BridgeStatus>("loading");
   const [error, setError] = useState<string | null>(null);
@@ -263,6 +271,10 @@ export default function SandboxedAppFrame({
       );
       const hasOwnerMessage = messages.some((item) => item.id === messageId);
       const assistantId = `assistant-${messageId}`;
+      const ownerMessage = messages.find((item) => item.id === messageId)?.content
+        ?? pendingResumeDialogueRef.current?.ownerMessage
+        ?? "";
+      deliveredResumeTurnsRef.current.set(messageId, { messageId, ownerMessage, assistantMessage, sourceRevisionId });
       const next = {
         ...current,
         messages: [
@@ -294,6 +306,7 @@ export default function SandboxedAppFrame({
     setResumeReviewMode(appId === "ai.braindrive.resume-builder" ? "summary" : "closed");
     resumeDialogueSessionRef.current = secureRandomUuid();
     pendingResumeDialogueRef.current = null;
+    deliveredResumeTurnsRef.current.clear();
     const frame = frameRef.current;
     if (!frame) return;
     const proxyNonce = secureRandomUuid();
@@ -341,8 +354,24 @@ export default function SandboxedAppFrame({
       if (message.type === "chat.sync" && appId === "ai.braindrive.resume-builder") {
         const conversation = parseResumeConversationState(message.payload);
         if (!conversation) throw new Error("message_schema_invalid");
-        resumeConversationRef.current = conversation;
-        setResumeConversation(conversation);
+        const delivered = deliveredResumeTurnsRef.current;
+        const messages = [...conversation.messages];
+        let restoredVisibleTurn = false;
+        for (const turn of delivered.values()) {
+          const ownerPresent = messages.some((item) => item.role === "user" && (item.id === turn.messageId || item.content === turn.ownerMessage));
+          const assistantPresent = messages.some((item) => item.role === "assistant" && (item.id === `assistant-${turn.messageId}` || item.content === turn.assistantMessage));
+          if (!ownerPresent) messages.push({ id: turn.messageId, role: "user", content: turn.ownerMessage, ...(turn.sourceRevisionId ? { sourceRevisionId: turn.sourceRevisionId } : {}) });
+          if (!assistantPresent) {
+            messages.push({ id: `assistant-${turn.messageId}`, role: "assistant", content: turn.assistantMessage });
+            restoredVisibleTurn = true;
+          }
+          if (ownerPresent && assistantPresent) delivered.delete(turn.messageId);
+        }
+        const next = restoredVisibleTurn && !pendingResumeDialogueRef.current
+          ? { ...conversation, messages, actions: [], busy: false, inputEnabled: true }
+          : { ...conversation, messages };
+        resumeConversationRef.current = next;
+        setResumeConversation(next);
         return { hosted: true };
       }
       if (message.type === "chat.turn.recover" && appId === "ai.braindrive.resume-builder") {
