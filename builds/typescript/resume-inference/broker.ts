@@ -299,7 +299,7 @@ export class ResumeInferenceBroker {
           // The original deterministic rejection remains authoritative when the bounded fallback cannot produce a valid result.
         }
       }
-      if (!validation.accepted && request.purpose === "general_resume_draft" && resultCitesOnlySnapshotFacts(result, request.data_blocks)) {
+      if (!validation.accepted && request.purpose === "general_resume_draft") {
         const fallback = deterministicHostFallback(request.purpose, request.data_blocks);
         if (fallback !== null) {
           const fallbackResult = parsePurposeResult(request.purpose, request.output_schema_id, fallback);
@@ -684,19 +684,6 @@ function normalizeProposedDialogueDraftAction(result: unknown, dataBlocks: Infer
   const dialogue = result as { draft_action?: unknown };
   const normalizedDraftAction = normalizeDialogueDraftAction(dialogue.draft_action, dataBlocks);
   return normalizedDraftAction === null ? result : { ...dialogue, draft_action: normalizedDraftAction };
-}
-
-function resultCitesOnlySnapshotFacts(result: unknown, dataBlocks: InferenceRequest["data_blocks"]): boolean {
-  if (!result || typeof result !== "object" || Array.isArray(result)) return false;
-  const snapshot = dataBlocks.find((block) => block.category === "confirmed_fact_snapshot")?.data as { facts?: Array<{ revision_id?: unknown }> } | undefined;
-  const allowed = new Set((snapshot?.facts ?? []).flatMap((fact) => typeof fact.revision_id === "string" ? [fact.revision_id] : []));
-  const statements = (result as { statements?: unknown }).statements;
-  if (!Array.isArray(statements)) return false;
-  return statements.every((statement) => {
-    if (!statement || typeof statement !== "object" || Array.isArray(statement)) return false;
-    const support = (statement as { supporting_confirmed_fact_revision_ids?: unknown }).supporting_confirmed_fact_revision_ids;
-    return Array.isArray(support) && support.every((revisionId) => typeof revisionId === "string" && allowed.has(revisionId));
-  });
 }
 
 function normalizeDialogueDraftAction(

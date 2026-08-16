@@ -820,13 +820,23 @@ describe("ResumeInferenceBroker", () => {
     expect(completion.inference.result).not.toEqual(incomplete);
   });
 
-  it("remains fail-closed when cited support cannot be repaired from the immutable snapshot", async () => {
+  it("discards outside-snapshot model claims and builds the deterministic draft from confirmed facts", async () => {
     const outsideSnapshot = randomUUID();
     const unsupported = { ...outputs.general_resume_draft as object, statements: [{ statement_id: randomUUID(), kind: "factual", text: "Invented work", supporting_confirmed_fact_revision_ids: [outsideSnapshot] }] };
     const validationModel = adapter(() => JSON.stringify(unsupported));
     const validation = await new ResumeInferenceBroker(async () => provider(validationModel.value)).execute(request("general_resume_draft"));
-    expect(validation.inference).toMatchObject({ status: "failed", attempt_count: 2, result: null, error: { code: "validation_failed" } });
-    expect(validation.validation).toMatchObject({ accepted: false, findings: [{ code: "missing_provenance" }] });
+    expect(validation.inference).toMatchObject({
+      status: "completed",
+      attempt_count: 2,
+      result: {
+        statements: expect.arrayContaining([
+          expect.objectContaining({ text: "Built product 20%", supporting_confirmed_fact_revision_ids: [FACT_ID] }),
+        ]),
+      },
+    });
+    expect(validation.validation?.accepted).toBe(true);
+    expect(JSON.stringify(validation.inference.result)).not.toContain(outsideSnapshot);
+    expect(JSON.stringify(validation.inference.result)).not.toContain("Invented work");
     expect(validationModel.calls()).toBe(2);
   });
 
