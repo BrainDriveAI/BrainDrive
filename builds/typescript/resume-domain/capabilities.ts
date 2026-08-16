@@ -106,6 +106,11 @@ const CraftRepairFailureCapabilityInputSchema = z.object({
   input_digest: z.string().regex(/^sha256:[0-9a-f]{64}$/),
 }).strict();
 const GroupFactConfirmationCapabilityInputSchema = z.object({ decisions: z.array(FactDecisionInputSchema).min(1).max(100) }).strict();
+const TranscriptExtractionConfirmationCapabilityInputSchema = z.object({
+  kind: z.literal("transcript_extraction_batch"),
+  extraction: z.record(z.string(), z.unknown()),
+  transcript_revision_ids: z.array(z.string().uuid()).min(1).max(200),
+}).strict();
 const DefinitionApprovalCapabilityInputSchema = z.object({ kind: z.literal("approve_definition"), definition_record_id: z.string().uuid(), expected_revision: z.number().int().positive(), craft_report_revision_id: z.string().uuid().optional() }).strict();
 const RevisionRequestCapabilityInputSchema = z.object({ kind: z.literal("revision_request"), source_definition_revision_id: z.string().uuid(), target: z.object({ scope: z.enum(["statement", "section", "resume"]), target_id: z.string().min(1).max(256).nullable() }).strict(), request_text: z.string().min(1).max(8_192) }).strict();
 const RevisionOutcomeCapabilityInputSchema = z.object({ kind: z.literal("revision_outcome"), request_record_id: z.string().uuid(), expected_revision: z.number().int().positive(), classification: z.enum(["presentation", "factual", "mixed", "ambiguous"]).nullable(), state: z.enum(["submitted", "clarification_needed", "awaiting_confirmation", "generating", "proposed", "accepted", "edited", "rejected", "regenerate", "failed"]), clarification: z.string().max(2_048).nullable(), resulting_definition_revision_id: z.string().uuid().nullable(), owner_outcome: z.enum(["accept", "edit", "reject", "regenerate"]).nullable() }).strict();
@@ -173,7 +178,9 @@ export class ResumeCapabilityRouter {
             : await this.domain.proposeFact(input, authority);
           break;
         case "career.facts.confirm":
-          result = GroupFactConfirmationCapabilityInputSchema.safeParse(input).success
+          result = TranscriptExtractionConfirmationCapabilityInputSchema.safeParse(input).success
+            ? await this.domain.commitTranscriptExtractionBatch(input, authority, context.hostOwnerConfirmed === true)
+            : GroupFactConfirmationCapabilityInputSchema.safeParse(input).success
             ? await this.domain.confirmFacts(input, authority, context.ownerDecisions ?? [])
             : await this.domain.confirmFact(input, authority, context.ownerDecision!);
           break;

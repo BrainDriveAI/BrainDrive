@@ -33,6 +33,7 @@ export function validateInferenceClaims(purpose: InferencePurpose, result: unkno
   const findings: Finding[] = [];
   const facts = confirmedFacts(dataBlocks);
   if (purpose === "resume_dialogue") findings.push(...validateResumeDialogue(result, dataBlocks, facts));
+  if (purpose === "resume_transcript_extract") findings.push(...validateTranscriptExtraction(result, dataBlocks, facts));
   if (purpose === "interview_assist") findings.push(...validateInterviewAssist(result, dataBlocks));
   if (purpose === "resume_strategy") findings.push(...validateStrategy(result, dataBlocks));
   if (purpose === "general_resume_draft" || purpose === "targeted_resume_draft") {
@@ -70,6 +71,45 @@ export function validateInferenceClaims(purpose: InferencePurpose, result: unkno
     findings,
     accepted: !findings.some((finding) => finding.severity === "error"),
   };
+}
+
+function validateTranscriptExtraction(result: unknown, dataBlocks: DataBlock[], facts: Map<string, string>): Finding[] {
+  const findings: Finding[] = [];
+  const transcript = dataBlocks.find((block) => block.category === "transcript_snapshot")?.data as {
+    turns?: Array<{ source_revision_id?: string; owner?: string }>;
+  } | undefined;
+  const ownerByRevision = new Map((transcript?.turns ?? []).flatMap((turn) =>
+    typeof turn.source_revision_id === "string" && typeof turn.owner === "string"
+      ? [[turn.source_revision_id, turn.owner] as const]
+      : []));
+  const proposals = (result as { proposals?: Array<Record<string, unknown>> }).proposals ?? [];
+  for (const proposal of proposals) {
+    const citations = Array.isArray(proposal.citations) ? proposal.citations as Array<{ source_revision_id?: unknown; quote?: unknown }> : [];
+    const citedText: string[] = [];
+    for (const citation of citations) {
+      const owner = typeof citation.source_revision_id === "string" ? ownerByRevision.get(citation.source_revision_id) : undefined;
+      const quote = typeof citation.quote === "string" ? citation.quote : "";
+      if (!owner || !quote || !owner.includes(quote)) {
+        findings.push(finding("missing_provenance", null, "Every extracted fact requires an exact quote from the cited owner transcript revision"));
+      } else citedText.push(quote);
+    }
+    const evidence = normalize(citedText.join(" "));
+    const grounded = (candidate: unknown) => typeof candidate !== "string" || candidate.length === 0 || evidence.includes(normalize(candidate));
+    if (proposal.fact_kind === "employment") {
+      const employment = proposal.employment as Record<string, unknown> | undefined;
+      for (const field of [employment?.title, employment?.employer, employment?.location, employment?.start_date, employment?.end_date, employment?.responsibilities]) {
+        if (field !== null && field !== undefined && !grounded(field)) findings.push(finding("missing_provenance", null, "Every employment field must preserve exact owner-stated transcript wording"));
+      }
+    } else if (proposal.fact_kind === "accomplishment" || proposal.fact_kind === "job_evidence") {
+      if (!grounded(proposal.text)) findings.push(finding("missing_provenance", null, "Role evidence text must preserve exact owner-stated transcript wording"));
+      if (typeof proposal.existing_job_fact_revision_id === "string" && !facts.has(proposal.existing_job_fact_revision_id)) {
+        findings.push(finding("lineage_invalid", null, "Extracted role evidence must reference one available confirmed employment fact"));
+      }
+    } else if (!grounded(proposal.value)) {
+      findings.push(finding("missing_provenance", null, "Extracted fact values must preserve exact owner-stated transcript wording"));
+    }
+  }
+  return findings;
 }
 
 function validateResumeDialogue(result: unknown, dataBlocks: DataBlock[], facts: Map<string, string>): Finding[] {
@@ -169,7 +209,7 @@ function validateResumeDialogue(result: unknown, dataBlocks: DataBlock[], facts:
 }
 
 function isExplicitDraftRequest(ownerMessage: string): boolean {
-  return /\b(?:create|generate|write|start|make|show|build|put together)\b[^.!?]{0,100}\b(?:draft|resume)\b|\b(?:draft|resume)\b[^.!?]{0,100}\b(?:create|generate|write|start|make|show|build|put together)\b/i.test(ownerMessage);
+  return /\b(?:create|generate|write|start|make|show|build|recreate|regenerate|rewrite|rebuild|put together)\b[^.!?]{0,100}\b(?:draft|resume)\b|\b(?:draft|resume)\b[^.!?]{0,100}\b(?:create|generate|write|start|make|show|build|recreate|regenerate|rewrite|rebuild|put together)\b/i.test(ownerMessage);
 }
 
 function isAcceptedDraftOffer(ownerMessage: string, precedingAssistantMessage: string): boolean {

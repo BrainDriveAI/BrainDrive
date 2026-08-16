@@ -161,6 +161,50 @@ export function synthesizeResumeE2eResult(purpose: InferencePurpose, blocks: Dat
         draft_action: null,
       };
     }
+    case "resume_transcript_extract": {
+      const transcript = blockData<{ turns: Array<{ source_revision_id: string; owner: string }> }>(blocks, "transcript_snapshot");
+      const proposals: Array<Record<string, unknown>> = [];
+      const employmentByEmployer = new Map<string, string>();
+      for (const turn of transcript.turns) {
+        const owner = turn.owner.trim();
+        const role = owner.match(/(?:most recent role was|worked as|served as|was)\s+(?:the\s+|an?\s+)?(.+?)\s+(?:at|for|with)\s+(.+?)(?=,?\s+(?:from\s+)?(?:19|20)\d{2}\b|[.!?]|$)/i);
+        if (role?.[1] && role[2]) {
+          const id = randomUUID();
+          const dateRange = owner.match(/\b(?:from\s+)?((?:19|20)\d{2})\s+(?:to|through|[-–—])\s+(present|current|(?:19|20)\d{2})\b/i);
+          const employer = role[2].trim();
+          proposals.push({
+            proposal_id: id, fact_kind: "employment",
+            employment: { title: role[1].trim(), employer, location: null, start_date: dateRange?.[1] ?? null, end_date: dateRange?.[2] ?? null, responsibilities: null },
+            citations: [{ source_revision_id: turn.source_revision_id, quote: owner }],
+          });
+          employmentByEmployer.set(employer.toLocaleLowerCase("en-US"), id);
+        }
+      }
+      for (const turn of transcript.turns) {
+        const owner = turn.owner.trim();
+        if (/\b(?:earned|degree|university|college|school|education)\b/i.test(owner)) {
+          proposals.push({ proposal_id: randomUUID(), fact_kind: "education", value: owner, citations: [{ source_revision_id: turn.source_revision_id, quote: owner }] });
+          continue;
+        }
+        if (/\b(?:targeting|looking for|seeking|want)\b[^.!?]{0,120}\b(?:role|roles|job|jobs)\b/i.test(owner)) {
+          proposals.push({ proposal_id: randomUUID(), fact_kind: "preference", value: owner, citations: [{ source_revision_id: turn.source_revision_id, quote: owner }] });
+          continue;
+        }
+        const namedEmployer = [...employmentByEmployer.entries()].find(([employer]) => owner.toLocaleLowerCase("en-US").includes(employer));
+        if (namedEmployer && /\b(?:grew|increased|reduced|improved|expanded|generated|saved|delivered|launched|built|created|led|managed|hired|scaled|won|recognized|awarded|partnered)\b/i.test(owner)) {
+          proposals.push({
+            proposal_id: randomUUID(), fact_kind: "job_evidence", text: owner, dimension: "outcomes",
+            employment_proposal_id: namedEmployer[1], existing_job_fact_revision_id: null,
+            citations: [{ source_revision_id: turn.source_revision_id, quote: owner }],
+          });
+        }
+      }
+      return {
+        extraction_version: 1,
+        proposals,
+        gaps: employmentByEmployer.size > 0 ? [] : [{ gap_id: randomUUID(), kind: "missing_employer", question: "What role and employer should anchor your resume?", source_revision_ids: transcript.turns.map((turn) => turn.source_revision_id).slice(-16) }],
+      };
+    }
     case "interview_assist":
       {
         const summary = blockData<{ active_job_fact_revision_id: string; requested_opportunity_id: string; requested_dimension: string; opportunity_kind: "qualitative" | "metric"; value_category: "distinct_accomplishment" | "decision_useful_outcome" | "scope_or_scale" | "tools_in_use" | "progression" | "core_responsibility" }>(blocks, "job_evidence_summary");

@@ -57,17 +57,21 @@ test("conversation-first journey reaches a fact-backed draft and deliberate revi
   await expect(conversation).toContainText(/start with your most recent role/i);
   await send(page, "I am targeting startup operations roles.");
   await send(page, "I worked as Product Lead at Acme Labs from 2020 to 2024.");
-  await expect(rail).toContainText(/Product Lead.+Acme Labs/i);
+  await expect(rail).toContainText("Confirmed details will appear here");
   await send(page, "At Acme Labs I grew annual revenue by 40 percent and led 12 employees.");
   await send(page, "Why are you asking for another role?");
   await expect(conversation).toContainText(/specific and traceable to your words/i);
   await send(page, "I worked as Analyst at Northwind Partners from 2017 to 2020.");
   await send(page, "At Northwind Partners I reduced reporting time by 30 percent.");
   await send(page, "I earned a BS in Economics from State University in 2017.");
+  // The deterministic fixture answers far faster than a live provider. Let the
+  // secure bridge's rolling window clear before the extraction + draft burst.
+  await page.waitForTimeout(10_500);
   const composer = page.getByRole("textbox", { name: "Reply in your own words..." });
   await composer.fill("No, that's everything I think");
   await page.getByRole("button", { name: "Send message" }).click();
-  await expect(conversation).toContainText("BrainDrive accepted your request and is creating a fact-backed general draft now", { timeout: 30_000 });
+  await expect(conversation).toContainText(/reviewing our conversation|accepted.*creating.*fact-backed/i, { timeout: 30_000 });
+  await expect(rail).toContainText(/Work experience/i, { timeout: 30_000 });
   await expect(conversation).toContainText("Your first fact-backed draft is ready", { timeout: 60_000 });
   await expect(composer).toBeEnabled();
 

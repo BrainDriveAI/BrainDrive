@@ -293,7 +293,7 @@ export function parseResumeDialogueDraftAction(
   if (!action || !exactKeys(action, ["action", "intent", "source_quote"])) return null;
   const sourceQuote = boundedString(action.source_quote, 16_384);
   if (action.action !== "create_general_draft" || !sourceQuote || !ownerMessage.normalize("NFKC").includes(sourceQuote.normalize("NFKC"))) return null;
-  const explicitRequest = /\b(?:create|generate|write|start|make|show|build|put together)\b[^.!?]{0,100}\b(?:draft|resume)\b|\b(?:draft|resume)\b[^.!?]{0,100}\b(?:create|generate|write|start|make|show|build|put together)\b/i.test(ownerMessage);
+  const explicitRequest = /\b(?:create|generate|write|start|make|show|build|recreate|regenerate|rewrite|rebuild|put together)\b[^.!?]{0,100}\b(?:draft|resume)\b|\b(?:draft|resume)\b[^.!?]{0,100}\b(?:create|generate|write|start|make|show|build|recreate|regenerate|rewrite|rebuild|put together)\b/i.test(ownerMessage);
   const acceptedOffer = /^(?:no[,\s]*(?:that(?:'s| is) (?:everything|all)|nothing else)|that(?:'s| is) (?:everything|all)|yes|go ahead|please do|sounds good|i(?:'m| am) ready)(?:\s+i think)?[.!]?$/i.test(ownerMessage.trim())
     && /\b(?:draft|resume|start|generate|put (?:it|one) together|anything else|anything more)\b/i.test(precedingAssistantMessage);
   if (action.intent !== "explicit_request" && action.intent !== "accepted_offer") return null;

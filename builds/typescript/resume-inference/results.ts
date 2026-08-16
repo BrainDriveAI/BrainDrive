@@ -104,6 +104,91 @@ export const ResumeDialogueResultSchema = z.object({
   }
 });
 
+export const ResumeTranscriptSnapshotSchema = z.object({
+  transcript_version: z.literal(1),
+  turns: z.array(z.object({
+    source_revision_id: OpaqueIdSchema,
+    occurred_at: z.string().datetime({ offset: true }),
+    assistant: z.string().min(1).max(8_192),
+    owner: z.string().min(1).max(16_384),
+    follow_up: z.string().min(1).max(8_192),
+  }).strict()).min(1).max(200),
+}).strict();
+
+export const ResumeTranscriptCitationSchema = z.object({
+  source_revision_id: OpaqueIdSchema,
+  quote: z.string().min(1).max(16_384),
+}).strict();
+
+const TranscriptSimpleProposalSchema = z.object({
+  proposal_id: OpaqueIdSchema,
+  fact_kind: z.enum(["identity", "contact", "education", "skill", "credential", "project", "preference"]),
+  value: z.string().min(1).max(16_384),
+  citations: z.array(ResumeTranscriptCitationSchema).min(1).max(16),
+}).strict();
+
+const TranscriptEmploymentProposalSchema = z.object({
+  proposal_id: OpaqueIdSchema,
+  fact_kind: z.literal("employment"),
+  employment: z.object({
+    title: z.string().min(1).max(256),
+    employer: z.string().min(1).max(256),
+    location: z.string().max(256).nullable(),
+    start_date: z.string().max(128).nullable(),
+    end_date: z.string().max(128).nullable(),
+    responsibilities: z.string().max(8_192).nullable(),
+  }).strict(),
+  citations: z.array(ResumeTranscriptCitationSchema).min(1).max(16),
+}).strict();
+
+const TranscriptEvidenceProposalSchema = z.object({
+  proposal_id: OpaqueIdSchema,
+  fact_kind: z.enum(["accomplishment", "job_evidence"]),
+  text: z.string().min(1).max(8_192),
+  dimension: JobEvidenceDimensionSchema.exclude(["identity"]).nullable(),
+  employment_proposal_id: OpaqueIdSchema.nullable(),
+  existing_job_fact_revision_id: OpaqueIdSchema.nullable(),
+  citations: z.array(ResumeTranscriptCitationSchema).min(1).max(16),
+}).strict().superRefine((value, context) => {
+  if ((value.employment_proposal_id === null) === (value.existing_job_fact_revision_id === null)) {
+    context.addIssue({ code: "custom", message: "role evidence requires exactly one employment association" });
+  }
+  if (value.fact_kind === "job_evidence" && value.dimension === null) {
+    context.addIssue({ code: "custom", path: ["dimension"], message: "job evidence requires a dimension" });
+  }
+});
+
+export const ResumeTranscriptFactProposalSchema = z.union([
+  TranscriptSimpleProposalSchema,
+  TranscriptEmploymentProposalSchema,
+  TranscriptEvidenceProposalSchema,
+]);
+
+export const ResumeTranscriptGapSchema = z.object({
+  gap_id: OpaqueIdSchema,
+  kind: z.enum(["missing_role", "missing_employer", "ambiguous_association", "missing_supporting_evidence", "missing_contact", "missing_education", "other"]),
+  question: z.string().min(1).max(2_048),
+  source_revision_ids: z.array(OpaqueIdSchema).max(16),
+}).strict();
+
+export const ResumeTranscriptExtractionResultSchema = z.object({
+  extraction_version: z.literal(1),
+  proposals: z.array(ResumeTranscriptFactProposalSchema).max(500),
+  gaps: z.array(ResumeTranscriptGapSchema).max(50),
+}).strict().superRefine((value, context) => {
+  if (value.proposals.length === 0 && value.gaps.length === 0) {
+    context.addIssue({ code: "custom", message: "transcript extraction requires at least one grounded proposal or one explicit gap" });
+  }
+  const proposalIds = value.proposals.map((proposal) => proposal.proposal_id);
+  if (new Set(proposalIds).size !== proposalIds.length) context.addIssue({ code: "custom", path: ["proposals"], message: "proposal identities must be unique" });
+  const employmentIds = new Set(value.proposals.filter((proposal) => proposal.fact_kind === "employment").map((proposal) => proposal.proposal_id));
+  for (const [index, proposal] of value.proposals.entries()) {
+    if ((proposal.fact_kind === "accomplishment" || proposal.fact_kind === "job_evidence") && proposal.employment_proposal_id && !employmentIds.has(proposal.employment_proposal_id)) {
+      context.addIssue({ code: "custom", path: ["proposals", index, "employment_proposal_id"], message: "evidence association must reference an employment proposal in this extraction" });
+    }
+  }
+});
+
 export const GeneratedStatementSchema = z.object({
   statement_id: OpaqueIdSchema,
   section_id: NonEmptyStringSchema.default("experience"),
@@ -308,6 +393,7 @@ export const ResumeGuidanceResultSchema = GuidanceResultSchema;
 
 export const PURPOSE_RESULT_SCHEMAS = {
   resume_dialogue: ResumeDialogueResultSchema,
+  resume_transcript_extract: ResumeTranscriptExtractionResultSchema,
   interview_assist: InterviewAssistResultSchema,
   general_resume_draft: GeneralResumeDraftResultSchema,
   job_description_analyze: JobDescriptionAnalyzeResultSchema,

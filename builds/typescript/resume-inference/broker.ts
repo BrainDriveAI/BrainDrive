@@ -8,7 +8,13 @@ import type { StructuredCompletionResponse } from "../adapters/base.js";
 import type { z } from "zod";
 import { buildPolicyMessages, promptPolicyIdentity, type ResumeRepairContext } from "./policy.js";
 import { classifyInferenceError, ResumeInferenceError } from "./errors.js";
-import { parsePurposeResult, purposeJsonSchema, ResumeDialogueFactOperationSchema } from "./results.js";
+import {
+  parsePurposeResult,
+  purposeJsonSchema,
+  ResumeDialogueFactOperationSchema,
+  ResumeTranscriptFactProposalSchema,
+  ResumeTranscriptGapSchema,
+} from "./results.js";
 import { validateInferenceClaims, type ValidationReport } from "./validators.js";
 import type { ResolvedInferenceProvider } from "./compatibility.js";
 import { repairResumeDraftFromConfirmedFacts } from "./repair.js";
@@ -164,7 +170,7 @@ export class ResumeInferenceBroker {
       let response: StructuredCompletionResponse | null = null;
       let validation: ValidationReport | null = null;
       let repairContext: ResumeRepairContext | undefined;
-      let repair: "provider_validation_repair" | "deterministic_dialogue_disposition" | "deterministic_dialogue_filter" | "deterministic_dialogue_structure_filter" | "deterministic_fact_fallback" | "deterministic_strategy_fallback" | "deterministic_guidance_fallback" | "host_owned_structure" | "deterministic_craft_evaluation" | null = null;
+      let repair: "provider_validation_repair" | "deterministic_dialogue_disposition" | "deterministic_dialogue_filter" | "deterministic_dialogue_structure_filter" | "deterministic_transcript_extraction_filter" | "deterministic_transcript_extraction_structure_filter" | "deterministic_fact_fallback" | "deterministic_strategy_fallback" | "deterministic_guidance_fallback" | "host_owned_structure" | "deterministic_craft_evaluation" | null = null;
       for (let attempt = 1; attempt <= request.limits.attempts; attempt += 1) {
         throwIfAborted(signal);
         attempts = attempt;
@@ -202,6 +208,23 @@ export class ResumeInferenceBroker {
             result = mediated.result;
             if (mediated.changed) repair = "deterministic_dialogue_disposition";
           }
+          if (request.purpose === "resume_transcript_extract") {
+            const mediated = mediateTranscriptExtraction(result, request.data_blocks);
+            if (mediated.changed && attempt < request.limits.attempts) {
+              repairContext = {
+                kind: "validation",
+                priorResult: result,
+                findings: [{
+                  code: "missing_provenance",
+                  statement_id: null,
+                  safe_message: "One or more transcript proposals were not exact grounded owner text; preserve valid proposals and repair or gap only the invalid items",
+                }],
+              };
+              continue;
+            }
+            result = mediated.result;
+            if (mediated.changed) repair = "deterministic_transcript_extraction_filter";
+          }
           if (["tailoring_plan", "targeted_resume_draft", "resume_revision_draft"].includes(request.purpose)) repair = "host_owned_structure";
           validation = validateInferenceClaims(request.purpose, result, request.data_blocks);
           if (validation.accepted) {
@@ -235,6 +258,22 @@ export class ResumeInferenceBroker {
               }
             }
           }
+          if (request.purpose === "resume_transcript_extract") {
+            const filtered = filterStructurallyInvalidTranscriptExtraction(structuralCandidate, request.data_blocks);
+            if (filtered !== null) {
+              try {
+                result = parsePurposeResult(request.purpose, request.output_schema_id, filtered);
+                validation = validateInferenceClaims(request.purpose, result, request.data_blocks);
+                if (validation.accepted) {
+                  repair = "deterministic_transcript_extraction_structure_filter";
+                  break;
+                }
+              } catch {
+                result = undefined;
+                validation = null;
+              }
+            }
+          }
           if (attempt < request.limits.attempts) repairContext = { kind: "structural" };
         }
       }
@@ -265,6 +304,14 @@ export class ResumeInferenceBroker {
           result = parsePurposeResult(request.purpose, request.output_schema_id, filtered);
           validation = validateInferenceClaims(request.purpose, result, request.data_blocks);
           repair = "deterministic_dialogue_structure_filter";
+        }
+      }
+      if (request.purpose === "resume_transcript_extract" && (result === undefined || validation === null)) {
+        const filtered = filterStructurallyInvalidTranscriptExtraction(structuralCandidate, request.data_blocks);
+        if (filtered !== null) {
+          result = parsePurposeResult(request.purpose, request.output_schema_id, filtered);
+          validation = validateInferenceClaims(request.purpose, result, request.data_blocks);
+          repair = "deterministic_transcript_extraction_structure_filter";
         }
       }
       if (response === null || result === undefined || validation === null) {
@@ -415,6 +462,19 @@ export class ResumeInferenceBroker {
         omission_reason_categories: [...new Set((draft.omissions ?? []).map((entry) => entry.reason_code).filter((reason): reason is string => typeof reason === "string"))].sort(),
       };
     }
+    if (request.purpose === "resume_transcript_extract") {
+      const extraction = result as { proposals?: Array<{ fact_kind?: unknown }>; gaps?: unknown[] };
+      const kinds = (extraction.proposals ?? []).reduce<Record<string, number>>((counts, proposal) => {
+        const kind = typeof proposal.fact_kind === "string" ? proposal.fact_kind : "unknown";
+        counts[kind] = (counts[kind] ?? 0) + 1;
+        return counts;
+      }, {});
+      return {
+        proposal_count: extraction.proposals?.length ?? 0,
+        proposal_kind_counts: kinds,
+        gap_count: extraction.gaps?.length ?? 0,
+      };
+    }
     return {};
   }
 }
@@ -444,6 +504,81 @@ function filterStructurallyInvalidDialogueResult(
     suggested_action: draftAction ? "create_draft" : "none",
     draft_action: draftAction,
   };
+}
+
+function transcriptExtractionCandidate(
+  value: unknown,
+  dataBlocks: InferenceRequest["data_blocks"],
+): { extraction_version: 1; proposals: unknown[]; gaps: unknown[] } | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const candidate = value as Record<string, unknown>;
+  const transcript = dataBlocks.find((block) => block.category === "transcript_snapshot")?.data as {
+    turns?: Array<{ source_revision_id?: unknown }>;
+  } | undefined;
+  const transcriptRevisionIds = new Set((transcript?.turns ?? []).flatMap((turn) => typeof turn.source_revision_id === "string" ? [turn.source_revision_id] : []));
+  const proposalIds = new Set<string>();
+  const proposals = (Array.isArray(candidate.proposals) ? candidate.proposals : []).slice(0, 500).flatMap((proposal) => {
+    const parsed = ResumeTranscriptFactProposalSchema.safeParse(proposal);
+    if (!parsed.success || proposalIds.has(parsed.data.proposal_id)) return [];
+    if (parsed.data.citations.some((citation) => !transcriptRevisionIds.has(citation.source_revision_id))) return [];
+    proposalIds.add(parsed.data.proposal_id);
+    return [parsed.data];
+  });
+  const employmentProposalIds = new Set(proposals.flatMap((proposal) => proposal.fact_kind === "employment" ? [proposal.proposal_id] : []));
+  const associatedProposals = proposals.filter((proposal) => (
+    proposal.fact_kind !== "accomplishment" && proposal.fact_kind !== "job_evidence"
+  ) || proposal.employment_proposal_id === null || employmentProposalIds.has(proposal.employment_proposal_id));
+  const gapIds = new Set<string>();
+  const gaps = (Array.isArray(candidate.gaps) ? candidate.gaps : []).slice(0, 50).flatMap((gap) => {
+    const parsed = ResumeTranscriptGapSchema.safeParse(gap);
+    if (!parsed.success || gapIds.has(parsed.data.gap_id) || parsed.data.source_revision_ids.some((revisionId) => !transcriptRevisionIds.has(revisionId))) return [];
+    gapIds.add(parsed.data.gap_id);
+    return [parsed.data];
+  });
+  return { extraction_version: 1, proposals: associatedProposals, gaps };
+}
+
+function mediateTranscriptExtraction(
+  value: unknown,
+  dataBlocks: InferenceRequest["data_blocks"],
+): { result: unknown; changed: boolean } {
+  const structural = transcriptExtractionCandidate(value, dataBlocks);
+  if (structural === null) return { result: value, changed: false };
+  const employment = new Map(structural.proposals.flatMap((proposal) => {
+    const candidate = proposal as { proposal_id?: unknown; fact_kind?: unknown };
+    return candidate.fact_kind === "employment" && typeof candidate.proposal_id === "string" ? [[candidate.proposal_id, proposal] as const] : [];
+  }));
+  const accepted = structural.proposals.filter((proposal) => {
+    const candidate = proposal as { fact_kind?: unknown; employment_proposal_id?: unknown };
+    const related = (candidate.fact_kind === "accomplishment" || candidate.fact_kind === "job_evidence") && typeof candidate.employment_proposal_id === "string"
+      ? employment.get(candidate.employment_proposal_id)
+      : undefined;
+    const proposals = related ? [related, proposal] : [proposal];
+    return validateInferenceClaims("resume_transcript_extract", { extraction_version: 1, proposals, gaps: [] }, dataBlocks).accepted;
+  });
+  const acceptedEmploymentIds = new Set(accepted.flatMap((proposal) => {
+    const candidate = proposal as { proposal_id?: unknown; fact_kind?: unknown };
+    return candidate.fact_kind === "employment" && typeof candidate.proposal_id === "string" ? [candidate.proposal_id] : [];
+  }));
+  const result = {
+    extraction_version: 1 as const,
+    proposals: accepted.filter((proposal) => {
+      const candidate = proposal as { fact_kind?: unknown; employment_proposal_id?: unknown };
+      return (candidate.fact_kind !== "accomplishment" && candidate.fact_kind !== "job_evidence")
+        || candidate.employment_proposal_id === null
+        || (typeof candidate.employment_proposal_id === "string" && acceptedEmploymentIds.has(candidate.employment_proposal_id));
+    }),
+    gaps: structural.gaps,
+  };
+  return { result, changed: canonicalInputDigest(result) !== canonicalInputDigest(value) };
+}
+
+function filterStructurallyInvalidTranscriptExtraction(
+  value: unknown,
+  dataBlocks: InferenceRequest["data_blocks"],
+): unknown | null {
+  const structural = transcriptExtractionCandidate(value, dataBlocks);
+  return structural === null ? null : mediateTranscriptExtraction(structural, dataBlocks).result;
 }
 
 function mediateDialogueDisposition(
@@ -703,7 +838,7 @@ function normalizeDialogueDraftAction(
       break;
     }
   }
-  const explicitRequest = /\b(?:create|generate|write|start|make|show|build|put together)\b[^.!?]{0,100}\b(?:draft|resume)\b|\b(?:draft|resume)\b[^.!?]{0,100}\b(?:create|generate|write|start|make|show|build|put together)\b/i.test(ownerMessage);
+  const explicitRequest = /\b(?:create|generate|write|start|make|show|build|recreate|regenerate|rewrite|rebuild|put together)\b[^.!?]{0,100}\b(?:draft|resume)\b|\b(?:draft|resume)\b[^.!?]{0,100}\b(?:create|generate|write|start|make|show|build|recreate|regenerate|rewrite|rebuild|put together)\b/i.test(ownerMessage);
   const acceptedOffer = /^(?:no[,\s]*(?:that(?:'s| is) (?:everything|all)|nothing else)|that(?:'s| is) (?:everything|all)|yes|go ahead|please do|sounds good|i(?:'m| am) ready)(?:\s+i think)?[.!]?$/i.test(ownerMessage.trim())
     && /\b(?:draft|resume|start|generate|put (?:it|one) together|anything else|anything more)\b/i.test(precedingAssistantMessage);
   if (!explicitRequest && !acceptedOffer) return null;

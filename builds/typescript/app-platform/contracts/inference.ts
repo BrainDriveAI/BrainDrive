@@ -22,6 +22,7 @@ import { CRAFT_EVIDENCE_LIMITED_POLICY, LEGACY_CRAFT_EVIDENCE_LIMITED_POLICY } f
 
 export const InferencePurposeSchema = z.enum([
   "resume_dialogue",
+  "resume_transcript_extract",
   "interview_assist",
   "general_resume_draft",
   "job_description_analyze",
@@ -40,6 +41,7 @@ export type InferencePurpose = z.infer<typeof InferencePurposeSchema>;
 
 export const PURPOSE_OUTPUT_SCHEMAS = {
   resume_dialogue: "resume.dialogue-turn.v1",
+  resume_transcript_extract: "resume.transcript-extraction.v1",
   interview_assist: "resume.interview-assist.v2",
   general_resume_draft: "resume.general-draft.v1",
   job_description_analyze: "resume.job-analysis.v1",
@@ -56,6 +58,7 @@ export const PURPOSE_OUTPUT_SCHEMAS = {
 
 export const PURPOSE_LIMITS = {
   resume_dialogue: { input_bytes: 131_072, input_tokens: 32_768, output_tokens: 4_096, duration_ms: 90_000, attempts: 2, concurrency: 1 },
+  resume_transcript_extract: { input_bytes: 262_144, input_tokens: 65_536, output_tokens: 8_192, duration_ms: 120_000, attempts: 2, concurrency: 1 },
   interview_assist: { input_bytes: 65_536, input_tokens: 16_384, output_tokens: 2_048, duration_ms: 60_000, attempts: 2, concurrency: 1 },
   general_resume_draft: { input_bytes: 262_144, input_tokens: 65_536, output_tokens: 8_192, duration_ms: 120_000, attempts: 2, concurrency: 1 },
   job_description_analyze: { input_bytes: 196_608, input_tokens: 49_152, output_tokens: 6_144, duration_ms: 90_000, attempts: 2, concurrency: 1 },
@@ -93,6 +96,7 @@ export const InferenceDataBlockSchema = z
     category: z.enum([
       "confirmed_fact_snapshot",
       "dialogue_context",
+      "transcript_snapshot",
       "presentation_preferences",
       "general_resume_definition",
       "job_description",

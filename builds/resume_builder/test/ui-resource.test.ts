@@ -67,8 +67,9 @@ describe("sandboxed Resume Builder owner resource", () => {
       "Create first draft",
       "Reply in your own words",
       "resume_dialogue",
+      "resume_transcript_extract",
       "chat.turn.commit",
-      "chat.employment.reconcile",
+      "chat.transcript.extract",
       "I couldn’t get a safe conversational result for that turn",
     ]) expect(html).toContain(text);
     expect(html).toContain('id="fact-snapshot"');
@@ -91,6 +92,8 @@ describe("sandboxed Resume Builder owner resource", () => {
     expect(html).toContain('if(isFreshConversation())return "interview"');
     expect(html).toContain('durableConversationMessages().length===0)void runModelDialogue(null,null)');
     expect(html).toContain('prompt_version==="resume-dialogue-1"');
+    expect(html).toContain('transcriptExtractionPending()&&!state.extractionRunning');
+    expect(html).toContain('if(state.extractionRunning)return');
     expect(html).toContain('stageLabel:state.facts.some');
     expect(html).toContain("interview_turns");
     expect(html).toContain('classList.add("native-chat-hosted")');
@@ -225,6 +228,8 @@ describe("sandboxed Resume Builder owner resource", () => {
     const dialogue = html.slice(html.indexOf("async function runModelDialogue"), html.indexOf("async function handleHostChatMessage"));
     const createGeneral = html.slice(html.indexOf("async function createGeneral"), html.indexOf("function impactCard"));
     expect(dialogue).toContain("draftAction:result.draft_action");
+    expect(dialogue).toContain("factOperations:[]");
+    expect(dialogue).not.toContain("factOperations:result.fact_operations");
     expect(dialogue).toContain("draftDecision?.accepted");
     expect(dialogue).toContain("startGeneralDraftFromDialogue");
     expect(dialogue.indexOf('request("chat.turn.commit"')).toBeLessThan(dialogue.indexOf("startGeneralDraftFromDialogue"));

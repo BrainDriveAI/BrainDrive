@@ -40,11 +40,17 @@ describe("model compatibility registry", () => {
   });
 
   it("admits the effective BrainDrive Models alias only for its conformance-backed purposes", () => {
-    const passingPurposes = Object.keys(PURPOSE_OUTPUT_SCHEMAS) as Array<keyof typeof PURPOSE_OUTPUT_SCHEMAS>;
-    expect(VERSIONED_MODEL_COMPATIBILITY_ENTRIES).toHaveLength(passingPurposes.length);
+    const allPurposes = Object.keys(PURPOSE_OUTPUT_SCHEMAS) as Array<keyof typeof PURPOSE_OUTPUT_SCHEMAS>;
+    const passingPurposes = VERSIONED_MODEL_COMPATIBILITY_ENTRIES.map((candidate) =>
+      (candidate as { purpose: keyof typeof PURPOSE_OUTPUT_SCHEMAS }).purpose,
+    );
+    expect(new Set(passingPurposes).size).toBe(passingPurposes.length);
     const registry = new ModelCompatibilityRegistry(VERSIONED_MODEL_COMPATIBILITY_ENTRIES);
     for (const purpose of passingPurposes) {
       expect(registry.require("braindrive-models", "braindrive-models-default", purpose)).toMatchObject({ purpose, compatible: true });
+    }
+    for (const purpose of allPurposes.filter((candidate) => !passingPurposes.includes(candidate))) {
+      expect(() => registry.require("braindrive-models", "braindrive-models-default", purpose)).toThrow(/conformance record/);
     }
     for (const purpose of ["interview_assist", "general_resume_draft", "targeted_resume_draft"] as const) {
       expect(conformanceCorpusDigest(purpose)).not.toBe(RESUME_MODEL_CONFORMANCE_CORPUS_DIGEST);

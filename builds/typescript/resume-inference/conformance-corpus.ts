@@ -5,6 +5,8 @@ import { CORRECTED_CRAFT_REPORT_SCHEMA_DIGEST, CORRECTED_CRAFT_REPORT_SCHEMA_ID,
 import {
   RESUME_DIALOGUE_PROMPT_POLICY_ID,
   RESUME_DIALOGUE_PROMPT_POLICY_VERSION,
+  RESUME_EXTRACTION_PROMPT_POLICY_ID,
+  RESUME_EXTRACTION_PROMPT_POLICY_VERSION,
   RESUME_PROMPT_POLICY_ID,
   RESUME_PROMPT_POLICY_VERSION,
 } from "./policy.js";
@@ -184,7 +186,7 @@ function revisionRequest(state: "submitted" | "generating") {
   };
 }
 
-type ConformanceBlockCategory = "confirmed_fact_snapshot" | "dialogue_context" | "job_description" | "general_resume_definition" | "job_analysis" | "evidence_matrix" | "job_evidence_summary" | "revision_instruction" | "evidence_annotations" | "quality_policy" | "resume_strategy" | "target_fit_policy" | "target_fit_analysis" | "deterministic_findings" | "craft_anchor_evidence" | "craft_gate_policy" | "craft_quality_report" | "craft_repair_scope";
+type ConformanceBlockCategory = "confirmed_fact_snapshot" | "dialogue_context" | "transcript_snapshot" | "job_description" | "general_resume_definition" | "job_analysis" | "evidence_matrix" | "job_evidence_summary" | "revision_instruction" | "evidence_annotations" | "quality_policy" | "resume_strategy" | "target_fit_policy" | "target_fit_analysis" | "deterministic_findings" | "craft_anchor_evidence" | "craft_gate_policy" | "craft_quality_report" | "craft_repair_scope";
 
 function block(category: ConformanceBlockCategory, schemaId: string, data: unknown) {
   return { category, content_digest: canonicalInputDigest(data), schema_id: schemaId, schema_version: 1 as const, data };
@@ -257,6 +259,27 @@ export function conformanceBlocks(purpose: InferencePurpose) {
       requested_mode: "intake",
     }));
   }
+  if (purpose === "resume_transcript_extract") {
+    blocks.push(block("transcript_snapshot", "resume.transcript-snapshot.v1", {
+      transcript_version: 1,
+      turns: [
+        {
+          source_revision_id: "73000000-0000-4000-8000-000000000031",
+          occurred_at: "2026-08-15T12:00:00.000Z",
+          assistant: "Tell me about your most recent role.",
+          owner: "I was Operations Coordinator at Northstar Health from March 2022 to Present.",
+          follow_up: "What result are you proudest of?",
+        },
+        {
+          source_revision_id: "73000000-0000-4000-8000-000000000032",
+          occurred_at: "2026-08-15T12:01:00.000Z",
+          assistant: "What result are you proudest of?",
+          owner: "At Northstar Health I standardized the intake process and reduced incomplete forms from 18% to 6%.",
+          follow_up: "Would you like me to prepare a draft?",
+        },
+      ],
+    }));
+  }
   if (purpose === "resume_strategy") {
     blocks.push(block("evidence_annotations", "resume.evidence-annotations.v1", buildEvidenceAnnotations(purposeFacts, [])));
     blocks.push(block("quality_policy", "resume.quality-policy-identity.v1", RESUME_QUALITY_POLICY_IDENTITY));
@@ -285,6 +308,8 @@ export function conformanceBlocks(purpose: InferencePurpose) {
 export function conformanceCorpusDigest(purpose: InferencePurpose): string {
   const binding = purpose === "resume_dialogue"
     ? { ...RESUME_MODEL_CONFORMANCE_BINDING, prompt_policy_id: RESUME_DIALOGUE_PROMPT_POLICY_ID, prompt_policy_version: RESUME_DIALOGUE_PROMPT_POLICY_VERSION }
+    : purpose === "resume_transcript_extract"
+      ? { ...RESUME_MODEL_CONFORMANCE_BINDING, prompt_policy_id: RESUME_EXTRACTION_PROMPT_POLICY_ID, prompt_policy_version: RESUME_EXTRACTION_PROMPT_POLICY_VERSION }
     : RESUME_MODEL_CONFORMANCE_BINDING;
   return canonicalInputDigest({ corpus_version: RESUME_MODEL_CONFORMANCE_CORPUS_VERSION, binding, purpose, blocks: conformanceBlocks(purpose) });
 }

@@ -21,6 +21,7 @@
       "type": "string",
       "enum": [
         "resume_dialogue",
+        "resume_transcript_extract",
         "interview_assist",
         "general_resume_draft",
         "job_description_analyze",

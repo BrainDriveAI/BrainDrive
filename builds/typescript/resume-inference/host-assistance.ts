@@ -146,7 +146,10 @@ function deterministicGeneralDraft(blocks: readonly DataBlock[]): unknown | null
     if (direction && generalEvidence && directionFact && generalEvidenceFact) {
       add([firstJobFact.revision_id, directionFact.revision_id, generalEvidenceFact.revision_id], "summary", `${title} targeting ${direction}, with experience in ${generalEvidence}.`, "line", "summary");
     } else if (priorTitle && priorJobFact) {
-      add([firstJobFact.revision_id, priorJobFact.revision_id], "summary", `${title} with prior experience as ${priorTitle}.`, "line", "summary");
+      // The deterministic fallback is deliberately fact-only. Relationship prose
+      // such as "with prior experience as" is not owner-stated evidence and can
+      // therefore fail the same claim gate this fallback is meant to recover from.
+      add(firstJobFact.revision_id, "summary", title, "line", "summary");
     } else {
       add(firstJobFact.revision_id, "summary", `${title} at ${stringValue(firstJob.employer) ?? "the confirmed employer"}.`, "line", "summary");
     }

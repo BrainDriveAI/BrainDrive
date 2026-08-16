@@ -77,6 +77,7 @@ describe("Resume Builder isolated E2E inference fixture", () => {
   it("produces contract-valid outputs for every accepted purpose without entering the agent loop", () => {
     const cases = {
       resume_dialogue: [facts, { category: "dialogue_context", data: { dialogue_version: 1, messages: [{ role: "assistant", content: "Tell me about your work history." }, { role: "user", content: "Do you mean my last role or all my roles?" }], current_user_message: "Do you mean my last role or all my roles?", requested_mode: "intake" } }],
+      resume_transcript_extract: [facts, { category: "transcript_snapshot", data: { transcript_version: 1, turns: [{ source_revision_id: "10000000-0000-4000-8000-000000000099", occurred_at: "2026-08-15T12:00:00.000Z", assistant: "Tell me about your role.", owner: "I worked as Product Lead at Acme Labs from 2020 to 2024.", follow_up: "What changed?" }] } }],
       interview_assist: [facts, jobEvidenceSummary],
       general_resume_draft: [facts],
       job_description_analyze: [facts, job],

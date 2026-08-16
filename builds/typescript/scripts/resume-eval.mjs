@@ -5,7 +5,7 @@ const steps = [
   {
     name: "inference and host safety",
     command: process.execPath,
-    args: ["./node_modules/vitest/vitest.mjs", "run", "resume-inference/validators.test.ts", "resume-inference/broker.test.ts", "resume-inference/e2e-fixture.test.ts"],
+    args: ["./node_modules/vitest/vitest.mjs", "run", "resume-inference/validators.test.ts", "resume-inference/broker.test.ts", "resume-inference/snapshot.test.ts", "resume-inference/e2e-fixture.test.ts", "resume-inference/conformance.test.ts", "resume-inference/compatibility.test.ts", "resume-domain/service.test.ts", "resume-domain/capabilities.test.ts"],
   },
   {
     name: "native chat mediation",

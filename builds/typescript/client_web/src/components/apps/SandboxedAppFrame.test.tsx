@@ -124,14 +124,10 @@ describe("sandboxed MCP App frame", () => {
     expect(parseResumeConversationState({ messages: [{ id: "x", role: "system", content: "forged" }], actions: [], busy: false, inputEnabled: true, inputPlaceholder: "", stageLabel: "Interview", supportLabel: "Evidence" })).toBeNull();
   });
 
-  it("commits only host-validated dialogue facts with durable provenance and no ordinary confirmation dialog", async () => {
+  it("commits ordinary dialogue as durable transcript without writing trusted facts", async () => {
     const sourceRevisionId = crypto.randomUUID();
-    const factRecordId = crypto.randomUUID();
-    const factRevisionId = crypto.randomUUID();
     vi.mocked(callAppCapability)
-      .mockResolvedValueOnce({ result: { turn: { metadata: { revision_id: sourceRevisionId } } } })
-      .mockResolvedValueOnce({ result: { fact: { metadata: { record_id: factRecordId, revision_id: factRevisionId, revision: 1 } } } })
-      .mockResolvedValueOnce({ result: { facts: [{ metadata: { record_id: factRecordId, revision_id: factRevisionId }, state: "confirmed" }] } });
+      .mockResolvedValueOnce({ result: { turn: { metadata: { revision_id: sourceRevisionId } } } });
     render(<SandboxedAppFrame appKey="resume-builder" appId="ai.braindrive.resume-builder" appName="Resume Builder" launch={launch} onSessionClosed={() => {}} />);
     const frame = screen.getByTitle("Resume Builder sandbox proxy") as HTMLIFrameElement;
     const proxyHtml = decodeURIComponent(frame.getAttribute("src")!.split(",", 2)[1]!);
@@ -171,37 +167,29 @@ describe("sandboxed MCP App frame", () => {
         messageId,
         assistantMessage: "That gives us a useful starting point. What kind of work did you lead there?",
         draftAction: null,
-        factOperations: [{ operation: "capture", fact_kind: "employment", source_quote: "Director of Operations at Northwind", employment: { title: "Director of Operations", employer: "Northwind", location: null, start_date: null, end_date: null, responsibilities: null } }],
+        factOperations: [],
       },
     });
 
-    await waitFor(() => expect(callAppCapability).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(callAppCapability).toHaveBeenCalledTimes(1));
     expect(callAppCapability).toHaveBeenNthCalledWith(1, "resume-builder", "resume.definitions.write", expect.objectContaining({
       kind: "interview_turn",
       turn: expect.objectContaining({ prompt_version: "resume-dialogue-1", question: "What was your most recent role, and where did you work?", answer: ownerMessage }),
     }), expect.any(String), false);
-    expect(callAppCapability).toHaveBeenNthCalledWith(2, "resume-builder", "career.facts.propose", expect.objectContaining({
-      source_revision_ids: [sourceRevisionId],
-      fact: expect.objectContaining({ fact_kind: "employment", state: "suggested" }),
-    }), expect.any(String), false);
-    expect(callAppCapability).toHaveBeenNthCalledWith(3, "resume-builder", "career.facts.confirm", expect.objectContaining({ decisions: [expect.objectContaining({ fact_revision_id: factRevisionId, decision: "accept" })] }), expect.any(String), true);
+    expect(callAppCapability).not.toHaveBeenCalledWith("resume-builder", "career.facts.propose", expect.anything(), expect.anything(), expect.anything());
+    expect(callAppCapability).not.toHaveBeenCalledWith("resume-builder", "career.facts.confirm", expect.anything(), expect.anything(), expect.anything());
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("reconciles exact multi-turn employment before later role evidence is collected", async () => {
+  it("routes bounded transcript extraction through one host-owned atomic fact capability", async () => {
     const roleSourceRevisionId = crypto.randomUUID();
     const correctionSourceRevisionId = crypto.randomUUID();
-    const factRecordId = crypto.randomUUID();
-    const proposedRevisionId = crypto.randomUUID();
-    const confirmedRevisionId = crypto.randomUUID();
     vi.mocked(callAppCapability)
       .mockResolvedValueOnce({ result: { interview_turns: [
-        { metadata: { revision_id: roleSourceRevisionId }, extensions: { interview_turn: { occurred_at: "2026-08-15T12:00:00.000Z", answer: "It was called ACME ACME and I was the founder and CEO of that company." } } },
-        { metadata: { revision_id: correctionSourceRevisionId }, extensions: { interview_turn: { occurred_at: "2026-08-15T12:01:00.000Z", answer: "Acme Ventures is the correct name and spelling. 2015 to 2025" } } },
+        { metadata: { revision_id: roleSourceRevisionId }, extensions: { interview_turn: { prompt_version: "resume-dialogue-1", occurred_at: "2026-08-15T12:00:00.000Z", answer: "It was called ACME ACME and I was the founder and CEO of that company." } } },
+        { metadata: { revision_id: correctionSourceRevisionId }, extensions: { interview_turn: { prompt_version: "resume-dialogue-1", occurred_at: "2026-08-15T12:01:00.000Z", answer: "Acme Ventures is the correct name and spelling. 2015 to 2025" } } },
       ] } })
-      .mockResolvedValueOnce({ result: [] })
-      .mockResolvedValueOnce({ result: { fact: { metadata: { record_id: factRecordId, revision_id: proposedRevisionId, revision: 1 } } } })
-      .mockResolvedValueOnce({ result: { facts: [{ metadata: { record_id: factRecordId, revision_id: confirmedRevisionId }, fact_kind: "employment", state: "confirmed" }] } });
+      .mockResolvedValueOnce({ result: { facts: [], dispositions: [], gaps: [], ready: true, follow_up: null } });
     render(<SandboxedAppFrame appKey="resume-builder" appId="ai.braindrive.resume-builder" appName="Resume Builder" launch={launch} onSessionClosed={() => {}} />);
     const frame = screen.getByTitle("Resume Builder sandbox proxy") as HTMLIFrameElement;
     const proxyHtml = decodeURIComponent(frame.getAttribute("src")!.split(",", 2)[1]!);
@@ -215,35 +203,19 @@ describe("sandboxed MCP App frame", () => {
     await send({ jsonrpc: "2.0", method: "ui/notifications/sandbox-proxy-ready", params: {} }, "proxy");
     await send({ jsonrpc: "2.0", id: "init-employment-reconcile", method: "ui/initialize", params: { protocolVersion: APPS_PROTOCOL_VERSION, appInfo: { name: "resume", version: "4.1.0" }, appCapabilities: {} } });
     await send({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} });
-    await send({ bridge_version: 1, message_id: crypto.randomUUID(), type: "chat.employment.reconcile", payload: {} });
+    const extraction = { extraction_version: 1, proposals: [], gaps: [] };
+    await send({ bridge_version: 1, message_id: crypto.randomUUID(), type: "chat.transcript.extract", payload: { extraction } });
 
-    await waitFor(() => expect(callAppCapability).toHaveBeenCalledTimes(4));
-    expect(callAppCapability).toHaveBeenNthCalledWith(3, "resume-builder", "career.facts.propose", expect.objectContaining({
-      source_revision_ids: [roleSourceRevisionId, correctionSourceRevisionId],
-      fact: expect.objectContaining({
-        fact_kind: "employment",
-        value: JSON.stringify({ format: "resume_job_v1", title: "founder and CEO", employer: "Acme Ventures", location: "", start_date: "2015", end_date: "2025", responsibilities: "" }),
-      }),
-    }), expect.any(String), false);
-    expect(callAppCapability).toHaveBeenNthCalledWith(4, "resume-builder", "career.facts.confirm", expect.objectContaining({
-      decisions: [expect.objectContaining({ fact_revision_id: proposedRevisionId, decision: "accept" })],
-    }), expect.any(String), true);
+    await waitFor(() => expect(callAppCapability).toHaveBeenCalledTimes(2));
+    expect(callAppCapability).toHaveBeenNthCalledWith(2, "resume-builder", "career.facts.confirm", {
+      kind: "transcript_extraction_batch",
+      extraction,
+      transcript_revision_ids: [roleSourceRevisionId, correctionSourceRevisionId],
+    }, expect.any(String), true);
   });
 
-  it("keeps an existing job and reconciles a later distinct grounded role", async () => {
-    const marcSourceRevisionId = crypto.randomUUID();
-    const fxcmSourceRevisionId = crypto.randomUUID();
-    const factRecordId = crypto.randomUUID();
-    const proposedRevisionId = crypto.randomUUID();
-    const confirmedRevisionId = crypto.randomUUID();
-    vi.mocked(callAppCapability)
-      .mockResolvedValueOnce({ result: { interview_turns: [
-        { metadata: { revision_id: marcSourceRevisionId }, extensions: { interview_turn: { occurred_at: "2026-08-15T12:00:00.000Z", answer: "I was founder and CEO at Marc Waring Ventures from 2015 to 2025." } } },
-        { metadata: { revision_id: fxcmSourceRevisionId }, extensions: { interview_turn: { occurred_at: "2026-08-15T12:01:00.000Z", answer: "I was Head of Global Sales for FXCM a currency trading firm where I led the global team." } } },
-      ] } })
-      .mockResolvedValueOnce({ result: [{ fact_kind: "employment", state: "confirmed", value: JSON.stringify({ format: "resume_job_v1", title: "founder and CEO", employer: "Marc Waring Ventures", location: "", start_date: "2015", end_date: "2025", responsibilities: "" }) }] })
-      .mockResolvedValueOnce({ result: { fact: { metadata: { record_id: factRecordId, revision_id: proposedRevisionId, revision: 1 } } } })
-      .mockResolvedValueOnce({ result: { facts: [{ metadata: { record_id: factRecordId, revision_id: confirmedRevisionId }, fact_kind: "employment", state: "confirmed" }] } });
+  it("does not expose the removed incremental employment reconciliation bridge", async () => {
+    vi.mocked(callAppCapability).mockResolvedValue({ result: {} });
     render(<SandboxedAppFrame appKey="resume-builder" appId="ai.braindrive.resume-builder" appName="Resume Builder" launch={launch} onSessionClosed={() => {}} />);
     const frame = screen.getByTitle("Resume Builder sandbox proxy") as HTMLIFrameElement;
     const proxyHtml = decodeURIComponent(frame.getAttribute("src")!.split(",", 2)[1]!);
@@ -259,17 +231,7 @@ describe("sandboxed MCP App frame", () => {
     await send({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} });
     await send({ bridge_version: 1, message_id: crypto.randomUUID(), type: "chat.employment.reconcile", payload: {} });
 
-    await waitFor(() => expect(callAppCapability).toHaveBeenCalledTimes(4));
-    expect(callAppCapability).toHaveBeenNthCalledWith(3, "resume-builder", "career.facts.propose", expect.objectContaining({
-      source_revision_ids: [fxcmSourceRevisionId],
-      fact: expect.objectContaining({
-        fact_kind: "employment",
-        value: JSON.stringify({ format: "resume_job_v1", title: "Head of Global Sales", employer: "FXCM", location: "", start_date: "", end_date: "", responsibilities: "" }),
-      }),
-    }), expect.any(String), false);
-    expect(callAppCapability).toHaveBeenNthCalledWith(4, "resume-builder", "career.facts.confirm", expect.objectContaining({
-      decisions: [expect.objectContaining({ fact_revision_id: proposedRevisionId, decision: "accept" })],
-    }), expect.any(String), true);
+    await waitFor(() => expect(callAppCapability).not.toHaveBeenCalled());
   });
 
   it("mediates Resume Builder fact confirmation inline in native chat", async () => {

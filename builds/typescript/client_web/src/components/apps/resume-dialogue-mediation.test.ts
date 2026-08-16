@@ -50,6 +50,14 @@ describe("Resume Builder dialogue mediation", () => {
       factOperations: [],
       draftAction: { action: "create_general_draft", intent: "accepted_offer", source_quote: accepted },
     }, accepted, new Set(), [], "What else would you like me to know?")).toBeNull();
+
+    const regenerate = "Please regenerate my general resume draft now.";
+    expect(parseResumeDialogueCommitPayload({
+      messageId,
+      assistantMessage: "I can ask BrainDrive to prepare an updated fact-backed draft.",
+      factOperations: [],
+      draftAction: { action: "create_general_draft", intent: "explicit_request", source_quote: regenerate },
+    }, regenerate, new Set())).toMatchObject({ draftAction: { intent: "explicit_request", source_quote: regenerate } });
   });
 
   it("rejects model control markers instead of persisting them as owner facts", () => {

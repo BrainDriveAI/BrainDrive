@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { canonicalInputDigest } from "../app-platform/contracts/common.js";
 import { PURPOSE_OUTPUT_SCHEMAS } from "../app-platform/contracts/inference.js";
 import { conformanceBlocks } from "./conformance-corpus.js";
 import { synthesizeResumeE2eResult } from "./e2e-fixture.js";
@@ -25,7 +26,7 @@ describe("Resume Builder host-owned inference structure", () => {
 
     expect(normalized.section_order).toEqual(expected);
     const parsed = parsePurposeResult(purpose, PURPOSE_OUTPUT_SCHEMAS[purpose], normalized);
-    expect(validateInferenceClaims(purpose, parsed, blocks).accepted).toBe(true);
+    expect(validateInferenceClaims(purpose, parsed, [...blocks]).accepted).toBe(true);
   });
 
   it("replaces a redundant ungrammatical model summary with bounded confirmed positioning", () => {
@@ -43,6 +44,43 @@ describe("Resume Builder host-owned inference structure", () => {
     expect(normalized.statements.find((statement) => statement.section_id === "summary")?.text).not.toBe(weakText);
     const parsed = parsePurposeResult(purpose, PURPOSE_OUTPUT_SCHEMAS[purpose], normalized);
     expect(validateInferenceClaims(purpose, parsed, blocks).accepted).toBe(true);
+  });
+
+  it("keeps the two-role deterministic draft fallback inside exact owner evidence", () => {
+    const purpose = "general_resume_draft" as const;
+    const primaryJobId = "71000000-0000-4000-8000-000000000001";
+    const priorJobId = "71000000-0000-4000-8000-000000000002";
+    const factData = { facts: [
+      { revision_id: primaryJobId, fact_kind: "employment", value: JSON.stringify({ format: "resume_job_v1", title: "Product Lead", employer: "Acme Labs", location: null, start_date: "2020", end_date: "2024", responsibilities: null }) },
+      { revision_id: priorJobId, fact_kind: "employment", value: JSON.stringify({ format: "resume_job_v1", title: "Analyst", employer: "Northwind Partners", location: null, start_date: "2017", end_date: "2020", responsibilities: null }) },
+    ] };
+    const strategyData = {
+      summary_decision: "include",
+      section_order: ["summary", "experience"],
+      evidence_priorities: [
+        { fact_revision_id: primaryJobId, priority: "must_use" },
+        { fact_revision_id: priorJobId, priority: "must_use" },
+      ],
+      omissions: [],
+    };
+    const blocks = [{
+      category: "confirmed_fact_snapshot",
+      content_digest: canonicalInputDigest(factData),
+      schema_id: "resume.confirmed-fact-snapshot.v1",
+      schema_version: 1,
+      data: factData,
+    }, {
+      category: "resume_strategy",
+      content_digest: canonicalInputDigest(strategyData),
+      schema_id: "resume.strategy.v1",
+      schema_version: 1,
+      data: strategyData,
+    }] as const;
+
+    const fallback = deterministicHostFallback(purpose, blocks) as { statements: Array<{ section_id: string; text: string }> };
+    expect(fallback.statements.find((statement) => statement.section_id === "summary")?.text).toBe("Product Lead");
+    const parsed = parsePurposeResult(purpose, PURPOSE_OUTPUT_SCHEMAS[purpose], fallback);
+    expect(validateInferenceClaims(purpose, parsed, [...blocks]).accepted).toBe(true);
   });
 
   it("calculates the tailoring decision and exact material-change manifest from immutable inputs", () => {

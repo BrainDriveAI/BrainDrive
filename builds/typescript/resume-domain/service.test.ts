@@ -346,6 +346,117 @@ describe("Resume domain invariants", () => {
     expect(retained).toMatchObject({ record_type: "source", extensions: { interview_turn: turn } });
   });
 
+  it("atomically extracts a grounded employment record and links later metrics to it", async () => {
+    const { store, service } = await setup();
+    const sessionId = crypto.randomUUID();
+    const role = await service.recordInterviewTurn({
+      kind: "interview_turn",
+      turn: {
+        transcript_version: 1, turn_id: crypto.randomUUID(), session_id: sessionId, prompt_version: "resume-dialogue-1", topic: "model_dialogue",
+        question: "Tell me about your most recent role.", answer: "I was Director of Operations at Northwind from 2020 to 2024.",
+        follow_up: { question: "What changed because of your work there?", answer: null, outcome: "continued_without_answer" }, action: "answered",
+        occurred_at: "2026-08-07T12:00:00.000Z",
+      }, sensitivity: "sensitive", linked_confirmed_fact_revision_id: null,
+    }, authority("resume.definitions.write"));
+    const metric = await service.recordInterviewTurn({
+      kind: "interview_turn",
+      turn: {
+        transcript_version: 1, turn_id: crypto.randomUUID(), session_id: sessionId, prompt_version: "resume-dialogue-1", topic: "model_dialogue_completion",
+        question: "What changed because of your work there?", answer: "I reduced fulfillment time by 35 percent at Northwind.",
+        follow_up: { question: "Would you like me to prepare a draft?", answer: null, outcome: "continued_without_answer" }, action: "answered",
+        occurred_at: "2026-08-07T12:01:00.000Z",
+      }, sensitivity: "sensitive", linked_confirmed_fact_revision_id: null,
+    }, authority("resume.definitions.write"));
+    const employmentProposalId = crypto.randomUUID();
+    const result = await service.commitTranscriptExtractionBatch({
+      kind: "transcript_extraction_batch",
+      transcript_revision_ids: [role.turn.metadata.revision_id, metric.turn.metadata.revision_id],
+      extraction: {
+        extraction_version: 1,
+        proposals: [
+          {
+            proposal_id: employmentProposalId, fact_kind: "employment",
+            employment: { title: "Director of Operations", employer: "Northwind", location: null, start_date: "2020", end_date: "2024", responsibilities: null },
+            citations: [{ source_revision_id: role.turn.metadata.revision_id, quote: "Director of Operations at Northwind from 2020 to 2024" }],
+          },
+          {
+            proposal_id: crypto.randomUUID(), fact_kind: "employment",
+            employment: { title: "Director of Operations", employer: "Northwind", location: null, start_date: "2020", end_date: "2024", responsibilities: null },
+            citations: [{ source_revision_id: role.turn.metadata.revision_id, quote: "Director of Operations at Northwind from 2020 to 2024" }],
+          },
+          {
+            proposal_id: crypto.randomUUID(), fact_kind: "job_evidence", text: "reduced fulfillment time by 35 percent", dimension: "outcomes",
+            employment_proposal_id: employmentProposalId, existing_job_fact_revision_id: null,
+            citations: [{ source_revision_id: metric.turn.metadata.revision_id, quote: "reduced fulfillment time by 35 percent" }],
+          },
+          {
+            proposal_id: crypto.randomUUID(), fact_kind: "skill", value: "Kubernetes",
+            citations: [{ source_revision_id: metric.turn.metadata.revision_id, quote: "reduced fulfillment time by 35 percent" }],
+          },
+        ],
+        gaps: [],
+      },
+    }, authority("career.facts.confirm"), true);
+
+    expect(result).toMatchObject({ ready: true, follow_up: null, dispositions: [{ status: "committed" }, { status: "duplicate" }, { status: "committed" }, { status: "rejected", reason: "ungrounded_or_invalid" }] });
+    expect(result.facts).toHaveLength(2);
+    const employment = result.facts.find((fact) => fact.fact_kind === "employment")!;
+    const evidence = result.facts.find((fact) => fact.fact_kind === "job_evidence")!;
+    expect(JSON.parse(evidence.value)).toMatchObject({ job_fact_revision_id: employment.metadata.revision_id, owner_text: "reduced fulfillment time by 35 percent" });
+    expect(await store.list("career_fact")).toHaveLength(2);
+  });
+
+  it("keeps ambiguous or ungrounded extraction out of trusted facts and asks a natural follow-up", async () => {
+    const { store, service } = await setup();
+    const source = await service.recordInterviewTurn({
+      kind: "interview_turn",
+      turn: {
+        transcript_version: 1, turn_id: crypto.randomUUID(), session_id: crypto.randomUUID(), prompt_version: "resume-dialogue-1", topic: "model_dialogue_completion",
+        question: "Which role was that?", answer: "I led a team and improved revenue.",
+        follow_up: { question: "I can clarify the employer.", answer: null, outcome: "continued_without_answer" }, action: "answered",
+        occurred_at: "2026-08-07T12:00:00.000Z",
+      }, sensitivity: "sensitive", linked_confirmed_fact_revision_id: null,
+    }, authority("resume.definitions.write"));
+    const result = await service.commitTranscriptExtractionBatch({
+      kind: "transcript_extraction_batch", transcript_revision_ids: [source.turn.metadata.revision_id],
+      extraction: { extraction_version: 1, proposals: [], gaps: [{ gap_id: crypto.randomUUID(), kind: "missing_employer", question: "What employer was that role with?", source_revision_ids: [source.turn.metadata.revision_id] }] },
+    }, authority("career.facts.confirm"), true);
+
+    expect(result).toMatchObject({ ready: false, follow_up: "What employer was that role with?", facts: [] });
+    expect(await store.list("career_fact")).toHaveLength(0);
+  });
+
+  it("does not call an employment-only extraction ready for drafting", async () => {
+    const { service } = await setup();
+    const source = await service.recordInterviewTurn({
+      kind: "interview_turn",
+      turn: {
+        transcript_version: 1, turn_id: crypto.randomUUID(), session_id: crypto.randomUUID(), prompt_version: "resume-dialogue-1", topic: "model_dialogue_completion",
+        question: "What role should anchor the resume?", answer: "I was Product Lead at Acme Labs from 2020 to 2024.",
+        follow_up: { question: "What should I include about that work?", answer: null, outcome: "continued_without_answer" }, action: "answered",
+        occurred_at: "2026-08-07T12:00:00.000Z",
+      }, sensitivity: "sensitive", linked_confirmed_fact_revision_id: null,
+    }, authority("resume.definitions.write"));
+    const result = await service.commitTranscriptExtractionBatch({
+      kind: "transcript_extraction_batch",
+      transcript_revision_ids: [source.turn.metadata.revision_id],
+      extraction: {
+        extraction_version: 1,
+        proposals: [{
+          proposal_id: crypto.randomUUID(), fact_kind: "employment",
+          employment: { title: "Product Lead", employer: "Acme Labs", location: null, start_date: "2020", end_date: "2024", responsibilities: null },
+          citations: [{ source_revision_id: source.turn.metadata.revision_id, quote: "Product Lead at Acme Labs from 2020 to 2024" }],
+        }],
+        gaps: [],
+      },
+    }, authority("career.facts.confirm"), true);
+
+    expect(result).toMatchObject({
+      ready: false,
+      follow_up: "Before I draft, tell me one exact accomplishment, responsibility, or project result you want included.",
+    });
+  });
+
   it("retains skipped and duplicate-answer turns without creating false career facts", async () => {
     const { store, service } = await setup();
     const confirmed = await confirmedFact(service);

@@ -12,6 +12,7 @@ import {
   ExportReceiptRecordSchema,
   InterviewProgressRecordSchema,
   InterviewTurnAuditSchema,
+  OwnerConfirmationProofSchema,
   ImpactAnalysisResultSchema,
   JobEvidenceCoverageRecordSchema,
   JobEvidenceValueSchema,
@@ -51,6 +52,7 @@ import {
   requireHostOwnerDecisionEvidence,
 } from "./career-data.js";
 import { RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION } from "../resume-inference/policy.js";
+import { ResumeTranscriptExtractionResultSchema, ResumeTranscriptSnapshotSchema } from "../resume-inference/results.js";
 import { validateInferenceClaims } from "../resume-inference/validators.js";
 import { evaluateDefinitionDeterministicGates } from "../resume-inference/validators.js";
 import { assertBoundQualityReport, evaluateResumeQuality } from "../resume-inference/quality-runtime.js";
@@ -377,6 +379,12 @@ const InterviewTurnInputSchema = z.object({
   linked_confirmed_fact_revision_id: OpaqueIdSchema.nullable(),
 }).strict();
 
+const TranscriptExtractionBatchInputSchema = z.object({
+  kind: z.literal("transcript_extraction_batch"),
+  extraction: ResumeTranscriptExtractionResultSchema,
+  transcript_revision_ids: z.array(OpaqueIdSchema).min(1).max(200),
+}).strict();
+
 const RecoverySlotSchema = z.object({
   session_id: OpaqueIdSchema,
   job_fact_revision_id: OpaqueIdSchema.nullable(),
@@ -484,6 +492,23 @@ const DefinitionRollbackInputSchema = z.object({
 
 const RetireRecordInputSchema = z.object({ record_id: OpaqueIdSchema, expected_revision: z.number().int().positive() }).strict();
 
+function normalizeExtractedFactValue(value: string): string {
+  return value.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US");
+}
+
+function extractedEmploymentIdentity(value: string): { employer: string; title: string; startDate: string; endDate: string } | null {
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") return null;
+    const normalizedField = (name: string) => typeof parsed[name] === "string" ? normalizeExtractedFactValue(parsed[name]) : "";
+    const employer = normalizedField("employer");
+    if (!employer) return null;
+    return { employer, title: normalizedField("title"), startDate: normalizedField("start_date"), endDate: normalizedField("end_date") };
+  } catch {
+    return null;
+  }
+}
+
 export class ResumeDomainService {
   readonly sources: CareerSourceRepository;
   readonly facts: CareerFactRepository;
@@ -576,6 +601,154 @@ export class ResumeDomainService {
     this.authorize(authority, "career.facts.confirm");
     const input = GroupConfirmationInputSchema.parse(raw);
     return this.confirmFactsInternal(input.decisions, authority, evidence, true);
+  }
+
+  async commitTranscriptExtractionBatch(raw: unknown, authority: DataAuthority, hostOwnerConfirmed: boolean): Promise<{
+    facts: z.infer<typeof CareerFactRecordSchema>[];
+    dispositions: Array<{ proposal_id: string; status: "committed" | "duplicate" | "rejected"; reason: string | null }>;
+    gaps: z.infer<typeof ResumeTranscriptExtractionResultSchema>["gaps"];
+    ready: boolean;
+    follow_up: string | null;
+    reused: boolean;
+  }> {
+    this.authorize(authority, "career.facts.confirm");
+    if (!hostOwnerConfirmed) throw new ResumeDomainError("denied", "Transcript extraction requires an explicit host-mediated completion request", 403);
+    const input = TranscriptExtractionBatchInputSchema.parse(raw);
+    const transcriptIds = [...new Set(input.transcript_revision_ids)];
+    if (transcriptIds.length !== input.transcript_revision_ids.length) throw new ResumeDomainError("invalid_input", "Transcript revisions must be unique");
+    const sources = await this.sources.requireMany(transcriptIds, authority.grant.record_scopes);
+    const sourceByRevision = new Map(sources.map((source) => [source.metadata.revision_id, source]));
+    const snapshot = ResumeTranscriptSnapshotSchema.parse({
+      transcript_version: 1,
+      turns: sources.map((source) => {
+        if (source.source_kind !== "owner_interview") throw new ResumeDomainError("validation_failed", "Transcript extraction accepts owner interview sources only");
+        const turn = InterviewTurnAuditSchema.parse(source.extensions.interview_turn);
+        if (turn.answer === null || turn.follow_up === null) throw new ResumeDomainError("validation_failed", "Transcript extraction requires complete owner and assistant turns");
+        return { source_revision_id: source.metadata.revision_id, occurred_at: turn.occurred_at, assistant: turn.question, owner: turn.answer, follow_up: turn.follow_up.question };
+      }).sort((left, right) => Date.parse(left.occurred_at) - Date.parse(right.occurred_at)),
+    });
+    const currentConfirmed = (await this.store.list("career_fact", authority.grant.record_scopes))
+      .filter((record): record is z.infer<typeof CareerFactRecordSchema> => record.record_type === "career_fact" && record.state === "confirmed")
+      .map((record) => CareerFactRecordSchema.parse(record));
+    const transcriptBlock = {
+      category: "transcript_snapshot" as const,
+      content_digest: canonicalInputDigest(snapshot),
+      schema_id: "resume.transcript-snapshot.v1",
+      schema_version: 1,
+      data: snapshot,
+    };
+    const factBlock = {
+      category: "confirmed_fact_snapshot" as const,
+      content_digest: canonicalInputDigest(currentConfirmed),
+      schema_id: "resume.confirmed-facts.v1",
+      schema_version: 1,
+      data: { facts: currentConfirmed.map((fact) => ({ revision_id: fact.metadata.revision_id, fact_kind: fact.fact_kind, value: fact.value, source_revision_ids: fact.source_revision_ids })) },
+    };
+    const timestamp = this.now().toISOString();
+    const dispositions: Array<{ proposal_id: string; status: "committed" | "duplicate" | "rejected"; reason: string | null }> = [];
+    const accepted = new Map<string, { record: z.infer<typeof CareerFactRecordSchema>; proposal: z.infer<typeof ResumeTranscriptExtractionResultSchema>["proposals"][number] }>();
+    const resolvedEmployment = new Map<string, string>();
+    const proposals = [...input.extraction.proposals].sort((left, right) => Number(left.fact_kind !== "employment") - Number(right.fact_kind !== "employment"));
+
+    for (const proposal of proposals) {
+      const citationsValid = proposal.citations.every((citation) => sourceByRevision.has(citation.source_revision_id));
+      const report = citationsValid ? validateInferenceClaims("resume_transcript_extract", { extraction_version: 1, proposals: [proposal], gaps: [] }, [factBlock, transcriptBlock]) : null;
+      if (!report?.accepted) {
+        dispositions.push({ proposal_id: proposal.proposal_id, status: "rejected", reason: "ungrounded_or_invalid" });
+        continue;
+      }
+      let value: string;
+      let associationRevisionId: string | null = null;
+      if (proposal.fact_kind === "employment") {
+        value = JSON.stringify({ format: "resume_job_v1", ...proposal.employment });
+      } else if (proposal.fact_kind === "accomplishment" || proposal.fact_kind === "job_evidence") {
+        associationRevisionId = proposal.employment_proposal_id
+          ? resolvedEmployment.get(proposal.employment_proposal_id) ?? null
+          : proposal.existing_job_fact_revision_id;
+        const associated = currentConfirmed.find((fact) => fact.metadata.revision_id === associationRevisionId)
+          ?? [...accepted.values()].find(({ record }) => record.metadata.revision_id === associationRevisionId)?.record;
+        if (!associated || associated.fact_kind !== "employment") {
+          dispositions.push({ proposal_id: proposal.proposal_id, status: "rejected", reason: "ambiguous_or_missing_employment_association" });
+          continue;
+        }
+        value = proposal.fact_kind === "accomplishment"
+          ? JSON.stringify({ format: "resume_accomplishment_v1", job_fact_revision_id: associationRevisionId, text: proposal.text })
+          : JSON.stringify({ value_version: 1, association: "job", job_fact_revision_id: associationRevisionId, dimension: proposal.dimension, outcome: "answered", owner_text: proposal.text });
+      } else if ("value" in proposal) value = proposal.value;
+      else {
+        dispositions.push({ proposal_id: proposal.proposal_id, status: "rejected", reason: "invalid_fact_shape" });
+        continue;
+      }
+
+      const acceptedFacts = [...accepted.values()].map(({ record }) => record);
+      const batchDuplicate = acceptedFacts.find((fact) => fact.fact_kind === proposal.fact_kind && normalizeExtractedFactValue(fact.value) === normalizeExtractedFactValue(value));
+      if (batchDuplicate) {
+        if (proposal.fact_kind === "employment") resolvedEmployment.set(proposal.proposal_id, batchDuplicate.metadata.revision_id);
+        dispositions.push({ proposal_id: proposal.proposal_id, status: "duplicate", reason: null });
+        continue;
+      }
+      const proposedEmployment = proposal.fact_kind === "employment" ? extractedEmploymentIdentity(value) : null;
+      const batchEmploymentConflict = proposedEmployment && acceptedFacts.some((fact) => {
+        if (fact.fact_kind !== "employment") return false;
+        const existing = extractedEmploymentIdentity(fact.value);
+        return existing !== null && existing.employer === proposedEmployment.employer && (
+          existing.title !== proposedEmployment.title || existing.startDate !== proposedEmployment.startDate || existing.endDate !== proposedEmployment.endDate
+        );
+      });
+      if (batchEmploymentConflict) {
+        dispositions.push({ proposal_id: proposal.proposal_id, status: "rejected", reason: "conflicts_with_existing_information" });
+        continue;
+      }
+
+      const classification = await this.facts.classify(proposal.fact_kind, value, authority.grant.record_scopes);
+      if (classification.kind === "duplicate") {
+        const duplicate = currentConfirmed.find((fact) => classification.related_fact_revision_ids.includes(fact.metadata.revision_id));
+        if (proposal.fact_kind === "employment" && duplicate) resolvedEmployment.set(proposal.proposal_id, duplicate.metadata.revision_id);
+        dispositions.push({ proposal_id: proposal.proposal_id, status: "duplicate", reason: null });
+        continue;
+      }
+      if (classification.kind === "conflict") {
+        dispositions.push({ proposal_id: proposal.proposal_id, status: "rejected", reason: "conflicts_with_existing_information" });
+        continue;
+      }
+      const sourceRevisionIds = [...new Set(proposal.citations.map((citation) => citation.source_revision_id))];
+      const sensitivity = this.maxSensitivity(sourceRevisionIds.map((revisionId) => sourceByRevision.get(revisionId)!.sensitivity));
+      const recordId = randomUUID();
+      const revisionId = randomUUID();
+      const proof = OwnerConfirmationProofSchema.parse({
+        confirmation_id: randomUUID(), owner_id: authority.grant.owner_id, actor_id: authority.grant.actor_id,
+        host_mediated: true, decision: "accept", confirmed_at: timestamp, operation_id: authority.operationId,
+        input_revision_id: sourceRevisionIds[0],
+      });
+      const record = CareerFactRecordSchema.parse({
+        ...this.envelope("career_fact", recordId, revisionId, 1, null, sensitivity, "durable_owner_data", authority, timestamp),
+        fact_kind: proposal.fact_kind, state: "confirmed", value, source_revision_ids: sourceRevisionIds,
+        confirmation: proof, supersedes_fact_revision_id: null,
+        review: { reviewed_at: timestamp, review_note: "Extracted from the owner's durable Resume Builder transcript after explicit completion intent" },
+        extensions: { extraction_proposal_id: proposal.proposal_id, extraction_version: 1 },
+      });
+      accepted.set(proposal.proposal_id, { record, proposal });
+      if (proposal.fact_kind === "employment") resolvedEmployment.set(proposal.proposal_id, revisionId);
+      dispositions.push({ proposal_id: proposal.proposal_id, status: "committed", reason: null });
+    }
+    const newRecords = [...accepted.values()].map(({ record }) => record);
+    let reused = false;
+    let committedFacts: z.infer<typeof CareerFactRecordSchema>[] = [];
+    if (newRecords.length > 0) {
+      const result = await this.store.commit(newRecords, this.mutation(authority, input, "transcript_extraction_batch", null, null));
+      reused = result.reused;
+      committedFacts = result.records.map((record) => CareerFactRecordSchema.parse(record));
+    }
+    const rejected = dispositions.filter((disposition) => disposition.status === "rejected");
+    const availableFacts = [...currentConfirmed, ...committedFacts];
+    const hasEmployment = availableFacts.some((fact) => fact.fact_kind === "employment");
+    const hasSupportingEvidence = availableFacts.some((fact) => ["accomplishment", "job_evidence", "project"].includes(fact.fact_kind));
+    const gaps = [...input.extraction.gaps];
+    const followUp = gaps[0]?.question
+      ?? (rejected.some((item) => item.reason === "ambiguous_or_missing_employment_association") ? "Which role and employer should I connect that experience to?" : null)
+      ?? (!hasEmployment ? "What role and employer should anchor your resume?" : null)
+      ?? (!hasSupportingEvidence ? "Before I draft, tell me one exact accomplishment, responsibility, or project result you want included." : null);
+    return { facts: committedFacts, dispositions, gaps, ready: hasEmployment && hasSupportingEvidence && followUp === null, follow_up: followUp, reused };
   }
 
   async writeJobEvidenceCoverage(raw: unknown, authority: DataAuthority): Promise<{

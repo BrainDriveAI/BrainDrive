@@ -32,6 +32,7 @@ const OWNER_ID = "71000000-0000-4000-8000-000000000013";
 const INSTALLATION_ID = "71000000-0000-4000-8000-000000000014";
 const FIXED_TIME = "2026-08-11T12:00:00.000Z";
 const SHA = `sha256:${"a".repeat(64)}`;
+const TRANSCRIPT_ID = "71000000-0000-4000-8000-000000000016";
 
 function envelope(recordType: string, recordId: string, revisionId: string) {
   return {
@@ -43,6 +44,7 @@ function envelope(recordType: string, recordId: string, revisionId: string) {
 
 const outputs: Record<InferencePurpose, unknown> = {
   resume_dialogue: { dialogue_version: 1, assistant_message: "Let’s start with your most recent role, then add earlier roles that strengthen the resume. What was your most recent role?", turn_disposition: "respond_only", fact_operations: [], suggested_action: "none", draft_action: null },
+  resume_transcript_extract: { extraction_version: 1, proposals: [], gaps: [{ gap_id: randomUUID(), kind: "other", question: "What exact resume detail should I include?", source_revision_ids: [TRANSCRIPT_ID] }] },
   interview_assist: { questions: [{ question_id: randomUUID(), job_fact_revision_id: INTERVIEW_JOB_ID, opportunity_id: INTERVIEW_OPPORTUNITY_ID, dimension: "accomplishments", opportunity_kind: "qualitative", value_category: "distinct_accomplishment", selection_method: "deterministic_value", prompt: "What did you build in this role? A qualitative answer is enough.", rationale: "Phrase the selected evidence opportunity." }] },
   general_resume_draft: { title: "Resume", statements: [{ statement_id: randomUUID(), kind: "factual", text: "Built product 20%", supporting_confirmed_fact_revision_ids: [FACT_ID] }], section_order: ["experience"], omissions: [] },
   job_description_analyze: { requirements: [{ requirement_id: randomUUID(), requirement_kind: "required", source_span: "Build products", inferred: false, normalized_requirement: "Build products" }] },
@@ -67,6 +69,16 @@ function dataBlocks(purpose: InferencePurpose) {
   if (purpose === "resume_dialogue") {
     const data = { dialogue_version: 1, messages: [{ role: "assistant", content: "Tell me about your experience." }, { role: "user", content: "Do you mean my last role or all my roles?" }], current_user_message: "Do you mean my last role or all my roles?", requested_mode: "intake" };
     blocks.push({ category: "dialogue_context", content_digest: canonicalInputDigest(data), schema_id: "resume.dialogue-context.v1", schema_version: 1, data });
+  }
+  if (purpose === "resume_transcript_extract") {
+    const data = { transcript_version: 1, turns: [{
+      source_revision_id: TRANSCRIPT_ID,
+      occurred_at: FIXED_TIME,
+      assistant: "Tell me about your role.",
+      owner: "I was Product Lead at Acme Labs from 2020 to 2024 and grew revenue by 40 percent.",
+      follow_up: "What would you like to cover next?",
+    }] };
+    blocks.push({ category: "transcript_snapshot", content_digest: canonicalInputDigest(data), schema_id: "resume.transcript-snapshot.v1", schema_version: 1, data });
   }
   if (purpose === "interview_assist") {
     const data = { active_job_fact_revision_id: INTERVIEW_JOB_ID, active_job_revision: 1, requested_opportunity_id: INTERVIEW_OPPORTUNITY_ID, requested_dimension: "accomplishments", opportunity_kind: "qualitative", value_category: "distinct_accomplishment", dimensions: [] };
@@ -669,6 +681,31 @@ describe("ResumeInferenceBroker", () => {
     expect(model.calls()).toBe(1);
   });
 
+  it("creates a bounded host draft intent for a natural regenerate request", async () => {
+    const current = "Please regenerate my general resume draft now from everything I shared.";
+    const inferenceRequest = dialogueRequestWithoutEmployment(current);
+    const proposed = {
+      dialogue_version: 1,
+      assistant_message: "I can ask the host to prepare that updated draft.",
+      turn_disposition: "respond_only",
+      fact_operations: [],
+      suggested_action: "none",
+      draft_action: null,
+    };
+    const model = adapter(() => JSON.stringify(proposed));
+    const completion = await new ResumeInferenceBroker(async () => provider(model.value)).execute(inferenceRequest);
+
+    expect(completion.inference).toMatchObject({
+      status: "completed",
+      result: {
+        turn_disposition: "offer_draft",
+        suggested_action: "create_draft",
+        draft_action: { action: "create_general_draft", intent: "explicit_request", source_quote: current },
+      },
+    });
+    expect(completion.validation?.accepted).toBe(true);
+  });
+
   it("disposes a rejected host-action claim without dropping grounded facts or retrying the provider", async () => {
     const current = "I use Tableau.";
     const operation = {
@@ -813,6 +850,119 @@ describe("ResumeInferenceBroker", () => {
     });
     expect(completion.validation?.accepted).toBe(true);
     expect(events.at(-1)?.details).toMatchObject({ repair: "deterministic_dialogue_structure_filter" });
+  });
+
+  it("preserves grounded transcript extraction while dropping an ungrounded proposal", async () => {
+    const employment = {
+      proposal_id: randomUUID(),
+      fact_kind: "employment",
+      employment: { title: "Product Lead", employer: "Acme Labs", location: null, start_date: "2020", end_date: "2024", responsibilities: null },
+      citations: [{ source_revision_id: TRANSCRIPT_ID, quote: "Product Lead at Acme Labs from 2020 to 2024" }],
+    };
+    const result = {
+      extraction_version: 1,
+      proposals: [
+        employment,
+        { proposal_id: randomUUID(), fact_kind: "skill", value: "Kubernetes", citations: [{ source_revision_id: TRANSCRIPT_ID, quote: "grew revenue by 40 percent" }] },
+      ],
+      gaps: [],
+    };
+    const model = adapter(() => JSON.stringify(result));
+    const events: Array<{ event: string; details: Record<string, unknown> }> = [];
+    const completion = await new ResumeInferenceBroker(async () => provider(model.value), (event, details) => events.push({ event, details }))
+      .execute(request("resume_transcript_extract"));
+
+    expect(completion.inference).toMatchObject({ status: "completed", attempt_count: 2, result: { proposals: [employment], gaps: [] } });
+    expect(completion.validation?.accepted).toBe(true);
+    expect(model.calls()).toBe(2);
+    expect(events.at(-1)?.details).toMatchObject({ repair: "deterministic_transcript_extraction_filter" });
+    expect(model.captured[1]?.system).toContain("transcript-extraction validation repair");
+    expect(model.captured[1]?.system).toContain("complete transcript");
+  });
+
+  it("repairs paraphrased transcript evidence without losing grounded proposals", async () => {
+    const employmentId = randomUUID();
+    const exactEmployment = {
+      proposal_id: employmentId,
+      fact_kind: "employment",
+      employment: { title: "Product Lead", employer: "Acme Labs", location: null, start_date: "2020", end_date: "2024", responsibilities: null },
+      citations: [{ source_revision_id: TRANSCRIPT_ID, quote: "Product Lead at Acme Labs from 2020 to 2024" }],
+    };
+    const paraphrasedEvidence = {
+      proposal_id: randomUUID(), fact_kind: "job_evidence", text: "Increased revenue forty percent", dimension: "outcomes",
+      employment_proposal_id: employmentId, existing_job_fact_revision_id: null,
+      citations: [{ source_revision_id: TRANSCRIPT_ID, quote: "grew revenue by 40 percent" }],
+    };
+    const exactEvidence = { ...paraphrasedEvidence, text: "grew revenue by 40 percent" };
+    const first = { extraction_version: 1, proposals: [exactEmployment, paraphrasedEvidence], gaps: [] };
+    const second = { extraction_version: 1, proposals: [exactEmployment, exactEvidence], gaps: [] };
+    const model = adapter((_input, call) => JSON.stringify(call === 1 ? first : second));
+    const events: Array<{ event: string; details: Record<string, unknown> }> = [];
+    const completion = await new ResumeInferenceBroker(async () => provider(model.value), (event, details) => events.push({ event, details }))
+      .execute(request("resume_transcript_extract"));
+
+    expect(completion.inference).toMatchObject({
+      status: "completed",
+      attempt_count: 2,
+      result: { proposals: [exactEmployment, exactEvidence], gaps: [] },
+    });
+    expect(completion.validation?.accepted).toBe(true);
+    expect(model.calls()).toBe(2);
+    expect(events.at(-1)?.details).toMatchObject({
+      repair: "provider_validation_repair",
+      proposal_count: 2,
+      proposal_kind_counts: { employment: 1, job_evidence: 1 },
+      gap_count: 0,
+    });
+  });
+
+  it("preserves grounded extraction when another proposal is structurally malformed", async () => {
+    const employment = {
+      proposal_id: randomUUID(),
+      fact_kind: "employment",
+      employment: { title: "Product Lead", employer: "Acme Labs", location: null, start_date: "2020", end_date: "2024", responsibilities: null },
+      citations: [{ source_revision_id: TRANSCRIPT_ID, quote: "Product Lead at Acme Labs from 2020 to 2024" }],
+    };
+    const model = adapter(() => JSON.stringify({
+      extraction_version: 1,
+      proposals: [employment, { proposal_id: randomUUID(), fact_kind: "job_evidence", text: "grew revenue", citations: [] }],
+      gaps: [],
+    }));
+    const events: Array<{ event: string; details: Record<string, unknown> }> = [];
+    const completion = await new ResumeInferenceBroker(async () => provider(model.value), (event, details) => events.push({ event, details }))
+      .execute(request("resume_transcript_extract"));
+
+    expect(completion.inference).toMatchObject({ status: "completed", attempt_count: 1, result: { proposals: [employment], gaps: [] } });
+    expect(completion.validation?.accepted).toBe(true);
+    expect(model.calls()).toBe(1);
+    expect(events.at(-1)?.details).toMatchObject({ repair: "deterministic_transcript_extraction_structure_filter" });
+  });
+
+  it("repairs an all-invalid structural extraction instead of completing an empty batch", async () => {
+    const employmentId = randomUUID();
+    const employment = {
+      proposal_id: employmentId,
+      fact_kind: "employment",
+      employment: { title: "Product Lead", employer: "Acme Labs", location: null, start_date: "2020", end_date: "2024", responsibilities: null },
+      citations: [{ source_revision_id: TRANSCRIPT_ID, quote: "Product Lead at Acme Labs from 2020 to 2024" }],
+    };
+    const evidence = {
+      proposal_id: randomUUID(), fact_kind: "job_evidence", text: "grew revenue by 40 percent", dimension: "outcomes",
+      employment_proposal_id: employmentId, existing_job_fact_revision_id: null,
+      citations: [{ source_revision_id: TRANSCRIPT_ID, quote: "grew revenue by 40 percent" }],
+    };
+    const model = adapter((_input, call) => JSON.stringify(call === 1
+      ? { extraction_version: 1, proposals: [{ fact_kind: "job_evidence", citations: [] }], gaps: [] }
+      : { extraction_version: 1, proposals: [employment, evidence], gaps: [] }));
+    const completion = await new ResumeInferenceBroker(async () => provider(model.value)).execute(request("resume_transcript_extract"));
+
+    expect(completion.inference).toMatchObject({
+      status: "completed",
+      attempt_count: 2,
+      result: { proposals: [employment, evidence], gaps: [] },
+    });
+    expect(completion.validation?.accepted).toBe(true);
+    expect(model.calls()).toBe(2);
   });
 
   it("uses fact-only deterministic repair when structural repair consumes the second provider call", async () => {

@@ -23,12 +23,7 @@ import ResumeBuilderConversation, {
 } from "./ResumeBuilderConversation";
 import ResumeReviewRail from "./ResumeReviewRail";
 import {
-  evaluateResumeDraftReadiness,
-  employmentCandidatesFromInterviewTurns,
-  employmentIdentityKey,
   parseResumeDialogueCommitPayload,
-  resumeDialogueFactValue,
-  resumeDialogueSensitivity,
 } from "./resume-dialogue-mediation";
 
 const EMPTY_RESUME_CONVERSATION: ResumeConversationState = {
@@ -366,15 +361,12 @@ export default function SandboxedAppFrame({
           : null;
         if (!pending || !payload || payload.messageId !== pending.messageId) throw new Error("message_schema_invalid");
         const occurredAt = new Date().toISOString();
-        const maximumSensitivity = payload.factOperations.some((operation) => resumeDialogueSensitivity(operation) === "sensitive")
-          ? "sensitive"
-          : "standard";
         const turn = {
           transcript_version: 1,
           turn_id: secureRandomUuid(),
           session_id: resumeDialogueSessionRef.current,
           prompt_version: "resume-dialogue-1",
-          topic: "model_dialogue",
+          topic: payload.draftAction ? "model_dialogue_completion" : "model_dialogue",
           question: pending.precedingAssistantMessage,
           answer: pending.ownerMessage,
           follow_up: {
@@ -388,104 +380,39 @@ export default function SandboxedAppFrame({
         const recorded = await callAppCapability(appKey, "resume.definitions.write", {
           kind: "interview_turn",
           turn,
-          sensitivity: maximumSensitivity,
+          sensitivity: "sensitive",
           linked_confirmed_fact_revision_id: null,
         }, secureRandomUuid(), false);
         const sourceRevisionId = (recorded.result as { turn?: { metadata?: { revision_id?: unknown } } }).turn?.metadata?.revision_id;
         if (typeof sourceRevisionId !== "string") throw new Error("recoverable_internal_failure");
-        const proposals: Array<{ fact: { metadata: { record_id: string; revision_id: string; revision: number } } }> = [];
-        for (const operation of payload.factOperations) {
-          const value = resumeDialogueFactValue(operation);
-          const duplicate = resumeConversationRef.current.reviewFacts.some((fact) => fact.kind === operation.fact_kind && fact.storedValue === value);
-          if (duplicate) continue;
-          const supportingSourceRevisionIds = operation.fact_kind === "employment" ? operation.supporting_source_revision_ids ?? [] : [];
-          const proposed = await callAppCapability(appKey, "career.facts.propose", {
-            source_revision_ids: [...new Set([sourceRevisionId, ...supportingSourceRevisionIds])],
-            fact: {
-              fact_kind: operation.fact_kind,
-              state: "suggested",
-              value,
-              sensitivity: resumeDialogueSensitivity(operation),
-            },
-          }, secureRandomUuid(), false);
-          const fact = (proposed.result as { fact?: { metadata?: { record_id?: unknown; revision_id?: unknown; revision?: unknown } } }).fact;
-          if (typeof fact?.metadata?.record_id !== "string" || typeof fact.metadata.revision_id !== "string" || typeof fact.metadata.revision !== "number") {
-            throw new Error("recoverable_internal_failure");
-          }
-          proposals.push({ fact: { metadata: { record_id: fact.metadata.record_id, revision_id: fact.metadata.revision_id, revision: fact.metadata.revision } } });
-        }
-        let facts: unknown[] = [];
-        if (proposals.length > 0) {
-          const decisions = proposals.map(({ fact }) => ({
-            fact_record_id: fact.metadata.record_id,
-            fact_revision_id: fact.metadata.revision_id,
-            expected_revision: fact.metadata.revision,
-            decision: "accept",
-            edited_value: null,
-            review_note: "Captured from the owner's Resume Builder conversation",
-          }));
-          const confirmed = await callAppCapability(appKey, "career.facts.confirm", { decisions }, secureRandomUuid(), true);
-          facts = Array.isArray((confirmed.result as { facts?: unknown[] }).facts) ? (confirmed.result as { facts: unknown[] }).facts : [];
-        }
-        const draftReadiness = payload.draftAction
-          ? evaluateResumeDraftReadiness(employmentRevisionIds, resumeConversationRef.current.reviewFacts)
-          : null;
         pendingResumeDialogueRef.current = null;
         return {
           committed: true,
           source_revision_id: sourceRevisionId,
-          facts,
           draft_action: payload.draftAction
-            ? draftReadiness?.ready
-              ? { accepted: true, action: payload.draftAction.action, intent: payload.draftAction.intent }
-              : { accepted: false, reason: draftReadiness?.reason, message: draftReadiness?.message }
+            ? { accepted: true, action: payload.draftAction.action, intent: payload.draftAction.intent }
             : null,
         };
       }
-      if (message.type === "chat.employment.reconcile" && appId === "ai.braindrive.resume-builder") {
-        const [workspaceResult, factsResult] = await Promise.all([
-          callAppCapability(appKey, "resume.definitions.read", { view: "workspace" }, secureRandomUuid(), false),
-          callAppCapability(appKey, "career.facts.read", {}, secureRandomUuid(), false),
-        ]);
-        const currentFacts = Array.isArray(factsResult.result) ? factsResult.result as Array<{ fact_kind?: unknown; state?: unknown; value?: unknown }> : [];
+      if (message.type === "chat.transcript.extract" && appId === "ai.braindrive.resume-builder") {
+        const extraction = message.payload?.extraction;
+        if (!extraction || typeof extraction !== "object" || Array.isArray(extraction)) throw new Error("message_schema_invalid");
+        const workspaceResult = await callAppCapability(appKey, "resume.definitions.read", { view: "workspace" }, secureRandomUuid(), false);
         const workspace = workspaceResult.result as { interview_turns?: unknown };
-        const candidates = employmentCandidatesFromInterviewTurns(workspace?.interview_turns);
-        if (candidates.length === 0) return { committed: false, reason: "insufficient_grounding", facts: [] };
-        const knownIdentities = new Set(currentFacts
-          .filter((fact) => fact.fact_kind === "employment" && fact.state === "confirmed")
-          .flatMap((fact) => {
-            const key = employmentIdentityKey(fact.value);
-            return key ? [key] : [];
-          }));
-        const committedFacts: unknown[] = [];
-        for (const candidate of candidates) {
-          const operation = { operation: "capture" as const, fact_kind: "employment" as const, source_quote: candidate.sourceQuote, employment: candidate.employment };
-          const value = resumeDialogueFactValue(operation);
-          const identity = employmentIdentityKey(value);
-          if (!identity || knownIdentities.has(identity)) continue;
-          const proposed = await callAppCapability(appKey, "career.facts.propose", {
-            source_revision_ids: candidate.sourceRevisionIds,
-            fact: { fact_kind: "employment", state: "suggested", value, sensitivity: "standard" },
-          }, secureRandomUuid(), false);
-          const fact = (proposed.result as { fact?: { metadata?: { record_id?: unknown; revision_id?: unknown; revision?: unknown } } }).fact;
-          if (typeof fact?.metadata?.record_id !== "string" || typeof fact.metadata.revision_id !== "string" || typeof fact.metadata.revision !== "number") throw new Error("recoverable_internal_failure");
-          const confirmed = await callAppCapability(appKey, "career.facts.confirm", {
-            decisions: [{
-              fact_record_id: fact.metadata.record_id,
-              fact_revision_id: fact.metadata.revision_id,
-              expected_revision: fact.metadata.revision,
-              decision: "accept",
-              edited_value: null,
-              review_note: "Reconciled from exact owner-stated role and employer details in the Resume Builder conversation",
-            }],
-          }, secureRandomUuid(), true);
-          const confirmedFacts = Array.isArray((confirmed.result as { facts?: unknown[] }).facts) ? (confirmed.result as { facts: unknown[] }).facts : [];
-          committedFacts.push(...confirmedFacts);
-          knownIdentities.add(identity);
-        }
-        return committedFacts.length > 0
-          ? { committed: true, facts: committedFacts }
-          : { committed: false, reason: "no_new_grounded_employment", facts: [] };
+        const transcriptRevisionIds = Array.isArray(workspace.interview_turns) ? workspace.interview_turns.flatMap((record) => {
+          if (!record || typeof record !== "object" || Array.isArray(record)) return [];
+          const candidate = record as { metadata?: { revision_id?: unknown }; extensions?: { interview_turn?: { session_id?: unknown } } };
+          return (candidate.extensions?.interview_turn?.session_id === resumeDialogueSessionRef.current || (candidate.extensions?.interview_turn as { prompt_version?: unknown } | undefined)?.prompt_version === "resume-dialogue-1") && typeof candidate.metadata?.revision_id === "string"
+            ? [candidate.metadata.revision_id]
+            : [];
+        }) : [];
+        if (transcriptRevisionIds.length === 0) throw new Error("recoverable_internal_failure");
+        const confirmed = await callAppCapability(appKey, "career.facts.confirm", {
+          kind: "transcript_extraction_batch",
+          extraction,
+          transcript_revision_ids: transcriptRevisionIds,
+        }, secureRandomUuid(), true);
+        return confirmed.result;
       }
       if (message.type === "career.return" && appId !== "ai.braindrive.resume-builder") throw new Error("career_return_requires_trusted_app_adapter");
       if (message.type === "host.action") {

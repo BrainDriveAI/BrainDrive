@@ -137,6 +137,26 @@ describe("deterministic claim gate", () => {
     }, dialogueBlocks).accepted).toBe(false);
   });
 
+  it("accepts only exact owner-cited transcript extraction fields and associations", () => {
+    const sourceRevisionId = randomUUID();
+    const transcript = { transcript_version: 1, turns: [{
+      source_revision_id: sourceRevisionId, occurred_at: "2026-08-15T12:00:00.000Z",
+      assistant: "Tell me about your role.", owner: "I was Director at Northwind from 2020 to 2024 and grew revenue by 40 percent.", follow_up: "Anything else?",
+    }] };
+    const data = { facts: [] };
+    const extractionBlocks = [
+      { category: "confirmed_fact_snapshot" as const, content_digest: canonicalInputDigest(data), schema_id: "resume.confirmed-facts.v1", schema_version: 1 as const, data },
+      { category: "transcript_snapshot" as const, content_digest: canonicalInputDigest(transcript), schema_id: "resume.transcript-snapshot.v1", schema_version: 1 as const, data: transcript },
+    ];
+    const proposal = {
+      proposal_id: randomUUID(), fact_kind: "employment", employment: { title: "Director", employer: "Northwind", location: null, start_date: "2020", end_date: "2024", responsibilities: null },
+      citations: [{ source_revision_id: sourceRevisionId, quote: "Director at Northwind from 2020 to 2024" }],
+    };
+    expect(validateInferenceClaims("resume_transcript_extract", { extraction_version: 1, proposals: [proposal], gaps: [] }, extractionBlocks).accepted).toBe(true);
+    expect(validateInferenceClaims("resume_transcript_extract", { extraction_version: 1, proposals: [{ ...proposal, employment: { ...proposal.employment, employer: "Contoso" } }], gaps: [] }, extractionBlocks).accepted).toBe(false);
+    expect(validateInferenceClaims("resume_transcript_extract", { extraction_version: 1, proposals: [{ ...proposal, citations: [{ source_revision_id: sourceRevisionId, quote: "Director at Contoso" }] }], gaps: [] }, extractionBlocks).accepted).toBe(false);
+  });
+
   it("rejects non-fact control markers from dialogue capture", () => {
     const current = "Before Acme Ventures, I was VP of Global Sales at Nova Markets from 2008 to 2015.";
     const context = {
