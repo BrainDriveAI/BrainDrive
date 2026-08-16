@@ -195,6 +195,11 @@ describe("sandboxed MCP App frame", () => {
       turn: expect.objectContaining({ turn_id: messageId, prompt_version: "resume-model-led-1", question: "What was your most recent role, and where did you work?", answer: ownerMessage }),
       actions: [expect.objectContaining({ action_id: actionId, action: "create_fact" })],
     }), expect.any(String), false);
+    // The completed turn renders through the native conversation immediately;
+    // it must not wait for a follow-up chat.sync projection from the sandbox.
+    expect(await screen.findByText("That gives us a useful starting point. What kind of work did you lead there?")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Reply in your own words...")).toBeEnabled();
+    expect(screen.queryByText("Thinking…")).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 

@@ -251,6 +251,33 @@ export default function SandboxedAppFrame({
     appId === "ai.braindrive.resume-builder" ? "summary" : "closed",
   );
 
+  // Native chat owns the visible lifecycle. The sandbox may send a later
+  // projection to enrich the review state, but a completed durable turn must
+  // never wait on that second message before the owner sees the reply.
+  const completeVisibleResumeTurn = (messageId: string, assistantMessage: string, sourceRevisionId?: string) => {
+    setResumeConversation((current) => {
+      const pendingId = `pending-${messageId}`;
+      const messages = current.messages.map((item) => item.id === pendingId
+        ? { id: messageId, role: "user" as const, content: item.content, ...(sourceRevisionId ? { sourceRevisionId } : {}) }
+        : item,
+      );
+      const hasOwnerMessage = messages.some((item) => item.id === messageId);
+      const assistantId = `assistant-${messageId}`;
+      const next = {
+        ...current,
+        messages: [
+          ...(hasOwnerMessage ? messages : [...messages, { id: messageId, role: "user" as const, content: pendingResumeDialogueRef.current?.ownerMessage ?? "" }]),
+          ...(!messages.some((item) => item.id === assistantId) ? [{ id: assistantId, role: "assistant" as const, content: assistantMessage }] : []),
+        ],
+        actions: [],
+        busy: false,
+        inputEnabled: true,
+      } satisfies ResumeConversationState;
+      resumeConversationRef.current = next;
+      return next;
+    });
+  };
+
   useEffect(() => {
     if (pendingConfirmation || pendingHostAction) confirmButtonRef.current?.focus();
   }, [pendingConfirmation, pendingHostAction]);
@@ -347,6 +374,7 @@ export default function SandboxedAppFrame({
         }, secureRandomUuid(), false);
         const sourceRevisionId = (recorded.result as { turn?: { metadata?: { revision_id?: unknown } } }).turn?.metadata?.revision_id;
         if (typeof sourceRevisionId !== "string") throw new Error("recoverable_internal_failure");
+        completeVisibleResumeTurn(pending.messageId, assistantMessage, sourceRevisionId);
         pendingResumeDialogueRef.current = null;
         return { committed: true, source_revision_id: sourceRevisionId, assistant_message: assistantMessage };
       }
@@ -395,6 +423,7 @@ export default function SandboxedAppFrame({
         }
         const sourceRevisionId = (recorded.result as { turn?: { metadata?: { revision_id?: unknown } } }).turn?.metadata?.revision_id;
         if (typeof sourceRevisionId !== "string") throw new Error("recoverable_internal_failure");
+        completeVisibleResumeTurn(pending.messageId, payload.assistantMessage, sourceRevisionId);
         pendingResumeDialogueRef.current = null;
         return {
           committed: true,
