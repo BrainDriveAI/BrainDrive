@@ -72,7 +72,7 @@ function explicitEmploymentIdentity(answer: string): { title: string; employer: 
     const title = cleanEmploymentSegment(called[2] ?? "");
     if (title && employer) return { title, employer };
   }
-  const roleAt = /\bi\s+(?:worked|work|was|served)\s+(?:as\s+)?(?:the\s+|an?\s+)?(.+?)\s+(?:at|for|with)\s+(.+?)(?=\s+(?:where|which|when|and\s+i)\b|\s+(?:from\s+)?(?:19|20)\d{2}\b|[.!?]|$)/i.exec(answer);
+  const roleAt = /\bi\s+(?:worked|work|was|served)\s+(?:as\s+)?(?:the\s+|an?\s+)?(?!working\b)([^.!?]{1,80}?)\s+(?:at|for|with)\s+([^.!?]{1,100}?)(?=\s+(?:where|which|when|and\s+i)\b|\s+(?:from\s+)?(?:19|20)\d{2}\b|[.!?]|$)/i.exec(answer);
   if (!roleAt) return null;
   const title = cleanEmploymentSegment(roleAt[1] ?? "");
   const employer = cleanEmployer(roleAt[2] ?? "");

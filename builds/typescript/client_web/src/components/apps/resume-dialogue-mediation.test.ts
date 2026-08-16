@@ -68,6 +68,18 @@ describe("Resume Builder dialogue mediation", () => {
     }])).toBeNull();
   });
 
+  it("does not turn a long aspirational startup description into employment", () => {
+    expect(employmentCandidateFromInterviewTurns([{
+      metadata: { revision_id: crypto.randomUUID() },
+      extensions: {
+        interview_turn: {
+          occurred_at: "2026-08-15T12:00:00.000Z",
+          answer: "I recently sold the company that I was working on which is a startup that I grew from zero to over 10 million revenues and over 100 employees and I'm in the process of starting a new job search and I would like to find a role where I can be the CEO of a new startup somewhere between five and 50 employees and do the same type of growth that I did at my last startup that I just sold",
+        },
+      },
+    }])).toBeNull();
+  });
+
   it("finds each distinct grounded role and ignores an ambiguous role mention", () => {
     const candidates = employmentCandidatesFromInterviewTurns([
       {
