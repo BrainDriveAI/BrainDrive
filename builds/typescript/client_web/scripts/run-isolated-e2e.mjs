@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
-import { chmod, lstat, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { createHash, randomBytes } from "node:crypto";
+import { constants as fsConstants } from "node:fs";
+import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -13,6 +14,7 @@ const taskRoot = await mkdtemp(path.join(os.tmpdir(), "braindrive-e2e-"));
 const memoryRoot = path.join(taskRoot, "memory");
 const secretsRoot = path.join(taskRoot, "secrets");
 const artifactRoot = path.join(taskRoot, "artifacts");
+const retainedEvidenceRoot = process.env.BRAINDRIVE_E2E_RETAIN_EVIDENCE_ROOT?.trim();
 const identifier = "synthetic-e2e-owner";
 const password = "synthetic-e2e-password-26!";
 const mcpPorts = [8911, 8912, 8913];
@@ -26,6 +28,183 @@ const playwrightArgs = process.argv.slice(2).filter((argument) => argument !== "
 
 function sanitized(text) {
   return String(text).replaceAll(taskRoot, "[task-root]");
+}
+
+async function walkFiles(root) {
+  const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+  const files = [];
+  for (const entry of entries) {
+    const entryPath = path.join(root, entry.name);
+    if (entry.isDirectory()) files.push(...await walkFiles(entryPath));
+    else if (entry.isFile()) files.push(entryPath);
+  }
+  return files;
+}
+
+function publicArgument(argument) {
+  if (path.isAbsolute(argument) || /https?:\/\//i.test(argument)) return "[redacted-argument]";
+  if (/bearer|authorization|password|token|secret/i.test(argument)) return "[redacted-argument]";
+  return argument;
+}
+
+function hasExactKeys(value, keys) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    && JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...keys].sort());
+}
+
+function validateBrowserRecoveryManifest(value) {
+  const fail = () => { throw new Error("Refusing malformed or non-content-free browser recovery manifest"); };
+  if (!hasExactKeys(value, [
+    "evidence_contract_version", "fixture_scope", "timing_rows", "guarded_intents", "stale_value",
+    "terminal_rows", "topology_rows", "owner_content_retained", "credentials_tokens_endpoints_private_paths_retained",
+  ])) fail();
+  if (value.evidence_contract_version !== 1 || value.fixture_scope !== "synthetic_browser_recovery_matrix"
+      || value.owner_content_retained !== false || value.credentials_tokens_endpoints_private_paths_retained !== false) fail();
+  const timing = new Map([
+    ["observed_630ms", 2], ["observed_741ms", 2], ["later_in_policy", 7], ["response_loss_after_commit", 1],
+  ]);
+  if (!Array.isArray(value.timing_rows) || value.timing_rows.length !== timing.size) fail();
+  for (const row of value.timing_rows) {
+    if (!hasExactKeys(row, ["id", "writeCalls", "operationReads", "workspaceReads", "status", "sawStillSaving"])
+        || timing.get(row.id) !== row.operationReads || row.writeCalls !== 1 || row.workspaceReads !== 0
+        || row.status !== "saved" || row.sawStillSaving !== true) fail();
+    timing.delete(row.id);
+  }
+  if (timing.size !== 0) fail();
+  const intents = new Set(["submit", "save_answer", "complete_for_now", "pause", "back", "stage:fact_review"]);
+  if (!Array.isArray(value.guarded_intents) || value.guarded_intents.length !== intents.size) fail();
+  for (const row of value.guarded_intents) {
+    if (!hasExactKeys(row, ["intent", "requested", "writes", "transitions", "status"])
+        || !intents.delete(row.intent) || row.requested !== 2 || row.writes !== 1 || row.transitions !== 1 || row.status !== "saved") fail();
+  }
+  if (intents.size !== 0
+      || !hasExactKeys(value.stale_value, ["writeCalls", "distinctOperationIds", "terminalStatus", "terminalRevision"])
+      || value.stale_value.writeCalls !== 2 || value.stale_value.distinctOperationIds !== 2
+      || value.stale_value.terminalStatus !== "saved" || value.stale_value.terminalRevision !== 2
+      || !hasExactKeys(value.terminal_rows, ["denied", "conflict", "cancelled_transition_count", "final_readback"])
+      || value.terminal_rows.denied !== "not_saved" || value.terminal_rows.conflict !== "conflict"
+      || value.terminal_rows.cancelled_transition_count !== 0 || value.terminal_rows.final_readback !== "not_saved"
+      || !hasExactKeys(value.topology_rows, ["teardown_obsolete_transition_count", "reconnectOperationReads", "restoredStatus"])
+      || value.topology_rows.teardown_obsolete_transition_count !== 0 || value.topology_rows.reconnectOperationReads !== 2
+      || value.topology_rows.restoredStatus !== "saved") fail();
+  return value;
+}
+
+function validateBrowserInferenceManifest(value) {
+  const fail = () => { throw new Error("Refusing malformed or non-content-free browser inference manifest"); };
+  if (!hasExactKeys(value, [
+    "evidence_contract_version", "fixture_scope", "accepted_fixtures", "invalid_candidates",
+    "owner_content_retained", "credentials_tokens_endpoints_private_paths_retained",
+  ])) fail();
+  if (value.evidence_contract_version !== 1 || value.fixture_scope !== "synthetic_browser_inference_matrix"
+      || value.owner_content_retained !== false || value.credentials_tokens_endpoints_private_paths_retained !== false) fail();
+  const fixtures = new Map([
+    ["spec-10-dense-synthetic-v1", "sha256:46bb257ce2324228645d48480086cf4d0b6ae9e334a24ac207f82b5f651398e7"],
+    ["spec-10-holdout-synthetic-v1", "sha256:3db0592ed2c1aeaa6bafe546437bc044490a2ca51532c5dcfdce9e9ec2d3a1cd"],
+  ]);
+  if (!Array.isArray(value.accepted_fixtures) || value.accepted_fixtures.length !== fixtures.size) fail();
+  for (const row of value.accepted_fixtures) {
+    if (!hasExactKeys(row, ["fixtureId", "factCount", "jobCount", "statementCount", "status", "approvedCount", "fixtureDigest"])
+        || fixtures.get(row.fixtureId) !== row.fixtureDigest || row.factCount !== 29 || row.jobCount !== 3
+        || row.statementCount !== 29 || row.status !== "proposed" || row.approvedCount !== 0) fail();
+    fixtures.delete(row.fixtureId);
+  }
+  const codes = new Set([
+    "invalid_request", "conflict", "model_incompatible", "protocol_incompatible", "provider_schema_unsupported",
+    "provider_authentication_failed", "provider_authorization_failed", "provider_unavailable", "denied", "quota_exceeded",
+    "rate_limited", "deadline_exceeded", "malformed_structured_output", "incomplete_output", "schema_validation_failed",
+    "validation_failed", "evidence_validation_failed", "content_filtered", "provider_refused", "unexpected_tool_call",
+    "cancelled", "session_closed", "internal_failure", "recoverable_internal_failure",
+  ]);
+  if (fixtures.size !== 0 || !Array.isArray(value.invalid_candidates) || value.invalid_candidates.length !== codes.size) fail();
+  for (const row of value.invalid_candidates) {
+    if (!hasExactKeys(row, ["code", "recovery", "actionLabels", "proposalWrites", "protectedMutationCount"])
+        || !codes.delete(row.code) || typeof row.recovery !== "string" || !Array.isArray(row.actionLabels)
+        || row.proposalWrites !== 0 || row.protectedMutationCount !== 0) fail();
+    if (row.code === "evidence_validation_failed"
+        && JSON.stringify(row.actionLabels) !== JSON.stringify(["Try again", "Review confirmed evidence", "Not now"])) fail();
+  }
+  if (codes.size !== 0) fail();
+  return value;
+}
+
+async function retainSanitizedEvidence(status) {
+  if (!retainedEvidenceRoot) return;
+  if (!path.isAbsolute(retainedEvidenceRoot)) {
+    throw new Error("BRAINDRIVE_E2E_RETAIN_EVIDENCE_ROOT must be an absolute task-owned path");
+  }
+  const resolvedEvidenceRoot = path.resolve(retainedEvidenceRoot);
+  if (resolvedEvidenceRoot === taskRoot || resolvedEvidenceRoot.startsWith(`${taskRoot}${path.sep}`)) {
+    throw new Error("Retained E2E evidence must be outside the disposable task root");
+  }
+
+  const allowedScreenshots = new Set([
+    "resume-builder-owner-review.png",
+    "resume-builder-career-preview.png",
+    "resume-builder-version-comparison.png",
+  ]);
+  const artifactFiles = (await walkFiles(artifactRoot)).sort();
+  const screenshotRoot = path.join(resolvedEvidenceRoot, "screenshots");
+  await mkdir(screenshotRoot, { recursive: true, mode: 0o700 });
+  const retainedScreenshots = [];
+  for (const sourcePath of artifactFiles) {
+    const name = path.basename(sourcePath);
+    if (!allowedScreenshots.has(name)) continue;
+    if (retainedScreenshots.some((entry) => entry.name === name)) {
+      throw new Error(`Refusing ambiguous retained E2E screenshot name: ${name}`);
+    }
+    const content = await readFile(sourcePath);
+    await copyFile(sourcePath, path.join(screenshotRoot, name), fsConstants.COPYFILE_EXCL);
+    retainedScreenshots.push({
+      name,
+      bytes: content.byteLength,
+      sha256: createHash("sha256").update(content).digest("hex"),
+    });
+  }
+
+  const retainedManifests = [];
+  const manifestContracts = new Map([
+    ["spec10-browser-recovery-matrix.json", validateBrowserRecoveryManifest],
+    ["spec10-browser-inference-matrix.json", validateBrowserInferenceManifest],
+  ]);
+  for (const [manifestName, validateManifest] of manifestContracts) {
+    const manifestSources = artifactFiles.filter((sourcePath) => path.basename(sourcePath) === manifestName);
+    if (manifestSources.length > 1) throw new Error(`Refusing ambiguous retained E2E manifest name: ${manifestName}`);
+    if (manifestSources.length === 0) continue;
+    const content = await readFile(manifestSources[0]);
+    if (content.byteLength > 32_768) throw new Error(`Refusing oversized browser manifest: ${manifestName}`);
+    validateManifest(JSON.parse(content.toString("utf8")));
+    const manifestRoot = path.join(resolvedEvidenceRoot, "manifests");
+    await mkdir(manifestRoot, { recursive: true, mode: 0o700 });
+    await copyFile(manifestSources[0], path.join(manifestRoot, manifestName), fsConstants.COPYFILE_EXCL);
+    retainedManifests.push({
+      name: manifestName,
+      bytes: content.byteLength,
+      sha256: createHash("sha256").update(content).digest("hex"),
+    });
+  }
+
+  const browserRun = {
+    evidence_contract_version: 1,
+    framework: "Playwright",
+    status,
+    selection: playwrightArgs.map(publicArgument),
+    screenshots: retainedScreenshots,
+    manifests: retainedManifests,
+    raw_playwright_trace_retained: false,
+    raw_trace_reason: "Raw trace archives may contain credentials, loopback endpoints, and private temporary paths.",
+    sanitization: {
+      synthetic_fixture_only: true,
+      allowlisted_screenshots_only: true,
+      strict_content_free_manifests_only: true,
+      credentials_tokens_endpoints_private_paths_retained: false,
+    },
+  };
+  await writeFile(
+    path.join(resolvedEvidenceRoot, "sanitized-browser-run.json"),
+    `${JSON.stringify(browserRun, null, 2)}\n`,
+    { encoding: "utf8", flag: "wx", mode: 0o600 },
+  );
 }
 
 function spawnProcess(command, args, options = {}) {
@@ -357,13 +536,16 @@ async function main() {
   });
 }
 
+let runStatus = "failed";
 try {
   await main();
+  runStatus = "passed";
 } catch (error) {
   process.stderr.write(`${sanitized(error instanceof Error ? error.message : error)}\n`);
   process.exitCode = 1;
 } finally {
   try {
+    await retainSanitizedEvidence(runStatus);
     await cleanup();
   } catch (error) {
     process.stderr.write(`${sanitized(error instanceof Error ? error.message : error)}\n`);

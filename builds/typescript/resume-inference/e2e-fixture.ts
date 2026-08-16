@@ -43,8 +43,8 @@ function structuredFact<T extends StructuredJob | StructuredAccomplishment | Str
   }
 }
 
-function statement(sectionId: string, text: string, supportingIds: string[]) {
-  return { statement_id: randomUUID(), section_id: sectionId, kind: "factual", text, supporting_confirmed_fact_revision_ids: supportingIds };
+function statement(sectionId: string, text: string, supportingIds: string[], displayRole?: "heading" | "bullet" | "line") {
+  return { statement_id: randomUUID(), section_id: sectionId, kind: "factual", ...(displayRole ? { display_role: displayRole } : {}), text, supporting_confirmed_fact_revision_ids: supportingIds };
 }
 
 export function synthesizeResumeE2eResult(purpose: InferencePurpose, blocks: DataBlock[]): unknown {
@@ -77,13 +77,13 @@ export function synthesizeResumeE2eResult(purpose: InferencePurpose, blocks: Dat
         const jobEvidence = fact.fact_kind === "job_evidence" ? structuredFact<StructuredJobEvidence>(fact) : null;
         if (job?.format === "resume_job_v1") {
           const heading = [job.title, job.employer, job.location, [job.start_date, job.end_date].filter(Boolean).join(" - ")].filter(Boolean).join(" | ");
-          statements.push(statement("experience", heading, [fact.revision_id]));
-          if (job.responsibilities) statements.push(statement("experience", job.responsibilities, [fact.revision_id]));
+          statements.push(statement("experience", heading, [fact.revision_id], "heading"));
+          if (job.responsibilities) statements.push(statement("experience", job.responsibilities, [fact.revision_id], "bullet"));
         } else if (accomplishment?.format === "resume_accomplishment_v1") {
-          statements.push(statement("experience", accomplishment.text, [fact.revision_id]));
+          statements.push(statement("experience", accomplishment.text, [fact.revision_id], "bullet"));
         } else if (jobEvidence?.value_version === 1) {
           if (jobEvidence.outcome !== "answered") continue;
-          statements.push(statement(jobEvidence.association === "general" ? "skills" : "experience", jobEvidence.owner_text, [fact.revision_id]));
+          statements.push(statement(jobEvidence.association === "general" ? "skills" : "experience", jobEvidence.owner_text, [fact.revision_id], jobEvidence.association === "job" ? "bullet" : "line"));
         } else {
           statements.push(statement(sectionForFact(fact) ?? "experience", fact.value, [fact.revision_id]));
         }
@@ -200,7 +200,9 @@ export function synthesizeResumeE2eResult(purpose: InferencePurpose, blocks: Dat
     case "resume_craft_repair": {
       const definition = blockData<{ metadata: { revision_id: string }; title: string; statements: Array<{ statement_id: string } & Record<string, unknown>>; section_order: string[] }>(blocks, "general_resume_definition");
       const report = blockData<{ metadata: { revision_id: string }; findings?: Array<{ severity?: string; statement_id?: string | null }> }>(blocks, "craft_quality_report");
-      const namedId = report.findings?.find((finding) => finding.severity === "blocking" && finding.statement_id)?.statement_id;
+      const repairScope = blockData<{ statement_scope_ids?: string[] }>(blocks, "craft_repair_scope");
+      const namedId = repairScope.statement_scope_ids?.[0]
+        ?? report.findings?.find((finding) => finding.severity === "blocking" && finding.statement_id)?.statement_id;
       const changed = definition.statements.find((item) => item.statement_id === namedId) ?? definition.statements[0];
       if (!changed) throw new Error("Synthetic craft repair fixture requires one source statement");
       const statements = definition.statements.map((item) => item.statement_id === changed.statement_id
@@ -209,6 +211,61 @@ export function synthesizeResumeE2eResult(purpose: InferencePurpose, blocks: Dat
       return { repair_version: 1, source_definition_revision_id: definition.metadata.revision_id, source_report_revision_id: report.metadata.revision_id, changed_statement_ids: [changed.statement_id], title: definition.title, statements, section_order: definition.section_order };
     }
   }
+}
+
+export function structureResumeE2eProviderResult(purpose: InferencePurpose, result: unknown, blocks: DataBlock[]): unknown {
+  if (purpose !== "general_resume_draft" || !result || typeof result !== "object" || Array.isArray(result)) return result;
+  const value = result as Record<string, unknown>;
+  const facts = blockData<{ facts: ConfirmedFact[] }>(blocks, "confirmed_fact_snapshot").facts;
+  const jobs = facts.flatMap((fact) => {
+    const parsed = fact.fact_kind === "employment" ? structuredFact<StructuredJob>(fact) : null;
+    return parsed?.format === "resume_job_v1" ? [fact.revision_id] : [];
+  }).sort();
+  const evidenceJob = new Map(facts.flatMap((fact) => {
+    if (fact.fact_kind === "accomplishment") {
+      const parsed = structuredFact<StructuredAccomplishment>(fact);
+      if (parsed?.format === "resume_accomplishment_v1" && parsed.job_fact_revision_id) return [[fact.revision_id, parsed.job_fact_revision_id] as const];
+    }
+    const parsed = fact.fact_kind === "job_evidence" ? structuredFact<StructuredJobEvidence>(fact) : null;
+    return parsed?.value_version === 1 && parsed.association === "job" && parsed.outcome === "answered" && parsed.job_fact_revision_id
+      ? [[fact.revision_id, parsed.job_fact_revision_id] as const]
+      : [];
+  }));
+  for (const jobId of jobs) evidenceJob.set(jobId, jobId);
+  const headings = new Map<string, Record<string, unknown>>();
+  const bullets = new Map(jobs.map((jobId) => [jobId, [] as Record<string, unknown>[]]));
+  const baseStatements: unknown[] = [];
+  for (const candidate of Array.isArray(value.statements) ? value.statements : []) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    const statement = candidate as Record<string, unknown>;
+    if (statement.section_id !== "experience") {
+      baseStatements.push(candidate);
+      continue;
+    }
+    const support = Array.isArray(statement.supporting_confirmed_fact_revision_ids) ? statement.supporting_confirmed_fact_revision_ids : [];
+    const associatedJobs = [...new Set(support.flatMap((id) => typeof id === "string" && evidenceJob.has(id) ? [evidenceJob.get(id)!] : []))];
+    const jobId = associatedJobs.length === 1 ? associatedJobs[0] : undefined;
+    if (!jobId || !bullets.has(jobId)) {
+      baseStatements.push(candidate);
+      continue;
+    }
+    if (statement.display_role === "heading") headings.set(jobId, statement);
+    else bullets.get(jobId)!.push({ ...statement, display_role: "bullet" });
+  }
+  const strategy = blocks.find((block) => block.category === "resume_strategy")?.data as { role_emphasis?: Array<{ job_fact_revision_id?: string }> } | undefined;
+  const roleOrder = [...new Set([
+    ...(strategy?.role_emphasis ?? []).flatMap((role) => typeof role.job_fact_revision_id === "string" && jobs.includes(role.job_fact_revision_id) ? [role.job_fact_revision_id] : []),
+    ...jobs,
+  ])];
+  return {
+    ...value,
+    statements: jobs.length > 0 ? baseStatements : value.statements,
+    experience_roles: roleOrder.map((jobId) => ({
+      job_fact_revision_id: jobId,
+      heading_statement: headings.get(jobId),
+      bullet_statements: bullets.get(jobId) ?? [],
+    })),
+  };
 }
 
 function emphasizedFixtureText(value: string): string {
@@ -232,10 +289,31 @@ export function createResumeE2eFixtureProviderResolver(): (purpose: InferencePur
     const adapter: ModelAdapter = {
       async complete() { throw new Error("Synthetic Resume Builder provider cannot enter the agent loop"); },
       async completeStructuredNoTools(request) {
-        const result = synthesizeResumeE2eResult(purpose, parseBlocks(request));
+        const blocks = parseBlocks(request);
+        const result = structureResumeE2eProviderResult(purpose, synthesizeResumeE2eResult(purpose, blocks), blocks);
         return { text: JSON.stringify(result), finishReason: "stop", usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 } };
       },
     };
     return { providerProfileId: "synthetic-resume-e2e", providerId: "synthetic-resume-e2e", modelId: "deterministic-fixture-v1", modelClass: "owner_active_compatible", adapter };
+  };
+}
+
+export function createInstalledResumeE2eFixtureProvider() {
+  return {
+    providerProfileId: "synthetic-resume-e2e",
+    modelId: "deterministic-fixture-v1",
+    adapter: {
+      async completeStructuredNoTools(request: StructuredCompletionRequest) {
+        const envelope = JSON.parse(request.user) as { input?: { purpose?: InferencePurpose; data_blocks?: DataBlock[] } };
+        const purpose = envelope.input?.purpose;
+        if (!purpose) return { text: "{}", finishReason: "stop" as const };
+        const blocks = [...(envelope.input?.data_blocks ?? [])];
+        if ((purpose === "resume_craft_evaluate" || purpose === "resume_craft_repair") && !blocks.some((block) => block.category === "deterministic_findings")) {
+          blocks.push({ category: "deterministic_findings", data: { truth_passed: true, structure_passed: true, mechanical_passed: true } });
+        }
+        const result = synthesizeResumeE2eResult(purpose, blocks);
+        return { text: JSON.stringify(result), finishReason: "stop" as const, usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 } };
+      },
+    },
   };
 }

@@ -147,13 +147,14 @@ describe("OpenAICompatibleAdapter prompt audit", () => {
       sentBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
       authorization = String((init?.headers as Record<string, string> | undefined)?.authorization ?? "");
       return new Response(JSON.stringify({
+        model: "provider-observed-model",
         choices: [{ finish_reason: "stop", message: { content: '{"questions":[]}' } }],
       }), { status: 200, headers: { "content-type": "application/json" } });
     }));
     const adapter = new OpenAICompatibleAdapter({
       base_url: "https://provider.example/v1", model: "test-model", api_key_env: "TEST_API_KEY", provider_id: "test-provider",
     }, { apiKey: "sk-owner-secret" });
-    await adapter.completeStructuredNoTools({
+    const response = await adapter.completeStructuredNoTools({
       system: "Fixed policy", user: "<data>owner input</data>", schemaName: "resume_test",
       schema: { type: "object", properties: { questions: { type: "array" } }, required: ["questions"], additionalProperties: false },
       maxOutputTokens: 128, timeoutMs: 1_000,
@@ -166,6 +167,36 @@ describe("OpenAICompatibleAdapter prompt audit", () => {
     expect(JSON.stringify(sentBody)).not.toContain("sk-owner-secret");
     expect(authorization).toBe("Bearer sk-owner-secret");
     expect(sentBody).toHaveProperty("response_format.json_schema.strict", true);
+    expect(response.modelId).toBe("provider-observed-model");
+  });
+
+  it("supports structured responses without a provider-returned model identity", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      choices: [{ finish_reason: "stop", message: { content: "{}" } }],
+    }), { status: 200, headers: { "content-type": "application/json" } })));
+    const adapter = new OpenAICompatibleAdapter({
+      base_url: "https://provider.example/v1", model: "configured-model", api_key_env: "TEST_API_KEY",
+    });
+    const response = await adapter.completeStructuredNoTools({
+      system: "Fixed policy", user: "synthetic", schemaName: "resume_test",
+      schema: { type: "object", additionalProperties: false }, maxOutputTokens: 128, timeoutMs: 1_000,
+    });
+    expect(response).not.toHaveProperty("modelId");
+  });
+
+  it("omits unsafe provider-returned model identity text", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      model: `unsafe\u0000${"x".repeat(600)}`,
+      choices: [{ finish_reason: "stop", message: { content: "{}" } }],
+    }), { status: 200, headers: { "content-type": "application/json" } })));
+    const adapter = new OpenAICompatibleAdapter({
+      base_url: "https://provider.example/v1", model: "configured-model", api_key_env: "TEST_API_KEY",
+    });
+    const response = await adapter.completeStructuredNoTools({
+      system: "Fixed policy", user: "synthetic", schemaName: "resume_test",
+      schema: { type: "object", additionalProperties: false }, maxOutputTokens: 128, timeoutMs: 1_000,
+    });
+    expect(response).not.toHaveProperty("modelId");
   });
 });
 

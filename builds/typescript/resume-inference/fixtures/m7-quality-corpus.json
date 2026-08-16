@@ -7,14 +7,14 @@
     "quality_standard_digest": "sha256:bf644a25e4587c43acc84a521ae6955b0c950ff8dbd17bafb34cb52b2c65f498",
     "evaluator_contract_digest": "sha256:e46214e2ad153201ac24cbc34556c7364dc434f1f39635b5a0e217db028fe39f",
     "evidence_limited_policy_digest": "sha256:e9cc66749ba6b2a08f15f5e986bda406ffb0a529c9cdaee43a822a8c6922096c",
-    "prompt_policy_digest": "sha256:58762017d1cd33a584cd3a776c5a9dbe331aa9c7d167022ec733819763948037",
+    "prompt_policy_digest": "sha256:90319e14fe09ee68ef86cda89226955e86dbe4140c5af1de60b712386f09c2a7",
     "craft_report_schema_id": "resume.craft-quality-report.v2",
     "craft_report_schema_digest": "sha256:1e28bbcd58e4c1dd67ac5883c77f68db6f1e8255e16e7d99b46464a356537e39"
   },
   "corrective_relations": {
     "frozen_negative": {
       "fixture_id": "synthetic-qgc-general-resume-001",
-      "manifest_digest": "sha256:a3f180a605aa5f6ff1845d1a7c526749a219b985e0769843cdf5a26cda715b38",
+      "manifest_digest": "sha256:5b0ae609c9d315373df9289f5db8f5dafb79f18169b98853820422e9d8813728",
       "semantic_input_digest": "sha256:d65fd24cbb0e2610d0cf3ad3329384493038641076c8e788706b04c97260749f",
       "strategy_digest": "sha256:0b1424bade2ae3ab1560d3da7feb63c18b2be492e019c2aec661a01389aa9eb2",
       "section_order_digest": "sha256:6001c6b9233b54b38929066fcc64a95218c9ba46a8919f939fec969b05065697",

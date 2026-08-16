@@ -12,6 +12,7 @@ import { ResumeDomainError } from "./errors.js";
 import { ResumeDomainService, type DataAuthority } from "./service.js";
 import type { ResumeExportBroker } from "../resume-renderer/export-broker.js";
 import type { HostOwnerDecisionEvidence } from "./career-data.js";
+import { ResumeRecoveryReconciliationQuerySchema } from "../app-capabilities/recovery-reconciliation.js";
 import { FactDecisionInputSchema } from "./career-data.js";
 import { CRAFT_EVIDENCE_LIMITED_POLICY, craftDefinitionDigest } from "../resume-inference/craft-evaluator.js";
 import { adjudicateResumeQualityState, projectResumeOwnerReview } from "./quality-state.js";
@@ -30,7 +31,10 @@ const DefinitionReadInputSchema = z.union([
   z.object({ kind: z.literal("compare_definitions"), left_revision_id: z.string().uuid(), right_revision_id: z.string().uuid(), left_expected_revision: z.number().int().positive().optional(), right_expected_revision: z.number().int().positive().optional() }).strict(),
   z.object({ kind: z.literal("impact_analysis"), source_definition_revision_id: z.string().uuid(), changed_fact_revision_ids: z.array(z.string().uuid()).max(500) }).strict(),
 ]);
-const OperationInputSchema = z.object({ queried_operation_id: z.string().uuid() }).strict();
+const OperationInputSchema = z.union([
+  z.object({ queried_operation_id: z.string().uuid() }).strict(),
+  ResumeRecoveryReconciliationQuerySchema,
+]);
 const InterviewCapabilityInputSchema = z.object({ kind: z.literal("interview_progress"), progress: z.record(z.string(), z.unknown()) }).strict();
 const InterviewTurnCapabilityInputSchema = z.object({
   kind: z.literal("interview_turn"),

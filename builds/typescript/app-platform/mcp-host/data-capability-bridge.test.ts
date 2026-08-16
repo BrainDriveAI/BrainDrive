@@ -5,15 +5,18 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CareerPlacementAdapter } from "../../resume-domain/career.js";
+import { ResumeRecoveryReconciliationAuditDetailsSchema } from "../contracts/audit.js";
 import { canonicalInputDigest } from "../contracts/common.js";
+import {
+  decideResumeRecoveryReconciliation,
+  resumeRecoveryProjectionToReadback,
+  ResumeRecoveryOperationLifecycleProjectionSchema,
+} from "../../app-capabilities/recovery-reconciliation.js";
 import { ResumeCapabilityRouter } from "../../resume-domain/capabilities.js";
 import { ResumeCapabilityPolicy } from "../../resume-domain/capability-policy.js";
 import { ResumeDomainService } from "../../resume-domain/service.js";
 import { ResumeDataStore } from "../../resume-domain/store.js";
 import { authority, ownerDecision, proposalInput } from "../../resume-domain/test-helpers.js";
-import { ResumeInferenceBroker } from "../../resume-inference/broker.js";
-import { ImmutableInferenceSnapshotBuilder } from "../../resume-inference/snapshot.js";
-import type { ModelAdapter } from "../../adapters/base.js";
 import { MODERN_FIXTURE_VERSION } from "../lifecycle/fixture-repository.js";
 import { createLifecycleHarness } from "../lifecycle/test-helpers.js";
 import { AppMcpHost } from "./app-host.js";
@@ -33,15 +36,266 @@ class FixtureTransport implements McpWireTransport {
 }
 
 const roots: string[] = [];
-afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+afterEach(async () => {
+  vi.useRealTimers();
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
 
 describe("M4 capability bridge", () => {
+  it("recovers a catalog-published pending save as an exact committed operation after process restart", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-m2-restart-commit-")); roots.push(root);
+    const harness = await createLifecycleHarness(root);
+    await harness.service.install({ version: MODERN_FIXTURE_VERSION, idempotencyKey: "m2-restart-commit-install", approveCapabilities: true });
+    const descriptor = await harness.service.ownerDescriptor();
+    let markCatalogPublished!: () => void;
+    const catalogPublished = new Promise<void>((resolve) => { markCatalogPublished = resolve; });
+    const abandonedProcess = new Promise<void>(() => undefined);
+    const oldStore = new ResumeDataStore(root, path.join(root, "owner-data"), {
+      afterCatalogCommit: async () => { markCatalogPublished(); await abandonedProcess; },
+    }, false, crypto.randomUUID());
+    await oldStore.initialize(descriptor.grant!.owner_id);
+    const oldAdapter = new ResumeAppHostAdapter(harness.service, {
+      capabilityRouter: new ResumeCapabilityRouter(
+        new ResumeDomainService(oldStore),
+        new CareerPlacementAdapter(root),
+        new ResumeCapabilityPolicy(async () => (await harness.service.ownerDescriptor()).grant),
+      ),
+    });
+    const operationId = crypto.randomUUID();
+    const sessionId = crypto.randomUUID();
+    const value = "catalog-published pending restart value";
+    const input = {
+      kind: "interview_recovery_save",
+      recovery: {
+        expected_revision: null,
+        session_id: sessionId,
+        current_topic: "contact",
+        completed_topics: [],
+        skipped_topics: [],
+        slot: { session_id: sessionId, job_fact_revision_id: null, question_id: "contact-question", field_id: "answer" },
+        value,
+        value_digest: canonicalInputDigest(value),
+      },
+    };
+    void oldAdapter.handleOwnerCapability(
+      "resume.definitions.write", input, operationId, false, descriptor.grant!.actor_id,
+    );
+    await catalogPublished;
+
+    const reopenedStore = new ResumeDataStore(
+      root,
+      path.join(root, "owner-data"),
+      { leaseWaitMs: 100, leaseRetryMs: 5 },
+      false,
+      crypto.randomUUID(),
+    );
+    await reopenedStore.initialize(descriptor.grant!.owner_id);
+    const restartedAdapter = new ResumeAppHostAdapter(harness.service, {
+      capabilityRouter: new ResumeCapabilityRouter(
+        new ResumeDomainService(reopenedStore),
+        new CareerPlacementAdapter(root),
+        new ResumeCapabilityPolicy(async () => (await harness.service.ownerDescriptor()).grant),
+      ),
+    });
+    await expect(restartedAdapter.handleOwnerCapability(
+      "resume.operations.read",
+      { queried_operation_id: operationId, reconciliation: "resume_recovery_v1" },
+      crypto.randomUUID(),
+      false,
+      descriptor.grant!.actor_id,
+    )).resolves.toMatchObject({
+      record: { operation_id: operationId, status: "committed" },
+      results: [{ recovery_draft: { value_digest: input.recovery.value_digest }, metadata: { revision: 1 } }],
+      recovery_reconciliation: {
+        lifecycle_state: "committed",
+        host_operation_settled: true,
+        operation: { state: "committed", operation_id: operationId, value_digest: input.recovery.value_digest, revision: 1 },
+      },
+    });
+    expect(await reopenedStore.list("interview_progress")).toHaveLength(1);
+    expect((await reopenedStore.integrityScan()).staged_transaction_count).toBe(0);
+  });
+
+  it("keeps a deadline response pending until the real recovery adapter settles cancelled", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-m2-deadline-")); roots.push(root);
+    const harness = await createLifecycleHarness(root);
+    await harness.service.install({ version: MODERN_FIXTURE_VERSION, idempotencyKey: "m2-deadline-install", approveCapabilities: true });
+    const descriptor = await harness.service.ownerDescriptor();
+    let enterPublish!: () => void;
+    let releasePublish!: () => void;
+    let failPublish = false;
+    const publishing = new Promise<void>((resolve) => { enterPublish = resolve; });
+    const release = new Promise<void>((resolve) => { releasePublish = resolve; });
+    const store = new ResumeDataStore(root, path.join(root, "owner-data"), {
+      beforeCatalogPublish: async () => {
+        enterPublish();
+        await release;
+        if (failPublish) throw new Error("synthetic restart failure before catalog publication");
+      },
+    }, false);
+    await store.initialize(descriptor.grant!.owner_id);
+    const router = new ResumeCapabilityRouter(
+      new ResumeDomainService(store),
+      new CareerPlacementAdapter(root),
+      new ResumeCapabilityPolicy(async () => (await harness.service.ownerDescriptor()).grant),
+    );
+    const clockStart = Date.now();
+    vi.useFakeTimers();
+    vi.setSystemTime(clockStart);
+    const adapter = new ResumeAppHostAdapter(harness.service, {
+      capabilityRouter: router,
+      clientFactory: (connection) => new ModernMcpAppsClient(new FixtureTransport(), identityForRuntime(connection, {
+        appId: harness.service.appId, publisherId: harness.service.publisherId, serverId: "resume-builder",
+      })),
+    });
+    const host = new AppMcpHost(adapter);
+    const launch = await host.launch();
+    const state = await harness.service.status();
+    const message = (capability: string, input: Record<string, unknown>, requestOperationId?: string) => ({
+      bridge_version: 1, message_id: crypto.randomUUID(), app_id: "ai.braindrive.resume-builder",
+      installation_id: state.installation_id, view_id: launch.view_id, operation_id: launch.operation_id,
+      sent_at: new Date().toISOString(), type: "capability.call",
+      payload: { capability, input, token_id: launch.bridge_token_id, ...(requestOperationId ? { request_operation_id: requestOperationId } : {}) },
+    });
+    const operationId = crypto.randomUUID();
+    const sessionId = crypto.randomUUID();
+    const value = "synthetic deadline recovery";
+    const input = {
+      kind: "interview_recovery_save",
+      recovery: {
+        expected_revision: null,
+        session_id: sessionId,
+        current_topic: "contact",
+        completed_topics: [],
+        skipped_topics: [],
+        slot: { session_id: sessionId, job_fact_revision_id: null, question_id: "contact-question", field_id: "answer" },
+        value,
+        value_digest: canonicalInputDigest(value),
+      },
+    };
+    const write = host.handleBridge(launch.session_id, message("resume.definitions.write", input, operationId), { origin: "null", sourceMatches: true });
+    await publishing;
+    const deadline = expect(write).rejects.toMatchObject({ code: "cancelled", statusCode: 408 });
+    await vi.advanceTimersByTimeAsync(120_000);
+    await deadline;
+    await expect(host.handleBridge(
+      launch.session_id,
+      message("resume.operations.read", { queried_operation_id: operationId, reconciliation: "resume_recovery_v1" }),
+      { origin: "null", sourceMatches: true },
+    )).resolves.toMatchObject({ result: { recovery_reconciliation: {
+      lifecycle_state: "pending", host_operation_settled: false, operation: { state: "not_found_within_scope" },
+    } } });
+
+    releasePublish();
+    await vi.advanceTimersByTimeAsync(0);
+    await Promise.resolve();
+    await expect(host.handleBridge(
+      launch.session_id,
+      message("resume.operations.read", { queried_operation_id: operationId, reconciliation: "resume_recovery_v1" }),
+      { origin: "null", sourceMatches: true },
+    )).resolves.toMatchObject({ result: { recovery_reconciliation: {
+      lifecycle_state: "cancelled", host_operation_settled: true, operation: { state: "cancelled" },
+    } } });
+    expect(await store.list("interview_progress")).toHaveLength(0);
+
+    failPublish = true;
+    const failedOperationId = crypto.randomUUID();
+    const failedValue = "synthetic failed restart value";
+    const failedInput = {
+      ...input,
+      recovery: {
+        ...input.recovery,
+        value: failedValue,
+        value_digest: canonicalInputDigest(failedValue),
+      },
+    };
+    await expect(host.handleBridge(
+      launch.session_id,
+      message("resume.definitions.write", failedInput, failedOperationId),
+      { origin: "null", sourceMatches: true },
+    )).rejects.toMatchObject({ code: "recoverable_internal_failure" });
+    await expect(host.handleBridge(
+      launch.session_id,
+      message("resume.operations.read", { queried_operation_id: failedOperationId, reconciliation: "resume_recovery_v1" }),
+      { origin: "null", sourceMatches: true },
+    )).resolves.toMatchObject({ result: { recovery_reconciliation: {
+      lifecycle_state: "failed", host_operation_settled: true, operation: { state: "failed" },
+    } } });
+
+    const restartedStore = new ResumeDataStore(root, path.join(root, "owner-data"), {}, false, crypto.randomUUID());
+    await restartedStore.initialize(descriptor.grant!.owner_id);
+    const restartedAdapter = new ResumeAppHostAdapter(harness.service, {
+      capabilityRouter: new ResumeCapabilityRouter(
+        new ResumeDomainService(restartedStore),
+        new CareerPlacementAdapter(root),
+        new ResumeCapabilityPolicy(async () => (await harness.service.ownerDescriptor()).grant),
+      ),
+    });
+    const restartedRead = await restartedAdapter.handleOwnerCapability(
+      "resume.operations.read",
+      { queried_operation_id: operationId, reconciliation: "resume_recovery_v1" },
+      crypto.randomUUID(),
+      false,
+      descriptor.grant!.actor_id,
+    ) as { recovery_reconciliation: unknown };
+    const restartedProjection = ResumeRecoveryOperationLifecycleProjectionSchema.parse(restartedRead.recovery_reconciliation);
+    expect(restartedProjection).toMatchObject({
+      lifecycle_state: "quiesced_restart_no_operation",
+      host_operation_settled: true,
+      operation: { state: "not_found_within_scope" },
+    });
+    expect(decideResumeRecoveryReconciliation({
+      binding: {
+        operation_id: operationId,
+        semantic_digest: canonicalInputDigest(input),
+        value_digest: input.recovery.value_digest,
+        expected_revision: null,
+      },
+      elapsed_ms: 120_000,
+      workspace: { state: "no_commit" },
+      ...resumeRecoveryProjectionToReadback(restartedProjection),
+    })).toMatchObject({ state: "not_saved", final: true });
+    const failedRestartRead = await restartedAdapter.handleOwnerCapability(
+      "resume.operations.read",
+      { queried_operation_id: failedOperationId, reconciliation: "resume_recovery_v1" },
+      crypto.randomUUID(),
+      false,
+      descriptor.grant!.actor_id,
+    ) as { recovery_reconciliation: unknown };
+    const failedRestartProjection = ResumeRecoveryOperationLifecycleProjectionSchema.parse(failedRestartRead.recovery_reconciliation);
+    expect(failedRestartProjection).toMatchObject({ lifecycle_state: "quiesced_restart_no_operation", host_operation_settled: true });
+    expect(decideResumeRecoveryReconciliation({
+      binding: {
+        operation_id: failedOperationId,
+        semantic_digest: canonicalInputDigest(failedInput),
+        value_digest: failedInput.recovery.value_digest,
+        expected_revision: null,
+      },
+      elapsed_ms: 120_000,
+      workspace: { state: "no_commit" },
+      ...resumeRecoveryProjectionToReadback(failedRestartProjection),
+    })).toMatchObject({ state: "not_saved", final: true });
+  });
+
   it("executes declared reads and denies confirmation from the sandbox", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-m4-bridge-")); roots.push(root);
     const harness = await createLifecycleHarness(root);
     await harness.service.install({ version: MODERN_FIXTURE_VERSION, idempotencyKey: "m4-capability-install", approveCapabilities: true });
     const descriptor = await harness.service.ownerDescriptor();
-    const store = new ResumeDataStore(root, path.join(root, "owner-data"), {}, false);
+    let releaseRecovery!: () => void;
+    let markRecoveryStaged!: () => void;
+    let delayRecovery = false;
+    let failRecovery = false;
+    const recoveryRelease = new Promise<void>((resolve) => { releaseRecovery = resolve; });
+    const recoveryStaged = new Promise<void>((resolve) => { markRecoveryStaged = resolve; });
+    const store = new ResumeDataStore(root, path.join(root, "owner-data"), {
+      afterTransactionStaged: async () => {
+        if (failRecovery) throw new Error("synthetic recovery adapter failure");
+        if (!delayRecovery) return;
+        markRecoveryStaged();
+        await recoveryRelease;
+      },
+    }, false);
     await store.initialize(descriptor.grant!.owner_id);
     const domain = new ResumeDomainService(store);
     const capabilityEvents: Array<{ event: string; details: Record<string, unknown> }> = [];
@@ -68,18 +322,16 @@ describe("M4 capability bridge", () => {
       edited_value: null,
       review_note: null,
     }, confirmedJobAuthority, ownerDecision(confirmedJobAuthority, proposedJob.fact.metadata.revision_id));
-    const interviewOpportunityId = "74000000-0000-4000-8000-000000000001";
-    const adapter: ModelAdapter = {
-      async complete() { throw new Error("agent path prohibited"); },
-      async completeStructuredNoTools() {
-        return { text: JSON.stringify({ questions: [{ question_id: crypto.randomUUID(), job_fact_revision_id: confirmedJob.fact.metadata.revision_id, opportunity_id: interviewOpportunityId, dimension: "accomplishments", opportunity_kind: "qualitative", value_category: "distinct_accomplishment", selection_method: "deterministic_value", prompt: "What did you build in this role? A qualitative answer is enough.", rationale: "Phrase the selected evidence opportunity." }] }), finishReason: "stop" };
-      },
-    };
-    const broker = new ResumeInferenceBroker(async () => ({ providerProfileId: "owner-profile", providerId: "ollama", modelId: "local-model", modelClass: "owner_active_compatible", adapter }));
-    const host = new AppMcpHost(new ResumeAppHostAdapter(harness.service, { capabilityRouter: router, inferenceBroker: broker, snapshotBuilder: new ImmutableInferenceSnapshotBuilder(store), clientFactory: (connection) => new ModernMcpAppsClient(new FixtureTransport(), identityForRuntime(connection, { appId: harness.service.appId, publisherId: harness.service.publisherId, serverId: "resume-builder" })) }));
+    const hostEvents: Array<{ event: string; details: Record<string, unknown> }> = [];
+    const host = new AppMcpHost(new ResumeAppHostAdapter(harness.service, {
+      capabilityRouter: router,
+      audit: (event, details) => hostEvents.push({ event, details }),
+      clientFactory: (connection) => new ModernMcpAppsClient(new FixtureTransport(), identityForRuntime(connection, { appId: harness.service.appId, publisherId: harness.service.publisherId, serverId: "resume-builder" })),
+    }));
     const launch = await host.launch();
     expect(launch.allowed_capabilities).not.toContain("career.facts.confirm");
     expect(launch.allowed_capabilities).toContain("resume.export.request");
+    expect(launch.allowed_capabilities).toContain("resume.operations.read");
     expect(launch.allowed_capabilities).toContain("app.inference.request");
     const state = await harness.service.status();
     const message = (capability: string, input: Record<string, unknown>, requestOperationId?: string) => ({
@@ -105,17 +357,54 @@ describe("M4 capability bridge", () => {
         value_digest: canonicalInputDigest(recoveryValue),
       },
     };
-    const firstRecovery = await host.handleBridge(
+    delayRecovery = true;
+    const firstRecoveryPromise = host.handleBridge(
       launch.session_id,
       message("resume.definitions.write", recoveryInput, recoveryOperationId),
       { origin: "null", sourceMatches: true },
     );
+    await recoveryStaged;
+    await expect(host.handleBridge(
+      launch.session_id,
+      message("resume.operations.read", { queried_operation_id: recoveryOperationId }),
+      { origin: "null", sourceMatches: true },
+    )).rejects.toMatchObject({ code: "not_found_within_scope" });
+    const pendingProjection = await host.handleBridge(
+      launch.session_id,
+      message("resume.operations.read", { queried_operation_id: recoveryOperationId, reconciliation: "resume_recovery_v1" }),
+      { origin: "null", sourceMatches: true },
+    ) as { result: { recovery_reconciliation: unknown } };
+    expect(ResumeRecoveryOperationLifecycleProjectionSchema.parse(pendingProjection.result.recovery_reconciliation)).toMatchObject({
+      lifecycle_state: "pending",
+      host_operation_settled: false,
+      operation: { state: "not_found_within_scope" },
+    });
+    const sameProcessObserver = new ResumeAppHostAdapter(harness.service, { capabilityRouter: router });
+    await expect(sameProcessObserver.handleOwnerCapability(
+      "resume.operations.read",
+      { queried_operation_id: recoveryOperationId, reconciliation: "resume_recovery_v1" },
+      crypto.randomUUID(),
+      false,
+      descriptor.grant!.actor_id,
+    )).resolves.toMatchObject({ recovery_reconciliation: {
+      lifecycle_state: "pending",
+      host_operation_settled: false,
+    } });
+    const coalescedRecoveryPromise = host.handleBridge(
+      launch.session_id,
+      message("resume.definitions.write", recoveryInput, recoveryOperationId),
+      { origin: "null", sourceMatches: true },
+    );
+    await Promise.resolve();
+    releaseRecovery();
+    const [firstRecovery, coalescedRecovery] = await Promise.all([firstRecoveryPromise, coalescedRecoveryPromise]);
     const replayedRecovery = await host.handleBridge(
       launch.session_id,
       message("resume.definitions.write", recoveryInput, recoveryOperationId),
       { origin: "null", sourceMatches: true },
     );
     expect(firstRecovery).toMatchObject({ status: "capability_completed", result: { reused: false, acknowledgement: { revision: 1 } } });
+    expect(coalescedRecovery).toEqual(firstRecovery);
     expect(replayedRecovery).toMatchObject({ status: "capability_completed", result: { reused: true, acknowledgement: { revision: 1 } } });
     await expect(host.handleBridge(
       launch.session_id,
@@ -127,9 +416,164 @@ describe("M4 capability bridge", () => {
     )).rejects.toMatchObject({ code: "idempotency_conflict" });
     await expect(host.handleBridge(
       launch.session_id,
+      message("resume.definitions.write", {
+        ...recoveryInput,
+        recovery: { ...recoveryInput.recovery, expected_revision: 1 },
+      }, recoveryOperationId),
+      { origin: "null", sourceMatches: true },
+    )).rejects.toMatchObject({ code: "idempotency_conflict" });
+    const committedProgress = (firstRecovery as { result: { progress: { metadata: { record_id: string } } } }).result.progress;
+    const staleCasOperationId = crypto.randomUUID();
+    await expect(host.handleBridge(
+      launch.session_id,
+      message("resume.definitions.write", {
+        ...recoveryInput,
+        recovery: {
+          ...recoveryInput.recovery,
+          record_id: committedProgress.metadata.record_id,
+          expected_revision: null,
+          value: "synthetic stale CAS value",
+          value_digest: canonicalInputDigest("synthetic stale CAS value"),
+        },
+      }, staleCasOperationId),
+      { origin: "null", sourceMatches: true },
+    )).rejects.toMatchObject({ code: "conflict" });
+    await expect(host.handleBridge(
+      launch.session_id,
+      message("resume.operations.read", { queried_operation_id: staleCasOperationId, reconciliation: "resume_recovery_v1" }),
+      { origin: "null", sourceMatches: true },
+    )).resolves.toMatchObject({ result: { recovery_reconciliation: {
+      lifecycle_state: "conflict",
+      host_operation_settled: true,
+      operation: { state: "conflict", conflict_class: "cas_revision_mismatch" },
+    } } });
+    const failedOperationId = crypto.randomUUID();
+    failRecovery = true;
+    await expect(host.handleBridge(
+      launch.session_id,
+      message("resume.definitions.write", {
+        ...recoveryInput,
+        recovery: {
+          ...recoveryInput.recovery,
+          record_id: committedProgress.metadata.record_id,
+          expected_revision: 1,
+          value: "synthetic failed recovery value",
+          value_digest: canonicalInputDigest("synthetic failed recovery value"),
+        },
+      }, failedOperationId),
+      { origin: "null", sourceMatches: true },
+    )).rejects.toMatchObject({ code: "recoverable_internal_failure" });
+    failRecovery = false;
+    await expect(host.handleBridge(
+      launch.session_id,
+      message("resume.operations.read", { queried_operation_id: failedOperationId, reconciliation: "resume_recovery_v1" }),
+      { origin: "null", sourceMatches: true },
+    )).resolves.toMatchObject({ result: { recovery_reconciliation: {
+      lifecycle_state: "failed",
+      host_operation_settled: true,
+      operation: { state: "failed" },
+    } } });
+    await expect(host.handleBridge(
+      launch.session_id,
       message("resume.operations.read", { queried_operation_id: recoveryOperationId }),
       { origin: "null", sourceMatches: true },
     )).resolves.toMatchObject({ status: "capability_completed", result: { record: { operation_id: recoveryOperationId, status: "committed" }, results: [expect.objectContaining({ record_type: "interview_progress" })] } });
+    const committedProjection = await host.handleBridge(
+      launch.session_id,
+      message("resume.operations.read", { queried_operation_id: recoveryOperationId, reconciliation: "resume_recovery_v1" }),
+      { origin: "null", sourceMatches: true },
+    ) as { result: { record: unknown; results: unknown[]; recovery_reconciliation: unknown } };
+    expect(committedProjection.result).toMatchObject({ record: { operation_id: recoveryOperationId }, results: [expect.any(Object)] });
+    expect(ResumeRecoveryOperationLifecycleProjectionSchema.parse(committedProjection.result.recovery_reconciliation)).toMatchObject({
+      lifecycle_state: "committed",
+      host_operation_settled: true,
+      operation: {
+        state: "committed",
+        operation_id: recoveryOperationId,
+        value_digest: recoveryInput.recovery.value_digest,
+        revision: 1,
+      },
+    });
+    const recoveryEvents = hostEvents.filter(({ event }) => event === "app.resume_recovery.reconciliation");
+    expect(recoveryEvents.map(({ details }) => [details.idempotency_disposition, details.final_disposition])).toEqual(expect.arrayContaining([
+      ["created", "pending"],
+      ["coalesced", "pending"],
+      ["created", "committed"],
+      ["coalesced", "committed"],
+      ["replayed", "committed"],
+      ["conflict", "conflict"],
+    ]));
+    for (const { details } of recoveryEvents) expect(ResumeRecoveryReconciliationAuditDetailsSchema.safeParse(details).success).toBe(true);
+    const originalSemanticDigest = canonicalInputDigest({
+      capability: "resume.definitions.write",
+      operation_id: recoveryOperationId,
+      idempotency_key: `bridge-${recoveryOperationId}`,
+      input: recoveryInput,
+    });
+    for (const { details } of recoveryEvents.filter(({ details }) => details.operation_id === recoveryOperationId)) {
+      expect(details.expected_revision).toBeNull();
+      expect(details.semantic_digest).toBe(originalSemanticDigest);
+    }
+    const serializedRecoveryEvents = JSON.stringify(recoveryEvents);
+    for (const canary of [recoveryValue, "different", "synthetic stale CAS value", root, "endpoint", "token", "credential"]) {
+      expect(serializedRecoveryEvents).not.toContain(canary);
+    }
+    expect(await store.list("interview_progress")).toHaveLength(1);
+    const reopenedStore = new ResumeDataStore(root, path.join(root, "owner-data"), {}, false, crypto.randomUUID());
+    await reopenedStore.initialize(descriptor.grant!.owner_id);
+    const reopenedRouter = new ResumeCapabilityRouter(
+      new ResumeDomainService(reopenedStore),
+      new CareerPlacementAdapter(root),
+      new ResumeCapabilityPolicy(async () => (await harness.service.ownerDescriptor()).grant),
+    );
+    const restartedAdapter = new ResumeAppHostAdapter(harness.service, { capabilityRouter: reopenedRouter });
+    await expect(restartedAdapter.handleOwnerCapability(
+      "resume.operations.read",
+      { queried_operation_id: recoveryOperationId, reconciliation: "resume_recovery_v1" },
+      crypto.randomUUID(),
+      false,
+      descriptor.grant!.actor_id,
+    )).resolves.toMatchObject({
+      record: { operation_id: recoveryOperationId },
+      results: [{ recovery_draft: { value_digest: recoveryInput.recovery.value_digest } }],
+      recovery_reconciliation: { lifecycle_state: "committed", operation: { operation_id: recoveryOperationId } },
+    });
+    const missingRestartOperationId = crypto.randomUUID();
+    const missingRestartRead = await restartedAdapter.handleOwnerCapability(
+      "resume.operations.read",
+      { queried_operation_id: missingRestartOperationId, reconciliation: "resume_recovery_v1" },
+      crypto.randomUUID(),
+      false,
+      descriptor.grant!.actor_id,
+    ) as { recovery_reconciliation: unknown };
+    const missingRestartProjection = ResumeRecoveryOperationLifecycleProjectionSchema.parse(missingRestartRead.recovery_reconciliation);
+    expect(missingRestartProjection).toMatchObject({
+      lifecycle_state: "quiesced_restart_no_operation",
+      host_operation_settled: true,
+      semantic_digest: null,
+      expected_revision: null,
+      operation: { state: "not_found_within_scope" },
+    });
+    expect(decideResumeRecoveryReconciliation({
+      binding: {
+        operation_id: missingRestartOperationId,
+        semantic_digest: canonicalInputDigest({ operation_id: missingRestartOperationId }),
+        value_digest: canonicalInputDigest("losing restart value"),
+        expected_revision: null,
+      },
+      elapsed_ms: 120_000,
+      workspace: {
+        state: "different_commit",
+        value_digest: recoveryInput.recovery.value_digest,
+        revision: 1,
+      },
+      ...resumeRecoveryProjectionToReadback(missingRestartProjection),
+    })).toEqual({
+      state: "conflict",
+      final: true,
+      reconciliation_class: "operation_then_workspace",
+      conflict_class: "durable_value_mismatch",
+    });
     const serverOperationId = crypto.randomUUID();
     const serverIdempotencyKey = "m4-server-context-operation";
     const projectSpy = vi.spyOn(router.career, "project");
@@ -142,44 +586,21 @@ describe("M4 capability bridge", () => {
     expect(JSON.stringify(firstServerResult)).not.toContain(firstServerAuthority.token);
     await expect(host.handleServerCapability(firstServerAuthority.token, "career.context.read", 1, { entry_point: "direct" }, serverOperationId, serverIdempotencyKey)).rejects.toMatchObject({ code: "token_replayed" });
     const inferenceOperationId = crypto.randomUUID();
-    const jobEvidenceSummary = { active_job_fact_revision_id: confirmedJob.fact.metadata.revision_id, active_job_revision: confirmedJob.fact.metadata.revision, requested_opportunity_id: interviewOpportunityId, requested_dimension: "accomplishments", opportunity_kind: "qualitative", value_category: "distinct_accomplishment", dimensions: [] };
-    const inferenceInput = { inference_contract_version: 1, purpose: "interview_assist", operation_id: inferenceOperationId, fact_revision_ids: [confirmedJob.fact.metadata.revision_id], derived_blocks: [{ category: "job_evidence_summary", schema_id: "resume.job-evidence-summary.v2", data: jobEvidenceSummary }] };
-    const inference = await host.handleBridge(launch.session_id, message("app.inference.request", inferenceInput), { origin: "null", sourceMatches: true });
-    expect(inference).toMatchObject({ status: "capability_completed", result: {
-      inference_contract_version: 1,
-      status: "completed",
-      model_class: "owner_active_compatible",
-      provider_profile_id: "owner-profile",
-      model_id: "local-model",
-      events: [{ event: "progress" }, { event: "completed" }],
-    } });
-    expect(JSON.stringify(inference)).not.toMatch(/api_key|endpoint|prompt_body|authorization|secret_ref|"provider_id":"ollama"/);
+    const inferenceInput = { inference_contract_version: 1, purpose: "interview_assist", operation_id: inferenceOperationId, fact_revision_ids: [confirmedJob.fact.metadata.revision_id] };
+    await expect(host.handleBridge(launch.session_id, message("app.inference.request", inferenceInput), { origin: "null", sourceMatches: true }))
+      .rejects.toMatchObject({ code: "invalid_input", message: "Installed app inference requires contract version 2" });
     const serverInferenceOperationId = crypto.randomUUID();
     const serverInferenceKey = `m5-server-inference-${serverInferenceOperationId}`;
     const serverInferenceAuthority = await host.issueServerCapabilityAuthority(launch.session_id, "app.inference.request", serverInferenceOperationId, serverInferenceKey);
-    await expect(host.handleServerCapability(serverInferenceAuthority.token, "app.inference.request", 1, { ...inferenceInput, operation_id: serverInferenceOperationId }, serverInferenceOperationId, serverInferenceKey)).resolves.toMatchObject({ inference_contract_version: 1, status: "completed" });
-    const reconnectProviderCall = vi.fn(async () => { throw new Error("reconnect must reuse the durable inference result"); });
-    const reconnectBroker = new ResumeInferenceBroker(async () => ({
-      providerProfileId: "different-profile", providerId: "openrouter", modelId: "different-model",
-      modelClass: "owner_active_compatible", adapter: { async complete() { throw new Error("agent path prohibited"); }, completeStructuredNoTools: reconnectProviderCall },
-    }));
-    const reconnectHost = new AppMcpHost(new ResumeAppHostAdapter(harness.service, { capabilityRouter: router, inferenceBroker: reconnectBroker, snapshotBuilder: new ImmutableInferenceSnapshotBuilder(store), clientFactory: (connection) => new ModernMcpAppsClient(new FixtureTransport(), identityForRuntime(connection, { appId: harness.service.appId, publisherId: harness.service.publisherId, serverId: "resume-builder" })) }));
-    const reconnectLaunch = await reconnectHost.launch();
-    const reconnectMessage = {
-      bridge_version: 1, message_id: crypto.randomUUID(), app_id: "ai.braindrive.resume-builder",
-      installation_id: state.installation_id, view_id: reconnectLaunch.view_id, operation_id: reconnectLaunch.operation_id,
-      sent_at: new Date().toISOString(), type: "capability.call",
-      payload: { capability: "app.inference.request", input: inferenceInput, token_id: reconnectLaunch.bridge_token_id },
-    };
-    await expect(reconnectHost.handleBridge(reconnectLaunch.session_id, reconnectMessage, { origin: "null", sourceMatches: true })).resolves.toEqual(inference);
-    expect(reconnectProviderCall).not.toHaveBeenCalled();
+    await expect(host.handleServerCapability(serverInferenceAuthority.token, "app.inference.request", 1, { ...inferenceInput, operation_id: serverInferenceOperationId }, serverInferenceOperationId, serverInferenceKey))
+      .rejects.toMatchObject({ code: "invalid_input", message: "Installed app inference requires contract version 2" });
     const cancel = (target: string) => ({
       bridge_version: 1, message_id: crypto.randomUUID(), app_id: "ai.braindrive.resume-builder",
       installation_id: state.installation_id, view_id: launch.view_id, operation_id: launch.operation_id,
       sent_at: new Date().toISOString(), type: "operation.cancel",
       payload: { target_operation_id: target, token_id: launch.bridge_token_id },
     });
-    await expect(host.handleBridge(launch.session_id, cancel(inferenceOperationId), { origin: "null", sourceMatches: true })).resolves.toMatchObject({ status: "capability_completed", result: { cancelled: false } });
+    await expect(host.handleBridge(launch.session_id, cancel(inferenceOperationId), { origin: "null", sourceMatches: true })).rejects.toMatchObject({ code: "bridge_denied" });
     await expect(host.handleBridge(launch.session_id, cancel(crypto.randomUUID()), { origin: "null", sourceMatches: true })).rejects.toMatchObject({ code: "bridge_denied" });
     await expect(host.handleBridge(launch.session_id, message("career.facts.confirm", {}), { origin: "null", sourceMatches: true })).rejects.toMatchObject({ code: "bridge_denied" });
 
@@ -240,4 +661,5 @@ describe("M4 capability bridge", () => {
       expect.objectContaining({ details: expect.objectContaining({ confirmation_group_count: 1, confirmation_unit_count: 2, used_evidence_count: 1, item_count: 2, timing_class: "human" }) }),
     ]);
   });
+
 });

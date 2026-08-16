@@ -1,0 +1,21 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/resume-recovery-reconciliation-query.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "queried_operation_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "reconciliation": {
+      "type": "string",
+      "const": "resume_recovery_v1"
+    }
+  },
+  "required": [
+    "queried_operation_id",
+    "reconciliation"
+  ],
+  "additionalProperties": false
+}

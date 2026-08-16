@@ -14,7 +14,7 @@ const id = (suffix: number) => `77000000-0000-4000-8000-${String(suffix).padStar
 
 describe("Spec 07 milestone 3 review contracts", () => {
   it("binds current general definitions to strategy, coverage, quality, provider, and model identities", () => {
-    expect(RESUME_PROMPT_POLICY_VERSION).toBe("8");
+    expect(RESUME_PROMPT_POLICY_VERSION).toBe("12");
     expect(RESUME_QUALITY_STANDARD_VERSION).toBe("3");
     expect(RESUME_QUALITY_STANDARD_DIGEST).toMatch(/^sha256:[0-9a-f]{64}$/);
     for (const key of ["fact_revision_ids", "coverage_revision_ids", "history_reason_code", "skills_context", "quality_standard_digest", "provider_profile_id", "model_id"]) {

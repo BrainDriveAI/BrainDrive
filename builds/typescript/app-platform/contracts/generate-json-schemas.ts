@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { z, type ZodType } from "zod";
 
-import { AuditEventSchema, LifecycleDiagnosticEventSchema } from "./audit.js";
+import { AuditEventSchema, LifecycleDiagnosticEventSchema, ResumeRecoveryReconciliationAuditDetailsSchema } from "./audit.js";
 import {
   AppIdentitySchema,
   AppOperationBindingSchema,
@@ -60,8 +60,18 @@ import {
   RetentionMatrixSchema,
 } from "./data-conformance.js";
 import { ContractErrorSchema } from "./errors.js";
-import { InferenceRequestSchema, InferenceResultSchema, ModelCompatibilityEntrySchema } from "./inference.js";
+import {
+  InferenceErrorSchema,
+  InferenceOutcomeMetadataSchema,
+  InferenceRequestSchema,
+  InferenceResultSchema,
+  ModelCompatibilityEntrySchema,
+} from "./inference.js";
 import { PURPOSE_RESULT_SCHEMAS } from "../../resume-inference/results.js";
+import {
+  ResumeRecoveryOperationLifecycleProjectionSchema,
+  ResumeRecoveryReconciliationQuerySchema,
+} from "../../app-capabilities/recovery-reconciliation.js";
 import { ResumeQualityReportSchema, SyntheticQualityFixtureSchema } from "../../resume-inference/quality.js";
 import {
   LifecycleOperationSchema,
@@ -178,6 +188,8 @@ export const JSON_SCHEMA_AUTHORITIES = {
   "export-receipt-record": ExportReceiptRecordSchema,
   "frozen-quality-regression-manifest": FrozenQualityRegressionManifestSchema,
   "inference-request": InferenceRequestSchema,
+  "inference-error": InferenceErrorSchema,
+  "inference-outcome-metadata": InferenceOutcomeMetadataSchema,
   "inference-result": InferenceResultSchema,
   "inference-result-interview-assist": PURPOSE_RESULT_SCHEMAS.interview_assist,
   "inference-result-general-resume-draft": PURPOSE_RESULT_SCHEMAS.general_resume_draft,
@@ -223,6 +235,9 @@ export const JSON_SCHEMA_AUTHORITIES = {
   "revocation-list": RevocationListSchema,
   "revocation-freshness-policy": RevocationFreshnessPolicySchema,
   "resume-definition-record": ResumeDefinitionRecordSchema,
+  "resume-recovery-reconciliation-audit-details": ResumeRecoveryReconciliationAuditDetailsSchema,
+  "resume-recovery-operation-lifecycle-projection": ResumeRecoveryOperationLifecycleProjectionSchema,
+  "resume-recovery-reconciliation-query": ResumeRecoveryReconciliationQuerySchema,
   "resume-quality-state": ResumeQualityStateSchema,
   "resume-strategy-record": ResumeStrategyRecordSchema,
   "resume-revision-request-record": ResumeRevisionRequestRecordSchema,

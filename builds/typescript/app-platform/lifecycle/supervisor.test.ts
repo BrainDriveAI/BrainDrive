@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -78,6 +78,104 @@ describe("Docker process supervisor adapter", () => {
     expect(replacement.endpoint_token_generation).toBe(2);
     await supervisor.awaitReadiness(replacement);
     expect((await supervisor.health(replacement)).state).toBe("ready");
+    await supervisor.close();
+  });
+
+  it("does not terminate a ready runtime after one transient health-probe timeout", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-app-transient-health-"));
+    roots.push(root);
+    const repository = await createFixtureRepository(path.join(root, "source"));
+    const verified = await new PackageVerifier("26.7.23").verifyAndExtract(repository, "1.0.0", path.join(root, "runtime"), "candidate_install_or_update");
+    await chmod(verified.entrypoint, 0o700);
+    await writeFile(verified.entrypoint, `import http from "node:http";
+const token = process.env.BRAINDRIVE_APP_CONNECTION_TOKEN;
+const port = Number(process.env.BRAINDRIVE_ENDPOINT_BIND.split(":").at(-1));
+let healthCount = 0;
+const server = http.createServer((request, response) => {
+  if (request.headers.authorization !== "Bearer " + token) { response.writeHead(401).end(); return; }
+  if (request.url !== "/healthz") { response.writeHead(404).end(); return; }
+  healthCount += 1;
+  const reply = () => { response.writeHead(200, { "content-type": "application/json" }); response.end('{"status":"ok"}'); };
+  if (healthCount === 2) setTimeout(reply, 75); else reply();
+});
+server.listen(port, "127.0.0.1");
+const stop = () => server.close(() => process.exit(0));
+process.on("SIGTERM", stop); process.on("SIGINT", stop);\n`, "utf8");
+    const supervisor = new ProcessAppSupervisor({
+      startupTimeoutMs: 5_000,
+      stopGraceMs: 500,
+      healthIntervalMs: 20,
+      healthProbeTimeoutMs: 10,
+      healthFailureThreshold: 3,
+      restartBackoffMs: [1, 1, 1],
+    });
+    const descriptor = makeRuntimeDescriptor(verified);
+    const started = await supervisor.start(descriptor);
+    await supervisor.awaitReadiness(started.runtime!);
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    expect(supervisor.inspect(descriptor.installation_id)).toEqual([started.runtime]);
+    expect((await supervisor.health(started.runtime!)).state).toBe("ready");
+    await supervisor.close();
+  });
+
+  it("terminates a persistently unhealthy runtime only at the consecutive-failure threshold", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-app-persistent-health-"));
+    roots.push(root);
+    const repository = await createFixtureRepository(path.join(root, "source"));
+    const verified = await new PackageVerifier("26.7.23").verifyAndExtract(repository, "1.0.0", path.join(root, "runtime"), "candidate_install_or_update");
+    const healthCountPath = path.join(root, "health-count.txt");
+    await chmod(verified.entrypoint, 0o700);
+    await writeFile(verified.entrypoint, `import { writeFileSync } from "node:fs";
+import http from "node:http";
+const token = process.env.BRAINDRIVE_APP_CONNECTION_TOKEN;
+const port = Number(process.env.BRAINDRIVE_ENDPOINT_BIND.split(":").at(-1));
+let healthCount = 0;
+const server = http.createServer((request, response) => {
+  if (request.headers.authorization !== "Bearer " + token) { response.writeHead(401).end(); return; }
+  if (request.url !== "/healthz") { response.writeHead(404).end(); return; }
+  healthCount += 1;
+  writeFileSync(${JSON.stringify(healthCountPath)}, String(healthCount));
+  const reply = () => { response.writeHead(200, { "content-type": "application/json" }); response.end('{"status":"ok"}'); };
+  if (healthCount === 1) reply(); else setTimeout(reply, 250);
+});
+server.listen(port, "127.0.0.1");
+const stop = () => server.close(() => process.exit(0));
+process.on("SIGTERM", stop); process.on("SIGINT", stop);\n`, "utf8");
+    const events: Array<{ event: string; details: Record<string, unknown> }> = [];
+    const supervisor = new ProcessAppSupervisor({
+      startupTimeoutMs: 5_000,
+      stopGraceMs: 500,
+      healthIntervalMs: 50,
+      healthProbeTimeoutMs: 10,
+      healthFailureThreshold: 3,
+      restartBackoffMs: [1_000, 1_000, 1_000],
+      audit: (event, details) => events.push({ event, details }),
+    });
+    const descriptor = makeRuntimeDescriptor(verified);
+    const started = await supervisor.start(descriptor);
+    await supervisor.awaitReadiness(started.runtime!);
+    const waitForHealthCount = async (minimum: number) => {
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        const count = Number(await readFile(healthCountPath, "utf8").catch(() => "0"));
+        if (count >= minimum) return;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      throw new Error(`Health probe ${minimum} was not observed`);
+    };
+
+    await waitForHealthCount(2);
+    expect(supervisor.inspect(descriptor.installation_id)).toEqual([started.runtime]);
+    await waitForHealthCount(3);
+    expect(supervisor.inspect(descriptor.installation_id)).toEqual([started.runtime]);
+    await waitForHealthCount(4);
+    for (let attempt = 0; attempt < 100 && supervisor.inspect(descriptor.installation_id).length > 0; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+
+    expect(supervisor.inspect(descriptor.installation_id)).toEqual([]);
+    expect(events.filter((entry) => entry.event === "app.runtime.health_changed")).toHaveLength(1);
     await supervisor.close();
   });
 });

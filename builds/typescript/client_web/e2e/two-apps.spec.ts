@@ -65,16 +65,18 @@ test.describe("two first-party apps coexistence", () => {
     await briefCard.getByRole("button", { name: "Launch", exact: true }).click();
     const brief = appFrame(page, "Brief Builder");
     await expect(brief.getByRole("heading", { name: "Brief Builder" })).toBeVisible({ timeout: 20_000 });
+    await expect(brief.getByRole("status")).toHaveText(/Ready for source text\.|Reopened your saved draft\./, { timeout: 20_000 });
     const ownerSource = brief.getByLabel("Owner source text");
     if (!await ownerSource.isVisible()) {
-      const rejectExistingDraft = brief.getByRole("button", { name: "Reject this draft" });
+      const rejectExistingDraft = brief.getByRole("button", { name: "Reject draft", exact: true });
       await expect(rejectExistingDraft).toBeVisible();
       await rejectExistingDraft.click();
+      await expect(brief.getByRole("status")).toHaveText("The draft was rejected. Your prior approved revision is unchanged.");
     }
     await expect(ownerSource).toBeVisible();
     await ownerSource.fill("The owner launched a pilot in Dayton. The pilot enrolled twelve participants.");
-    await brief.getByRole("button", { name: "Generate grounded brief" }).click();
-    await expect(brief.getByText("Review every statement and its support before approval.")).toBeVisible({ timeout: 20_000 });
+    await brief.getByRole("button", { name: "Generate brief", exact: true }).click();
+    await expect(brief.getByRole("status")).toHaveText("Brief ready. Review the document and its supporting sources.", { timeout: 20_000 });
     await page.getByRole("button", { name: "Close app" }).click();
 
     const uninstall = resumeCard.getByRole("button", { name: "Remove app code for Resume Builder" });

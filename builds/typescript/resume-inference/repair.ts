@@ -1,7 +1,6 @@
-import { randomUUID } from "node:crypto";
-
 import type { z } from "zod";
 
+import { canonicalInputDigest } from "../app-platform/contracts/common.js";
 import type { InferenceDataBlockSchema, InferencePurpose } from "../app-platform/contracts/inference.js";
 import type { GeneratedStatementSchema } from "./results.js";
 import type { ValidationReport } from "./validators.js";
@@ -71,6 +70,11 @@ function safeStatementText(statement: GeneratedStatement, facts: Map<string, Fac
   const accomplishment = support.map((fact) => ({ fact, structured: structuredValue(fact.value) }))
     .find(({ structured }) => structured?.format === "resume_accomplishment_v1");
   if (accomplishment) return boundedExact(stringField(accomplishment.structured, "text") ?? accomplishment.fact.value, 320);
+  const jobEvidence = support.map((fact) => ({ fact, structured: structuredValue(fact.value) }))
+    .filter(({ structured }) => structured?.value_version === 1 && structured.outcome === "answered");
+  if (jobEvidence.length === support.length) {
+    return boundedExact(jobEvidence.map(({ fact, structured }) => stringField(structured, "owner_text") ?? fact.value).join(" | "), 320);
+  }
   const job = support.map((fact) => ({ fact, structured: structuredValue(fact.value) }))
     .find(({ structured }) => structured?.format === "resume_job_v1");
   if (job) {
@@ -131,7 +135,18 @@ function safeSummary(facts: Fact[]): string {
 }
 
 function newStatement(sectionId: string, text: string, factRevisionId: string): GeneratedStatement {
-  return { statement_id: randomUUID(), section_id: sectionId, kind: "factual", text, supporting_confirmed_fact_revision_ids: [factRevisionId] };
+  return {
+    statement_id: deterministicId({ section_id: sectionId, text, fact_revision_id: factRevisionId }),
+    section_id: sectionId,
+    kind: "factual",
+    text,
+    supporting_confirmed_fact_revision_ids: [factRevisionId],
+  };
+}
+
+function deterministicId(value: unknown): string {
+  const hex = canonicalInputDigest(value).slice("sha256:".length);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
 function jobHeading(value: StructuredFact | null): string {

@@ -1,7 +1,8 @@
 import type { z } from "zod";
 
 import { BridgeMessageSchema, McpAppResourceSchema, parseBridgeMessage } from "../contracts/mcp-app.js";
-import { AppCapabilityAuthoritySchema, AppsBridgeEnvelopeSchema } from "../contracts/spec-05-foundation.js";
+import { assertContentFreeResumeRecoveryReconciliationAudit } from "../contracts/audit.js";
+import { AppsBridgeEnvelopeSchema } from "../contracts/spec-05-foundation.js";
 import { ContractViolation } from "../contracts/errors.js";
 import type { AppLifecycleService } from "../lifecycle/service.js";
 import { AppPlatformError } from "../lifecycle/errors.js";
@@ -25,18 +26,21 @@ import {
 } from "../../resume-domain/capability-policy.js";
 import { FactDecisionInputSchema, issueHostOwnerDecisionEvidence } from "../../resume-domain/career-data.js";
 import { ResumeDomainError } from "../../resume-domain/errors.js";
-import { CapabilityNameSchema, CapabilityTokenSchema } from "../contracts/package.js";
+import { CapabilityNameSchema } from "../contracts/package.js";
 import type { CareerReturnSummary } from "../../resume-domain/career.js";
-import type { ResumeInferenceBroker } from "../../resume-inference/broker.js";
-import type { ImmutableInferenceSnapshotBuilder } from "../../resume-inference/snapshot.js";
-import { InferenceInvocationSchema } from "../../resume-inference/snapshot.js";
-import { ResumeInferenceError } from "../../resume-inference/errors.js";
 import type { ResumeExportBroker } from "../../resume-renderer/export-broker.js";
-import { CapabilityOperationCoordinator } from "../../app-capabilities/operations.js";
+import { CapabilityOperationCoordinator, type CapabilityOperationDisposition } from "../../app-capabilities/operations.js";
+import {
+  ResumeRecoveryOperationLifecycleProjectionSchema,
+  ResumeRecoveryReconciliationQuerySchema,
+  type ResumeRecoveryOperationLifecycleProjection,
+} from "../../app-capabilities/recovery-reconciliation.js";
 import { resolveAppCapability, type ResumeAppCapabilityName as AppCapabilityName, type AppDataCapability } from "../../app-capabilities/resume-registry.js";
-import { ResumeAppInferenceAdapter } from "../../app-inference/resume-adapter.js";
+import { InstalledAppInferenceExecutor, InstalledAppInferenceInvocationSchema } from "../../app-inference/installed-program.js";
+import { createInstalledAppInferenceProgramClient } from "../../app-inference/installed-program-mcp.js";
 import { AppViewRegistry, type AppViewResumeRequest } from "./app-view-registry.js";
 import type { AppLaunch } from "./app-host-types.js";
+import { CurrentProcessRecoveryBindingRegistry } from "./recovery-binding-registry.js";
 
 type BridgeMessage = z.infer<typeof BridgeMessageSchema>;
 type AppResource = z.infer<typeof McpAppResourceSchema>;
@@ -56,6 +60,19 @@ const APP_BRIDGE_CAPABILITIES = new Set([
 ]);
 
 type AppsClient = Pick<ModernMcpAppsClient, "negotiate" | "readAppResource" | "callTool" | "cancel">;
+type RecoveryOperationBinding = {
+  expectedRevision: number | null;
+  semanticDigest: `sha256:${string}` | null;
+  lifecycleState: "pending" | "completed" | "conflict" | "cancelled" | "failed";
+  conflictClass: "idempotency_input_mismatch" | "cas_revision_mismatch" | "durable_value_mismatch";
+  ownerId: string;
+  actorId: string;
+  grantId: string;
+  grantRevision: number;
+  revocationGeneration: number;
+  recordScopeIds: readonly string[];
+};
+const CURRENT_PROCESS_RECOVERY_BINDINGS = new CurrentProcessRecoveryBindingRegistry<RecoveryOperationBinding>();
 type SessionRecord = {
   sessionId: string;
   viewId: string;
@@ -91,6 +108,9 @@ export class ResumeAppHostAdapter {
   private readonly runtimeConnections = new Map<string, AppRuntimeConnection>();
   private readonly connectionManager: McpConnectionManager;
   private readonly viewRegistry: AppViewRegistry;
+  private readonly recoveryDiagnosticBindings = new Map<string, RecoveryOperationBinding>();
+  private readonly recoveryProcessInstanceId: string | null;
+  private readonly startupTransactionRecoveryComplete: boolean;
 
   constructor(
     private readonly lifecycle: AppLifecycleService,
@@ -99,8 +119,7 @@ export class ResumeAppHostAdapter {
       now?: () => number;
       audit?: (event: string, details: Record<string, unknown>) => void;
       capabilityRouter?: ResumeCapabilityRouter;
-      inferenceBroker?: ResumeInferenceBroker;
-      snapshotBuilder?: ImmutableInferenceSnapshotBuilder;
+      installedAppInference?: InstalledAppInferenceExecutor;
       exportBroker?: ResumeExportBroker;
       capabilityOperations?: CapabilityOperationCoordinator;
       viewRegistry?: AppViewRegistry;
@@ -125,23 +144,22 @@ export class ResumeAppHostAdapter {
       return new ModernMcpAppsClient({ manager: this.connectionManager, identity });
     });
     this.capabilityRouter = options.capabilityRouter;
+    const recoveryEvidence = options.capabilityRouter?.domain.store.recoveryLifecycleEvidence();
+    this.recoveryProcessInstanceId = recoveryEvidence?.process_instance_id ?? null;
+    this.startupTransactionRecoveryComplete = recoveryEvidence?.startup_transaction_recovery_complete ?? false;
     this.exportBroker = options.exportBroker;
-    this.capabilityOperations = options.capabilityOperations ?? new CapabilityOperationCoordinator({ now: this.now });
+    this.capabilityOperations = options.capabilityOperations ?? new CapabilityOperationCoordinator({
+      now: this.now,
+      onDisposition: (event) => this.emitRecoveryReconciliationAudit(event),
+    });
     this.viewRegistry = options.viewRegistry ?? new AppViewRegistry({ now: this.now });
-    this.appInference = options.inferenceBroker && options.snapshotBuilder
-      ? new ResumeAppInferenceAdapter({
-          broker: options.inferenceBroker,
-          snapshotBuilder: options.snapshotBuilder,
-          operations: this.capabilityOperations,
-          persistResult: (idempotencyKey, input, action) => this.lifecycle.dependencies.store.runIdempotent(idempotencyKey, input, action),
-        })
-      : undefined;
+    this.installedAppInference = options.installedAppInference;
   }
 
   private readonly capabilityRouter?: ResumeCapabilityRouter;
   private readonly exportBroker?: ResumeExportBroker;
   private readonly capabilityOperations: CapabilityOperationCoordinator;
-  private readonly appInference?: ResumeAppInferenceAdapter;
+  private readonly installedAppInference?: InstalledAppInferenceExecutor;
 
   async launch(entryPoint: "direct" | "career" = "direct", resume?: AppViewResumeRequest): Promise<AppLaunch> {
     const descriptor = await this.lifecycle.ownerDescriptor();
@@ -316,11 +334,13 @@ export class ResumeAppHostAdapter {
     this.validateMessage(session, message);
     if (message.type === "bridge.ready") return { status: "ready" };
     if (message.type === "operation.cancel") {
-      if (!session.inferenceOperations.has(message.payload.target_operation_id) || !this.appInference) {
+      if (!session.inferenceOperations.has(message.payload.target_operation_id) || !this.installedAppInference) {
         throw new AppPlatformError("bridge_denied", "Cancellation target is outside this app session", 403);
       }
       const target = message.payload.target_operation_id;
-      return { status: "capability_completed", result: { cancelled: this.appInference.cancel(session.grant.app_id, session.installationId, target, inferenceIdempotencyKey(target)) } };
+      const idempotencyKey = inferenceIdempotencyKey(target);
+      const generic = this.capabilityOperations.cancel(session.grant.app_id, session.installationId, "app.inference.request", idempotencyKey);
+      return { status: "capability_completed", result: { cancelled: generic } };
     }
     if (message.type === "career.return") {
       if (!this.capabilityRouter) throw new AppPlatformError("bridge_denied", "Career return placement is unavailable", 403);
@@ -355,21 +375,27 @@ export class ResumeAppHostAdapter {
       }
       try {
         if (parsedCapability.data === "app.inference.request") {
-          if (!this.appInference) throw new AppPlatformError("bridge_denied", "Inference broker is not configured", 403);
-          const invocation = InferenceInvocationSchema.safeParse(message.payload.input);
-          if (!invocation.success) throw new AppPlatformError("invalid_input", "Inference invocation failed the versioned app contract", 400);
-          const operationId = invocation.data.operation_id;
-          const idempotencyKey = inferenceIdempotencyKey(operationId);
-          const issued = await this.lifecycle.issueSession({ audience: "app_inference", capabilities: [parsedCapability.data], operationId, idempotencyKey, viewId: session.viewId, connectionId: session.mcp.connectionId });
-          const claims = this.consumeIssuedAuthority(issued, session.grant, parsedCapability.data, {
-            connectionId: session.mcp.connectionId, viewId: session.viewId, operationId, idempotencyKey,
-          });
-          session.inferenceOperations.add(operationId);
-          const result = await this.appInference.execute(invocation.data, {
-            authority: inferenceAuthority(claims), grant: session.grant, operationId, idempotencyKey,
-            deadlineAt: Math.min(Date.parse(claims.expires_at), this.now() + 120_000),
-          });
-          return { status: "capability_completed", result };
+          const installedInvocation = InstalledAppInferenceInvocationSchema.safeParse(message.payload.input);
+          if (installedInvocation.success) {
+            if (!this.installedAppInference) throw new AppPlatformError("bridge_denied", "Installed app inference is not configured", 403);
+            const operationId = installedInvocation.data.operation_id;
+            const idempotencyKey = inferenceIdempotencyKey(operationId);
+            const issued = await this.lifecycle.issueSession({ audience: "app_inference", capabilities: [parsedCapability.data], operationId, idempotencyKey, viewId: session.viewId, connectionId: session.mcp.connectionId });
+            const claims = this.consumeIssuedAuthority(issued, session.grant, parsedCapability.data, {
+              connectionId: session.mcp.connectionId, viewId: session.viewId, operationId, idempotencyKey,
+            });
+            session.inferenceOperations.add(operationId);
+            const result = await this.capabilityOperations.execute({
+              appId: session.grant.app_id, installationId: session.installationId, connectionId: session.mcp.connectionId,
+              viewId: session.viewId, capability: "app.inference.request", capabilityVersion: 1, operationId,
+              idempotencyKey, input: installedInvocation.data, deadlineAt: Math.min(Date.parse(claims.expires_at), this.now() + 120_000),
+            }, ({ signal }) => this.lifecycle.dependencies.store.runIdempotent(idempotencyKey, { capability: parsedCapability.data, input: installedInvocation.data }, () => this.installedAppInference!.execute(installedInvocation.data, {
+              appId: session.grant.app_id, installationId: session.installationId, packageDigest: session.packageDigest,
+              programClient: createInstalledAppInferenceProgramClient(session.client, session.mcp), signal,
+            })));
+            return { status: "capability_completed", result };
+          }
+          throw new AppPlatformError("invalid_input", "Installed app inference requires contract version 2", 400);
         }
         if (!this.capabilityRouter) throw new AppPlatformError("bridge_denied", "Data capabilities are not available for this app session", 403);
         const audience = parsedCapability.data === "resume.export.request" ? "app_export" : "app_data";
@@ -422,16 +448,55 @@ export class ResumeAppHostAdapter {
     if (descriptor.record.state !== "active" || !descriptor.record.installation_id || !descriptor.grant) throw new AppPlatformError("invalid_state_transition", "Resume Builder must be active before data access");
     try {
       if (parsedCapability.data === "app.inference.request") {
-        if (!this.appInference) throw new AppPlatformError("bridge_denied", "Inference broker is not configured", 403);
-        const idempotencyKey = inferenceIdempotencyKey(operationId);
-        const issued = await this.lifecycle.issueSession({ audience: "app_inference", capabilities: [parsedCapability.data], operationId, idempotencyKey });
-        const claims = this.consumeIssuedAuthority(issued, descriptor.grant, parsedCapability.data, {
-          connectionId: issued.claims.connection_id, viewId: null, operationId, idempotencyKey,
-        });
-        return this.appInference.execute(input, {
-          authority: inferenceAuthority(claims), grant: descriptor.grant, operationId, idempotencyKey,
-          deadlineAt: Math.min(Date.parse(claims.expires_at), this.now() + 120_000),
-        });
+        const installedInvocation = InstalledAppInferenceInvocationSchema.safeParse(input);
+        if (installedInvocation.success) {
+          if (installedInvocation.data.operation_id !== operationId) {
+            throw new AppPlatformError("invalid_input", "Installed app inference operation identity is invalid", 400);
+          }
+          if (!this.installedAppInference) throw new AppPlatformError("bridge_denied", "Installed app inference is not configured", 403);
+          const packageDigest = descriptor.record.active_package_digest;
+          const session = packageDigest
+            ? [...this.sessions.values()].find((candidate) => candidate.installationId === descriptor.record.installation_id
+              && candidate.packageDigest === packageDigest
+              && this.viewRegistry.isCurrentSession(this.appId, candidate.sessionId))
+            : undefined;
+          if (!session) throw new AppPlatformError("session_closed", "No active installed-app program session is available", 410);
+          const idempotencyKey = inferenceIdempotencyKey(operationId);
+          const issued = await this.lifecycle.issueSession({
+            audience: "app_inference",
+            capabilities: [parsedCapability.data],
+            operationId,
+            idempotencyKey,
+            viewId: session.viewId,
+            connectionId: session.mcp.connectionId,
+          });
+          this.consumeIssuedAuthority(issued, descriptor.grant, parsedCapability.data, {
+            connectionId: session.mcp.connectionId,
+            viewId: session.viewId,
+            operationId,
+            idempotencyKey,
+          });
+          session.inferenceOperations.add(operationId);
+          return this.capabilityOperations.execute({
+            appId: descriptor.grant.app_id,
+            installationId: descriptor.record.installation_id,
+            connectionId: session.mcp.connectionId,
+            viewId: session.viewId,
+            capability: "app.inference.request",
+            capabilityVersion: 1,
+            operationId,
+            idempotencyKey,
+            input: installedInvocation.data,
+            deadlineAt: Math.min(Date.parse(issued.claims.expires_at), this.now() + 120_000),
+          }, ({ signal }) => this.lifecycle.dependencies.store.runIdempotent(idempotencyKey, { capability: parsedCapability.data, input: installedInvocation.data }, () => this.installedAppInference!.execute(installedInvocation.data, {
+            appId: descriptor.grant!.app_id,
+            installationId: descriptor.record.installation_id!,
+            packageDigest: session.packageDigest,
+            programClient: createInstalledAppInferenceProgramClient(session.client, session.mcp),
+            signal,
+          })));
+        }
+        throw new AppPlatformError("invalid_input", "Installed app inference requires contract version 2", 400);
       }
       if (!this.capabilityRouter) throw new AppPlatformError("bridge_denied", "Data capabilities are not available", 403);
       const audience = parsedCapability.data === "resume.export.request" ? "app_export" : "app_data";
@@ -535,11 +600,18 @@ export class ResumeAppHostAdapter {
     );
     if (!matchingSession) throw new AppPlatformError("token_scope_invalid", "Capability token scope does not match the active connection", 403);
     if (entry.name === "app.inference.request") {
-      if (!this.appInference) throw new AppPlatformError("denied", "Inference broker is unavailable", 403);
-      return this.appInference.execute(input, {
-        authority: inferenceAuthority(claims), grant, operationId, idempotencyKey,
+      const invocation = InstalledAppInferenceInvocationSchema.safeParse(input);
+      if (!invocation.success || invocation.data.operation_id !== operationId) throw new AppPlatformError("invalid_input", "Installed app inference requires contract version 2", 400);
+      if (!this.installedAppInference) throw new AppPlatformError("denied", "Installed app inference is unavailable", 403);
+      matchingSession.inferenceOperations.add(operationId);
+      return this.capabilityOperations.execute({
+        appId: grant.app_id, installationId: claims.installation_id, connectionId: claims.connection_id, viewId: matchingSession.viewId,
+        capability: "app.inference.request", capabilityVersion: 1, operationId, idempotencyKey, input: invocation.data,
         deadlineAt: Math.min(Date.parse(claims.expires_at), this.now() + entry.maxDurationMs),
-      });
+      }, ({ signal }) => this.lifecycle.dependencies.store.runIdempotent(idempotencyKey, { capability: entry.name, input: invocation.data }, () => this.installedAppInference!.execute(invocation.data, {
+        appId: grant.app_id, installationId: claims.installation_id, packageDigest: matchingSession.packageDigest,
+        programClient: createInstalledAppInferenceProgramClient(matchingSession.client, matchingSession.mcp), signal,
+      })));
     }
     return this.executeDataCapability(entry.name, input, {
       authority: restrictedAuthorityFromTokenClaims(claims), installationId: claims.installation_id,
@@ -553,7 +625,7 @@ export class ResumeAppHostAdapter {
     if (!session) return false;
     const closedView = this.viewRegistry.close(this.appId, sessionId);
     if (!closedView.closed) return false;
-    for (const operationId of session.inferenceOperations) this.appInference?.cancel(session.grant.app_id, session.installationId, operationId, inferenceIdempotencyKey(operationId));
+    for (const operationId of session.inferenceOperations) this.capabilityOperations.cancel(session.grant.app_id, session.installationId, "app.inference.request", inferenceIdempotencyKey(operationId));
     this.lifecycle.dependencies.tokenBroker.revokeView(closedView.viewId!);
     return this.sessions.delete(sessionId);
   }
@@ -609,14 +681,246 @@ export class ResumeAppHostAdapter {
     },
   ): Promise<unknown> {
     if (!this.capabilityRouter) throw new AppPlatformError("denied", "Data capabilities are unavailable", 403);
+    this.rememberRecoveryDiagnosticBinding(capability, input, context);
     return this.capabilityOperations.execute({
       appId: context.authority.context.app_id,
       installationId: context.installationId, connectionId: context.connectionId, viewId: context.viewId,
       capability, capabilityVersion: 1, operationId: context.operationId, idempotencyKey: context.idempotencyKey,
       input, deadlineAt: context.deadlineAt, isCancelled: context.isCancelled,
-    }, ({ isCancelled, idempotencyDecision }) => this.capabilityRouter!.execute(capability, input, {
+    }, ({ isCancelled, idempotencyDecision }) => this.executeRoutedDataCapability(capability, input, {
       ...context, connectionId: context.connectionId, viewId: context.viewId, isCancelled, idempotencyDecision,
     }));
+  }
+
+  private rememberRecoveryDiagnosticBinding(
+    capability: AppDataCapability,
+    input: unknown,
+    context: CapabilityExecutionContext & { installationId: string },
+  ): void {
+    if (capability !== "resume.definitions.write" || !isRecordValue(input) || input.kind !== "interview_recovery_save" || !isRecordValue(input.recovery)) return;
+    const expectedRevision = input.recovery.expected_revision;
+    if (expectedRevision !== null && (!Number.isInteger(expectedRevision) || (expectedRevision as number) < 0)) return;
+    const authority = context.authority;
+    const key = this.recoveryDiagnosticKey(authority.context.app_id, context.installationId, context.operationId);
+    const processKey = this.currentProcessRecoveryKey(authority.context.app_id, context.installationId, context.operationId);
+    if (!this.recoveryDiagnosticBindings.has(key)) {
+      const binding = (processKey ? CURRENT_PROCESS_RECOVERY_BINDINGS.get(processKey) : undefined) ?? {
+        expectedRevision: expectedRevision as number | null,
+        semanticDigest: null,
+        lifecycleState: "pending",
+        conflictClass: "durable_value_mismatch",
+        ownerId: authority.context.owner_id,
+        actorId: authority.context.actor_id,
+        grantId: authority.context.grant_id,
+        grantRevision: authority.grant_revision,
+        revocationGeneration: authority.revocation_generation,
+        recordScopeIds: [...authority.context.record_scope_ids].sort(),
+      };
+      this.recoveryDiagnosticBindings.set(key, binding);
+      if (processKey) CURRENT_PROCESS_RECOVERY_BINDINGS.remember(processKey, binding);
+    }
+    if (this.recoveryDiagnosticBindings.size > 1_000) {
+      const oldestOperationId = this.recoveryDiagnosticBindings.keys().next().value;
+      if (oldestOperationId) this.recoveryDiagnosticBindings.delete(oldestOperationId);
+    }
+  }
+
+  private emitRecoveryReconciliationAudit(event: CapabilityOperationDisposition): void {
+    const diagnosticKey = this.recoveryDiagnosticKey(event.appId, event.installationId, event.operationId);
+    const processKey = this.currentProcessRecoveryKey(event.appId, event.installationId, event.operationId);
+    const binding = this.recoveryDiagnosticBindings.get(diagnosticKey)
+      ?? (processKey ? CURRENT_PROCESS_RECOVERY_BINDINGS.get(processKey) : undefined);
+    if (!binding || event.capability !== "resume.definitions.write") return;
+    if (binding.semanticDigest === null) binding.semanticDigest = event.inputDigest;
+    if (!(event.idempotencyDisposition === "conflict" && event.conflictClass === "idempotency_input_mismatch")) {
+      binding.lifecycleState = event.finalDisposition;
+      if (event.conflictClass !== "none") binding.conflictClass = event.conflictClass;
+    }
+    if (processKey && binding.lifecycleState !== "pending") CURRENT_PROCESS_RECOVERY_BINDINGS.markTerminal(processKey);
+    const initialWaitClass = event.finalDisposition === "pending"
+      ? "not_observed"
+      : event.elapsedMs <= 500
+        ? "completed_before_initial_wait"
+        : "ambiguous_after_initial_wait";
+    const acknowledgementTimingClass = event.finalDisposition === "pending"
+      ? "pending"
+      : event.elapsedMs <= 500
+        ? "before_initial_wait"
+        : event.elapsedMs <= 750
+          ? "observed_window"
+          : event.elapsedMs <= 8_500
+            ? "early_reconciliation"
+            : event.elapsedMs < 120_000
+              ? "late_reconciliation"
+              : "host_deadline";
+    const details = {
+      diagnostic_version: 1 as const,
+      app_id: this.appId,
+      operation_id: event.operationId,
+      semantic_digest: event.inputDigest,
+      expected_revision: binding.expectedRevision,
+      initial_wait_class: initialWaitClass,
+      reconciliation_count: 0,
+      reconciliation_class: "none" as const,
+      acknowledgement_timing_class: acknowledgementTimingClass,
+      idempotency_disposition: event.idempotencyDisposition,
+      final_disposition: event.finalDisposition === "completed" ? "committed" as const : event.finalDisposition,
+      conflict_class: event.conflictClass,
+      error_code: event.errorCode,
+    };
+    assertContentFreeResumeRecoveryReconciliationAudit(details);
+    this.audit("app.resume_recovery.reconciliation", details);
+  }
+
+  private recoveryDiagnosticKey(appId: string, installationId: string, operationId: string): string {
+    return `${appId}:${installationId}:${operationId}`;
+  }
+
+  private currentProcessRecoveryKey(appId: string, installationId: string, operationId: string): string | null {
+    return this.recoveryProcessInstanceId === null
+      ? null
+      : `${this.recoveryProcessInstanceId}:${this.recoveryDiagnosticKey(appId, installationId, operationId)}`;
+  }
+
+  private async executeRoutedDataCapability(
+    capability: AppDataCapability,
+    input: unknown,
+    context: CapabilityExecutionContext & { installationId: string },
+  ): Promise<unknown> {
+    const query = capability === "resume.operations.read"
+      ? ResumeRecoveryReconciliationQuerySchema.safeParse(input)
+      : null;
+    try {
+      const result = await this.capabilityRouter!.execute(capability, input, context);
+      if (!query?.success) return result;
+      return this.projectCommittedRecoveryOperation(result, query.data.queried_operation_id);
+    } catch (error) {
+      if (!query?.success || !(error instanceof ResumeDomainError) || error.code !== "not_found_within_scope") throw error;
+      return {
+        recovery_reconciliation: this.projectMissingRecoveryOperation(query.data.queried_operation_id, context),
+      };
+    }
+  }
+
+  private projectCommittedRecoveryOperation(result: unknown, queriedOperationId: string): unknown {
+    if (!isRecordValue(result) || !isRecordValue(result.record) || !Array.isArray(result.results)) return result;
+    const progress = result.results.find((candidate) => isRecordValue(candidate) && candidate.record_type === "interview_progress");
+    const metadata = isRecordValue(progress) && isRecordValue(progress.metadata) ? progress.metadata : null;
+    const recoveryDraft = isRecordValue(progress) && isRecordValue(progress.recovery_draft) ? progress.recovery_draft : null;
+    const operation = result.record;
+    const candidate = {
+      reconciliation_version: 1 as const,
+      lifecycle_state: "committed" as const,
+      queried_operation_id: queriedOperationId,
+      semantic_digest: operation.canonical_input_digest,
+      expected_revision: operation.expected_revision,
+      host_operation_settled: true as const,
+      operation: {
+        state: "committed" as const,
+        operation_id: operation.operation_id,
+        value_digest: recoveryDraft?.value_digest,
+        revision: metadata?.revision,
+      },
+    };
+    const projection = ResumeRecoveryOperationLifecycleProjectionSchema.safeParse(candidate);
+    if (!projection.success) return {
+      ...result,
+      recovery_reconciliation: this.currentProcessUnknownRecoveryProjection(queriedOperationId),
+    };
+    return { ...result, recovery_reconciliation: projection.data };
+  }
+
+  private projectMissingRecoveryOperation(
+    queriedOperationId: string,
+    context: CapabilityExecutionContext & { installationId: string },
+  ): ResumeRecoveryOperationLifecycleProjection {
+    const authority = context.authority;
+    const key = this.recoveryDiagnosticKey(
+      authority.context.app_id,
+      context.installationId,
+      queriedOperationId,
+    );
+    const processKey = this.currentProcessRecoveryKey(authority.context.app_id, context.installationId, queriedOperationId);
+    const binding = this.recoveryDiagnosticBindings.get(key)
+      ?? (processKey ? CURRENT_PROCESS_RECOVERY_BINDINGS.get(processKey) : undefined);
+    if (binding && (!this.recoveryBindingMatchesAuthority(binding, authority) || binding.semanticDigest === null)) {
+      return this.currentProcessUnknownRecoveryProjection(queriedOperationId);
+    }
+    if (!binding) {
+      return this.startupTransactionRecoveryComplete
+        ? this.quiescedRestartNoOperationProjection(queriedOperationId)
+        : this.currentProcessUnknownRecoveryProjection(queriedOperationId);
+    }
+    const lifecycle = this.capabilityOperations.inspectLifecycle({
+      appId: authority.context.app_id,
+      installationId: context.installationId,
+      capability: "resume.definitions.write",
+      operationId: queriedOperationId,
+    });
+    const lifecycleState = lifecycle?.state ?? binding.lifecycleState;
+    const common = {
+      reconciliation_version: 1 as const,
+      queried_operation_id: queriedOperationId,
+      semantic_digest: binding.semanticDigest,
+      expected_revision: binding.expectedRevision,
+    };
+    if (lifecycleState === "pending") {
+      return ResumeRecoveryOperationLifecycleProjectionSchema.parse({
+        ...common, lifecycle_state: "pending", host_operation_settled: false,
+        operation: { state: "not_found_within_scope" },
+      });
+    }
+    if (lifecycleState === "completed") {
+      return ResumeRecoveryOperationLifecycleProjectionSchema.parse({
+        ...common, lifecycle_state: "completed_without_operation", host_operation_settled: true,
+        operation: { state: "not_found_within_scope" },
+      });
+    }
+    if (lifecycleState === "conflict") {
+      return ResumeRecoveryOperationLifecycleProjectionSchema.parse({
+        ...common, lifecycle_state: "conflict", host_operation_settled: true,
+        operation: { state: "conflict", conflict_class: binding.conflictClass },
+      });
+    }
+    return ResumeRecoveryOperationLifecycleProjectionSchema.parse({
+      ...common, lifecycle_state: lifecycleState, host_operation_settled: true,
+      operation: { state: lifecycleState },
+    });
+  }
+
+  private currentProcessUnknownRecoveryProjection(queriedOperationId: string): ResumeRecoveryOperationLifecycleProjection {
+    return ResumeRecoveryOperationLifecycleProjectionSchema.parse({
+      reconciliation_version: 1,
+      queried_operation_id: queriedOperationId,
+      semantic_digest: null,
+      expected_revision: null,
+      lifecycle_state: "current_process_lifecycle_unknown",
+      host_operation_settled: false,
+      operation: { state: "not_found_within_scope" },
+    });
+  }
+
+  private quiescedRestartNoOperationProjection(queriedOperationId: string): ResumeRecoveryOperationLifecycleProjection {
+    return ResumeRecoveryOperationLifecycleProjectionSchema.parse({
+      reconciliation_version: 1,
+      queried_operation_id: queriedOperationId,
+      semantic_digest: null,
+      expected_revision: null,
+      lifecycle_state: "quiesced_restart_no_operation",
+      host_operation_settled: true,
+      operation: { state: "not_found_within_scope" },
+    });
+  }
+
+  private recoveryBindingMatchesAuthority(binding: RecoveryOperationBinding, authority: CapabilityExecutionContext["authority"]): boolean {
+    const scopes = [...authority.context.record_scope_ids].sort();
+    return binding.ownerId === authority.context.owner_id
+      && binding.actorId === authority.context.actor_id
+      && binding.grantId === authority.context.grant_id
+      && binding.grantRevision === authority.grant_revision
+      && binding.revocationGeneration === authority.revocation_generation
+      && binding.recordScopeIds.length === scopes.length
+      && binding.recordScopeIds.every((scope, index) => scope === scopes[index]);
   }
 
   private consumeIssuedAuthority(
@@ -663,52 +967,12 @@ export class ResumeAppHostAdapter {
   private asHostError(error: unknown): AppPlatformError {
     if (error instanceof AppPlatformError) return error;
     if (error instanceof ResumeDomainError) return new AppPlatformError(error.code, error.message, error.statusCode, error.details);
-    if (error instanceof ResumeInferenceError) {
-      const code = error.code === "invalid_request"
-        ? "invalid_input"
-        : error.code === "denied"
-          ? "denied"
-          : error.code === "cancelled"
-            ? "cancelled"
-            : error.code === "validation_failed" || error.code === "schema_validation_failed"
-              ? "validation_failed"
-              : error.code === "model_incompatible"
-                ? "protocol_incompatible"
-                : "recoverable_internal_failure";
-      return new AppPlatformError(code, error.message, error.code === "denied" ? 403 : 409);
-    }
     return new AppPlatformError("recoverable_internal_failure", "Resume Builder data operation failed", 500);
   }
 
 }
 
 function inferenceIdempotencyKey(operationId: string): string { return `m5-inference-${operationId}`; }
-
-function inferenceAuthority(claims: z.infer<typeof CapabilityTokenSchema>) {
-  return AppCapabilityAuthoritySchema.parse({
-    authority_version: 1,
-    grant_id: claims.grant_id,
-    grant_revision: claims.grant_revision,
-    revocation_generation: claims.revocation_generation,
-    token_id: claims.token_id,
-    token_generation: claims.token_generation,
-    owner_id: claims.owner_id,
-    actor_id: claims.actor_id,
-    app_id: claims.app_id,
-    publisher_id: claims.publisher_id,
-    package_digest: claims.package_digest,
-    installation_id: claims.installation_id,
-    connection_id: claims.connection_id,
-    view_id: claims.view_id,
-    operation_id: claims.operation_id,
-    audience: claims.audience,
-    capabilities: claims.capabilities,
-    record_scopes: claims.record_scopes,
-    idempotency_key: claims.idempotency_key,
-    issued_at: claims.issued_at,
-    expires_at: claims.expires_at,
-  });
-}
 
 function isRecordValue(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

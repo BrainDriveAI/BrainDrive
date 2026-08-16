@@ -1,94 +1,465 @@
 {
   "$id": "https://schemas.braindrive.ai/resume-builder/v1/model-compatibility-entry.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
-  "properties": {
-    "registry_version": {
-      "type": "number",
-      "const": 1
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "registry_version": {
+          "type": "number",
+          "const": 1
+        },
+        "provider_profile_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "model_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "purpose": {
+          "type": "string",
+          "enum": [
+            "interview_assist",
+            "general_resume_draft",
+            "job_description_analyze",
+            "requirement_evidence_match",
+            "tailoring_plan",
+            "targeted_resume_draft",
+            "resume_revision_classify",
+            "resume_revision_draft",
+            "resume_guidance",
+            "resume_strategy",
+            "resume_craft_evaluate",
+            "resume_craft_repair"
+          ]
+        },
+        "output_schema_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "prompt_policy_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "prompt_policy_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "compatible": {
+          "type": "boolean"
+        },
+        "fixture_corpus_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "tested_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "zero_unsupported_claim_gate": {
+          "type": "boolean"
+        },
+        "schema_success_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "latency_p95_ms": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "registry_version",
+        "provider_profile_id",
+        "model_id",
+        "purpose",
+        "output_schema_id",
+        "prompt_policy_id",
+        "prompt_policy_version",
+        "compatible",
+        "fixture_corpus_digest",
+        "tested_at",
+        "zero_unsupported_claim_gate",
+        "schema_success_rate",
+        "latency_p95_ms"
+      ],
+      "additionalProperties": false
     },
-    "provider_profile_id": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 512
-    },
-    "model_id": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 512
-    },
-    "purpose": {
-      "type": "string",
-      "enum": [
-        "interview_assist",
-        "general_resume_draft",
-        "job_description_analyze",
-        "requirement_evidence_match",
-        "tailoring_plan",
-        "targeted_resume_draft",
-        "resume_revision_classify",
-        "resume_revision_draft",
-        "resume_guidance",
-        "resume_strategy",
-        "resume_craft_evaluate",
-        "resume_craft_repair"
-      ]
-    },
-    "output_schema_id": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 512
-    },
-    "prompt_policy_id": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 512
-    },
-    "prompt_policy_version": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 512
-    },
-    "compatible": {
-      "type": "boolean"
-    },
-    "fixture_corpus_digest": {
-      "type": "string",
-      "pattern": "^sha256:[a-f0-9]{64}$"
-    },
-    "tested_at": {
-      "type": "string",
-      "format": "date-time",
-      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
-    },
-    "zero_unsupported_claim_gate": {
-      "type": "boolean"
-    },
-    "schema_success_rate": {
-      "type": "number",
-      "minimum": 0,
-      "maximum": 1
-    },
-    "latency_p95_ms": {
-      "type": "integer",
-      "exclusiveMinimum": 0,
-      "maximum": 9007199254740991
+    {
+      "type": "object",
+      "properties": {
+        "registry_version": {
+          "type": "number",
+          "const": 2
+        },
+        "provider_profile_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "model_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "observed_model_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "effective_config_fingerprint": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "purpose": {
+          "type": "string",
+          "enum": [
+            "interview_assist",
+            "general_resume_draft",
+            "job_description_analyze",
+            "requirement_evidence_match",
+            "tailoring_plan",
+            "targeted_resume_draft",
+            "resume_revision_classify",
+            "resume_revision_draft",
+            "resume_guidance",
+            "resume_strategy",
+            "resume_craft_evaluate",
+            "resume_craft_repair"
+          ]
+        },
+        "output_schema_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "output_schema_version": {
+          "type": "number",
+          "const": 1
+        },
+        "prompt_policy_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "prompt_policy_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "fixture_corpus_digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "fixture_count": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "runs_per_fixture": {
+          "type": "number",
+          "const": 3
+        },
+        "operation_count": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "evidence_class": {
+          "type": "string",
+          "enum": [
+            "authorized_live_provider",
+            "host_owned_zero_call",
+            "credential_free_synthetic"
+          ]
+        },
+        "outcomes": {
+          "type": "object",
+          "properties": {
+            "primary_success": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "structural_repair_success": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "validation_repair_success": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "deterministic_fallback_success": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "host_owned_success": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "safe_failure": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "schema_valid": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "evidence_valid": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "provider_success": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "zero_provider_call": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "primary_success",
+            "structural_repair_success",
+            "validation_repair_success",
+            "deterministic_fallback_success",
+            "host_owned_success",
+            "safe_failure",
+            "schema_valid",
+            "evidence_valid",
+            "provider_success",
+            "zero_provider_call"
+          ],
+          "additionalProperties": false
+        },
+        "all_required_runs_valid": {
+          "type": "boolean"
+        },
+        "compatible": {
+          "type": "boolean"
+        },
+        "zero_unsupported_claim_gate": {
+          "type": "boolean"
+        },
+        "latency_p95_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "tested_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "runs": {
+          "minItems": 3,
+          "maxItems": 10000,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "fixture_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 96,
+                "pattern": "^[a-z0-9][a-z0-9_-]*$"
+              },
+              "fixture_digest": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              "operation_id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              },
+              "attempt_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2
+              },
+              "provider_call_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2
+              },
+              "observed_model_id": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "finish_category": {
+                "type": "string",
+                "enum": [
+                  "stop",
+                  "length",
+                  "content_filter",
+                  "refusal",
+                  "tool_calls",
+                  "unknown",
+                  "missing"
+                ]
+              },
+              "recovery_class": {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "provider_structural_repair",
+                  "provider_validation_repair",
+                  "deterministic_fallback",
+                  "host_owned_zero_call"
+                ]
+              },
+              "completion_mode": {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "primary",
+                  "provider_repair",
+                  "deterministic_fallback",
+                  "host_owned"
+                ]
+              },
+              "final_disposition": {
+                "type": "string",
+                "enum": [
+                  "completed",
+                  "failed",
+                  "cancelled"
+                ]
+              },
+              "error_code": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "invalid_request",
+                      "denied",
+                      "model_incompatible",
+                      "provider_unavailable",
+                      "quota_exceeded",
+                      "rate_limited",
+                      "deadline_exceeded",
+                      "cancelled",
+                      "schema_validation_failed",
+                      "validation_failed",
+                      "recoverable_internal_failure",
+                      "malformed_structured_output",
+                      "incomplete_output",
+                      "evidence_validation_failed",
+                      "provider_schema_unsupported",
+                      "provider_authentication_failed",
+                      "provider_authorization_failed",
+                      "content_filtered",
+                      "provider_refused",
+                      "unexpected_tool_call",
+                      "internal_failure"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "schema_valid": {
+                "type": "boolean"
+              },
+              "evidence_valid": {
+                "type": "boolean"
+              },
+              "provider_success": {
+                "type": "boolean"
+              },
+              "latency_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "fixture_id",
+              "fixture_digest",
+              "operation_id",
+              "attempt_count",
+              "provider_call_count",
+              "observed_model_id",
+              "finish_category",
+              "recovery_class",
+              "completion_mode",
+              "final_disposition",
+              "error_code",
+              "schema_valid",
+              "evidence_valid",
+              "provider_success",
+              "latency_ms"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "registry_version",
+        "provider_profile_id",
+        "model_id",
+        "observed_model_id",
+        "effective_config_fingerprint",
+        "purpose",
+        "output_schema_id",
+        "output_schema_version",
+        "prompt_policy_id",
+        "prompt_policy_version",
+        "fixture_corpus_digest",
+        "fixture_count",
+        "runs_per_fixture",
+        "operation_count",
+        "evidence_class",
+        "outcomes",
+        "all_required_runs_valid",
+        "compatible",
+        "zero_unsupported_claim_gate",
+        "latency_p95_ms",
+        "tested_at",
+        "expires_at",
+        "runs"
+      ],
+      "additionalProperties": false
     }
-  },
-  "required": [
-    "registry_version",
-    "provider_profile_id",
-    "model_id",
-    "purpose",
-    "output_schema_id",
-    "prompt_policy_id",
-    "prompt_policy_version",
-    "compatible",
-    "fixture_corpus_digest",
-    "tested_at",
-    "zero_unsupported_claim_gate",
-    "schema_success_rate",
-    "latency_p95_ms"
-  ],
-  "additionalProperties": false
+  ]
 }

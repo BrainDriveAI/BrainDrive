@@ -39,12 +39,13 @@ test.describe("Brief Builder focused owner journey", () => {
     await expect(page.getByRole("status").filter({ hasText: "App ready" })).toBeVisible({ timeout: 20_000 });
     await expect(proxy).toHaveAttribute("sandbox", "allow-scripts allow-same-origin");
     await expect(frame.getByRole("heading", { name: "Brief Builder" })).toBeVisible();
+    await expect(frame.getByRole("status")).toHaveText("Ready for source text.", { timeout: 20_000 });
     await frame.getByLabel("Owner source text").fill("The owner launched a pilot in Dayton. The pilot enrolled twelve participants.");
-    await frame.getByRole("button", { name: "Generate grounded brief" }).click();
-    await expect(frame.getByText("Review every statement and its support before approval.")).toBeVisible({ timeout: 20_000 });
-    await expect(frame.getByText("The owner launched a pilot in Dayton.", { exact: true })).toBeVisible();
+    await frame.getByRole("button", { name: "Generate brief", exact: true }).click();
+    await expect(frame.getByRole("status")).toHaveText("Brief ready. Review the document and its supporting sources.", { timeout: 20_000 });
+    await expect(frame.getByRole("article", { name: "Brief preview" })).toContainText("The owner launched a pilot in Dayton.");
 
-    await frame.getByRole("button", { name: "Review and approve in BrainDrive" }).click();
+    await frame.getByRole("button", { name: "Review and approve", exact: true }).click();
     const confirmation = page.getByRole("dialog");
     await expect(confirmation).toContainText("Approve this brief?", { timeout: 20_000 });
     await expect(confirmation).toContainText("sandboxed app content");

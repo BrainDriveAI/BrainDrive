@@ -26,6 +26,8 @@ The gateway resolves the effective profile and credential immediately before the
 
 The OpenAI-compatible adapter also exposes an optional structured completion path for app inference. It sends only system and user messages, an empty `tools` array, a strict JSON Schema response format, the selected model, and the bounded output-token limit. The active profile's resolved credential is sent only in the authorization header; it is not copied into the request body. A caller-supplied abort signal and timeout bound the request.
 
+When a structured response safely includes a provider-returned model identity, the adapter projects that optional identity separately from generated text. Resume compatibility v2 uses it for drift detection; providers that omit it remain supported through the exact configured identity, secret-free effective-configuration fingerprint, and 90-day expiry. The compatibility preflight still runs before credential resolution, adapter construction, or owner-data transmission. Checked-in v1 Resume records are classified `legacy_provisional` and do not constitute Spec 09 release evidence.
+
 Resume inference fails closed when the active adapter lacks this capability. Supporting the request shape is not, by itself, a compatibility claim: each provider/model combination still needs the separately authorized conformance evidence required by the app-inference registry. The path does not enable provider fallback, share credentials across profiles, or turn deterministic fixtures into live-provider evidence.
 
 ## Verification boundary

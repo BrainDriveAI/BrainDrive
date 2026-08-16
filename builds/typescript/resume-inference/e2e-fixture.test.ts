@@ -4,8 +4,10 @@ import { describe, expect, it } from "vitest";
 
 import { canonicalInputDigest } from "../app-platform/contracts/common.js";
 import { FrozenQualityRegressionManifestSchema } from "../app-platform/contracts/data.js";
-import { PURPOSE_RESULT_SCHEMAS } from "./results.js";
-import { synthesizeResumeE2eResult } from "./e2e-fixture.js";
+import { PURPOSE_OUTPUT_SCHEMAS } from "../app-platform/contracts/inference.js";
+import { normalizeHostOwnedResult } from "./host-assistance.js";
+import { PURPOSE_RESULT_SCHEMAS, parseProviderPurposeResult, parsePurposeResult } from "./results.js";
+import { structureResumeE2eProviderResult, synthesizeResumeE2eResult } from "./e2e-fixture.js";
 import { buildEvidenceAnnotations } from "./strategy.js";
 
 const factId = "10000000-0000-4000-8000-000000000001";
@@ -43,6 +45,14 @@ const revisionRequest = { category: "revision_instruction", data: { metadata: { 
 const strategy = { category: "resume_strategy", data: { metadata: { revision_id: "10000000-0000-4000-8000-000000000013" }, fact_revision_ids: [factId], coverage_revision_ids: [], history_shape: "chronological_standard", summary_decision: "omit", section_order: ["experience"], evidence_priorities: [{ fact_revision_id: factId, priority: "must_use" }], omissions: [], unresolved_gap_ids: [] } };
 const deterministicGates = { category: "deterministic_findings", data: { truth_passed: true, structure_passed: true, mechanical_passed: true } };
 const craftReport = { category: "craft_quality_report", data: { metadata: { revision_id: "10000000-0000-4000-8000-000000000011" }, proposal_definition_revision_id: parentId, verdict: "fail", findings: [{ criterion: "C2", statement_id: statementId, severity: "blocking", correction_class: "duty_only" }] } };
+const craftRepairScope = { category: "craft_repair_scope", data: {
+  scope_version: 2,
+  source_definition_revision_id: parentId,
+  source_report_revision_id: "10000000-0000-4000-8000-000000000011",
+  statement_scope_ids: [statementId],
+  correction_class: "duty_only",
+  attempt: 1,
+} };
 
 function permutations<T>(values: T[]): T[][] {
   if (values.length < 2) return [values];
@@ -63,7 +73,7 @@ describe("Resume Builder isolated E2E inference fixture", () => {
       resume_guidance: [facts],
       resume_strategy: [facts],
       resume_craft_evaluate: [facts, parent, strategy, deterministicGates],
-      resume_craft_repair: [facts, parent, craftReport],
+      resume_craft_repair: [facts, parent, craftReport, craftRepairScope],
     } as const;
     for (const [purpose, blocks] of Object.entries(cases)) {
       expect(() => PURPOSE_RESULT_SCHEMAS[purpose as keyof typeof cases].parse(synthesizeResumeE2eResult(purpose as keyof typeof cases, [...blocks]))).not.toThrow();
@@ -147,6 +157,70 @@ describe("Resume Builder isolated E2E inference fixture", () => {
       "Used TypeScript to maintain release tooling.",
     ]));
     expect(draft.statements.every((item) => !item.text.includes("resume_job_v1"))).toBe(true);
+  });
+
+  it("nests each structured role's owned statements under its job and flattens them before persistence", () => {
+    const flat = synthesizeResumeE2eResult("general_resume_draft", [facts]);
+    const provider = structureResumeE2eProviderResult("general_resume_draft", flat, [facts]) as {
+      statements: Array<{ section_id: string }>;
+      experience_roles: Array<{
+        job_fact_revision_id: string;
+        heading_statement: { display_role?: string; supporting_confirmed_fact_revision_ids: string[] };
+        bullet_statements: Array<{ display_role?: string; supporting_confirmed_fact_revision_ids: string[] }>;
+      }>;
+    };
+
+    expect(provider.statements.every((statement) => statement.section_id !== "experience")).toBe(true);
+    expect(provider.experience_roles).toEqual([
+      expect.objectContaining({
+        job_fact_revision_id: factId,
+        heading_statement: expect.objectContaining({ display_role: "heading", supporting_confirmed_fact_revision_ids: [factId] }),
+        bullet_statements: expect.arrayContaining([
+          expect.objectContaining({ display_role: "bullet", supporting_confirmed_fact_revision_ids: [accomplishmentId] }),
+          expect.objectContaining({ display_role: "bullet", supporting_confirmed_fact_revision_ids: [jobEvidenceId] }),
+        ]),
+      }),
+    ]);
+    expect(provider.experience_roles[0]!.bullet_statements).toHaveLength(3);
+    expect(provider.experience_roles[0]).not.toHaveProperty("bullet_statement_ids");
+
+    const parsedProvider = parseProviderPurposeResult("general_resume_draft", PURPOSE_OUTPUT_SCHEMAS.general_resume_draft, provider);
+    const normalized = normalizeHostOwnedResult("general_resume_draft", parsedProvider, [facts]);
+    expect(() => parsePurposeResult("general_resume_draft", PURPOSE_OUTPUT_SCHEMAS.general_resume_draft, normalized)).not.toThrow();
+    expect(normalized).not.toHaveProperty("experience_roles");
+    expect(canonicalInputDigest(normalized)).toBe(canonicalInputDigest(flat));
+  });
+
+  it("classifies each semantic role-binding failure without exposing content", () => {
+    const flat = synthesizeResumeE2eResult("general_resume_draft", [facts]);
+    const provider = structureResumeE2eProviderResult("general_resume_draft", flat, [facts]) as {
+      statements: Array<Record<string, unknown>>;
+      experience_roles: Array<{
+        job_fact_revision_id: string;
+        heading_statement: Record<string, unknown>;
+        bullet_statements: Array<Record<string, unknown>>;
+      }>;
+    };
+    const cases: Array<[string, (candidate: typeof provider) => void]> = [
+      ["experience_role_top_level_leakage", (candidate) => candidate.statements.push(structuredClone(candidate.experience_roles[0]!.bullet_statements[0]!))],
+      ["experience_role_job_missing", (candidate) => { candidate.experience_roles = []; }],
+      ["experience_role_job_duplicate", (candidate) => candidate.experience_roles.push(structuredClone(candidate.experience_roles[0]!))],
+      ["experience_role_job_foreign", (candidate) => { candidate.experience_roles[0]!.job_fact_revision_id = contactId; }],
+      ["experience_role_heading_shape_invalid", (candidate) => { candidate.experience_roles[0]!.heading_statement.section_id = "skills"; }],
+      ["experience_role_heading_support_invalid", (candidate) => { candidate.experience_roles[0]!.heading_statement.supporting_confirmed_fact_revision_ids = [contactId]; }],
+      ["experience_role_bullet_shape_invalid", (candidate) => { candidate.experience_roles[0]!.bullet_statements[0]!.section_id = "skills"; }],
+      ["experience_role_bullet_support_invalid", (candidate) => { candidate.experience_roles[0]!.bullet_statements[0]!.supporting_confirmed_fact_revision_ids = [contactId]; }],
+    ];
+    for (const [issueId, mutate] of cases) {
+      const candidate = structuredClone(provider);
+      mutate(candidate);
+      try {
+        normalizeHostOwnedResult("general_resume_draft", candidate, [facts]);
+        throw new Error("expected host normalization to fail");
+      } catch (error) {
+        expect(error).toMatchObject({ schemaIssueIds: [issueId] });
+      }
+    }
   });
 
   it("keeps strategy and draft section mappings exact for links, leadership, and general evidence", () => {

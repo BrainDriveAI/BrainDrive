@@ -19,6 +19,7 @@ import {
 import { McpContentBlockSchema } from "./mcp-app.js";
 import { CapabilityNameSchema, SupervisorPolicySchema } from "./package.js";
 import { ContractViolation } from "./errors.js";
+import { InferenceErrorSchema, InferenceOutcomeMetadataSchema } from "./inference.js";
 
 export const SPEC_05_FOUNDATION_VERSION = 1 as const;
 
@@ -283,8 +284,8 @@ export const AppInferenceRequestSchema = z.object({
 
 export const AppInferenceEventSchema = z.discriminatedUnion("event", [
   z.object({ inference_contract_version: z.literal(1), request_id: OpaqueIdSchema, operation_id: OpaqueIdSchema, sequence: z.number().int().nonnegative(), event: z.literal("progress"), delta: z.string().max(32_768) }).strict(),
-  z.object({ inference_contract_version: z.literal(1), request_id: OpaqueIdSchema, operation_id: OpaqueIdSchema, sequence: z.number().int().nonnegative(), event: z.literal("completed"), structured_output: z.unknown(), output_digest: Sha256DigestSchema, usage: z.object({ input_tokens: z.number().int().nonnegative().nullable(), output_tokens: z.number().int().nonnegative().nullable() }).strict() }).strict(),
-  z.object({ inference_contract_version: z.literal(1), request_id: OpaqueIdSchema, operation_id: OpaqueIdSchema, sequence: z.number().int().nonnegative(), event: z.literal("failed"), error: z.object({ code: z.enum(["invalid_request", "denied", "model_incompatible", "provider_unavailable", "quota_exceeded", "rate_limited", "deadline_exceeded", "cancelled", "schema_validation_failed", "recoverable_internal_failure"]), safe_message: z.string().min(1).max(512), retryable: z.boolean() }).strict() }).strict(),
+  z.object({ inference_contract_version: z.literal(1), request_id: OpaqueIdSchema, operation_id: OpaqueIdSchema, sequence: z.number().int().nonnegative(), event: z.literal("completed"), structured_output: z.unknown(), output_digest: Sha256DigestSchema, usage: z.object({ input_tokens: z.number().int().nonnegative().nullable(), output_tokens: z.number().int().nonnegative().nullable() }).strict(), outcome: InferenceOutcomeMetadataSchema.optional() }).strict(),
+  z.object({ inference_contract_version: z.literal(1), request_id: OpaqueIdSchema, operation_id: OpaqueIdSchema, sequence: z.number().int().nonnegative(), event: z.literal("failed"), error: InferenceErrorSchema, outcome: InferenceOutcomeMetadataSchema.optional() }).strict(),
 ]);
 
 export const AppInferenceCancelSchema = z.object({

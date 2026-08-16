@@ -39,7 +39,7 @@ export type InferencePurpose = z.infer<typeof InferencePurposeSchema>;
 
 export const PURPOSE_OUTPUT_SCHEMAS = {
   interview_assist: "resume.interview-assist.v2",
-  general_resume_draft: "resume.general-draft.v1",
+  general_resume_draft: "resume.general-draft.v3",
   job_description_analyze: "resume.job-analysis.v1",
   requirement_evidence_match: "resume.requirement-evidence.v1",
   tailoring_plan: "resume.tailoring-plan.v2",
@@ -260,21 +260,120 @@ export const InferenceStatusSchema = z.enum([
   "failed",
 ]);
 
+/** Content-free stage vocabulary for terminal inference outcomes. */
+export const InferenceStageSchema = z.enum([
+  "request_validation",
+  "compatibility_preflight",
+  "provider_resolution",
+  "provider_request",
+  "finish_reason",
+  "structured_parse",
+  "output_schema_validation",
+  "deterministic_validation",
+  "recovery",
+  "persistence",
+  "cancellation",
+  "completed",
+  "internal",
+]);
+
+/** Provider finish reasons normalized before any parse or validation decision. */
+export const InferenceFinishCategorySchema = z.enum([
+  "stop",
+  "length",
+  "content_filter",
+  "refusal",
+  "tool_calls",
+  "unknown",
+  "missing",
+]);
+
+export const InferenceRecoveryClassSchema = z.enum([
+  "none",
+  "provider_structural_repair",
+  "provider_validation_repair",
+  "deterministic_fallback",
+  "host_owned_zero_call",
+]);
+
+export const InferenceCompletionModeSchema = z.enum([
+  "none",
+  "primary",
+  "provider_repair",
+  "deterministic_fallback",
+  "host_owned",
+]);
+
+export const InferenceFinalDispositionSchema = z.enum([
+  "completed",
+  "failed",
+  "cancelled",
+]);
+
+/**
+ * Optional on version-1 envelopes so persisted pre-Spec-09 terminal records
+ * remain readable. When present, every field is closed and content-free.
+ */
+export const InferenceOutcomeMetadataSchema = z
+  .object({
+    stage: InferenceStageSchema,
+    finish_category: InferenceFinishCategorySchema,
+    attempt_count: z.number().int().min(0).max(2),
+    retryable: z.boolean(),
+    recovery_class: InferenceRecoveryClassSchema,
+    completion_mode: InferenceCompletionModeSchema,
+    final_disposition: InferenceFinalDispositionSchema,
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const completed = value.final_disposition === "completed";
+    if (completed !== (value.completion_mode !== "none")) {
+      context.addIssue({ code: "custom", message: "completion mode must match final disposition" });
+    }
+    if (completed && value.retryable) {
+      context.addIssue({ code: "custom", message: "completed inference cannot be retryable" });
+    }
+    const expectedRecovery: Partial<Record<typeof value.completion_mode, ReadonlySet<typeof value.recovery_class>>> = {
+      primary: new Set(["none"]),
+      provider_repair: new Set(["provider_structural_repair", "provider_validation_repair"]),
+      deterministic_fallback: new Set(["deterministic_fallback"]),
+      host_owned: new Set(["host_owned_zero_call"]),
+    };
+    const allowed = expectedRecovery[value.completion_mode];
+    if (allowed && !allowed.has(value.recovery_class)) {
+      context.addIssue({ code: "custom", message: "recovery class does not match completion mode" });
+    }
+  });
+
+export const InferenceErrorCodeSchema = z.enum([
+  // Retained version-1 values remain readable for persisted results/events.
+  "invalid_request",
+  "denied",
+  "model_incompatible",
+  "provider_unavailable",
+  "quota_exceeded",
+  "rate_limited",
+  "deadline_exceeded",
+  "cancelled",
+  "schema_validation_failed",
+  "validation_failed",
+  "recoverable_internal_failure",
+  // Spec 09 exact semantic values for new terminal outcomes.
+  "malformed_structured_output",
+  "incomplete_output",
+  "evidence_validation_failed",
+  "provider_schema_unsupported",
+  "provider_authentication_failed",
+  "provider_authorization_failed",
+  "content_filtered",
+  "provider_refused",
+  "unexpected_tool_call",
+  "internal_failure",
+]);
+
 export const InferenceErrorSchema = z
   .object({
-    code: z.enum([
-      "invalid_request",
-      "denied",
-      "model_incompatible",
-      "provider_unavailable",
-      "quota_exceeded",
-      "rate_limited",
-      "deadline_exceeded",
-      "cancelled",
-      "schema_validation_failed",
-      "validation_failed",
-      "recoverable_internal_failure",
-    ]),
+    code: InferenceErrorCodeSchema,
     safe_message: z.string().min(1).max(512),
     retryable: z.boolean(),
   })
@@ -305,6 +404,7 @@ export const InferenceResultSchema = z
       })
       .strict(),
     error: InferenceErrorSchema.nullable(),
+    outcome: InferenceOutcomeMetadataSchema.optional(),
     started_at: TimestampSchema,
     completed_at: TimestampSchema.nullable(),
   })
@@ -322,9 +422,27 @@ export const InferenceResultSchema = z
         context.addIssue({ code: "custom", message: "terminal failure cannot contain a result" });
       }
     }
+    if (value.outcome) {
+      const expectedDisposition = value.status === "completed"
+        ? "completed"
+        : value.status === "cancelled"
+          ? "cancelled"
+          : ["deadline_exceeded", "rejected_incompatible", "failed"].includes(value.status)
+            ? "failed"
+            : null;
+      if (value.outcome.final_disposition !== expectedDisposition) {
+        context.addIssue({ code: "custom", path: ["outcome", "final_disposition"], message: "outcome disposition must match inference status" });
+      }
+      if (value.outcome.attempt_count !== value.attempt_count) {
+        context.addIssue({ code: "custom", path: ["outcome", "attempt_count"], message: "outcome attempt count must match inference result" });
+      }
+      if (value.error && value.outcome.retryable !== value.error.retryable) {
+        context.addIssue({ code: "custom", path: ["outcome", "retryable"], message: "outcome retryability must match inference error" });
+      }
+    }
   });
 
-export const ModelCompatibilityEntrySchema = z
+export const LegacyModelCompatibilityEntrySchema = z
   .object({
     registry_version: z.literal(1),
     provider_profile_id: NonEmptyStringSchema,
@@ -342,13 +460,177 @@ export const ModelCompatibilityEntrySchema = z
   })
   .strict()
   .superRefine((value, context) => {
-    if (value.output_schema_id !== PURPOSE_OUTPUT_SCHEMAS[value.purpose]) {
+    const recognizedHistoricalGeneralSchema = value.purpose === "general_resume_draft"
+      && ["resume.general-draft.v1", "resume.general-draft.v2"].includes(value.output_schema_id);
+    if (value.output_schema_id !== PURPOSE_OUTPUT_SCHEMAS[value.purpose] && !recognizedHistoricalGeneralSchema) {
       context.addIssue({ code: "custom", message: "purpose/output schema mismatch" });
     }
     if (value.compatible && (!value.zero_unsupported_claim_gate || value.schema_success_rate < 1)) {
       context.addIssue({ code: "custom", message: "compatibility requires the accepted conformance threshold" });
     }
   });
+
+export const ModelCompatibilityEvidenceClassSchema = z.enum([
+  "authorized_live_provider",
+  "host_owned_zero_call",
+  "credential_free_synthetic",
+]);
+
+export const ModelCompatibilityRunSchema = z
+  .object({
+    fixture_id: z.string().min(1).max(96).regex(/^[a-z0-9][a-z0-9_-]*$/),
+    fixture_digest: Sha256DigestSchema,
+    operation_id: OpaqueIdSchema,
+    attempt_count: z.number().int().min(0).max(2),
+    provider_call_count: z.number().int().min(0).max(2),
+    observed_model_id: NonEmptyStringSchema.nullable(),
+    finish_category: InferenceFinishCategorySchema,
+    recovery_class: InferenceRecoveryClassSchema,
+    completion_mode: InferenceCompletionModeSchema,
+    final_disposition: InferenceFinalDispositionSchema,
+    error_code: InferenceErrorCodeSchema.nullable(),
+    schema_valid: z.boolean(),
+    evidence_valid: z.boolean(),
+    provider_success: z.boolean(),
+    latency_ms: z.number().int().nonnegative(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const completed = value.final_disposition === "completed";
+    if (completed !== (value.error_code === null)) {
+      context.addIssue({ code: "custom", message: "completed run and error code disagree" });
+    }
+    if (completed !== (value.completion_mode !== "none")) {
+      context.addIssue({ code: "custom", message: "completion mode and disposition disagree" });
+    }
+    if (completed && (!value.schema_valid || !value.evidence_valid)) {
+      context.addIssue({ code: "custom", message: "completed run requires schema and evidence validity" });
+    }
+    const providerSuccess = completed && ["primary", "provider_repair"].includes(value.completion_mode);
+    if (value.provider_success !== providerSuccess) {
+      context.addIssue({ code: "custom", message: "provider success must exclude fallback and host-owned completion" });
+    }
+    if (value.completion_mode === "host_owned" && value.provider_call_count !== 0) {
+      context.addIssue({ code: "custom", message: "host-owned completion must make zero provider calls" });
+    }
+    if (value.provider_call_count !== value.attempt_count) {
+      context.addIssue({ code: "custom", message: "provider call count must match the bounded attempt count" });
+    }
+  });
+
+export const ModelCompatibilityEntryV2Schema = z
+  .object({
+    registry_version: z.literal(2),
+    provider_profile_id: NonEmptyStringSchema,
+    model_id: NonEmptyStringSchema,
+    observed_model_id: NonEmptyStringSchema.nullable(),
+    effective_config_fingerprint: Sha256DigestSchema,
+    purpose: InferencePurposeSchema,
+    output_schema_id: NonEmptyStringSchema,
+    output_schema_version: z.literal(1),
+    prompt_policy_id: NonEmptyStringSchema,
+    prompt_policy_version: NonEmptyStringSchema,
+    fixture_corpus_digest: Sha256DigestSchema,
+    fixture_count: z.number().int().positive(),
+    runs_per_fixture: z.literal(3),
+    operation_count: z.number().int().positive(),
+    evidence_class: ModelCompatibilityEvidenceClassSchema,
+    outcomes: z.object({
+      primary_success: z.number().int().nonnegative(),
+      structural_repair_success: z.number().int().nonnegative(),
+      validation_repair_success: z.number().int().nonnegative(),
+      deterministic_fallback_success: z.number().int().nonnegative(),
+      host_owned_success: z.number().int().nonnegative(),
+      safe_failure: z.number().int().nonnegative(),
+      schema_valid: z.number().int().nonnegative(),
+      evidence_valid: z.number().int().nonnegative(),
+      provider_success: z.number().int().nonnegative(),
+      zero_provider_call: z.number().int().nonnegative(),
+    }).strict(),
+    all_required_runs_valid: z.boolean(),
+    compatible: z.boolean(),
+    zero_unsupported_claim_gate: z.boolean(),
+    latency_p95_ms: z.number().int().nonnegative(),
+    tested_at: TimestampSchema,
+    expires_at: TimestampSchema,
+    runs: z.array(ModelCompatibilityRunSchema).min(3).max(10_000),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.output_schema_id !== PURPOSE_OUTPUT_SCHEMAS[value.purpose]) {
+      context.addIssue({ code: "custom", message: "purpose/output schema mismatch" });
+    }
+    const expectedExpiry = Date.parse(value.tested_at) + 90 * 24 * 60 * 60 * 1_000;
+    if (Date.parse(value.expires_at) !== expectedExpiry) {
+      context.addIssue({ code: "custom", path: ["expires_at"], message: "compatibility evidence must expire exactly 90 days after testing" });
+    }
+    if (value.operation_count !== value.runs.length) {
+      context.addIssue({ code: "custom", message: "operation count must retain every run" });
+    }
+    const operationIds = new Set(value.runs.map((run) => run.operation_id));
+    if (operationIds.size !== value.runs.length) {
+      context.addIssue({ code: "custom", message: "compatibility runs require unique logical operation IDs" });
+    }
+    const fixtureCounts = new Map<string, number>();
+    for (const run of value.runs) fixtureCounts.set(run.fixture_id, (fixtureCounts.get(run.fixture_id) ?? 0) + 1);
+    if (fixtureCounts.size !== value.fixture_count || [...fixtureCounts.values()].some((count) => count !== value.runs_per_fixture)) {
+      context.addIssue({ code: "custom", message: "every retained fixture requires exactly three runs" });
+    }
+    const observedIds = new Set(value.runs.flatMap((run) => run.observed_model_id === null ? [] : [run.observed_model_id]));
+    const runsWithoutObservedIdentity = value.runs.filter((run) => run.observed_model_id === null).length;
+    const soleObservedId = observedIds.size === 1 ? [...observedIds][0]! : null;
+    const observedIdentityBindingValid = observedIds.size === 0
+      ? value.observed_model_id === null
+      : observedIds.size === 1
+        ? value.observed_model_id === soleObservedId
+        : value.observed_model_id === null;
+    if (!observedIdentityBindingValid) {
+      context.addIssue({ code: "custom", path: ["observed_model_id"], message: "top-level observed model identity must exactly summarize retained runs" });
+    }
+    const observedIdentityConsistent = observedIds.size === 0
+      || (observedIds.size === 1 && runsWithoutObservedIdentity === 0);
+    const sortedLatencies = value.runs.map((run) => run.latency_ms).sort((left, right) => left - right);
+    const retainedLatencyP95 = sortedLatencies[Math.max(0, Math.ceil(sortedLatencies.length * 0.95) - 1)]!;
+    if (value.latency_p95_ms !== retainedLatencyP95) {
+      context.addIssue({ code: "custom", path: ["latency_p95_ms"], message: "latency p95 must equal the percentile recomputed from retained runs" });
+    }
+    const tally = {
+      primary_success: value.runs.filter((run) => run.completion_mode === "primary").length,
+      structural_repair_success: value.runs.filter((run) => run.completion_mode === "provider_repair" && run.recovery_class === "provider_structural_repair").length,
+      validation_repair_success: value.runs.filter((run) => run.completion_mode === "provider_repair" && run.recovery_class === "provider_validation_repair").length,
+      deterministic_fallback_success: value.runs.filter((run) => run.completion_mode === "deterministic_fallback").length,
+      host_owned_success: value.runs.filter((run) => run.completion_mode === "host_owned").length,
+      safe_failure: value.runs.filter((run) => run.final_disposition !== "completed").length,
+      schema_valid: value.runs.filter((run) => run.schema_valid).length,
+      evidence_valid: value.runs.filter((run) => run.evidence_valid).length,
+      provider_success: value.runs.filter((run) => run.provider_success).length,
+      zero_provider_call: value.runs.filter((run) => run.provider_call_count === 0).length,
+    };
+    if (JSON.stringify(value.outcomes) !== JSON.stringify(tally)) {
+      context.addIssue({ code: "custom", message: "decomposed outcome counts must match retained runs" });
+    }
+    const allValid = value.runs.every((run) => run.final_disposition === "completed" && run.schema_valid && run.evidence_valid);
+    if (value.all_required_runs_valid !== allValid) {
+      context.addIssue({ code: "custom", message: "all-run validity must match retained outcomes" });
+    }
+    const craft = value.purpose === "resume_craft_evaluate";
+    const evidenceClassValid = craft
+      ? value.evidence_class === "host_owned_zero_call" && tally.zero_provider_call === value.runs.length && tally.host_owned_success === value.runs.length
+      : value.evidence_class === "authorized_live_provider";
+    const compatible = allValid
+      && value.zero_unsupported_claim_gate
+      && evidenceClassValid
+      && observedIdentityConsistent
+      && retainedLatencyP95 <= PURPOSE_LIMITS[value.purpose].duration_ms;
+    if (value.compatible !== compatible) {
+      context.addIssue({ code: "custom", message: "compatibility must match evidence class and zero-tolerance gates" });
+    }
+  });
+
+export const ModelCompatibilityEntrySchema = z.discriminatedUnion("registry_version", [
+  LegacyModelCompatibilityEntrySchema,
+  ModelCompatibilityEntryV2Schema,
+]);
 
 export function parseInferencePurpose(value: unknown): InferencePurpose {
   const parsed = InferencePurposeSchema.safeParse(value);

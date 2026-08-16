@@ -11,6 +11,7 @@ import { McpAppResourceSchema } from "../contracts/mcp-app.js";
 import type { AppRuntimeConnection } from "../lifecycle/process-supervisor.js";
 import { AppPlatformError } from "../lifecycle/errors.js";
 import type { CompleteMcpResult } from "../../mcp/result-envelope.js";
+import type { McpResultConsumer } from "../../mcp/result-envelope.js";
 import {
   McpConnectionManager,
   type McpCatalogResource,
@@ -155,13 +156,13 @@ export class ModernMcpAppsClient {
     }
   }
 
-  async callTool(session: ModernMcpSession, toolName: string, args: Record<string, unknown>, operationId: string): Promise<CompleteMcpResult> {
+  async callTool(session: ModernMcpSession, toolName: string, args: Record<string, unknown>, operationId: string, consumer: McpResultConsumer = "app"): Promise<CompleteMcpResult> {
     try {
       return await this.manager.callTool(session.handle, {
         serverConnectionId: session.connectionId,
         toolName,
         arguments: args,
-        consumer: "app",
+        consumer,
         operationId,
       });
     } catch (error) {

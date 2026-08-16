@@ -366,4 +366,25 @@ describe("Resume data M2 atomic record store", () => {
     expect(String((error as Error).message)).not.toContain(store.namespaceRoot);
     expect((await store.catalog()).generation).toBe(0);
   });
+
+  it("prevents a deadline cancellation at the atomic catalog boundary from becoming a late commit", async () => {
+    let cancelled = false;
+    const { root, store, service } = await setup({
+      beforeCatalogPublish: async () => { cancelled = true; },
+    });
+    const operationId = crypto.randomUUID();
+    await expect(service.saveInterviewRecovery(
+      recoveryInput("deadline-bound synthetic value"),
+      authority("resume.definitions.write", operationId, { isCancelled: () => cancelled }),
+    )).rejects.toMatchObject({ code: "cancelled" });
+    expect((await store.catalog()).generation).toBe(0);
+    expect(await store.list("interview_progress")).toHaveLength(0);
+    await expect(store.operation(operationId, testGrant().installation_id)).rejects.toMatchObject({ code: "not_found_within_scope" });
+
+    const reopened = new ResumeDataStore(root, undefined, {}, false);
+    await reopened.initialize(testGrant().owner_id);
+    expect((await reopened.catalog()).generation).toBe(0);
+    expect(await reopened.list("interview_progress")).toHaveLength(0);
+    await expect(reopened.operation(operationId, testGrant().installation_id)).rejects.toMatchObject({ code: "not_found_within_scope" });
+  });
 });

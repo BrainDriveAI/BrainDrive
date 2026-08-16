@@ -31,7 +31,9 @@ verified start -> authenticated readiness/health -> M2 core + Apps negotiation
 
 ## Recovery and cleanup
 
-Unexpected exit, failed health, and output-limit containment revoke stale dynamic registration and token authority before backoff. Runtime and endpoint-token generations rotate on every launch. Attempts are bounded to three with exact 1,000/2,000/4,000 ms delays; the fourth failure removes the runtime and records actionable `restart_exhausted`/`failed_recoverable`. A recovered generation repeats readiness, M2 negotiation, dynamic registration, and token permit before reuse.
+Periodic liveness uses a one-second authenticated probe timeout. One or two consecutive misses are treated as transient and leave the ready runtime and its authority unchanged; a successful probe resets the miss count. The third consecutive miss terminates the runtime and enters bounded recovery. Unexpected process exit and output-limit containment remain immediate and do not wait for the periodic threshold.
+
+Threshold health failure, unexpected exit, and output-limit containment revoke stale dynamic registration and token authority before backoff. Runtime and endpoint-token generations rotate on every launch. Attempts are bounded to three with exact 1,000/2,000/4,000 ms delays; the fourth failure removes the runtime and records actionable `restart_exhausted`/`failed_recoverable`. A recovered generation repeats readiness, M2 negotiation, dynamic registration, and token permit before reuse.
 
 On Linux and macOS the Node child is the leader of a detached installation-owned process group; stop sends `SIGTERM` and then `SIGKILL` to that exact group if the grace deadline expires. A stale runtime identity cannot target a different live generation. On packaged Windows, the gateway descendant is additionally contained by Tauri's Job Object, which is the parent-loss and whole-runtime fail-safe. Stop/revoke/cleanup revoke token authority first, close the exact M2 registration, and then terminate the exact runtime. Reconciliation contains unknown or stale authority rather than adopting an ambiguous process.
 
@@ -60,7 +62,7 @@ Desktop uses the staged `desktop-runtime/node/{node|node.exe}` and compiled `typ
 
 ## Executable evidence
 
-- `spec-05-m6-supervisor.test.ts`: invalid descriptors, argv/env/entrypoint/public-bind allowlists, occupied-port failure, process and `/proc` command-line observation, private token/port behavior, fake-clock 1/2/4 backoff, crash exhaustion, log flood containment/redaction, forced group kill, and unrelated-process survival.
+- `supervisor.test.ts` and `spec-05-m6-supervisor.test.ts`: transient periodic-health tolerance, exact persistent-health threshold termination, invalid descriptors, argv/env/entrypoint/public-bind allowlists, occupied-port failure, process and `/proc` command-line observation, private token/port behavior, fake-clock 1/2/4 backoff, crash exhaustion, log flood containment/redaction, forced group kill, and unrelated-process survival.
 - `spec-05-m6-adapter.test.ts`: readiness-before-registration, negotiation-before-permit, duplicate registration, stop cleanup, and token-issuer failure.
 - `runtime-negotiator.test.ts`: live modern M2/Apps/catalog negotiation and legacy/malformed rejection.
 - `app-lifecycle.m4.test.ts` and `app-lifecycle.m5.test.ts`: shared fake conformance, exact cleanup/orphan/restart behavior, duplicate/adopt ambiguity, lifecycle ordering/races, and sole-registration candidate promotion.

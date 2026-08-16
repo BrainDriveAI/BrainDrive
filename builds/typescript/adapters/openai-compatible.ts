@@ -257,6 +257,7 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
       return {
         text: normalized.assistantText,
         finishReason: normalized.finishReason,
+        ...(safeObservedModelId(payload.model) ? { modelId: safeObservedModelId(payload.model) } : {}),
         ...(normalized.usage ? { usage: normalized.usage } : {}),
         cost: normalized.cost ?? { status: "unavailable" },
       };
@@ -483,6 +484,14 @@ export class OpenAICompatibleAdapter implements ModelAdapter {
       options?.promptAudit?.modelCall
     );
   }
+}
+
+function safeObservedModelId(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  return normalized.length > 0 && normalized.length <= 512 && !/[\u0000-\u001f\u007f]/.test(normalized)
+    ? normalized
+    : undefined;
 }
 
 function buildChatCompletionBody(

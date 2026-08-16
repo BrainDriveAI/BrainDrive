@@ -49,6 +49,18 @@ export function ownerFactConfirmationDetail(value: string): string {
   return value;
 }
 
+const RESUME_EVALUATION_AUTO_CONFIRM_CAPABILITIES = new Set([
+  "career.facts.propose",
+  "career.facts.confirm",
+  "resume.definitions.write",
+  "resume.jobs.write",
+  "resume.artifacts.register",
+]);
+
+function shouldAutoConfirmResumeCapability(appId: string, capability: string): boolean {
+  return appId === "ai.braindrive.resume-builder" && RESUME_EVALUATION_AUTO_CONFIRM_CAPABILITIES.has(capability);
+}
+
 type BridgeEnvelope = {
   bridge_version: 1;
   message_id: string;
@@ -258,6 +270,10 @@ export default function SandboxedAppFrame({
           return response;
         } catch (failure) {
           if (!(failure instanceof AppCapabilityError) || !failure.confirmation || failure.capability !== message.payload.capability) throw failure;
+          if (shouldAutoConfirmResumeCapability(appId, message.payload.capability)) {
+            const operationId = typeof message.payload.request_operation_id === "string" ? message.payload.request_operation_id : message.message_id;
+            return await callAppCapability(appKey, message.payload.capability, message.payload.input, operationId, true);
+          }
           const decisions = message.payload.input.decisions;
           setAcceptedGroupRevisionIds(new Set(Array.isArray(decisions) ? decisions.flatMap((decision) => decision && typeof decision === "object" && typeof (decision as Record<string, unknown>).fact_revision_id === "string" ? [(decision as Record<string, unknown>).fact_revision_id as string] : []) : []));
           return await new Promise((resolve, reject) => setPendingConfirmation({ message, presentation: failure.confirmation!, resolve, reject }));

@@ -43,6 +43,7 @@ type RuntimeProcess = {
   restartAttempt: number;
   outputBytes: number;
   outputLimitTriggered: boolean;
+  consecutiveHealthFailures: number;
   endpoint: z.infer<typeof EndpointDescriptorSchema> | null;
 };
 
@@ -74,6 +75,8 @@ type Options = {
   restartBackoffMs?: [number, number, number];
   automaticRecovery?: boolean;
   healthIntervalMs?: number;
+  healthProbeTimeoutMs?: number;
+  healthFailureThreshold?: number;
   outputLimitBytes?: number;
   maxDiagnosticEntries?: number;
   allocatePort?: () => Promise<number>;
@@ -99,6 +102,8 @@ export class ProcessAppSupervisor implements AppSupervisor {
   private readonly stopGraceMs: number;
   private readonly restartBackoffMs: [number, number, number];
   private readonly automaticRecovery: boolean;
+  private readonly healthProbeTimeoutMs: number;
+  private readonly healthFailureThreshold: number;
   private readonly outputLimitBytes: number;
   private readonly maxDiagnosticEntries: number;
   private readonly allocatePort: NonNullable<Options["allocatePort"]>;
@@ -122,6 +127,8 @@ export class ProcessAppSupervisor implements AppSupervisor {
     this.stopGraceMs = options.stopGraceMs ?? 5_000;
     this.restartBackoffMs = options.restartBackoffMs ?? [1_000, 2_000, 4_000];
     this.automaticRecovery = options.automaticRecovery ?? true;
+    this.healthProbeTimeoutMs = Math.max(1, options.healthProbeTimeoutMs ?? 1_000);
+    this.healthFailureThreshold = Math.max(1, options.healthFailureThreshold ?? 3);
     this.outputLimitBytes = options.outputLimitBytes ?? 1_048_576;
     this.maxDiagnosticEntries = options.maxDiagnosticEntries ?? 128;
     this.allocatePort = options.allocatePort ?? allocateLoopbackPort;
@@ -188,6 +195,7 @@ export class ProcessAppSupervisor implements AppSupervisor {
       restartAttempt,
       outputBytes: 0,
       outputLimitTriggered: false,
+      consecutiveHealthFailures: 0,
       endpoint: null,
     };
     const countOutput = (bytes: Buffer) => {
@@ -243,6 +251,7 @@ export class ProcessAppSupervisor implements AppSupervisor {
         const response = await fetch(`http://127.0.0.1:${record.port}/healthz`, { headers: { authorization: `Bearer ${record.connectionToken}` }, signal: AbortSignal.timeout(500) });
         if (await isReadyHealthResponse(response)) {
           record.ready = true;
+          record.consecutiveHealthFailures = 0;
           const transport = record.descriptor.endpoint_policy.transport;
           const endpoint = EndpointDescriptorSchema.parse({ endpoint_id: randomUUID(), transport, address: `http://${transport === "loopback" ? "127.0.0.1" : "localhost"}:${record.port}`, authentication: "per_installation_token", endpoint_token_generation: runtime.endpoint_token_generation, public_bind: false });
           record.endpoint = endpoint;
@@ -262,10 +271,11 @@ export class ProcessAppSupervisor implements AppSupervisor {
     let ready = false;
     if (record.child.exitCode === null && record.child.signalCode === null) {
       try {
-        const response = await fetch(`http://127.0.0.1:${record.port}/healthz`, { headers: { authorization: `Bearer ${record.connectionToken}` }, signal: AbortSignal.timeout(500) });
+        const response = await fetch(`http://127.0.0.1:${record.port}/healthz`, { headers: { authorization: `Bearer ${record.connectionToken}` }, signal: AbortSignal.timeout(this.healthProbeTimeoutMs) });
         ready = await isReadyHealthResponse(response);
       } catch { /* health is false */ }
     }
+    if (ready) record.consecutiveHealthFailures = 0;
     return SupervisorHealthResultSchema.parse({ supervisor_protocol_version: 1, state: ready ? "ready" : "unhealthy", runtime, restart_attempt: record.restartAttempt, next_backoff_ms: ready || record.restartAttempt >= 3 ? null : this.restartBackoffMs[record.restartAttempt], error_code: ready ? null : "health_failed" });
   }
 
@@ -446,9 +456,14 @@ export class ProcessAppSupervisor implements AppSupervisor {
     for (const record of this.records.values()) {
       if (!record.ready || record.expectedStop || record.child.exitCode !== null || record.child.signalCode !== null) continue;
       try {
-        const response = await fetch(`http://127.0.0.1:${record.port}/healthz`, { headers: { authorization: `Bearer ${record.connectionToken}` }, signal: AbortSignal.timeout(500) });
-        if (await isReadyHealthResponse(response)) continue;
+        const response = await fetch(`http://127.0.0.1:${record.port}/healthz`, { headers: { authorization: `Bearer ${record.connectionToken}` }, signal: AbortSignal.timeout(this.healthProbeTimeoutMs) });
+        if (await isReadyHealthResponse(response)) {
+          record.consecutiveHealthFailures = 0;
+          continue;
+        }
       } catch { /* unhealthy */ }
+      record.consecutiveHealthFailures += 1;
+      if (record.consecutiveHealthFailures < this.healthFailureThreshold) continue;
       record.ready = false;
       this.killExact(record, "SIGKILL");
     }

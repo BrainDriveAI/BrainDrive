@@ -22,15 +22,14 @@ import { createBriefCapabilityRegistrations } from "../app-capabilities/brief-re
 import { AppInferenceDispatcher } from "../app-inference/dispatcher.js";
 import { AppInferencePurposeRegistry } from "../app-inference/registry.js";
 import { createBriefInferencePurposeRegistration } from "../app-inference/brief-registration.js";
+import { InstalledAppInferenceExecutor } from "../app-inference/installed-program.js";
+import { createInstalledAppProviderResolver } from "../app-inference/provider.js";
 import { CareerPlacementAdapter } from "../resume-domain/career.js";
 import { ResumeCapabilityPolicy } from "../resume-domain/capability-policy.js";
 import { ResumeCapabilityRouter } from "../resume-domain/capabilities.js";
 import { ResumeDomainService } from "../resume-domain/service.js";
 import { ResumeDataStore } from "../resume-domain/store.js";
-import { ResumeInferenceBroker } from "../resume-inference/broker.js";
-import { createLiveProviderResolver, ModelCompatibilityRegistry, VERSIONED_MODEL_COMPATIBILITY_ENTRIES } from "../resume-inference/compatibility.js";
-import { createResumeE2eFixtureProviderResolver } from "../resume-inference/e2e-fixture.js";
-import { ImmutableInferenceSnapshotBuilder } from "../resume-inference/snapshot.js";
+import { createInstalledResumeE2eFixtureProvider } from "../resume-inference/e2e-fixture.js";
 import { ResumeExportBroker } from "../resume-renderer/export-broker.js";
 
 import { createGatewayAdapter } from "../adapters/gateway.js";
@@ -496,23 +495,17 @@ export async function buildServer(rootDir = process.cwd()) {
       return current.record.state === "active" ? current.grant : null;
     });
     const capabilityRouter = new ResumeCapabilityRouter(resumeDomain, new CareerPlacementAdapter(runtimeConfig.memory_root), capabilityPolicy, auditLog, exportBroker);
-    // Real provider/model pairs remain fail-closed until a conformance run supplies
-    // accepted registry entries. Tests inject synthetic accepted entries.
-    const compatibility = new ModelCompatibilityRegistry(VERSIONED_MODEL_COMPATIBILITY_ENTRIES);
-    const inferenceResolver = process.env.BRAINDRIVE_E2E_RESUME_INFERENCE_FIXTURE === "1"
-      ? createResumeE2eFixtureProviderResolver()
-      : createLiveProviderResolver({
+    const installedProviderResolver = process.env.BRAINDRIVE_E2E_RESUME_INFERENCE_FIXTURE === "1"
+      ? async () => createInstalledResumeE2eFixtureProvider()
+      : createInstalledAppProviderResolver({
           adapterName: runtimeConfig.provider_adapter,
           adapterConfig,
           loadPreferences: loadLivePreferences,
-          compatibility,
         });
-    const inferenceBroker = new ResumeInferenceBroker(inferenceResolver, auditLog);
     appMcpHost = new AppMcpHost(new ResumeAppHostAdapter(appLifecycleService, {
       audit: auditLog,
       capabilityRouter,
-      inferenceBroker,
-      snapshotBuilder: new ImmutableInferenceSnapshotBuilder(resumeDataStore),
+      installedAppInference: new InstalledAppInferenceExecutor({ resolveProvider: installedProviderResolver }),
       exportBroker,
     }));
     const briefDataStore = new BriefDataStore(runtimeConfig.memory_root, briefLifecycleService!.dependencies.ownerDataRoot);

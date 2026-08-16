@@ -38,8 +38,8 @@
     },
     "prompt": {
       "policy_id": "braindrive.resume-builder.fixed",
-      "policy_version": "8",
-      "policy_digest": "sha256:58762017d1cd33a584cd3a776c5a9dbe331aa9c7d167022ec733819763948037"
+      "policy_version": "12",
+      "policy_digest": "sha256:90319e14fe09ee68ef86cda89226955e86dbe4140c5af1de60b712386f09c2a7"
     }
   },
   "expected": {
@@ -54,5 +54,5 @@
     "strategy_digest": "sha256:0b1424bade2ae3ab1560d3da7feb63c18b2be492e019c2aec661a01389aa9eb2",
     "section_order_digest": "sha256:6001c6b9233b54b38929066fcc64a95218c9ba46a8919f939fec969b05065697"
   },
-  "manifest_digest": "sha256:a3f180a605aa5f6ff1845d1a7c526749a219b985e0769843cdf5a26cda715b38"
+  "manifest_digest": "sha256:5b0ae609c9d315373df9289f5db8f5dafb79f18169b98853820422e9d8813728"
 }

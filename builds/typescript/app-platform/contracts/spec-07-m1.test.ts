@@ -142,7 +142,7 @@ describe("Spec 07 milestone 1 schema-3 contracts", () => {
   });
 
   it("versions the new brokered purposes, bounded limits, data blocks, and strict results", () => {
-    expect(RESUME_PROMPT_POLICY_VERSION).toBe("8");
+    expect(RESUME_PROMPT_POLICY_VERSION).toBe("12");
     expect(PURPOSE_OUTPUT_SCHEMAS).toMatchObject({
       resume_strategy: "resume.strategy.v1",
       tailoring_plan: "resume.tailoring-plan.v2",

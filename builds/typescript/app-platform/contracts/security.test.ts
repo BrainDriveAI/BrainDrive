@@ -4,7 +4,11 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { assertContentFreeAudit } from "./audit.js";
+import {
+  assertContentFreeAudit,
+  assertContentFreeInferenceAttemptAudit,
+  assertContentFreeInferenceTerminalAudit,
+} from "./audit.js";
 import { CONTRACT_SIZE_LIMITS } from "./constants.js";
 import { BRIDGE_POLICY, parseBridgeMessage, assertUniqueIdentities } from "./mcp-app.js";
 import { assertGrantSubset, CapabilityDiffSchema, CapabilityTokenSchema, PackageTrustSchema, SUPERVISOR_POLICY } from "./package.js";
@@ -135,5 +139,141 @@ describe("bridge and audit security", () => {
     expect(() => assertContentFreeAudit(forbiddenAudit)).toThrowError(/prohibited/);
     expect(() => assertContentFreeAudit({ safe_message: "read /home/owner/private.txt" })).toThrowError(/path or credential/);
     expect(() => assertContentFreeAudit({ safe_message: "Bearer abcdefghijklmnopqrstuvwxyz" })).toThrowError(/path or credential/);
+  });
+
+  it("accepts only content-minimized terminal inference diagnostics", () => {
+    const diagnostic = {
+      diagnostic_version: 1,
+      app_id: "ai.braindrive.resume-builder",
+      operation_id: "b0000000-0000-4000-8000-000000000001",
+      request_id: "b0000000-0000-4000-8000-000000000002",
+      purpose: "general_resume_draft",
+      prompt_policy_id: "braindrive.resume-builder.fixed",
+      prompt_policy_version: "8",
+      output_schema_id: "resume.general-draft.v1",
+      output_schema_version: 1,
+      model_class: "owner_active_compatible",
+      attempt_count: 2,
+      stage: "completed",
+      finish_category: "stop",
+      error_code: null,
+      retryable: false,
+      recovery_class: "deterministic_fallback",
+      completion_mode: "deterministic_fallback",
+      final_disposition: "completed",
+      usage_available: true,
+      duration_class: "under_5s",
+      validator_codes: ["unsupported_claim"],
+      provider_validator_codes: ["missing_provenance", "unsupported_claim"],
+      provider_validator_rule_ids: ["statement_support_unresolved", "statement_factual_wording_unsupported"],
+      local_candidate_classes: ["targeted_fact_repair", "full_general_constructor"],
+      targeted_fact_repair_validator_codes: ["missing_provenance"],
+      targeted_fact_repair_validator_rule_ids: ["statement_support_unresolved"],
+      targeted_fact_repair_disposition: "rejected",
+      full_general_constructor_validator_codes: [],
+      full_general_constructor_validator_rule_ids: [],
+      full_general_constructor_disposition: "accepted",
+      original_failure_code: "evidence_validation_failed",
+      recovery_disposition: "full_constructor_accepted",
+    };
+    expect(() => assertContentFreeInferenceTerminalAudit(diagnostic)).not.toThrow();
+    const recoveryKeys = [
+      "provider_validator_codes",
+      "provider_validator_rule_ids",
+      "local_candidate_classes",
+      "targeted_fact_repair_validator_codes",
+      "targeted_fact_repair_validator_rule_ids",
+      "targeted_fact_repair_disposition",
+      "full_general_constructor_validator_codes",
+      "full_general_constructor_validator_rule_ids",
+      "full_general_constructor_disposition",
+      "original_failure_code",
+      "recovery_disposition",
+    ];
+    const legacy = { ...diagnostic } as Record<string, unknown>;
+    for (const key of recoveryKeys) delete legacy[key];
+    Object.assign(legacy, {
+      attempt_count: 1,
+      stage: "completed",
+      error_code: null,
+      recovery_class: "none",
+      completion_mode: "primary",
+      final_disposition: "completed",
+      validator_codes: [],
+    });
+    expect(() => assertContentFreeInferenceTerminalAudit(legacy)).not.toThrow();
+    const contradictions = [
+      { ...diagnostic, provider_validator_codes: undefined },
+      { ...diagnostic, local_candidate_classes: ["full_general_constructor", "targeted_fact_repair"] },
+      { ...diagnostic, full_general_constructor_disposition: undefined },
+      { ...diagnostic, recovery_disposition: "targeted_accepted" },
+      { ...diagnostic, targeted_fact_repair_disposition: "accepted" },
+      { ...diagnostic, recovery_disposition: "recovery_rejected" },
+      { ...diagnostic, original_failure_code: "internal_failure" },
+      { ...diagnostic, error_code: "evidence_validation_failed" },
+      { ...diagnostic, purpose: "resume_strategy" },
+      { ...diagnostic, attempt_count: 1 },
+      { ...diagnostic, retryable: true },
+    ];
+    for (const contradiction of contradictions) {
+      expect(() => assertContentFreeInferenceTerminalAudit(contradiction)).toThrowError(/content-free schema/);
+    }
+    for (const poisoned of [
+      { prompt_body: "private resume text" },
+      { resume_text: "private resume text" },
+      { job_description: "private job text" },
+      { authorization: "Bearer synthetic-secret-value" },
+      { endpoint: "https://private.example.test/v1" },
+      { raw_path: "/home/owner/private.txt" },
+    ]) expect(() => assertContentFreeInferenceTerminalAudit({ ...diagnostic, ...poisoned })).toThrow();
+  });
+
+  it("accepts only content-minimized inference attempt diagnostics", () => {
+    const diagnostic = {
+      diagnostic_version: 1,
+      app_id: "ai.braindrive.resume-builder",
+      operation_id: "b0000000-0000-4000-8000-000000000001",
+      request_id: "b0000000-0000-4000-8000-000000000002",
+      purpose: "general_resume_draft",
+      attempt: 1,
+      stage: "structured_parse",
+      finish_category: "stop",
+      attempt_outcome: "retry",
+      duration_class: "under_1s",
+      structural_failure_class: "empty_output",
+    };
+    expect(() => assertContentFreeInferenceAttemptAudit(diagnostic)).not.toThrow();
+    const { structural_failure_class: _structuralFailureClass, ...nonStructuralDiagnostic } = diagnostic;
+    expect(() => assertContentFreeInferenceAttemptAudit({
+      ...nonStructuralDiagnostic,
+      stage: "deterministic_validation",
+      validator_rule_ids: ["statement_support_unresolved"],
+    })).not.toThrow();
+    expect(() => assertContentFreeInferenceAttemptAudit({
+      ...diagnostic,
+      validator_rule_ids: ["statement_support_unresolved"],
+    })).toThrowError(/content-free schema/);
+    expect(() => assertContentFreeInferenceAttemptAudit({
+      ...diagnostic,
+      stage: "deterministic_validation",
+      structural_failure_class: "purpose_schema_mismatch",
+    })).toThrowError(/content-free schema/);
+    expect(() => assertContentFreeInferenceAttemptAudit({
+      ...diagnostic,
+      stage: "output_schema_validation",
+      structural_failure_class: "purpose_schema_mismatch",
+      schema_issue_ids: ["title_invalid", "experience_role_bullet_limit_exceeded"],
+    })).not.toThrow();
+    expect(() => assertContentFreeInferenceAttemptAudit({
+      ...diagnostic,
+      schema_issue_ids: ["title_invalid"],
+    })).toThrowError(/content-free schema/);
+    for (const poisoned of [
+      { prompt_body: "private resume text" },
+      { raw_response: "private provider response" },
+      { authorization: "Bearer synthetic-secret-value" },
+      { endpoint: "https://private.example.test/v1" },
+      { raw_path: "/home/owner/private.txt" },
+    ]) expect(() => assertContentFreeInferenceAttemptAudit({ ...diagnostic, ...poisoned })).toThrow();
   });
 });

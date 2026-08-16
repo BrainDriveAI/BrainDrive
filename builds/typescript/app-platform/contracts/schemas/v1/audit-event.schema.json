@@ -50,6 +50,7 @@
         "app.resume_revision.classified",
         "app.resume_revision.proposed",
         "app.resume_revision.outcome",
+        "app.inference.attempt",
         "app.inference.completed",
         "app.export.completed",
         "app.validation.completed",

@@ -82,4 +82,15 @@ describe("Resume Builder deterministic fact repair", () => {
     ]);
     expect(repaired.section_order).toEqual(["experience"]);
   });
+
+  it("uses stable inserted statement identities across repeated construction", () => {
+    const result = { title: "Resume", statements: [], section_order: ["experience"] };
+    const initial = validateInferenceClaims("general_resume_draft", result, [factBlock]);
+    expect(initial.accepted).toBe(false);
+
+    const first = repairResumeDraftFromConfirmedFacts("general_resume_draft", result, initial, [factBlock]);
+    const second = repairResumeDraftFromConfirmedFacts("general_resume_draft", structuredClone(result), initial, [structuredClone(factBlock)]);
+    expect(second).toEqual(first);
+    expect(validateInferenceClaims("general_resume_draft", first, [factBlock]).accepted).toBe(true);
+  });
 });

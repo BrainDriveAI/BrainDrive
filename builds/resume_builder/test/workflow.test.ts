@@ -11,7 +11,10 @@ import {
   prepareRememberedSuccessorStatements,
   confirmedFactDuplicate,
   comparisonSelectionLabel,
+  evidenceFailureEquivalent,
+  evidenceFailurePrimaryAction,
   progressSummary,
+  recoveryBindingKey,
   recoveryOperationId,
   revisionRoute,
   resumeBuilderWorkflowReducer,
@@ -41,6 +44,23 @@ function snapshot(overrides: Partial<DurableWorkflowSnapshot> = {}): DurableWork
 }
 
 describe("Resume Builder durable workflow reducer", () => {
+  it("classifies repeated evidence failure by digest, strategy, provider, and model", () => {
+    const base = {
+      semanticInputDigest: `sha256:${"a".repeat(64)}`,
+      strategyRevisionId: "10000000-0000-4000-8000-000000000010",
+      providerProfileId: "owner-profile",
+      modelId: "owner-model",
+    };
+    expect(evidenceFailureEquivalent(base, { ...base })).toBe(true);
+    for (const changed of [
+      { ...base, semanticInputDigest: `sha256:${"b".repeat(64)}` },
+      { ...base, strategyRevisionId: "10000000-0000-4000-8000-000000000011" },
+      { ...base, providerProfileId: "another-provider" },
+      { ...base, modelId: "another-model" },
+    ]) expect(evidenceFailureEquivalent(base, changed)).toBe(false);
+    expect(evidenceFailurePrimaryAction(false)).toBe("try_again");
+    expect(evidenceFailurePrimaryAction(true)).toBe("review_confirmed_evidence");
+  });
   it("skips known context and asks exactly the next unknown topic", () => {
     const loaded = resumeBuilderWorkflowReducer(initialWorkflowState, {
       type: "durable.loaded",
@@ -116,6 +136,9 @@ describe("Resume Builder durable workflow reducer", () => {
       acknowledgedRevision: 4,
       acknowledgedAt: "2026-08-10T12:00:00.000Z",
       status: "saved",
+      expectedRevision: 3,
+      operationId: null,
+      editGeneration: 0,
       serverValue: null,
       serverValueDigest: null,
     });
@@ -131,6 +154,21 @@ describe("Resume Builder durable workflow reducer", () => {
     });
     expect(state.recovery.status).toBe("saving");
 
+    const currentOperationId = recoveryOperationId(slot, `sha256:${"b".repeat(64)}`, null);
+    state = resumeBuilderWorkflowReducer(state, {
+      type: "recovery.started",
+      operationId: currentOperationId,
+      expectedRevision: null,
+      editGeneration: 1,
+    });
+    state = resumeBuilderWorkflowReducer(state, {
+      type: "recovery.reconciling",
+      operationId: currentOperationId,
+      expectedRevision: null,
+      editGeneration: 1,
+    });
+    expect(state.recovery.status).toBe("reconciling");
+
     state = resumeBuilderWorkflowReducer(state, {
       type: "recovery.acknowledged",
       slot,
@@ -138,14 +176,52 @@ describe("Resume Builder durable workflow reducer", () => {
       valueDigest: `sha256:${"c".repeat(64)}`,
       revision: 2,
       savedAt: "2026-08-10T12:00:01.000Z",
+      operationId: recoveryOperationId(slot, `sha256:${"c".repeat(64)}`, null),
+      expectedRevision: null,
+      editGeneration: 0,
     });
-    expect(state.recovery).toMatchObject({ value: "newer local value", status: "saving", acknowledgedRevision: 2 });
+    expect(state.recovery).toMatchObject({ value: "newer local value", status: "reconciling", acknowledgedRevision: null });
 
+    const staleFailure = resumeBuilderWorkflowReducer(state, {
+      type: "recovery.failed",
+      code: "recoverable_internal_failure",
+      operationId: currentOperationId,
+      editGeneration: 0,
+    });
+    expect(staleFailure.recovery.status).toBe("reconciling");
+    const verificationFailure = resumeBuilderWorkflowReducer(state, {
+      type: "recovery.verification_failed",
+      code: "denied",
+      operationId: currentOperationId,
+      editGeneration: 1,
+    });
+    expect(verificationFailure.recovery).toMatchObject({ status: "verification_failed", value: "newer local value", operationId: null });
     state = resumeBuilderWorkflowReducer(state, {
       type: "recovery.failed",
       code: "recoverable_internal_failure",
+      operationId: currentOperationId,
+      editGeneration: 1,
     });
-    expect(state.recovery.status).toBe("error");
+    expect(state.recovery.status).toBe("not_saved");
+  });
+
+  it("accepts only an acknowledgement bound to the current slot, digest, operation, revision, and edit generation", () => {
+    const digest = `sha256:${"1".repeat(64)}`;
+    const operationId = recoveryOperationId(slot, digest, 4);
+    let state = resumeBuilderWorkflowReducer(initialWorkflowState, { type: "recovery.changed", slot, value: "exact current value", valueDigest: digest });
+    state = resumeBuilderWorkflowReducer(state, { type: "recovery.started", operationId, expectedRevision: 4, editGeneration: 1 });
+    state = resumeBuilderWorkflowReducer(state, {
+      type: "recovery.acknowledged", slot, value: "exact current value", valueDigest: digest,
+      revision: 5, savedAt: "2026-08-10T12:00:03.000Z", operationId, expectedRevision: 4, editGeneration: 1,
+    });
+    expect(state.recovery).toMatchObject({ status: "saved", acknowledgedRevision: 5, operationId, editGeneration: 1 });
+
+    const newer = resumeBuilderWorkflowReducer(state, { type: "recovery.changed", slot, value: "new generation", valueDigest: `sha256:${"2".repeat(64)}` });
+    const stale = resumeBuilderWorkflowReducer(newer, {
+      type: "recovery.acknowledged", slot, value: "exact current value", valueDigest: digest,
+      revision: 5, savedAt: "2026-08-10T12:00:03.000Z", operationId, expectedRevision: 4, editGeneration: 1,
+    });
+    expect(stale.recovery).toMatchObject({ value: "new generation", status: "saving", editGeneration: 2 });
   });
 
   it("preserves both values on conflict and requires an explicit choice", () => {
@@ -155,12 +231,21 @@ describe("Resume Builder durable workflow reducer", () => {
       value: "local choice",
       valueDigest: `sha256:${"d".repeat(64)}`,
     });
+    const operationId = recoveryOperationId(slot, `sha256:${"d".repeat(64)}`, null);
+    state = resumeBuilderWorkflowReducer(state, {
+      type: "recovery.started",
+      operationId,
+      expectedRevision: null,
+      editGeneration: 1,
+    });
     state = resumeBuilderWorkflowReducer(state, {
       type: "recovery.conflicted",
       serverValue: "saved choice",
       serverValueDigest: `sha256:${"e".repeat(64)}`,
       serverRevision: 7,
       serverSavedAt: "2026-08-10T12:00:02.000Z",
+      operationId,
+      editGeneration: 1,
     });
     expect(state.recovery).toMatchObject({ status: "conflict", value: "local choice", serverValue: "saved choice" });
     expect(resumeBuilderWorkflowReducer(state, { type: "recovery.server_selected" }).recovery).toMatchObject({ status: "saved", value: "saved choice", acknowledgedRevision: 7 });
@@ -173,6 +258,7 @@ describe("Resume Builder durable workflow reducer", () => {
     expect(recoveryOperationId(slot, digest, 3)).toBe(recoveryOperationId(slot, digest, 3));
     expect(recoveryOperationId(slot, digest, 3)).not.toBe(recoveryOperationId(slot, digest, 4));
     expect(recoveryOperationId(slot, digest, 3)).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(recoveryBindingKey(slot, digest, 3)).toContain(recoveryOperationId(slot, digest, 3));
   });
 
   it("selects only the highest-value unanswered dimension for one job", () => {

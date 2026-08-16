@@ -7,7 +7,7 @@ export const CONTRACT_BINDING = {
   appBridgeSchemaVersion: 1,
 } as const;
 
-export const RUNTIME_ENABLED = false as const;
+export const RUNTIME_ENABLED = true as const;
 
 export * from "./workflow.js";
 export * from "./opportunities.js";
@@ -35,58 +35,17 @@ export const RESUME_INFERENCE_PURPOSES = [
 
 export type ResumeInferencePurpose = typeof RESUME_INFERENCE_PURPOSES[number];
 
-export const RESUME_INFERENCE_MCP_TOOLS = RESUME_INFERENCE_PURPOSES.map((purpose) => ({
-  name: `resume.${purpose}`,
-  description: `Request the host-brokered ${purpose} structured proposal`,
-  inputSchema: {
-    type: "object",
-    properties: {
-      inference_contract_version: { const: 1 },
-      operation_id: { type: "string", format: "uuid" },
-      fact_revision_ids: { type: "array", items: { type: "string", format: "uuid" }, maxItems: 500 },
-      record_revision_ids: { type: "array", items: { type: "string", format: "uuid" }, maxItems: 64 },
-      presentation_preferences: { type: "object", additionalProperties: { type: "string", maxLength: 2048 } },
-      derived_blocks: { type: "array", maxItems: 8 },
-    },
-    required: ["inference_contract_version", "operation_id", "fact_revision_ids"],
-    additionalProperties: false,
-  },
-  _meta: { "io.modelcontextprotocol/ui": { visibility: ["app"] } },
-})) as ReadonlyArray<Record<string, unknown>>;
-
-export const RESUME_INFERENCE_MCP_RESOURCES = [{
-  uri: "resource://resume-builder/inference/purposes",
-  name: "Resume Builder inference purposes",
-  mimeType: "application/json",
-  _meta: { sensitivity: "public_policy", retention: "immutable_package" },
-}] as const;
-
-export type HostInferenceClient = {
-  request(input: {
-    inference_contract_version: 1;
-    purpose: ResumeInferencePurpose;
-    operation_id: string;
-    fact_revision_ids: string[];
-    record_revision_ids?: string[];
-    presentation_preferences?: Record<string, string>;
-    derived_blocks?: unknown[];
-  }, signal?: AbortSignal): Promise<unknown>;
-  cancel(operationId: string): Promise<boolean>;
-};
-
-export function createResumeInferenceMcpOperations(host: HostInferenceClient) {
-  return {
-    listTools: () => RESUME_INFERENCE_MCP_TOOLS,
-    listResources: () => RESUME_INFERENCE_MCP_RESOURCES,
-    readResource: (uri: string) => {
-      if (uri !== RESUME_INFERENCE_MCP_RESOURCES[0].uri) throw new Error("resource_not_found");
-      return { uri, mimeType: "application/json", text: JSON.stringify({ schema_version: 1, purposes: RESUME_INFERENCE_PURPOSES }) };
-    },
-    callTool: async (name: string, input: Omit<Parameters<HostInferenceClient["request"]>[0], "purpose">, signal?: AbortSignal) => {
-      const purpose = name.startsWith("resume.") ? name.slice("resume.".length) : "";
-      if (!RESUME_INFERENCE_PURPOSES.includes(purpose as ResumeInferencePurpose)) throw new Error("tool_not_found");
-      return host.request({ ...input, purpose: purpose as ResumeInferencePurpose }, signal);
-    },
-    cancel: (operationId: string) => host.cancel(operationId),
-  };
-}
+export const RESUME_INFERENCE_PROGRAMS = {
+  interview_assist: { id: "resume.interview-assist", version: 1 },
+  general_resume_draft: { id: "resume.general-draft", version: 1 },
+  job_description_analyze: { id: "resume.job-description-analyze", version: 1 },
+  requirement_evidence_match: { id: "resume.requirement-evidence-match", version: 1 },
+  tailoring_plan: { id: "resume.tailoring-plan", version: 1 },
+  targeted_resume_draft: { id: "resume.targeted-draft", version: 1 },
+  resume_revision_classify: { id: "resume.revision-classify", version: 1 },
+  resume_revision_draft: { id: "resume.revision-draft", version: 1 },
+  resume_guidance: { id: "resume.guidance", version: 1 },
+  resume_strategy: { id: "resume.strategy", version: 2 },
+  resume_craft_evaluate: { id: "resume.craft-evaluate", version: 1 },
+  resume_craft_repair: { id: "resume.craft-repair", version: 1 },
+} as const satisfies Record<ResumeInferencePurpose, { readonly id: string; readonly version: number }>;

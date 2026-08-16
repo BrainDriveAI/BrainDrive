@@ -53,6 +53,20 @@ export const GeneralResumeDraftResultSchema = z.object({
   omissions: z.array(z.object({ fact_revision_id: OpaqueIdSchema, reason_code: ResumeStrategyOmissionReasonSchema }).strict()).max(500),
 }).strict();
 
+/** Provider-only role ownership; the host validates, flattens, and removes it before persistence. */
+export const GeneralResumeDraftProviderResultSchema = GeneralResumeDraftResultSchema.pick({
+  title: true,
+  section_order: true,
+  omissions: true,
+}).extend({
+  statements: z.array(GeneratedStatementSchema).max(500),
+  experience_roles: z.array(z.object({
+    job_fact_revision_id: OpaqueIdSchema,
+    heading_statement: GeneratedStatementSchema,
+    bullet_statements: z.array(GeneratedStatementSchema).max(6),
+  }).strict()).max(100),
+}).strict();
+
 export const JobDescriptionAnalyzeResultSchema = z.object({
   requirements: z.array(z.object({
     requirement_id: OpaqueIdSchema,
@@ -241,6 +255,14 @@ export function parsePurposeResult(purpose: InferencePurpose, schemaId: string, 
   return PURPOSE_RESULT_SCHEMAS[purpose].parse(value);
 }
 
+export function parseProviderPurposeResult(purpose: InferencePurpose, schemaId: string, value: unknown): unknown {
+  if (schemaId !== PURPOSE_OUTPUT_SCHEMAS[purpose]) throw new Error("purpose/output schema mismatch");
+  return purpose === "general_resume_draft"
+    ? GeneralResumeDraftProviderResultSchema.parse(value)
+    : PURPOSE_RESULT_SCHEMAS[purpose].parse(value);
+}
+
 export function purposeJsonSchema(purpose: InferencePurpose): Record<string, unknown> {
-  return z.toJSONSchema(PURPOSE_RESULT_SCHEMAS[purpose], { target: "draft-7" }) as Record<string, unknown>;
+  const schema = purpose === "general_resume_draft" ? GeneralResumeDraftProviderResultSchema : PURPOSE_RESULT_SCHEMAS[purpose];
+  return z.toJSONSchema(schema, { target: "draft-7" }) as Record<string, unknown>;
 }

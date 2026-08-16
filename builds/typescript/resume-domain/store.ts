@@ -172,6 +172,7 @@ export type StoreHooks = {
   beforeRecordPromote?: () => Promise<void>;
   afterRecordsPromoted?: () => Promise<void>;
   beforeCatalogCommit?: () => Promise<void>;
+  beforeCatalogPublish?: () => Promise<void>;
   afterCatalogCommit?: () => Promise<void>;
   migrationTransform?: (legacy: z.infer<typeof LegacyCatalogSchema>) => z.infer<typeof LegacyCatalogSchema>;
   migrationFaultPoint?: MigrationFaultPoint;
@@ -268,6 +269,7 @@ function deterministicOpaqueId(seed: string): string {
 
 export class ResumeDataStore {
   private tail = Promise.resolve();
+  private startupTransactionRecoveryComplete = false;
   private readonly catalogPath: string;
   private readonly manifestPath: string;
   private readonly migrationMarkerPath: string;
@@ -279,6 +281,7 @@ export class ResumeDataStore {
     public readonly namespaceRoot = path.join(memoryRoot, "apps", "resume-builder"),
     private readonly hooks: StoreHooks = {},
     private readonly writeHistory = true,
+    public readonly processInstanceId = PROCESS_INSTANCE_ID,
   ) {
     this.catalogPath = path.join(namespaceRoot, "catalog.json");
     this.manifestPath = path.join(namespaceRoot, "manifest.json");
@@ -288,6 +291,7 @@ export class ResumeDataStore {
   }
 
   async initialize(ownerId: string): Promise<void> {
+    this.startupTransactionRecoveryComplete = false;
     try {
       let checkpointMessage: string | null = null;
       await mkdir(path.join(this.namespaceRoot, "records"), { recursive: true });
@@ -363,9 +367,18 @@ export class ResumeDataStore {
       await this.assertLeaseOwner(lease);
       }));
       if (checkpointMessage) await this.commitHistory(checkpointMessage);
+      this.startupTransactionRecoveryComplete = true;
     } catch (error) {
+      this.startupTransactionRecoveryComplete = false;
       throw this.normalizePublicError(error, "Resume Builder owner-data initialization failed");
     }
+  }
+
+  recoveryLifecycleEvidence(): { process_instance_id: string; startup_transaction_recovery_complete: boolean } {
+    return {
+      process_instance_id: this.processInstanceId,
+      startup_transaction_recovery_complete: this.startupTransactionRecoveryComplete,
+    };
   }
 
   async catalog(): Promise<ResumeDataCatalog> {
@@ -603,7 +616,10 @@ export class ResumeDataStore {
       await this.validateCatalogSemantics(next);
       await this.renewLease(lease);
       await this.assertLeaseOwner(lease);
-      await this.writeAtomic(this.catalogPath, next);
+      await this.writeAtomic(this.catalogPath, next, async () => {
+        await this.hooks.beforeCatalogPublish?.();
+        if (context.isCancelled?.()) throw new ResumeDomainError("cancelled", "Operation was cancelled before commit");
+      });
       await this.hooks.afterCatalogCommit?.();
       await rm(transactionRoot, { recursive: true, force: true });
       shouldCheckpoint = true;
@@ -1485,7 +1501,7 @@ export class ResumeDataStore {
         lease_version: 2,
         lease_id: randomUUID(),
         owner_pid: process.pid,
-        owner_instance_id: PROCESS_INSTANCE_ID,
+        owner_instance_id: this.processInstanceId,
         owner_process_start_ticks: await this.processStartTicks(process.pid),
         acquired_at: new Date(now).toISOString(),
         expires_at: new Date(now + this.leaseTtlMs()).toISOString(),
@@ -1564,7 +1580,7 @@ export class ResumeDataStore {
 
   private async isLeaseOwnerAlive(lease: Lease): Promise<boolean> {
     if (lease.lease_version === 2) {
-      if (lease.owner_pid === process.pid) return lease.owner_instance_id === PROCESS_INSTANCE_ID;
+      if (lease.owner_pid === process.pid) return lease.owner_instance_id === this.processInstanceId;
       if (lease.owner_process_start_ticks !== null) {
         const currentStartTicks = await this.processStartTicks(lease.owner_pid);
         if (currentStartTicks !== null) return currentStartTicks === lease.owner_process_start_ticks;
@@ -1633,7 +1649,7 @@ export class ResumeDataStore {
     finally { release(); }
   }
 
-  private async writeAtomic(targetPath: string, value: unknown): Promise<void> {
+  private async writeAtomic(targetPath: string, value: unknown, beforePublish?: () => Promise<void>): Promise<void> {
     await mkdir(path.dirname(targetPath), { recursive: true });
     const temporaryPath = `${targetPath}.${process.pid}.${randomUUID()}.tmp`;
     const handle = await open(temporaryPath, "wx", 0o600);
@@ -1644,6 +1660,7 @@ export class ResumeDataStore {
       await handle.close();
     }
     try {
+      await beforePublish?.();
       await rename(temporaryPath, targetPath);
       await syncDirectoryEntry(path.dirname(targetPath));
     } catch (error) {

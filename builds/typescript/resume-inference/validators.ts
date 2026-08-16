@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { z } from "zod";
 
 import { canonicalInputDigest } from "../app-platform/contracts/common.js";
-import { JobEvidenceValueSchema, ValidatorFindingSchema } from "../app-platform/contracts/data.js";
+import { JobEvidenceValueSchema, ResumeValidationRuleIdSchema, ValidatorFindingSchema } from "../app-platform/contracts/data.js";
 import type { InferenceDataBlockSchema, InferencePurpose } from "../app-platform/contracts/inference.js";
 import { craftContextFromBlocks, validateCraftEvaluationResult, type CraftEvaluationResult } from "./craft-evaluator.js";
 import { validateCraftRepair } from "./craft-repair.js";
@@ -12,7 +12,8 @@ import { decideTargetFit, TARGET_FIT_THRESHOLD_POLICY } from "./target-fit.js";
 import { revisionDraftIssues, type RevisionIntentClass, type RevisionStatement, type RevisionTarget } from "../resume-domain/revision-requests.js";
 
 type DataBlock = z.infer<typeof InferenceDataBlockSchema>;
-type Finding = z.infer<typeof ValidatorFindingSchema>;
+export type ResumeValidationRuleId = z.infer<typeof ResumeValidationRuleIdSchema>;
+type Finding = z.infer<typeof ValidatorFindingSchema> & { rule_id?: ResumeValidationRuleId };
 type GeneratedStatement = z.infer<typeof GeneratedStatementSchema>;
 
 export type ValidationReport = {
@@ -238,29 +239,29 @@ function validateResumeStructure(statements: GeneratedStatement[], blocks: DataB
       && statement.supporting_confirmed_fact_revision_ids.includes(job.revisionId)
       && (!title || normalize(statement.text).includes(title))
       && (!employer || normalize(statement.text).includes(employer)));
-    if (!heading) findings.push(finding("schema_invalid", null, "Each confirmed job requires an individual experience heading"));
+    if (!heading) findings.push(finding("schema_invalid", null, "Each confirmed job requires an individual experience heading", "job_heading_missing"));
   }
   for (const accomplishment of structured.filter((fact) => fact.value.format === "resume_accomplishment_v1")) {
     if (omissions.some((omission) => omission.fact_revision_id === accomplishment.revisionId)) continue;
     const candidate = statements.find((statement) => statement.section_id === "experience" && statement.supporting_confirmed_fact_revision_ids.includes(accomplishment.revisionId));
-    if (!candidate) findings.push(finding("missing_provenance", null, "Each confirmed accomplishment requires its own supported experience statement"));
-    else if (candidate.text.length > 320) findings.push(finding("schema_invalid", candidate.statement_id, "Accomplishment bullets must remain concise"));
+    if (!candidate) findings.push(finding("missing_provenance", null, "Each confirmed accomplishment requires its own supported experience statement", "accomplishment_statement_missing"));
+    else if (candidate.text.length > 320) findings.push(finding("schema_invalid", candidate.statement_id, "Accomplishment bullets must remain concise", "accomplishment_statement_too_long"));
   }
   for (const evidence of jobEvidence) {
     const uses = statements.filter((statement) => statement.supporting_confirmed_fact_revision_ids.includes(evidence.revisionId));
     if (evidence.value.outcome !== "answered" && uses.length > 0) {
-      findings.push(finding("unsupported_claim", uses[0]?.statement_id ?? null, "Skipped, unknown, not-applicable, and deferred job evidence cannot support resume wording"));
+      findings.push(finding("unsupported_claim", uses[0]?.statement_id ?? null, "Skipped, unknown, not-applicable, and deferred job evidence cannot support resume wording", "non_answered_job_evidence_used"));
     }
   }
   for (const job of jobs) {
     const evidenceIds = new Set(jobEvidence.filter((evidence) => evidence.value.association === "job" && evidence.value.job_fact_revision_id === job.revisionId && evidence.value.outcome === "answered").map((evidence) => evidence.revisionId));
     const bullets = statements.filter((statement) => statement.section_id === "experience" && statement.supporting_confirmed_fact_revision_ids.some((revisionId) => evidenceIds.has(revisionId)));
-    if (bullets.length > 6) findings.push(finding("schema_invalid", null, "A role cannot be padded beyond six evidence-supported bullets"));
+    if (bullets.length > 6) findings.push(finding("schema_invalid", null, "A role cannot be padded beyond six evidence-supported bullets", "role_bullet_limit_exceeded"));
     if (new Set(bullets.map((statement) => normalize(statement.text))).size !== bullets.length) {
-      findings.push(finding("schema_invalid", null, "A role cannot repeat evidence wording to increase bullet density"));
+      findings.push(finding("schema_invalid", null, "A role cannot repeat evidence wording to increase bullet density", "role_bullet_text_repeated"));
     }
     const answeredDimensions = new Set(jobEvidence.filter((evidence) => evidence.value.job_fact_revision_id === job.revisionId && evidence.value.outcome === "answered").map((evidence) => evidence.value.dimension));
-    if (answeredDimensions.size >= 3 && bullets.length < 3) findings.push(finding("schema_invalid", null, "A substantive role requires separate concise statements for its confirmed evidence"));
+    if (answeredDimensions.size >= 3 && bullets.length < 3) findings.push(finding("schema_invalid", null, "A substantive role requires separate concise statements for its confirmed evidence", "substantive_role_underrepresented"));
   }
   return findings;
 }
@@ -341,7 +342,7 @@ function validateGeneralStrategyUse(result: unknown, blocks: DataBlock[]): Findi
   const value = result as { statements?: GeneratedStatement[]; section_order?: string[]; omissions?: Array<{ fact_revision_id?: string; reason_code?: string }> };
   const strategies = blocks.filter((candidate) => candidate.category === "resume_strategy");
   if (strategies.length === 0) return [];
-  if (strategies.length !== 1) return [finding("lineage_invalid", null, "General generation requires one exact validated resume strategy")];
+  if (strategies.length !== 1) return [finding("lineage_invalid", null, "General generation requires one exact validated resume strategy", "general_strategy_count_invalid")];
   const strategy = strategies[0]!.data as {
     section_order?: string[];
     evidence_priorities?: Array<{ fact_revision_id?: string; priority?: string }>;
@@ -355,26 +356,26 @@ function validateGeneralStrategyUse(result: unknown, blocks: DataBlock[]): Findi
   for (const entry of omissions) {
     if (typeof entry.fact_revision_id !== "string") continue;
     const existing = omissionMap.get(entry.fact_revision_id);
-    if (existing !== undefined && existing !== entry.reason_code) findings.push(finding("schema_invalid", null, "One omission identity cannot carry conflicting visible reasons"));
+    if (existing !== undefined && existing !== entry.reason_code) findings.push(finding("schema_invalid", null, "One omission identity cannot carry conflicting visible reasons", "omission_reason_conflict"));
     omissionMap.set(entry.fact_revision_id, entry.reason_code);
   }
   const omissionIds = [...omissionMap.keys()];
   const facts = confirmedFacts(blocks);
-  if (omissionIds.some((id) => !facts.has(id))) findings.push(finding("lineage_invalid", null, "Draft omissions must reference the exact confirmed snapshot"));
+  if (omissionIds.some((id) => !facts.has(id))) findings.push(finding("lineage_invalid", null, "Draft omissions must reference the exact confirmed snapshot", "omission_outside_snapshot"));
   for (const entry of strategy.evidence_priorities ?? []) {
     if (entry.priority === "must_use" && typeof entry.fact_revision_id === "string" && !used.has(entry.fact_revision_id) && !omissionIds.includes(entry.fact_revision_id)) {
-      findings.push(finding("missing_provenance", null, "Every must-use strategy item must appear with claim lineage or a visible allowed omission reason"));
+      findings.push(finding("missing_provenance", null, "Every must-use strategy item must appear with claim lineage or a visible allowed omission reason", "must_use_evidence_unrepresented"));
     }
   }
   const hasSummary = (value.statements ?? []).some((statement) => statement.section_id === "summary");
-  if (strategy.summary_decision === "omit" && hasSummary) findings.push(finding("schema_invalid", null, "Draft added a summary that the evidence-shaped strategy omitted"));
-  if (strategy.summary_decision === "include" && !hasSummary) findings.push(finding("schema_invalid", null, "Draft quietly omitted the supported strategy summary"));
+  if (strategy.summary_decision === "omit" && hasSummary) findings.push(finding("schema_invalid", null, "Draft added a summary that the evidence-shaped strategy omitted", "summary_forbidden_by_strategy"));
+  if (strategy.summary_decision === "include" && !hasSummary) findings.push(finding("schema_invalid", null, "Draft quietly omitted the supported strategy summary", "summary_required_by_strategy"));
   if (value.section_order && strategy.section_order && canonicalInputDigest(value.section_order) !== canonicalInputDigest(strategy.section_order)) {
-    findings.push(finding("lineage_invalid", null, "Draft section order does not match the exact strategy"));
+    findings.push(finding("lineage_invalid", null, "Draft section order does not match the exact strategy", "section_order_strategy_mismatch"));
   }
   const orderedSections = new Set(value.section_order ?? []);
   if (value.section_order && (value.statements ?? []).some((statement) => !orderedSections.has(statement.section_id ?? "experience"))) {
-    findings.push(finding("schema_invalid", null, "Every draft statement section must appear in the section order"));
+    findings.push(finding("schema_invalid", null, "Every draft statement section must appear in the section order", "statement_section_not_ordered"));
   }
   return findings;
 }
@@ -419,16 +420,16 @@ function validateStatement(statement: GeneratedStatement, facts: Map<string, str
   const findings: Finding[] = [];
   const support = statement.supporting_confirmed_fact_revision_ids.map((id) => facts.get(id)).filter((value): value is string => Boolean(value));
   if (support.length !== statement.supporting_confirmed_fact_revision_ids.length || (statement.kind === "factual" && support.length === 0)) {
-    findings.push(finding("missing_provenance", statement.statement_id, "Statement support does not resolve to confirmed fact revisions"));
+    findings.push(finding("missing_provenance", statement.statement_id, "Statement support does not resolve to confirmed fact revisions", "statement_support_unresolved"));
     return findings;
   }
   const source = normalize(support.join(" "));
   if (/resume_(?:job|accomplishment)_v1|job_fact_revision_id|[{}]/i.test(statement.text)) {
-    findings.push(finding("unsupported_claim", statement.statement_id, "Internal structured fact markers cannot appear in resume text"));
+    findings.push(finding("unsupported_claim", statement.statement_id, "Internal structured fact markers cannot appear in resume text", "statement_internal_marker_exposed"));
   }
   const protectedValues = statement.text.match(PROTECTED_TOKEN) ?? [];
   if (protectedValues.some((value) => !source.includes(normalize(value)))) {
-    findings.push(finding("protected_field_changed", statement.statement_id, "A protected metric, date, or URL is absent from supporting facts"));
+    findings.push(finding("protected_field_changed", statement.statement_id, "A protected metric, date, or URL is absent from supporting facts", "statement_protected_value_unsupported"));
   }
   const sourceTokens = new Set(significantTokens(source).map(claimTokenRoot));
   const unsupported = significantTokens(statement.text).filter((token) => {
@@ -439,7 +440,7 @@ function validateStatement(statement: GeneratedStatement, facts: Map<string, str
     return true;
   });
   if (statement.kind === "factual" && unsupported.length > 0) {
-    findings.push(finding("unsupported_claim", statement.statement_id, "Factual wording exceeds its confirmed supporting facts"));
+    findings.push(finding("unsupported_claim", statement.statement_id, "Factual wording exceeds its confirmed supporting facts", "statement_factual_wording_unsupported"));
   }
   return findings;
 }
@@ -577,11 +578,12 @@ function hasUsefulTextDifference(left: string, right: string): boolean {
   return words(left) !== words(right);
 }
 
-function finding(code: Finding["code"], statementId: string | null, safeMessage: string): Finding {
-  return ValidatorFindingSchema.parse({
+function finding(code: Finding["code"], statementId: string | null, safeMessage: string, ruleId?: ResumeValidationRuleId): Finding {
+  const base = ValidatorFindingSchema.parse({
     finding_id: deterministicUuid(`${code}:${statementId ?? "record"}:${safeMessage}`), validator_id: "resume-claim-gate", validator_version: "1", severity: "error",
     code, statement_id: statementId, safe_message: safeMessage,
   });
+  return { ...base, ...(ruleId ? { rule_id: ResumeValidationRuleIdSchema.parse(ruleId) } : {}) };
 }
 
 function deterministicUuid(value: string): string {

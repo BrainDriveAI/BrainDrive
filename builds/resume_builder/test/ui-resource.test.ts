@@ -1,6 +1,50 @@
 import { readFile } from "node:fs/promises";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+type OwnerErrorResult = {
+  code: string;
+  message: string;
+  recovery: string;
+  operationReference: string | null;
+  summary: string | null;
+  findings: string[];
+  appIssueId: string | null;
+  recoveryContract?: unknown;
+};
+
+function parseOwnerError(html: string): (error: unknown) => OwnerErrorResult {
+  const start = html.indexOf("function ownerError");
+  const end = html.indexOf("function careerReturnOperationId", start);
+  if (start < 0 || end < 0) throw new Error("ownerError source boundary is unavailable");
+  return new Function(`${html.slice(start, end)}\nreturn ownerError;`)() as (error: unknown) => OwnerErrorResult;
+}
+
+function parseInlineFunction<T extends (...args: never[]) => unknown>(
+  html: string,
+  name: string,
+  nextName: string,
+  dependencies: Record<string, unknown>,
+): T {
+  const start = html.indexOf(`async function ${name}`);
+  const end = html.indexOf(`async function ${nextName}`, start + `async function ${name}`.length);
+  if (start < 0 || end < 0) throw new Error(`${name} source boundary is unavailable`);
+  const names = Object.keys(dependencies);
+  return new Function(...names, `${html.slice(start, end)}\nreturn ${name};`)(...names.map((key) => dependencies[key])) as T;
+}
+
+function parseSyncFunction<T extends (...args: never[]) => unknown>(
+  html: string,
+  name: string,
+  nextName: string,
+  dependencies: Record<string, unknown>,
+): T {
+  const start = html.indexOf(`function ${name}`);
+  const end = html.indexOf(`async function ${nextName}`, start);
+  if (start < 0 || end < 0) throw new Error(`${name} source boundary is unavailable`);
+  const names = Object.keys(dependencies);
+  return new Function(...names, `${html.slice(start, end)}\nreturn ${name};`)(...names.map((key) => dependencies[key])) as T;
+}
 
 describe("sandboxed Resume Builder owner resource", () => {
   it("contains syntactically valid inline application code", async () => {
@@ -61,7 +105,14 @@ describe("sandboxed Resume Builder owner resource", () => {
     expect(html).not.toMatch(/\b(?:https?:|file:|tauri:|javascript:)/i);
     expect(html).not.toContain("allow-same-origin");
     expect(html).not.toContain("active_provider_profile");
-    expect(html).not.toMatch(/inference_contract_version:1[^}]*\b(?:provider|model|endpoint|credential|api_key):/);
+    expect(html).not.toContain("inference_contract_version:1");
+    expect(html).toContain("inference_contract_version:2");
+    for (const programId of [
+      "resume.interview-assist", "resume.general-draft", "resume.job-description-analyze",
+      "resume.requirement-evidence-match", "resume.tailoring-plan", "resume.targeted-draft",
+      "resume.revision-classify", "resume.revision-draft", "resume.guidance", "resume.strategy",
+      "resume.craft-evaluate", "resume.craft-repair",
+    ]) expect(html).toContain(`\"${programId}\"`);
     expect(html).not.toContain("api_key");
   });
 
@@ -74,21 +125,247 @@ describe("sandboxed Resume Builder owner resource", () => {
     const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
     expect(html).toContain("RECOVERY_SETTLE_MS=1500");
     expect(html).toContain("RECOVERY_ACK_TIMEOUT_MS=500");
+    expect(html).toContain("RECOVERY_POLL_ELAPSED_MS=[625,750,1000,1500,2500,4500,8500]");
+    expect(html).toContain("RECOVERY_MAX_POLL_MS=5000");
+    expect(html).toContain("RECOVERY_FINAL_READ_MS=120000");
     expect(html).toContain('kind:"interview_recovery_save"');
     expect(html).toContain('kind:"interview_recovery_discard"');
     expect(html).toContain('kind:"interview_progress_submit"');
     expect(html).toContain("request_operation_id");
-    expect(html).toContain('queried_operation_id:operationId');
-    expect(html).toContain('role="status" aria-live="polite"');
+    expect(html).toContain('queried_operation_id:binding.operationId,reconciliation:"resume_recovery_v1"');
+    expect(html).toContain("verifyRestoredRecoveryOperation");
+    expect(html).toContain("reloadDurableWorkspace");
+    expect(html).toContain('role="status" aria-live="polite" aria-atomic="true"');
+    expect(html).toContain("Still saving…");
     expect(html).toContain("Saved at");
-    expect(html).toContain("Not safely saved");
+    expect(html).toContain("Not saved. Your typed value is still here");
     expect(html).toContain("Use my unsaved value");
     expect(html).toContain("Use the saved value");
+    expect(html).toContain("could not verify that the saved draft belongs to this exact save");
+    expect(html).not.toContain("This draft changed elsewhere");
     expect(html).toContain("Discard draft");
     expect(html).toContain("focus({preventScroll:true})");
     expect(html).toContain('message.method==="ui/resource-teardown"');
     expect(html).toContain("cancelRecoveryTimer()");
+    expect(html).toContain("cancelRecoveryPolls()");
+    expect(html).toContain("state.resourceGeneration+=1");
+    expect(html).toContain("generation!==state.resourceGeneration");
+    expect(html).toContain("guard.superseded=true");
+    expect(html).toContain("trimRecoveryIdentities");
+    expect(html).not.toContain("trimRecoveryIdentities(state.recoveryGuards)");
+    expect(html).toContain('generation:${binding.editGeneration}');
+    expect(html).toContain('guard.editGeneration!==state.recovery.editGeneration');
+    expect(html).toContain('state.recovery.status="saving";state.recovery.serverDraft=null');
+    expect(html).not.toContain('ackValueDigest===state.recovery.valueDigest?"saved"');
+    for (const intent of ["submit", "save_answer", "complete_for_now", "pause", "back"]) {
+      expect(html).toContain(`"${intent}`);
+    }
+    expect(html).toContain("`stage:${button.dataset.stage}`");
+    expect(html).toContain("persistAnswerAfterRecovery");
+    expect(html).toContain("persistJobEvidenceAfterRecovery");
+    expect(html).toContain("preserveRecoveryOnce");
     expect(html).not.toMatch(/\b(?:localStorage|sessionStorage|indexedDB)\b/);
+  });
+
+  it("does not let workspace-only equality authorize Saved and never turns denied reads into long pending", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    const state = { resourceGeneration: 1, recovery: { status: "reconciling", operationId: "op" } };
+    const binding = { operationId: "op" };
+    const update = vi.fn();
+    const conflict = vi.fn(async () => ({ state: "conflict" }));
+    const base = {
+      state,
+      nextRecoveryPollElapsed: vi.fn(() => 120_000),
+      waitRecovery: vi.fn(async () => true),
+      currentRecoveryMatches: vi.fn(() => true),
+      updateRecoveryStatus: update,
+      recoveryErrorCode: (error: { error?: string }) => String(error?.error ?? ""),
+      projectionResult: vi.fn(() => null),
+      applyRecoverySaved: vi.fn(),
+      markRecoveryConflict: conflict,
+      RECOVERY_FINAL_READ_MS: 120_000,
+      recoveryWorkspaceReadback: vi.fn(async () => ({ state: "matching_commit", record: { exact: true } })),
+      focusRecoveryChoice: vi.fn(),
+    };
+    const now = vi.spyOn(Date, "now").mockReturnValueOnce(119_999).mockReturnValueOnce(120_000);
+    const reconcile = parseInlineFunction<(binding: unknown, startedAt: number, generation: number) => Promise<{ state: string }>>(
+      html,
+      "reconcileRecovery",
+      "executeRecoveryAttempt",
+      { ...base, capability: vi.fn(async () => ({ recovery_reconciliation: { host_operation_settled: true, operation: { state: "failed" } } })) },
+    );
+    await expect(reconcile(binding, 0, 1)).resolves.toEqual({ state: "conflict" });
+    expect(conflict).toHaveBeenCalledWith(binding, 1);
+    now.mockRestore();
+
+    const deniedCapability = vi.fn(async () => { throw { error: "denied" }; });
+    const denied = parseInlineFunction<(binding: unknown, startedAt: number, generation: number) => Promise<unknown>>(
+      html,
+      "reconcileRecovery",
+      "executeRecoveryAttempt",
+      { ...base, nextRecoveryPollElapsed: vi.fn(() => 625), capability: deniedCapability },
+    );
+    await expect(denied(binding, Date.now(), 1)).rejects.toEqual({ error: "denied" });
+    expect(deniedCapability).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps one scoped not-found pending, then accepts the later exact committed projection", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    const state = { resourceGeneration: 1, recovery: { status: "reconciling" } };
+    const committed = { progress: {}, acknowledgement: {} };
+    let read = 0;
+    const capability = vi.fn(async () => {
+      read += 1;
+      if (read === 1) throw { error: "not_found_within_scope" };
+      return { recovery_reconciliation: { host_operation_settled: true, operation: { state: "committed" } } };
+    });
+    let poll = 0;
+    const reconcile = parseInlineFunction<(binding: unknown, startedAt: number, generation: number) => Promise<{ state: string }>>(
+      html,
+      "reconcileRecovery",
+      "executeRecoveryAttempt",
+      {
+        state,
+        nextRecoveryPollElapsed: vi.fn(() => [625, 750][poll++] ?? null),
+        waitRecovery: vi.fn(async () => true),
+        currentRecoveryMatches: vi.fn(() => true),
+        updateRecoveryStatus: vi.fn(),
+        capability,
+        recoveryErrorCode: (error: { error?: string }) => String(error?.error ?? ""),
+        projectionResult: vi.fn((query: unknown) => read === 2 ? committed : null),
+        applyRecoverySaved: vi.fn(() => true),
+        markRecoveryConflict: vi.fn(),
+        RECOVERY_FINAL_READ_MS: 120_000,
+        recoveryWorkspaceReadback: vi.fn(),
+        focusRecoveryChoice: vi.fn(),
+      },
+    );
+    await expect(reconcile({ operationId: "op" }, Date.now(), 1)).resolves.toEqual({ state: "saved" });
+    expect(capability).toHaveBeenCalledTimes(2);
+  });
+
+  it("surfaces typed write/read failures without long-polling, rejecting, or releasing a guard", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    const binding = { operationId: "op", editGeneration: 1 };
+    const makeDependencies = (capability: ReturnType<typeof vi.fn>) => {
+      const state = { resourceGeneration: 1, recovery: { status: "saving", operationId: "op" }, error: null as unknown };
+      const updateRecoveryStatus = vi.fn();
+      const focusRecoveryChoice = vi.fn();
+      const surfaceRecoveryVerificationError = vi.fn((error: unknown) => {
+        state.recovery.status = "verification_failed";
+        state.recovery.operationId = null;
+        state.error = error;
+        return { state: "cancelled" };
+      });
+      return {
+        state,
+        capability,
+        RECOVERY_ACK_TIMEOUT_MS: 500,
+        applyRecoverySaved: vi.fn(),
+        markRecoveryConflict: vi.fn(),
+        currentRecoveryMatches: vi.fn(() => true),
+        ambiguousRecoveryError: (error: { ambiguous?: boolean; error?: string }) => Boolean(error?.ambiguous) || error?.error === "deadline_exceeded",
+        recoveryErrorCode: (error: { error?: string }) => String(error?.error ?? ""),
+        ownerError: vi.fn((error: unknown) => error),
+        updateRecoveryStatus,
+        focusRecoveryChoice,
+        reconcileRecovery: vi.fn(),
+        surfaceRecoveryVerificationError,
+      };
+    };
+
+    const deniedWrite = makeDependencies(vi.fn(async () => { throw { error: "denied" }; }));
+    const executeDenied = parseInlineFunction<(binding: unknown, input: unknown, generation: number) => Promise<{ state: string }>>(
+      html,
+      "executeRecoveryAttempt",
+      "flushRecovery",
+      deniedWrite,
+    );
+    await expect(executeDenied(binding, {}, 1)).resolves.toEqual({ state: "not_saved" });
+    expect(deniedWrite.capability).toHaveBeenCalledTimes(1);
+    expect(deniedWrite.state.recovery.status).toBe("not_saved");
+    expect(deniedWrite.reconcileRecovery).not.toHaveBeenCalled();
+
+    const deniedRead = makeDependencies(vi.fn(async () => { throw { error: "deadline_exceeded", ambiguous: true }; }));
+    deniedRead.reconcileRecovery.mockRejectedValueOnce({ error: "denied" });
+    const executeAmbiguous = parseInlineFunction<(binding: unknown, input: unknown, generation: number) => Promise<{ state: string }>>(
+      html,
+      "executeRecoveryAttempt",
+      "flushRecovery",
+      deniedRead,
+    );
+    await expect(executeAmbiguous(binding, {}, 1)).resolves.toEqual({ state: "cancelled" });
+    expect(deniedRead.reconcileRecovery).toHaveBeenCalledTimes(1);
+    expect(deniedRead.surfaceRecoveryVerificationError).toHaveBeenCalledWith({ error: "denied" }, binding, 1);
+    expect(deniedRead.state.recovery.status).toBe("verification_failed");
+  });
+
+  it("orders rapid multi-field activations before creating an immediate guarded submit", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    expect(html).toContain('field.addEventListener("input",()=>void enqueueRecoveryFieldActivation(slot,field.value))');
+    expect(html).toContain("recoveryFieldQueue:Promise.resolve()");
+    expect(html).toContain("state.recoveryFieldQueue=Promise.resolve()");
+    const state = { resourceGeneration: 4, recoveryFieldQueue: Promise.resolve() };
+    let releaseFirst!: () => void;
+    const firstActivation = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    let latestActivation: [unknown, string] | null = null;
+    const activateRecoveryField = vi.fn()
+      .mockImplementationOnce(async (slot: unknown, value: string) => {
+        await firstActivation;
+        latestActivation = [slot, value];
+      })
+      .mockImplementationOnce(async (slot: unknown, value: string) => {
+        latestActivation = [slot, value];
+      });
+    const surfaceRecoveryVerificationError = vi.fn();
+    const enqueue = parseInlineFunction<(slot: unknown, value: string) => Promise<boolean>>(
+      html,
+      "enqueueRecoveryFieldActivation",
+      "guardedRecoveryTransition",
+      { state, activateRecoveryField, surfaceRecoveryVerificationError },
+    );
+    const latestAtGuardCreation: Array<[unknown, string] | null> = [];
+    const afterFields = vi.fn(async () => {
+      latestAtGuardCreation.push(latestActivation);
+      return true;
+    });
+    const guarded = parseInlineFunction<(intent: string, label: string, transition: () => void) => Promise<boolean>>(
+      html,
+      "guardedRecoveryTransition",
+      "guardedRecoveryTransitionAfterFields",
+      { state, guardedRecoveryTransitionAfterFields: afterFields },
+    );
+
+    const titleSlot = { field_id: "job-title" };
+    const employerSlot = { field_id: "employer" };
+    const title = enqueue(titleSlot, "Support Lead");
+    const employer = enqueue(employerSlot, "Northwind");
+    const transition = vi.fn();
+    const submit = guarded("submit", "saving this job", transition);
+    await Promise.resolve();
+    expect(activateRecoveryField).toHaveBeenCalledTimes(1);
+    expect(afterFields).not.toHaveBeenCalled();
+
+    releaseFirst();
+    await expect(Promise.all([title, employer, submit])).resolves.toEqual([true, true, true]);
+    expect(activateRecoveryField.mock.calls).toEqual([
+      [titleSlot, "Support Lead"],
+      [employerSlot, "Northwind"],
+    ]);
+    expect(afterFields).toHaveBeenCalledTimes(1);
+    expect(afterFields).toHaveBeenCalledWith("submit", "saving this job", transition);
+    expect(latestAtGuardCreation).toEqual([[employerSlot, "Northwind"]]);
+  });
+
+  it("renders conflict values and deterministic terminal-choice focus without a destructive default", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    expect(html).toContain('aria-label="Draft conflict values"');
+    expect(html).toContain("Your typed value");
+    expect(html).toContain("Saved value");
+    expect(html).toContain("focusRecoveryChoice()");
+    expect(html).toContain('tabindex="-1"');
+    const conflict = html.slice(html.indexOf('recovery.status==="conflict"?`<div class="row"'));
+    expect(conflict.indexOf('id="recovery-local"')).toBeLessThan(conflict.indexOf('id="recovery-discard"'));
   });
 
   it("keeps recovery drafts out of inference and submitted provenance until submit", async () => {
@@ -164,6 +441,15 @@ describe("sandboxed Resume Builder owner resource", () => {
     expect(create).toContain("strategy_binding:binding");
     expect(create).toContain("generation_result:draft");
     expect(create).toContain("completion.provider_profile_id!==strategy.provider_profile_id");
+    expect(create).toContain("section_order:strategy.section_order");
+    expect(create).toContain("evidence_priorities:strategy.evidence_priorities");
+    expect(create).toContain("summary_decision:strategy.summary_decision");
+    expect(create).toContain("omissions:strategy.omissions");
+    expect(create).toContain("appGeneralPersistenceInputDigest(strategy,preferences,additionalFacts)");
+    expect(create).toContain("persistence_input_digest:persistenceInputDigest");
+    expect(create).toContain("completion.result.persistence_input_digest");
+    expect(create).toContain("completion.result.persistence_output_digest");
+    expect(create).toContain("appResult=completion.result,draft=appResult.draft");
   });
 
   it("exposes remembered-detail disambiguation, duplicate reuse, successor generation, and impact notice", async () => {
@@ -183,6 +469,8 @@ describe("sandboxed Resume Builder owner resource", () => {
     expect(html).toContain('source_definition_revision_id:source.metadata.revision_id');
     expect(html).toContain('parent_definition_revision_id:source.metadata.revision_id');
     expect(html).toContain('status:"proposed"');
+    expect(html).toContain("completeBoundGeneral(strategy,[changedFact])");
+    expect(html).toContain("appGeneralPersistenceBlocks(strategy,preferences,additionalFacts=[])");
   });
 
   it("renders a complete accessible two-version comparison without model or mutation authority", async () => {
@@ -343,5 +631,274 @@ describe("sandboxed Resume Builder owner resource", () => {
     expect(html).toContain("RB7-OQ-2");
     const review = html.slice(html.indexOf("function ownerReview"), html.indexOf("function evidenceRows"));
     expect(review).not.toMatch(/match score|ATS score|quality score/i);
+  });
+
+  it("executes the complete Spec 09 legacy error-to-action mapping without diagnostics", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    const ownerError = parseOwnerError(html);
+    const expected = {
+      invalid_request: "none",
+      denied: "open_model_settings",
+      model_incompatible: "open_model_settings",
+      provider_unavailable: "retry",
+      quota_exceeded: "review_provider_account",
+      rate_limited: "retry",
+      deadline_exceeded: "retry",
+      cancelled: "continue",
+      schema_validation_failed: "retry",
+      validation_failed: "none",
+      recoverable_internal_failure: "retry",
+      malformed_structured_output: "retry",
+      incomplete_output: "retry",
+      evidence_validation_failed: "none",
+      provider_schema_unsupported: "open_model_settings",
+      provider_authentication_failed: "open_model_settings",
+      provider_authorization_failed: "open_model_settings",
+      content_filtered: "none",
+      provider_refused: "none",
+      unexpected_tool_call: "open_model_settings",
+      internal_failure: "retry",
+    } as const;
+    for (const [code, recovery] of Object.entries(expected)) {
+      const projected = ownerError({ error: { code } });
+      expect(projected).toMatchObject({ code, recovery, operationReference: null, summary: null, findings: [] });
+      expect(projected.message).toContain("Your saved work and last approved resume are unchanged.");
+    }
+    expect(ownerError({ error: { code: "protocol_incompatible" } }).recovery).toBe("open_model_settings");
+    expect(ownerError({ code: "validation_failed", app_issue_id: "resume.general-draft/persistence-canonicalization-failed" })).toMatchObject({
+      appIssueId: "resume.general-draft/persistence-canonicalization-failed",
+    });
+    expect(ownerError({ code: "validation_failed", app_issue_id: "owner@example.test" }).appIssueId).toBeNull();
+  });
+
+  it("renders exactly three safe evidence-failure choices with truthful Retry disclosure", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    const evidenceActions = html.slice(html.indexOf('state.error.recovery==="evidence_failure"'), html.indexOf('if(state.error.recovery==="continue"'));
+    expect(evidenceActions).toContain('addAction("Try again"');
+    expect(evidenceActions).toContain('addAction("Review confirmed evidence"');
+    expect(evidenceActions).toContain('addAction("Not now"');
+    expect(evidenceActions.match(/addAction\(/g)).toHaveLength(3);
+    expect(evidenceActions).toContain("Try again uses your currently selected provider and may consume credits.");
+    expect(evidenceActions).not.toMatch(/price|credential|api key|settings/i);
+    expect(evidenceActions).toContain('aria-live","polite"');
+    expect(evidenceActions).toContain('repeated_equivalent_failure');
+    expect(html).toContain('review_confirmed_evidence:Review confirmed evidence');
+    expect(html).toContain('try_again:Try again');
+    expect(html).toContain('state.stage="fact_review"');
+    expect(html).toContain("focusPanel()");
+
+    const ownerError = parseOwnerError(html);
+    const contract = {
+      recovery_contract_version: 1,
+      kind: "evidence_failure",
+      actions: [
+        { id: "try_again", label: "Try again" },
+        { id: "review_confirmed_evidence", label: "Review confirmed evidence" },
+        { id: "not_now", label: "Not now" },
+      ],
+      retry_disclosure: "Try again uses your currently selected provider and may consume credits.",
+      semantic_input_digest: `sha256:${"a".repeat(64)}`,
+      strategy_revision_id: "10000000-0000-4000-8000-000000000010",
+      provider_profile_id: "owner-profile",
+      model_id: "owner-model",
+      repeated_equivalent_failure: false,
+      emphasized_action: "try_again",
+    };
+    expect(ownerError({ code: "evidence_validation_failed", recovery_contract: contract })).toMatchObject({
+      recovery: "evidence_failure",
+      recoveryContract: contract,
+    });
+    for (const malformed of [
+      { ...contract, actions: [...contract.actions].reverse() },
+      { ...contract, retry_disclosure: "Free retry" },
+      { ...contract, semantic_input_digest: "owner content" },
+      { ...contract, emphasized_action: "review_confirmed_evidence" },
+    ]) expect(ownerError({ code: "evidence_validation_failed", recovery_contract: malformed }).recovery).toBe("none");
+  });
+
+  it("keeps app-owned Retry explicit, fresh, duplicate-suppressed, and on the same v2 program input", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    const inference = html.slice(html.indexOf("function inferenceRetryDecision"), html.indexOf("function normalizeDraftStatements"));
+    expect(inference).toContain("inference_contract_version:2");
+    expect(inference).toContain("program:INFERENCE_PROGRAMS[purpose]");
+    expect(inference).toContain("input:programInput");
+    expect(inference).not.toContain("retry_lineage");
+    expect(inference).not.toContain("semantic_binding");
+    expect(inference).toContain("if(!pending||pending.resolved)return");
+    expect(inference).toContain("pending.resolved=true");
+    expect(inference).toContain("operationId=uuid()");
+    expect(inference).toContain('if(choice!=="retry")throw {handled:true}');
+  });
+
+  it("makes Review and Not now zero-operation choices and suppresses duplicate Retry clicks", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    const protectedState = { facts: [{ revision: 1 }], strategy: { revision: 1 }, proposals: [{ revision: 1 }], approval: { revision: 1 }, provider: "owner-profile" };
+    const make = () => {
+      const resolve = vi.fn();
+      const state = {
+        stage: "general_review",
+        inferenceRetry: { resolve, resolved: false },
+        error: { code: "evidence_validation_failed" },
+        protectedState: structuredClone(protectedState),
+      };
+      const render = vi.fn();
+      const focusPanel = vi.fn();
+      const choose = parseSyncFunction<(choice: string) => void>(html, "resolveInferenceRetry", "inferCompletion", { state, render, focusPanel });
+      return { state, resolve, render, focusPanel, choose };
+    };
+    const retry = make();
+    retry.choose("retry");
+    retry.choose("retry");
+    expect(retry.resolve).toHaveBeenCalledTimes(1);
+    expect(retry.resolve).toHaveBeenCalledWith("retry");
+    expect(retry.state.protectedState).toEqual(protectedState);
+
+    const review = make();
+    review.choose("review");
+    expect(review.resolve).toHaveBeenCalledTimes(1);
+    expect(review.state.stage).toBe("fact_review");
+    expect(review.state.protectedState).toEqual(protectedState);
+    expect(review.focusPanel).toHaveBeenCalledTimes(1);
+
+    const notNow = make();
+    notNow.choose("not_now");
+    expect(notNow.resolve).toHaveBeenCalledTimes(1);
+    expect(notNow.state.stage).toBe("general_review");
+    expect(notNow.state.protectedState).toEqual(protectedState);
+  });
+
+  it("starts no fresh operation before explicit Retry, then uses one UUID and unchanged semantic bindings", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    const firstOperationId = "10000000-0000-4000-8000-000000000020";
+    const secondOperationId = "10000000-0000-4000-8000-000000000021";
+    const strategyRevisionId = "10000000-0000-4000-8000-000000000010";
+    const contract = {
+      recovery_contract_version: 1,
+      kind: "evidence_failure",
+      actions: [
+        { id: "try_again", label: "Try again" },
+        { id: "review_confirmed_evidence", label: "Review confirmed evidence" },
+        { id: "not_now", label: "Not now" },
+      ],
+      retry_disclosure: "Try again uses your currently selected provider and may consume credits.",
+      semantic_input_digest: `sha256:${"a".repeat(64)}`,
+      strategy_revision_id: strategyRevisionId,
+      provider_profile_id: "owner-profile",
+      model_id: "owner-model",
+      repeated_equivalent_failure: false,
+      emphasized_action: "try_again",
+    };
+    const capability = vi.fn()
+      .mockResolvedValueOnce({
+        status: "failed",
+        operation_id: firstOperationId,
+        purpose: "general_resume_draft",
+        attempt_count: 2,
+        error: { code: "evidence_validation_failed", recovery_contract: contract },
+        diagnostic: { operation_id: firstOperationId },
+        validation: { finding_codes: ["unsupported_claim"] },
+      })
+      .mockResolvedValueOnce({
+        status: "completed",
+        operation_id: secondOperationId,
+        purpose: "general_resume_draft",
+        attempt_count: 2,
+        provider_profile_id: "owner-profile",
+        model_id: "owner-model",
+        result: { title: "Synthetic" },
+        recovery_notice: null,
+      });
+    let choose: ((choice: string) => void) | null = null;
+    const inferenceRetryDecision = vi.fn(() => new Promise<string>((resolve) => { choose = resolve; }));
+    const state = { facts: [], inferenceNotice: null, busy: true };
+    const inferCompletion = parseInlineFunction<(purpose: string, extra: Record<string, unknown>) => Promise<unknown>>(
+      html,
+      "inferCompletion",
+      "infer",
+      {
+        state,
+        uuid: vi.fn(() => secondOperationId),
+        capability,
+        appOwnedInferenceInput: vi.fn(),
+        INFERENCE_PROGRAMS: { general_resume_draft: { id: "resume.general-draft", version: 1 } },
+        ownerError: (error: { recovery_contract?: unknown }) => ({ recovery: "evidence_failure", recoveryContract: error.recovery_contract }),
+        inferenceRetryDecision,
+        render: vi.fn(),
+        RECOVERED_GENERAL_NOTICE: "recovered",
+      },
+    );
+    const extra = {
+      operation_id: firstOperationId,
+      fact_revision_ids: ["10000000-0000-4000-8000-000000000030"],
+      record_revision_ids: [strategyRevisionId],
+      presentation_preferences: { locale: "en-US" },
+      semantic_binding: {
+        semantic_binding_version: 1,
+        strategy_revision_id: strategyRevisionId,
+        provider_profile_id: "owner-profile",
+        model_id: "owner-model",
+      },
+      app_program: {
+        facts: [], strategy: { fact_revision_ids: [] }, persistence_input_digest: `sha256:${"b".repeat(64)}`,
+        prompt_policy_id: "braindrive.resume-builder.fixed", prompt_policy_version: "12",
+      },
+    };
+    const pending = inferCompletion("general_resume_draft", extra);
+    await vi.waitFor(() => expect(inferenceRetryDecision).toHaveBeenCalledTimes(1));
+    expect(capability).toHaveBeenCalledTimes(1);
+    choose?.("retry");
+    await expect(pending).resolves.toMatchObject({ status: "completed", operation_id: secondOperationId });
+    expect(capability).toHaveBeenCalledTimes(2);
+    const firstRequest = capability.mock.calls[0]![1];
+    const retryRequest = capability.mock.calls[1]![1];
+    expect(retryRequest.operation_id).toBe(secondOperationId);
+    expect(retryRequest.operation_id).not.toBe(firstRequest.operation_id);
+    expect(retryRequest).toMatchObject({ inference_contract_version: 2, program: firstRequest.program, input: firstRequest.input });
+    expect(retryRequest).not.toHaveProperty("retry_lineage");
+  });
+
+  it("fails closed for malformed or unknown legacy error payloads", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    const ownerError = parseOwnerError(html);
+    for (const payload of [null, {}, { error: null }, "malformed", { code: "future_unknown", recovery: "retry" }]) {
+      const projected = ownerError(payload);
+      expect(projected.recovery).toBe("none");
+      expect(projected.operationReference).toBeNull();
+      expect(projected.summary).toBeNull();
+      expect(projected.findings).toEqual([]);
+      expect(projected.message).toContain("Your saved work and last approved resume are unchanged.");
+    }
+  });
+
+  it("renders accessible Spec 09 actions and safe support references", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    expect(html).toContain('setAttribute("aria-label","Recovery actions")');
+    expect(html).toContain("Copy support reference");
+    expect(html).toContain('action:"copy_to_clipboard",value:state.error.operationReference');
+    expect(html).toContain("Copy unavailable. Select the support reference and copy it manually.");
+    expect(html).toContain('className="operation-reference"');
+    expect(html).toContain('tabindex="-1" hidden');
+  });
+
+  it("retries the same semantic inference input with a fresh logical operation", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    const inference = html.slice(html.indexOf("function inferenceRetryDecision"), html.indexOf("function generalPreferences"));
+    expect(inference).toContain("semanticRequest=");
+    expect(inference).toContain("operationId=uuid()");
+    expect(inference).toContain('["retry","evidence_failure"].includes(recovery.recovery)');
+    expect(html).toContain('resolveInferenceRetry("retry")');
+    expect(html).toContain('resolveInferenceRetry("not_now")');
+    expect(inference).toContain("inference_contract_version:2");
+    expect(inference).toContain("input:programInput");
+    expect(html).toContain('resolveInferenceRetry("not_now");for(const pending of state.pending.values())');
+  });
+
+  it("shows only the exact General Resume deterministic recovery note", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    expect(html).toContain("BrainDrive recovered a basic fact-backed draft. Review it before approval.");
+    expect(html).toContain('id="inference-notice"');
+    expect(html).toContain('role="status" aria-live="polite"');
+    expect(html).toContain('purpose==="general_resume_draft"&&result.completion_mode==="deterministic_fallback"');
+    expect(html).toContain('general_resume_draft:{id:"resume.general-draft",version:1}');
   });
 });

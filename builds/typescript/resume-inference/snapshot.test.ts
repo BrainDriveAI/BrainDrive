@@ -223,6 +223,78 @@ describe("immutable inference snapshot", () => {
     expect(JSON.stringify(request)).not.toContain("recovery_draft");
   });
 
+  it("rejects zero, contact-only, heading-only, missing, and foreign General bindings before inference", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-inference-general-preflight-")); roots.push(root);
+    const store = new ResumeDataStore(root, undefined, {}, false);
+    const grant = testGrant({ capabilities: [...testGrant().capabilities, "app.inference.request"] });
+    await store.initialize(grant.owner_id);
+    const service = new ResumeDomainService(store);
+    const builder = new ImmutableInferenceSnapshotBuilder(store, () => new Date("2026-08-15T12:00:00.000Z"));
+    const confirm = async (value: string, factKind: "contact" | "employment") => {
+      const proposed = await service.proposeFact({
+        ...proposalInput(value),
+        fact: { ...proposalInput().fact, fact_kind: factKind, value },
+      }, authority("career.facts.propose"));
+      const confirmationAuthority = authority("career.facts.confirm");
+      return (await service.confirmFact({
+        fact_record_id: proposed.fact.metadata.record_id,
+        fact_revision_id: proposed.fact.metadata.revision_id,
+        expected_revision: proposed.fact.metadata.revision,
+        decision: "accept",
+        edited_value: null,
+        review_note: null,
+      }, confirmationAuthority, ownerDecision(confirmationAuthority, proposed.fact.metadata.revision_id))).fact;
+    };
+    const saveStrategy = async (factRevisionIds: string[], coverageRevisionIds: string[]) => {
+      const strategyRequest = await builder.build({
+        inference_contract_version: 1,
+        purpose: "resume_strategy",
+        operation_id: crypto.randomUUID(),
+        fact_revision_ids: factRevisionIds,
+        record_revision_ids: coverageRevisionIds,
+      }, grant);
+      const strategy = synthesizeResumeE2eResult("resume_strategy", strategyRequest.data_blocks);
+      return (await service.writeResumeStrategy({
+        kind: "resume_strategy",
+        fact_revision_ids: factRevisionIds,
+        coverage_revision_ids: coverageRevisionIds,
+        target_revision_id: null,
+        presentation_preferences: {},
+        strategy,
+        inference_binding: {
+          prompt_policy_id: strategyRequest.prompt_policy_id,
+          prompt_policy_version: strategyRequest.prompt_policy_version,
+          input_digest: canonicalInputDigest(strategyRequest.data_blocks),
+          output_digest: canonicalInputDigest(strategy),
+          provider_profile_id: "synthetic-owner-profile",
+          model_id: "synthetic-model",
+        },
+      }, authority("resume.definitions.write"))).strategy;
+    };
+    const general = (factRevisionIds: string[], recordRevisionIds: string[]) => builder.build({
+      inference_contract_version: 1,
+      purpose: "general_resume_draft",
+      operation_id: crypto.randomUUID(),
+      fact_revision_ids: factRevisionIds,
+      record_revision_ids: recordRevisionIds,
+    }, grant);
+
+    await expect(general([], [])).rejects.toMatchObject({ code: "invalid_request" });
+    const contact = await confirm("Synthetic Person | synthetic@fixture.test", "contact");
+    await expect(general([contact.metadata.revision_id], [])).rejects.toMatchObject({ code: "invalid_request" });
+    const contactStrategy = await saveStrategy([contact.metadata.revision_id], []);
+    await expect(general([contact.metadata.revision_id], [contactStrategy.metadata.revision_id])).rejects.toMatchObject({ code: "invalid_request" });
+
+    const jobValue = JSON.stringify({ format: "resume_job_v1", title: "Coordinator", employer: "Synthetic Org" });
+    const job = await confirm(jobValue, "employment");
+    const coverage = (await service.writeJobEvidenceCoverage({ action: "initialize", job_fact_revision_id: job.metadata.revision_id }, authority("resume.definitions.write"))).coverage;
+    const headingFactIds = [contact.metadata.revision_id, job.metadata.revision_id];
+    await expect(general(headingFactIds, [coverage.metadata.revision_id])).rejects.toMatchObject({ code: "invalid_request" });
+    await expect(general(headingFactIds, [coverage.metadata.revision_id, contactStrategy.metadata.revision_id])).rejects.toMatchObject({ code: "validation_failed" });
+    const headingStrategy = await saveStrategy(headingFactIds, [coverage.metadata.revision_id]);
+    await expect(general(headingFactIds, [coverage.metadata.revision_id, headingStrategy.metadata.revision_id])).rejects.toMatchObject({ code: "invalid_request" });
+  });
+
   it("binds revision classification and drafting to the persisted request and immutable source", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "bd-inference-revision-")); roots.push(root);
     const store = new ResumeDataStore(root, undefined, {}, false);

@@ -45,6 +45,8 @@ export type StructuredCompletionRequest = {
 export type StructuredCompletionResponse = {
   text: string;
   finishReason: string;
+  /** Provider-returned model identity when the response safely supplies one. */
+  modelId?: string;
   usage?: TokenUsage;
   cost?: CostMetadata;
 };

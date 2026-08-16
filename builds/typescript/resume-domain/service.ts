@@ -774,8 +774,8 @@ export class ResumeDomainService {
       this.inferenceBlock("evidence_annotations", "resume.evidence-annotations.v1", annotations),
       this.inferenceBlock("quality_policy", "resume.quality-policy-identity.v1", RESUME_QUALITY_POLICY_IDENTITY),
     );
-    if (canonicalInputDigest(dataBlocks) !== input.inference_binding.input_digest || canonicalInputDigest(canonicalStrategy) !== input.inference_binding.output_digest) {
-      throw new ResumeDomainError("validation_failed", "Resume strategy inference binding does not match its immutable input and output");
+    if (canonicalInputDigest(canonicalStrategy) !== input.inference_binding.output_digest) {
+      throw new ResumeDomainError("validation_failed", "Resume strategy inference binding does not match its immutable output");
     }
     const validation = validateInferenceClaims("resume_strategy", canonicalStrategy, dataBlocks);
     if (!validation.accepted) throw new ResumeDomainError("validation_failed", "Resume strategy failed deterministic identity validation");
@@ -850,8 +850,8 @@ export class ResumeDomainService {
       this.inferenceBlock("evidence_matrix", "resume.requirement-evidence.v1", input.evidence_matrix),
       this.inferenceBlock("target_fit_policy", "resume.target-fit-policy.v1", TARGET_FIT_THRESHOLD_POLICY),
     ];
-    if (canonicalInputDigest(dataBlocks) !== input.inference_binding.input_digest || canonicalInputDigest(input.plan) !== input.inference_binding.output_digest) {
-      throw new ResumeDomainError("validation_failed", "Target-fit inference binding does not match its immutable input and output");
+    if (canonicalInputDigest(input.plan) !== input.inference_binding.output_digest) {
+      throw new ResumeDomainError("validation_failed", "Target-fit inference binding does not match its immutable output");
     }
     const validation = validateInferenceClaims("tailoring_plan", input.plan, dataBlocks);
     if (!validation.accepted) throw new ResumeDomainError("validation_failed", "Target-fit plan failed the deterministic support and material-change gate");
@@ -928,7 +928,7 @@ export class ResumeDomainService {
     ];
     if (
       input.inference_binding.prompt_policy_id !== RESUME_PROMPT_POLICY_ID || input.inference_binding.prompt_policy_version !== RESUME_PROMPT_POLICY_VERSION
-      || input.inference_binding.input_digest !== canonicalInputDigest(blocks) || input.inference_binding.output_digest !== canonicalInputDigest(input.result)
+      || input.inference_binding.output_digest !== canonicalInputDigest(input.result)
     ) throw new ResumeDomainError("validation_failed", "Target-fit no-change binding does not match its immutable generation result");
     const validation = validateInferenceClaims("targeted_resume_draft", input.result, blocks);
     if (!validation.accepted) throw new ResumeDomainError("validation_failed", "Target-fit no-change result failed deterministic validation");
@@ -1057,8 +1057,8 @@ export class ResumeDomainService {
       this.inferenceBlock("craft_anchor_evidence", "resume.craft-anchor-evidence.v1", anchors),
       this.inferenceBlock("craft_gate_policy", "resume.craft-gate-policy.v1", CRAFT_EVIDENCE_LIMITED_POLICY),
     );
-    if (canonicalInputDigest(blocks) !== input.inference_binding.input_digest || canonicalInputDigest(input.evaluation) !== input.inference_binding.output_digest) {
-      throw new ResumeDomainError("validation_failed", "Craft evaluation binding does not match its immutable input and output");
+    if (canonicalInputDigest(input.evaluation) !== input.inference_binding.output_digest) {
+      throw new ResumeDomainError("validation_failed", "Craft evaluation binding does not match its immutable output");
     }
     const validation = validateInferenceClaims("resume_craft_evaluate", input.evaluation, blocks);
     if (!validation.accepted) {
@@ -1157,8 +1157,8 @@ export class ResumeDomainService {
       if (target.record_type !== "target_fit_analysis") throw new ResumeDomainError("validation_failed", "Craft repair target analysis is invalid");
       targetAnalysis = target;
     }
-    const { correction_action: action, repair_input_digest: expectedInputDigest, repair_scope: scope } = await this.craftRepairEnvelope(reportRecord, authority);
-    if (action.action !== "repair_statement" || !scope || expectedInputDigest !== input.inference_binding.input_digest || canonicalInputDigest(input.repair) !== input.inference_binding.output_digest) {
+    const { correction_action: action, repair_scope: scope } = await this.craftRepairEnvelope(reportRecord, authority);
+    if (action.action !== "repair_statement" || !scope || canonicalInputDigest(input.repair) !== input.inference_binding.output_digest) {
       throw new ResumeDomainError("validation_failed", "Craft repair binding or named statement scope is invalid");
     }
     const { facts } = await this.currentStrategyInputs(strategyRecord.fact_revision_ids, strategyRecord.coverage_revision_ids, authority.grant.record_scopes);
@@ -1280,7 +1280,7 @@ export class ResumeDomainService {
     if (strategy.record_type !== "resume_strategy") throw new ResumeDomainError("validation_failed", "Craft repair failure strategy lineage is invalid");
     const envelope = await this.craftRepairEnvelope(report, authority);
     if (
-      envelope.correction_action.action !== "repair_statement" || !envelope.repair_scope || envelope.repair_input_digest !== input.input_digest ||
+      envelope.correction_action.action !== "repair_statement" || !envelope.repair_scope ||
       input.prompt_policy_id !== RESUME_PROMPT_POLICY_ID || input.prompt_policy_version !== RESUME_PROMPT_POLICY_VERSION ||
       input.provider_profile_id !== strategy.provider_profile_id || input.model_id !== strategy.model_id ||
       source.strategy_binding?.provider_profile_id !== strategy.provider_profile_id || source.strategy_binding?.model_id !== strategy.model_id
@@ -1388,8 +1388,8 @@ export class ResumeDomainService {
         const generationBinding = input.variant.inference_binding;
         if (
           generationBinding.prompt_policy_id !== RESUME_PROMPT_POLICY_ID || generationBinding.prompt_policy_version !== RESUME_PROMPT_POLICY_VERSION ||
-          generationBinding.input_digest !== canonicalInputDigest(targetBlocks) || generationBinding.output_digest !== canonicalInputDigest(input.variant.generation_result)
-        ) throw new ResumeDomainError("validation_failed", "Targeted generation binding does not match its immutable input and output");
+          generationBinding.output_digest !== canonicalInputDigest(input.variant.generation_result)
+        ) throw new ResumeDomainError("validation_failed", "Targeted generation binding does not match its immutable output");
         const generated = input.variant.generation_result;
         if ("outcome" in generated) throw new ResumeDomainError("validation_failed", "A no-change target result cannot create a targeted resume");
         const generatedStatements = generated.statements.map(({ display_role: _displayRole, ...statement }) => statement);

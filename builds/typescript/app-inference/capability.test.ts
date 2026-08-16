@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { canonicalInputDigest } from "../app-platform/contracts/common.js";
 import { AppInferenceEventSchema, AppInferenceRequestSchema } from "../app-platform/contracts/spec-05-foundation.js";
+import { ResumeInferenceRetryAuditDetailsSchema } from "../app-platform/contracts/audit.js";
 import { PURPOSE_LIMITS, PURPOSE_OUTPUT_SCHEMAS } from "../app-platform/contracts/inference.js";
 import { CapabilityOperationCoordinator } from "../app-capabilities/operations.js";
 import { testGrant } from "../resume-domain/test-helpers.js";
@@ -17,6 +18,26 @@ const FACTS = { facts: [] };
 
 function invocation(operationId = randomUUID()) {
   return { inference_contract_version: 1 as const, purpose: "interview_assist" as const, operation_id: operationId, fact_revision_ids: [] };
+}
+
+const STRATEGY_REVISION_ID = "10000000-0000-4000-8000-000000000010";
+const GENERAL_BINDING = {
+  semantic_binding_version: 1 as const,
+  strategy_revision_id: STRATEGY_REVISION_ID,
+  provider_profile_id: "owner-profile",
+  model_id: "owner-model",
+};
+
+function generalInvocation(operationId = randomUUID(), retryLineage?: Record<string, unknown>) {
+  return {
+    inference_contract_version: 1 as const,
+    purpose: "general_resume_draft" as const,
+    operation_id: operationId,
+    fact_revision_ids: [],
+    record_revision_ids: [STRATEGY_REVISION_ID],
+    semantic_binding: GENERAL_BINDING,
+    ...(retryLineage ? { retry_lineage: retryLineage } : {}),
+  };
 }
 
 function internalRequest(operationId: string) {
@@ -72,6 +93,223 @@ function authority(operationId: string, idempotencyKey: string) {
 }
 
 describe("M5 protected app inference capability", () => {
+  it("accepts owner retry lineage only from an observed equivalent terminal evidence failure", async () => {
+    const grant = testGrant({ capabilities: [...testGrant().capabilities, "app.inference.request"] });
+    const firstOperationId = randomUUID();
+    const secondOperationId = randomUUID();
+    const inputDigest = canonicalInputDigest(FACTS);
+    const build = vi.fn(async (input: { operation_id: string }) => ({
+      ...internalRequest(input.operation_id),
+      purpose: "general_resume_draft" as const,
+      output_schema_id: PURPOSE_OUTPUT_SCHEMAS.general_resume_draft,
+    }));
+    const execute = vi.fn(async (request: ReturnType<typeof internalRequest>) => ({
+      inference: {
+        ...request,
+        status: "failed" as const,
+        input_digest: inputDigest,
+        output_digest: null,
+        result: null,
+        provider_profile_id: "owner-profile",
+        model_id: "owner-model",
+        attempt_count: 2,
+        usage: { available: false, input_tokens: null, output_tokens: null },
+        error: { code: "evidence_validation_failed" as const, safe_message: "Safe evidence failure", retryable: false },
+        outcome: {
+          stage: "recovery" as const,
+          finish_category: "stop" as const,
+          attempt_count: 2,
+          retryable: false,
+          recovery_class: "none" as const,
+          completion_mode: "none" as const,
+          final_disposition: "failed" as const,
+        },
+        started_at: "2026-08-07T12:00:00.000Z",
+        completed_at: "2026-08-07T12:00:01.000Z",
+      },
+      validation: null,
+    }));
+    const capability = new ResumeAppInferenceAdapter({
+      snapshotBuilder: { build: build as never },
+      broker: { execute: execute as never, cancel: vi.fn() },
+      operations: new CapabilityOperationCoordinator({ now: () => Date.parse("2026-08-07T12:00:00.000Z") }),
+    });
+    const context = (operationId: string) => ({
+      authority: authority(operationId, `m5-inference-${operationId}`),
+      grant,
+      operationId,
+      idempotencyKey: `m5-inference-${operationId}`,
+      deadlineAt: Date.parse("2026-08-07T12:01:00.000Z"),
+    });
+    const first = await capability.execute(generalInvocation(firstOperationId), context(firstOperationId)) as {
+      error: { recovery_contract: { semantic_input_digest: string } };
+    };
+    expect(first.error.recovery_contract.semantic_input_digest).toBe(inputDigest);
+    const lineage = {
+      retry_lineage_version: 1,
+      reason: "owner_initiated_retry",
+      prior_operation_id: firstOperationId,
+      prior_input_digest: inputDigest,
+      strategy_revision_id: STRATEGY_REVISION_ID,
+      provider_profile_id: "owner-profile",
+      model_id: "owner-model",
+    };
+    const second = await capability.execute(generalInvocation(secondOperationId, lineage), context(secondOperationId)) as {
+      retry_lineage: { equivalent: boolean; prior_operation_id: string; operation_id: string };
+      error: { recovery_contract: { emphasized_action: string } };
+    };
+    expect(second.retry_lineage).toMatchObject({ equivalent: true, prior_operation_id: firstOperationId, operation_id: secondOperationId });
+    expect(second.error.recovery_contract.emphasized_action).toBe("review_confirmed_evidence");
+    expect(execute).toHaveBeenCalledTimes(2);
+
+    for (const unobserved of [
+      { ...lineage, prior_operation_id: randomUUID() },
+      { ...lineage, prior_input_digest: canonicalInputDigest("forged") },
+    ]) {
+      const operationId = randomUUID();
+      const result = await capability.execute(generalInvocation(operationId, unobserved), context(operationId)) as {
+        retry_lineage: { equivalent: boolean };
+        error: { recovery_contract: { emphasized_action: string } };
+      };
+      expect(result.retry_lineage.equivalent).toBe(false);
+      expect(result.error.recovery_contract.emphasized_action).toBe("try_again");
+    }
+    expect(execute).toHaveBeenCalledTimes(4);
+
+    for (const forgedBinding of [
+      { ...lineage, strategy_revision_id: randomUUID() },
+      { ...lineage, provider_profile_id: "forged-provider" },
+      { ...lineage, model_id: "forged-model" },
+    ]) {
+      const operationId = randomUUID();
+      await expect(capability.execute(generalInvocation(operationId, forgedBinding), context(operationId)))
+        .rejects.toMatchObject({ code: expect.stringMatching(/invalid_input|invalid_request/) });
+    }
+    expect(execute).toHaveBeenCalledTimes(4);
+
+    for (let index = 0; index < 65; index += 1) {
+      const operationId = randomUUID();
+      await capability.execute(generalInvocation(operationId), context(operationId));
+    }
+    const afterEvictionOperationId = randomUUID();
+    const afterEviction = await capability.execute(
+      generalInvocation(afterEvictionOperationId, lineage),
+      context(afterEvictionOperationId),
+    ) as { retry_lineage: { equivalent: boolean }; error: { recovery_contract: { emphasized_action: string } } };
+    expect(afterEviction.retry_lineage.equivalent).toBe(false);
+    expect(afterEviction.error.recovery_contract.emphasized_action).toBe("try_again");
+    expect(execute).toHaveBeenCalledTimes(70);
+
+    const restartedCapability = new ResumeAppInferenceAdapter({
+      snapshotBuilder: { build: build as never },
+      broker: { execute: execute as never, cancel: vi.fn() },
+      operations: new CapabilityOperationCoordinator({ now: () => Date.parse("2026-08-07T12:00:00.000Z") }),
+    });
+    const afterRestartOperationId = randomUUID();
+    const afterRestart = await restartedCapability.execute(
+      generalInvocation(afterRestartOperationId, lineage),
+      context(afterRestartOperationId),
+    ) as { retry_lineage: { equivalent: boolean }; error: { recovery_contract: { emphasized_action: string } } };
+    expect(afterRestart.retry_lineage.equivalent).toBe(false);
+    expect(afterRestart.error.recovery_contract.emphasized_action).toBe("try_again");
+    expect(execute).toHaveBeenCalledTimes(71);
+  });
+
+  it("rebuilds safe repeat evidence from a durable projected replay after adapter restart", async () => {
+    const grant = testGrant({ capabilities: [...testGrant().capabilities, "app.inference.request"] });
+    const firstOperationId = randomUUID();
+    const secondOperationId = randomUUID();
+    const inputDigest = canonicalInputDigest(FACTS);
+    const build = vi.fn(async (input: { operation_id: string }) => ({
+      ...internalRequest(input.operation_id),
+      purpose: "general_resume_draft" as const,
+      output_schema_id: PURPOSE_OUTPUT_SCHEMAS.general_resume_draft,
+    }));
+    const execute = vi.fn(async (request: ReturnType<typeof internalRequest>) => ({
+      inference: {
+        ...request,
+        status: "failed" as const,
+        input_digest: inputDigest,
+        output_digest: null,
+        result: null,
+        provider_profile_id: "owner-profile",
+        model_id: "owner-model",
+        attempt_count: 2,
+        usage: { available: false, input_tokens: null, output_tokens: null },
+        error: { code: "evidence_validation_failed" as const, safe_message: "Safe evidence failure", retryable: false },
+        outcome: {
+          stage: "recovery" as const,
+          finish_category: "stop" as const,
+          attempt_count: 2,
+          retryable: false,
+          recovery_class: "none" as const,
+          completion_mode: "none" as const,
+          final_disposition: "failed" as const,
+        },
+        started_at: "2026-08-07T12:00:00.000Z",
+        completed_at: "2026-08-07T12:00:01.000Z",
+      },
+      validation: null,
+    }));
+    const persisted = new Map<string, unknown>();
+    const persistResult = async <T>(key: string, _input: unknown, action: () => Promise<T>): Promise<T> => {
+      if (persisted.has(key)) return persisted.get(key) as T;
+      const value = await action();
+      persisted.set(key, value);
+      return value;
+    };
+    const audit = vi.fn();
+    const createAdapter = () => new ResumeAppInferenceAdapter({
+      snapshotBuilder: { build: build as never },
+      broker: { execute: execute as never, cancel: vi.fn() },
+      persistResult,
+      audit,
+      operations: new CapabilityOperationCoordinator({ now: () => Date.parse("2026-08-07T12:00:00.000Z") }),
+    });
+    const context = (operationId: string) => ({
+      authority: authority(operationId, `m5-inference-${operationId}`),
+      grant,
+      operationId,
+      idempotencyKey: `m5-inference-${operationId}`,
+      deadlineAt: Date.parse("2026-08-07T12:01:00.000Z"),
+    });
+    await createAdapter().execute(generalInvocation(firstOperationId), context(firstOperationId));
+    expect(execute).toHaveBeenCalledTimes(1);
+
+    const restarted = createAdapter();
+    await restarted.execute(generalInvocation(firstOperationId), context(firstOperationId));
+    expect(execute).toHaveBeenCalledTimes(1);
+    const second = await restarted.execute({ ...generalInvocation(secondOperationId, {
+      retry_lineage_version: 1,
+      reason: "owner_initiated_retry",
+      prior_operation_id: firstOperationId,
+      prior_input_digest: inputDigest,
+      strategy_revision_id: STRATEGY_REVISION_ID,
+      provider_profile_id: "owner-profile",
+      model_id: "owner-model",
+    }), presentation_preferences: { owner_note: "SENSITIVE_OWNER_TEXT_CANARY" } }, context(secondOperationId)) as {
+      retry_lineage: { equivalent: boolean };
+      error: { recovery_contract: { emphasized_action: string } };
+    };
+    expect(second.retry_lineage.equivalent).toBe(true);
+    expect(second.error.recovery_contract.emphasized_action).toBe("review_confirmed_evidence");
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(audit).toHaveBeenCalledTimes(1);
+    expect(audit.mock.calls[0]?.[0]).toBe("app.inference.owner_retry");
+    expect(ResumeInferenceRetryAuditDetailsSchema.parse(audit.mock.calls[0]?.[1])).toEqual({
+      diagnostic_version: 1,
+      retry_relation_version: 1,
+      retry_reason: "owner_initiated_retry",
+      retry_prior_operation_id: firstOperationId,
+      retry_new_operation_id: secondOperationId,
+      retry_semantic_input_digest: inputDigest,
+      retry_strategy_revision_id: STRATEGY_REVISION_ID,
+      retry_provider_profile_id: "owner-profile",
+      retry_model_id: "owner-model",
+      retry_equivalent: true,
+    });
+    expect(JSON.stringify(audit.mock.calls)).not.toContain("SENSITIVE_OWNER_TEXT_CANARY");
+  });
   it("constructs the frozen protected request with no tools or fallback and exact authority", () => {
     const operationId = randomUUID();
     const idempotencyKey = `m5-inference-${operationId}`;
@@ -109,7 +347,7 @@ describe("M5 protected app inference capability", () => {
       status: "completed",
       model_class: "owner_active_compatible",
       prompt_policy_id: "braindrive.resume-builder.fixed",
-      prompt_policy_version: "8",
+      prompt_policy_version: "12",
       input_digest: canonicalInputDigest(FACTS),
       output_digest: canonicalInputDigest({ questions: [] }),
       provider_profile_id: "owner-profile",

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { z } from "zod";
 
-import { canonicalInputDigest, encodedByteLength, OpaqueIdSchema } from "../app-platform/contracts/common.js";
+import { canonicalInputDigest, encodedByteLength, NonEmptyStringSchema, OpaqueIdSchema, Sha256DigestSchema } from "../app-platform/contracts/common.js";
 import {
   InferenceDataBlockSchema,
   InferenceRequestSchema,
@@ -11,7 +11,7 @@ import {
   PURPOSE_OUTPUT_SCHEMAS,
   type InferencePurpose,
 } from "../app-platform/contracts/inference.js";
-import { JobEvidenceDimensionSchema, JobEvidenceValueSchema, ResumeDefinitionRecordSchema, ResumeRevisionRequestRecordSchema } from "../app-platform/contracts/data.js";
+import { JobEvidenceValueSchema, ResumeDefinitionRecordSchema, ResumeRevisionRequestRecordSchema } from "../app-platform/contracts/data.js";
 import type { CapabilityGrant } from "../app-platform/lifecycle/store.js";
 import type { ResumeDataRecord, ResumeDataStore } from "../resume-domain/store.js";
 import { ResumeInferenceError } from "./errors.js";
@@ -21,6 +21,24 @@ import { evaluateResumeQuality } from "./quality-runtime.js";
 import { buildEvidenceAnnotations, canonicalizeCoverage, canonicalizeFacts, RESUME_QUALITY_POLICY_IDENTITY } from "./strategy.js";
 import { TARGET_FIT_THRESHOLD_POLICY } from "./target-fit.js";
 import { evaluateDefinitionDeterministicGates } from "./validators.js";
+import { JobEvidenceSummarySchema } from "./interview-assistance.js";
+
+export const ResumeInferenceSemanticBindingSchema = z.object({
+  semantic_binding_version: z.literal(1),
+  strategy_revision_id: OpaqueIdSchema,
+  provider_profile_id: NonEmptyStringSchema,
+  model_id: NonEmptyStringSchema,
+}).strict();
+
+export const ResumeInferenceRetryLineageSchema = z.object({
+  retry_lineage_version: z.literal(1),
+  reason: z.literal("owner_initiated_retry"),
+  prior_operation_id: OpaqueIdSchema,
+  prior_input_digest: Sha256DigestSchema,
+  strategy_revision_id: OpaqueIdSchema,
+  provider_profile_id: NonEmptyStringSchema,
+  model_id: NonEmptyStringSchema,
+}).strict();
 
 export const InferenceInvocationSchema = z.object({
   inference_contract_version: z.literal(1),
@@ -44,23 +62,28 @@ export const InferenceInvocationSchema = z.object({
     schema_id: z.string().min(1).max(512),
     data: z.unknown(),
   }).strict()).max(8).default([]),
-}).strict();
+  semantic_binding: ResumeInferenceSemanticBindingSchema.optional(),
+  retry_lineage: ResumeInferenceRetryLineageSchema.optional(),
+}).strict().superRefine((value, context) => {
+  if (value.semantic_binding && value.purpose !== "general_resume_draft") {
+    context.addIssue({ code: "custom", path: ["semantic_binding"], message: "semantic binding is limited to General Resume generation" });
+  }
+  if (value.retry_lineage && !value.semantic_binding) {
+    context.addIssue({ code: "custom", path: ["retry_lineage"], message: "owner retry lineage requires an immutable semantic binding" });
+  }
+  if (value.retry_lineage && value.retry_lineage.prior_operation_id === value.operation_id) {
+    context.addIssue({ code: "custom", path: ["retry_lineage", "prior_operation_id"], message: "owner retry must create a fresh operation" });
+  }
+  if (value.retry_lineage && value.semantic_binding && (
+    value.retry_lineage.strategy_revision_id !== value.semantic_binding.strategy_revision_id
+    || value.retry_lineage.provider_profile_id !== value.semantic_binding.provider_profile_id
+    || value.retry_lineage.model_id !== value.semantic_binding.model_id
+  )) {
+    context.addIssue({ code: "custom", path: ["retry_lineage"], message: "owner retry lineage must match the current immutable binding" });
+  }
+});
 
 export type InferenceInvocation = z.infer<typeof InferenceInvocationSchema>;
-
-const JobEvidenceSummarySchema = z.object({
-  active_job_fact_revision_id: OpaqueIdSchema,
-  active_job_revision: z.number().int().positive(),
-  requested_opportunity_id: OpaqueIdSchema,
-  requested_dimension: JobEvidenceDimensionSchema.exclude(["identity"]),
-  opportunity_kind: z.enum(["qualitative", "metric"]),
-  value_category: z.enum(["distinct_accomplishment", "decision_useful_outcome", "scope_or_scale", "tools_in_use", "progression", "core_responsibility"]),
-  dimensions: z.array(z.object({
-    dimension: JobEvidenceDimensionSchema,
-    outcome: z.enum(["unanswered", "answered", "skipped", "unknown", "not_applicable", "deferred", "conflicting"]),
-    evidence_revision_ids: z.array(OpaqueIdSchema).max(32),
-  }).strict()).max(7),
-}).strict();
 
 function block(category: z.infer<typeof InferenceDataBlockSchema>["category"], schemaId: string, data: unknown) {
   return InferenceDataBlockSchema.parse({
@@ -316,7 +339,26 @@ export class ImmutableInferenceSnapshotBuilder {
       if (strategy?.record_type !== "resume_strategy" || canonicalInputDigest(strategy.fact_revision_ids) !== canonicalInputDigest(input.fact_revision_ids) || canonicalInputDigest(strategy.coverage_revision_ids) !== canonicalInputDigest(related.filter((record) => record.record_type === "job_evidence_coverage").map((record) => record.metadata.revision_id))) {
         throw new ResumeInferenceError("validation_failed", "General generation strategy inputs are stale or incomplete");
       }
+      if (input.semantic_binding && (
+        input.semantic_binding.strategy_revision_id !== strategy.metadata.revision_id
+        || input.semantic_binding.provider_profile_id !== strategy.provider_profile_id
+        || input.semantic_binding.model_id !== strategy.model_id
+      )) {
+        throw new ResumeInferenceError("validation_failed", "General generation semantic binding does not match the persisted strategy");
+      }
+      if (input.retry_lineage && (
+        input.retry_lineage.strategy_revision_id !== input.semantic_binding?.strategy_revision_id
+        || input.retry_lineage.provider_profile_id !== input.semantic_binding?.provider_profile_id
+        || input.retry_lineage.model_id !== input.semantic_binding?.model_id
+      )) {
+        throw new ResumeInferenceError("validation_failed", "Owner retry lineage does not match the immutable General Resume binding");
+      }
       if (!coverageIsExact || !coverageIsCurrent) throw new ResumeInferenceError("validation_failed", "General generation coverage is stale or incomplete");
+      const substantiveFacts = facts.filter((record) => record.record_type === "career_fact"
+        && !["identity", "contact", "employment", "preference"].includes(record.fact_kind));
+      if (substantiveFacts.length === 0) {
+        throw new ResumeInferenceError("invalid_request", "General generation requires confirmed evidence beyond identity, contact, role heading, or presentation preference");
+      }
       return;
     }
     if (input.purpose === "tailoring_plan") {

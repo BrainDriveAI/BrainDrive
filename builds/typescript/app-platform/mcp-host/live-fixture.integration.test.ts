@@ -16,7 +16,10 @@ import { createBriefCapabilityRegistrations } from "../../app-capabilities/brief
 import { AppInferenceDispatcher } from "../../app-inference/dispatcher.js";
 import { AppInferencePurposeRegistry } from "../../app-inference/registry.js";
 import { createBriefInferencePurposeRegistration } from "../../app-inference/brief-registration.js";
+import { InstalledAppInferenceExecutor } from "../../app-inference/installed-program.js";
 import { canonicalInputDigest } from "../contracts/common.js";
+import type { StructuredCompletionRequest } from "../../adapters/base.js";
+import { createInstalledResumeE2eFixtureProvider } from "../../resume-inference/e2e-fixture.js";
 
 const roots: string[] = [];
 
@@ -255,6 +258,162 @@ describe("live signed modern MCP Apps fixture", () => {
       await lifecycle.disable({ idempotencyKey: "modern-fixture-disable" });
       await expect(host.handleBridge(resumed.session_id, {}, { origin: "null", sourceMatches: true })).rejects.toMatchObject({ code: "session_closed" });
       await lifecycle.uninstall({ idempotencyKey: "modern-fixture-final-uninstall" });
+    } finally {
+      await lifecycle.dependencies.supervisor.close();
+    }
+  });
+
+  it("executes the Resume-owned General program inside the signed app process while hiding its private tools", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-resume-program-")); roots.push(root);
+    const lifecycle = await createDockerAppLifecycle({ memoryRoot: path.join(root, "memory"), stateRoot: path.join(root, "host"), hostVersion: "26.7.23" });
+    const providerCall = vi.fn(async (request: StructuredCompletionRequest) => {
+      const schema = request.schema as { properties?: { text_by_slot?: { required?: string[] } } };
+      const slotIds = schema.properties?.text_by_slot?.required ?? [];
+      const payload = JSON.parse(request.user) as {
+        draft_slots: Array<{ slot_id: string; supporting_confirmed_fact_revision_ids: string[] }>;
+        input: { facts: Array<{ revision_id: string; value: string | { owner_text?: string } }> };
+      };
+      const factText = new Map(payload.input.facts.map((fact) => [
+        fact.revision_id,
+        typeof fact.value === "string" ? fact.value : String(fact.value.owner_text ?? "Confirmed information"),
+      ]));
+      const slots = new Map(payload.draft_slots.map((slot) => [slot.slot_id, slot]));
+      return {
+        text: JSON.stringify({
+          title: "General Resume",
+          text_by_slot: Object.fromEntries(slotIds.map((slotId) => [
+            slotId,
+            slots.get(slotId)?.supporting_confirmed_fact_revision_ids.map((revisionId) => factText.get(revisionId)).join(" and "),
+          ])),
+        }),
+        finishReason: "stop" as const,
+      };
+    });
+    const executor = new InstalledAppInferenceExecutor({ resolveProvider: async () => ({
+      providerProfileId: "synthetic-app-program",
+      modelId: "synthetic-structured-model",
+      adapter: { completeStructuredNoTools: providerCall },
+    }) });
+    try {
+      const installed = await lifecycle.install({ version: MODERN_FIXTURE_VERSION, idempotencyKey: "resume-program-install", approveCapabilities: true });
+      const host = new AppMcpHost(new ResumeAppHostAdapter(lifecycle, { installedAppInference: executor }));
+      const launch = await host.launch();
+      const privateTool = {
+        bridge_version: 1, message_id: crypto.randomUUID(), app_id: "ai.braindrive.resume-builder",
+        installation_id: installed.record.installation_id, view_id: launch.view_id, operation_id: launch.operation_id,
+        sent_at: new Date().toISOString(), type: "tool.call",
+        payload: { server_id: launch.server_id, tool_name: "app.inference.prepare", arguments: {}, token_id: launch.bridge_token_id },
+      };
+      await expect(host.handleBridge(launch.session_id, privateTool, { origin: "null", sourceMatches: true }))
+        .rejects.toMatchObject({ code: "bridge_denied" });
+
+      const operationId = crypto.randomUUID();
+      const jobId = crypto.randomUUID();
+      const evidenceId = crypto.randomUUID();
+      const response = await host.handleBridge(launch.session_id, {
+        bridge_version: 1, message_id: crypto.randomUUID(), app_id: "ai.braindrive.resume-builder",
+        installation_id: installed.record.installation_id, view_id: launch.view_id, operation_id: launch.operation_id,
+        sent_at: new Date().toISOString(), type: "capability.call",
+        payload: {
+          capability: "app.inference.request", request_operation_id: operationId, token_id: launch.bridge_token_id,
+          input: {
+            inference_contract_version: 2, operation_id: operationId,
+            program: { id: "resume.general-draft", version: 1 },
+            input: {
+              facts: [
+                { revision_id: jobId, fact_kind: "employment", value: "Platform Engineer at Example", state: "confirmed" },
+                { revision_id: evidenceId, fact_kind: "job_evidence", value: { job_fact_revision_id: jobId, owner_text: "Reduced deployment time by 30%" }, state: "confirmed" },
+              ],
+              strategy: { title: "General Resume", fact_revision_ids: [jobId, evidenceId], section_order: ["experience"] },
+              presentation_preferences: {},
+              persistence_input_digest: `sha256:${"a".repeat(64)}`,
+            },
+          },
+        },
+      }, { origin: "null", sourceMatches: true });
+      expect(response).toMatchObject({ status: "capability_completed", result: {
+        inference_contract_version: 2,
+        operation_id: operationId,
+        program: { id: "resume.general-draft", version: 1 },
+        status: "completed",
+        completion_mode: "provider",
+        attempt_count: 1,
+        issue_ids: [],
+      } });
+      expect(providerCall).toHaveBeenCalledTimes(1);
+      expect(providerCall.mock.calls.every(([request]) => !("tools" in request))).toBe(true);
+
+      const ownerOperationId = crypto.randomUUID();
+      await expect(host.handleOwnerCapability(
+        "app.inference.request",
+        {
+          inference_contract_version: 2,
+          operation_id: ownerOperationId,
+          program: { id: "resume.general-draft", version: 1 },
+          input: {
+            facts: [
+              { revision_id: jobId, fact_kind: "employment", value: "Platform Engineer at Example", state: "confirmed" },
+              { revision_id: evidenceId, fact_kind: "job_evidence", value: { job_fact_revision_id: jobId, owner_text: "Reduced deployment time by 30%" }, state: "confirmed" },
+            ],
+            strategy: { title: "General Resume", fact_revision_ids: [jobId, evidenceId], section_order: ["experience"] },
+            presentation_preferences: {},
+            persistence_input_digest: `sha256:${"b".repeat(64)}`,
+          },
+        },
+        ownerOperationId,
+        false,
+        "00000000-0000-4000-8000-000000000002",
+      )).resolves.toMatchObject({
+        inference_contract_version: 2,
+        operation_id: ownerOperationId,
+        completion_mode: "provider",
+        attempt_count: 1,
+  });
+
+      expect(providerCall).toHaveBeenCalledTimes(2);
+    } finally {
+      await lifecycle.dependencies.supervisor.close();
+    }
+  }, 30_000);
+
+  it("executes the Resume-owned revision classify and draft programs without the legacy broker", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-resume-revision-program-")); roots.push(root);
+    const lifecycle = await createDockerAppLifecycle({ memoryRoot: path.join(root, "memory"), stateRoot: path.join(root, "host"), hostVersion: "26.7.23" });
+    const executor = new InstalledAppInferenceExecutor({ resolveProvider: async () => createInstalledResumeE2eFixtureProvider() });
+    try {
+      const installed = await lifecycle.install({ version: MODERN_FIXTURE_VERSION, idempotencyKey: "resume-revision-program-install", approveCapabilities: true });
+      const host = new AppMcpHost(new ResumeAppHostAdapter(lifecycle, { installedAppInference: executor }));
+      const launch = await host.launch();
+      const factRevisionId = crypto.randomUUID();
+      const definitionRevisionId = crypto.randomUUID();
+      const requestRevisionId = crypto.randomUUID();
+      const statementId = crypto.randomUUID();
+      const blocks = [
+        { category: "confirmed_fact_snapshot", content_digest: `sha256:${"a".repeat(64)}`, schema_id: "resume.confirmed-facts.v1", schema_version: 1, data: { facts: [{ revision_id: factRevisionId, fact_kind: "employment", value: "Synthetic supported role" }] } },
+        { category: "general_resume_definition", content_digest: `sha256:${"b".repeat(64)}`, schema_id: "resume.definition.v1", schema_version: 1, data: { metadata: { revision_id: definitionRevisionId }, title: "General Resume", statements: [{ statement_id: statementId, section_id: "experience", kind: "factual", text: "Synthetic supported role.", supporting_confirmed_fact_revision_ids: [factRevisionId] }], section_order: ["experience"] } },
+        { category: "revision_instruction", content_digest: `sha256:${"c".repeat(64)}`, schema_id: "resume.revision-request.v1", schema_version: 1, data: { metadata: { revision_id: requestRevisionId }, target: { scope: "resume", target_id: null }, request_text: "Shorten the summary without changing facts." } },
+      ];
+      const call = (purpose: "resume_revision_classify" | "resume_revision_draft", programId: string) => {
+        const operationId = crypto.randomUUID();
+        return host.handleBridge(launch.session_id, {
+          bridge_version: 1, message_id: crypto.randomUUID(), app_id: "ai.braindrive.resume-builder",
+          installation_id: installed.record.installation_id, view_id: launch.view_id, operation_id: launch.operation_id,
+          sent_at: new Date().toISOString(), type: "capability.call",
+          payload: {
+            capability: "app.inference.request", request_operation_id: operationId, token_id: launch.bridge_token_id,
+            input: { inference_contract_version: 2, operation_id: operationId, program: { id: programId, version: 1 }, input: { purpose, data_blocks: blocks, prompt_policy_id: "braindrive.resume-builder.fixed", prompt_policy_version: "12" } },
+          },
+        }, { origin: "null", sourceMatches: true });
+      };
+
+      await expect(call("resume_revision_classify", "resume.revision-classify")).resolves.toMatchObject({
+        status: "capability_completed",
+        result: { status: "completed", attempt_count: 1, result: { classification: "presentation", target: { scope: "resume", target_id: null } } },
+      });
+      await expect(call("resume_revision_draft", "resume.revision-draft")).resolves.toMatchObject({
+        status: "capability_completed",
+        result: { status: "completed", attempt_count: 1, result: { source_definition_revision_id: definitionRevisionId, revision_request_revision_id: requestRevisionId, changed_statement_ids: [statementId] } },
+      });
     } finally {
       await lifecycle.dependencies.supervisor.close();
     }

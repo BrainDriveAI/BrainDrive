@@ -896,6 +896,29 @@ export const ArtifactParityReportRecordSchema = RecordEnvelopeSchema.extend({
   if (value.report_digest !== canonicalInputDigest(body)) context.addIssue({ code: "custom", path: ["report_digest"], message: "artifact parity report digest mismatch" });
 });
 
+export const ResumeValidationRuleIdSchema = z.enum([
+  "statement_support_unresolved",
+  "statement_internal_marker_exposed",
+  "statement_protected_value_unsupported",
+  "statement_factual_wording_unsupported",
+  "job_heading_missing",
+  "accomplishment_statement_missing",
+  "accomplishment_statement_too_long",
+  "non_answered_job_evidence_used",
+  "role_bullet_limit_exceeded",
+  "role_bullet_text_repeated",
+  "substantive_role_underrepresented",
+  "general_strategy_count_invalid",
+  "omission_reason_conflict",
+  "omission_outside_snapshot",
+  "must_use_evidence_unrepresented",
+  "summary_forbidden_by_strategy",
+  "summary_required_by_strategy",
+  "section_order_strategy_mismatch",
+  "statement_section_not_ordered",
+  "candidate_schema_parse_failed",
+]);
+
 export const ValidatorFindingSchema = z
   .object({
     finding_id: OpaqueIdSchema,

@@ -3,7 +3,7 @@
   "version": "0.0.0-milestone-7",
   "private": true,
   "type": "module",
-  "description": "Resume Builder sandbox workflow, contracts, and host-brokered MCP surface",
+  "description": "Resume Builder sandbox workflow, app-owned inference program, contracts, and MCP surface",
   "license": "MIT",
   "scripts": {
     "test": "vitest run",
@@ -20,6 +20,6 @@
     "resumeDataSchemaVersion": 3,
     "resumeInferenceSchemaVersion": 1,
     "appBridgeSchemaVersion": 1,
-    "runtimeEnabled": false
+    "runtimeEnabled": true
   }
 }

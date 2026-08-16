@@ -28,6 +28,7 @@ describe("deterministic claim gate", () => {
     }
     const missing = validateInferenceClaims("general_resume_draft", { statements: [{ statement_id: randomUUID(), kind: "factual", text: "Built product", supporting_confirmed_fact_revision_ids: [randomUUID()] }] }, blocks("Built product"));
     expect(missing.findings[0]?.code).toBe("missing_provenance");
+    expect(missing.findings[0]?.rule_id).toBe("statement_support_unresolved");
   });
 
   it("has zero unsupported approvals across a deterministic property sample", () => {
@@ -89,6 +90,10 @@ describe("deterministic claim gate", () => {
     expect(incomplete.findings.map((item) => item.safe_message)).toEqual(expect.arrayContaining([
       expect.stringContaining("individual experience heading"),
       expect.stringContaining("confirmed accomplishment"),
+    ]));
+    expect(incomplete.findings.map((item) => item.rule_id)).toEqual(expect.arrayContaining([
+      "job_heading_missing",
+      "accomplishment_statement_missing",
     ]));
     expect(incomplete.findings.map((item) => item.safe_message).join(" ")).not.toContain("professional summary");
   });

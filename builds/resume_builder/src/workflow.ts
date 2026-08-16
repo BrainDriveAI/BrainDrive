@@ -30,6 +30,24 @@ export type WarningBuckets = {
   evidence_gaps: string[];
 };
 
+export type EvidenceFailureIdentity = {
+  semanticInputDigest: string;
+  strategyRevisionId: string;
+  providerProfileId: string;
+  modelId: string;
+};
+
+export function evidenceFailureEquivalent(left: EvidenceFailureIdentity, right: EvidenceFailureIdentity): boolean {
+  return left.semanticInputDigest === right.semanticInputDigest
+    && left.strategyRevisionId === right.strategyRevisionId
+    && left.providerProfileId === right.providerProfileId
+    && left.modelId === right.modelId;
+}
+
+export function evidenceFailurePrimaryAction(repeatedEquivalentFailure: boolean): "try_again" | "review_confirmed_evidence" {
+  return repeatedEquivalentFailure ? "review_confirmed_evidence" : "try_again";
+}
+
 export type RecoverySlot = {
   session_id: string;
   job_fact_revision_id: string | null;
@@ -37,7 +55,8 @@ export type RecoverySlot = {
   field_id: string;
 };
 
-export type RecoverySaveStatus = "idle" | "saving" | "saved" | "error" | "conflict";
+export type { RecoverySaveStatus } from "./recovery-save.js";
+import type { RecoverySaveStatus } from "./recovery-save.js";
 
 import { EVIDENCE_DIMENSIONS, OPPORTUNITY_DIMENSION_PRIORITY } from "./opportunities.js";
 
@@ -78,6 +97,9 @@ export type RecoveryState = {
   acknowledgedRevision: number | null;
   acknowledgedAt: string | null;
   status: RecoverySaveStatus;
+  expectedRevision: number | null;
+  operationId: string | null;
+  editGeneration: number;
   serverValue: string | null;
   serverValueDigest: string | null;
 };
@@ -169,9 +191,12 @@ export type ResumeBuilderWorkflowAction =
   | { type: "operation.failed"; code: string; message: string; recoverable: boolean }
   | { type: "operation.cleared" }
   | { type: "recovery.changed"; slot: RecoverySlot; value: string; valueDigest: string }
-  | { type: "recovery.acknowledged"; slot: RecoverySlot; value: string; valueDigest: string; revision: number; savedAt: string }
-  | { type: "recovery.failed"; code: string }
-  | { type: "recovery.conflicted"; serverValue: string; serverValueDigest: string; serverRevision: number; serverSavedAt: string }
+  | { type: "recovery.started"; operationId: string; expectedRevision: number | null; editGeneration: number }
+  | { type: "recovery.reconciling"; operationId: string; expectedRevision: number | null; editGeneration: number }
+  | { type: "recovery.acknowledged"; slot: RecoverySlot; value: string; valueDigest: string; revision: number; savedAt: string; operationId: string; expectedRevision: number | null; editGeneration: number }
+  | { type: "recovery.failed"; code: string; operationId: string; editGeneration: number }
+  | { type: "recovery.verification_failed"; code: string; operationId: string; editGeneration: number }
+  | { type: "recovery.conflicted"; serverValue: string; serverValueDigest: string; serverRevision: number; serverSavedAt: string; operationId: string; editGeneration: number }
   | { type: "recovery.server_selected" }
   | { type: "recovery.local_selected" }
   | { type: "recovery.discarded" }
@@ -199,6 +224,9 @@ const idleRecovery = (): RecoveryState => ({
   acknowledgedRevision: null,
   acknowledgedAt: null,
   status: "idle",
+  expectedRevision: null,
+  operationId: null,
+  editGeneration: 0,
   serverValue: null,
   serverValueDigest: null,
 });
@@ -356,6 +384,9 @@ export function resumeBuilderWorkflowReducer(
           acknowledgedRevision: durableRecovery.acknowledged_revision,
           acknowledgedAt: durableRecovery.saved_at,
           status: "saved",
+          expectedRevision: durableRecovery.acknowledged_revision === 1 ? null : durableRecovery.acknowledged_revision - 1,
+          operationId: null,
+          editGeneration: 0,
           serverValue: null,
           serverValueDigest: null,
         } : idleRecovery(),
@@ -422,37 +453,65 @@ export function resumeBuilderWorkflowReducer(
           value: action.value,
           valueDigest: action.valueDigest,
           status: "saving",
+          operationId: null,
+          expectedRevision: null,
+          editGeneration: state.recovery.editGeneration + 1,
           serverValue: null,
           serverValueDigest: null,
         },
       };
+    case "recovery.started":
+      return action.editGeneration !== state.recovery.editGeneration ? state : {
+        ...state,
+        recovery: { ...state.recovery, status: "saving", operationId: action.operationId, expectedRevision: action.expectedRevision },
+      };
+    case "recovery.reconciling":
+      return action.editGeneration !== state.recovery.editGeneration || state.recovery.operationId !== action.operationId ? state : {
+        ...state,
+        recovery: { ...state.recovery, status: "reconciling", expectedRevision: action.expectedRevision },
+      };
     case "recovery.acknowledged": {
-      const stillCurrent = state.recovery.valueDigest === action.valueDigest;
+      const expectedResultRevision = (action.expectedRevision ?? 0) + 1;
+      const stillCurrent = state.recovery.valueDigest === action.valueDigest
+        && state.recovery.value === action.value
+        && sameRecoverySlot(state.recovery.slot, action.slot)
+        && state.recovery.operationId === action.operationId
+        && state.recovery.expectedRevision === action.expectedRevision
+        && state.recovery.editGeneration === action.editGeneration
+        && action.revision === expectedResultRevision;
+      if (!stillCurrent) return state;
       return {
         ...state,
         recovery: {
           ...state.recovery,
-          slot: stillCurrent ? action.slot : state.recovery.slot,
-          value: stillCurrent ? action.value : state.recovery.value,
-          valueDigest: stillCurrent ? action.valueDigest : state.recovery.valueDigest,
+          slot: action.slot,
+          value: action.value,
+          valueDigest: action.valueDigest,
           acknowledgedRevision: action.revision,
           acknowledgedAt: action.savedAt,
-          status: stillCurrent ? "saved" : "saving",
+          status: "saved",
           serverValue: null,
           serverValueDigest: null,
         },
       };
     }
     case "recovery.failed":
-      return { ...state, recovery: { ...state.recovery, status: "error" } };
+      return action.editGeneration !== state.recovery.editGeneration || action.operationId !== state.recovery.operationId
+        ? state
+        : { ...state, recovery: { ...state.recovery, status: "not_saved", operationId: null } };
+    case "recovery.verification_failed":
+      return action.editGeneration !== state.recovery.editGeneration || action.operationId !== state.recovery.operationId
+        ? state
+        : { ...state, recovery: { ...state.recovery, status: "verification_failed", operationId: null } };
     case "recovery.conflicted":
-      return {
+      return action.editGeneration !== state.recovery.editGeneration || action.operationId !== state.recovery.operationId ? state : {
         ...state,
         recovery: {
           ...state.recovery,
           acknowledgedRevision: action.serverRevision,
           acknowledgedAt: action.serverSavedAt,
           status: "conflict",
+          operationId: null,
           serverValue: action.serverValue,
           serverValueDigest: action.serverValueDigest,
         },
@@ -465,12 +524,13 @@ export function resumeBuilderWorkflowReducer(
           value: state.recovery.serverValue,
           valueDigest: state.recovery.serverValueDigest,
           status: "saved",
+          operationId: null,
           serverValue: null,
           serverValueDigest: null,
         },
       };
     case "recovery.local_selected":
-      return { ...state, recovery: { ...state.recovery, status: "saving", serverValue: null, serverValueDigest: null } };
+      return { ...state, recovery: { ...state.recovery, status: "saving", operationId: null, expectedRevision: state.recovery.acknowledgedRevision, editGeneration: state.recovery.editGeneration + 1, serverValue: null, serverValueDigest: null } };
     case "recovery.discarded":
       return { ...state, recovery: idleRecovery() };
     case "job.selected": {
@@ -578,6 +638,18 @@ export function recoveryOperationId(slot: RecoverySlot, valueDigest: string, exp
   hex[16] = ["8", "9", "a", "b"][Number.parseInt(hex[16] ?? "0", 16) % 4]!;
   const value = hex.join("");
   return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
+}
+
+export function recoveryBindingKey(slot: RecoverySlot, valueDigest: string, expectedRevision: number | null): string {
+  return `${recoveryOperationId(slot, valueDigest, expectedRevision)}|${valueDigest}|${expectedRevision ?? "new"}`;
+}
+
+function sameRecoverySlot(left: RecoverySlot | null, right: RecoverySlot): boolean {
+  return Boolean(left
+    && left.session_id === right.session_id
+    && left.job_fact_revision_id === right.job_fact_revision_id
+    && left.question_id === right.question_id
+    && left.field_id === right.field_id);
 }
 
 export function progressSummary(state: ResumeBuilderWorkflowState): {

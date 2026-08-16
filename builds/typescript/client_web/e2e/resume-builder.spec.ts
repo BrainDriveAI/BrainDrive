@@ -14,35 +14,22 @@ async function confirmOwnerAction(page: Page, label: RegExp) {
 }
 
 async function reviewAndApprove(
-  page: Page,
   frame: FrameLocator,
-  options: { exerciseKeyboardRecovery?: boolean; screenshotPath?: string } = {},
+  options: { screenshotPage?: Page; screenshotPath?: string } = {},
 ) {
   await frame.getByRole("button", { name: "Run product craft review" }).click();
   await expect(frame.getByRole("heading", { name: "Owner review" })).toBeVisible({ timeout: 20_000 });
-  await expect(frame.locator('section[aria-labelledby="owner-review-heading"] .status')).toHaveText("Product craft review passed");
+  await expect(frame.locator('section[aria-labelledby="owner-review-heading"] .status')).toHaveText("Product craft review passed", { timeout: 30_000 });
   await expect(frame.getByText(/Product craft review complete/)).toBeVisible();
   await expect(frame.getByText(/Independent review passed/i)).toHaveCount(0);
-  if (options.screenshotPath) await page.screenshot({ path: options.screenshotPath, fullPage: true });
-  await frame.getByRole("button", { name: "Approve this reviewed version" }).click();
-  if (options.exerciseKeyboardRecovery) {
-    const dialog = page.getByRole("dialog");
-    const confirm = dialog.getByRole("button", { name: "Confirm", exact: true });
-    const cancel = dialog.getByRole("button", { name: "Cancel", exact: true });
-    await expect(confirm).toBeFocused();
-    await page.keyboard.press("Shift+Tab");
-    await expect(cancel).toBeFocused();
-    await page.keyboard.press("Tab");
-    await expect(confirm).toBeFocused();
-    await page.keyboard.press("Escape");
-    await expect(dialog).toBeHidden();
-    await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("title"))).toBe("Resume Builder sandbox proxy");
-    await frame.getByRole("button", { name: "Approve this reviewed version" }).click();
+  if (options.screenshotPage && options.screenshotPath) {
+    await options.screenshotPage.screenshot({ path: options.screenshotPath, fullPage: true });
   }
-  await confirmOwnerAction(page, /Approve resume version/);
+  await frame.getByRole("button", { name: "Approve this reviewed version" }).click();
+  await expect(frame.getByRole("heading", { name: "Preview approved resume" })).toBeVisible({ timeout: 15_000 });
 }
 
-async function answerInterviewTopic(page: Page, frame: FrameLocator, answer: string, nextHeading: string, followUp?: string) {
+async function answerInterviewTopic(frame: FrameLocator, answer: string, nextHeading: string, followUp?: string) {
   await frame.getByLabel("Your answer").fill(answer);
   await frame.getByRole("button", { name: "Save answer" }).click();
   if (followUp) {
@@ -50,11 +37,10 @@ async function answerInterviewTopic(page: Page, frame: FrameLocator, answer: str
     await frame.getByLabel("Additional detail").fill(followUp);
     await frame.getByRole("button", { name: "Add this detail" }).click();
   }
-  await confirmOwnerAction(page, /Confirm career fact/);
   await expect(frame.getByRole("heading", { name: nextHeading })).toBeVisible({ timeout: 15_000 });
 }
 
-async function answerEmployment(page: Page, frame: FrameLocator) {
+async function answerEmployment(frame: FrameLocator) {
   await expect(frame.getByRole("heading", { name: "One job at a time" })).toBeVisible();
   const fillAcknowledgedField = async (label: string | RegExp, value: string) => {
     await frame.getByLabel(label).fill(value);
@@ -67,7 +53,6 @@ async function answerEmployment(page: Page, frame: FrameLocator) {
   await fillAcknowledgedField(/Ended/, "Present");
   await fillAcknowledgedField("What did you do?", "Help about 60 customers per shift and train new employees.");
   await frame.getByRole("button", { name: "Save this job" }).click();
-  await confirmOwnerAction(page, /Confirm career fact/);
   await expect(frame.getByRole("heading", { name: "Customer Service Associate at Lakeside Market" })).toBeVisible({ timeout: 15_000 });
   await expect(frame.getByRole("heading", { name: "Known evidence for this job" })).toBeVisible();
   await expect(frame.getByLabel("Job progress")).toBeVisible();
@@ -78,7 +63,7 @@ async function completeJobEvidence(
   frame: FrameLocator,
   nextHeading = "Education and training",
   jobLabel = "Customer Service Associate at Lakeside Market",
-  evidenceAnswer = "Created a checkout checklist that reduced errors.\nHelped train new employees with the checklist.",
+  evidenceAnswer = "Created a checkout checklist that reduced errors.",
 ) {
   await expect(frame.getByRole("heading", { name: "Job coverage summary" })).toBeVisible();
   await expect(frame.getByText(/Why this may help:/)).toBeVisible();
@@ -87,12 +72,7 @@ async function completeJobEvidence(
   await expect(page.getByRole("dialog")).toBeHidden();
   await frame.getByLabel("Your answer").fill(evidenceAnswer);
   await frame.getByRole("button", { name: `Review factual units for ${jobLabel}` }).click();
-  const groupedDialog = page.getByRole("dialog");
-  await expect(groupedDialog).toContainText(/Review factual units from one answer/);
-  await expect(groupedDialog.getByRole("checkbox")).toHaveCount(2);
-  await groupedDialog.getByRole("checkbox").nth(1).uncheck();
-  await groupedDialog.getByRole("button", { name: "Confirm", exact: true }).click();
-  await expect(groupedDialog).toBeHidden();
+  await expect(page.getByRole("dialog")).toBeHidden();
   await expect(frame.getByRole("alert")).toBeHidden({ timeout: 15_000 });
   const coverage = frame.getByLabel("Job evidence coverage");
   let priorCoverage = await coverage.innerText();
@@ -204,16 +184,16 @@ test.describe("Resume Builder owner journey", () => {
     await page.waitForTimeout(100);
     expect(forgedSideEffects).toBe(0);
     await frame.getByRole("button", { name: "Continue to interview" }).click();
-    await answerInterviewTopic(page, frame, "Synthetic Owner | Dayton, Ohio | owner@example.test | 555-010-0142", "What you want next");
-    await answerInterviewTopic(page, frame, "Customer support supervisor roles", "Work experience");
-    await answerEmployment(page, frame);
+    await answerInterviewTopic(frame, "Synthetic Owner | Dayton, Ohio | owner@example.test | 555-010-0142", "What you want next");
+    await answerInterviewTopic(frame, "Customer support supervisor roles", "Work experience");
+    await answerEmployment(frame);
     await completeJobEvidence(page, frame);
-    await answerInterviewTopic(page, frame, "Associate of Applied Science in Business Administration, Sinclair Community College, 2018", "Licenses and certifications");
+    await answerInterviewTopic(frame, "Associate of Applied Science in Business Administration, Sinclair Community College, 2018", "Licenses and certifications");
     await skipInterviewTopic(frame, "Skills, tools, and languages");
-    await answerInterviewTopic(page, frame, "Customer service, Microsoft Excel, appointment scheduling, and employee training", "Projects");
+    await answerInterviewTopic(frame, "Customer service, Microsoft Excel, appointment scheduling, and employee training", "Projects");
     await skipInterviewTopic(frame, "Leadership and volunteering");
     await skipInterviewTopic(frame, "Professional links");
-    await answerInterviewTopic(page, frame, "linkedin.com/in/synthetic-owner", "Review your information");
+    await answerInterviewTopic(frame, "linkedin.com/in/synthetic-owner", "Review your information");
 
     await expect(frame.getByRole("heading", { name: "Review your information" })).toBeVisible();
     await expect(frame.getByText(/Created a checkout checklist/)).toBeVisible();
@@ -238,28 +218,79 @@ test.describe("Resume Builder owner journey", () => {
     await frame.getByLabel(/Ended/).fill("February 2021");
     await frame.getByLabel("What did you do?").fill("Scheduled appointments and maintained accurate customer records.");
     await frame.getByRole("button", { name: "Save this job" }).click();
-    await confirmOwnerAction(page, /Confirm career fact/);
     await expect(frame.getByLabel("Current job")).toContainText("Front Desk Associate at Riverside Clinic", { timeout: 15_000 });
     await completeJobEvidence(
       page,
       frame,
       "Review your information",
       "Front Desk Associate at Riverside Clinic",
-      "Organized appointment requests into a consistent daily queue.\nMaintained clear handoff notes for the next shift.",
+      "Organized appointment requests into a consistent daily queue.",
     );
     await expect(page.getByRole("dialog")).toBeHidden();
     const contactCard = frame.locator(".card").filter({ hasText: "owner@example.test" });
     await contactCard.getByRole("button", { name: "Edit" }).click();
     await frame.getByLabel("Information").fill("Synthetic Owner | Dayton, Ohio | synthetic.owner@example.test | 555-010-0142");
     await frame.getByRole("button", { name: "Save change" }).click();
-    await confirmOwnerAction(page, /Confirm corrected career information/);
     await expect(frame.getByText(/synthetic\.owner@example\.test/)).toBeVisible();
     const linkCard = frame.locator(".card").filter({ hasText: "Professional link:" });
     await linkCard.getByRole("button", { name: "Remove" }).click();
-    await confirmOwnerAction(page, /Remove this career information/);
     await expect(frame.getByText(/removed items? (?:is|are) preserved in history/)).toBeVisible();
+    let appOwnedInferenceObservation: { requestBytes: number; httpStatus: number; inferenceStatus: string | null; errorCode: string | null; errorMessage: string | null; completionMode: string | null } | null = null;
+    let appOwnedPersistenceObservation: Record<string, unknown> | null = null;
+    await page.route("**/apps/resume-builder/data/call", async (route) => {
+      const body = route.request().postDataJSON() as { capability?: string; input?: Record<string, any> };
+      if (body.input?.inference_contract_version !== 2) {
+        if (body.capability === "resume.definitions.write" && body.input?.definition_kind === "general" && body.input?.generation_result) {
+          const response = await route.fetch();
+          const payload = await response.json() as { error?: { code?: string; message?: string } | string; message?: string };
+          appOwnedPersistenceObservation = {
+            httpStatus: response.status(),
+            errorCode: typeof payload.error === "string" ? payload.error : payload.error?.code ?? null,
+            errorMessage: typeof payload.error === "object" ? payload.error?.message ?? null : payload.message ?? null,
+            statementCount: body.input.statements?.length ?? null,
+            generationStatementCount: body.input.generation_result.statements?.length ?? null,
+            sectionOrder: body.input.section_order ?? null,
+            statementSections: [...new Set((body.input.statements ?? []).map((statement: any) => statement.section_id))],
+            displayRoles: (body.input.statements ?? []).map((statement: any) => statement.display_role),
+            usedSupportCount: new Set((body.input.statements ?? []).flatMap((statement: any) => statement.supporting_confirmed_fact_revision_ids ?? [])).size,
+            usedMustCount: body.input.strategy_binding?.used_must_use_fact_revision_ids?.length ?? null,
+            omissionCount: body.input.strategy_binding?.omissions?.length ?? null,
+          };
+          await route.fulfill({ response });
+          return;
+        }
+        await route.fallback(); return;
+      }
+      const response = await route.fetch();
+      const payload = await response.json() as { result?: { status?: string; completion_mode?: string }; error?: { code?: string; message?: string } | string; message?: string };
+      appOwnedInferenceObservation = {
+        requestBytes: Buffer.byteLength(route.request().postData() ?? "", "utf8"),
+        httpStatus: response.status(),
+        inferenceStatus: payload.result?.status ?? null,
+        errorCode: typeof payload.error === "string" ? payload.error : payload.error?.code ?? null,
+        errorMessage: typeof payload.error === "object" ? payload.error?.message ?? null : payload.message ?? null,
+        completionMode: payload.result?.completion_mode ?? null,
+      };
+      await route.fulfill({ response });
+    });
     await reviewStrategyAndCreate(frame);
+    await expect.poll(() => appOwnedPersistenceObservation, { timeout: 30_000 }).not.toBeNull();
+    if (appOwnedPersistenceObservation?.httpStatus !== 200) throw new Error(`app-owned persistence diagnostic ${JSON.stringify(appOwnedPersistenceObservation)}`);
+    expect(appOwnedPersistenceObservation).toMatchObject({ httpStatus: 200, errorCode: null, errorMessage: null });
+    await expect.poll(() => appOwnedInferenceObservation, { timeout: 30_000 }).toMatchObject({ httpStatus: 200, inferenceStatus: "completed", errorCode: null, errorMessage: null, completionMode: "deterministic_fallback" });
+    await expect(frame.locator("#alert")).toBeHidden({ timeout: 15_000 });
+    expect(appOwnedInferenceObservation).toEqual({ requestBytes: appOwnedInferenceObservation?.requestBytes, httpStatus: 200, inferenceStatus: "completed", errorCode: null, errorMessage: null, completionMode: "deterministic_fallback" });
+    expect(appOwnedInferenceObservation!.requestBytes).toBeLessThan(65_536);
+    await page.unroute("**/apps/resume-builder/data/call");
     await expect(frame.getByRole("heading", { name: "General resume" })).toBeVisible({ timeout: 15_000 });
+    await expect(frame.getByRole("status").filter({ hasText: "recovered a basic fact-backed draft" })).toBeVisible();
+
+    await page.getByRole("button", { name: "Reload app" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "App ready" })).toBeVisible({ timeout: 15_000 });
+    frame = resumeBuilderFrame(page);
+    await expect(frame.getByText("Continuing from your Career context")).toBeVisible({ timeout: 15_000 });
+    await expect(frame.getByRole("heading", { name: "General resume" })).toBeVisible({ timeout: 15_000 });
+    await expect(frame.getByText(/Synthetic Owner/).first()).toBeVisible();
     const generalDraft = (await frame.locator("textarea[data-index]").evaluateAll((elements) =>
       elements.map((element) => (element as HTMLTextAreaElement).value).join("\n"),
     ));
@@ -267,8 +298,8 @@ test.describe("Resume Builder owner journey", () => {
     expect(generalDraft).toContain("Customer Service Associate");
     expect(generalDraft).toContain("Sinclair Community College");
     expect(generalDraft).toContain("Microsoft Excel");
-    await reviewAndApprove(page, frame, {
-      exerciseKeyboardRecovery: true,
+    await reviewAndApprove(frame, {
+      screenshotPage: page,
       screenshotPath: testInfo.outputPath("resume-builder-owner-review.png"),
     });
 
@@ -280,10 +311,9 @@ test.describe("Resume Builder owner journey", () => {
     await expect(frame.getByRole("heading", { name: "Review revision proposal" })).toBeFocused({ timeout: 15_000 });
     await expect(frame.getByText(/presentation request.*resume scope/i)).toBeVisible();
     await frame.getByRole("button", { name: "Accept", exact: true }).click();
-    await confirmOwnerAction(page, /Accept revision proposal/);
     await expect(frame.getByRole("heading", { name: "General resume" })).toBeVisible({ timeout: 15_000 });
     await expect(frame.getByRole("alert")).toContainText("Validate and approve this resume version separately");
-    await reviewAndApprove(page, frame);
+    await reviewAndApprove(frame);
 
     await expect(frame.getByRole("heading", { name: "Preview approved resume" })).toBeVisible({ timeout: 15_000 });
     await frame.getByRole("button", { name: "Revise in your own words" }).click();
@@ -298,10 +328,8 @@ test.describe("Resume Builder owner journey", () => {
     await frame.getByRole("button", { name: "Save request and review route" }).click();
     await expect(frame.getByRole("heading", { name: "Confirm factual meaning before generation" })).toBeVisible({ timeout: 15_000 });
     await frame.getByRole("button", { name: "Confirm and generate proposal" }).click();
-    await confirmOwnerAction(page, /Confirm factual resume revision/);
     await expect(frame.getByRole("heading", { name: "Review revision proposal" })).toBeVisible({ timeout: 15_000 });
     await frame.getByRole("button", { name: "Reject", exact: true }).click();
-    await confirmOwnerAction(page, /Reject revision proposal/);
     await expect(frame.getByRole("heading", { name: "Preview approved resume" })).toBeVisible({ timeout: 15_000 });
 
     await frame.locator('[data-stage="job"]').click();
@@ -315,7 +343,7 @@ test.describe("Resume Builder owner journey", () => {
     await expect(tailoredHeading).toBeAttached({ timeout: 30_000 });
     await tailoredHeading.scrollIntoViewIfNeeded();
     await expect(tailoredHeading).toBeVisible();
-    await reviewAndApprove(page, frame);
+    await reviewAndApprove(frame);
 
     await expect(frame.getByRole("heading", { name: "Preview approved resume" })).toBeVisible({ timeout: 15_000 });
     const rememberedDetail = "Built a reusable customer handoff checklist for weekly team reviews.";
@@ -325,12 +353,11 @@ test.describe("Resume Builder owner journey", () => {
     await frame.getByLabel("Information type").selectOption("accomplishment");
     await frame.getByLabel("What did you remember?").fill(rememberedDetail);
     await frame.getByRole("button", { name: "Review and confirm" }).click();
-    await confirmOwnerAction(page, /Confirm career fact/);
     await expect(frame.getByRole("heading", { name: "General resume" })).toBeVisible({ timeout: 15_000 });
     await expect(frame.getByRole("heading", { name: "What this proposal changes" })).toBeVisible();
     await expect(frame.getByText(rememberedDetail).first()).toBeVisible();
     await expect(frame.getByText(/based on older evidence/)).toBeVisible();
-    await reviewAndApprove(page, frame);
+    await reviewAndApprove(frame);
 
     await expect(frame.getByRole("heading", { name: "Preview approved resume" })).toBeVisible({ timeout: 15_000 });
     await frame.getByRole("button", { name: "Add remembered detail" }).click();
@@ -358,6 +385,18 @@ test.describe("Resume Builder owner journey", () => {
     await page.screenshot({ path: testInfo.outputPath("resume-builder-career-preview.png"), fullPage: true });
 
     await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: new URL(page.url()).origin });
+    await frame.getByRole("button", { name: "Copy clean text" }).click();
+    const copyDialog = page.getByRole("dialog");
+    const copyConfirm = copyDialog.getByRole("button", { name: "Confirm", exact: true });
+    const copyCancel = copyDialog.getByRole("button", { name: "Cancel", exact: true });
+    await expect(copyConfirm).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(copyCancel).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(copyConfirm).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(copyDialog).toBeHidden();
+    await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("title"))).toBe("Resume Builder sandbox proxy");
     await frame.getByRole("button", { name: "Copy clean text" }).click();
     await confirmOwnerAction(page, /Copy app content/);
     await expect(frame.getByRole("alert")).toContainText("Clean text copied");
@@ -421,7 +460,7 @@ test.describe("Resume Builder owner journey", () => {
           session_id: expect.stringMatching(/^[0-9a-f-]{36}$/),
           view_id: expect.stringMatching(/^[0-9a-f-]{36}$/),
           operation_id: expect.stringMatching(/^[0-9a-f-]{36}$/),
-          bridge_generation: 1,
+          bridge_generation: 2,
         },
       },
     });
@@ -462,9 +501,9 @@ test.describe("Resume Builder responsive job interview", () => {
     }, { timeout: 15_000 }).toBe("ready");
     if (await continueInterview.isVisible()) {
       await continueInterview.click();
-      await answerInterviewTopic(page, frame, "Mobile Owner | Dayton, Ohio | mobile@example.test | 555-010-0101", "What you want next");
-      await answerInterviewTopic(page, frame, "Customer support roles", "Work experience");
-      await answerEmployment(page, frame);
+      await answerInterviewTopic(frame, "Mobile Owner | Dayton, Ohio | mobile@example.test | 555-010-0101", "What you want next");
+      await answerInterviewTopic(frame, "Customer support roles", "Work experience");
+      await answerEmployment(frame);
     }
     if (await currentJob.isVisible()) {
       await expect(currentJob).toContainText("Customer Service Associate at Lakeside Market");

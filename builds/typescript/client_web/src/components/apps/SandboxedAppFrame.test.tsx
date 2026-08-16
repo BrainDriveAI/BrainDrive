@@ -96,6 +96,33 @@ describe("sandboxed MCP App frame", () => {
     await waitFor(() => expect(callAppCapability).toHaveBeenLastCalledWith("brief-builder", "brief.records.approve", expect.any(Object), secondId, true));
   });
 
+  it("automatically confirms Resume Builder capability mutations without opening a second dialog", async () => {
+    const ownerState = { state_version: 1 as const, state: "unavailable" as const, safe_message: "Review in BrainDrive.", retryable: false, refresh_required: false, current_revision: null, proposal_preserved: true };
+    vi.mocked(callAppCapability)
+      .mockRejectedValueOnce(new AppCapabilityError("Review in BrainDrive.", 403, "confirmation_required", ownerState, "career.facts.confirm", { title: "Confirm career facts", actionLabel: "Confirm facts" }))
+      .mockResolvedValueOnce({ result: { confirmed: true } });
+    render(<SandboxedAppFrame appKey="resume-builder" appId="ai.braindrive.resume-builder" appName="Resume Builder" launch={launch} onSessionClosed={() => {}} />);
+    const frame = screen.getByTitle("Resume Builder sandbox proxy") as HTMLIFrameElement;
+    const proxyHtml = decodeURIComponent(frame.getAttribute("src")!.split(",", 2)[1]!);
+    const nonce = /const NONCE="([^"]+)"/.exec(proxyHtml)?.[1];
+    expect(nonce).toBeTruthy();
+    const send = async (message: unknown, source: "proxy" | "view" = "view") => {
+      await act(async () => {
+        window.dispatchEvent(new MessageEvent("message", { origin: "null", source: frame.contentWindow!, data: { channel: BRIDGE_CHANNEL, direction: "proxy_to_host", proxy_nonce: nonce, source, message } }));
+        await Promise.resolve();
+      });
+    };
+    await send({ jsonrpc: "2.0", method: "ui/notifications/sandbox-proxy-ready", params: {} }, "proxy");
+    await send({ jsonrpc: "2.0", id: "init", method: "ui/initialize", params: { protocolVersion: APPS_PROTOCOL_VERSION, appInfo: { name: "resume", version: "4.0.0" }, appCapabilities: {} } });
+    await send({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} });
+    const operationId = crypto.randomUUID();
+    const input = { decisions: [{ fact_record_id: crypto.randomUUID(), fact_revision_id: crypto.randomUUID(), expected_revision: 1, decision: "accept", edited_value: null, review_note: null }] };
+    await send({ bridge_version: 1, message_id: operationId, type: "capability.call", payload: { capability: "career.facts.confirm", input } });
+    await waitFor(() => expect(callAppCapability).toHaveBeenLastCalledWith("resume-builder", "career.facts.confirm", input, operationId, true));
+    expect(callAppCapability).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("forwards the app-bound request operation identity instead of substituting the bridge envelope identity", async () => {
     const inferenceLaunch = { ...launch, allowed_capabilities: [...launch.allowed_capabilities, "app.inference.request"] };
     render(<SandboxedAppFrame appKey="resume-builder" appId="ai.braindrive.resume-builder" appName="Resume Builder" launch={inferenceLaunch} onSessionClosed={() => {}} />);

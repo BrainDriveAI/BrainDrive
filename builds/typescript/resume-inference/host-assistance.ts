@@ -4,6 +4,8 @@ import { changedRevisionStatementIds } from "../resume-domain/revision-requests.
 import { craftContextFromBlocks, evaluateCraftProposal } from "./craft-evaluator.js";
 import { canonicalSectionOrder, canonicalizeFacts, canonicalizeStrategyResult, sectionForFact } from "./strategy.js";
 import { decideTargetFit, TARGET_FIT_THRESHOLD_POLICY, type EvidenceRow, type PlannedChange } from "./target-fit.js";
+import { deterministicInterviewPresentation } from "./interview-assistance.js";
+import { purposeRecoveryPolicy } from "./purpose-recovery.js";
 
 export const RESUME_HOST_ASSISTANCE_POLICY = {
   policy_id: "braindrive.resume-builder.host-owned-structure",
@@ -16,6 +18,18 @@ export const RESUME_HOST_ASSISTANCE_POLICY = {
 
 export const RESUME_HOST_ASSISTANCE_POLICY_DIGEST = canonicalInputDigest(RESUME_HOST_ASSISTANCE_POLICY);
 
+type HostNormalizationSchemaIssueId =
+  | "experience_role_binding_invalid"
+  | "experience_role_top_level_leakage"
+  | "experience_role_job_missing"
+  | "experience_role_job_duplicate"
+  | "experience_role_job_foreign"
+  | "experience_role_heading_shape_invalid"
+  | "experience_role_heading_support_invalid"
+  | "experience_role_bullet_shape_invalid"
+  | "experience_role_bullet_support_invalid"
+  | "host_normalization_invalid";
+
 type DataBlock = { category: string; data: unknown; content_digest?: string };
 type Statement = {
   statement_id: string;
@@ -26,20 +40,40 @@ type Statement = {
   supporting_confirmed_fact_revision_ids: string[];
 };
 
+export class HostNormalizationSchemaError extends Error {
+  constructor(readonly schemaIssueIds: readonly [HostNormalizationSchemaIssueId]) {
+    super("Host-owned normalization rejected provider structure");
+  }
+}
+
 export function normalizeHostOwnedResult(purpose: InferencePurpose, result: unknown, blocks: readonly DataBlock[]): unknown {
-  if (purpose === "general_resume_draft") return normalizeGeneralDraft(result, blocks);
-  if (purpose === "tailoring_plan") return normalizeTailoringPlan(result, blocks);
-  if (purpose === "targeted_resume_draft") return normalizeTargetedDraft(result, blocks);
-  if (purpose === "resume_revision_draft") return normalizeRevisionDraft(result, blocks);
-  if (purpose === "resume_craft_evaluate") return deterministicCraftEvaluation(blocks);
-  return result;
+  switch (purposeRecoveryPolicy(purpose)?.normalization) {
+    case "general_draft":
+      return normalizeGeneralDraft(result, blocks);
+    case "tailoring_plan":
+      return normalizeTailoringPlan(result, blocks);
+    case "targeted_draft":
+      return normalizeTargetedDraft(result, blocks);
+    case "revision_draft":
+      return normalizeRevisionDraft(result, blocks);
+    case "craft_evaluation":
+      return deterministicCraftEvaluation(blocks);
+    case "none":
+    default:
+      return result;
+  }
 }
 
 function normalizeGeneralDraft(result: unknown, blocks: readonly DataBlock[]): unknown {
   const proposed = objectValue(result);
-  const strategy = blocks.find((block) => block.category === "resume_strategy")?.data as { section_order?: unknown } | undefined;
-  if (!proposed || !Array.isArray(strategy?.section_order) || strategy.section_order.some((section) => typeof section !== "string")) return result;
-  let statements = Array.isArray(proposed.statements) ? proposed.statements : null;
+  const strategy = blocks.find((block) => block.category === "resume_strategy")?.data as { section_order?: unknown; role_emphasis?: unknown } | undefined;
+  if (!proposed) return result;
+  const flattenedExperience = Object.hasOwn(proposed, "experience_roles") ? flattenExperienceRoles(proposed, blocks, strategy) : null;
+  const { experience_roles: _experienceRoles, ...persistable } = proposed;
+  let statements = flattenedExperience ?? (Array.isArray(persistable.statements) ? persistable.statements : null);
+  if (!Array.isArray(strategy?.section_order) || strategy.section_order.some((section) => typeof section !== "string")) {
+    return { ...persistable, ...(statements ? { statements } : {}) };
+  }
   if (statements) {
     const summaryIndex = statements.findIndex((candidate) => objectValue(candidate)?.section_id === "summary");
     const summary = summaryIndex >= 0 ? objectValue(statements[summaryIndex]) : null;
@@ -60,14 +94,97 @@ function normalizeGeneralDraft(result: unknown, blocks: readonly DataBlock[]): u
       if (replacement) statements = statements.map((statement, index) => index === summaryIndex ? { ...replacement, statement_id: summary.statement_id } : statement);
     }
   }
-  return { ...proposed, ...(statements ? { statements } : {}), section_order: [...strategy.section_order] };
+  return { ...persistable, ...(statements ? { statements } : {}), section_order: [...strategy.section_order] };
+}
+
+function flattenExperienceRoles(
+  proposed: Record<string, unknown>,
+  blocks: readonly DataBlock[],
+  strategy: { role_emphasis?: unknown } | undefined,
+): unknown[] {
+  const roles = Array.isArray(proposed.experience_roles) ? proposed.experience_roles.map(objectValue) : [];
+  const statements = Array.isArray(proposed.statements) ? proposed.statements.map(objectValue) : [];
+  if (roles.some((role) => !role) || statements.some((statement) => !statement)) throw new HostNormalizationSchemaError(["host_normalization_invalid"]);
+  const facts = blocks.flatMap((block) => block.category === "confirmed_fact_snapshot"
+    ? ((objectValue(block.data)?.facts as unknown[] | undefined) ?? []).map(objectValue).filter((fact): fact is Record<string, unknown> => fact !== null)
+    : []);
+  const structured = facts.flatMap((fact) => {
+    if (typeof fact.revision_id !== "string" || typeof fact.value !== "string") return [];
+    try {
+      const value = objectValue(JSON.parse(fact.value));
+      return value ? [{ revisionId: fact.revision_id, value }] : [];
+    } catch {
+      return [];
+    }
+  });
+  const jobIds = structured.filter((fact) => fact.value.format === "resume_job_v1").map((fact) => fact.revisionId).sort();
+  const evidenceJob = new Map(structured.flatMap((fact) => {
+    if (fact.value.format === "resume_accomplishment_v1" && typeof fact.value.job_fact_revision_id === "string") {
+      return [[fact.revisionId, fact.value.job_fact_revision_id as string] as const];
+    }
+    return fact.value.value_version === 1 && fact.value.association === "job" && fact.value.outcome === "answered" && typeof fact.value.job_fact_revision_id === "string"
+      ? [[fact.revisionId, fact.value.job_fact_revision_id as string] as const]
+      : [];
+  }));
+  for (const jobId of jobIds) evidenceJob.set(jobId, jobId);
+  if (jobIds.length > 0 && statements.some((statement) => statement?.section_id === "experience")) {
+    throw new HostNormalizationSchemaError(["experience_role_top_level_leakage"]);
+  }
+  const actual = new Map<string, { heading: Record<string, unknown>; bullets: Record<string, unknown>[] }>();
+  for (const role of roles) {
+    const jobId = role?.job_fact_revision_id;
+    const heading = objectValue(role?.heading_statement);
+    const bullets = Array.isArray(role?.bullet_statements) ? role.bullet_statements.map(objectValue) : [];
+    if (typeof jobId !== "string" || !heading || bullets.some((bullet) => !bullet)) throw new HostNormalizationSchemaError(["host_normalization_invalid"]);
+    if (actual.has(jobId)) throw new HostNormalizationSchemaError(["experience_role_job_duplicate"]);
+    if (!jobIds.includes(jobId)) throw new HostNormalizationSchemaError(["experience_role_job_foreign"]);
+    const headingSupport = Array.isArray(heading.supporting_confirmed_fact_revision_ids) ? heading.supporting_confirmed_fact_revision_ids : [];
+    if (heading.section_id !== "experience" || heading.display_role !== "heading") throw new HostNormalizationSchemaError(["experience_role_heading_shape_invalid"]);
+    const headingJobs = [...new Set(headingSupport.flatMap((id) => typeof id === "string" && evidenceJob.has(id) ? [evidenceJob.get(id)!] : []))];
+    if (!headingSupport.includes(jobId) || headingJobs.length !== 1 || headingJobs[0] !== jobId) throw new HostNormalizationSchemaError(["experience_role_heading_support_invalid"]);
+    for (const bullet of bullets as Record<string, unknown>[]) {
+      const support = Array.isArray(bullet.supporting_confirmed_fact_revision_ids) ? bullet.supporting_confirmed_fact_revision_ids : [];
+      const associatedJobs = [...new Set(support.flatMap((id) => typeof id === "string" && evidenceJob.has(id) ? [evidenceJob.get(id)!] : []))];
+      if (bullet.section_id !== "experience" || bullet.display_role !== "bullet") throw new HostNormalizationSchemaError(["experience_role_bullet_shape_invalid"]);
+      if (associatedJobs.length !== 1 || associatedJobs[0] !== jobId) throw new HostNormalizationSchemaError(["experience_role_bullet_support_invalid"]);
+    }
+    actual.set(jobId, { heading, bullets: bullets as Record<string, unknown>[] });
+  }
+  if (jobIds.some((jobId) => !actual.has(jobId))) throw new HostNormalizationSchemaError(["experience_role_job_missing"]);
+  const emphasized = Array.isArray(strategy?.role_emphasis)
+    ? strategy.role_emphasis.flatMap((entry) => {
+        const value = objectValue(entry);
+        return typeof value?.job_fact_revision_id === "string" ? [value.job_fact_revision_id] : [];
+      })
+    : [];
+  const roleOrder = [...new Set([...emphasized.filter((jobId) => actual.has(jobId)), ...roles.flatMap((role) => typeof role?.job_fact_revision_id === "string" ? [role.job_fact_revision_id] : [])])];
+  const owned = roleOrder.flatMap((jobId) => {
+    const role = actual.get(jobId);
+    return role ? [role.heading, ...role.bullets] : [];
+  });
+  const sectionOrder = Array.isArray(proposed.section_order) ? proposed.section_order.filter((section): section is string => typeof section === "string") : [];
+  const ordered = sectionOrder.flatMap((section) => section === "experience"
+    ? owned
+    : statements.filter((statement) => statement?.section_id === section));
+  const orderedIds = new Set(ordered.map((statement) => statement?.statement_id));
+  return [...ordered, ...statements.filter((statement) => !orderedIds.has(statement?.statement_id))];
 }
 
 export function deterministicHostFallback(purpose: InferencePurpose, blocks: readonly DataBlock[]): unknown | null {
-  if (purpose === "resume_craft_evaluate") return deterministicCraftEvaluation(blocks);
-  if (purpose === "general_resume_draft") return deterministicGeneralDraft(blocks);
-  if (purpose === "resume_strategy") return deterministicStrategy(blocks);
-  return null;
+  switch (purposeRecoveryPolicy(purpose)?.deterministic_behavior) {
+    case "interview_presentation":
+      return deterministicInterviewPresentation(blocks);
+    case "general_fact_draft":
+      return deterministicGeneralDraft(blocks);
+    case "canonical_strategy":
+      return deterministicStrategy(blocks);
+    case "craft_evaluation":
+      return deterministicCraftEvaluation(blocks);
+    case "guidance_projection":
+    case "none":
+    default:
+      return null;
+  }
 }
 
 function deterministicStrategy(blocks: readonly DataBlock[]): unknown | null {
@@ -146,11 +263,27 @@ function deterministicGeneralDraft(blocks: readonly DataBlock[]): unknown | null
     if (direction && generalEvidence && directionFact && generalEvidenceFact) {
       add([firstJobFact.revision_id, directionFact.revision_id, generalEvidenceFact.revision_id], "summary", `${title} targeting ${direction}, with experience in ${generalEvidence}.`, "line", "summary");
     } else if (priorTitle && priorJobFact) {
-      add([firstJobFact.revision_id, priorJobFact.revision_id], "summary", `${title} with prior experience as ${priorTitle}.`, "line", "summary");
+      add([firstJobFact.revision_id, priorJobFact.revision_id], "summary", `${title} with experience ${priorTitle}.`, "line", "summary");
     } else {
       add(firstJobFact.revision_id, "summary", `${title} at ${stringValue(firstJob.employer) ?? "the confirmed employer"}.`, "line", "summary");
     }
   }
+  const jobEvidenceGroups = new Map<string, typeof facts>();
+  for (const fact of facts) {
+    if (fact.fact_kind !== "job_evidence" || omitted.has(fact.revision_id)) continue;
+    const value = structuredRecord(fact.value);
+    if (value?.value_version !== 1 || value.outcome !== "answered" || value.association !== "job") continue;
+    const jobId = stringValue(value.job_fact_revision_id);
+    const dimension = stringValue(value.dimension);
+    if (!jobId || !dimension) continue;
+    const key = `${jobId}:${dimension}`;
+    jobEvidenceGroups.set(key, [...(jobEvidenceGroups.get(key) ?? []), fact]);
+  }
+  const emittedJobEvidenceGroups = new Set<string>();
+  const strategySections = new Set(strategy?.section_order ?? []);
+  const exactSection = (section: string) => section === "certifications" && strategySections.has("credentials")
+    ? "credentials"
+    : section;
   for (const fact of facts) {
     if (omitted.has(fact.revision_id) || fact.fact_kind === "preference") continue;
     const structured = structuredRecord(fact.value);
@@ -166,11 +299,28 @@ function deterministicGeneralDraft(blocks: readonly DataBlock[]): unknown | null
       continue;
     }
     if (fact.fact_kind === "job_evidence" && structured?.value_version === 1) {
-      if (structured.outcome === "answered") add(fact.revision_id, structured.association === "general" ? "skills" : "experience", stringValue(structured.owner_text) ?? fact.value, structured.association === "general" ? "line" : "bullet", "job_evidence");
+      if (structured.outcome === "answered" && structured.association === "job") {
+        const jobId = stringValue(structured.job_fact_revision_id);
+        const dimension = stringValue(structured.dimension);
+        const key = jobId && dimension ? `${jobId}:${dimension}` : null;
+        if (key && !emittedJobEvidenceGroups.has(key)) {
+          emittedJobEvidenceGroups.add(key);
+          const group = jobEvidenceGroups.get(key) ?? [fact];
+          add(
+            group.map((entry) => entry.revision_id),
+            "experience",
+            group.map((entry) => stringValue(structuredRecord(entry.value)?.owner_text) ?? entry.value).join(" | "),
+            "bullet",
+            `job_evidence:${dimension}`,
+          );
+        }
+      } else if (structured.outcome === "answered" && structured.association === "general") {
+        add(fact.revision_id, "skills", stringValue(structured.owner_text) ?? fact.value, "line", "job_evidence");
+      }
       continue;
     }
     const section = sectionForFact(fact);
-    if (section) add(fact.revision_id, section, fact.value, section === "experience" ? "bullet" : "line", "fact");
+    if (section) add(fact.revision_id, exactSection(section), fact.value, section === "experience" ? "bullet" : "line", "fact");
   }
   if (statements.length === 0) return null;
   const contact = facts.find((fact) => fact.fact_kind === "contact" && !fact.value.startsWith("Professional link:"));

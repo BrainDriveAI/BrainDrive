@@ -206,6 +206,17 @@ function loadResumeBuilderUi(): string {
   return readFileSync(resourcePath, "utf8");
 }
 
+function loadResumeBuilderInferenceProgram(): string {
+  const candidates = [
+    path.resolve(process.cwd(), "../resume_builder/resources/inference-program.js"),
+    fileURLToPath(new URL("../../../resume_builder/resources/inference-program.js", import.meta.url)),
+    fileURLToPath(new URL("../../../../resume_builder/resources/inference-program.js", import.meta.url)),
+  ];
+  const resourcePath = candidates.find((candidate) => existsSync(candidate));
+  if (!resourcePath) throw new Error("Resume Builder inference program is missing");
+  return readFileSync(resourcePath, "utf8");
+}
+
 const FIXTURE_SERVER = `import http from "node:http";
 const token = process.env.BRAINDRIVE_APP_CONNECTION_TOKEN;
 const host = "127.0.0.1";
@@ -255,6 +266,7 @@ process.on("SIGTERM", stop); process.on("SIGINT", stop);
 
 function modernFixtureServer(appHtml: string, version: string): string {
   return `import http from "node:http";
+import { adjudicateResumeInference, prepareResumeInference } from "./inference-program.js";
 const token = process.env.BRAINDRIVE_APP_CONNECTION_TOKEN;
 const host = "127.0.0.1";
 const port = Number((process.env.BRAINDRIVE_ENDPOINT_BIND || "127.0.0.1:0").split(":").at(-1));
@@ -273,8 +285,10 @@ const server = http.createServer((request, response) => {
     if (message.method === "resources/list") { send(response, message.id, {resultType:"complete",ttlMs:0,cacheScope:"private",resources:[{uri:"ui://resume-builder/main",name:"Resume Builder",title:"Resume Builder",description:"Sandboxed owner resume workflow",mimeType:"text/html;profile=mcp-app",size:Buffer.byteLength(appHtml),_meta:{"io.modelcontextprotocol/ui":{version:"2026-01-26"},cachePolicy:"immutable_package_digest"}}]}); return; }
     if (message.method === "resources/templates/list") { send(response, message.id, {resultType:"complete",ttlMs:0,cacheScope:"private",resourceTemplates:[]}); return; }
     if (message.method === "resources/read" && message.params?.uri === "ui://resume-builder/main") { send(response, message.id, {resultType:"complete",ttlMs:0,cacheScope:"private",contents:[{uri:"ui://resume-builder/main",mimeType:"text/html;profile=mcp-app",text:appHtml,_meta:{"io.modelcontextprotocol/ui":{version:"2026-01-26"},cachePolicy:"immutable_package_digest"}}]}); return; }
-    if (message.method === "tools/list") { send(response, message.id, {resultType:"complete",ttlMs:0,cacheScope:"private",tools:[{name:"fixture.status",description:"Return the fixture host status",inputSchema:{type:"object",properties:{},additionalProperties:false},_meta:{ui:{visibility:["app"]}}}]}); return; }
+    if (message.method === "tools/list") { send(response, message.id, {resultType:"complete",ttlMs:0,cacheScope:"private",tools:[{name:"fixture.status",description:"Return the fixture host status",inputSchema:{type:"object",properties:{},additionalProperties:false},_meta:{ui:{visibility:["app"]}}},{name:"app.inference.prepare",description:"Prepare an installed app-owned inference plan",inputSchema:{type:"object",additionalProperties:true},_meta:{ui:{visibility:["model"]}}},{name:"app.inference.adjudicate",description:"Adjudicate an installed app-owned inference candidate",inputSchema:{type:"object",additionalProperties:true},_meta:{ui:{visibility:["model"]}}}]}); return; }
     if (message.method === "tools/call" && message.params?.name === "fixture.status") { send(response, message.id, {resultType:"complete",content:[{type:"text",text:"Fixture ready",annotations:{audience:["user"],priority:1}},{type:"resource_link",name:"resume-ui",uri:"ui://resume-builder/main",mimeType:"text/html;profile=mcp-app",size:Buffer.byteLength(appHtml),_meta:{visibility:"app"}},{type:"resource",resource:{uri:"ui://resume-builder/state",mimeType:"application/json",text:"{\\\"ready\\\":true}",_meta:{revision:1}}}],structuredContent:{ready:true,version:${JSON.stringify(version)}},_meta:{"io.modelcontextprotocol/ui":{resourceUri:"ui://resume-builder/main",visibility:["app"]}},isError:false}); return; }
+    if (message.method === "tools/call" && message.params?.name === "app.inference.prepare") { try { const result=prepareResumeInference(message.params.arguments); send(response,message.id,{resultType:"complete",content:[],structuredContent:result,_meta:{ui:{visibility:["model"]}},isError:false}); } catch { response.writeHead(409,{"content-type":"application/json"}); response.end(JSON.stringify({jsonrpc:"2.0",id:message.id,error:{code:-32602,message:"Installed app inference preparation failed"}})); } return; }
+    if (message.method === "tools/call" && message.params?.name === "app.inference.adjudicate") { try { const result=adjudicateResumeInference(message.params.arguments); send(response,message.id,{resultType:"complete",content:[],structuredContent:result,_meta:{ui:{visibility:["model"]}},isError:false}); } catch { response.writeHead(409,{"content-type":"application/json"}); response.end(JSON.stringify({jsonrpc:"2.0",id:message.id,error:{code:-32602,message:"Installed app inference adjudication failed"}})); } return; }
     response.writeHead(404, {"content-type":"application/json"}); response.end(JSON.stringify({jsonrpc:"2.0",id:message.id,error:{code:-32601,message:"Method not found"}}));
   });
 });
@@ -428,11 +442,13 @@ async function loadOrCreateFixtureSource(root: string, versions: string[], autho
   const packages: FixtureRepository["packages"] = {};
   const entries: SourceIndex["payload"]["entries"] = [];
   const modernFixtureHtml = authorityLabel === "modern" ? loadResumeBuilderUi() : null;
+  const modernInferenceProgram = authorityLabel === "modern" ? loadResumeBuilderInferenceProgram() : null;
   const publishedAt = new Date().toISOString();
   const nextUpdateAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
   for (const version of versions) {
     const files = new Map<string, Buffer>([
       ["payload/docker/index.js", Buffer.from(version === MODERN_FIXTURE_VERSION ? modernFixtureServer(modernFixtureHtml!, version) : FIXTURE_SERVER.replace('version:"1.0.0"', `version:"${version}"`), "utf8")],
+      ...(version === MODERN_FIXTURE_VERSION ? [["payload/docker/inference-program.js", Buffer.from(modernInferenceProgram!, "utf8")] as [string, Buffer]] : []),
       ...(version === MODERN_FIXTURE_VERSION ? [["payload/ui/main.html", Buffer.from(modernFixtureHtml!, "utf8")] as [string, Buffer]] : []),
       ["provenance/build.jsonl", Buffer.from(`${canonicalJson({ builder: "braindrive-fixture", version, source: "repository" })}\n`, "utf8")],
       ["sbom/cyclonedx.json", Buffer.from(`${canonicalJson({ bomFormat: "CycloneDX", specVersion: "1.6", version: 1, components: [] })}\n`, "utf8")],

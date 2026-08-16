@@ -11,7 +11,7 @@ import { ResumeDomainService } from "./service.js";
 import { ResumeDataStore } from "./store.js";
 import { authority, definitionInput, ownerDecision, proposalInput, testGrant } from "./test-helpers.js";
 import { assertRevisionTransition } from "./revision-requests.js";
-import { buildEvidenceAnnotations, RESUME_QUALITY_POLICY_IDENTITY, RESUME_QUALITY_STANDARD_DIGEST, RESUME_QUALITY_STANDARD_ID, RESUME_QUALITY_STANDARD_VERSION } from "../resume-inference/strategy.js";
+import { RESUME_QUALITY_POLICY_IDENTITY, RESUME_QUALITY_STANDARD_DIGEST, RESUME_QUALITY_STANDARD_ID, RESUME_QUALITY_STANDARD_VERSION } from "../resume-inference/strategy.js";
 import { RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION } from "../resume-inference/policy.js";
 
 const roots: string[] = [];
@@ -71,7 +71,6 @@ describe("Resume domain invariants", () => {
     const confirmed = await confirmedFact(service);
     const factId = confirmed.fact.metadata.revision_id;
     const facts = [{ revision_id: factId, fact_kind: confirmed.fact.fact_kind, value: confirmed.fact.value, source_revision_ids: confirmed.fact.source_revision_ids }];
-    const annotations = buildEvidenceAnnotations(facts, []);
     const block = (category: "confirmed_fact_snapshot" | "evidence_annotations" | "quality_policy" | "resume_strategy", schema_id: string, data: unknown) => ({ category, content_digest: canonicalInputDigest(data), schema_id, schema_version: 1, data });
     const strategyResult = {
       strategy_version: 1 as const,
@@ -85,16 +84,16 @@ describe("Resume domain invariants", () => {
       skills_context: [], omissions: [], unresolved_gap_ids: [],
       owner_rationale: "Use the one distinct confirmed accomplishment without padding.",
     };
-    const strategyInputDigest = canonicalInputDigest([
-      block("confirmed_fact_snapshot", "resume.confirmed-facts.v1", { facts }),
-      block("evidence_annotations", "resume.evidence-annotations.v1", annotations),
-      block("quality_policy", "resume.quality-policy-identity.v1", RESUME_QUALITY_POLICY_IDENTITY),
-    ]);
+    const strategyInputDigest = canonicalInputDigest({
+      app_program: "resume.strategy",
+      authorized_fact_revision_ids: [factId],
+    });
     const persisted = await service.writeResumeStrategy({
       kind: "resume_strategy", fact_revision_ids: [factId], coverage_revision_ids: [], target_revision_id: null, presentation_preferences: {}, strategy: strategyResult,
       inference_binding: { prompt_policy_id: RESUME_PROMPT_POLICY_ID, prompt_policy_version: RESUME_PROMPT_POLICY_VERSION, input_digest: strategyInputDigest, output_digest: canonicalInputDigest(strategyResult), provider_profile_id: "owner-active", model_id: "synthetic-model" },
     }, authority("resume.definitions.write"));
     expect(persisted.strategy).toMatchObject({ record_type: "resume_strategy", fact_revision_ids: [factId], quality_standard_version: "3", provider_profile_id: "owner-active" });
+    expect(persisted.strategy).toMatchObject({ input_digest: strategyInputDigest });
 
     const strategy = persisted.strategy;
     if (strategy.record_type !== "resume_strategy") throw new Error("strategy fixture failed");
