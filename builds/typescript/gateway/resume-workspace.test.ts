@@ -19,9 +19,11 @@ describe("Resume Builder private workspace", () => {
     try {
       await ensureResumeWorkspace(memoryRoot);
       const agent = await readFile(path.join(memoryRoot, RESUME_AGENT_PATH), "utf8");
-      expect(agent).toContain("owner-authorized Career page context");
-      expect(agent).toContain("Begin from-scratch interviewing only when they have no existing material");
-      expect(agent).toContain("current resume-specific understanding");
+      expect(agent).toContain("owner-authorized context from another workspace");
+      expect(agent).toContain("If the owner has existing material, ask them to paste it first");
+      expect(agent).toContain("private, editable source of truth");
+      expect(agent).toContain("must not add a responsibility, outcome, scope, title");
+      expect(agent).toContain("Your Resume Profile is ready to review in the sidebar");
       expect(await readFile(path.join(memoryRoot, RESUME_PROFILE_PATH), "utf8")).toContain("# Resume Profile");
       await expect(renderResumeFromProfile(memoryRoot)).rejects.toThrow("Resume Profile is not ready yet");
 

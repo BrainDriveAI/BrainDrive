@@ -1,8 +1,10 @@
 import path from "node:path";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { readFile, writeFile } from "node:fs/promises";
 
-import { commitMemoryChange, ensureGitReady } from "../git.js";
+import { commitMemoryChange } from "../git.js";
 import { renderResumeMarkdownPdf } from "../resume-renderer/renderer.js";
+import { ensurePackagedAppWorkspace, type AppWorkspacePackage } from "./app-workspace-resources.js";
 
 export const RESUME_WORKSPACE_ROOT = "apps/resume-builder";
 export const RESUME_AGENT_PATH = `${RESUME_WORKSPACE_ROOT}/AGENT.md`;
@@ -10,30 +12,27 @@ export const RESUME_INTERVIEW_PATH = `${RESUME_WORKSPACE_ROOT}/run-interview.md`
 export const RESUME_PROFILE_PATH = `${RESUME_WORKSPACE_ROOT}/resume-profile.md`;
 export const RESUME_DOCUMENT_PATH = `${RESUME_WORKSPACE_ROOT}/resume.md`;
 
-const INITIAL_FILES: Record<string, string> = {
-  [RESUME_AGENT_PATH]: `# Resume Builder\n\nYou are the resume-writing partner. Own all judgment: understand the owner's story, decide what is worth asking, resolve ordinary ambiguity from context when you can, and write clear resume language.\n\nWhen the host provides owner-authorized Career page context, use it as the starting point for the conversation. Briefly confirm what you understand, then ask only for corrections or resume-specific gaps. Do not claim to have read Career information that the host did not provide. Do not overwrite or automatically promote Career page content.\n\nWhen no Career page context is provided and the owner has not yet shared career material, first ask whether they have a resume, LinkedIn profile, or other career material they would like to paste. Use any material they provide as the starting point. Begin from-scratch interviewing only when they have no existing material.\n\nRead the current ${RESUME_PROFILE_PATH} before each Resume Builder conversation turn when it contains owner content. It is the private editable source for this resume and is the current resume-specific understanding, even when it differs from older chat wording. Respect direct owner edits. Do not silently overwrite the profile from stale chat context.\n\nDuring the interview, have a natural conversation. Do not create, update, or mention Resume Profile while the owner is simply talking. Do not ask scripted checklist questions.\n\nWhen the owner explicitly asks to create their resume, read the full conversation and write ${RESUME_PROFILE_PATH}. It is the structured source for the resume, not the resume itself. Use these Markdown sections: Contact, Professional Summary, Experience, Education, Certifications, and Skills when supported by the conversation. Keep contact as labeled facts; use concise, resume-ready summary and accomplishment bullets. Use only information supported by the owner conversation or owner-authorized Career page context. If an essential detail is genuinely missing, ask one natural follow-up instead.\n\nAfter writing the profile, tell the owner it is ready to review and that they can use Create resume when they are happy with it. The app, not you, turns the profile into ${RESUME_DOCUMENT_PATH} with a deterministic resume template.\n`,
-  [RESUME_INTERVIEW_PATH]: `# Resume interview\n\nHave a natural conversation that helps the owner tell their professional story. Follow their lead. Explore the work that best represents them, results, education, skills, and the role they want next when useful. Clarify only when it will make the resume more accurate or useful.\n\nDo not use this as a checklist or tell the owner that you are filling a form. Wait until they explicitly ask to create a resume before writing the Resume Profile.\n`,
-  [RESUME_PROFILE_PATH]: `# Resume Profile\n\nThis is the editable source for the finished resume. Resume Builder will fill it after you ask to create a resume.\n\n## Contact\n\n- **Name:** Needs your input\n- **Email:** Needs your input\n- **Phone:** Needs your input\n- **Location:** Needs your input\n\n## Professional Summary\n\nNeeds your input\n\n## Experience\n\nNeeds your input\n\n## Education\n\nNeeds your input\n\n## Certifications\n\nNeeds your input\n\n## Skills\n\nNeeds your input\n`,
-  [RESUME_DOCUMENT_PATH]: `# Resume\n\nYour finished resume will appear here after you create it from your Resume Profile.\n`,
+const RESUME_PACKAGE_RESOURCE_ROOT = fileURLToPath(new URL("../../resume_builder/resources/workspace/", import.meta.url));
+const RESUME_PACKAGE_MANIFEST = JSON.parse(
+  await readFile(path.join(RESUME_PACKAGE_RESOURCE_ROOT, "workspace.json"), "utf8"),
+) as { workspace_root: string; resources: string[] };
+if (RESUME_PACKAGE_MANIFEST.workspace_root !== RESUME_WORKSPACE_ROOT) {
+  throw new Error("Resume Builder package declares an unexpected workspace root");
+}
+
+const RESUME_WORKSPACE_PACKAGE: AppWorkspacePackage = {
+  app_id: "ai.braindrive.resume-builder",
+  resources: RESUME_PACKAGE_MANIFEST.resources.map((name) => ({
+    source_path: path.join(RESUME_PACKAGE_RESOURCE_ROOT, name),
+    target_path: `${RESUME_PACKAGE_MANIFEST.workspace_root}/${name}`,
+  })),
 };
 
+const INITIAL_PROFILE = await readFile(path.join(RESUME_PACKAGE_RESOURCE_ROOT, "resume-profile.md"), "utf8");
+const INITIAL_RESUME = await readFile(path.join(RESUME_PACKAGE_RESOURCE_ROOT, "resume.md"), "utf8");
+
 export async function ensureResumeWorkspace(memoryRoot: string): Promise<void> {
-  let created = false;
-  for (const [relativePath, content] of Object.entries(INITIAL_FILES)) {
-    const target = path.join(memoryRoot, relativePath);
-    try {
-      await readFile(target, "utf8");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      await mkdir(path.dirname(target), { recursive: true });
-      await writeFile(target, content, "utf8");
-      created = true;
-    }
-  }
-  if (created) {
-    await ensureGitReady(memoryRoot);
-    await commitMemoryChange(memoryRoot, "Initialize Resume Builder workspace");
-  }
+  await ensurePackagedAppWorkspace(memoryRoot, RESUME_WORKSPACE_PACKAGE);
 }
 
 export async function readResumeWorkspaceDocument(
@@ -61,7 +60,7 @@ export async function renderResumeFromProfile(memoryRoot: string): Promise<strin
   const profilePath = path.join(memoryRoot, RESUME_PROFILE_PATH);
   const profile = await readFile(profilePath, "utf8");
   const normalizedProfile = profile.trim();
-  if (normalizedProfile === INITIAL_FILES[RESUME_PROFILE_PATH].trim()) {
+  if (normalizedProfile === INITIAL_PROFILE.trim()) {
     throw new Error("Resume Profile is not ready yet");
   }
   const resume = formatResumeFromProfile(normalizedProfile);
@@ -73,7 +72,7 @@ export async function renderResumeFromProfile(memoryRoot: string): Promise<strin
 export async function exportResumePdfFromDocument(memoryRoot: string): Promise<{ filename: string; mime_type: "application/pdf"; bytes_base64: string }> {
   await ensureResumeWorkspace(memoryRoot);
   const resume = await readFile(path.join(memoryRoot, RESUME_DOCUMENT_PATH), "utf8");
-  if (resume.trim() === INITIAL_FILES[RESUME_DOCUMENT_PATH].trim()) throw new Error("Resume is not ready yet");
+  if (resume.trim() === INITIAL_RESUME.trim()) throw new Error("Resume is not ready yet");
   const pdf = renderResumeMarkdownPdf(resume);
   return { filename: "resume.pdf", mime_type: "application/pdf", bytes_base64: pdf.bytes.toString("base64") };
 }
@@ -82,10 +81,10 @@ function formatResumeFromProfile(profile: string): string {
   const source = profile.replace(/^# Resume Profile\s*/i, "").trim();
   const contactMatch = source.match(/^## Contact\s*\n([\s\S]*?)(?=^##\s|$)/m);
   const contactBlock = contactMatch?.[1]?.trim() ?? "";
-  const contactValues = [...contactBlock.matchAll(/^-\s+\*\*[^*]+:\*\*\s*(.+)$/gm)]
+  const contactValues = [...contactBlock.matchAll(/^[-]\s+\*\*[^*]+:\*\*\s*(.+)$/gm)]
     .map((match) => match[1]?.trim())
     .filter((value): value is string => Boolean(value));
-  const name = [...contactBlock.matchAll(/^-\s+\*\*Name:\*\*\s*(.+)$/gim)][0]?.[1]?.trim();
+  const name = [...contactBlock.matchAll(/^[-]\s+\*\*Name:\*\*\s*(.+)$/gim)][0]?.[1]?.trim();
   const body = source.replace(/^## Contact\s*\n[\s\S]*?(?=^##\s|$)/m, "").trim();
   const header = name ? `# ${name}\n` : "# Resume\n";
   const details = contactValues.filter((value) => value !== name);
