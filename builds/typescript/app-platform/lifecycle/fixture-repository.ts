@@ -316,7 +316,12 @@ export async function createFixtureRepository(root: string): Promise<FixtureRepo
   const modernRoot = path.join(root, "modern");
   const priorModern = await loadPersistedFixtureSources(modernRoot, MODERN_FIXTURE_VERSION);
   const retainedModern = mergePersistedFixtureSources(priorModern);
-  const modern = await loadOrCreateFixtureSource(path.join(modernRoot, MODERN_FIXTURE_VERSION), [MODERN_FIXTURE_VERSION], "modern");
+  const modern = await loadOrCreateFixtureSource(
+    path.join(modernRoot, MODERN_FIXTURE_VERSION),
+    [MODERN_FIXTURE_VERSION],
+    "modern",
+    true,
+  );
   return {
     ...legacy,
     packages: { ...legacy.packages, ...retainedModern.packages, ...modern.packages },
@@ -389,21 +394,31 @@ async function loadPersistedFixtureSource(root: string): Promise<FixtureReposito
   }
 }
 
-async function loadOrCreateFixtureSource(root: string, versions: string[], authorityLabel: "legacy" | "modern"): Promise<FixtureRepository> {
+async function loadOrCreateFixtureSource(
+  root: string,
+  versions: string[],
+  authorityLabel: "legacy" | "modern",
+  republishCurrent = false,
+): Promise<FixtureRepository> {
   const sourceIndexPath = path.join(root, "source-index.json");
-  try {
-    const existing = JSON.parse(await readFile(sourceIndexPath, "utf8")) as SourceIndex;
-    const packages = Object.fromEntries(existing.payload.entries.map((entry) => [entry.package_version, {
-      archivePath: path.join(root, `${entry.package_version}.bdapp`),
-      descriptorPath: path.join(root, `${entry.package_version}.descriptor.json`),
-    }]));
-    return { root, trustRootPath: path.join(root, "trust-root.json"), sourceIndexPath, revocationListPath: path.join(root, "revocations.json"), packages };
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
-      throw new AppPlatformError("source_index_signature_invalid", "Persisted fixture source index is malformed or unreadable");
+  if (!republishCurrent) {
+    try {
+      const existing = JSON.parse(await readFile(sourceIndexPath, "utf8")) as SourceIndex;
+      const packages = Object.fromEntries(existing.payload.entries.map((entry) => [entry.package_version, {
+        archivePath: path.join(root, `${entry.package_version}.bdapp`),
+        descriptorPath: path.join(root, `${entry.package_version}.descriptor.json`),
+      }]));
+      return { root, trustRootPath: path.join(root, "trust-root.json"), sourceIndexPath, revocationListPath: path.join(root, "revocations.json"), packages };
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+        throw new AppPlatformError("source_index_signature_invalid", "Persisted fixture source index is malformed or unreadable");
+      }
+      // Only a genuinely missing source initializes a synthetic authority.
     }
-    // Only a genuinely missing source initializes a synthetic authority.
   }
+  // The current development package is derived from mounted app files. Republish
+  // it on host start so source changes and signed revocation freshness take effect.
+  // Prior version-specific authorities are discovered separately and retained.
   await mkdir(root, { recursive: true });
   const rootPair = generateKeyPairSync("ed25519");
   const releasePair = generateKeyPairSync("ed25519");

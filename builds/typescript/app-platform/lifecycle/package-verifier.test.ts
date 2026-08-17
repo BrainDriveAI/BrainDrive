@@ -2,7 +2,7 @@ import { access, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/pro
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createFixtureRepository, createSyntheticFirstPartyFixtureRepository, MODERN_FIXTURE_VERSION, revokeFixtureVersion } from "./fixture-repository.js";
 import { PackageVerifier } from "./package-verifier.js";
@@ -10,6 +10,7 @@ import { PackageVerifier } from "./package-verifier.js";
 const roots: string[] = [];
 
 afterEach(async () => {
+  vi.useRealTimers();
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
@@ -105,6 +106,30 @@ describe("signed fixture package verification", () => {
     await expect(access(path.join(authorityRoot, "source-index.json"))).resolves.toBeUndefined();
     expect(repository.packages[MODERN_FIXTURE_VERSION]?.archivePath).toBe(path.join(authorityRoot, `${MODERN_FIXTURE_VERSION}.bdapp`));
     expect(repository.authoritiesByVersion?.[MODERN_FIXTURE_VERSION]?.sourceIndexPath).toBe(path.join(authorityRoot, "source-index.json"));
+  });
+
+  it("republishes the current mounted Resume package with fresh verification metadata after a host restart", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-17T12:00:00.000Z"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-package-current-republish-"));
+    roots.push(root);
+    const sourceRoot = path.join(root, "source");
+    const initial = await createFixtureRepository(sourceRoot);
+    const verifier = new PackageVerifier("26.7.23");
+
+    await expect(verifier.verifyForCatalog(initial, MODERN_FIXTURE_VERSION, {
+      appId: "ai.braindrive.resume-builder", publisherId: "ai.braindrive",
+    })).resolves.toMatchObject({ trust: { executable_allowed: true } });
+
+    vi.setSystemTime(new Date("2026-08-20T12:00:00.000Z"));
+    await expect(verifier.verifyForCatalog(initial, MODERN_FIXTURE_VERSION, {
+      appId: "ai.braindrive.resume-builder", publisherId: "ai.braindrive",
+    })).rejects.toMatchObject({ code: "revocation_metadata_stale" });
+
+    const restarted = await createFixtureRepository(sourceRoot);
+    await expect(verifier.verifyForCatalog(restarted, MODERN_FIXTURE_VERSION, {
+      appId: "ai.braindrive.resume-builder", publisherId: "ai.braindrive",
+    })).resolves.toMatchObject({ trust: { executable_allowed: true } });
   });
 
   it("retains prior signed first-party app versions when publishing a changed package", async () => {
