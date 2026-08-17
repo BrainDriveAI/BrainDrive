@@ -56,6 +56,39 @@ describe("sandboxed MCP App frame", () => {
     await waitFor(() => expect(closeAppSession).toHaveBeenCalledTimes(1));
   });
 
+  it("keeps the live app session when the BrainDrive document is temporarily hidden", async () => {
+    const onSessionClosed = vi.fn();
+    const rendered = render(<SandboxedAppFrame appKey="resume-builder" appId="ai.braindrive.resume-builder" appName="Resume Builder" launch={launch} onSessionClosed={onSessionClosed} />);
+    const visibilityState = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+
+    try {
+      document.dispatchEvent(new Event("visibilitychange"));
+      await act(async () => { await Promise.resolve(); });
+
+      expect(closeAppSession).not.toHaveBeenCalled();
+      expect(onSessionClosed).not.toHaveBeenCalled();
+    } finally {
+      visibilityState.mockRestore();
+      rendered.unmount();
+    }
+
+    await waitFor(() => expect(closeAppSession).toHaveBeenCalledWith("resume-builder", launch.session_id));
+  });
+
+  it("does not recreate the sandbox bridge when host callback identities change", async () => {
+    const rendered = render(<SandboxedAppFrame appKey="resume-builder" appId="ai.braindrive.resume-builder" appName="Resume Builder" launch={launch} onSessionClosed={() => {}} onOpenSettings={() => {}} />);
+    const initialSource = screen.getByTitle("Resume Builder sandbox proxy").getAttribute("src");
+
+    rendered.rerender(<SandboxedAppFrame appKey="resume-builder" appId="ai.braindrive.resume-builder" appName="Resume Builder" launch={launch} onSessionClosed={() => {}} onOpenSettings={() => {}} />);
+    await act(async () => { await Promise.resolve(); });
+
+    expect(screen.getByTitle("Resume Builder sandbox proxy")).toHaveAttribute("src", initialSource);
+    expect(closeAppSession).not.toHaveBeenCalled();
+
+    rendered.unmount();
+    await waitFor(() => expect(closeAppSession).toHaveBeenCalledTimes(1));
+  });
+
   it("uses generic app labels and app-key session routing without granting Resume trusted actions", async () => {
     const rendered = render(<SandboxedAppFrame appKey="brief-builder" appId="ai.braindrive.brief-builder" appName="Brief Builder" launch={{ ...launch, resource: { ...launch.resource, uri: "ui://brief-builder/main" } }} onSessionClosed={() => {}} />);
     expect(screen.getByRole("region", { name: "Brief Builder app session" })).toBeInTheDocument();

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Menu } from "lucide-react";
 import { createPortal } from "react-dom";
 
@@ -34,6 +34,7 @@ export default function AppShell({
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAppsOpen, setIsAppsOpen] = useState(false);
+  const [hasOpenedApps, setHasOpenedApps] = useState(false);
   const [activeFile, setActiveFile] = useState<ProjectFile | null>(null);
   const [mobileHeaderHeight, setMobileHeaderHeight] = useState(0);
   const stableAppHeightRef = useRef(0);
@@ -195,6 +196,12 @@ export default function AppShell({
     setActiveFile(null);
   }
 
+  const handleOpenApps = useCallback(() => {
+    setActiveFile(null);
+    setHasOpenedApps(true);
+    setIsAppsOpen(true);
+  }, []);
+
   function handleConversationComplete() {
     refreshProjects();
 
@@ -296,7 +303,7 @@ export default function AppShell({
           onReturnToChat={handleReturnToChat}
           onFileClick={handleFileClick}
           onOpenSettings={() => setIsSettingsOpen(true)}
-          onOpenApps={() => { setActiveFile(null); setIsAppsOpen(true); }}
+          onOpenApps={handleOpenApps}
           isAppsActive={isAppsOpen}
           onLogout={() => onLogout?.()}
           tier={deploymentMode === "managed" ? "concierge" : "local"}
@@ -334,7 +341,7 @@ export default function AppShell({
                 setIsMobileSidebarOpen(false);
                 setIsSettingsOpen(true);
               }}
-              onOpenApps={() => { setActiveFile(null); setIsAppsOpen(true); setIsMobileSidebarOpen(false); }}
+              onOpenApps={() => { handleOpenApps(); setIsMobileSidebarOpen(false); }}
               isAppsActive={isAppsOpen}
               onLogout={() => onLogout?.()}
               tier={deploymentMode === "managed" ? "concierge" : "local"}
@@ -353,7 +360,16 @@ export default function AppShell({
         <div
           className="flex min-h-0 flex-1 flex-col overflow-hidden pt-[var(--mobile-header-height)] md:pt-0"
         >
-          {isAppsOpen ? <AppsPage entryPoint={selectedProject?.name.trim().toLowerCase() === "career" ? "career" : "direct"} onOpenSettings={() => setIsSettingsOpen(true)} onSessionClosed={handleAppSessionClosed} /> : children ?? (
+          {hasOpenedApps ? (
+            <div
+              className={isAppsOpen ? "flex min-h-0 flex-1 flex-col" : "hidden"}
+              hidden={!isAppsOpen}
+              aria-hidden={!isAppsOpen}
+            >
+              <AppsPage entryPoint={selectedProject?.name.trim().toLowerCase() === "career" ? "career" : "direct"} onOpenSettings={() => setIsSettingsOpen(true)} onSessionClosed={handleAppSessionClosed} />
+            </div>
+          ) : null}
+          {!isAppsOpen ? children ?? (
             <ChatPanel
               activeConversationId={activeConversationId}
               activeProjectId={selectedProjectId}
@@ -365,7 +381,7 @@ export default function AppShell({
               onSendMessage={handleReturnToChat}
               onOpenSettings={() => setIsSettingsOpen(true)}
             />
-          )}
+          ) : null}
         </div>
       </main>
 

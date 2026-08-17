@@ -68,9 +68,11 @@ vi.mock("./Sidebar", () => ({
     selectedProjectId: string | null;
     projectFiles: ProjectFile[];
     onOpenApps: () => void;
+    onSelectProject: (projectId: string) => void;
   }) => (
     <aside>
       <button type="button" onClick={props.onOpenApps}>Apps</button>
+      <button type="button" onClick={() => props.onSelectProject("finance")}>Finance</button>
       <div data-testid="selected-project">{props.selectedProjectId}</div>
       <div data-testid="sidebar-files">
         {props.projectFiles.map((file) => file.path).join(",")}
@@ -79,7 +81,7 @@ vi.mock("./Sidebar", () => ({
   ),
 }));
 
-vi.mock("@/components/apps/AppsPage", () => ({ default: ({ onOpenSettings, onSessionClosed }: { onOpenSettings?: () => void; onSessionClosed?: () => void }) => <section aria-label="Apps surface">Apps surface<button type="button" onClick={onOpenSettings}>Open model settings recovery</button><button type="button" onClick={onSessionClosed}>Close app session</button></section> }));
+vi.mock("@/components/apps/AppsPage", () => ({ default: ({ onOpenSettings, onSessionClosed }: { onOpenSettings?: () => void; onSessionClosed?: () => void }) => <section aria-label="Apps surface">Apps surface<input aria-label="App draft" defaultValue="" /><button type="button" onClick={onOpenSettings}>Open model settings recovery</button><button type="button" onClick={onSessionClosed}>Close app session</button></section> }));
 
 vi.mock("@/components/chat/ChatPanel", () => ({
   default: (props: {
@@ -151,6 +153,20 @@ describe("AppShell project file refresh", () => {
     await user.click(screen.getByRole("button", { name: "Apps" }));
     expect(screen.getByRole("region", { name: "Apps surface" })).toBeInTheDocument();
     expect(selectProjectMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves the mounted Apps workspace while navigating through BrainDrive", async () => {
+    const user = userEvent.setup();
+    render(<AppShell />);
+
+    await user.click(screen.getByRole("button", { name: "Apps" }));
+    await user.type(screen.getByRole("textbox", { name: "App draft" }), "unfinished resume details");
+    await user.click(screen.getByRole("button", { name: "Finance" }));
+
+    expect(screen.queryByRole("region", { name: "Apps surface" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Apps" }));
+    expect(screen.getByRole("textbox", { name: "App draft" })).toHaveValue("unfinished resume details");
   });
 
   it("routes app model recovery into the existing settings modal", async () => {

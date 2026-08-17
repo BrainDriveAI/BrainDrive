@@ -140,6 +140,8 @@ export default function SandboxedAppFrame({
   const controllerRef = useRef<McpAppBridgeController | null>(null);
   const closedRef = useRef(false);
   const cleanupAbortRef = useRef<AbortController | null>(null);
+  const onSessionClosedRef = useRef(onSessionClosed);
+  const onOpenSettingsRef = useRef(onOpenSettings);
   const ownerRecordsRef = useRef(new Map<string, { label: string; detail: string }>());
   const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
@@ -153,6 +155,11 @@ export default function SandboxedAppFrame({
   useEffect(() => {
     if (pendingConfirmation || pendingHostAction) confirmButtonRef.current?.focus();
   }, [pendingConfirmation, pendingHostAction]);
+
+  useEffect(() => {
+    onSessionClosedRef.current = onSessionClosed;
+    onOpenSettingsRef.current = onOpenSettings;
+  }, [onOpenSettings, onSessionClosed]);
 
   useEffect(() => {
     cleanupAbortRef.current?.abort();
@@ -219,8 +226,9 @@ export default function SandboxedAppFrame({
             return decision;
           });
         }
-        if (isModelSettingsAction(action, value) && onOpenSettings) {
-          onOpenSettings();
+        const openSettings = onOpenSettingsRef.current;
+        if (isModelSettingsAction(action, value) && openSettings) {
+          openSettings();
           return { status: "opened" };
         }
         throw new Error("browser_action_denied");
@@ -298,7 +306,7 @@ export default function SandboxedAppFrame({
       onDownloadFile: async () => ({ isError: true, code: "export_requires_host_flow" }),
       onLegacyMessage: handleLegacyMessage,
       onResize: ({ height }) => setFrameHeight(height),
-      onRequestTeardown: onSessionClosed,
+      onRequestTeardown: () => onSessionClosedRef.current(),
       onStatus: setStatus,
       onViolation: (code) => {
         if (["message_oversized", "message_too_deep", "rate_limited"].includes(code)) {
@@ -309,11 +317,7 @@ export default function SandboxedAppFrame({
     });
     controllerRef.current = controller;
     const onMessage = (event: MessageEvent) => { void controller.receive(event, frame.contentWindow!); };
-    const onVisibility = () => {
-      if (document.visibilityState === "hidden") { close(); onSessionClosed(); }
-    };
     window.addEventListener("message", onMessage);
-    document.addEventListener("visibilitychange", onVisibility);
     frame.src = createSandboxProxyUrl(proxyNonce, appName);
     const connectionTimeout = window.setTimeout(() => {
       if (controller.state === "ready" || controller.state === "closed") return;
@@ -324,7 +328,6 @@ export default function SandboxedAppFrame({
     return () => {
       window.clearTimeout(connectionTimeout);
       window.removeEventListener("message", onMessage);
-      document.removeEventListener("visibilitychange", onVisibility);
       controller.requestTeardown();
       controller.close("unmount");
       if (controllerRef.current === controller) controllerRef.current = null;
@@ -332,7 +335,7 @@ export default function SandboxedAppFrame({
         if (!cleanupAbort.signal.aborted) close();
       });
     };
-  }, [appId, appKey, appName, launch, onOpenSettings, onSessionClosed]);
+  }, [appId, appKey, appName, launch]);
 
   const confirmationRecord = (() => {
     const input = pendingConfirmation?.message.payload?.input;
@@ -425,8 +428,8 @@ export default function SandboxedAppFrame({
 
   const closeAndReturn = useCallback(() => {
     controllerRef.current?.requestTeardown();
-    onSessionClosed();
-  }, [onSessionClosed]);
+    onSessionClosedRef.current();
+  }, []);
 
   const reload = async () => {
     if (!onReload) return;
