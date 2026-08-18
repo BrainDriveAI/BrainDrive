@@ -187,6 +187,18 @@ function extractErrorPayload(result: McpCallToolResult): {
     const code = toFailureCode((structured as { code?: unknown }).code);
     const message = toFailureMessage((structured as { message?: unknown }).message);
     const recoverable = toFailureRecoverable((structured as { recoverable?: unknown }).recoverable);
+
+    // A directory-read mistake is always model-recoverable: the model can list the
+    // directory and retry, so never let it abort the turn even if the server
+    // reported it as a fatal execution failure.
+    if (code === "execution_failed" && /\bEISDIR\b/.test(message)) {
+      return {
+        code: "path_invalid",
+        message: "Requested path is a directory, not a file — list the directory to see its entries, then read a file inside it",
+        recoverable: true,
+      };
+    }
+
     return { code, message, recoverable };
   }
 

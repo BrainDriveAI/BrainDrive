@@ -27,6 +27,17 @@ export function toToolFailure(error: unknown): ToolExecutionFailure {
     return new ToolExecutionFailure("not_found", "Requested path not found");
   }
 
+  if (systemCode === "EISDIR") {
+    return new ToolExecutionFailure(
+      "path_invalid",
+      "Requested path is a directory, not a file — list the directory to see its entries, then read a file inside it"
+    );
+  }
+
+  if (systemCode === "ENOTDIR") {
+    return new ToolExecutionFailure("path_invalid", "Requested path is not a directory");
+  }
+
   if (systemCode === "EACCES" || systemCode === "EPERM") {
     return new ToolExecutionFailure("permission_denied", "Permission denied for requested path", false);
   }
