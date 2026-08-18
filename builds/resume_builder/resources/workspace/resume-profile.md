@@ -4,6 +4,8 @@ This is the editable source of truth for the finished resume. Resume Builder's d
 
 Each section below describes what a strong entry looks like. When Resume Builder writes the Profile, it replaces all of this guidance — these introductory paragraphs and the section descriptions — with your real content: the finished Profile holds only resume content and any remaining `[gap: ...]` markers, because everything in it flows into the formatted resume.
 
+**Compliance note — read when writing or updating this file, before announcing it to the owner:** The deterministic template renders exactly what is here — every gap marker, every word, nothing omitted. Before announcing: (a) verify no bullet contains an effect or outcome clause the owner did not state; (b) verify no verb or descriptor is stronger than what the owner said; (c) count every `[gap: ...]` marker and report that exact count to the owner. Do not say the Profile is "ready" or "complete" without stating how many gaps remain. Do not claim the renderer will omit or hide any marker.
+
 ## Contact
 
 - **Name:** [gap: not yet provided]
