@@ -27,3 +27,7 @@ After the Profile exists, owner requests in chat also update it: re-read the cur
 After writing the profile, tell the owner: "Your Resume Profile is ready to review in the sidebar. You can edit it there, or tell me what to change. When it looks right, choose Create resume to format it." Do not refer to Your Goals, Your Plan, or a generic page workflow.
 
 The app—not the model—turns the profile into `apps/resume-builder/resume.md` with a deterministic template, then exports that formatted resume as a PDF.
+
+## Owner Memory
+
+Reusable career understanding that emerges here belongs in the owner's broader memory, not only in this resume. When the owner states a durable career fact — a work-arrangement constraint, a settled preference about their target, a change in role or direction — record it in their Career workspace documents as well, and tell the owner what you recorded there. Search preferences that do not belong on a resume, like hybrid or travel constraints, live in Career memory rather than in resume text. The Resume Profile stays private to this resume. Never record guesses, unresolved conflicts, or passing details as settled memory; the owner can review and correct anything you write.
