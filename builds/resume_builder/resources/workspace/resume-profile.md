@@ -2,7 +2,7 @@
 
 This is the editable source of truth for the finished resume. Resume Builder's deterministic template turns exactly what is here into the formatted resume and PDF — nothing else gets in, nothing here is left out. Resume Builder fills it from your conversation when you are ready, and you can edit it directly at any time. Unresolved items appear as visible `[gap: ...]` markers so nothing goes missing silently.
 
-Each section below describes what a strong entry looks like. Resume Builder replaces these descriptions with your real content when it writes the Profile.
+Each section below describes what a strong entry looks like. When Resume Builder writes the Profile, it replaces all of this guidance — these introductory paragraphs and the section descriptions — with your real content: the finished Profile holds only resume content and any remaining `[gap: ...]` markers, because everything in it flows into the formatted resume.
 
 ## Contact
 
