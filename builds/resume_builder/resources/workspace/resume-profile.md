@@ -17,7 +17,7 @@ City and state are enough for location; no street address needed.
 
 [gap: not yet provided]
 
-A strong summary is two to three sentences in the owner's voice: who they are professionally, the strengths the rest of this Profile actually supports, and the direction they are headed. No buzzwords, and no claim the Experience section below does not back up.
+A strong summary is two to three sentences in the owner's voice: who they are professionally, the strengths the rest of this Profile actually supports, and the direction they are headed. No buzzwords, and no claim the rest of this Profile does not back up. State the owner's status exactly as it is today: a degree or role that is in progress stays in progress here — never rounded up to completed.
 
 ## Experience
 
