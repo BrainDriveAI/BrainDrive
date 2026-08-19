@@ -1,0 +1,556 @@
+import { createHash, generateKeyPairSync, sign, type KeyObject } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { canonicalJson, canonicalJsonDocumentDigest, canonicalSignedBytes } from "../contracts/common.js";
+import { GenericPackageManifestSchema } from "../contracts/app-registry.js";
+import { z } from "zod";
+import {
+  PackageDescriptorSchema,
+  PackageManifestSchema,
+  PackageSourceIndexSchema,
+  releaseKeyAuthorizationPayload,
+  RevocationListSchema,
+  TrustRootSchema,
+} from "../contracts/package.js";
+import { AppPlatformError } from "./errors.js";
+import { createStoredZip } from "./zip.js";
+
+type Manifest = z.infer<typeof PackageManifestSchema>;
+type Descriptor = z.infer<typeof PackageDescriptorSchema>;
+type SourceIndex = z.infer<typeof PackageSourceIndexSchema>;
+type Revocations = z.infer<typeof RevocationListSchema>;
+
+const PersistedGenericSourceIndexSchema = z.object({
+  payload: z.object({
+    index_version: z.literal(2),
+    entries: z.array(z.object({ app_id: z.string().min(1), package_version: z.string().min(1) }).passthrough()).min(1),
+  }).passthrough(),
+}).passthrough();
+
+export type FixtureRepository = {
+  root: string;
+  trustRootPath: string;
+  sourceIndexPath: string;
+  revocationListPath: string;
+  packages: Record<string, { archivePath: string; descriptorPath: string }>;
+  packagesByAppVersion?: Record<string, { archivePath: string; descriptorPath: string }>;
+  authoritiesByVersion?: Record<string, {
+    trustRootPath: string;
+    sourceIndexPath: string;
+    revocationListPath: string;
+  }>;
+  authoritiesByAppVersion?: Record<string, {
+    trustRootPath: string;
+    sourceIndexPath: string;
+    revocationListPath: string;
+  }>;
+  signer?: (domain: string, payload: unknown) => string;
+  releaseKeyId?: string;
+  signersByAppVersion?: Record<string, (domain: string, payload: unknown) => string>;
+  releaseKeyIdsByAppVersion?: Record<string, string>;
+};
+
+export type SyntheticFirstPartyFixture = {
+  appId: string;
+  routeKey: string;
+  displayName: string;
+  summary?: string;
+  version: string;
+  resourceHtml?: string;
+  requestedCapabilities?: readonly string[];
+  requestedInferencePurposes?: readonly { purpose_id: string; version: number }[];
+};
+
+function appVersionKey(appId: string, version: string): string {
+  return `${appId}@${version}`;
+}
+
+/** Creates task-owned signed generic fixtures; it is not a public package source. */
+export async function createSyntheticFirstPartyFixtureRepository(
+  root: string,
+  apps: readonly SyntheticFirstPartyFixture[],
+): Promise<FixtureRepository> {
+  const retained = await loadPersistedSyntheticFirstPartySources(root, new Set(apps.map((app) => appVersionKey(app.appId, app.version))));
+  const packagesByAppVersion: NonNullable<FixtureRepository["packagesByAppVersion"]> = { ...retained.packages };
+  const authoritiesByAppVersion: NonNullable<FixtureRepository["authoritiesByAppVersion"]> = { ...retained.authorities };
+  const signersByAppVersion: NonNullable<FixtureRepository["signersByAppVersion"]> = {};
+  const releaseKeyIdsByAppVersion: NonNullable<FixtureRepository["releaseKeyIdsByAppVersion"]> = {};
+  for (const app of apps) {
+    const appRoot = path.join(root, app.routeKey, app.version);
+    await mkdir(appRoot, { recursive: true });
+    const rootPair = generateKeyPairSync("ed25519");
+    const releasePair = generateKeyPairSync("ed25519");
+    const rootKeyId = `braindrive-app-root-${app.routeKey}-2026`;
+    const releaseKeyId = `braindrive-app-release-${app.routeKey}-2026`;
+    const signWith = (privateKey: typeof rootPair.privateKey, domain: string, payload: unknown) =>
+      sign(null, Buffer.from(canonicalSignedBytes(domain, payload), "utf8"), privateKey).toString("base64");
+    const releaseSigner = (domain: string, payload: unknown) => signWith(releasePair.privateKey, domain, payload);
+    const releaseKey = {
+      key_version: 1 as const, key_id: releaseKeyId, algorithm: "ed25519" as const,
+      public_key: rawPublicKey(releasePair.publicKey), not_before: "2026-01-01T00:00:00.000Z",
+      not_after: "2036-01-01T00:00:00.000Z", status: "active" as const,
+      authorization: { signature_version: 1 as const, domain_separator: "BrainDrive-App-Release-Key-v1" as const, canonicalization: "braindrive-canonical-json-v1" as const, signature_algorithm: "ed25519" as const, signing_key_id: rootKeyId, signature: "" },
+    };
+    releaseKey.authorization.signature = signWith(rootPair.privateKey, releaseKey.authorization.domain_separator, releaseKeyAuthorizationPayload(releaseKey));
+    const trustRoot = TrustRootSchema.parse({ trust_root_version: 1, trust_domain: "braindrive-app-release", root_key: { key_id: rootKeyId, algorithm: "ed25519", public_key: rawPublicKey(rootPair.publicKey), status: "active" }, threshold: 1, release_keys: [releaseKey] });
+    const trustRootPath = path.join(appRoot, "trust-root.json");
+    await writeJson(trustRootPath, trustRoot);
+
+    const uiHtml = app.resourceHtml ?? `<main>${app.displayName}</main>`;
+    const ui = Buffer.from(uiHtml, "utf8");
+    const files = new Map<string, Buffer>([
+      ["payload/docker/index.js", Buffer.from(syntheticFirstPartyServer(app, uiHtml), "utf8")],
+      ["payload/ui/main.html", ui],
+      ["provenance/build.jsonl", Buffer.from(`${canonicalJson({ builder: "braindrive-synthetic-fixture", version: app.version, source: "repository" })}\n`, "utf8")],
+      ["sbom/cyclonedx.json", Buffer.from(`${canonicalJson({ bomFormat: "CycloneDX", specVersion: "1.6", version: 1, components: [] })}\n`, "utf8")],
+    ]);
+    const manifest = GenericPackageManifestSchema.parse({
+      manifest_version: 2, app_id: app.appId, publisher_id: "ai.braindrive", package_version: app.version,
+      catalog: { display_name: app.displayName, summary: app.summary ?? `Create owner-controlled ${app.displayName.toLowerCase()} content.`, icon: null, retention_summary: `${app.displayName} owner data is retained after uninstall.` },
+      archive: { format: "zip", profile: "braindrive-zip-v1", compression: "store", layout_version: 1, manifest_path: "manifest.json", undeclared_entries: "reject", links_and_device_nodes: "reject", max_file_count: 256, max_compressed_bytes: 67_108_864, max_uncompressed_bytes: 268_435_456 },
+      files: [...files].map(([filePath, bytes]) => ({ path: filePath, kind: "file", mode: filePath.endsWith("/index.js") ? "executable" : "read_only", size_bytes: bytes.length, digest: digest(bytes) })).sort((a, b) => a.path.localeCompare(b.path)),
+      platform_artifacts: [
+        { target: "docker_linux_x64", os: "linux", architecture: "x64", runtime_kind: "packaged_node", entrypoint: "payload/docker/index.js" },
+        { target: "desktop_windows_x64", os: "windows", architecture: "x64", runtime_kind: "packaged_node", entrypoint: "payload/docker/index.js" },
+        { target: "desktop_macos_universal", os: "macos", architecture: "universal", runtime_kind: "packaged_node", entrypoint: "payload/docker/index.js" },
+      ],
+      compatibility: { app_contract: 1, host_min_version: "26.7.23", mcp_protocol: "2026-07-28", mcp_apps: { extension_id: "io.modelcontextprotocol/ui", version: "2026-01-26" }, data_contract_version: 1 },
+      primary_resource: { resource_version: 1, uri: `ui://${app.routeKey}/main`, package_path: "payload/ui/main.html", mime_type: "text/html;profile=mcp-app", content_digest: digest(ui) },
+      requested_capabilities: (app.requestedCapabilities ?? ["career.context.read"]).map((name) => ({ name, version: 1 })),
+      requested_inference_purposes: app.requestedInferencePurposes ?? [], provenance_path: "provenance/build.jsonl", sbom_path: "sbom/cyclonedx.json", retention_policy: "retain_owner_data_remove_runtime_authority",
+    });
+    const archive = createStoredZip([{ name: "manifest.json", bytes: Buffer.from(`${canonicalJson(manifest)}\n`), executable: false }, ...[...files].map(([name, bytes]) => ({ name, bytes, executable: name.endsWith("/index.js") }))]);
+    const archivePath = path.join(appRoot, `${app.version}.bdapp`);
+    await writeFile(archivePath, archive, { mode: 0o644 });
+    const publishedAt = new Date().toISOString();
+    const descriptorPayload = { descriptor_version: 2 as const, manifest, manifest_digest: canonicalJsonDocumentDigest(manifest), archive: { media_type: "application/vnd.braindrive.app+zip" as const, byte_length: archive.length, digest: digest(archive) }, published_at: publishedAt };
+    const descriptor = { payload: descriptorPayload, signature: { signature_version: 1 as const, domain_separator: "BrainDrive-App-Package-v1" as const, canonicalization: "braindrive-canonical-json-v1" as const, signature_algorithm: "ed25519" as const, signing_key_id: releaseKeyId, signature: releaseSigner("BrainDrive-App-Package-v1", descriptorPayload) } };
+    const descriptorPath = path.join(appRoot, `${app.version}.descriptor.json`);
+    await writeJson(descriptorPath, descriptor);
+    const sourcePayload = { index_version: 2 as const, sequence: 1, prior_index_digest: null, published_at: publishedAt, entries: [{ app_id: app.appId, publisher_id: "ai.braindrive", package_version: app.version, descriptor_digest: canonicalJsonDocumentDigest(descriptor), archive_digest: digest(archive), targets: ["docker_linux_x64", "desktop_windows_x64", "desktop_macos_universal"], sources: [{ environment: "docker_dev", kind: "repository_fixture", descriptor_fixture_id: `${app.routeKey}-${app.version}-descriptor`, archive_fixture_id: `${app.routeKey}-${app.version}-archive` }, { environment: "desktop_windows", kind: "release_https", descriptor_url: `https://releases.braindrive.ai/apps/${app.routeKey}/${app.version}.descriptor.json`, archive_url: `https://releases.braindrive.ai/apps/${app.routeKey}/${app.version}.bdapp` }, { environment: "desktop_macos", kind: "release_https", descriptor_url: `https://releases.braindrive.ai/apps/${app.routeKey}/${app.version}.descriptor.json`, archive_url: `https://releases.braindrive.ai/apps/${app.routeKey}/${app.version}.bdapp` }] }] };
+    const sourceIndex = { payload: sourcePayload, signature: { signature_version: 1 as const, domain_separator: "BrainDrive-App-Source-Index-v1" as const, canonicalization: "braindrive-canonical-json-v1" as const, signature_algorithm: "ed25519" as const, signing_key_id: releaseKeyId, signature: releaseSigner("BrainDrive-App-Source-Index-v1", sourcePayload) } };
+    const sourceIndexPath = path.join(appRoot, "source-index.json");
+    await writeJson(sourceIndexPath, sourceIndex);
+    const revocationPayload = { revocation_version: 2 as const, sequence: 1, prior_list_digest: null, issued_at: publishedAt, next_update_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(), entries: [] };
+    const revocations = { payload: revocationPayload, signature: { signature_version: 1 as const, domain_separator: "BrainDrive-App-Revocations-v1" as const, canonicalization: "braindrive-canonical-json-v1" as const, signature_algorithm: "ed25519" as const, signing_key_id: releaseKeyId, signature: releaseSigner("BrainDrive-App-Revocations-v1", revocationPayload) } };
+    const revocationListPath = path.join(appRoot, "revocations.json");
+    await writeJson(revocationListPath, revocations);
+    const key = appVersionKey(app.appId, app.version);
+    packagesByAppVersion[key] = { archivePath, descriptorPath };
+    authoritiesByAppVersion[key] = { trustRootPath, sourceIndexPath, revocationListPath };
+    signersByAppVersion[key] = releaseSigner;
+    releaseKeyIdsByAppVersion[key] = releaseKeyId;
+  }
+  const first = apps[0];
+  if (!first) throw new AppPlatformError("package_not_found", "Synthetic first-party fixture catalog is empty");
+  const firstKey = appVersionKey(first.appId, first.version);
+  const firstAuthority = authoritiesByAppVersion[firstKey]!;
+  return { root, ...firstAuthority, packages: {}, packagesByAppVersion, authoritiesByAppVersion, signersByAppVersion, releaseKeyIdsByAppVersion };
+}
+
+async function loadPersistedSyntheticFirstPartySources(root: string, currentKeys: ReadonlySet<string>): Promise<{
+  packages: NonNullable<FixtureRepository["packagesByAppVersion"]>;
+  authorities: NonNullable<FixtureRepository["authoritiesByAppVersion"]>;
+}> {
+  const packages: NonNullable<FixtureRepository["packagesByAppVersion"]> = {};
+  const authorities: NonNullable<FixtureRepository["authoritiesByAppVersion"]> = {};
+  let routes;
+  try { routes = await readdir(root, { withFileTypes: true }); }
+  catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return { packages, authorities };
+    throw error;
+  }
+  for (const route of routes.filter((entry) => entry.isDirectory())) {
+    const routeRoot = path.join(root, route.name);
+    const versions = await readdir(routeRoot, { withFileTypes: true });
+    for (const version of versions.filter((entry) => entry.isDirectory())) {
+      const authorityRoot = path.join(routeRoot, version.name);
+      try {
+        const sourceIndexPath = path.join(authorityRoot, "source-index.json");
+        const sourceIndex = PersistedGenericSourceIndexSchema.parse(JSON.parse(await readFile(sourceIndexPath, "utf8")));
+        for (const entry of sourceIndex.payload.entries) {
+          const key = appVersionKey(entry.app_id, entry.package_version);
+          if (currentKeys.has(key)) continue;
+          if (packages[key]) throw new AppPlatformError("source_index_signature_invalid", `Duplicate persisted fixture authority for ${key}`);
+          packages[key] = { archivePath: path.join(authorityRoot, `${entry.package_version}.bdapp`), descriptorPath: path.join(authorityRoot, `${entry.package_version}.descriptor.json`) };
+          authorities[key] = { trustRootPath: path.join(authorityRoot, "trust-root.json"), sourceIndexPath, revocationListPath: path.join(authorityRoot, "revocations.json") };
+        }
+      } catch (error) {
+        if (error instanceof Error && "code" in error && error.code === "ENOENT") continue;
+        if (error instanceof AppPlatformError) throw error;
+        throw new AppPlatformError("source_index_signature_invalid", "Persisted first-party fixture source is malformed or unreadable");
+      }
+    }
+  }
+  return { packages, authorities };
+}
+
+export const MODERN_FIXTURE_VERSION = "4.0.0" as const;
+export const MODERN_FIXTURE_CAPABILITIES = [
+  "career.context.read", "career.facts.read", "career.facts.propose", "career.facts.confirm",
+  "resume.definitions.read", "resume.definitions.write", "resume.jobs.read", "resume.jobs.write",
+  "resume.artifacts.register", "resume.export.request", "resume.operations.read", "app.inference.request",
+] as const;
+
+function loadResumeBuilderUi(): string {
+  const candidates = [
+    path.resolve(process.cwd(), "../resume_builder/resources/main.html"),
+    fileURLToPath(new URL("../../../resume_builder/resources/main.html", import.meta.url)),
+    fileURLToPath(new URL("../../../../resume_builder/resources/main.html", import.meta.url)),
+  ];
+  const resourcePath = candidates.find((candidate) => existsSync(candidate));
+  if (!resourcePath) throw new Error("Resume Builder UI package resource is missing");
+  return readFileSync(resourcePath, "utf8");
+}
+
+function loadResumeBuilderInferenceProgram(): string {
+  const candidates = [
+    path.resolve(process.cwd(), "../resume_builder/resources/inference-program.js"),
+    fileURLToPath(new URL("../../../resume_builder/resources/inference-program.js", import.meta.url)),
+    fileURLToPath(new URL("../../../../resume_builder/resources/inference-program.js", import.meta.url)),
+  ];
+  const resourcePath = candidates.find((candidate) => existsSync(candidate));
+  if (!resourcePath) throw new Error("Resume Builder inference program is missing");
+  return readFileSync(resourcePath, "utf8");
+}
+
+const FIXTURE_SERVER = `import http from "node:http";
+const token = process.env.BRAINDRIVE_APP_CONNECTION_TOKEN;
+const host = "127.0.0.1";
+const port = Number((process.env.BRAINDRIVE_ENDPOINT_BIND || "127.0.0.1:0").split(":").at(-1));
+const server = http.createServer((request, response) => {
+  if (request.headers.authorization !== "Bearer " + token) { response.writeHead(401).end(); return; }
+  if (request.url === "/healthz") { response.writeHead(200, {"content-type":"application/json"}); response.end(JSON.stringify({status:"ok", service:"fixture-mcp", app_id:process.env.BRAINDRIVE_APP_ID})); return; }
+  if (request.url === "/mcp" && request.method === "POST") { response.writeHead(200, {"content-type":"application/json"}); response.end(JSON.stringify({jsonrpc:"2.0",id:1,result:{protocolVersion:"2026-07-28",capabilities:{},serverInfo:{name:"fixture-mcp",version:"1.0.0"}}})); return; }
+  response.writeHead(404).end();
+});
+server.listen(port, host, () => process.stdout.write(JSON.stringify({event:"fixture.ready"}) + "\\n"));
+const stop = () => server.close(() => process.exit(0));
+process.on("SIGTERM", stop); process.on("SIGINT", stop);
+`;
+
+function syntheticFirstPartyServer(app: SyntheticFirstPartyFixture, appHtml: string): string {
+  const uri = `ui://${app.routeKey}/main`;
+  return `import http from "node:http";
+const token = process.env.BRAINDRIVE_APP_CONNECTION_TOKEN;
+const host = "127.0.0.1";
+const port = Number((process.env.BRAINDRIVE_ENDPOINT_BIND || "127.0.0.1:0").split(":").at(-1));
+const appHtml = ${JSON.stringify(appHtml)};
+const uri = ${JSON.stringify(uri)};
+const send = (response, id, result) => { response.writeHead(200, {"content-type":"application/json"}); response.end(JSON.stringify({jsonrpc:"2.0",id,result})); };
+const server = http.createServer((request, response) => {
+  if (request.headers.authorization !== "Bearer " + token) { response.writeHead(401).end(); return; }
+  if (request.url === "/healthz") { response.writeHead(200, {"content-type":"application/json"}); response.end(JSON.stringify({status:"ok",service:"fixture-mcp",app_id:process.env.BRAINDRIVE_APP_ID})); return; }
+  if (request.url !== "/mcp" || request.method !== "POST") { response.writeHead(404).end(); return; }
+  let body = "";
+  request.on("data", (chunk) => { body += chunk; if (body.length > 262144) request.destroy(); });
+  request.on("end", () => {
+    let message; try { message = JSON.parse(body); } catch { response.writeHead(400).end(); return; }
+    if (message.method === "server/discover") { send(response, message.id, {supportedVersions:["2026-07-28"],capabilities:{tools:{listChanged:false},resources:{listChanged:false},extensions:{"io.modelcontextprotocol/ui":{mimeTypes:["text/html;profile=mcp-app"]}}},_meta:{"io.modelcontextprotocol/ui":{version:"2026-01-26"},"io.modelcontextprotocol/serverInfo":{name:${JSON.stringify(`${app.routeKey}-fixture`)},version:${JSON.stringify(app.version)}}}}); return; }
+    if (message.method === "resources/list") { send(response, message.id, {resultType:"complete",ttlMs:0,cacheScope:"private",resources:[{uri,name:${JSON.stringify(app.displayName)},title:${JSON.stringify(app.displayName)},description:${JSON.stringify(`Sandboxed owner ${app.displayName} workflow`)},mimeType:"text/html;profile=mcp-app",size:Buffer.byteLength(appHtml),_meta:{"io.modelcontextprotocol/ui":{version:"2026-01-26"},cachePolicy:"immutable_package_digest"}}]}); return; }
+    if (message.method === "resources/templates/list") { send(response, message.id, {resultType:"complete",ttlMs:0,cacheScope:"private",resourceTemplates:[]}); return; }
+    if (message.method === "resources/read" && message.params?.uri === uri) { send(response, message.id, {resultType:"complete",ttlMs:0,cacheScope:"private",contents:[{uri,mimeType:"text/html;profile=mcp-app",text:appHtml,_meta:{"io.modelcontextprotocol/ui":{version:"2026-01-26"},cachePolicy:"immutable_package_digest"}}]}); return; }
+    if (message.method === "tools/list") { send(response, message.id, {resultType:"complete",ttlMs:0,cacheScope:"private",tools:[{name:"fixture.status",description:"Return the fixture host status",inputSchema:{type:"object",properties:{},additionalProperties:false},_meta:{ui:{visibility:["app"]}}}]}); return; }
+    if (message.method === "tools/call" && message.params?.name === "fixture.status") { send(response, message.id, {resultType:"complete",content:[{type:"text",text:"Fixture ready",annotations:{audience:["user"],priority:1}},{type:"resource_link",name:${JSON.stringify(`${app.routeKey}-ui`)},uri,mimeType:"text/html;profile=mcp-app",size:Buffer.byteLength(appHtml),_meta:{visibility:"app"}}],structuredContent:{ready:true,version:${JSON.stringify(app.version)}},_meta:{"io.modelcontextprotocol/ui":{resourceUri:uri,visibility:["app"]}},isError:false}); return; }
+    response.writeHead(404, {"content-type":"application/json"}); response.end(JSON.stringify({jsonrpc:"2.0",id:message.id,error:{code:-32601,message:"Method not found"}}));
+  });
+});
+server.listen(port, host, () => process.stdout.write(JSON.stringify({event:"fixture.ready"}) + "\\n"));
+const stop = () => server.close(() => process.exit(0));
+process.on("SIGTERM", stop); process.on("SIGINT", stop);
+`;
+}
+
+function modernFixtureServer(appHtml: string, version: string): string {
+  return `import http from "node:http";
+import { adjudicateResumeInference, prepareResumeInference } from "./inference-program.js";
+const token = process.env.BRAINDRIVE_APP_CONNECTION_TOKEN;
+const host = "127.0.0.1";
+const port = Number((process.env.BRAINDRIVE_ENDPOINT_BIND || "127.0.0.1:0").split(":").at(-1));
+const appHtml = ${JSON.stringify(appHtml)};
+const send = (response, id, result) => { response.writeHead(200, {"content-type":"application/json"}); response.end(JSON.stringify({jsonrpc:"2.0",id,result})); };
+const server = http.createServer((request, response) => {
+  if (request.headers.authorization !== "Bearer " + token) { response.writeHead(401).end(); return; }
+  if (request.url === "/healthz") { response.writeHead(200, {"content-type":"application/json"}); response.end(JSON.stringify({status:"ok",service:"fixture-mcp",app_id:process.env.BRAINDRIVE_APP_ID})); return; }
+  if (request.url !== "/mcp" || request.method !== "POST") { response.writeHead(404).end(); return; }
+  let body = "";
+  request.on("data", (chunk) => { body += chunk; if (body.length > 262144) request.destroy(); });
+  request.on("end", () => {
+    let message;
+    try { message = JSON.parse(body); } catch { response.writeHead(400).end(); return; }
+    if (message.method === "server/discover") { send(response, message.id, {supportedVersions:["2026-07-28"],capabilities:{tools:{listChanged:false},resources:{listChanged:false},extensions:{"io.modelcontextprotocol/ui":{mimeTypes:["text/html;profile=mcp-app"]}}},_meta:{"io.modelcontextprotocol/ui":{version:"2026-01-26"},"io.modelcontextprotocol/serverInfo":{name:"resume-builder-fixture",version:${JSON.stringify(version)}}}}); return; }
+    if (message.method === "resources/list") { send(response, message.id, {resultType:"complete",ttlMs:0,cacheScope:"private",resources:[{uri:"ui://resume-builder/main",name:"Resume Builder",title:"Resume Builder",description:"Sandboxed owner resume workflow",mimeType:"text/html;profile=mcp-app",size:Buffer.byteLength(appHtml),_meta:{"io.modelcontextprotocol/ui":{version:"2026-01-26"},cachePolicy:"immutable_package_digest"}}]}); return; }
+    if (message.method === "resources/templates/list") { send(response, message.id, {resultType:"complete",ttlMs:0,cacheScope:"private",resourceTemplates:[]}); return; }
+    if (message.method === "resources/read" && message.params?.uri === "ui://resume-builder/main") { send(response, message.id, {resultType:"complete",ttlMs:0,cacheScope:"private",contents:[{uri:"ui://resume-builder/main",mimeType:"text/html;profile=mcp-app",text:appHtml,_meta:{"io.modelcontextprotocol/ui":{version:"2026-01-26"},cachePolicy:"immutable_package_digest"}}]}); return; }
+    if (message.method === "tools/list") { send(response, message.id, {resultType:"complete",ttlMs:0,cacheScope:"private",tools:[{name:"fixture.status",description:"Return the fixture host status",inputSchema:{type:"object",properties:{},additionalProperties:false},_meta:{ui:{visibility:["app"]}}},{name:"app.inference.prepare",description:"Prepare an installed app-owned inference plan",inputSchema:{type:"object",additionalProperties:true},_meta:{ui:{visibility:["model"]}}},{name:"app.inference.adjudicate",description:"Adjudicate an installed app-owned inference candidate",inputSchema:{type:"object",additionalProperties:true},_meta:{ui:{visibility:["model"]}}}]}); return; }
+    if (message.method === "tools/call" && message.params?.name === "fixture.status") { send(response, message.id, {resultType:"complete",content:[{type:"text",text:"Fixture ready",annotations:{audience:["user"],priority:1}},{type:"resource_link",name:"resume-ui",uri:"ui://resume-builder/main",mimeType:"text/html;profile=mcp-app",size:Buffer.byteLength(appHtml),_meta:{visibility:"app"}},{type:"resource",resource:{uri:"ui://resume-builder/state",mimeType:"application/json",text:"{\\\"ready\\\":true}",_meta:{revision:1}}}],structuredContent:{ready:true,version:${JSON.stringify(version)}},_meta:{"io.modelcontextprotocol/ui":{resourceUri:"ui://resume-builder/main",visibility:["app"]}},isError:false}); return; }
+    if (message.method === "tools/call" && message.params?.name === "app.inference.prepare") { try { const result=prepareResumeInference(message.params.arguments); send(response,message.id,{resultType:"complete",content:[],structuredContent:result,_meta:{ui:{visibility:["model"]}},isError:false}); } catch { response.writeHead(409,{"content-type":"application/json"}); response.end(JSON.stringify({jsonrpc:"2.0",id:message.id,error:{code:-32602,message:"Installed app inference preparation failed"}})); } return; }
+    if (message.method === "tools/call" && message.params?.name === "app.inference.adjudicate") { try { const result=adjudicateResumeInference(message.params.arguments); send(response,message.id,{resultType:"complete",content:[],structuredContent:result,_meta:{ui:{visibility:["model"]}},isError:false}); } catch { response.writeHead(409,{"content-type":"application/json"}); response.end(JSON.stringify({jsonrpc:"2.0",id:message.id,error:{code:-32602,message:"Installed app inference adjudication failed"}})); } return; }
+    response.writeHead(404, {"content-type":"application/json"}); response.end(JSON.stringify({jsonrpc:"2.0",id:message.id,error:{code:-32601,message:"Method not found"}}));
+  });
+});
+server.listen(port, host, () => process.stdout.write(JSON.stringify({event:"fixture.ready"}) + "\\n"));
+const stop = () => server.close(() => process.exit(0));
+process.on("SIGTERM", stop); process.on("SIGINT", stop);
+`;
+}
+
+function digest(bytes: Buffer | string): `sha256:${string}` {
+  return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+}
+
+function rawPublicKey(publicKey: KeyObject): string {
+  const der = publicKey.export({ format: "der", type: "spki" });
+  return Buffer.from(der).subarray(-32).toString("base64");
+}
+
+async function writeJson(filePath: string, value: unknown): Promise<void> {
+  await writeFile(filePath, `${canonicalJson(value)}\n`, { encoding: "utf8", mode: 0o644 });
+}
+
+export async function createFixtureRepository(root: string): Promise<FixtureRepository> {
+  const legacy = await loadOrCreateFixtureSource(root, ["1.0.0", "2.0.0"], "legacy");
+  const modernRoot = path.join(root, "modern");
+  const priorModern = await loadPersistedFixtureSources(modernRoot, MODERN_FIXTURE_VERSION);
+  const retainedModern = mergePersistedFixtureSources(priorModern);
+  const modern = await loadOrCreateFixtureSource(
+    path.join(modernRoot, MODERN_FIXTURE_VERSION),
+    [MODERN_FIXTURE_VERSION],
+    "modern",
+    true,
+  );
+  return {
+    ...legacy,
+    packages: { ...legacy.packages, ...retainedModern.packages, ...modern.packages },
+    authoritiesByVersion: {
+      ...retainedModern.authorities,
+      [MODERN_FIXTURE_VERSION]: {
+        trustRootPath: modern.trustRootPath,
+        sourceIndexPath: modern.sourceIndexPath,
+        revocationListPath: modern.revocationListPath,
+      },
+    },
+  };
+}
+
+async function loadPersistedFixtureSources(root: string, currentVersion: string): Promise<FixtureRepository[]> {
+  const repositories: FixtureRepository[] = [];
+  const flatSource = await loadPersistedFixtureSource(root);
+  if (flatSource) repositories.push(flatSource);
+  let entries;
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return repositories;
+    throw error;
+  }
+  const versionDirectories = entries
+    .filter((entry) => entry.isDirectory() && entry.name !== currentVersion && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/.test(entry.name))
+    .sort((left, right) => left.name.localeCompare(right.name));
+  for (const entry of versionDirectories) {
+    const repository = await loadPersistedFixtureSource(path.join(root, entry.name));
+    if (repository) repositories.push(repository);
+  }
+  return repositories;
+}
+
+function mergePersistedFixtureSources(repositories: FixtureRepository[]): {
+  packages: FixtureRepository["packages"];
+  authorities: NonNullable<FixtureRepository["authoritiesByVersion"]>;
+} {
+  const packages: FixtureRepository["packages"] = {};
+  const authorities: NonNullable<FixtureRepository["authoritiesByVersion"]> = {};
+  for (const repository of repositories) {
+    for (const [version, packagePaths] of Object.entries(repository.packages)) {
+      if (packages[version]) {
+        throw new AppPlatformError("source_index_signature_invalid", `Duplicate persisted fixture authority for Resume Builder ${version}`);
+      }
+      packages[version] = packagePaths;
+      authorities[version] = {
+        trustRootPath: repository.trustRootPath,
+        sourceIndexPath: repository.sourceIndexPath,
+        revocationListPath: repository.revocationListPath,
+      };
+    }
+  }
+  return { packages, authorities };
+}
+
+async function loadPersistedFixtureSource(root: string): Promise<FixtureRepository | null> {
+  const sourceIndexPath = path.join(root, "source-index.json");
+  try {
+    const existing = PackageSourceIndexSchema.parse(JSON.parse(await readFile(sourceIndexPath, "utf8")));
+    const packages = Object.fromEntries(existing.payload.entries.map((entry) => [entry.package_version, {
+      archivePath: path.join(root, `${entry.package_version}.bdapp`),
+      descriptorPath: path.join(root, `${entry.package_version}.descriptor.json`),
+    }]));
+    return { root, trustRootPath: path.join(root, "trust-root.json"), sourceIndexPath, revocationListPath: path.join(root, "revocations.json"), packages };
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
+    throw new AppPlatformError("source_index_signature_invalid", "Persisted fixture source index is malformed or unreadable");
+  }
+}
+
+async function loadOrCreateFixtureSource(
+  root: string,
+  versions: string[],
+  authorityLabel: "legacy" | "modern",
+  republishCurrent = false,
+): Promise<FixtureRepository> {
+  const sourceIndexPath = path.join(root, "source-index.json");
+  if (!republishCurrent) {
+    try {
+      const existing = JSON.parse(await readFile(sourceIndexPath, "utf8")) as SourceIndex;
+      const packages = Object.fromEntries(existing.payload.entries.map((entry) => [entry.package_version, {
+        archivePath: path.join(root, `${entry.package_version}.bdapp`),
+        descriptorPath: path.join(root, `${entry.package_version}.descriptor.json`),
+      }]));
+      return { root, trustRootPath: path.join(root, "trust-root.json"), sourceIndexPath, revocationListPath: path.join(root, "revocations.json"), packages };
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+        throw new AppPlatformError("source_index_signature_invalid", "Persisted fixture source index is malformed or unreadable");
+      }
+      // Only a genuinely missing source initializes a synthetic authority.
+    }
+  }
+  // The current development package is derived from mounted app files. Republish
+  // it on host start so source changes and signed revocation freshness take effect.
+  // Prior version-specific authorities are discovered separately and retained.
+  await mkdir(root, { recursive: true });
+  const rootPair = generateKeyPairSync("ed25519");
+  const releasePair = generateKeyPairSync("ed25519");
+  const rootKeyId = `braindrive-app-root-fixture-${authorityLabel}-2026`;
+  const releaseKeyId = `braindrive-app-release-fixture-${authorityLabel}-2026`;
+  const signWith = (privateKey: typeof rootPair.privateKey, domain: string, payload: unknown) =>
+    sign(null, Buffer.from(canonicalSignedBytes(domain, payload), "utf8"), privateKey).toString("base64");
+  const releaseSigner = (domain: string, payload: unknown) => signWith(releasePair.privateKey, domain, payload);
+  const releaseKey = {
+    key_version: 1 as const,
+    key_id: releaseKeyId,
+    algorithm: "ed25519" as const,
+    public_key: rawPublicKey(releasePair.publicKey),
+    not_before: "2026-01-01T00:00:00.000Z",
+    not_after: "2036-01-01T00:00:00.000Z",
+    status: "active" as const,
+    authorization: {
+      signature_version: 1 as const,
+      domain_separator: "BrainDrive-App-Release-Key-v1" as const,
+      canonicalization: "braindrive-canonical-json-v1" as const,
+      signature_algorithm: "ed25519" as const,
+      signing_key_id: rootKeyId,
+      signature: "",
+    },
+  };
+  releaseKey.authorization.signature = signWith(rootPair.privateKey, releaseKey.authorization.domain_separator, releaseKeyAuthorizationPayload(releaseKey));
+  const trustRoot = TrustRootSchema.parse({
+    trust_root_version: 1,
+    trust_domain: "braindrive-app-release",
+    root_key: { key_id: rootKeyId, algorithm: "ed25519", public_key: rawPublicKey(rootPair.publicKey), status: "active" },
+    threshold: 1,
+    release_keys: [releaseKey],
+  });
+  await writeJson(path.join(root, "trust-root.json"), trustRoot);
+
+  const packages: FixtureRepository["packages"] = {};
+  const entries: SourceIndex["payload"]["entries"] = [];
+  const modernFixtureHtml = authorityLabel === "modern" ? loadResumeBuilderUi() : null;
+  const modernInferenceProgram = authorityLabel === "modern" ? loadResumeBuilderInferenceProgram() : null;
+  const publishedAt = new Date().toISOString();
+  const nextUpdateAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  for (const version of versions) {
+    const files = new Map<string, Buffer>([
+      ["payload/docker/index.js", Buffer.from(version === MODERN_FIXTURE_VERSION ? modernFixtureServer(modernFixtureHtml!, version) : FIXTURE_SERVER.replace('version:"1.0.0"', `version:"${version}"`), "utf8")],
+      ...(version === MODERN_FIXTURE_VERSION ? [["payload/docker/inference-program.js", Buffer.from(modernInferenceProgram!, "utf8")] as [string, Buffer]] : []),
+      ...(version === MODERN_FIXTURE_VERSION ? [["payload/ui/main.html", Buffer.from(modernFixtureHtml!, "utf8")] as [string, Buffer]] : []),
+      ["provenance/build.jsonl", Buffer.from(`${canonicalJson({ builder: "braindrive-fixture", version, source: "repository" })}\n`, "utf8")],
+      ["sbom/cyclonedx.json", Buffer.from(`${canonicalJson({ bomFormat: "CycloneDX", specVersion: "1.6", version: 1, components: [] })}\n`, "utf8")],
+    ]);
+    const manifest: Manifest = PackageManifestSchema.parse({
+      manifest_version: 1,
+      app_id: "ai.braindrive.resume-builder",
+      publisher_id: "ai.braindrive",
+      display_name: "Resume Builder",
+      package_version: version,
+      archive: { format: "zip", profile: "braindrive-zip-v1", compression: "store", layout_version: 1, manifest_path: "manifest.json", undeclared_entries: "reject", links_and_device_nodes: "reject", max_file_count: 256, max_compressed_bytes: 67_108_864, max_uncompressed_bytes: 268_435_456 },
+      files: [...files].map(([filePath, bytes]) => ({ path: filePath, kind: "file", mode: filePath.endsWith("/index.js") ? "executable" : "read_only", size_bytes: bytes.length, digest: digest(bytes) })),
+      platform_artifacts: [
+        { target: "docker_linux_x64", os: "linux", architecture: "x64", runtime_kind: "packaged_node", entrypoint: "payload/docker/index.js" },
+        { target: "desktop_windows_x64", os: "windows", architecture: "x64", runtime_kind: "packaged_node", entrypoint: "payload/docker/index.js" },
+        { target: "desktop_macos_universal", os: "macos", architecture: "universal", runtime_kind: "packaged_node", entrypoint: "payload/docker/index.js" },
+      ],
+      compatibility: { app_contract: 1, host_min_version: "26.7.23", mcp_protocol: "2026-07-28", legacy_mcp_adapter: "2025-11-25", mcp_apps: { extension_id: "io.modelcontextprotocol/ui", version: "2026-01-26" }, data_schema: version === MODERN_FIXTURE_VERSION ? { read_min: 2, read_max: 4, write_version: 4 } : { read_min: 1, read_max: 1, write_version: 1 } },
+      requested_capabilities: version === MODERN_FIXTURE_VERSION ? [...MODERN_FIXTURE_CAPABILITIES] : ["career.context.read", "career.facts.read", "career.facts.propose", "career.facts.confirm", "resume.definitions.read", "resume.definitions.write", "resume.jobs.read", "resume.jobs.write", "resume.artifacts.register", "resume.export.request", "resume.operations.read", ...(version === "1.0.0" ? [] : ["app.inference.request" as const])],
+      provenance_path: "provenance/build.jsonl",
+      sbom_path: "sbom/cyclonedx.json",
+      retention_policy: "retain_owner_data_remove_runtime_authority",
+    });
+    const archive = createStoredZip([
+      { name: "manifest.json", bytes: Buffer.from(`${canonicalJson(manifest)}\n`, "utf8"), executable: false },
+      ...[...files].map(([name, bytes]) => ({ name, bytes, executable: name.endsWith("/index.js") })),
+    ]);
+    const archivePath = path.join(root, `${version}.bdapp`);
+    await writeFile(archivePath, archive, { mode: 0o644 });
+    const payload: Descriptor["payload"] = {
+      descriptor_version: 1,
+      manifest,
+      manifest_digest: canonicalJsonDocumentDigest(manifest),
+      archive: { media_type: "application/vnd.braindrive.app+zip", byte_length: archive.length, digest: digest(archive) },
+      published_at: publishedAt,
+    };
+    const descriptor = PackageDescriptorSchema.parse({ payload, signature: { signature_version: 1, domain_separator: "BrainDrive-App-Package-v1", canonicalization: "braindrive-canonical-json-v1", signature_algorithm: "ed25519", signing_key_id: releaseKeyId, signature: releaseSigner("BrainDrive-App-Package-v1", payload) } });
+    const descriptorPath = path.join(root, `${version}.descriptor.json`);
+    await writeJson(descriptorPath, descriptor);
+    packages[version] = { archivePath, descriptorPath };
+    entries.push({
+      app_id: "ai.braindrive.resume-builder", publisher_id: "ai.braindrive", package_version: version,
+      descriptor_digest: canonicalJsonDocumentDigest(descriptor), archive_digest: digest(archive), targets: ["docker_linux_x64", "desktop_windows_x64", "desktop_macos_universal"],
+      sources: [
+        { environment: "docker_dev", kind: "repository_fixture", descriptor_fixture_id: `resume-builder-${version}-descriptor`, archive_fixture_id: `resume-builder-${version}-archive` },
+        { environment: "desktop_windows", kind: "release_https", descriptor_url: `https://releases.braindrive.ai/apps/resume-builder/${version}.descriptor.json`, archive_url: `https://releases.braindrive.ai/apps/resume-builder/${version}.bdapp` },
+        { environment: "desktop_macos", kind: "release_https", descriptor_url: `https://releases.braindrive.ai/apps/resume-builder/${version}.descriptor.json`, archive_url: `https://releases.braindrive.ai/apps/resume-builder/${version}.bdapp` },
+      ],
+    });
+  }
+  const sourcePayload: SourceIndex["payload"] = { index_version: 1, sequence: 1, prior_index_digest: null, published_at: publishedAt, entries };
+  const sourceIndex = PackageSourceIndexSchema.parse({ payload: sourcePayload, signature: { signature_version: 1, domain_separator: "BrainDrive-App-Source-Index-v1", canonicalization: "braindrive-canonical-json-v1", signature_algorithm: "ed25519", signing_key_id: releaseKeyId, signature: releaseSigner("BrainDrive-App-Source-Index-v1", sourcePayload) } });
+  await writeJson(sourceIndexPath, sourceIndex);
+  const revocationPayload: Revocations["payload"] = { revocation_version: 1, sequence: 1, prior_list_digest: null, issued_at: publishedAt, next_update_at: nextUpdateAt, entries: [] };
+  const revocations = RevocationListSchema.parse({ payload: revocationPayload, signature: { signature_version: 1, domain_separator: "BrainDrive-App-Revocations-v1", canonicalization: "braindrive-canonical-json-v1", signature_algorithm: "ed25519", signing_key_id: releaseKeyId, signature: releaseSigner("BrainDrive-App-Revocations-v1", revocationPayload) } });
+  const revocationListPath = path.join(root, "revocations.json");
+  await writeJson(revocationListPath, revocations);
+  return { root, trustRootPath: path.join(root, "trust-root.json"), sourceIndexPath, revocationListPath, packages, signer: releaseSigner, releaseKeyId };
+}
+
+export async function revokeFixtureVersion(repository: FixtureRepository, version: string, appId = "ai.braindrive.resume-builder"): Promise<void> {
+  const key = appVersionKey(appId, version);
+  const genericSigner = repository.signersByAppVersion?.[key];
+  const genericReleaseKeyId = repository.releaseKeyIdsByAppVersion?.[key];
+  if (genericSigner && genericReleaseKeyId) {
+    const authority = repository.authoritiesByAppVersion?.[key];
+    const packagePaths = repository.packagesByAppVersion?.[key];
+    if (!authority || !packagePaths) throw new Error("Fixture authority is incomplete");
+    const descriptor = JSON.parse(await readFile(packagePaths.descriptorPath, "utf8")) as { payload: { archive: { digest: string } } };
+    const prior = JSON.parse(await readFile(authority.revocationListPath, "utf8")) as { payload: { sequence: number } };
+    const revokedAt = new Date().toISOString();
+    const payload = { revocation_version: 2 as const, sequence: prior.payload.sequence + 1, prior_list_digest: null, issued_at: revokedAt, next_update_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(), entries: [{ revocation_id: crypto.randomUUID(), publisher_id: "ai.braindrive", app_id: appId, match: { kind: "package_digest", package_digest: descriptor.payload.archive.digest }, reason_code: "critical_defect", revoked_at: revokedAt }] };
+    await writeJson(authority.revocationListPath, { payload, signature: { signature_version: 1, domain_separator: "BrainDrive-App-Revocations-v1", canonicalization: "braindrive-canonical-json-v1", signature_algorithm: "ed25519", signing_key_id: genericReleaseKeyId, signature: genericSigner("BrainDrive-App-Revocations-v1", payload) } });
+    return;
+  }
+  if (!repository.signer || !repository.releaseKeyId) throw new Error("Fixture signing authority is unavailable after restart");
+  const descriptor = PackageDescriptorSchema.parse(JSON.parse(await readFile(repository.packages[version].descriptorPath, "utf8")));
+  const prior = RevocationListSchema.parse(JSON.parse(await readFile(repository.revocationListPath, "utf8")));
+  const revokedAt = new Date().toISOString();
+  const payload: Revocations["payload"] = {
+    revocation_version: 1,
+    sequence: prior.payload.sequence + 1,
+    prior_list_digest: canonicalJsonDocumentDigest(prior.payload),
+    issued_at: revokedAt,
+    next_update_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    entries: [{ revocation_id: crypto.randomUUID(), publisher_id: "ai.braindrive", app_id: "ai.braindrive.resume-builder", match: { kind: "package_digest", package_digest: descriptor.payload.archive.digest }, reason_code: "critical_defect", revoked_at: revokedAt }],
+  };
+  const revocations = RevocationListSchema.parse({ payload, signature: { signature_version: 1, domain_separator: "BrainDrive-App-Revocations-v1", canonicalization: "braindrive-canonical-json-v1", signature_algorithm: "ed25519", signing_key_id: repository.releaseKeyId, signature: repository.signer("BrainDrive-App-Revocations-v1", payload) } });
+  await writeJson(repository.revocationListPath, revocations);
+}

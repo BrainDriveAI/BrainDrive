@@ -57,14 +57,16 @@ test('source candidate proof reads the commit tree without following a worktree 
   }
 });
 
-test('source candidate proof excludes declared release evidence outputs', async () => {
+test('source candidate proof excludes declared evidence-only outputs', async () => {
   const temporary = await mkdtemp(resolve(tmpdir(), 'docs-candidate-digest-release-'));
   try {
     execFileSync('git', ['init', '-q'], { cwd: temporary });
     execFileSync('git', ['config', 'user.email', 'synthetic@example.invalid'], { cwd: temporary });
     execFileSync('git', ['config', 'user.name', 'Synthetic Test'], { cwd: temporary });
     await mkdir(resolve(temporary, 'docs/developers/verification/milestones'), { recursive: true });
+    await mkdir(resolve(temporary, 'builds/typescript/app-platform/contracts/fixtures/spec-08'), { recursive: true });
     for (const path of [
+      'builds/typescript/app-platform/contracts/fixtures/spec-08/m8-requirement-evidence.json',
       'docs/developers/verification/milestones/07-release-gauntlet.md',
       'docs/developers/verification/m7-trace-matrix.md',
       'docs/developers/verification/v1-readiness.md',
@@ -76,6 +78,7 @@ test('source candidate proof excludes declared release evidence outputs', async 
     const sourceRevision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: temporary, encoding: 'utf8' }).trim();
     const clean = await sourceCandidateIdentity(temporary, sourceRevision);
     for (const path of [
+      'builds/typescript/app-platform/contracts/fixtures/spec-08/m8-requirement-evidence.json',
       'docs/developers/verification/milestones/07-release-gauntlet.md',
       'docs/developers/verification/m7-trace-matrix.md',
       'docs/developers/verification/v1-readiness.md',

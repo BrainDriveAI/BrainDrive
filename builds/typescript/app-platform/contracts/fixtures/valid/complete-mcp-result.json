@@ -1,0 +1,18 @@
+{
+  "envelope_version": 1,
+  "protocol_version": "2026-07-28",
+  "connection_id": "20000000-0000-4000-8000-000000000001",
+  "request_id": "request-1",
+  "operation_id": "20000000-0000-4000-8000-000000000002",
+  "content": [
+    { "type": "text", "text": "owner-safe result" },
+    { "type": "resource_link", "name": "resume-ui", "uri": "ui://resume-builder/main", "mimeType": "text/html;profile=mcp-app", "size": 128 },
+    { "type": "resource", "resource": { "uri": "ui://resume-builder/status", "mimeType": "application/json", "text": "{\"ready\":true}" } }
+  ],
+  "structuredContent": { "ready": true },
+  "_meta": { "io.modelcontextprotocol/ui": { "resourceUri": "ui://resume-builder/main" } },
+  "isError": false,
+  "progress_token": "progress-1",
+  "cancellation_id": "20000000-0000-4000-8000-000000000003",
+  "protocol_error": null
+}

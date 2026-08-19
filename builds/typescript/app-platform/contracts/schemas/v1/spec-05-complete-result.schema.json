@@ -1,0 +1,525 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/spec-05-complete-result.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "envelope_version": {
+      "type": "number",
+      "const": 1
+    },
+    "result_type": {
+      "type": "string",
+      "const": "complete"
+    },
+    "protocol_version": {
+      "type": "string",
+      "enum": [
+        "2026-07-28",
+        "2025-11-25"
+      ]
+    },
+    "connection_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "request_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        }
+      ]
+    },
+    "operation_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "content": {
+      "maxItems": 1000,
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "text"
+              },
+              "text": {
+                "type": "string",
+                "maxLength": 131072
+              },
+              "annotations": {
+                "type": "object",
+                "properties": {
+                  "audience": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "user",
+                        "assistant"
+                      ]
+                    }
+                  },
+                  "priority": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "lastModified": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "_meta": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              }
+            },
+            "required": [
+              "type",
+              "text"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "image"
+              },
+              "data": {
+                "type": "string",
+                "maxLength": 2796211
+              },
+              "mimeType": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "annotations": {
+                "type": "object",
+                "properties": {
+                  "audience": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "user",
+                        "assistant"
+                      ]
+                    }
+                  },
+                  "priority": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "lastModified": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "_meta": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              }
+            },
+            "required": [
+              "type",
+              "data",
+              "mimeType"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "audio"
+              },
+              "data": {
+                "type": "string",
+                "maxLength": 2796211
+              },
+              "mimeType": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "annotations": {
+                "type": "object",
+                "properties": {
+                  "audience": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "user",
+                        "assistant"
+                      ]
+                    }
+                  },
+                  "priority": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "lastModified": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "_meta": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              }
+            },
+            "required": [
+              "type",
+              "data",
+              "mimeType"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "resource_link"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 512
+              },
+              "uri": {
+                "type": "string",
+                "maxLength": 2048
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 2048
+              },
+              "mimeType": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2097152
+              },
+              "annotations": {
+                "type": "object",
+                "properties": {
+                  "audience": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "user",
+                        "assistant"
+                      ]
+                    }
+                  },
+                  "priority": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "lastModified": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "_meta": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              }
+            },
+            "required": [
+              "type",
+              "name",
+              "uri"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "resource"
+              },
+              "resource": {
+                "type": "object",
+                "properties": {
+                  "uri": {
+                    "type": "string",
+                    "maxLength": 2048
+                  },
+                  "mimeType": {
+                    "type": "string",
+                    "maxLength": 256
+                  },
+                  "text": {
+                    "type": "string",
+                    "maxLength": 2097152
+                  },
+                  "blob": {
+                    "type": "string",
+                    "maxLength": 2796211
+                  },
+                  "_meta": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "uri"
+                ],
+                "additionalProperties": false
+              },
+              "annotations": {
+                "type": "object",
+                "properties": {
+                  "audience": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "user",
+                        "assistant"
+                      ]
+                    }
+                  },
+                  "priority": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "lastModified": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "_meta": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              }
+            },
+            "required": [
+              "type",
+              "resource"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "structuredContent": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {}
+    },
+    "_meta": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {}
+    },
+    "isError": {
+      "type": "boolean"
+    },
+    "progress_token": {
+      "anyOf": [
+        {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 256
+            },
+            {
+              "type": "number"
+            }
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "cancellation_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "error": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "category": {
+              "type": "string",
+              "enum": [
+                "incompatible",
+                "malformed",
+                "oversized",
+                "unauthorized",
+                "forbidden",
+                "not_found",
+                "conflict",
+                "cancelled",
+                "timeout",
+                "unavailable",
+                "internal"
+              ]
+            },
+            "protocol_code": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "safe_message": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "retryable": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "category",
+            "protocol_code",
+            "safe_message",
+            "retryable"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "projections": {
+      "type": "object",
+      "properties": {
+        "model_visible_content_indices": {
+          "maxItems": 1000,
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "app_visible_content_indices": {
+          "maxItems": 1000,
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "model_structured_content": {
+          "type": "boolean"
+        },
+        "app_structured_content": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "model_visible_content_indices",
+        "app_visible_content_indices",
+        "model_structured_content",
+        "app_structured_content"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "envelope_version",
+    "result_type",
+    "protocol_version",
+    "connection_id",
+    "request_id",
+    "operation_id",
+    "content",
+    "isError",
+    "progress_token",
+    "cancellation_id",
+    "error",
+    "projections"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,41 @@
+{
+  "corpus_version": 1,
+  "valid_identities": [
+    {
+      "app_id": "ai.braindrive.resume-builder",
+      "publisher_id": "ai.braindrive",
+      "route_key": "resume-builder"
+    },
+    {
+      "app_id": "ai.braindrive.brief-builder",
+      "publisher_id": "ai.braindrive",
+      "route_key": "brief-builder"
+    }
+  ],
+  "invalid_identities": [
+    {
+      "app_id": "AI.BRAINDRIVE.RESUME-BUILDER",
+      "publisher_id": "ai.braindrive",
+      "route_key": "resume-builder"
+    },
+    {
+      "app_id": "ai.braindrive.resume-builder",
+      "publisher_id": "ai.example",
+      "route_key": "resume-builder"
+    },
+    {
+      "app_id": "ai.braindrive.resume-builder",
+      "publisher_id": "ai.braindrive",
+      "route_key": "Resume Builder"
+    }
+  ],
+  "forbidden_manifest_authority_fields": [
+    "handler",
+    "handler_name",
+    "module",
+    "module_path",
+    "import_name",
+    "data_adapter",
+    "inference_policy"
+  ]
+}

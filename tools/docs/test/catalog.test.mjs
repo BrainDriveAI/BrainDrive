@@ -10,6 +10,7 @@ import { enumerateCandidates } from '../lib/git-inputs.mjs';
 import { validateSchema } from '../lib/schema.mjs';
 import { validateStructure } from '../lib/rules/structure.mjs';
 import { checkRepository, validateVerificationReport, writeReportSafely } from '../check.mjs';
+import { APPROVED_EVIDENCE_OUTPUT_PATTERNS } from '../lib/evidence-identity.mjs';
 
 const fixture = async (name) => JSON.parse(await readFile(new URL(`./fixtures/catalog/${name}`, import.meta.url), 'utf8'));
 const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url));
@@ -38,6 +39,19 @@ test('repository catalog assigns the accepted human review roles', async () => {
     Object.fromEntries(catalog.humanReviewRequirements.map(({ id, reviewerRole }) => [id, reviewerRole])),
     HUMAN_REVIEW_ROLES,
   );
+});
+
+test('catalog approves only the exact Spec 08 matrix alongside the fixed evidence outputs', async () => {
+  const catalog = JSON.parse(await readFile(resolve(repositoryRoot, 'docs/developers/catalog.json'), 'utf8'));
+  const matrixPath = 'builds/typescript/app-platform/contracts/fixtures/spec-08/m8-requirement-evidence.json';
+  assert.deepEqual(catalog.evidenceOutputs.approvedPathPatterns, APPROVED_EVIDENCE_OUTPUT_PATTERNS);
+  assert.equal(catalog.evidenceOutputs.approvedPathPatterns.at(-4), matrixPath);
+  assert.deepEqual(catalog.evidenceOutputs.releaseRecords, APPROVED_EVIDENCE_OUTPUT_PATTERNS.slice(-3));
+
+  const broadened = structuredClone(catalog);
+  broadened.evidenceOutputs.approvedPathPatterns[broadened.evidenceOutputs.approvedPathPatterns.indexOf(matrixPath)] =
+    'builds/typescript/app-platform/contracts/fixtures/spec-08/*.json';
+  assert.ok(validateCatalog(broadened, { checkPaths: false }).some(({ message }) => /fixed validator allowlist/.test(message)));
 });
 
 test('declared final release records can materialize without a self-referential inventory edit', async () => {

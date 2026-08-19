@@ -1,0 +1,36 @@
+const id = (value) => `41000000-0000-4000-8000-${String(value).padStart(12, "0")}`;
+
+export const seriousProfileFallbackFixture = {
+  facts: [
+    { revision_id: id(1), fact_kind: "contact", value: "Jordan Lee | Columbus, Ohio | jordan.lee@example.test | 614-555-0148", state: "confirmed" },
+    { revision_id: id(2), fact_kind: "preference", value: "Senior Customer Experience Operations Manager in B2B SaaS", state: "confirmed" },
+    { revision_id: id(3), fact_kind: "employment", value: JSON.stringify({ format: "resume_job_v1", title: "Customer Experience Operations Manager", employer: "Northstar Cloud", location: "Columbus, Ohio", start_date: "January 2022", end_date: "Present", responsibilities: "Lead customer experience operations for an 18-person organization." }), state: "confirmed" },
+    { revision_id: id(4), fact_kind: "job_evidence", value: JSON.stringify({ value_version: 1, association: "job", job_fact_revision_id: id(3), dimension: "outcomes", outcome: "answered", owner_text: "Reduced median first response time from 11 hours to 2.5 hours and median resolution time from 46 hours to 19 hours." }), state: "confirmed" },
+    { revision_id: id(5), fact_kind: "job_evidence", value: JSON.stringify({ value_version: 1, association: "job", job_fact_revision_id: id(3), dimension: "scope", outcome: "answered", owner_text: "Built a weekly quality program and coached three team leads supporting 18 specialists; customer satisfaction improved from 86% to 94% while ticket volume grew 35%." }), state: "confirmed" },
+    { revision_id: id(6), fact_kind: "job_evidence", value: JSON.stringify({ value_version: 1, association: "job", job_fact_revision_id: id(3), dimension: "accomplishments", outcome: "answered", owner_text: "Launched a self-service knowledge base that deflected 22% of repeat tickets." }), state: "confirmed" },
+    { revision_id: id(7), fact_kind: "job_evidence", value: JSON.stringify({ value_version: 1, association: "job", job_fact_revision_id: id(3), dimension: "tools", outcome: "answered", owner_text: "Created dashboards in Looker and Google Sheets for Product and Engineering." }), state: "confirmed" },
+    { revision_id: id(8), fact_kind: "job_evidence", value: JSON.stringify({ value_version: 1, association: "job", job_fact_revision_id: id(3), dimension: "progression", outcome: "answered", owner_text: "My responsibilities expanded to include workforce planning and direct coaching of three team leads in addition to work I already owned." }), state: "confirmed" },
+    { revision_id: id(9), fact_kind: "employment", value: JSON.stringify({ format: "resume_job_v1", title: "Senior Customer Support Specialist", employer: "HarborPay", location: "Columbus, Ohio", start_date: "June 2019", end_date: "December 2021", responsibilities: "Managed technical and operational relationships for 35 accounts processing approximately $12 million monthly." }), state: "confirmed" },
+    { revision_id: id(10), fact_kind: "job_evidence", value: JSON.stringify({ value_version: 1, association: "job", job_fact_revision_id: id(9), dimension: "tools", outcome: "answered", owner_text: "Used SQL and payment logs to investigate transaction issues and translate findings for customers and engineers." }), state: "confirmed" },
+    { revision_id: id(11), fact_kind: "job_evidence", value: JSON.stringify({ value_version: 1, association: "job", job_fact_revision_id: id(9), dimension: "accomplishments", outcome: "answered", owner_text: "Created an escalation playbook and trained eight specialists, reducing repeat escalations by 30%." }), state: "confirmed" },
+    { revision_id: id(12), fact_kind: "job_evidence", value: JSON.stringify({ value_version: 1, association: "job", job_fact_revision_id: id(9), dimension: "progression", outcome: "answered", owner_text: "I was promoted from Customer Support Specialist to Senior Customer Support Specialist in July 2020 and began coaching newer specialists." }), state: "confirmed" },
+    { revision_id: id(13), fact_kind: "job_evidence", value: JSON.stringify({ value_version: 1, association: "job", job_fact_revision_id: id(9), dimension: "progression", outcome: "answered", owner_text: "Promoted from Customer Support Specialist to Senior Customer Support Specialist in July 2020." }), state: "confirmed" },
+    { revision_id: id(14), fact_kind: "education", value: "Bachelor of Arts in Communication, The Ohio State University, May 2018", state: "confirmed" },
+    { revision_id: id(15), fact_kind: "credential", value: "Zendesk Administrator", state: "confirmed" },
+    { revision_id: id(16), fact_kind: "credential", value: "Lean Six Sigma", state: "confirmed" },
+    { revision_id: id(17), fact_kind: "skill", value: "Customer experience operations, support analytics, SQL, Zendesk, Looker, Jira, Confluence, and Google Sheets", state: "confirmed" },
+    { revision_id: id(18), fact_kind: "project", value: "Led a six-month Zendesk workflow and reporting redesign across Support, Product, and Engineering.", state: "confirmed" },
+    { revision_id: id(19), fact_kind: "project", value: "Leadership or volunteer: Mentor two early-career support professionals and facilitate a quarterly peer roundtable.", state: "confirmed" },
+    { revision_id: id(20), fact_kind: "contact", value: "Professional link: linkedin.com/in/jordan-lee-cx-ops", state: "confirmed" },
+  ],
+  strategy: {
+    title: "Jordan Lee",
+    fact_revision_ids: Array.from({ length: 20 }, (_, index) => id(index + 1)),
+    section_order: ["contact", "summary", "experience", "education", "certifications", "skills", "projects", "leadership", "links"],
+    evidence_priorities: Array.from({ length: 20 }, (_, index) => ({ fact_revision_id: id(index + 1), priority: index === 1 ? "context" : "must_use" })),
+    summary_decision: "include",
+    omissions: [],
+  },
+  presentation_preferences: {},
+  persistence_input_digest: `sha256:${"f".repeat(64)}`,
+};

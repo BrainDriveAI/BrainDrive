@@ -1,0 +1,10 @@
+{
+  "evidence_boundary": "requires_named_human_review_for_live_natural_language",
+  "dimensions": [
+    { "name": "faithful", "pass": "Every factual statement is supported by cited owner source or clearly labeled owner-added context." },
+    { "name": "useful", "pass": "The brief exposes the key outcome and evidence needed for the owner's stated audience." },
+    { "name": "coherent", "pass": "The title and statements form a concise, non-repetitive narrative." },
+    { "name": "clear", "pass": "A reader can understand the outcome without access to unstated background." }
+  ],
+  "claim_limit": "Synthetic fixtures do not establish live provider quality."
+}

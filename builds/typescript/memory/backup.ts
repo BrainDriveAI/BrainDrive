@@ -1,5 +1,6 @@
 import type { Preferences } from "../contracts.js";
 import { ensureGitReady } from "../git.js";
+import { validateResumeDataTransfer } from "../resume-domain/lifecycle.js";
 import {
   configureBackupRemote,
   gitCommitAll,
@@ -40,6 +41,7 @@ export async function runMemoryBackup(
     const config = requireBackupConfig(preferences);
     const token = await resolveMemoryBackupToken(config.tokenSecretRef);
 
+    await validateResumeDataTransfer(memoryRoot);
     await ensureGitReady(memoryRoot);
     const status = await gitStatusPorcelain(memoryRoot);
     const hasLocalChanges = status.trim().length > 0;

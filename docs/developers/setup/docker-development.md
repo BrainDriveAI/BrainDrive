@@ -35,7 +35,7 @@ Docker `dev` is the source-mounted hot-reload mode. It is not Docker `local`: `l
 | Platform | Current execution evidence is WSL/Linux shell only. Shell entry points also exist for macOS; PowerShell entry points exist for Windows, but neither platform is evidenced here |
 | Mode | Docker `dev` only; not `local`, `prod`, or managed deployment |
 | Credential need | No model-provider credential for startup or the web shell; an existing install may contain a local secrets-encryption key that must not be printed |
-| Side effects | Ensures named volumes and the Compose network exist; may build/start/recreate services; recursively changes ownership of the configured host memory bind plus secrets/dependency state to the configured host UID/GID; runs `npm install` in bind-mounted workspaces; binds Vite and its proxied API; and may attempt a browser open |
+| Side effects | Ensures named volumes and the Compose network exist; may build/start/recreate services; recursively changes ownership of the configured host memory bind plus secrets/dependency state to the configured host UID/GID; runs `npm install` in bind-mounted workspaces; persists feature-gated app lifecycle state in a separate named volume; binds Vite and its proxied API; and may attempt a browser open |
 | Expected result | Compose reports the app healthy and web running; the web shell responds through the configured dev binding |
 | Failure classification | Docker prerequisite, Compose/config, build/dependency, bind-mount/permission, port conflict, app health, or web startup |
 | Cleanup | For a stack created for the task, run `./installer/docker/scripts/stop.sh dev`; this stops containers but preserves volumes and bind-mounted data. Do not stop a pre-existing stack merely to satisfy generic cleanup |
@@ -60,11 +60,14 @@ The default state map is exact:
 | Secrets | External named volume `braindrive_secrets` |
 | Runtime dependencies | Named volume `braindrive_dev_app_node_modules` |
 | Web dependencies | Named volume `braindrive_dev_web_node_modules` |
+| App lifecycle host state | Named volume `braindrive_dev_app_platform`, mounted at `/data/app-platform`; separate from the owner memory bind and enabled only by `BRAINDRIVE_APP_PLATFORM_ENABLED` |
 | Network | Compose network `braindrive_dev_default`; app remains internal while Vite exposes the selected host bind and proxies `/api` to the app |
 
 Although the lifecycle script ensures `braindrive_memory` exists in dev mode, the current `compose.dev.yml` memory mount is the host path above. Do not describe that unused created volume as the active dev memory store.
 
-On app-container startup, the root entrypoint recursively applies `chown` to the active memory bind, secrets volume, app dependency volume, and its temporary home before dropping to `BRAINDRIVE_DEV_HOST_UID` / `BRAINDRIVE_DEV_HOST_GID` (both default to `1000`). Both app and web containers run `npm install` from bind-mounted workspace directories; `node_modules` is isolated in named volumes, but package metadata or lockfiles can still change if npm resolves a difference. Review the worktree after a recreate.
+The reviewed Resume Builder and Brief Builder packages are available for explicit authenticated lifecycle exercises through one generic first-party app platform, but neither installs or starts automatically. Their supervised endpoints bind only inside the app container and Compose publishes no additional app port. Both package source mounts are read-only. `stop.sh dev` preserves the shared host-state volume and app-scoped records; do not remove that volume unless the exact lifecycle test state is task-owned and destructive cleanup is explicitly authorized.
+
+On app-container startup, the root entrypoint recursively applies `chown` to the active memory bind, lifecycle host-state volume, secrets volume, app dependency volume, and its temporary home before dropping to `BRAINDRIVE_DEV_HOST_UID` / `BRAINDRIVE_DEV_HOST_GID` (both default to `1000`). Both app and web containers run `npm install` from bind-mounted workspace directories; `node_modules` is isolated in named volumes, but package metadata or lockfiles can still change if npm resolves a difference. Review the worktree after a recreate.
 
 Authorize the exact host bind and UID/GID before starting. If ownership is wrong, stop the stack and recover only the verified affected target using its known prior ownership and appropriate host authority; do not apply a recursive ownership command to an unverified owner path.
 

@@ -1,0 +1,14 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/resume-quality-state.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "string",
+  "enum": [
+    "review_not_run",
+    "review_incomplete",
+    "needs_correction",
+    "evidence_limited",
+    "product_craft_passed",
+    "owner_approved",
+    "pre_correction_review"
+  ]
+}

@@ -1,0 +1,132 @@
+{
+  "$id": "https://schemas.braindrive.ai/app-platform/v1/app-capability-registration.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "registration_version": {
+      "type": "number",
+      "const": 1
+    },
+    "app_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)+$"
+    },
+    "key": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+        },
+        "version": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 65535
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "additionalProperties": false
+    },
+    "binding_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "input_schema_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+    },
+    "result_schema_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+    },
+    "limits": {
+      "type": "object",
+      "properties": {
+        "max_input_bytes": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 1048576
+        },
+        "max_duration_ms": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 120000
+        },
+        "max_calls_per_minute": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 600
+        }
+      },
+      "required": [
+        "max_input_bytes",
+        "max_duration_ms",
+        "max_calls_per_minute"
+      ],
+      "additionalProperties": false
+    },
+    "confirmation": {
+      "type": "string",
+      "enum": [
+        "none",
+        "owner_confirmation",
+        "trusted_owner_confirmation"
+      ]
+    },
+    "audit_projection_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "retry_policy": {
+      "type": "string",
+      "enum": [
+        "never",
+        "idempotent_only"
+      ]
+    },
+    "idempotency_policy": {
+      "type": "string",
+      "enum": [
+        "not_applicable",
+        "optional",
+        "required"
+      ]
+    },
+    "owner_component_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    }
+  },
+  "required": [
+    "registration_version",
+    "app_id",
+    "key",
+    "binding_id",
+    "input_schema_id",
+    "result_schema_id",
+    "limits",
+    "confirmation",
+    "audit_projection_id",
+    "retry_policy",
+    "idempotency_policy",
+    "owner_component_id"
+  ],
+  "additionalProperties": false
+}

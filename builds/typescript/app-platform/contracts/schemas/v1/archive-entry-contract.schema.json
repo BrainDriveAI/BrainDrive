@@ -1,0 +1,51 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/archive-entry-contract.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "archive_entry_version": {
+      "type": "number",
+      "const": 1
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "entry_type": {
+      "type": "string",
+      "const": "file"
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "read_only",
+        "executable"
+      ]
+    },
+    "compressed_size_bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 67108864
+    },
+    "uncompressed_size_bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 67108864
+    },
+    "crc32": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{8}$"
+    }
+  },
+  "required": [
+    "archive_entry_version",
+    "path",
+    "entry_type",
+    "mode",
+    "compressed_size_bytes",
+    "uncompressed_size_bytes",
+    "crc32"
+  ],
+  "additionalProperties": false
+}
