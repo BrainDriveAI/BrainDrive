@@ -219,3 +219,44 @@ describe("Spec 10 support-bundle owner inference retry diagnostics", () => {
     }
   });
 });
+
+describe("installed-app inference support diagnostics", () => {
+  it("retains generic content-free attempt and terminal evidence while dropping poison", () => {
+    const sanitized = sanitizeSupportAuditEvent({
+      timestamp: "2026-08-17T12:00:00.000Z",
+      event: "app.inference.program_terminal",
+      details: {
+        app_id: "ai.braindrive.brief-builder",
+        operation_id: "b3000000-0000-4000-8000-000000000001",
+        program_id: "brief.generate",
+        attempt_count: 2,
+        completion_mode: "none",
+        app_issue_ids: ["brief.generate/schema-title-invalid"],
+        repeated_issue_ids: ["brief.generate/schema-title-invalid"],
+        provider_call_count: 2,
+        saved_record_written: false,
+        approved_record_changed: false,
+        execution_disposition: "newly_executed",
+        prompt_body: "PRIVATE_PROMPT_CANARY",
+        raw_candidate: "PRIVATE_CANDIDATE_CANARY",
+        endpoint: "https://private.example.test/v1",
+      },
+    });
+
+    expect(sanitized).toMatchObject({
+      event: "app.inference.program_terminal",
+      details: {
+        program_id: "brief.generate",
+        attempt_count: 2,
+        completion_mode: "none",
+        app_issue_ids: ["brief.generate/schema-title-invalid"],
+        repeated_issue_ids: ["brief.generate/schema-title-invalid"],
+        provider_call_count: 2,
+        saved_record_written: false,
+        approved_record_changed: false,
+        execution_disposition: "newly_executed",
+      },
+    });
+    expect(JSON.stringify(sanitized)).not.toMatch(/PRIVATE_PROMPT_CANARY|PRIVATE_CANDIDATE_CANARY|private\.example\.test/);
+  });
+});

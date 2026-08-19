@@ -41,6 +41,8 @@ Installed inference uses contract version 2:
 6. BrainDrive returns the generic terminal envelope: app program and operation identities, attempt count, completion mode, opaque provider/model identities, issue IDs, structured app result, and app-supplied persistence binding where required.
 7. The app separately requests its reviewed data capability to persist an unapproved result. Normal domain, evidence, CAS, review, and owner-approval gates still apply.
 
+Failure transport follows the same ownership boundary. BrainDrive validates and forwards only a strict app-neutral safe envelope containing a stable code, fixed safe message, retryability, correlation or operation reference, attempt count, completion mode, namespaced content-free app issue IDs, owner state, and bounded scalar app recovery metadata. It never replaces the stable code with an exception message, and it drops content-bearing or malformed fields. Each installed app owns the mapping from its issue IDs to owner guidance. Future apps can reuse this transport without adding their schemas, validators, prompts, fallback constructors, or policy branches to BrainDrive.
+
 Provider output is not durable merely because inference completed. Persistence is a distinct host-authorized transition. Equal retries may coalesce or replay through the operation coordinator; changed canonical input under the same semantic identity conflicts. Cancellation propagates to provider work, and late responses cannot commit.
 
 Resume Builder demonstrates two useful patterns:
@@ -49,6 +51,8 @@ Resume Builder demonstrates two useful patterns:
 - General Resume inference gives the model exact text slots; the app owns statement IDs, support identities, section/role topology, the six-bullet maximum, fact-grounding checks, issue IDs, and deterministic fallback.
 
 These patterns keep app semantics out of BrainDrive while still allowing the host to enforce generic safety and resource limits.
+
+The same boundary applies to test support. An app-specific synthetic provider or response shaper lives with that app's tests and is injected into the isolated test gateway through the generic installed-app provider-resolver dependency. Production gateway source must not import an app fixture or select one through an app-named environment branch.
 
 ## Scaling across many available apps
 

@@ -22,14 +22,13 @@ import { createBriefCapabilityRegistrations } from "../app-capabilities/brief-re
 import { AppInferenceDispatcher } from "../app-inference/dispatcher.js";
 import { AppInferencePurposeRegistry } from "../app-inference/registry.js";
 import { createBriefInferencePurposeRegistration } from "../app-inference/brief-registration.js";
-import { InstalledAppInferenceExecutor } from "../app-inference/installed-program.js";
+import { InstalledAppInferenceExecutor, type InstalledAppInferenceProviderResolver } from "../app-inference/installed-program.js";
 import { createInstalledAppProviderResolver } from "../app-inference/provider.js";
 import { CareerPlacementAdapter } from "../resume-domain/career.js";
 import { ResumeCapabilityPolicy } from "../resume-domain/capability-policy.js";
 import { ResumeCapabilityRouter } from "../resume-domain/capabilities.js";
 import { ResumeDomainService } from "../resume-domain/service.js";
 import { ResumeDataStore } from "../resume-domain/store.js";
-import { createInstalledResumeE2eFixtureProvider } from "../resume-inference/e2e-fixture.js";
 import { ResumeExportBroker } from "../resume-renderer/export-broker.js";
 
 import { createGatewayAdapter } from "../adapters/gateway.js";
@@ -303,7 +302,11 @@ function isSyntheticLocalEmail(email: string): boolean {
   return SYNTHETIC_LOCAL_EMAIL_SUFFIXES.some((suffix) => normalizedEmail.endsWith(suffix));
 }
 
-export async function buildServer(rootDir = process.cwd()) {
+export type BuildServerDependencies = {
+  installedAppInferenceProviderResolver?: InstalledAppInferenceProviderResolver;
+};
+
+export async function buildServer(rootDir = process.cwd(), dependencies: BuildServerDependencies = {}) {
   const isManaged = process.env.BD_DEPLOYMENT_MODE === "managed";
   const installLocation: InstallLocation = isManaged ? "managed" : "local";
   const managedApiBase = process.env.BD_MANAGED_API_BASE?.replace(/\/+$/, "") || "";
@@ -495,9 +498,8 @@ export async function buildServer(rootDir = process.cwd()) {
       return current.record.state === "active" ? current.grant : null;
     });
     const capabilityRouter = new ResumeCapabilityRouter(resumeDomain, new CareerPlacementAdapter(runtimeConfig.memory_root), capabilityPolicy, auditLog, exportBroker);
-    const installedProviderResolver = process.env.BRAINDRIVE_E2E_RESUME_INFERENCE_FIXTURE === "1"
-      ? async () => createInstalledResumeE2eFixtureProvider()
-      : createInstalledAppProviderResolver({
+    const installedProviderResolver = dependencies.installedAppInferenceProviderResolver
+      ?? createInstalledAppProviderResolver({
           adapterName: runtimeConfig.provider_adapter,
           adapterConfig,
           loadPreferences: loadLivePreferences,
@@ -505,7 +507,7 @@ export async function buildServer(rootDir = process.cwd()) {
     appMcpHost = new AppMcpHost(new ResumeAppHostAdapter(appLifecycleService, {
       audit: auditLog,
       capabilityRouter,
-      installedAppInference: new InstalledAppInferenceExecutor({ resolveProvider: installedProviderResolver }),
+      installedAppInference: new InstalledAppInferenceExecutor({ resolveProvider: installedProviderResolver, audit: auditLog }),
       exportBroker,
     }));
     const briefDataStore = new BriefDataStore(runtimeConfig.memory_root, briefLifecycleService!.dependencies.ownerDataRoot);

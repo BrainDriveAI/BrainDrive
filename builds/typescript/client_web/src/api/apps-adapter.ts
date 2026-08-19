@@ -113,7 +113,40 @@ export type HostConfirmationPresentation = {
   actionLabel: string;
 };
 
+export type AppSafeRecoveryMetadata = Record<string, string | number | boolean | Array<string | number | boolean>>;
+
+export type AppSafeErrorEnvelope = {
+  code: string;
+  safe_message: string;
+  retryable: boolean;
+  correlation_id?: string;
+  operation_id?: string;
+  attempt_count?: number;
+  completion_mode?: string;
+  app_issue_ids?: string[];
+  recovery_metadata?: AppSafeRecoveryMetadata;
+  owner_state: OwnerSafeAppDataState;
+};
+
+export type AppCapabilityErrorMetadata = {
+  retryable?: boolean;
+  correlationId?: string | null;
+  operationId?: string | null;
+  attemptCount?: number | null;
+  completionMode?: string | null;
+  appIssueIds?: string[];
+  recoveryMetadata?: AppSafeRecoveryMetadata | null;
+};
+
 export class AppCapabilityError extends GatewayError {
+  readonly retryable: boolean;
+  readonly correlationId: string | null;
+  readonly operationId: string | null;
+  readonly attemptCount: number | null;
+  readonly completionMode: string | null;
+  readonly appIssueIds: string[];
+  readonly recoveryMetadata: AppSafeRecoveryMetadata | null;
+
   constructor(
     message: string,
     status: number,
@@ -121,9 +154,32 @@ export class AppCapabilityError extends GatewayError {
     public readonly ownerState: OwnerSafeAppDataState,
     public readonly capability: string,
     public readonly confirmation: HostConfirmationPresentation | null,
+    metadata: AppCapabilityErrorMetadata = {},
   ) {
     super(message, status, code);
     this.name = "AppCapabilityError";
+    this.retryable = metadata.retryable === true;
+    this.correlationId = safeUuid(metadata.correlationId);
+    this.operationId = safeUuid(metadata.operationId);
+    this.attemptCount = safeAttemptCount(metadata.attemptCount);
+    this.completionMode = safeCompletionMode(metadata.completionMode);
+    this.appIssueIds = safeAppIssueIds(metadata.appIssueIds);
+    this.recoveryMetadata = safeRecoveryMetadata(metadata.recoveryMetadata);
+  }
+
+  get safeEnvelope(): AppSafeErrorEnvelope {
+    return {
+      code: this.code ?? "recoverable_internal_failure",
+      safe_message: this.message,
+      retryable: this.retryable,
+      ...(this.correlationId ? { correlation_id: this.correlationId } : {}),
+      ...(this.operationId ? { operation_id: this.operationId } : {}),
+      ...(this.attemptCount !== null ? { attempt_count: this.attemptCount } : {}),
+      ...(this.completionMode ? { completion_mode: this.completionMode } : {}),
+      ...(this.appIssueIds.length > 0 ? { app_issue_ids: this.appIssueIds } : {}),
+      ...(this.recoveryMetadata ? { recovery_metadata: this.recoveryMetadata } : {}),
+      owner_state: this.ownerState,
+    };
   }
 }
 
@@ -217,6 +273,13 @@ async function requestCapabilityJson<T>(path: string, capability: string, init: 
         error?: {
           code?: string;
           safe_message?: string;
+          retryable?: boolean;
+          correlation_id?: string;
+          operation_id?: string;
+          attempt_count?: number;
+          completion_mode?: string;
+          app_issue_ids?: unknown;
+          recovery_metadata?: unknown;
           confirmation?: { capability?: string; title?: string; action_label?: string };
         };
       };
@@ -225,7 +288,15 @@ async function requestCapabilityJson<T>(path: string, capability: string, init: 
         const confirmation = projection?.capability === capability && typeof projection.title === "string" && typeof projection.action_label === "string"
           ? { title: projection.title, actionLabel: projection.action_label }
           : null;
-        throw new AppCapabilityError(payload.error.safe_message, response.status, payload.error.code, payload.owner_state, capability, confirmation);
+        throw new AppCapabilityError(payload.error.safe_message, response.status, payload.error.code, payload.owner_state, capability, confirmation, {
+          retryable: payload.error.retryable === true,
+          correlationId: safeUuid(payload.error.correlation_id),
+          operationId: safeUuid(payload.error.operation_id),
+          attemptCount: safeAttemptCount(payload.error.attempt_count),
+          completionMode: safeCompletionMode(payload.error.completion_mode),
+          appIssueIds: safeAppIssueIds(payload.error.app_issue_ids),
+          recoveryMetadata: safeRecoveryMetadata(payload.error.recovery_metadata),
+        });
       }
     } catch (error) {
       if (error instanceof AppCapabilityError) throw error;
@@ -233,6 +304,48 @@ async function requestCapabilityJson<T>(path: string, capability: string, init: 
     throw new GatewayError(`App request failed with status ${response.status}`, response.status, "recoverable_internal_failure");
   }
   return await response.json() as T;
+}
+
+const SAFE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SAFE_APP_ISSUE_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+\/[a-z][a-z0-9-]*$/;
+const SAFE_COMPLETION_MODES = new Set(["none", "provider", "provider_generated", "deterministic_fallback", "conservative_fallback", "safe_failure"]);
+const SAFE_RECOVERY_KEY = /^[a-z][a-z0-9_]{0,63}$/;
+const SAFE_RECOVERY_STRING = /^[a-z0-9][a-z0-9_.:-]{0,127}$/i;
+const FORBIDDEN_RECOVERY_KEY = /(^|_)(content|body|text|prompt|completion|document|description|source|path|destination|authorization|credential|api_key|token|secret|permission)(_|$)/i;
+
+function safeUuid(value: unknown): string | null {
+  return typeof value === "string" && SAFE_UUID.test(value) ? value : null;
+}
+
+function safeAttemptCount(value: unknown): number | null {
+  return Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 2 ? Number(value) : null;
+}
+
+function safeCompletionMode(value: unknown): string | null {
+  return typeof value === "string" && SAFE_COMPLETION_MODES.has(value) ? value : null;
+}
+
+function safeAppIssueIds(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length > 20 || value.some((candidate) => typeof candidate !== "string" || candidate.length > 160 || !SAFE_APP_ISSUE_ID.test(candidate))) return [];
+  return [...new Set(value)];
+}
+
+function safeRecoveryMetadata(value: unknown): AppSafeRecoveryMetadata | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const entries = Object.entries(value);
+  if (entries.length === 0 || entries.length > 16) return null;
+  const safeScalar = (candidate: unknown): candidate is string | number | boolean => (
+    typeof candidate === "boolean"
+    || (Number.isInteger(candidate) && Math.abs(Number(candidate)) <= 1_000_000)
+    || (typeof candidate === "string" && SAFE_RECOVERY_STRING.test(candidate))
+  );
+  for (const [key, candidate] of entries) {
+    if (!SAFE_RECOVERY_KEY.test(key) || FORBIDDEN_RECOVERY_KEY.test(key)) return null;
+    if (Array.isArray(candidate)) {
+      if (candidate.length > 20 || !candidate.every(safeScalar)) return null;
+    } else if (!safeScalar(candidate)) return null;
+  }
+  return JSON.stringify(value).length <= 4_096 ? value as AppSafeRecoveryMetadata : null;
 }
 
 export async function closeAppSession(appKey: string, sessionId: string): Promise<void> {

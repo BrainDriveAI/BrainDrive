@@ -221,12 +221,13 @@ function sendSafeError(reply: FastifyReply, error: unknown) {
 function sendOwnerDataError(reply: FastifyReply, error: unknown, correlationId: string, capability: string) {
   const platform = error instanceof AppPlatformError ? error : new AppPlatformError("recoverable_internal_failure", "Installed app host operation failed", 500);
   const confirmation = safeConfirmationProjection(platform.details?.confirmation, capability);
-  const mappedCode = confirmation ? "confirmation_required" : platform.code.startsWith("token_") || platform.code.startsWith("grant_") || platform.code === "bridge_denied" || platform.code === "session_closed" || platform.code === "session_expired"
+  const platformCode = confirmation ? "confirmation_required" : platform.code.startsWith("token_") || platform.code.startsWith("grant_") || platform.code === "bridge_denied" || platform.code === "session_closed" || platform.code === "session_expired"
     ? "denied"
     : platform.code === "protocol_incompatible" || platform.code === "extension_incompatible"
       ? "incompatible_schema"
       : platform.code;
-  const failure = ownerSafeCapabilityFailure({ code: mappedCode, details: platform.details, confirmation }, correlationId);
+  const code = platform.code === "validation_failed" ? safeAppErrorCode(platform.details?.safeCode) ?? platformCode : platformCode;
+  const failure = ownerSafeCapabilityFailure({ code, details: platform.details, confirmation }, correlationId);
   return reply.code(platform.statusCode).send(failure);
 }
 
@@ -256,9 +257,61 @@ function ownerSafeCapabilityFailure(error: { code: string; details?: Record<stri
       ? "The saved version changed. Refresh and review the preserved proposal."
       : "The app action could not be completed safely.";
   return {
-    error: { code: error.code, safe_message: safeMessage, correlation_id: correlationId, retryable: error.code === "recoverable_internal_failure", ...(error.confirmation ? { confirmation: error.confirmation } : {}) },
+    error: {
+      code: error.code,
+      safe_message: safeMessage,
+      correlation_id: correlationId,
+      retryable: typeof error.details?.retryable === "boolean" ? error.details.retryable : error.code === "recoverable_internal_failure",
+      ...safeInferenceErrorDetails(error.details),
+      ...(error.confirmation ? { confirmation: error.confirmation } : {}),
+    },
     owner_state: error.code === "conflict"
       ? { state_version: 1, state: "conflict", safe_message: safeMessage, retryable: false, refresh_required: true, current_revision: currentRevision, proposal_preserved: true }
       : { state_version: 1, state: "unavailable", safe_message: safeMessage, retryable: error.code === "recoverable_internal_failure", refresh_required: false, current_revision: currentRevision, proposal_preserved: true },
   };
+}
+
+const SAFE_APP_ERROR_CODE = /^[a-z][a-z0-9_]{0,95}$/;
+const SAFE_APP_ISSUE_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+\/[a-z][a-z0-9-]*$/;
+const SAFE_COMPLETION_MODES = new Set(["none", "provider", "provider_generated", "deterministic_fallback", "conservative_fallback", "safe_failure"]);
+const SAFE_RECOVERY_KEY = /^[a-z][a-z0-9_]{0,63}$/;
+const SAFE_RECOVERY_STRING = /^[a-z0-9][a-z0-9_.:-]{0,127}$/i;
+const FORBIDDEN_RECOVERY_KEY = /(^|_)(content|body|text|prompt|completion|document|description|source|path|destination|authorization|credential|api_key|token|secret|permission)(_|$)/i;
+
+function safeAppErrorCode(value: unknown): string | null {
+  return typeof value === "string" && SAFE_APP_ERROR_CODE.test(value) ? value : null;
+}
+
+function safeInferenceErrorDetails(details: Record<string, unknown> | undefined): Record<string, unknown> {
+  if (!details) return {};
+  const projected: Record<string, unknown> = {};
+  if (z.string().uuid().safeParse(details.operationId).success) projected.operation_id = details.operationId;
+  if (Number.isInteger(details.attemptCount) && Number(details.attemptCount) >= 0 && Number(details.attemptCount) <= 2) projected.attempt_count = details.attemptCount;
+  if (typeof details.completionMode === "string" && SAFE_COMPLETION_MODES.has(details.completionMode)) projected.completion_mode = details.completionMode;
+  if (Array.isArray(details.appIssueIds) && details.appIssueIds.length <= 20
+    && details.appIssueIds.every((value) => typeof value === "string" && value.length <= 160 && SAFE_APP_ISSUE_ID.test(value))
+    && new Set(details.appIssueIds).size === details.appIssueIds.length) {
+    projected.app_issue_ids = details.appIssueIds;
+  }
+  const recoveryMetadata = safeRecoveryMetadata(details.recoveryMetadata);
+  if (recoveryMetadata) projected.recovery_metadata = recoveryMetadata;
+  return projected;
+}
+
+function safeRecoveryMetadata(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const entries = Object.entries(value);
+  if (entries.length === 0 || entries.length > 16) return null;
+  const safeScalar = (candidate: unknown): boolean => (
+    typeof candidate === "boolean"
+    || (Number.isInteger(candidate) && Math.abs(Number(candidate)) <= 1_000_000)
+    || (typeof candidate === "string" && SAFE_RECOVERY_STRING.test(candidate))
+  );
+  for (const [key, candidate] of entries) {
+    if (!SAFE_RECOVERY_KEY.test(key) || FORBIDDEN_RECOVERY_KEY.test(key)) return null;
+    if (Array.isArray(candidate)) {
+      if (candidate.length > 20 || !candidate.every(safeScalar)) return null;
+    } else if (!safeScalar(candidate)) return null;
+  }
+  return JSON.stringify(value).length <= 4_096 ? value as Record<string, unknown> : null;
 }

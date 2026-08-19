@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { AppPlatformError } from "../app-platform/lifecycle/errors.js";
 import { InstalledAppInferenceExecutor } from "./installed-program.js";
 
 const invocation = {
@@ -24,6 +25,7 @@ describe("installed app-owned inference execution", () => {
   });
 
   it("lets the installed app own plans, semantic issue IDs, retry, and fallback while the host enforces two calls", async () => {
+    const audit = vi.fn();
     const completeStructuredNoTools = vi
       .fn()
       .mockResolvedValueOnce({ text: JSON.stringify({ malformed: "first" }), finishReason: "stop" })
@@ -67,7 +69,7 @@ describe("installed app-owned inference execution", () => {
           output_digest: `sha256:${"c".repeat(64)}`,
         },
       });
-    const executor = new InstalledAppInferenceExecutor({ resolveProvider });
+    const executor = new InstalledAppInferenceExecutor({ resolveProvider, audit });
 
     await expect(executor.execute(invocation, {
       appId: "ai.example.resume-builder",
@@ -93,6 +95,33 @@ describe("installed app-owned inference execution", () => {
       attempt: 2,
       previous: { issue_ids: ["resume.general-draft/experience-role-top-level-leakage"] },
     });
+    expect(audit.mock.calls).toEqual([
+      ["app.inference.program_attempt", expect.objectContaining({
+        app_id: "ai.example.resume-builder",
+        operation_id: invocation.operation_id,
+        program_id: invocation.program.id,
+        attempt: 1,
+        attempt_outcome: "retry",
+        app_issue_ids: ["resume.general-draft/experience-role-top-level-leakage"],
+        repeated_issue_ids: [],
+        provider_call_count: 1,
+      })],
+      ["app.inference.program_attempt", expect.objectContaining({
+        attempt: 2,
+        attempt_outcome: "fallback",
+        repeated_issue_ids: ["resume.general-draft/experience-role-top-level-leakage"],
+        provider_call_count: 2,
+      })],
+      ["app.inference.program_terminal", expect.objectContaining({
+        attempt_count: 2,
+        completion_mode: "deterministic_fallback",
+        app_issue_ids: ["resume.general-draft/experience-role-top-level-leakage"],
+        provider_call_count: 2,
+        saved_record_written: false,
+        approved_record_changed: false,
+      })],
+    ]);
+    expect(JSON.stringify(audit.mock.calls)).not.toMatch(/app-owned|malformed|owner-model|owner-active/);
   });
 
   it("rejects app attempts to request tools, a third call, or an unnamespaced issue", async () => {
@@ -123,5 +152,116 @@ describe("installed app-owned inference execution", () => {
       adjudicate: vi.fn(async () => ({ inference_program_contract_version: 1, program: invocation.program, attempt: 1, decision: "retry", issue_ids: ["experience_role_invalid"] })),
     };
     await expect(executor.execute({ ...invocation, operation_id: crypto.randomUUID() }, { appId: "ai.example.resume-builder", installationId: crypto.randomUUID(), packageDigest: `sha256:${"a".repeat(64)}`, programClient: badIssueClient })).rejects.toMatchObject({ code: "invalid_input" });
+  });
+
+  it("returns structured content-free app failure details after the two-call ceiling", async () => {
+    const audit = vi.fn();
+    const appIssueIds = ["brief.generate/schema-title-invalid", "brief.generate/evidence-binding-invalid"];
+    const completeStructuredNoTools = vi
+      .fn()
+      .mockResolvedValueOnce({ text: JSON.stringify({ poison: "PRIVATE_CANDIDATE_CANARY" }), finishReason: "stop" })
+      .mockResolvedValueOnce({ text: JSON.stringify({ poison: "PRIVATE_REPAIR_CANARY" }), finishReason: "stop" });
+    const executor = new InstalledAppInferenceExecutor({
+      resolveProvider: async () => ({ providerProfileId: "active", modelId: "model", adapter: { completeStructuredNoTools } }),
+      audit,
+    });
+    const prepare = vi.fn(async ({ attempt }: { attempt: number }) => ({
+      inference_program_contract_version: 1,
+      program: invocation.program,
+      attempt,
+      schema_name: "brief_generate_v1",
+      system: "app-owned policy",
+      user: "app-owned request",
+      output_schema: { type: "object", additionalProperties: false },
+      max_output_tokens: 512,
+      timeout_ms: 30_000,
+    }));
+    const adjudicate = vi
+      .fn()
+      .mockResolvedValueOnce({
+        inference_program_contract_version: 1,
+        program: invocation.program,
+        attempt: 1,
+        decision: "retry",
+        issue_ids: appIssueIds,
+      })
+      .mockResolvedValueOnce({
+        inference_program_contract_version: 1,
+        program: invocation.program,
+        attempt: 2,
+        decision: "failed",
+        issue_ids: appIssueIds,
+        safe_error_code: "candidate_invalid",
+      });
+
+    const failure = await executor.execute(invocation, {
+      appId: "ai.example.brief-builder",
+      installationId: crypto.randomUUID(),
+      packageDigest: `sha256:${"a".repeat(64)}`,
+      programClient: { prepare, adjudicate },
+    }).catch((error) => error);
+
+    expect(failure).toMatchObject({
+      code: "validation_failed",
+      message: "Installed app inference did not produce a safe result",
+      details: {
+        safeCode: "candidate_invalid",
+        operationId: invocation.operation_id,
+        attemptCount: 2,
+        completionMode: "none",
+        appIssueIds,
+        retryable: false,
+      },
+    });
+    expect(completeStructuredNoTools).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(failure)).not.toMatch(/PRIVATE_CANDIDATE_CANARY|PRIVATE_REPAIR_CANARY/);
+    expect(audit).toHaveBeenLastCalledWith("app.inference.program_terminal", expect.objectContaining({
+      completion_mode: "none",
+      attempt_count: 2,
+      provider_call_count: 2,
+      app_issue_ids: appIssueIds,
+      saved_record_written: false,
+      approved_record_changed: false,
+    }));
+    expect(JSON.stringify(audit.mock.calls)).not.toMatch(/PRIVATE_CANDIDATE_CANARY|PRIVATE_REPAIR_CANARY|active|model/);
+  });
+
+  it("propagates genuine provider cancellation and never spends the correction call", async () => {
+    const controller = new AbortController();
+    let providerStarted!: () => void;
+    const started = new Promise<void>((resolve) => { providerStarted = resolve; });
+    const completeStructuredNoTools = vi.fn(async ({ signal }: { signal?: AbortSignal }) => new Promise<never>((_resolve, reject) => {
+      providerStarted();
+      signal?.addEventListener("abort", () => reject(new AppPlatformError("cancelled", "Installed app inference was cancelled", 408)), { once: true });
+    }));
+    const prepare = vi.fn(async ({ attempt, program }: { attempt: number; program: { id: string; version: number } }) => ({
+      inference_program_contract_version: 1,
+      program,
+      attempt,
+      schema_name: "resume_craft_evaluate_v1",
+      system: "app-owned craft policy",
+      user: "app-owned craft input",
+      output_schema: { type: "object", additionalProperties: false },
+      max_output_tokens: 2048,
+      timeout_ms: 50_000,
+    }));
+    const adjudicate = vi.fn();
+    const executor = new InstalledAppInferenceExecutor({
+      resolveProvider: async () => ({ providerProfileId: "active", modelId: "model", adapter: { completeStructuredNoTools } }),
+    });
+    const pending = executor.execute({ ...invocation, program: { id: "resume.craft-evaluate", version: 1 } }, {
+      appId: "ai.example.resume-builder",
+      installationId: crypto.randomUUID(),
+      packageDigest: `sha256:${"a".repeat(64)}`,
+      programClient: { prepare, adjudicate },
+      signal: controller.signal,
+    });
+    await started;
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ code: "cancelled" });
+    expect(completeStructuredNoTools).toHaveBeenCalledTimes(1);
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(adjudicate).not.toHaveBeenCalled();
   });
 });

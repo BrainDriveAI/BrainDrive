@@ -459,6 +459,8 @@ describe("M5 protected app inference capability", () => {
     };
     await expect(dispatcher.execute({ purpose_id: "brief.generate", version: 1, input: { source: "Synthetic source" } }, context))
       .resolves.toEqual({ summary: "Synthetic source" });
+    await expect(dispatcher.execute({ purpose_id: "brief.generate", version: 1, input: { source: "Synthetic source" } }, context))
+      .resolves.toEqual({ summary: "Synthetic source" });
     await expect(dispatcher.execute({ purpose_id: "brief.generate", version: 1, input: { source: "Synthetic source" } }, { ...context, appId: "ai.braindrive.resume-builder" }))
       .rejects.toMatchObject({ code: "denied" });
     await expect(dispatcher.execute({ purpose_id: "brief.generate", version: 2, input: { source: "Synthetic source" } }, context))
@@ -469,5 +471,10 @@ describe("M5 protected app inference capability", () => {
     expect(JSON.stringify(await dispatcher.execute({ purpose_id: "brief.generate", version: 1, input: { source: "Second" } }, { ...context, operationId: crypto.randomUUID(), idempotencyKey: "testtesttesttest02" })))
       .not.toMatch(/provider_profile_id|model_id|api_key|credential|endpoint/);
     expect(JSON.stringify(audit.mock.calls)).not.toMatch(/Synthetic source|Second|provider_profile_id|model_id|credential/);
+    expect(audit.mock.calls).toEqual(expect.arrayContaining([
+      ["app.inference.dispatch", expect.objectContaining({ outcome: "allowed", execution_disposition: "newly_executed" })],
+      ["app.inference.dispatch", expect.objectContaining({ outcome: "completed", execution_disposition: "newly_executed" })],
+      ["app.inference.dispatch", expect.objectContaining({ outcome: "replayed", execution_disposition: "replayed" })],
+    ]));
   });
 });

@@ -14,7 +14,7 @@ export class ResumeDomainError extends Error {
     public readonly code: ResumeDomainErrorCode,
     message: string,
     public readonly statusCode = 409,
-    public readonly details: { currentRevision?: number; corrections?: string[] } = {},
+    public readonly details: { currentRevision?: number; corrections?: string[]; safeCode?: "evidence_validation_failed" } = {},
   ) {
     super(message);
     this.name = "ResumeDomainError";

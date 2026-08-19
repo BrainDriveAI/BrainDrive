@@ -415,7 +415,7 @@ async function main() {
     BRAINDRIVE_BIND_ADDRESS: "127.0.0.1",
     BRAINDRIVE_PORT: String(gatewayPort),
     BRAINDRIVE_APP_PLATFORM_ENABLED: "true",
-    BRAINDRIVE_E2E_RESUME_INFERENCE_FIXTURE: "1",
+    BRAINDRIVE_E2E_INSTALLED_APP_PROVIDER_MODULE: "../resume_builder/test/installed-provider-fixture.mjs",
     BRAINDRIVE_E2E_BRIEF_INFERENCE_FIXTURE: "1",
     BRAINDRIVE_APP_STATE_ROOT: path.join(taskRoot, "app-platform"),
     ...(browserAccess

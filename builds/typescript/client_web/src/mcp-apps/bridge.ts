@@ -1,4 +1,4 @@
-import type { AppLaunch } from "@/api/apps-adapter";
+import { AppCapabilityError, type AppLaunch, type AppSafeErrorEnvelope } from "@/api/apps-adapter";
 
 import {
   BRIDGE_CHANNEL,
@@ -230,7 +230,7 @@ export class McpAppBridgeController {
       }
     } catch (error) {
       if (this.isCurrentGeneration(generation)) {
-        this.send({ type: "host.result", request_message_id: message.message_id, error: { error: error instanceof Error ? error.message : "recoverable_internal_failure" } });
+        this.send({ type: "host.result", request_message_id: message.message_id, error: safeLegacyError(error, controller.signal.aborted) });
       }
     } finally { this.outstanding.delete(message.message_id); }
     return true;
@@ -264,3 +264,21 @@ function encodedBytes(value: unknown): number { try { return new TextEncoder().e
 function objectDepth(value: unknown, seen = new Set<object>()): number { if (!isRecord(value) && !Array.isArray(value)) return 0; if (seen.has(value)) return Number.POSITIVE_INFINITY; seen.add(value); const children = Array.isArray(value) ? value : Object.values(value); const depth = 1 + children.reduce((max, child) => Math.max(max, objectDepth(child, seen)), 0); seen.delete(value); return depth; }
 function clampDimension(value: number | undefined, minimum: number, maximum: number): number { if (!Number.isFinite(value)) return minimum; return Math.max(minimum, Math.min(maximum, Math.round(value ?? minimum))); }
 function isAbort(value: unknown): boolean { return value instanceof DOMException && value.name === "AbortError"; }
+function safeLegacyError(value: unknown, aborted: boolean): AppSafeErrorEnvelope {
+  if (value instanceof AppCapabilityError) return value.safeEnvelope;
+  const cancelled = aborted || isAbort(value);
+  return {
+    code: cancelled ? "cancelled" : "recoverable_internal_failure",
+    safe_message: cancelled ? "The app action was cancelled." : "The app action could not be completed safely.",
+    retryable: !cancelled,
+    owner_state: {
+      state_version: 1,
+      state: "unavailable",
+      safe_message: cancelled ? "The app action was cancelled." : "The app action could not be completed safely.",
+      retryable: !cancelled,
+      refresh_required: false,
+      current_revision: null,
+      proposal_preserved: true,
+    },
+  };
+}

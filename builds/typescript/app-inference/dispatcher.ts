@@ -90,6 +90,7 @@ export class AppInferenceDispatcher {
       ) {
         throw new AppPlatformError("idempotency_conflict", "Inference operation identity was already used", 409);
       }
+      this.emitAudit(registration, context, "replayed", null, "replayed");
       return byOperation.promise;
     }
     const controller = new AbortController();
@@ -106,7 +107,7 @@ export class AppInferenceDispatcher {
     };
     const timeoutMs = Math.min(registration.limits.maxDurationMs, context.deadlineAt - this.now());
     let timer: ReturnType<typeof setTimeout> | undefined;
-    this.emitAudit(registration, context, "allowed", null);
+    this.emitAudit(registration, context, "allowed", null, "newly_executed");
     active.promise = Promise.race([
       registration.executor(input.data, { ...context, signal: controller.signal }),
       new Promise<never>((_resolve, reject) => {
@@ -119,11 +120,11 @@ export class AppInferenceDispatcher {
       const parsed = registration.outputSchema.safeParse(result);
       if (!parsed.success) throw new AppPlatformError("validation_failed", "Inference output failed independent validation", 409);
       active.completed = true;
-      this.emitAudit(registration, context, "completed", null);
+      this.emitAudit(registration, context, "completed", null, "newly_executed");
       return parsed.data;
     }).catch((error) => {
       active.completed = true;
-      this.emitAudit(registration, context, "failed", error instanceof AppPlatformError ? error.code : "recoverable_internal_failure");
+      this.emitAudit(registration, context, "failed", error instanceof AppPlatformError ? error.code : "recoverable_internal_failure", "newly_executed");
       throw error;
     }).finally(() => { if (timer) clearTimeout(timer); context.signal?.removeEventListener("abort", forwardAbort); });
     this.#operations.set(operationKey, active);
@@ -138,12 +139,19 @@ export class AppInferenceDispatcher {
     return true;
   }
 
-  private emitAudit(registration: ReturnType<AppInferencePurposeRegistry["resolve"]>, context: AppInferenceDispatchContext, outcome: "allowed" | "completed" | "failed", errorCode: string | null): void {
+  private emitAudit(
+    registration: ReturnType<AppInferencePurposeRegistry["resolve"]>,
+    context: AppInferenceDispatchContext,
+    outcome: "allowed" | "completed" | "failed" | "replayed",
+    errorCode: string | null,
+    executionDisposition: "newly_executed" | "replayed",
+  ): void {
     try {
       this.audit("app.inference.dispatch", {
         app_id: context.appId, installation_id: context.installationId, package_digest: context.packageDigest,
         operation_id: context.operationId, purpose_id: registration.purposeId, purpose_version: registration.version,
         audit_projection_id: registration.auditProjectionId, decision: "host_policy_and_grant", outcome, error_code: errorCode,
+        execution_disposition: executionDisposition,
       });
     } catch { /* Diagnostics cannot widen or interrupt inference authority. */ }
   }

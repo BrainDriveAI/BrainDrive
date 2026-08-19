@@ -395,13 +395,24 @@ describe("live signed modern MCP Apps fixture", () => {
       ];
       const call = (purpose: "resume_revision_classify" | "resume_revision_draft", programId: string) => {
         const operationId = crypto.randomUUID();
+        const purposeBlocks = blocks.map((block) => block.category === "revision_instruction"
+          ? {
+              ...block,
+              data: {
+                ...block.data,
+                source_definition_revision_id: definitionRevisionId,
+                state: purpose === "resume_revision_draft" ? "generating" : "submitted",
+                ...(purpose === "resume_revision_draft" ? { classification: "presentation" } : {}),
+              },
+            }
+          : block);
         return host.handleBridge(launch.session_id, {
           bridge_version: 1, message_id: crypto.randomUUID(), app_id: "ai.braindrive.resume-builder",
           installation_id: installed.record.installation_id, view_id: launch.view_id, operation_id: launch.operation_id,
           sent_at: new Date().toISOString(), type: "capability.call",
           payload: {
             capability: "app.inference.request", request_operation_id: operationId, token_id: launch.bridge_token_id,
-            input: { inference_contract_version: 2, operation_id: operationId, program: { id: programId, version: 1 }, input: { purpose, data_blocks: blocks, prompt_policy_id: "braindrive.resume-builder.fixed", prompt_policy_version: "12" } },
+            input: { inference_contract_version: 2, operation_id: operationId, program: { id: programId, version: 1 }, input: { purpose, data_blocks: purposeBlocks, prompt_policy_id: "braindrive.resume-builder.fixed", prompt_policy_version: "12" } },
           },
         }, { origin: "null", sourceMatches: true });
       };

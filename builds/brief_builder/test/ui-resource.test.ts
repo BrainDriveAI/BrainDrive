@@ -20,7 +20,9 @@ describe("Brief Builder primary resource", () => {
     expect(html).toContain("Reject draft");
     expect(html).toContain("The draft was rejected. Your prior approved revision is unchanged.");
     expect(html).toContain("Your selected BrainDrive model is not yet compatible with Brief Builder. Choose a compatible model in BrainDrive Settings.");
-    expect(html).toContain('errorCode==="protocol_incompatible"?errorCode:"safe_failure"');
+    expect(html).toContain('const errorCode=message?.error?.code');
+    expect(html).toContain('new Error(validErrorCode?errorCode:"safe_failure")');
+    expect(html).not.toContain("message?.error?.error");
     expect(html).toContain('rpcRequest("ui/initialize"');
     expect(html).toContain('rpcNotify("ui/notifications/initialized"');
     expect(html).toContain("crypto.getRandomValues");

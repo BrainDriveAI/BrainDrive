@@ -117,7 +117,10 @@ async function main() {
     )
   );
 
-  spawnManaged("gateway", npmExecutable, [...npmArgs, "run", "dev:gateway"], {
+  const gatewayScript = process.env.BRAINDRIVE_E2E_INSTALLED_APP_PROVIDER_MODULE?.trim()
+    ? "dev:e2e-gateway"
+    : "dev:gateway";
+  spawnManaged("gateway", npmExecutable, [...npmArgs, "run", gatewayScript], {
     cwd: projectRoot,
     env: {
       ...process.env,

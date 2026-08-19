@@ -51,7 +51,7 @@ import {
   requireHostOwnerDecisionEvidence,
 } from "./career-data.js";
 import { RESUME_PROMPT_POLICY_ID, RESUME_PROMPT_POLICY_VERSION } from "../resume-inference/policy.js";
-import { validateInferenceClaims } from "../resume-inference/validators.js";
+import { validateInferenceClaims, type ValidationReport } from "../resume-inference/validators.js";
 import { evaluateDefinitionDeterministicGates } from "../resume-inference/validators.js";
 import { assertBoundQualityReport, evaluateResumeQuality } from "../resume-inference/quality-runtime.js";
 import {
@@ -184,6 +184,11 @@ function deterministicRecordId(seed: string): string {
   hex[16] = ["8", "9", "a", "b"][Number.parseInt(hex[16] ?? "0", 16) % 4]!;
   const value = hex.join("");
   return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
+}
+
+function evidenceFailureDetails(report: Pick<ValidationReport, "findings">): { safeCode?: "evidence_validation_failed" } {
+  const evidenceCodes = new Set(["unsupported_claim", "partial_support_overstated", "missing_provenance", "protected_field_changed"]);
+  return report.findings.some((finding) => evidenceCodes.has(finding.code)) ? { safeCode: "evidence_validation_failed" } : {};
 }
 
 function coverageContextDigest(jobFactRevisionId: string, dimension: string, evidenceRevisionIds: string[]): `sha256:${string}` {
@@ -1472,7 +1477,7 @@ export class ResumeDomainService {
           approvalBlocks,
         )
       : null;
-    if (approvalReport && !approvalReport.accepted) throw new ResumeDomainError("validation_failed", "Definition contains unsupported or unproven claims");
+    if (approvalReport && !approvalReport.accepted) throw new ResumeDomainError("validation_failed", "Definition contains unsupported or unproven claims", 409, evidenceFailureDetails(approvalReport));
     const qualityReport = evaluateResumeQuality({
       title: input.title,
       statements: input.statements,
@@ -2732,7 +2737,7 @@ export class ResumeDomainService {
       omissions: binding.omissions,
     };
     const validation = validateInferenceClaims("general_resume_draft", validationResult, generationBlocks);
-    if (!validation.accepted) throw new ResumeDomainError("validation_failed", "General draft does not satisfy its persisted strategy and evidence snapshot");
+    if (!validation.accepted) throw new ResumeDomainError("validation_failed", "General draft does not satisfy its persisted strategy and evidence snapshot", 409, evidenceFailureDetails(validation));
     if (input.generation_result) {
       if (canonicalInputDigest(input.generation_result) !== binding.generation_output_digest) throw new ResumeDomainError("validation_failed", "General draft output digest does not match the provider result");
       const preserveSuccessorIds = input.successor_context?.kind === "remembered_information";

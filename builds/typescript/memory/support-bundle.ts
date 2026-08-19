@@ -207,6 +207,7 @@ const SUPPORT_DETAIL_ALLOWLIST = new Set([
   "provider_validator_codes", "provider_validator_rule_ids", "local_candidate_classes", "targeted_fact_repair_validator_codes", "targeted_fact_repair_validator_rule_ids", "targeted_fact_repair_disposition", "full_general_constructor_validator_codes", "full_general_constructor_validator_rule_ids", "full_general_constructor_disposition", "original_failure_code", "recovery_disposition", "validator_rule_ids",
   "acknowledgement_timing_class", "conflict_class", "expected_revision", "idempotency_disposition", "initial_wait_class", "reconciliation_class", "reconciliation_count", "semantic_digest",
   "retry_relation_version", "retry_reason", "retry_prior_operation_id", "retry_new_operation_id", "retry_semantic_input_digest", "retry_strategy_revision_id", "retry_provider_profile_id", "retry_model_id", "retry_equivalent",
+  "app_issue_ids", "approved_record_changed", "execution_disposition", "program_id", "program_version", "provider_call_count", "repeated_issue_ids", "saved_record_written",
 ]);
 
 export function sanitizeSupportAuditEvent(event: Record<string, unknown>): Record<string, unknown> {

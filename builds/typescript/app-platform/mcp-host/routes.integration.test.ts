@@ -234,6 +234,82 @@ describe("owner MCP Apps host gateway routes", () => {
     await app.close();
   });
 
+  it("projects a generic app-safe inference error for the non-Resume Brief capability", async () => {
+    const host = {
+      ...createHost(),
+      appId: "ai.braindrive.brief-builder",
+      routeKey: "brief-builder",
+    } as unknown as AppMcpHost;
+    const operationId = crypto.randomUUID();
+    const correlationId = crypto.randomUUID();
+    vi.mocked(host.handleOwnerCapability).mockRejectedValueOnce(new AppPlatformError(
+      "validation_failed",
+      "PRIVATE_INTERNAL_EXCEPTION_CANARY",
+      409,
+      {
+        safeCode: "candidate_invalid",
+        operationId,
+        attemptCount: 2,
+        completionMode: "none",
+        appIssueIds: ["brief.generate/schema-title-invalid"],
+        retryable: false,
+        recoveryMetadata: { action: "review_source", blocked: true },
+        prompt_body: "PRIVATE_PROMPT_CANARY",
+      },
+    ));
+    const app = Fastify();
+    app.addHook("preHandler", async (request) => {
+      request.authContext = { actorId: "owner", actorType: "owner", mode: "local-owner", permissions };
+    });
+    registerAppMcpHostRoutes(app, host);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/apps/brief-builder/data/call",
+      payload: { capability: "app.inference.request", operation_id: correlationId, input: {}, owner_confirmed: false },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({
+      error: {
+        code: "candidate_invalid",
+        safe_message: "The app action could not be completed safely.",
+        retryable: false,
+        correlation_id: correlationId,
+        operation_id: operationId,
+        attempt_count: 2,
+        completion_mode: "none",
+        app_issue_ids: ["brief.generate/schema-title-invalid"],
+        recovery_metadata: { action: "review_source", blocked: true },
+      },
+      owner_state: { state: "unavailable", proposal_preserved: true },
+    });
+    expect(response.body).not.toMatch(/PRIVATE_INTERNAL_EXCEPTION_CANARY|PRIVATE_PROMPT_CANARY/);
+
+    const poisonedOperationId = crypto.randomUUID();
+    vi.mocked(host.handleOwnerCapability).mockRejectedValueOnce(new AppPlatformError(
+      "validation_failed",
+      "PRIVATE_INTERNAL_EXCEPTION_CANARY",
+      409,
+      {
+        safeCode: "candidate_invalid",
+        operationId: poisonedOperationId,
+        attemptCount: 2,
+        completionMode: "none",
+        appIssueIds: ["brief.generate/schema-title-invalid"],
+        recoveryMetadata: { action: "review_source", owner_text: "PRIVATE_OWNER_TEXT_CANARY" },
+      },
+    ));
+    const poisoned = await app.inject({
+      method: "POST",
+      url: "/apps/brief-builder/data/call",
+      payload: { capability: "app.inference.request", operation_id: poisonedOperationId, input: {}, owner_confirmed: false },
+    });
+    expect(poisoned.json().error).not.toHaveProperty("recovery_metadata");
+    expect(poisoned.body).not.toMatch(/PRIVATE_INTERNAL_EXCEPTION_CANARY|PRIVATE_OWNER_TEXT_CANARY/);
+    await app.close();
+  });
+
   it("resolves the route before body, bearer, session, or host work and rejects cross-app swaps", async () => {
     const resume = createHost();
     const brief = {

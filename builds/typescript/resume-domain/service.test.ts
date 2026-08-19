@@ -732,7 +732,10 @@ describe("Resume domain invariants", () => {
     const confirmed = await confirmedFact(service);
     await expect(service.writeDefinition(definitionInput(confirmed.fact.metadata.revision_id, {
       statements: [{ statement_id: crypto.randomUUID(), kind: "factual", text: "Invented Director metric 99%", supporting_confirmed_fact_revision_ids: [confirmed.fact.metadata.revision_id] }],
-    }), authority("resume.definitions.write"), true)).rejects.toMatchObject({ code: "validation_failed" });
+    }), authority("resume.definitions.write"), true)).rejects.toMatchObject({
+      code: "validation_failed",
+      details: { safeCode: "evidence_validation_failed" },
+    });
   });
 
   it("blocks a failing deterministic quality report and returns bounded corrections", async () => {

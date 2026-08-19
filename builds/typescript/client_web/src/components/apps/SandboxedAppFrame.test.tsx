@@ -101,8 +101,8 @@ describe("sandboxed MCP App frame", () => {
   it("uses only host-projected capability confirmation text and supports cancel then accept", async () => {
     const ownerState = { state_version: 1 as const, state: "unavailable" as const, safe_message: "Review in BrainDrive.", retryable: false, refresh_required: false, current_revision: null, proposal_preserved: true };
     vi.mocked(callAppCapability)
-      .mockRejectedValueOnce(new AppCapabilityError("Review in BrainDrive.", 403, "confirmation_required", ownerState, "brief.records.approve", { title: "Approve brief revision", actionLabel: "Approve revision" }))
-      .mockRejectedValueOnce(new AppCapabilityError("Review in BrainDrive.", 403, "confirmation_required", ownerState, "brief.records.approve", { title: "Approve brief revision", actionLabel: "Approve revision" }))
+      .mockRejectedValueOnce(new AppCapabilityError("Review in BrainDrive.", 403, "confirmation_required", ownerState, "brief.approvals.confirm", { title: "Approve this brief?", actionLabel: "Approve brief" }))
+      .mockRejectedValueOnce(new AppCapabilityError("Review in BrainDrive.", 403, "confirmation_required", ownerState, "brief.approvals.confirm", { title: "Approve this brief?", actionLabel: "Approve brief" }))
       .mockResolvedValueOnce({ result: { approved: true } });
     render(<SandboxedAppFrame appKey="brief-builder" appId="ai.braindrive.brief-builder" appName="Brief Builder" launch={{ ...launch, resource: { ...launch.resource, uri: "ui://brief-builder/main" } }} onSessionClosed={() => {}} />);
     const frame = screen.getByTitle("Brief Builder sandbox proxy") as HTMLIFrameElement;
@@ -119,14 +119,14 @@ describe("sandboxed MCP App frame", () => {
     await send({ jsonrpc: "2.0", id: "init", method: "ui/initialize", params: { protocolVersion: APPS_PROTOCOL_VERSION, appInfo: { name: "brief", version: "1.0.0" }, appCapabilities: {} } });
     await send({ jsonrpc: "2.0", method: "ui/notifications/initialized", params: {} });
     const firstId = crypto.randomUUID();
-    await send({ bridge_version: 1, message_id: firstId, type: "capability.call", payload: { capability: "brief.records.approve", input: { title: "Forged app approval" } } });
-    expect(await screen.findByRole("dialog", { name: "Approve brief revision" })).not.toHaveTextContent("Forged app approval");
+    await send({ bridge_version: 1, message_id: firstId, type: "capability.call", payload: { capability: "brief.approvals.confirm", input: { title: "Forged app approval" } } });
+    expect(await screen.findByRole("dialog", { name: "Approve this brief?" })).not.toHaveTextContent("Forged app approval");
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     const secondId = crypto.randomUUID();
-    await send({ bridge_version: 1, message_id: secondId, type: "capability.call", payload: { capability: "brief.records.approve", input: { record_id: crypto.randomUUID() } } });
-    await userEvent.click(await screen.findByRole("button", { name: "Approve revision" }));
-    await waitFor(() => expect(callAppCapability).toHaveBeenLastCalledWith("brief-builder", "brief.records.approve", expect.any(Object), secondId, true));
+    await send({ bridge_version: 1, message_id: secondId, type: "capability.call", payload: { capability: "brief.approvals.confirm", input: { record_id: crypto.randomUUID() } } });
+    await userEvent.click(await screen.findByRole("button", { name: "Approve brief" }));
+    await waitFor(() => expect(callAppCapability).toHaveBeenLastCalledWith("brief-builder", "brief.approvals.confirm", expect.any(Object), secondId, true));
   });
 
   it("automatically confirms Resume Builder capability mutations without opening a second dialog", async () => {

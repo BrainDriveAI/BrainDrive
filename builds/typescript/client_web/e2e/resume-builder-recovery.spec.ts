@@ -88,6 +88,7 @@ type RecoveryHarness = {
   installBinding(binding: RecoveryBinding): void;
   now(): number;
   advance(ms: number): void;
+  clearRecoveryAfterTransition(): void;
 };
 
 type HostCapability = (
@@ -149,7 +150,8 @@ async function loadRecoveryHarness(page: Page): Promise<void> {
       dispatchTeardown(){window.postMessage({jsonrpc:"2.0",id:"synthetic-teardown",method:"ui/resource-teardown"},"*")},
       installBinding(binding){state.recovery=emptyRecovery({slot:{...binding.slot},value:binding.value,valueDigest:binding.valueDigest,status:"reconciling",operationId:binding.operationId,expectedRevision:binding.expectedRevision,editGeneration:binding.editGeneration});recoveryHarnessRender()},
       now(){return recoveryHarnessNow},
-      advance:recoveryHarnessAdvance
+      advance:recoveryHarnessAdvance,
+      clearRecoveryAfterTransition(){state.recovery=emptyRecovery();recoveryHarnessRender()}
     };
     recoveryHarnessReset();
   `;
@@ -445,5 +447,37 @@ test.describe("Resume Builder browser recovery matrix", () => {
       credentials_tokens_endpoints_private_paths_retained: false,
     };
     await writeFile(testInfo.outputPath("spec10-browser-recovery-matrix.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  });
+
+  test("queues Complete for now when it is clicked immediately after submitting an answer", async ({ page }) => {
+    const result = await page.evaluate(async () => {
+      const browser = window as HarnessWindow;
+      const harness = browser.__resumeRecoveryHarness;
+      harness.reset();
+      await harness.activate("Synthetic evidence submitted quickly");
+      const visibleStatuses: string[] = [];
+      const observer = new MutationObserver(() => visibleStatuses.push(harness.snapshot().visibleStatus));
+      observer.observe(document.getElementById("panel")!, { childList: true, subtree: true, characterData: true });
+      browser.__resumeHostCapability = async (name, input, operationId) => {
+        if (name !== "resume.definitions.write") throw new Error(`Unexpected capability ${name}`);
+        await Promise.resolve();
+        return harness.responseFor(input as { recovery: RecoveryInput }, operationId!);
+      };
+      const transitions: string[] = [];
+      const submit = harness.guard("submit", "submitting this evidence", async () => {
+        transitions.push("submit");
+        harness.clearRecoveryAfterTransition();
+      });
+      const complete = harness.guard("complete_for_now", "completing for now", async () => {
+        transitions.push("complete_for_now");
+      });
+      const settled = await Promise.all([submit, complete]);
+      observer.disconnect();
+      return { settled, transitions, visibleStatuses };
+    });
+
+    expect(result.settled).toEqual([true, true]);
+    expect(result.transitions).toEqual(["submit", "complete_for_now"]);
+    expect(result.visibleStatuses.some((status) => /submitting this evidence|completing for now/i.test(status))).toBe(true);
   });
 });

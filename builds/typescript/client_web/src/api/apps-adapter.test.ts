@@ -152,4 +152,53 @@ describe("Apps gateway adapter", () => {
     expect(error).toMatchObject({ code: "confirmation_required", capability: "career.facts.confirm", confirmation: { title: "Confirm career facts", actionLabel: "Confirm facts" } });
     expect(JSON.stringify(error)).not.toContain("Forged app title");
   });
+
+  it("parses the generic safe inference envelope without replacing its app code", async () => {
+    const operationId = crypto.randomUUID();
+    const correlationId = crypto.randomUUID();
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      error: {
+        code: "candidate_invalid",
+        safe_message: "The app action could not be completed safely.",
+        retryable: false,
+        correlation_id: correlationId,
+        operation_id: operationId,
+        attempt_count: 2,
+        completion_mode: "none",
+        app_issue_ids: ["brief.generate/schema-title-invalid"],
+        recovery_metadata: { action: "review_source", blocked: true },
+      },
+      owner_state: {
+        state_version: 1,
+        state: "unavailable",
+        safe_message: "The app action could not be completed safely.",
+        retryable: false,
+        refresh_required: false,
+        current_revision: null,
+        proposal_preserved: true,
+      },
+    }), { status: 409, headers: { "content-type": "application/json" } }));
+
+    const error = await callAppCapability("brief-builder", "app.inference.request", {}, operationId).catch((failure) => failure);
+
+    expect(error).toBeInstanceOf(AppCapabilityError);
+    expect(error).toMatchObject({
+      code: "candidate_invalid",
+      retryable: false,
+      correlationId,
+      operationId,
+      attemptCount: 2,
+      completionMode: "none",
+      appIssueIds: ["brief.generate/schema-title-invalid"],
+      recoveryMetadata: { action: "review_source", blocked: true },
+    });
+    expect(error.safeEnvelope).toMatchObject({
+      code: "candidate_invalid",
+      safe_message: "The app action could not be completed safely.",
+      correlation_id: correlationId,
+      operation_id: operationId,
+      app_issue_ids: ["brief.generate/schema-title-invalid"],
+      owner_state: { state: "unavailable" },
+    });
+  });
 });

@@ -5,16 +5,23 @@ import { describe, expect, it, vi } from "vitest";
 type OwnerErrorResult = {
   code: string;
   message: string;
+  safeMessage: string | null;
+  retryable: boolean;
   recovery: string;
   operationReference: string | null;
   summary: string | null;
   findings: string[];
   appIssueId: string | null;
+  appIssueIds: string[];
+  guidance: string[];
+  attemptCount: number | null;
+  completionMode: string | null;
+  ownerState: Record<string, unknown> | null;
   recoveryContract?: unknown;
 };
 
 function parseOwnerError(html: string): (error: unknown) => OwnerErrorResult {
-  const start = html.indexOf("function ownerError");
+  const start = html.indexOf("function safeEnvelopeText");
   const end = html.indexOf("function careerReturnOperationId", start);
   if (start < 0 || end < 0) throw new Error("ownerError source boundary is unavailable");
   return new Function(`${html.slice(start, end)}\nreturn ownerError;`)() as (error: unknown) => OwnerErrorResult;
@@ -52,6 +59,50 @@ describe("sandboxed Resume Builder owner resource", () => {
     const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
     expect(script).toBeTruthy();
     expect(() => new Function(script!)).not.toThrow();
+  });
+
+  it("includes a newly persisted revision request before workspace reload", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    const sourceRevisionId = "10000000-0000-4000-8000-000000000051";
+    const requestRevisionId = "10000000-0000-4000-8000-000000000052";
+    const source = { record_type: "resume_definition", metadata: { revision_id: sourceRevisionId } };
+    const request = { record_type: "resume_revision_request", metadata: { revision_id: requestRevisionId } };
+    const appOwnedInferenceInput = parseSyncFunction<(purpose: string, factIds: string[], extra: Record<string, unknown>) => { data_blocks: Array<{ category: string; data: unknown }> }>(
+      html,
+      "appOwnedInferenceInput",
+      "inferCompletion",
+      {
+        state: { facts: [] },
+        inferenceWorkspaceRecords: () => [source],
+        appInferenceBlock: (category: string, _schemaId: string, data: unknown) => ({ category, data }),
+        INFERENCE_RECORD_BLOCK: {
+          resume_definition: ["general_resume_definition", "resume.definition.v1"],
+          resume_revision_request: ["revision_instruction", "resume.revision-request.v1"],
+        },
+      },
+    );
+
+    const result = appOwnedInferenceInput("resume_revision_classify", [], {
+      record_revision_ids: [sourceRevisionId, requestRevisionId],
+      inference_records: [request],
+    });
+
+    expect(result.data_blocks.map((block) => block.category)).toEqual([
+      "confirmed_fact_snapshot",
+      "general_resume_definition",
+      "revision_instruction",
+    ]);
+  });
+
+  it("binds tailoring inference to the app-owned target-fit policy", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    const start = html.indexOf("async function createTargeted");
+    const end = html.indexOf("function renderTargeted", start);
+    const source = html.slice(start, end);
+
+    expect(html).toContain("braindrive.resume-builder.target-fit.provisional-rb7-oq3");
+    expect(source).toContain('category:"target_fit_policy"');
+    expect(source).toContain('schema_id:"resume.target-fit-policy.v1"');
   });
 
   it("contains the complete bounded journey and required text states", async () => {
@@ -154,7 +205,8 @@ describe("sandboxed Resume Builder owner resource", () => {
     expect(html).toContain("trimRecoveryIdentities");
     expect(html).not.toContain("trimRecoveryIdentities(state.recoveryGuards)");
     expect(html).toContain('generation:${binding.editGeneration}');
-    expect(html).toContain('guard.editGeneration!==state.recovery.editGeneration');
+    expect(html).not.toContain('guard.editGeneration!==state.recovery.editGeneration');
+    expect(html).toContain("if(!guard.executed){guard.superseded=true");
     expect(html).toContain('state.recovery.status="saving";state.recovery.serverDraft=null');
     expect(html).not.toContain('ackValueDigest===state.recovery.valueDigest?"saved"');
     for (const intent of ["submit", "save_answer", "complete_for_now", "pause", "back"]) {
@@ -644,7 +696,7 @@ describe("sandboxed Resume Builder owner resource", () => {
       quota_exceeded: "review_provider_account",
       rate_limited: "retry",
       deadline_exceeded: "retry",
-      cancelled: "continue",
+      cancelled: "retry",
       schema_validation_failed: "retry",
       validation_failed: "none",
       recoverable_internal_failure: "retry",
@@ -669,6 +721,221 @@ describe("sandboxed Resume Builder owner resource", () => {
       appIssueId: "resume.general-draft/persistence-canonicalization-failed",
     });
     expect(ownerError({ code: "validation_failed", app_issue_id: "owner@example.test" }).appIssueId).toBeNull();
+  });
+
+  it("consumes the generic safe terminal envelope and maps Resume issue IDs to app-owned guidance", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    const ownerError = parseOwnerError(html);
+    const operationId = "10000000-0000-4000-8000-000000000041";
+    const projected = ownerError({
+      error: {
+        code: "candidate_invalid",
+        safe_message: "The app could not accept the structured result.",
+        retryable: false,
+        operation_id: operationId,
+        correlation_id: "10000000-0000-4000-8000-000000000042",
+        attempt_count: 2,
+        completion_mode: "safe_failure",
+        app_issue_ids: [
+          "resume.craft-evaluate/schema-criterion-set-mismatch",
+          "resume.job-analyze/schema-source-span-invalid",
+          "resume.targeted-draft/statement-evidence-binding-invalid",
+          "resume.craft-evaluate/schema-criterion-set-mismatch",
+          "owner@example.test",
+          "brief.generate/schema-result-invalid",
+        ],
+      },
+      owner_state: {
+        state_version: 1,
+        state: "review_needed",
+        safe_message: "Review is required before continuing.",
+        retryable: false,
+        refresh_required: false,
+        current_revision: null,
+        proposal_preserved: true,
+      },
+    });
+
+    expect(projected).toMatchObject({
+      code: "candidate_invalid",
+      safeMessage: "The app could not accept the structured result.",
+      retryable: false,
+      recovery: "none",
+      operationReference: operationId,
+      appIssueId: "resume.craft-evaluate/schema-criterion-set-mismatch",
+      appIssueIds: [
+        "resume.craft-evaluate/schema-criterion-set-mismatch",
+        "resume.job-analyze/schema-source-span-invalid",
+        "resume.targeted-draft/statement-evidence-binding-invalid",
+      ],
+      attemptCount: 2,
+      completionMode: "safe_failure",
+      ownerState: { state_version: 1, state: "review_needed", proposal_preserved: true },
+    });
+    expect(projected.message).toContain("The app could not accept the structured result.");
+    expect(projected.message).toContain("Your saved work and last approved resume are unchanged.");
+    expect(projected.summary).toContain("2 attempt(s)");
+    expect(projected.summary).toContain("safe failure");
+    expect(projected.guidance).toEqual([
+      "The craft review could not verify one quality criterion. Retry review or revise the proposal; approval remains unavailable.",
+      "A job requirement did not match an exact span in the saved job description.",
+      "This edit includes details that are not present in your confirmed evidence.",
+      "Remove the unsupported details or return to the interview to add evidence.",
+    ]);
+    expect(JSON.stringify(projected)).not.toContain("owner@example.test");
+    expect(JSON.stringify(projected)).not.toContain("brief.generate");
+  });
+
+  it("maps unsupported resume edits to safe corrective guidance without echoing hidden content", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    const ownerError = parseOwnerError(html);
+    const hiddenProviderText = "<PRIVATE_PROVIDER_RESUME_TEXT>";
+    const projected = ownerError({
+      code: "validation_failed",
+      safe_message: hiddenProviderText,
+      operation_id: "10000000-0000-4000-8000-000000000046",
+      app_issue_ids: [
+        "resume.general-draft/statement-factual-wording-unsupported",
+        "resume.general-draft/statement-protected-value-unsupported",
+      ],
+      validation: { finding_codes: ["unsupported_claim"] },
+    });
+
+    expect(projected.guidance).toEqual([
+      "This edit includes details that are not present in your confirmed evidence.",
+      "Remove the unsupported details or return to the interview to add evidence.",
+    ]);
+    expect(projected.findings).toEqual([
+      "This edit includes details that are not present in your confirmed evidence. Remove the unsupported details or return to the interview to add evidence.",
+    ]);
+    expect(JSON.stringify(projected)).not.toContain(hiddenProviderText);
+  });
+
+  it("distinguishes structural, provider interruption, revision conflict, and craft-quality guidance", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    const ownerError = parseOwnerError(html);
+    expect(ownerError({ code: "validation_failed", app_issue_ids: ["resume.general-draft/schema-slot-texts-invalid"] }).guidance)
+      .toEqual(["The resume result did not match the required structure. Retry the action; your saved evidence is unchanged."]);
+    expect(ownerError({ code: "deadline_exceeded" })).toMatchObject({
+      recovery: "retry",
+      message: expect.stringContaining("timed out before validation finished"),
+    });
+    expect(ownerError({ code: "cancelled" })).toMatchObject({
+      recovery: "retry",
+      message: expect.stringContaining("was cancelled before validation finished"),
+    });
+    expect(ownerError({ code: "conflict" })).toMatchObject({
+      recovery: "none",
+      message: expect.stringContaining("saved version changed elsewhere"),
+    });
+    expect(ownerError({ code: "validation_failed", app_issue_ids: ["resume.craft-evaluate/criterion-evidence-coherence-invalid"] }).guidance)
+      .toEqual(["The craft review could not verify one quality criterion. Retry review or revise the proposal; approval remains unavailable."]);
+  });
+
+  it("renders corrective guidance before the secondary support reference", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    const render = html.slice(html.indexOf("function render()"), html.indexOf("function stageAvailable"));
+    expect(render.indexOf("What Resume Builder checked:")).toBeGreaterThan(-1);
+    expect(render.indexOf('label.textContent="Support reference"')).toBeGreaterThan(render.indexOf("What Resume Builder checked:"));
+  });
+
+  it("uses a safe correlation reference and rejects malformed generic-envelope fields without weakening legacy handling", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    const ownerError = parseOwnerError(html);
+    const correlationId = "10000000-0000-4000-8000-000000000043";
+    const projected = ownerError({
+      code: "validation_failed",
+      safe_message: "owner@example.test /private/resume.txt",
+      retryable: "yes",
+      correlation_id: correlationId,
+      attempt_count: 99,
+      completion_mode: "raw_provider_body",
+      app_issue_ids: ["not-a-safe-id"],
+      app_issue_id: "resume.general-draft/persistence-canonicalization-failed",
+      owner_state: { state_version: 1, state: "owner@example.test", proposal_preserved: true },
+    });
+
+    expect(projected).toMatchObject({
+      code: "validation_failed",
+      safeMessage: null,
+      retryable: false,
+      recovery: "none",
+      operationReference: correlationId,
+      appIssueId: "resume.general-draft/persistence-canonicalization-failed",
+      appIssueIds: ["resume.general-draft/persistence-canonicalization-failed"],
+      attemptCount: null,
+      completionMode: null,
+      ownerState: null,
+    });
+    expect(projected.message).not.toContain("owner@example.test");
+    expect(projected.message).not.toContain("/private/resume.txt");
+    expect(projected.guidance).toEqual([
+      "Resume Builder could not verify the exact saved input used for this result.",
+    ]);
+  });
+
+  it("renders every validated issue reference and only app-authored recovery guidance", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    expect(html).toContain("state.error.appIssueIds");
+    expect(html).toContain("state.error.guidance");
+    expect(html).toContain("What Resume Builder checked:");
+    expect(html).toContain('issue.textContent=appIssueId');
+    expect(html).not.toContain('issue.textContent=state.error.safeMessage');
+  });
+
+  it("preserves the safe terminal envelope when an inference operation fails", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    const operationId = "10000000-0000-4000-8000-000000000044";
+    const correlationId = "10000000-0000-4000-8000-000000000045";
+    const issueIds = ["resume.craft-evaluate/schema-criterion-verdicts-invalid"];
+    const ownerState = {
+      state_version: 1,
+      state: "review_needed",
+      safe_message: "Review is required before continuing.",
+      retryable: false,
+      refresh_required: false,
+      current_revision: null,
+      proposal_preserved: true,
+    };
+    const capability = vi.fn(async () => ({
+      status: "failed",
+      operation_id: operationId,
+      correlation_id: correlationId,
+      attempt_count: 2,
+      completion_mode: "safe_failure",
+      app_issue_ids: issueIds,
+      owner_state: ownerState,
+      error: { code: "candidate_invalid", safe_message: "The app could not accept the structured result.", retryable: false },
+    }));
+    const inferCompletion = parseInlineFunction<(purpose: string, extra?: Record<string, unknown>) => Promise<unknown>>(
+      html,
+      "inferCompletion",
+      "infer",
+      {
+        state: { facts: [], inferenceNotice: null, busy: true },
+        uuid: vi.fn(() => operationId),
+        capability,
+        appOwnedInferenceInput: vi.fn(() => ({ prompt_policy_id: "resume.synthetic", prompt_policy_version: "1" })),
+        INFERENCE_PROGRAMS: { resume_craft_evaluate: { id: "resume.craft-evaluate", version: 1 } },
+        ownerError: vi.fn(() => ({ recovery: "none" })),
+        inferenceRetryDecision: vi.fn(),
+        render: vi.fn(),
+        RECOVERED_GENERAL_NOTICE: "recovered",
+      },
+    );
+
+    await expect(inferCompletion("resume_craft_evaluate")).rejects.toMatchObject({
+      code: "candidate_invalid",
+      safe_message: "The app could not accept the structured result.",
+      retryable: false,
+      operation_id: operationId,
+      correlation_id: correlationId,
+      attempt_count: 2,
+      completion_mode: "safe_failure",
+      app_issue_ids: issueIds,
+      owner_state: ownerState,
+    });
+    expect(capability).toHaveBeenCalledTimes(1);
   });
 
   it("renders exactly three safe evidence-failure choices with truthful Retry disclosure", async () => {

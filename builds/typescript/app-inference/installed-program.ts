@@ -68,11 +68,13 @@ export type InstalledAppInferenceProgramClient = {
   adjudicate(input: { program: Invocation["program"]; input: unknown; attempt: number; candidate: unknown }): Promise<unknown>;
 };
 
-type Provider = {
+export type InstalledAppInferenceProvider = {
   providerProfileId: string;
   modelId: string;
   adapter: Pick<ModelAdapter, "completeStructuredNoTools">;
 };
+
+export type InstalledAppInferenceProviderResolver = () => Promise<InstalledAppInferenceProvider>;
 
 export type InstalledAppInferenceExecutionContext = {
   appId: string;
@@ -106,7 +108,10 @@ function parseProgramValue<T>(schema: z.ZodType<T>, raw: unknown, message: strin
 }
 
 export class InstalledAppInferenceExecutor {
-  constructor(private readonly dependencies: { resolveProvider: () => Promise<Provider> }) {}
+  constructor(private readonly dependencies: {
+    resolveProvider: InstalledAppInferenceProviderResolver;
+    audit?: (event: string, details: Record<string, unknown>) => void;
+  }) {}
 
   async execute(raw: unknown, context: InstalledAppInferenceExecutionContext): Promise<unknown> {
     const invocation = InstalledAppInferenceInvocationSchema.safeParse(raw);
@@ -116,7 +121,7 @@ export class InstalledAppInferenceExecutor {
     }
     if (!context.programClient) throw new AppPlatformError("denied", "No active installed-app inference program is available", 403);
     const parsed = invocation.data;
-    let provider: Provider | null = null;
+    let provider: InstalledAppInferenceProvider | null = null;
     let previous: PreviousAttempt = null;
     let finalIssues: string[] = [];
     for (let attempt = 1; attempt <= 2; attempt += 1) {
@@ -145,14 +150,43 @@ export class InstalledAppInferenceExecutor {
         parsed,
         attempt,
       ) as Adjudication;
+      const priorIssueIds = previous?.issue_ids ?? [];
+      const repeatedIssueIds = adjudication.issue_ids.filter((issueId) => priorIssueIds.includes(issueId));
       finalIssues = adjudication.issue_ids;
+      this.emitAudit("app.inference.program_attempt", {
+        app_id: context.appId,
+        operation_id: parsed.operation_id,
+        program_id: parsed.program.id,
+        program_version: parsed.program.version,
+        attempt,
+        attempt_outcome: adjudication.decision,
+        app_issue_ids: adjudication.issue_ids,
+        repeated_issue_ids: repeatedIssueIds,
+        provider_call_count: attempt,
+      });
       if (adjudication.decision === "retry") {
         previous = { candidate, issue_ids: adjudication.issue_ids };
         continue;
       }
       if (adjudication.decision === "failed") {
-        throw new AppPlatformError("validation_failed", `Installed app inference failed: ${adjudication.safe_error_code}`, 409);
+        this.emitTerminal(context.appId, parsed, attempt, "none", adjudication.issue_ids, repeatedIssueIds);
+        throw new AppPlatformError("validation_failed", "Installed app inference did not produce a safe result", 409, {
+          safeCode: adjudication.safe_error_code,
+          operationId: parsed.operation_id,
+          attemptCount: attempt,
+          completionMode: "none",
+          appIssueIds: adjudication.issue_ids,
+          retryable: false,
+        });
       }
+      this.emitTerminal(
+        context.appId,
+        parsed,
+        attempt,
+        adjudication.decision === "fallback" ? "deterministic_fallback" : "provider",
+        adjudication.issue_ids,
+        repeatedIssueIds,
+      );
       return {
         inference_contract_version: 2,
         operation_id: parsed.operation_id,
@@ -172,6 +206,42 @@ export class InstalledAppInferenceExecutor {
         } : {}),
       };
     }
-    throw new AppPlatformError("validation_failed", `Installed app inference exhausted its two-call ceiling: ${finalIssues.join(",")}`, 409);
+    this.emitTerminal(context.appId, parsed, 2, "none", finalIssues, previous?.issue_ids ?? []);
+    throw new AppPlatformError("validation_failed", "Installed app inference exhausted its two-call ceiling", 409, {
+      safeCode: "candidate_invalid",
+      operationId: parsed.operation_id,
+      attemptCount: 2,
+      completionMode: "none",
+      appIssueIds: finalIssues,
+      retryable: false,
+    });
+  }
+
+  private emitTerminal(
+    appId: string,
+    invocation: Invocation,
+    attemptCount: number,
+    completionMode: "provider" | "deterministic_fallback" | "none",
+    appIssueIds: string[],
+    repeatedIssueIds: string[],
+  ): void {
+    this.emitAudit("app.inference.program_terminal", {
+      app_id: appId,
+      operation_id: invocation.operation_id,
+      program_id: invocation.program.id,
+      program_version: invocation.program.version,
+      attempt_count: attemptCount,
+      completion_mode: completionMode,
+      app_issue_ids: appIssueIds,
+      repeated_issue_ids: repeatedIssueIds,
+      provider_call_count: attemptCount,
+      saved_record_written: false,
+      approved_record_changed: false,
+    });
+  }
+
+  private emitAudit(event: string, details: Record<string, unknown>): void {
+    try { this.dependencies.audit?.(event, details); }
+    catch { /* Diagnostics cannot expose content or interrupt inference. */ }
   }
 }

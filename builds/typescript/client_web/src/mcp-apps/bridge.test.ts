@@ -1,4 +1,4 @@
-import type { AppLaunch } from "@/api/apps-adapter";
+import { AppCapabilityError, type AppLaunch } from "@/api/apps-adapter";
 
 import {
   APPS_PROTOCOL_VERSION,
@@ -171,5 +171,95 @@ describe("MCP Apps view bridge", () => {
     await ready.controller.receive(event(proxyMessage({ jsonrpc: "2.0", method: "ui/notifications/size-changed", params: { width: 99_999, height: -1 } })), proxyWindow);
     await ready.controller.receive(event(proxyMessage({ jsonrpc: "2.0", method: "ui/notifications/request-teardown", params: {} })), proxyWindow);
     expect(onResize).toHaveBeenCalledWith({ width: 1_920, height: 240 });
+  });
+
+  it("preserves a generic Brief capability safe envelope without exposing the internal message", async () => {
+    const operationId = crypto.randomUUID();
+    const correlationId = crypto.randomUUID();
+    const ownerState = {
+      state_version: 1 as const,
+      state: "unavailable" as const,
+      safe_message: "The app action could not be completed safely.",
+      retryable: false,
+      refresh_required: false,
+      current_revision: null,
+      proposal_preserved: true,
+    };
+    const onLegacyMessage = vi.fn(async () => {
+      const error = new AppCapabilityError(
+        "The app action could not be completed safely.",
+        409,
+        "candidate_invalid",
+        ownerState,
+        "app.inference.request",
+        null,
+        {
+          retryable: false,
+          correlationId,
+          operationId,
+          attemptCount: 2,
+          completionMode: "none",
+          appIssueIds: ["brief.generate/schema-title-invalid"],
+          recoveryMetadata: { action: "review_source" },
+        },
+      );
+      error.stack = "PRIVATE_INTERNAL_STACK_CANARY";
+      throw error;
+    });
+    const { controller, sent } = await readyController({
+      launch: { ...launch, resource: { ...launch.resource, uri: "ui://brief-builder/main" } },
+      onLegacyMessage,
+    });
+    const messageId = crypto.randomUUID();
+
+    await controller.receive(event(proxyMessage({
+      bridge_version: 1,
+      message_id: messageId,
+      type: "capability.call",
+      payload: { capability: "app.inference.request", input: {} },
+    })), proxyWindow);
+
+    expect(outboundMessages(sent).at(-1)).toEqual({
+      type: "host.result",
+      request_message_id: messageId,
+      error: {
+        code: "candidate_invalid",
+        safe_message: "The app action could not be completed safely.",
+        retryable: false,
+        correlation_id: correlationId,
+        operation_id: operationId,
+        attempt_count: 2,
+        completion_mode: "none",
+        app_issue_ids: ["brief.generate/schema-title-invalid"],
+        recovery_metadata: { action: "review_source" },
+        owner_state: ownerState,
+      },
+    });
+    expect(JSON.stringify(outboundMessages(sent))).not.toContain("PRIVATE_INTERNAL_STACK_CANARY");
+  });
+
+  it("replaces an ordinary legacy exception with a content-free generic envelope", async () => {
+    const { controller, sent } = await readyController({
+      onLegacyMessage: vi.fn(async () => { throw new Error("PRIVATE_INTERNAL_EXCEPTION_CANARY"); }),
+    });
+    const messageId = crypto.randomUUID();
+
+    await controller.receive(event(proxyMessage({
+      bridge_version: 1,
+      message_id: messageId,
+      type: "capability.call",
+      payload: { capability: "fixture.fail", input: {} },
+    })), proxyWindow);
+
+    expect(outboundMessages(sent).at(-1)).toMatchObject({
+      type: "host.result",
+      request_message_id: messageId,
+      error: {
+        code: "recoverable_internal_failure",
+        safe_message: "The app action could not be completed safely.",
+        retryable: true,
+      },
+    });
+    expect(JSON.stringify(outboundMessages(sent))).not.toContain("PRIVATE_INTERNAL_EXCEPTION_CANARY");
   });
 });
