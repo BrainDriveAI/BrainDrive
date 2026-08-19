@@ -1,0 +1,65 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/job-evidence-value.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "value_version": {
+      "type": "number",
+      "const": 1
+    },
+    "association": {
+      "type": "string",
+      "enum": [
+        "job",
+        "general"
+      ]
+    },
+    "job_fact_revision_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "dimension": {
+      "type": "string",
+      "enum": [
+        "identity",
+        "responsibilities",
+        "tools",
+        "accomplishments",
+        "outcomes",
+        "scope",
+        "progression"
+      ]
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "answered",
+        "skipped",
+        "unknown",
+        "not_applicable",
+        "complete_for_now"
+      ]
+    },
+    "owner_text": {
+      "type": "string",
+      "maxLength": 16384
+    }
+  },
+  "required": [
+    "value_version",
+    "association",
+    "job_fact_revision_id",
+    "dimension",
+    "outcome",
+    "owner_text"
+  ],
+  "additionalProperties": false
+}

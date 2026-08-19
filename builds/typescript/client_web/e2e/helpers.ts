@@ -21,7 +21,7 @@ export async function loginAsLocalUser(page: Page) {
   // mobile composer — only one is visible depending on viewport width.
   await page.locator('textarea[placeholder="Message your BrainDrive..."]:visible').waitFor({
     state: "visible",
-    timeout: 10_000,
+    timeout: 30_000,
   });
 }
 

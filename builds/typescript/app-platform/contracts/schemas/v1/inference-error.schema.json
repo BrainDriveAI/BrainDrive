@@ -1,0 +1,47 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/inference-error.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "code": {
+      "type": "string",
+      "enum": [
+        "invalid_request",
+        "denied",
+        "model_incompatible",
+        "provider_unavailable",
+        "quota_exceeded",
+        "rate_limited",
+        "deadline_exceeded",
+        "cancelled",
+        "schema_validation_failed",
+        "validation_failed",
+        "recoverable_internal_failure",
+        "malformed_structured_output",
+        "incomplete_output",
+        "evidence_validation_failed",
+        "provider_schema_unsupported",
+        "provider_authentication_failed",
+        "provider_authorization_failed",
+        "content_filtered",
+        "provider_refused",
+        "unexpected_tool_call",
+        "internal_failure"
+      ]
+    },
+    "safe_message": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "retryable": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "code",
+    "safe_message",
+    "retryable"
+  ],
+  "additionalProperties": false
+}
