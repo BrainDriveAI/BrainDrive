@@ -8,7 +8,15 @@ const projectRoot = path.resolve(scriptRoot, "..");
 const repoRoot = path.resolve(projectRoot, "..", "..");
 const mcpRoot = path.resolve(projectRoot, "..", "mcp_release");
 const memoryRoot = path.resolve(process.env.PAA_MEMORY_ROOT?.trim() || path.join(projectRoot, "your-memory"));
-const npmExecutable = process.platform === "win32" ? "npm.cmd" : "npm";
+const npmExecutable = process.platform === "win32" ? process.execPath : "npm";
+const npmArgs = [];
+if (process.platform === "win32") {
+  const npmCli = process.env.npm_execpath?.trim();
+  if (!npmCli) {
+    throw new Error("Windows dev runtime requires the npm CLI path from npm_execpath");
+  }
+  npmArgs.push(npmCli);
+}
 const childProcesses = [];
 
 const includeWeb = process.argv.includes("--web");
@@ -91,7 +99,7 @@ async function main() {
   ];
 
   for (const server of mcpServers) {
-    spawnManaged(`mcp:${server.kind}`, npmExecutable, ["run", "dev"], {
+    spawnManaged(`mcp:${server.kind}`, npmExecutable, [...npmArgs, "run", "dev"], {
       cwd: mcpRoot,
       env: {
         ...process.env,
@@ -109,7 +117,10 @@ async function main() {
     )
   );
 
-  spawnManaged("gateway", npmExecutable, ["run", "dev:gateway"], {
+  const gatewayScript = process.env.BRAINDRIVE_E2E_INSTALLED_APP_PROVIDER_MODULE?.trim()
+    ? "dev:e2e-gateway"
+    : "dev:gateway";
+  spawnManaged("gateway", npmExecutable, [...npmArgs, "run", gatewayScript], {
     cwd: projectRoot,
     env: {
       ...process.env,
@@ -123,7 +134,7 @@ async function main() {
   console.log(`Gateway ready: http://127.0.0.1:${gatewayPort}`);
 
   if (includeWeb) {
-    spawnManaged("web", npmExecutable, ["--prefix", "client_web", "run", "dev"], {
+    spawnManaged("web", npmExecutable, [...npmArgs, "--prefix", "client_web", "run", "dev"], {
       cwd: projectRoot,
       env: {
         ...process.env,

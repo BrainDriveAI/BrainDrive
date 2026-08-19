@@ -1,0 +1,10 @@
+{
+  "fixture_version": 1,
+  "broker_error": {
+    "code": "evidence_validation_failed",
+    "safe_message": "Generated wording could not be verified",
+    "retryable": false
+  },
+  "legacy_adapter_projection_code": "schema_validation_failed",
+  "required_projection_code": "evidence_validation_failed"
+}

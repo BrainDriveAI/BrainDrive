@@ -1,0 +1,40 @@
+{
+  "payload": {
+    "index_version": 1,
+    "sequence": 1,
+    "prior_index_digest": null,
+    "published_at": "2026-08-07T12:00:00.000Z",
+    "entries": [
+      {
+        "app_id": "ai.braindrive.resume-builder",
+        "publisher_id": "ai.braindrive",
+        "package_version": "1.0.0",
+        "descriptor_digest": "sha256:9f706baaae557c40ce51a0f2020aa875afcf7e00ca715b0bead9321aaf8048a9",
+        "archive_digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "targets": ["docker_linux_x64", "desktop_windows_x64"],
+        "sources": [
+          {
+            "environment": "docker_dev",
+            "kind": "repository_fixture",
+            "descriptor_fixture_id": "resume-builder-1.0.0-descriptor",
+            "archive_fixture_id": "resume-builder-1.0.0-bdapp"
+          },
+          {
+            "environment": "desktop_windows",
+            "kind": "release_https",
+            "descriptor_url": "https://releases.braindrive.ai/apps/resume-builder/1.0.0/descriptor.json",
+            "archive_url": "https://releases.braindrive.ai/apps/resume-builder/1.0.0/resume-builder.bdapp"
+          }
+        ]
+      }
+    ]
+  },
+  "signature": {
+    "signature_version": 1,
+    "domain_separator": "BrainDrive-App-Source-Index-v1",
+    "canonicalization": "braindrive-canonical-json-v1",
+    "signature_algorithm": "ed25519",
+    "signing_key_id": "braindrive-app-release-2026-01",
+    "signature": "IVyqKE9BzhFB5U6BVldifTBhCmPqY1ronb30io0GpU2+9Nt/aeujST89NmEON3mVDEsngf0R/yVAUocSQtsqBQ=="
+  }
+}

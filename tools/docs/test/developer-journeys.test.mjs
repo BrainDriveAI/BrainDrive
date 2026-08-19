@@ -143,7 +143,7 @@ test('native isolation and Docker mutation/network boundaries are explicit', asy
   }
 });
 
-test('Tauri guidance preserves the WSL failure as diagnostic evidence without inventing platform support', async () => {
+test('Tauri guidance preserves the WSL failure as diagnostic evidence without treating it as native platform support', async () => {
   const text = await read('docs/developers/setup/tauri-desktop.md');
   const value = await catalog();
   const open03 = value.openItems.find(({ id }) => id === 'OPEN-03');
@@ -153,7 +153,7 @@ test('Tauri guidance preserves the WSL failure as diagnostic evidence without in
   assert.match(open03?.state ?? '', /deferred-required-before-milestone-7/);
   assert.match(open03?.summary ?? '', /Tauri/i);
   assert.match(open03?.summary ?? '', /native Windows/i);
-  assert.doesNotMatch(open03?.summary ?? '', /native macOS/i);
+  assert.match(open03?.summary ?? '', /native macOS/i);
 });
 
 test('Tauri configured bundle targets are distinct from claimed and evidenced J-05 platforms', async () => {
@@ -161,20 +161,21 @@ test('Tauri configured bundle targets are distinct from claimed and evidenced J-
   const claim = value.platformClaims.find(({ id }) => id === 'tauri-development');
 
   assert.deepEqual(claim?.configuredBundleTargets, ['windows', 'macos', 'linux']);
-  assert.deepEqual(claim?.claimedPlatforms, ['windows']);
+  assert.deepEqual(claim?.claimedPlatforms, ['windows', 'macos']);
   assert.deepEqual(claim?.diagnosticOnlyEnvironments, ['wsl', 'linux']);
   assert.equal(claim?.journeyId, 'J-05');
   assert.deepEqual(
     claim?.requiredEvidence,
     [
       { platform: 'windows', environment: 'native', status: 'DEFERRED — REQUIRED BEFORE MILESTONE 7', reportPath: 'docs/developers/verification/platform-reports/windows-j05.json', schemaPath: 'tools/docs/schemas/platform-report.schema.json' },
+      { platform: 'macos', environment: 'native', status: 'DEFERRED — REQUIRED BEFORE MILESTONE 7', reportPath: 'docs/developers/verification/platform-reports/macos-j05.json', schemaPath: 'tools/docs/schemas/platform-report.schema.json' },
     ],
   );
 
   const tauriCommand = value.commands.find(({ id }) => id === 'tauri-dev');
   assert.deepEqual(tauriCommand?.platforms, [
-    'claimed V1 J-05: native windows',
-    'configured but not claimed for V1 J-05: native macos, linux',
+    'claimed V1 J-05: native windows, macos',
+    'configured but not claimed for V1 J-05: native linux',
     'diagnostics only, not claimed J-05: wsl, linux',
   ]);
 });

@@ -1,0 +1,37 @@
+{
+  "$id": "https://schemas.braindrive.ai/app-platform/v1/app-primary-resource.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "resource_version": {
+      "type": "number",
+      "const": 1
+    },
+    "uri": {
+      "type": "string",
+      "maxLength": 2048,
+      "pattern": "^ui:\\/\\/[a-z0-9]+(?:-[a-z0-9]+)*\\/[a-z0-9][a-z0-9._/-]*$"
+    },
+    "package_path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "mime_type": {
+      "type": "string",
+      "const": "text/html;profile=mcp-app"
+    },
+    "content_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  },
+  "required": [
+    "resource_version",
+    "uri",
+    "package_path",
+    "mime_type",
+    "content_digest"
+  ],
+  "additionalProperties": false
+}

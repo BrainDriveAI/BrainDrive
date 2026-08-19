@@ -142,7 +142,7 @@ test('completed Milestone 5 rerun permits Milestone 6 only after its own rerun',
   assert.match(result.successorText, /DA-01 through DA-18/i);
 });
 
-test('the claimed native Windows Tauri platform fails closed when its report is absent or supplied by WSL', async () => {
+test('the claimed native Windows and macOS Tauri platforms fail closed when reports are absent or non-native', async () => {
   const catalog = await repositoryCatalog();
   const claim = catalog.platformClaims.find(({ id }) => id === 'tauri-development');
   const missing = await fixture('missing-tauri-platform-reports.json');
@@ -152,12 +152,13 @@ test('the claimed native Windows Tauri platform fails closed when its report is 
   const missingDiagnostics = validateClaimedPlatformEvidence(claim, missing.reports);
   assert.deepEqual(
     missingDiagnostics.map(({ path }) => path),
-    ['platform-evidence:J-05:windows'],
+    ['platform-evidence:J-05:windows', 'platform-evidence:J-05:macos'],
   );
 
   const wslDiagnostics = validateClaimedPlatformEvidence(claim, wsl.reports);
-  assert.equal(wslDiagnostics.length, 1);
-  assert.ok(wslDiagnostics.every(({ message }) => /native/i.test(message)));
+  assert.equal(wslDiagnostics.length, 2);
+  assert.ok(wslDiagnostics.some(({ path, message }) => path.endsWith(':windows') && /native/i.test(message)));
+  assert.ok(wslDiagnostics.some(({ path }) => path.endsWith(':macos')));
 
   const completeReport = (platform) => ({
     journeyId: 'J-05',
@@ -175,11 +176,11 @@ test('the claimed native Windows Tauri platform fails closed when its report is 
   });
   assert.deepEqual(validateClaimedPlatformEvidence(
     claim,
-    [completeReport('windows')],
+    [completeReport('windows'), completeReport('macos')],
     { candidateProof },
   ), []);
 
-  const incompleteReports = [completeReport('windows')];
+  const incompleteReports = [completeReport('windows'), completeReport('macos')];
   delete incompleteReports[0].toolVersions;
   const incompleteDiagnostics = validateClaimedPlatformEvidence(claim, incompleteReports, { candidateProof });
   assert.equal(incompleteDiagnostics.length, 1);

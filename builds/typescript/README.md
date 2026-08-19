@@ -26,6 +26,7 @@ This is the current source-adjacent entry for the main BrainDrive runtime. Use t
 | Auth and config | [`auth/middleware.ts`](auth/middleware.ts), [`config.ts`](config.ts) | auth and config tests |
 | File-backed memory and secrets | [`memory/init.ts`](memory/init.ts), [`memory-tools/file-ops/server.ts`](memory-tools/file-ops/server.ts), [`secrets/resolver.ts`](secrets/resolver.ts) | colocated memory, file-operation, and resolver tests |
 | Providers and MCP | [`adapters/index.ts`](adapters/index.ts), [`mcp/registry.ts`](mcp/registry.ts) | adapter tests and MCP release-package unit tests; focused main-workspace MCP registry/config coverage is not currently declared |
+| App platform and Resume Builder | [`app-platform/contracts/README.md`](app-platform/contracts/README.md), [`resume-domain/README.md`](resume-domain/README.md), [`resume-inference/README.md`](resume-inference/README.md) | contract/schema, domain, inference, renderer, package, and owner-journey tests |
 | Web client | [`client_web/README.md`](client_web/README.md) | web typecheck, lint, tests, and build |
 | Tauri desktop | [`client_web/src/api/runtime-api-base.ts`](client_web/src/api/runtime-api-base.ts), [`src-tauri/src/main.rs`](src-tauri/src/main.rs); optional remote-browser proxy in [`desktop/bridge.ts`](desktop/bridge.ts) | desktop preflight, bridge tests, and Cargo tests |
 
@@ -42,6 +43,16 @@ npm run build
 npm run lint
 npm run test
 ```
+
+App-platform and Resume Builder checks are explicit package scripts:
+
+```bash
+npm run contracts:schemas
+npm run resume:quality
+npm run resume:conformance
+```
+
+`contracts:schemas` regenerates the tracked contract schemas and therefore is a deliberate write operation. `resume:quality` is the credential-free frozen-fixture gate. `resume:conformance` is a live provider/model check and requires the separate authority, credentials, retention boundary, and exact provider/model selection described by the [provider integration boundary](../../docs/developers/integrations/providers.md); it is not part of ordinary local verification.
 
 Web checks are composed through the main package:
 

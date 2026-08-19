@@ -1,0 +1,167 @@
+{
+  "corpus_schema_version": 2,
+  "synthetic": true,
+  "evidence_scope": "workflow_only",
+  "higher_gate_eligible": false,
+  "corrected_bindings": {
+    "quality_standard_digest": "sha256:bf644a25e4587c43acc84a521ae6955b0c950ff8dbd17bafb34cb52b2c65f498",
+    "evaluator_contract_digest": "sha256:e46214e2ad153201ac24cbc34556c7364dc434f1f39635b5a0e217db028fe39f",
+    "evidence_limited_policy_digest": "sha256:e9cc66749ba6b2a08f15f5e986bda406ffb0a529c9cdaee43a822a8c6922096c",
+    "prompt_policy_digest": "sha256:90319e14fe09ee68ef86cda89226955e86dbe4140c5af1de60b712386f09c2a7",
+    "craft_report_schema_id": "resume.craft-quality-report.v2",
+    "craft_report_schema_digest": "sha256:1e28bbcd58e4c1dd67ac5883c77f68db6f1e8255e16e7d99b46464a356537e39"
+  },
+  "corrective_relations": {
+    "frozen_negative": {
+      "fixture_id": "synthetic-qgc-general-resume-001",
+      "manifest_digest": "sha256:5b0ae609c9d315373df9289f5db8f5dafb79f18169b98853820422e9d8813728",
+      "semantic_input_digest": "sha256:d65fd24cbb0e2610d0cf3ad3329384493038641076c8e788706b04c97260749f",
+      "strategy_digest": "sha256:0b1424bade2ae3ab1560d3da7feb63c18b2be492e019c2aec661a01389aa9eb2",
+      "section_order_digest": "sha256:6001c6b9233b54b38929066fcc64a95218c9ba46a8919f939fec969b05065697",
+      "expected_c1": "fail",
+      "expected_c2": "fail",
+      "expected_c3": "pass",
+      "expected_quality_state": "needs_correction",
+      "passing_label_allowed": false
+    },
+    "clean_positive_case_ids": ["craft-clean", "craft-clean-density", "craft-clean-organization"],
+    "permutation": {
+      "relation_id": "qgc-frozen-semantic-permutation",
+      "permutation_ids": ["facts-baseline-order", "facts-reversed-order"],
+      "permutation_digests": [
+        "sha256:0097657e90a80c640c2cd6023c9b61307a6062d9014500b3da3409a3bc807d1e",
+        "sha256:49d33b1075dff06902ad93512b01679584e910d5ba42237a8d30678b431f3c54"
+      ],
+      "expected_semantic_input_digest": "sha256:d65fd24cbb0e2610d0cf3ad3329384493038641076c8e788706b04c97260749f",
+      "expected_strategy_digest": "sha256:0b1424bade2ae3ab1560d3da7feb63c18b2be492e019c2aec661a01389aa9eb2",
+      "expected_section_order_digest": "sha256:6001c6b9233b54b38929066fcc64a95218c9ba46a8919f939fec969b05065697"
+    }
+  },
+  "generative_fixture_ids": [
+    "f1-foundation-synthetic",
+    "f2-no-prior-data-synthetic",
+    "f3-thin-history-synthetic",
+    "f4-career-changer-synthetic",
+    "f5-recent-loss-synthetic",
+    "f6-senior-history-synthetic",
+    "f8-promotion-concurrent-synthetic",
+    "f10-tailored-mix-synthetic",
+    "f11-metric-poor-synthetic"
+  ],
+  "holdout_fixture_ids": [
+    "holdout-return-to-work-synthetic",
+    "holdout-concurrent-career-change-synthetic"
+  ],
+  "evidence_cases": [
+    { "fixture_id": "f1-foundation-synthetic", "strong_evidence_ids": ["evidence-f1-strong-a", "evidence-f1-strong-b"], "must_use_evidence_ids": ["evidence-f1-strong-a"], "used_evidence_ids": ["evidence-f1-strong-a", "evidence-f1-strong-b"], "omissions": [] },
+    { "fixture_id": "f2-no-prior-data-synthetic", "strong_evidence_ids": ["evidence-f2-project-a"], "must_use_evidence_ids": ["evidence-f2-project-a"], "used_evidence_ids": ["evidence-f2-project-a"], "omissions": [] },
+    { "fixture_id": "f3-thin-history-synthetic", "strong_evidence_ids": ["evidence-f3-project-a"], "must_use_evidence_ids": ["evidence-f3-project-a"], "used_evidence_ids": ["evidence-f3-project-a"], "omissions": [] },
+    { "fixture_id": "f4-career-changer-synthetic", "strong_evidence_ids": ["evidence-f4-transfer-a", "evidence-f4-transfer-b"], "must_use_evidence_ids": ["evidence-f4-transfer-a"], "used_evidence_ids": ["evidence-f4-transfer-a", "evidence-f4-transfer-b"], "omissions": [] },
+    { "fixture_id": "f5-recent-loss-synthetic", "strong_evidence_ids": ["evidence-f5-records-a"], "must_use_evidence_ids": ["evidence-f5-records-a"], "used_evidence_ids": ["evidence-f5-records-a"], "omissions": [] },
+    { "fixture_id": "f6-senior-history-synthetic", "strong_evidence_ids": ["evidence-f6-leadership-a", "evidence-f6-progression-b"], "must_use_evidence_ids": ["evidence-f6-leadership-a", "evidence-f6-progression-b"], "used_evidence_ids": ["evidence-f6-leadership-a", "evidence-f6-progression-b"], "omissions": [] },
+    { "fixture_id": "f8-promotion-concurrent-synthetic", "strong_evidence_ids": ["evidence-f8-promotion-a", "evidence-f8-concurrent-b"], "must_use_evidence_ids": ["evidence-f8-promotion-a"], "used_evidence_ids": ["evidence-f8-promotion-a", "evidence-f8-concurrent-b"], "omissions": [] },
+    { "fixture_id": "f10-tailored-mix-synthetic", "strong_evidence_ids": ["evidence-f10-supported-a", "evidence-f10-transfer-b"], "must_use_evidence_ids": ["evidence-f10-supported-a"], "used_evidence_ids": ["evidence-f10-supported-a", "evidence-f10-transfer-b"], "omissions": [] },
+    { "fixture_id": "f11-metric-poor-synthetic", "strong_evidence_ids": ["evidence-f11-qualitative-a"], "must_use_evidence_ids": ["evidence-f11-qualitative-a"], "used_evidence_ids": ["evidence-f11-qualitative-a"], "omissions": [] }
+  ],
+  "coverage_journeys": [
+    {
+      "journey_id": "journey-sparse",
+      "history_shape": "sparse",
+      "dimensions": [
+        { "dimension": "responsibilities", "disposition": "answered" }, { "dimension": "accomplishments", "disposition": "answered" }, { "dimension": "outcomes", "disposition": "unknown" }, { "dimension": "tools", "disposition": "answered" }, { "dimension": "scope", "disposition": "deferred" }, { "dimension": "progression", "disposition": "not_applicable" }
+      ],
+      "questions_presented": 5, "distinct_evidence_additions": 3, "uncertainties_resolved": 1, "gaps_intentionally_deferred": 1, "repeated_known_or_refused_opportunities": 0, "metric_refusals": 1, "repeated_metric_requests": 0
+    },
+    {
+      "journey_id": "journey-normalized-early-career",
+      "history_shape": "early_career",
+      "dimensions": [
+        { "dimension": "responsibilities", "disposition": "answered" }, { "dimension": "accomplishments", "disposition": "answered" }, { "dimension": "outcomes", "disposition": "answered" }, { "dimension": "tools", "disposition": "answered" }, { "dimension": "scope", "disposition": "answered" }, { "dimension": "progression", "disposition": "not_applicable" }
+      ],
+      "questions_presented": 6, "distinct_evidence_additions": 5, "uncertainties_resolved": 1, "gaps_intentionally_deferred": 0, "repeated_known_or_refused_opportunities": 0, "metric_refusals": 0, "repeated_metric_requests": 0
+    },
+    {
+      "journey_id": "journey-established",
+      "history_shape": "established",
+      "dimensions": [
+        { "dimension": "responsibilities", "disposition": "answered" }, { "dimension": "accomplishments", "disposition": "answered" }, { "dimension": "outcomes", "disposition": "answered" }, { "dimension": "tools", "disposition": "answered" }, { "dimension": "scope", "disposition": "answered" }, { "dimension": "progression", "disposition": "answered" }
+      ],
+      "questions_presented": 6, "distinct_evidence_additions": 6, "uncertainties_resolved": 0, "gaps_intentionally_deferred": 0, "repeated_known_or_refused_opportunities": 0, "metric_refusals": 0, "repeated_metric_requests": 0
+    },
+    {
+      "journey_id": "journey-senior",
+      "history_shape": "senior",
+      "dimensions": [
+        { "dimension": "responsibilities", "disposition": "answered" }, { "dimension": "accomplishments", "disposition": "answered" }, { "dimension": "outcomes", "disposition": "answered" }, { "dimension": "tools", "disposition": "answered" }, { "dimension": "scope", "disposition": "answered" }, { "dimension": "progression", "disposition": "answered" }
+      ],
+      "questions_presented": 6, "distinct_evidence_additions": 6, "uncertainties_resolved": 0, "gaps_intentionally_deferred": 0, "repeated_known_or_refused_opportunities": 0, "metric_refusals": 0, "repeated_metric_requests": 0
+    },
+    {
+      "journey_id": "journey-promotion",
+      "history_shape": "promotion",
+      "dimensions": [
+        { "dimension": "responsibilities", "disposition": "answered" }, { "dimension": "accomplishments", "disposition": "answered" }, { "dimension": "outcomes", "disposition": "answered" }, { "dimension": "tools", "disposition": "answered" }, { "dimension": "scope", "disposition": "answered" }, { "dimension": "progression", "disposition": "answered" }
+      ],
+      "questions_presented": 6, "distinct_evidence_additions": 6, "uncertainties_resolved": 0, "gaps_intentionally_deferred": 0, "repeated_known_or_refused_opportunities": 0, "metric_refusals": 0, "repeated_metric_requests": 0
+    },
+    {
+      "journey_id": "journey-concurrent",
+      "history_shape": "concurrent",
+      "dimensions": [
+        { "dimension": "responsibilities", "disposition": "answered" }, { "dimension": "accomplishments", "disposition": "answered" }, { "dimension": "outcomes", "disposition": "unknown" }, { "dimension": "tools", "disposition": "answered" }, { "dimension": "scope", "disposition": "answered" }, { "dimension": "progression", "disposition": "answered" }
+      ],
+      "questions_presented": 6, "distinct_evidence_additions": 5, "uncertainties_resolved": 1, "gaps_intentionally_deferred": 0, "repeated_known_or_refused_opportunities": 0, "metric_refusals": 1, "repeated_metric_requests": 0
+    },
+    {
+      "journey_id": "journey-career-change",
+      "history_shape": "career_change",
+      "dimensions": [
+        { "dimension": "responsibilities", "disposition": "answered" }, { "dimension": "accomplishments", "disposition": "answered" }, { "dimension": "outcomes", "disposition": "answered" }, { "dimension": "tools", "disposition": "answered" }, { "dimension": "scope", "disposition": "answered" }, { "dimension": "progression", "disposition": "deferred" }
+      ],
+      "questions_presented": 6, "distinct_evidence_additions": 5, "uncertainties_resolved": 0, "gaps_intentionally_deferred": 1, "repeated_known_or_refused_opportunities": 0, "metric_refusals": 0, "repeated_metric_requests": 0
+    },
+    {
+      "journey_id": "journey-metric-poor",
+      "history_shape": "metric_poor",
+      "dimensions": [
+        { "dimension": "responsibilities", "disposition": "answered" }, { "dimension": "accomplishments", "disposition": "answered" }, { "dimension": "outcomes", "disposition": "unknown" }, { "dimension": "tools", "disposition": "answered" }, { "dimension": "scope", "disposition": "answered" }, { "dimension": "progression", "disposition": "not_applicable" }
+      ],
+      "questions_presented": 6, "distinct_evidence_additions": 4, "uncertainties_resolved": 2, "gaps_intentionally_deferred": 0, "repeated_known_or_refused_opportunities": 0, "metric_refusals": 1, "repeated_metric_requests": 0
+    }
+  ],
+  "target_cases": [
+    { "case_id": "target-supported", "target_class": "supported", "expected_outcome": "variant", "supported_core_count": 1, "supported_transferable_count": 0, "material_change_count": 1 },
+    { "case_id": "target-partial", "target_class": "partial", "expected_outcome": "variant", "supported_core_count": 0, "supported_transferable_count": 2, "material_change_count": 1 },
+    { "case_id": "target-no-core-fit", "target_class": "no_core_fit", "expected_outcome": "no_meaningful_change", "supported_core_count": 0, "supported_transferable_count": 0, "material_change_count": 0 },
+    { "case_id": "target-ambiguous", "target_class": "ambiguous", "expected_outcome": "no_meaningful_change", "supported_core_count": 0, "supported_transferable_count": 0, "material_change_count": 0 },
+    { "case_id": "target-malicious", "target_class": "malicious", "expected_outcome": "no_meaningful_change", "supported_core_count": 0, "supported_transferable_count": 0, "material_change_count": 0 },
+    { "case_id": "target-sparse", "target_class": "sparse", "expected_outcome": "no_meaningful_change", "supported_core_count": 0, "supported_transferable_count": 1, "material_change_count": 0 },
+    { "case_id": "target-mature", "target_class": "mature", "expected_outcome": "variant", "supported_core_count": 2, "supported_transferable_count": 2, "material_change_count": 2 }
+  ],
+  "craft_cases": [
+    { "case_id": "craft-generic", "case_class": "generic", "expected_outcome": "blocked" },
+    { "case_id": "craft-duty-only", "case_class": "duty_only", "expected_outcome": "blocked" },
+    { "case_id": "craft-mutation", "case_class": "mutation", "expected_outcome": "blocked" },
+    { "case_id": "craft-clean", "case_class": "clean", "expected_outcome": "passed" },
+    { "case_id": "craft-clean-density", "case_class": "clean", "expected_outcome": "passed" },
+    { "case_id": "craft-clean-organization", "case_class": "clean", "expected_outcome": "passed" }
+  ],
+  "repair_cases": [
+    { "case_id": "repair-safe", "repair_class": "safe", "expected_outcome": "accepted", "unchanged_statements_preserved": true, "support_preserved": true },
+    { "case_id": "repair-unsafe", "repair_class": "unsafe", "expected_outcome": "rejected", "unchanged_statements_preserved": true, "support_preserved": true }
+  ],
+  "successor_pairs": [
+    { "pair_id": "successor-remembered", "successor_kind": "remembered_detail", "must_use_non_regression": true, "mandatory_craft_non_regression": true },
+    { "pair_id": "successor-natural-language", "successor_kind": "natural_language_revision", "must_use_non_regression": true, "mandatory_craft_non_regression": true }
+  ],
+  "parity_cases": [
+    { "case_id": "parity-preview-mutation", "representation": "preview", "mutation_expected_caught": true, "affected_side_effect_only": true },
+    { "case_id": "parity-clean-text-mutation", "representation": "clean_text", "mutation_expected_caught": true, "affected_side_effect_only": true },
+    { "case_id": "parity-pdf-mutation", "representation": "pdf", "mutation_expected_caught": true, "affected_side_effect_only": true },
+    { "case_id": "parity-career-mutation", "representation": "career_projection", "mutation_expected_caught": true, "affected_side_effect_only": true }
+  ],
+  "friction_journeys": [
+    { "journey_id": "friction-one-job-general", "factual_submissions": 5, "fact_confirmation_groups": 5, "non_fact_actions": 1, "non_fact_confirmation_dialogs": 0, "redundant_confirmations": 0, "final_resume_approvals": 1, "questions_presented": 6, "useful_evidence_additions": 5, "uncertainty_resolutions": 1, "intentional_deferrals": 0, "metric_refusals": 0, "repeated_metric_requests": 0 },
+    { "journey_id": "friction-one-job-refusal", "factual_submissions": 4, "fact_confirmation_groups": 4, "non_fact_actions": 2, "non_fact_confirmation_dialogs": 0, "redundant_confirmations": 0, "final_resume_approvals": 1, "questions_presented": 6, "useful_evidence_additions": 4, "uncertainty_resolutions": 2, "intentional_deferrals": 0, "metric_refusals": 1, "repeated_metric_requests": 0 }
+  ]
+}

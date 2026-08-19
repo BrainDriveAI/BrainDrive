@@ -1,0 +1,18 @@
+{
+  "payload": {
+    "revocation_version": 1,
+    "sequence": 2,
+    "prior_list_digest": null,
+    "issued_at": "2026-08-07T12:00:00.000Z",
+    "next_update_at": "2026-08-08T12:00:00.000Z",
+    "entries": []
+  },
+  "signature": {
+    "signature_version": 1,
+    "domain_separator": "BrainDrive-App-Revocations-v1",
+    "canonicalization": "braindrive-canonical-json-v1",
+    "signature_algorithm": "ed25519",
+    "signing_key_id": "braindrive-app-release-2026-01",
+    "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+  }
+}

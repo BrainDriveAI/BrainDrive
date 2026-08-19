@@ -37,7 +37,7 @@ Normal BrainDrive owners looking to install or use the product should use the [p
 | Journey | Current route | Maturity boundary |
 |---|---|---|
 | Orient | [Repository map](repository-map.md) and [terminology](terminology.md) | Current |
-| Run | [Native TypeScript/web](setup/native.md), [Docker development](setup/docker-development.md), or [Tauri desktop](setup/tauri-desktop.md) | Current provider-independent setup contracts; Tauri V1 claims native Windows while macOS/Linux remain configured but unclaimed |
+| Run | [Native TypeScript/web](setup/native.md), [Docker development](setup/docker-development.md), or [Tauri desktop](setup/tauri-desktop.md) | Current provider-independent setup contracts; Tauri V1 claims native Windows and macOS while Linux remains configured but unclaimed |
 | Contribute | [Contribution policy](../../CONTRIBUTING.md) | Current |
 | Trace | [Request flows](architecture/request-flows.md), [modes and trust](architecture/modes-data-and-trust.md), and [memory/secrets lifecycle](architecture/memory-and-secrets.md) | Current source-backed detailed architecture |
 | Integrate | [Integration inventory](integrations/README.md) | Shipped beta/internal behavior under resolved OPEN-02; no public SDK or cross-version promise |
@@ -55,6 +55,7 @@ Normal BrainDrive owners looking to install or use the product should use the [p
 | Auth and config | Deployment-mode, authentication, runtime, and provider preferences | [Architecture: auth and configuration](architecture/README.md#authentication-and-configuration) |
 | Memory and secrets | File-backed memory and separately protected secret material | [Memory and secrets lifecycle](architecture/memory-and-secrets.md) |
 | Providers and MCP | Model adapter profiles and registered external tool services | [Provider integration](integrations/providers.md) and [MCP/tools](integrations/mcp-and-tools.md) |
+| Installed Apps, Resume Builder, and Brief Builder | Generic host authority and isolation around separately packaged, app-owned workflows and inference programs | [Installed app architecture](integrations/installed-apps.md), [App contracts](../../builds/typescript/app-platform/contracts/README.md), [Resume Builder package](../../builds/resume_builder/README.md), and [Brief Builder package](../../builds/brief_builder/README.md) |
 | Docker and installer | Dev, local, and production packaging and lifecycle scripts | [Docker installer README](../../installer/docker/README.md) |
 | Tauri desktop | Native shell and embedded local runtime for the web client | [Tauri subsystem README](../../builds/typescript/src-tauri/README.md) |
 | Tests and CI | Workspace checks plus repository CI composition | [Change verification matrix](verification.md) |

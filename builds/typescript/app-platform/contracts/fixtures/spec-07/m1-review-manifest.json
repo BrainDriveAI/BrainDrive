@@ -1,0 +1,41 @@
+{
+  "manifest_version": 1,
+  "authority_status": "review_only_pending_accepted_spec_and_test_plan",
+  "scope": "Spec 07 Milestone 1 schema-3 contract foundation",
+  "governing_documents": [
+    "/home/hex/Reference/Designs/BrainDrive-Tools/Resume-Builder/MVP/spec-07-resume-builder-persuasive-quality-and-evidence-maximization.md",
+    "/home/hex/Reference/Designs/BrainDrive-Tools/Resume-Builder/MVP/spec-07-resume-builder-persuasive-quality-and-evidence-maximization-implementation-plan.md",
+    "/home/hex/Reference/Designs/BrainDrive-Tools/Resume-Builder/MVP/spec-07-resume-builder-persuasive-quality-and-evidence-maximization-prompt-pack.md",
+    "AGENTS.md",
+    "docs/developers/catalog.json",
+    "docs/developers/verification.md"
+  ],
+  "requirement_foundations": [
+    "RB7-REQ-001-003",
+    "RB7-REQ-009-011",
+    "RB7-REQ-020-025",
+    "RB7-REQ-027-034",
+    "RB7-REQ-037-045",
+    "RB7-OBS-001-007",
+    "RB7-SEC-001",
+    "RB7-SEC-004",
+    "RB7-INV-001-016"
+  ],
+  "contracts": [
+    "job-evidence-coverage-record",
+    "resume-strategy-record",
+    "target-fit-analysis-record",
+    "craft-quality-report-record",
+    "craft-repair-operation-record",
+    "artifact-parity-report-record",
+    "inference-result-resume-strategy",
+    "inference-result-tailoring-plan",
+    "inference-result-resume-craft-evaluate",
+    "inference-result-resume-craft-repair"
+  ],
+  "verification": [
+    "app-platform/contracts/spec-07-m1.test.ts",
+    "resume-domain/resume-data-m6.test.ts",
+    "resume-inference/snapshot.test.ts"
+  ]
+}

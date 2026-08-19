@@ -51,6 +51,9 @@ export function projectShortLabel(projectId: string, projectName: string): strin
 }
 
 export function sidebarFileLabel(file: ProjectFile, projectId: string): string {
+  if (file.displayName?.trim()) {
+    return file.displayName.trim();
+  }
   const relativePath = projectRelativePath(file.path, projectId);
   const fileName = relativePath.split("/").pop() ?? file.name;
   const baseName = fileName.replace(/\.md$/i, "");
