@@ -20,6 +20,10 @@ Runtime config selects an adapter. Preferences select an active provider profile
 
 OpenRouter selection and OpenRouter runtime readiness are intentionally separate. An owner may make OpenRouter the active profile before adding a key; the missing credential remains visible as unresolved onboarding/configuration and OpenRouter model requests still require an owner-supplied key. Selecting OpenRouter does not create, borrow, or transfer BrainDrive Models credit or credentials.
 
+BrainDrive Models credits status and checkout use the dedicated `braindrive-models` provider credential and encrypted vault value, not the active chat provider. If Ollama or BYOK OpenRouter is active, `/credits/status` still authenticates to the hosted credits service with the BrainDrive Models secret reference. A missing known BrainDrive Models secret enters repair, while a transient hosted status failure is reported as unavailable without borrowing another provider credential.
+
+Release evidence for BrainDrive Models credit changes must show the provider boundary in both directions: Ollama and BYOK OpenRouter remain selectable without BrainDrive Models credits, and BrainDrive Models status/top-up never sends an Ollama placeholder or OpenRouter BYOK key to the hosted credits service. Use automated gateway tests for Tier A evidence and controlled staging only with explicit owner/provider authority.
+
 The gateway resolves the effective profile and credential immediately before the chat model adapter is created. Provider network errors are classified for the stream. Endpoint reachability, model availability, account entitlement, and provider-specific behavior are not established by config parsing.
 
 ## Structured no-tools completion

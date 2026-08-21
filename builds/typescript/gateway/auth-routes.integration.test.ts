@@ -2039,6 +2039,519 @@ describe.sequential("gateway auth route integration", () => {
     expect(checkoutResponse.statusCode).toBe(502);
   });
 
+  it.each(["ollama", "openrouter"] as const)(
+    "uses only the dedicated BrainDrive Models key for credits status while %s is active",
+    async (activeProvider) => {
+      context = await createTestServer({
+        authMode: "local-owner",
+        adapterConfig: brainDriveModelsAdapterConfig(),
+      });
+      mockPreferences = {
+        ...mockPreferences,
+        active_provider_profile: activeProvider,
+        provider_credentials: {
+          "braindrive-models": {
+            mode: "secret_ref",
+            secret_ref: "provider/ai-gateway/api_key",
+            required: true,
+          },
+          openrouter: {
+            mode: "secret_ref",
+            secret_ref: "provider/openrouter/byok",
+            required: true,
+          },
+        },
+        braindrive_models_key: {
+          install_public_id: "install-status-dedicated",
+          masked_key: "sk-...ated",
+          status: "ready",
+          checkout_pending: false,
+        },
+      };
+      await writeVaultSecret("provider/ai-gateway/api_key", "sk-dedicated-status-key");
+      await writeVaultSecret("provider/openrouter/byok", "sk-openrouter-status-key");
+      vi.mocked(resolveProviderCredentialForStartup).mockClear();
+      vi.mocked(resolveProviderCredentialForStartup).mockResolvedValue({
+        providerId: activeProvider,
+        secretRef: "provider/openrouter/byok",
+        source: "vault",
+        apiKey: "sk-openrouter-status-key",
+      });
+
+      const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
+        expect(String(url)).toBe("https://my.braindrive.ai/credits/status");
+        expect(init?.headers).toMatchObject({ Authorization: "Bearer sk-dedicated-status-key" });
+        expect(JSON.stringify(init)).not.toContain("sk-openrouter-status-key");
+        return new Response(
+          JSON.stringify({ remaining_usd: 12, total_purchased_usd: 20, total_spent_usd: 8 }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const response = await context.app.inject({
+        method: "GET",
+        url: "/credits/status",
+        headers: localOwnerAdminHeaders(),
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(parseJson(response.body)).toMatchObject({
+        remaining_usd: 12,
+        key_valid: true,
+        purchase_status: "ready",
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(resolveProviderCredentialForStartup).not.toHaveBeenCalled();
+    }
+  );
+
+  it("maps host checkout_pending status to activating without clearing local pending", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: brainDriveModelsAdapterConfig(),
+    });
+    mockPreferences = {
+      ...mockPreferences,
+      provider_credentials: {
+        "braindrive-models": {
+          mode: "secret_ref",
+          secret_ref: "provider/ai-gateway/api_key",
+          required: true,
+        },
+      },
+      braindrive_models_key: {
+        install_public_id: "install-host-pending",
+        masked_key: "sk-...ding",
+        status: "checkout_pending",
+        checkout_pending: true,
+      },
+    };
+    await writeVaultSecret("provider/ai-gateway/api_key", "sk-host-pending-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            remaining_usd: 0,
+            total_purchased_usd: 0,
+            total_spent_usd: 0,
+            checkout_pending: true,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+    );
+
+    const response = await context.app.inject({
+      method: "GET",
+      url: "/credits/status",
+      headers: localOwnerAdminHeaders(),
+    });
+
+    expect(parseJson(response.body)).toMatchObject({ purchase_status: "activating" });
+    expect(mockPreferences.braindrive_models_key).toMatchObject({
+      status: "checkout_pending",
+      checkout_pending: true,
+      last_error: null,
+    });
+  });
+
+  it("clears pending and returns ready only when the exact host status is funded", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: brainDriveModelsAdapterConfig(),
+    });
+    mockPreferences = {
+      ...mockPreferences,
+      provider_credentials: {
+        "braindrive-models": {
+          mode: "secret_ref",
+          secret_ref: "provider/ai-gateway/api_key",
+          required: true,
+        },
+      },
+      braindrive_models_key: {
+        install_public_id: "install-funded",
+        masked_key: "sk-...nded",
+        status: "checkout_pending",
+        checkout_pending: true,
+      },
+    };
+    await writeVaultSecret("provider/ai-gateway/api_key", "sk-funded-status-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(JSON.stringify({ remaining_usd: 6, total_purchased_usd: 10, total_spent_usd: 4 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
+      )
+    );
+
+    const response = await context.app.inject({
+      method: "GET",
+      url: "/credits/status",
+      headers: localOwnerAdminHeaders(),
+    });
+
+    expect(parseJson(response.body)).toMatchObject({ remaining_usd: 6, purchase_status: "ready" });
+    expect(mockPreferences.braindrive_models_key).toMatchObject({
+      status: "ready",
+      checkout_pending: false,
+      last_error: null,
+    });
+  });
+
+  it("clears pending and returns zero balance when host status is settled at zero", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: brainDriveModelsAdapterConfig(),
+    });
+    mockPreferences = {
+      ...mockPreferences,
+      provider_credentials: {
+        "braindrive-models": {
+          mode: "secret_ref",
+          secret_ref: "provider/ai-gateway/api_key",
+          required: true,
+        },
+      },
+      braindrive_models_key: {
+        install_public_id: "install-zero-settled",
+        masked_key: "sk-...zero",
+        status: "checkout_pending",
+        checkout_pending: true,
+      },
+    };
+    await writeVaultSecret("provider/ai-gateway/api_key", "sk-zero-settled-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            remaining_usd: 0,
+            total_purchased_usd: 0,
+            total_spent_usd: 0,
+            checkout_pending: false,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+    );
+
+    const response = await context.app.inject({
+      method: "GET",
+      url: "/credits/status",
+      headers: localOwnerAdminHeaders(),
+    });
+
+    expect(parseJson(response.body)).toMatchObject({ purchase_status: "zero_balance" });
+    expect(mockPreferences.braindrive_models_key).toMatchObject({
+      status: "zero_balance",
+      checkout_pending: false,
+      last_error: null,
+    });
+  });
+
+  it("does not clear pending solely because historical purchases are nonzero", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: brainDriveModelsAdapterConfig(),
+    });
+    mockPreferences = {
+      ...mockPreferences,
+      provider_credentials: {
+        "braindrive-models": {
+          mode: "secret_ref",
+          secret_ref: "provider/ai-gateway/api_key",
+          required: true,
+        },
+      },
+      braindrive_models_key: {
+        install_public_id: "install-history-pending",
+        masked_key: "sk-...tory",
+        status: "checkout_pending",
+        checkout_pending: true,
+      },
+    };
+    await writeVaultSecret("provider/ai-gateway/api_key", "sk-history-pending-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(JSON.stringify({ remaining_usd: 0, total_purchased_usd: 50, total_spent_usd: 50 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
+      )
+    );
+
+    const response = await context.app.inject({
+      method: "GET",
+      url: "/credits/status",
+      headers: localOwnerAdminHeaders(),
+    });
+
+    expect(parseJson(response.body)).toMatchObject({ purchase_status: "activating" });
+    expect(mockPreferences.braindrive_models_key).toMatchObject({
+      status: "checkout_pending",
+      checkout_pending: true,
+    });
+  });
+
+  it("maps a missing dedicated secret with prior state to repair required", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: brainDriveModelsAdapterConfig(),
+    });
+    mockPreferences = {
+      ...mockPreferences,
+      provider_credentials: {
+        "braindrive-models": {
+          mode: "secret_ref",
+          secret_ref: "provider/ai-gateway/api_key",
+          required: true,
+        },
+      },
+      braindrive_models_key: {
+        install_public_id: "install-missing-secret",
+        masked_key: "sk-...sing",
+        status: "ready",
+        checkout_pending: false,
+      },
+    };
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await context.app.inject({
+      method: "GET",
+      url: "/credits/status",
+      headers: localOwnerAdminHeaders(),
+    });
+
+    expect(parseJson(response.body)).toMatchObject({
+      key_valid: false,
+      purchase_status: "repair_required",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mockPreferences.braindrive_models_key).toMatchObject({
+      status: "repair_required",
+      checkout_pending: false,
+      last_error: "missing_existing_key",
+    });
+  });
+
+  it("maps a missing dedicated secret without prior setup to zero balance without provisioning", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: brainDriveModelsAdapterConfig(),
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await context.app.inject({
+      method: "GET",
+      url: "/credits/status",
+      headers: localOwnerAdminHeaders(),
+    });
+
+    expect(parseJson(response.body)).toEqual({
+      remaining_usd: 0,
+      total_purchased_usd: 0,
+      total_spent_usd: 0,
+      purchase_status: "zero_balance",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mockPreferences.braindrive_models_key).toBeUndefined();
+  });
+
+  it("maps a missing dedicated secret with only a provider credential reference to zero balance without repair", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: brainDriveModelsAdapterConfig(),
+    });
+    mockPreferences = {
+      ...mockPreferences,
+      provider_credentials: {
+        "braindrive-models": {
+          mode: "secret_ref",
+          secret_ref: "provider/ai-gateway/api_key",
+          required: true,
+        },
+      },
+    };
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await context.app.inject({
+      method: "GET",
+      url: "/credits/status",
+      headers: localOwnerAdminHeaders(),
+    });
+
+    expect(parseJson(response.body)).toEqual({
+      remaining_usd: 0,
+      total_purchased_usd: 0,
+      total_spent_usd: 0,
+      purchase_status: "zero_balance",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mockPreferences.braindrive_models_key).toBeUndefined();
+    expect(mockPreferences.provider_credentials?.["braindrive-models"]).toMatchObject({
+      mode: "secret_ref",
+      secret_ref: "provider/ai-gateway/api_key",
+    });
+  });
+
+  it("maps host rejection of the dedicated key to repair required", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: brainDriveModelsAdapterConfig(),
+    });
+    mockPreferences = {
+      ...mockPreferences,
+      provider_credentials: {
+        "braindrive-models": {
+          mode: "secret_ref",
+          secret_ref: "provider/ai-gateway/api_key",
+          required: true,
+        },
+      },
+      braindrive_models_key: {
+        install_public_id: "install-rejected",
+        masked_key: "sk-...cted",
+        status: "ready",
+        checkout_pending: false,
+      },
+    };
+    await writeVaultSecret("provider/ai-gateway/api_key", "sk-rejected-status-key");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ key_valid: false }), { status: 403 })));
+
+    const response = await context.app.inject({
+      method: "GET",
+      url: "/credits/status",
+      headers: localOwnerAdminHeaders(),
+    });
+
+    expect(parseJson(response.body)).toMatchObject({
+      key_valid: false,
+      purchase_status: "repair_required",
+    });
+    expect(mockPreferences.braindrive_models_key).toMatchObject({
+      status: "repair_required",
+      checkout_pending: false,
+      last_error: "invalid_existing_key",
+    });
+  });
+
+  it.each(["timeout", "5xx", "malformed"] as const)(
+    "maps %s host status failure to unavailable while preserving pending metadata",
+    async (failureMode) => {
+      context = await createTestServer({
+        authMode: "local-owner",
+        adapterConfig: brainDriveModelsAdapterConfig(),
+      });
+      mockPreferences = {
+        ...mockPreferences,
+        provider_credentials: {
+          "braindrive-models": {
+            mode: "secret_ref",
+            secret_ref: "provider/ai-gateway/api_key",
+            required: true,
+          },
+        },
+        braindrive_models_key: {
+          install_public_id: `install-${failureMode}`,
+          masked_key: "sk-...able",
+          status: "checkout_pending",
+          checkout_pending: true,
+          last_error: null,
+        },
+      };
+      await writeVaultSecret("provider/ai-gateway/api_key", `sk-${failureMode}-status-key`);
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          if (failureMode === "timeout") {
+            throw new DOMException("status timeout detail", "AbortError");
+          }
+          if (failureMode === "5xx") {
+            return new Response("host unavailable detail", { status: 503 });
+          }
+          return new Response(JSON.stringify({ total_purchased_usd: 10, total_spent_usd: 0 }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        })
+      );
+
+      const response = await context.app.inject({
+        method: "GET",
+        url: "/credits/status",
+        headers: localOwnerAdminHeaders(),
+      });
+
+      expect(parseJson(response.body)).toEqual({
+        remaining_usd: 0,
+        total_purchased_usd: 0,
+        total_spent_usd: 0,
+        purchase_status: "unavailable",
+      });
+      expect(response.body).not.toContain("status timeout detail");
+      expect(response.body).not.toContain("host unavailable detail");
+      expect(mockPreferences.braindrive_models_key).toMatchObject({
+        status: "checkout_pending",
+        checkout_pending: true,
+        last_error: null,
+      });
+    }
+  );
+
+  it("remains compatible with older host status responses without checkout_pending", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: brainDriveModelsAdapterConfig(),
+    });
+    mockPreferences = {
+      ...mockPreferences,
+      provider_credentials: {
+        "braindrive-models": {
+          mode: "secret_ref",
+          secret_ref: "provider/ai-gateway/api_key",
+          required: true,
+        },
+      },
+      braindrive_models_key: {
+        install_public_id: "install-legacy-host",
+        masked_key: "sk-...gacy",
+        status: "ready",
+        checkout_pending: false,
+      },
+    };
+    await writeVaultSecret("provider/ai-gateway/api_key", "sk-legacy-host-status-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(JSON.stringify({ remaining_usd: 3, total_purchased_usd: 10, total_spent_usd: 7 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
+      )
+    );
+
+    const response = await context.app.inject({
+      method: "GET",
+      url: "/credits/status",
+      headers: localOwnerAdminHeaders(),
+    });
+
+    expect(parseJson(response.body)).toMatchObject({
+      remaining_usd: 3,
+      key_valid: true,
+      purchase_status: "ready",
+    });
+  });
+
   it("treats absent and managed hosted entitlement capability as disabled", async () => {
     context = await createTestServer({
       authMode: "local-owner",

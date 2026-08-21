@@ -74,6 +74,7 @@ import { resetGatewayChatRuntime } from "@/api/useGatewayChat";
 import type {
   GatewayBrainDriveModelsKeyState,
   GatewayCredentialUpdateRequest,
+  GatewayCreditsPurchaseStatus,
   GatewayCreditsStatus,
   GatewayEmailCreditResult,
   GatewayMemoryBackupFrequency,
@@ -463,6 +464,19 @@ export default function SettingsModal({
     }
   }
 
+  const brainDriveModelsKeyState = settings?.braindrive_models_key ?? null;
+  const hasConfiguredBrainDriveModelsCredential = Boolean(
+    settings?.provider_profiles.some(
+      (profile) =>
+        profile.provider_id?.toLowerCase() === "braindrive-models" &&
+        profile.credential_mode !== "unset"
+    )
+  );
+  const brainDriveModelsCreditsController = useBrainDriveModelsCreditsController({
+    keyState: brainDriveModelsKeyState,
+    hasConfiguredCredential: hasConfiguredBrainDriveModelsCredential,
+  });
+
   return (
     <div
       ref={overlayRef}
@@ -540,6 +554,7 @@ export default function SettingsModal({
               emailCreditClaimAttempts={emailCreditClaimAttempts}
               getProviderIntentEpoch={getProviderIntentEpoch}
               onApplyClaimSettings={applyClaimSettings}
+              brainDriveModelsCreditsController={brainDriveModelsCreditsController}
             />
           </div>
         </div>
@@ -612,6 +627,7 @@ export default function SettingsModal({
             emailCreditClaimAttempts={emailCreditClaimAttempts}
             getProviderIntentEpoch={getProviderIntentEpoch}
             onApplyClaimSettings={applyClaimSettings}
+            brainDriveModelsCreditsController={brainDriveModelsCreditsController}
           />
         </div>
       </div>
@@ -746,6 +762,7 @@ function TabContent({
   emailCreditClaimAttempts,
   getProviderIntentEpoch,
   onApplyClaimSettings,
+  brainDriveModelsCreditsController,
 }: {
   tab: SettingsTab;
   mode: "local" | "managed";
@@ -783,6 +800,7 @@ function TabContent({
     settings: GatewaySettings,
     providerIntentEpochAtStart: number
   ) => void;
+  brainDriveModelsCreditsController: BrainDriveModelsCreditsController;
 }) {
   switch (tab) {
     case "provider":
@@ -801,6 +819,7 @@ function TabContent({
           emailCreditClaimAttempts={emailCreditClaimAttempts}
           getProviderIntentEpoch={getProviderIntentEpoch}
           onApplyClaimSettings={onApplyClaimSettings}
+          brainDriveModelsCreditsController={brainDriveModelsCreditsController}
         />
       );
     case "memory-backup":
@@ -1849,17 +1868,254 @@ function MemoryBackupSection({
 
 const CREDIT_AMOUNTS = [5, 10, 25];
 const EMAIL_CREDIT_CLAIM_DEBOUNCE_MS = 300;
+const ACTIVATION_POLL_INTERVAL_MS = 3000;
+const ACTIVATION_DEADLINE_MS = 120000;
+
+type BrainDriveModelsPurchaseState =
+  | "idle"
+  | "activating"
+  | "ready"
+  | "zero_balance"
+  | "repair_required"
+  | "unavailable";
+
+function timestampToMs(value: string | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+type BrainDriveModelsCreditsController = {
+  balance: GatewayCreditsStatus | null;
+  keyInvalid: boolean;
+  purchaseState: BrainDriveModelsPurchaseState;
+  isRetryingActivation: boolean;
+  hasConfiguredKey: boolean;
+  isUnavailable: boolean;
+  isActivating: boolean;
+  isReady: boolean;
+  refreshCreditsStatus: () => Promise<GatewayCreditsStatus | null>;
+  applyClaimBalance: (balance: GatewayCreditsStatus) => void;
+  noteCheckoutStarted: (purchaseStatus: GatewayCreditsPurchaseStatus | undefined) => void;
+  markRepairRequired: () => void;
+  resetAfterRepairKey: () => void;
+  retryActivation: () => Promise<void>;
+  startOverActivation: () => void;
+};
+
+function useBrainDriveModelsCreditsController({
+  keyState,
+  hasConfiguredCredential,
+}: {
+  keyState: GatewayBrainDriveModelsKeyState | null;
+  hasConfiguredCredential: boolean;
+}): BrainDriveModelsCreditsController {
+  const [balance, setBalance] = useState<GatewayCreditsStatus | null>(null);
+  const [keyInvalid, setKeyInvalid] = useState(false);
+  const [purchaseState, setPurchaseState] = useState<BrainDriveModelsPurchaseState>("idle");
+  const [isRetryingActivation, setIsRetryingActivation] = useState(false);
+  const [activationDismissed, setActivationDismissed] = useState(false);
+  const activationStartedAtMs = useRef<number | null>(null);
+  const initialRefreshKey = useRef<string | null>(null);
+
+  const hasSettledPurchaseState =
+    purchaseState === "ready" ||
+    purchaseState === "zero_balance" ||
+    purchaseState === "repair_required";
+  const hasPendingActivationContext =
+    !hasSettledPurchaseState &&
+    !activationDismissed &&
+    (purchaseState === "activating" || Boolean(keyState?.checkout_pending));
+  const isPastActivationDeadline = useCallback(() => {
+    const startedAt = activationStartedAtMs.current ?? timestampToMs(keyState?.last_attempt_at);
+    return startedAt !== null && Date.now() >= startedAt + ACTIVATION_DEADLINE_MS;
+  }, [keyState?.last_attempt_at]);
+  const isUnavailable =
+    purchaseState === "unavailable" ||
+    (!hasPendingActivationContext && balance?.purchase_status === "unavailable");
+  const isActivating =
+    !isUnavailable &&
+    hasPendingActivationContext;
+  const isReady = !isUnavailable && (purchaseState === "ready" || (balance?.remaining_usd ?? 0) > 0);
+  const hasConfiguredKey =
+    hasConfiguredCredential ||
+    purchaseState === "activating" ||
+    purchaseState === "ready" ||
+    purchaseState === "unavailable" ||
+    Boolean(keyState);
+
+  const refreshCreditsStatus = useCallback(async (): Promise<GatewayCreditsStatus | null> => {
+    try {
+      const nextBalance = await getCreditsStatus();
+      setBalance(nextBalance);
+      const needsRepair = nextBalance.key_valid === false || nextBalance.purchase_status === "repair_required";
+      setKeyInvalid(needsRepair);
+      if (needsRepair) {
+        setPurchaseState("repair_required");
+        activationStartedAtMs.current = null;
+        return nextBalance;
+      }
+      if (nextBalance.purchase_status === "activating") {
+        activationStartedAtMs.current ??= timestampToMs(keyState?.last_attempt_at) ?? Date.now();
+        setActivationDismissed(false);
+        setPurchaseState("activating");
+      } else if (nextBalance.purchase_status === "unavailable") {
+        if (hasPendingActivationContext && !isPastActivationDeadline()) {
+          activationStartedAtMs.current ??= timestampToMs(keyState?.last_attempt_at) ?? Date.now();
+          setActivationDismissed(false);
+          setPurchaseState("activating");
+        } else {
+          setPurchaseState("unavailable");
+        }
+      } else if ((nextBalance.remaining_usd ?? 0) > 0 || nextBalance.purchase_status === "ready") {
+        activationStartedAtMs.current = null;
+        setPurchaseState("ready");
+      } else if (nextBalance.purchase_status === "zero_balance") {
+        activationStartedAtMs.current = null;
+        setPurchaseState("zero_balance");
+      }
+      return nextBalance;
+    } catch {
+      if (hasPendingActivationContext && !isPastActivationDeadline()) {
+        activationStartedAtMs.current ??= timestampToMs(keyState?.last_attempt_at) ?? Date.now();
+        setActivationDismissed(false);
+        setPurchaseState("activating");
+      } else {
+        setPurchaseState("unavailable");
+      }
+      return null;
+    }
+  }, [hasPendingActivationContext, isPastActivationDeadline, keyState?.last_attempt_at]);
+
+  useEffect(() => {
+    if (!hasConfiguredKey) {
+      initialRefreshKey.current = null;
+      return;
+    }
+    const refreshKey = [
+      keyState?.masked_key ?? "",
+      keyState?.last_attempt_at ?? "",
+      keyState?.checkout_pending ? "pending" : "settled",
+      hasConfiguredCredential ? "configured" : "unconfigured",
+    ].join(":");
+    if (initialRefreshKey.current === refreshKey) {
+      return;
+    }
+    initialRefreshKey.current = refreshKey;
+    void refreshCreditsStatus();
+  }, [
+    hasConfiguredCredential,
+    hasConfiguredKey,
+    keyState?.checkout_pending,
+    keyState?.last_attempt_at,
+    keyState?.masked_key,
+    refreshCreditsStatus,
+  ]);
+
+  useEffect(() => {
+    if (!isActivating) {
+      return;
+    }
+    activationStartedAtMs.current ??= timestampToMs(keyState?.last_attempt_at) ?? Date.now();
+    const deadlineAt = activationStartedAtMs.current + ACTIVATION_DEADLINE_MS;
+    const remainingDeadlineMs = Math.max(0, deadlineAt - Date.now());
+    if (remainingDeadlineMs <= 0) {
+      setPurchaseState("unavailable");
+      return;
+    }
+    const intervalId = window.setInterval(() => {
+      if (Date.now() >= deadlineAt) {
+        setPurchaseState("unavailable");
+        return;
+      }
+      void refreshCreditsStatus();
+    }, ACTIVATION_POLL_INTERVAL_MS);
+    const timeoutId = window.setTimeout(() => {
+      setPurchaseState("unavailable");
+    }, remainingDeadlineMs);
+    return () => {
+      window.clearInterval(intervalId);
+      window.clearTimeout(timeoutId);
+    };
+  }, [isActivating, keyState?.last_attempt_at, refreshCreditsStatus]);
+
+  const applyClaimBalance = useCallback((nextBalance: GatewayCreditsStatus) => {
+    setBalance(nextBalance);
+    setPurchaseState(nextBalance.purchase_status === "ready" ? "ready" : "zero_balance");
+    activationStartedAtMs.current = null;
+  }, []);
+
+  const noteCheckoutStarted = useCallback((purchaseStatus: GatewayCreditsPurchaseStatus | undefined) => {
+    if (purchaseStatus === "activating") {
+      activationStartedAtMs.current = Date.now();
+      setActivationDismissed(false);
+      setPurchaseState("activating");
+    } else {
+      setPurchaseState("idle");
+    }
+  }, []);
+
+  const markRepairRequired = useCallback(() => {
+    setKeyInvalid(true);
+    setPurchaseState("repair_required");
+    activationStartedAtMs.current = null;
+  }, []);
+
+  const resetAfterRepairKey = useCallback(() => {
+    setKeyInvalid(false);
+    setActivationDismissed(false);
+    setPurchaseState("idle");
+    activationStartedAtMs.current = null;
+  }, []);
+
+  const retryActivation = useCallback(async () => {
+    activationStartedAtMs.current = Date.now();
+    setActivationDismissed(false);
+    setIsRetryingActivation(true);
+    try {
+      await refreshCreditsStatus();
+    } finally {
+      setIsRetryingActivation(false);
+    }
+  }, [refreshCreditsStatus]);
+
+  const startOverActivation = useCallback(() => {
+    activationStartedAtMs.current = null;
+    setActivationDismissed(true);
+    setPurchaseState("idle");
+  }, []);
+
+  return {
+    balance,
+    keyInvalid,
+    purchaseState,
+    isRetryingActivation,
+    hasConfiguredKey,
+    isUnavailable,
+    isActivating,
+    isReady,
+    refreshCreditsStatus,
+    applyClaimBalance,
+    noteCheckoutStarted,
+    markRepairRequired,
+    resetAfterRepairKey,
+    retryActivation,
+    startOverActivation,
+  };
+}
 
 function BrainDriveModelsPanel({
   profile,
-  keyState,
+  creditsController,
   onSaveCredential,
   emailCreditClaimAttempts,
   getProviderIntentEpoch,
   onApplyClaimSettings,
 }: {
   profile: GatewayProviderProfile;
-  keyState: GatewayBrainDriveModelsKeyState | null;
+  creditsController: BrainDriveModelsCreditsController;
   onSaveCredential: (patch: GatewayCredentialUpdateRequest) => Promise<void>;
   emailCreditClaimAttempts: EmailCreditClaimAttempts;
   getProviderIntentEpoch: () => number;
@@ -1873,11 +2129,8 @@ function BrainDriveModelsPanel({
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showRepairKey, setShowRepairKey] = useState(false);
-  const [balance, setBalance] = useState<GatewayCreditsStatus | null>(null);
-  const [keyInvalid, setKeyInvalid] = useState(false);
   const [purchaseLoading, setPurchaseLoading] = useState<number | null>(null);
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
-  const [purchaseState, setPurchaseState] = useState<"idle" | "activating" | "ready" | "zero_balance" | "repair_required">("idle");
   const [billingEmail, setBillingEmail] = useState(() => getSavedBillingEmail());
   const [isEditingEmail, setIsEditingEmail] = useState(false);
   const [selectedAmount, setSelectedAmount] = useState<number>(CREDIT_AMOUNTS[0]!);
@@ -1890,6 +2143,22 @@ function BrainDriveModelsPanel({
   const [claimNeedsRepair, setClaimNeedsRepair] = useState(false);
   const claimRequestId = useRef(0);
   const observedClaimEmails = useRef(new Set<string>());
+  const {
+    balance,
+    keyInvalid,
+    isRetryingActivation,
+    hasConfiguredKey,
+    isUnavailable,
+    isActivating,
+    isReady,
+    refreshCreditsStatus,
+    applyClaimBalance,
+    noteCheckoutStarted,
+    markRepairRequired,
+    resetAfterRepairKey,
+    retryActivation,
+    startOverActivation,
+  } = creditsController;
 
   useEffect(() => {
     if (!billingEmail && user.email && user.email.includes("@") && !isSyntheticLocalEmail(user.email)) {
@@ -1904,11 +2173,12 @@ function BrainDriveModelsPanel({
   ) => {
     setClaimResult(result);
     setClaimNeedsRepair(false);
-    setKeyInvalid(false);
+    if (keyInvalid) {
+      resetAfterRepairKey();
+    }
     setShowRepairKey(false);
     if (result.balance) {
-      setBalance(result.balance);
-      setPurchaseState(result.balance.purchase_status === "ready" ? "ready" : "zero_balance");
+      applyClaimBalance(result.balance);
     }
     if (result.state === "pending") {
       setClaimMessage("Your email credit is being reconciled. This will refresh the same claim.");
@@ -1923,7 +2193,7 @@ function BrainDriveModelsPanel({
     ) {
       onApplyClaimSettings(result.settings, providerIntentEpochAtStart);
     }
-  }, [onApplyClaimSettings]);
+  }, [applyClaimBalance, keyInvalid, onApplyClaimSettings, resetAfterRepairKey]);
 
   async function refreshClaimResult() {
     const requestId = ++claimRequestId.current;
@@ -2079,58 +2349,13 @@ function BrainDriveModelsPanel({
     localStorage.getItem("bd_billing_email") === normalizedBillingEmail
   );
 
-  const isFirstTime = profile.credential_mode === "unset";
-  const hasConfiguredKey = !isFirstTime || purchaseState === "activating" || purchaseState === "ready" || Boolean(keyState);
-  const isActivating = purchaseState === "activating" || Boolean(keyState?.checkout_pending);
-  const isReady = purchaseState === "ready" || (balance?.remaining_usd ?? 0) > 0;
-
-  async function refreshCreditsStatus(): Promise<GatewayCreditsStatus | null> {
-    try {
-      const nextBalance = await getCreditsStatus();
-      setBalance(nextBalance);
-      const needsRepair = nextBalance.key_valid === false || nextBalance.purchase_status === "repair_required";
-      setKeyInvalid(needsRepair);
-      if (needsRepair) {
-        setPurchaseState("repair_required");
-        return nextBalance;
-      }
-      if (nextBalance.purchase_status === "activating") {
-        setPurchaseState("activating");
-      } else if ((nextBalance.remaining_usd ?? 0) > 0 || nextBalance.purchase_status === "ready") {
-        setPurchaseState("ready");
-      } else if (nextBalance.purchase_status === "zero_balance") {
-        setPurchaseState("zero_balance");
-      }
-      return nextBalance;
-    } catch {
-      return null;
-    }
-  }
-
-  useEffect(() => {
-    if (!hasConfiguredKey) {
-      return;
-    }
-    void refreshCreditsStatus();
-  }, [hasConfiguredKey]);
-
-  useEffect(() => {
-    if (!isActivating) {
-      return;
-    }
-    const intervalId = window.setInterval(() => {
-      void refreshCreditsStatus();
-    }, 3000);
-    return () => window.clearInterval(intervalId);
-  }, [isActivating]);
-
   async function handlePurchase(amount: number) {
     if (!normalizedBillingEmail || !normalizedBillingEmail.includes("@") || isSyntheticLocalEmail(normalizedBillingEmail)) return;
     setPurchaseError(null);
     setPurchaseLoading(amount);
     try {
       const data = await createCreditsCheckout({ amount, email: normalizedBillingEmail });
-      setPurchaseState(data.purchase_status === "activating" ? "activating" : "idle");
+      noteCheckoutStarted(data.purchase_status);
       if (!openTrustedBillingUrl(data.checkout_url)) {
         setPurchaseError("Received an unexpected checkout link. Please try again.");
       }
@@ -2138,9 +2363,8 @@ function BrainDriveModelsPanel({
     } catch (error) {
       const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
       if (code === "braindrive_models_key_repair_required") {
-        setKeyInvalid(true);
+        markRepairRequired();
         setShowRepairKey(true);
-        setPurchaseState("repair_required");
         setPurchaseError("BrainDrive Models needs the key from your purchase email, or a migration from the original computer, before checkout can continue.");
       } else {
         setPurchaseError("Failed to open checkout. Please try again.");
@@ -2169,8 +2393,7 @@ function BrainDriveModelsPanel({
       .then(() => {
         setApiKey("");
         setShowRepairKey(false);
-        setKeyInvalid(false);
-        setPurchaseState("idle");
+        resetAfterRepairKey();
         void refreshCreditsStatus();
       })
       .catch((err) => { setSaveError(err instanceof Error ? err.message : String(err)); })
@@ -2249,21 +2472,54 @@ function BrainDriveModelsPanel({
       )}
       {keyInvalid ? (
         <div className="space-y-2">
-          <div className="flex items-start gap-1.5 text-xs leading-5 text-red-400">
+          <div role="alert" className="flex items-start gap-1.5 text-xs leading-5 text-red-400">
             <AlertCircle size={12} className="mt-1 shrink-0" />
             BrainDrive Models can&apos;t use its key on this computer. Restore it with the backup key from your purchase email.
           </div>
           {repairKeyForm}
         </div>
+      ) : isUnavailable ? (
+        <div className="space-y-2">
+          <div
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            className="flex items-start gap-2 text-sm leading-5 text-bd-text-secondary"
+          >
+            <AlertCircle size={16} className="mt-0.5 shrink-0 text-bd-amber" />
+            BrainDrive Models status is temporarily unavailable. Your existing key and pending checkout state were preserved.
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setPurchaseError(null);
+                void retryActivation();
+              }}
+              disabled={isRetryingActivation}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-bd-border px-3 py-1.5 text-xs font-medium text-bd-text-secondary transition-colors hover:bg-bd-bg-hover hover:text-bd-text-primary disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <RotateCcw size={13} strokeWidth={1.5} />
+              {isRetryingActivation ? "Checking..." : "Retry status check"}
+            </button>
+            <button
+              type="button"
+              onClick={startOverActivation}
+              className="text-xs text-bd-text-muted transition-colors hover:text-bd-text-secondary hover:underline"
+            >
+              Start over
+            </button>
+          </div>
+        </div>
       ) : isActivating ? (
         <div className="space-y-2">
-          <div className="flex items-center gap-2 text-sm text-bd-text-secondary">
+          <div role="status" aria-live="polite" aria-atomic="true" className="flex items-center gap-2 text-sm text-bd-text-secondary">
             <LoaderCircle size={16} className="animate-spin text-bd-amber" />
             Waiting for checkout to finish &mdash; your credits will appear here automatically.
           </div>
           <button
             type="button"
-            onClick={() => setPurchaseState("idle")}
+            onClick={startOverActivation}
             className="text-xs text-bd-text-muted transition-colors hover:text-bd-text-secondary hover:underline"
           >
             Closed checkout without paying? Start over
@@ -2400,6 +2656,7 @@ function ProviderSection({
   emailCreditClaimAttempts,
   getProviderIntentEpoch,
   onApplyClaimSettings,
+  brainDriveModelsCreditsController,
 }: {
   mode: "local" | "managed";
   modelCatalog: GatewayModelCatalog | null;
@@ -2412,6 +2669,7 @@ function ProviderSection({
     settings: GatewaySettings,
     providerIntentEpochAtStart: number
   ) => void;
+  brainDriveModelsCreditsController: BrainDriveModelsCreditsController;
 } & SettingsDataProps) {
   const providerSectionId = useId();
   const [expandedProfile, setExpandedProfile] = useState("");
@@ -2672,7 +2930,7 @@ function ProviderSection({
                       {isBrainDriveModels ? (
                         <BrainDriveModelsPanel
                           profile={profile}
-                          keyState={settings.braindrive_models_key ?? null}
+                          creditsController={brainDriveModelsCreditsController}
                           onSaveCredential={onSaveCredential}
                           emailCreditClaimAttempts={emailCreditClaimAttempts}
                           getProviderIntentEpoch={getProviderIntentEpoch}
