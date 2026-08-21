@@ -20,6 +20,10 @@ A starter-pack default change is paired work: update the corresponding tracked d
 
 Preferences may store `secret_ref` and optional environment-reference names, never provider secret values. At provider startup/request time the resolver checks an allowed environment reference, then the encrypted vault, then an optional one-time prompt according to policy. Missing required material fails closed.
 
+The BrainDrive Models credits credential is a dedicated provider secret reference, defaulting to `provider/ai-gateway/api_key`, and is used by checkout and credits status independently from the active chat provider. Gateway status reads that vault value server-side only. If prior BrainDrive Models metadata exists but the vault value is missing, status reports repair required instead of provisioning over or falling back to another provider credential.
+
+Do not store BrainDrive Models keys in memory documents, provider preferences by value, diagnostics, release evidence, or docs. Verification may record the secret reference name, a redacted key fingerprint if already produced by source code, and hosted status classes, but not the vault value or Authorization header.
+
 ## History, export, backup, restore, and migration
 
 - Git history records memory changes and supports per-path history. It is not the secret vault and does not protect plaintext accidentally written into memory.

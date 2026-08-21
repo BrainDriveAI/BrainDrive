@@ -281,6 +281,21 @@ function createDeferred<T>() {
   return { promise, resolve, reject };
 }
 
+async function flushAsyncWork() {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
+async function advanceTimers(ms: number) {
+  await act(async () => {
+    vi.advanceTimersByTime(ms);
+  });
+  await flushAsyncWork();
+}
+
 describe("SettingsModal", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -378,6 +393,7 @@ describe("SettingsModal", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
     localStorage.clear();
     delete window.__TAURI_INTERNALS__;
   });
@@ -988,6 +1004,168 @@ describe("SettingsModal", () => {
     openSpy.mockRestore();
   });
 
+  it("polls activating status every three seconds and stops by the 120 second deadline", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-20T12:00:00.000Z"));
+    getSettingsMock.mockResolvedValueOnce({
+      ...brainDriveModelsReadySettings,
+      braindrive_models_key: {
+        status: "checkout_pending",
+        checkout_pending: true,
+        masked_key: "sk-...ding",
+        last_attempt_at: "2026-08-20T12:00:00.000Z",
+      },
+    });
+    getCreditsStatusMock.mockResolvedValue({
+      remaining_usd: 0,
+      total_purchased_usd: 0,
+      total_spent_usd: 0,
+      key_valid: true,
+      purchase_status: "activating",
+    });
+
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+    await flushAsyncWork();
+
+    expect(screen.getAllByText(/Waiting for checkout to finish/i).length).toBeGreaterThan(0);
+    const initialCalls = getCreditsStatusMock.mock.calls.length;
+    expect(initialCalls).toBe(1);
+
+    await advanceTimers(2999);
+    expect(getCreditsStatusMock).toHaveBeenCalledTimes(initialCalls);
+
+    await advanceTimers(1);
+    const callsAfterFirstPoll = getCreditsStatusMock.mock.calls.length;
+    expect(callsAfterFirstPoll).toBe(initialCalls + 1);
+
+    await advanceTimers(114000);
+    const callsAt117Seconds = getCreditsStatusMock.mock.calls.length;
+    expect(callsAt117Seconds).toBe(initialCalls + 39);
+
+    await advanceTimers(3000);
+    expect(getCreditsStatusMock).toHaveBeenCalledTimes(callsAt117Seconds);
+    expect(screen.getAllByText(/status is temporarily unavailable/i).length).toBeGreaterThan(0);
+
+    await advanceTimers(6000);
+    expect(getCreditsStatusMock).toHaveBeenCalledTimes(callsAt117Seconds);
+  });
+
+  it("keeps polling through transient unavailable activation responses before the deadline", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-20T12:00:00.000Z"));
+    getSettingsMock.mockResolvedValueOnce({
+      ...brainDriveModelsReadySettings,
+      braindrive_models_key: {
+        status: "checkout_pending",
+        checkout_pending: true,
+        masked_key: "sk-...ding",
+        last_attempt_at: "2026-08-20T12:00:00.000Z",
+      },
+    });
+    getCreditsStatusMock
+      .mockResolvedValueOnce({
+        remaining_usd: 0,
+        key_valid: true,
+        purchase_status: "activating",
+      })
+      .mockResolvedValueOnce({
+        remaining_usd: 0,
+        key_valid: true,
+        purchase_status: "unavailable",
+      })
+      .mockResolvedValueOnce({
+        remaining_usd: 0,
+        key_valid: true,
+        purchase_status: "unavailable",
+      })
+      .mockResolvedValue({
+        remaining_usd: 7,
+        total_purchased_usd: 10,
+        total_spent_usd: 3,
+        key_valid: true,
+        purchase_status: "ready",
+      });
+
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+    await flushAsyncWork();
+    expect(getCreditsStatusMock).toHaveBeenCalledTimes(1);
+
+    await advanceTimers(3000);
+    expect(getCreditsStatusMock).toHaveBeenCalledTimes(2);
+    expect(screen.getAllByText(/Waiting for checkout to finish/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/status is temporarily unavailable/i)).not.toBeInTheDocument();
+
+    await advanceTimers(3000);
+    expect(getCreditsStatusMock).toHaveBeenCalledTimes(3);
+    expect(screen.getAllByText(/Waiting for checkout to finish/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/status is temporarily unavailable/i)).not.toBeInTheDocument();
+
+    await advanceTimers(3000);
+    expect(getCreditsStatusMock).toHaveBeenCalledTimes(4);
+    expect(screen.getAllByText("$7.00").length).toBeGreaterThan(0);
+  });
+
+  it("cleans up activation polling when status settles and when the panel unmounts", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-20T12:00:00.000Z"));
+    getSettingsMock.mockResolvedValueOnce({
+      ...brainDriveModelsReadySettings,
+      braindrive_models_key: {
+        status: "checkout_pending",
+        checkout_pending: true,
+        masked_key: "sk-...ding",
+        last_attempt_at: "2026-08-20T12:00:00.000Z",
+      },
+    });
+    getCreditsStatusMock
+      .mockResolvedValueOnce({
+        remaining_usd: 0,
+        key_valid: true,
+        purchase_status: "activating",
+      })
+      .mockResolvedValue({
+        remaining_usd: 9,
+        total_purchased_usd: 10,
+        total_spent_usd: 1,
+        key_valid: true,
+        purchase_status: "ready",
+      });
+
+    const settledRender = render(<SettingsModal mode="local" onClose={() => {}} />);
+    await flushAsyncWork();
+    const callsBeforeSettledPoll = getCreditsStatusMock.mock.calls.length;
+    await advanceTimers(3000);
+    expect(screen.getAllByText("$9.00").length).toBeGreaterThan(0);
+    const callsAfterSettledPoll = getCreditsStatusMock.mock.calls.length;
+    expect(callsAfterSettledPoll).toBeGreaterThan(callsBeforeSettledPoll);
+
+    await advanceTimers(9000);
+    expect(getCreditsStatusMock).toHaveBeenCalledTimes(callsAfterSettledPoll);
+    settledRender.unmount();
+
+    getSettingsMock.mockResolvedValueOnce({
+      ...brainDriveModelsReadySettings,
+      braindrive_models_key: {
+        status: "checkout_pending",
+        checkout_pending: true,
+        masked_key: "sk-...ding",
+        last_attempt_at: "2026-08-20T12:00:20.000Z",
+      },
+    });
+    getCreditsStatusMock.mockClear();
+    getCreditsStatusMock.mockResolvedValue({
+      remaining_usd: 0,
+      key_valid: true,
+      purchase_status: "activating",
+    });
+    const pendingRender = render(<SettingsModal mode="local" onClose={() => {}} />);
+    await flushAsyncWork();
+    const callsBeforeUnmount = getCreditsStatusMock.mock.calls.length;
+    pendingRender.unmount();
+    await advanceTimers(9000);
+    expect(getCreditsStatusMock).toHaveBeenCalledTimes(callsBeforeUnmount);
+  });
+
   it("shows ready when credits status reports funded balance", async () => {
     getSettingsMock.mockResolvedValueOnce(brainDriveModelsReadySettings);
     getCreditsStatusMock.mockResolvedValue({
@@ -1006,6 +1184,83 @@ describe("SettingsModal", () => {
     expect((await screen.findAllByText("$12.00")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("credits remaining").length).toBeGreaterThan(0);
     expect((await screen.findAllByRole("button", { name: "Add credits" })).length).toBeGreaterThan(0);
+  });
+
+  it("shows zero balance and unavailable as distinct owner-visible states", async () => {
+    getSettingsMock.mockResolvedValueOnce(brainDriveModelsReadySettings);
+    getCreditsStatusMock.mockResolvedValue({
+      remaining_usd: 0,
+      total_purchased_usd: 10,
+      total_spent_usd: 10,
+      key_valid: true,
+      purchase_status: "zero_balance",
+    });
+    const zeroRender = render(<SettingsModal mode="local" onClose={() => {}} />);
+    await waitFor(() => expect(getSettingsMock).toHaveBeenCalledTimes(1));
+    expect((await screen.findAllByText("$0.00")).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: /Continue to checkout/i }).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/status is temporarily unavailable/i)).not.toBeInTheDocument();
+    zeroRender.unmount();
+
+    getSettingsMock.mockResolvedValueOnce(brainDriveModelsReadySettings);
+    getCreditsStatusMock.mockResolvedValue({
+      remaining_usd: 0,
+      total_purchased_usd: 0,
+      total_spent_usd: 0,
+      key_valid: true,
+      purchase_status: "unavailable",
+    });
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+    expect((await screen.findAllByText(/status is temporarily unavailable/i)).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Retry status check" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("status").some((node) => node.textContent?.includes("temporarily unavailable"))).toBe(true);
+  });
+
+  it("retries unavailable activation by rechecking status without creating a duplicate checkout", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-20T12:00:00.000Z"));
+    getSettingsMock.mockResolvedValueOnce({
+      ...brainDriveModelsReadySettings,
+      braindrive_models_key: {
+        status: "checkout_pending",
+        checkout_pending: true,
+        masked_key: "sk-...ding",
+        last_attempt_at: "2026-08-20T11:57:59.000Z",
+      },
+    });
+    getCreditsStatusMock
+      .mockResolvedValueOnce({
+        remaining_usd: 0,
+        key_valid: true,
+        purchase_status: "unavailable",
+      })
+      .mockResolvedValueOnce({
+        remaining_usd: 0,
+        key_valid: true,
+        purchase_status: "unavailable",
+      })
+      .mockResolvedValue({
+        remaining_usd: 0,
+        key_valid: true,
+        purchase_status: "activating",
+      });
+
+    render(<SettingsModal mode="local" onClose={() => {}} />);
+    await flushAsyncWork();
+    expect(screen.getAllByText(/status is temporarily unavailable/i).length).toBeGreaterThan(0);
+    const callsBeforeRetry = getCreditsStatusMock.mock.calls.length;
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Retry status check" })[0]!);
+    await flushAsyncWork();
+
+    expect(getCreditsStatusMock.mock.calls.length).toBeGreaterThan(callsBeforeRetry);
+    expect(createCreditsCheckoutMock).not.toHaveBeenCalled();
+    expect(screen.getAllByText(/Waiting for checkout to finish/i).length).toBeGreaterThan(0);
+
+    const callsBeforeResumedPoll = getCreditsStatusMock.mock.calls.length;
+    await advanceTimers(3000);
+    expect(getCreditsStatusMock.mock.calls.length).toBeGreaterThan(callsBeforeResumedPoll);
+    expect(createCreditsCheckoutMock).not.toHaveBeenCalled();
   });
 
   it("supports the repair path with a pasted emailed key", async () => {

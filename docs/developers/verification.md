@@ -74,6 +74,30 @@ Record the candidate revision, branch/tag, operating system and architecture, to
 
 Provider-independent AIH-01 through AIH-10 execution follows the [AI coding-agent harness](verification/ai-agent-harness.md). Those read-only scorecards test authority, scope, trust, verification, conflict, documentation impact, and handoff behavior; they are AI evidence, not human review.
 
+## T-831 BrainDrive Models Credits
+
+For the T-831 BrainDrive Models credit accounting and activation recovery path, run the full runtime and web Tier A checks from `builds/typescript` before handoff:
+
+```bash
+npm run lint
+npm run test
+npm run build
+npm run web:lint
+npm run web:typecheck
+npm run web:test
+npm run web:build
+npm run docs:verify
+```
+
+From the repository root, also run:
+
+```bash
+node tools/docs/sync-generated.mjs --check
+tools/security/scan-secrets.sh --current
+```
+
+There is no root `package.json`; `npm run docs:verify` is package-local under `builds/typescript`. Live checkout, provider, or hosted status evidence is Tier C and requires explicit staging/Stripe/provider authority plus sanitized output.
+
 ### Source revision and evidence revision
 
 Release evidence uses two revisions. `SOURCE_TEST_REVISION` is the full SHA of the clean immutable source candidate on which applicable source checks ran. `SOURCE_CANDIDATE_PROOF` is computed from that commit tree with only the fixed declared evidence outputs excluded. Evidence records embed those two source-identity values. `EVIDENCE_REVISION` is the later full SHA containing the evidence records; it is supplied to or discovered by the checker from the clean checkout and is never embedded in those same records, which would be self-referential.
