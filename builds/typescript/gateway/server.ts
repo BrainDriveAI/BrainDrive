@@ -117,6 +117,7 @@ const rootAgentUpdateSchema = z
 
 const RETIRED_DOCUMENT_PROCESSING_MESSAGE =
   "Document processing has been retired in this build while BrainDrive redesigns file handling. No file was saved or processed.";
+const CREDITS_STATUS_TIMEOUT_MS = 10_000;
 
 const skillCreateSchema = z
   .object({
@@ -1189,15 +1190,33 @@ export async function buildServer(rootDir = process.cwd()) {
   app.get("/credits/status", async () => {
     try {
       const currentPreferences = await loadLivePreferences();
-      const currentAdapterConfig = resolveAdapterConfigForPreferences(adapterConfig, currentPreferences);
-      const credential = await resolveProviderCredentialForStartup(
-        runtimeConfig.provider_adapter, currentAdapterConfig, currentPreferences
-      );
-      if (!credential?.apiKey) {
-        return { remaining_usd: 0, total_purchased_usd: 0, total_spent_usd: 0, purchase_status: "repair_required" };
+      const metadata = currentPreferences.braindrive_models_key;
+      const secretRef = resolveBrainDriveModelsSecretRef(currentPreferences);
+      const dedicatedKey = (await loadGatewayVaultSecret(secretRef))?.trim();
+      if (!dedicatedKey) {
+        if (hasPriorBrainDriveModelsLocalState(currentPreferences)) {
+          await saveBrainDriveModelsProvisioningPreferences({
+            ...currentPreferences,
+            braindrive_models_key: {
+              ...(metadata ?? {}),
+              status: "repair_required",
+              checkout_pending: false,
+              last_attempt_at: new Date().toISOString(),
+              last_error: "missing_existing_key",
+            },
+          });
+          return {
+            remaining_usd: 0,
+            total_purchased_usd: 0,
+            total_spent_usd: 0,
+            key_valid: false,
+            purchase_status: "repair_required",
+          };
+        }
+        return { remaining_usd: 0, total_purchased_usd: 0, total_spent_usd: 0, purchase_status: "zero_balance" };
       }
-      const resp = await fetch(`${creditsApiBase}/credits/status`, {
-        headers: { Authorization: `Bearer ${credential.apiKey}` },
+      const resp = await fetchCreditsStatus(`${creditsApiBase}/credits/status`, {
+        headers: { Authorization: `Bearer ${dedicatedKey}` },
       });
       if (!resp.ok) {
         const isAuthError = resp.status === 401 || resp.status === 403;
@@ -1220,14 +1239,16 @@ export async function buildServer(rootDir = process.cwd()) {
           purchase_status: isAuthError ? "repair_required" : "unavailable",
         };
       }
-      const data = (await resp.json()) as Record<string, unknown>;
-      const remainingUsd = numberFromUnknown(data.remaining_usd);
-      const totalPurchasedUsd = numberFromUnknown(data.total_purchased_usd);
-      const hasFundedBalance = remainingUsd > 0 || totalPurchasedUsd > 0;
-      const metadata = currentPreferences.braindrive_models_key;
-      const purchaseStatus = metadata?.checkout_pending && !hasFundedBalance
+      const parsed = await parseCreditsStatusResponse(resp);
+      if (!parsed.ok) {
+        return { remaining_usd: 0, total_purchased_usd: 0, total_spent_usd: 0, purchase_status: "unavailable" };
+      }
+      const data = parsed.data;
+      const remainingUsd = parsed.remainingUsd;
+      const hostCheckoutPending = parsed.checkoutPending;
+      const purchaseStatus = hostCheckoutPending || (metadata?.checkout_pending && !parsed.checkoutPendingPresent && remainingUsd <= 0)
         ? "activating"
-        : hasFundedBalance
+        : remainingUsd > 0
           ? "ready"
           : "zero_balance";
       const persistedStatus = purchaseStatus === "activating" ? "checkout_pending" : purchaseStatus;
@@ -4181,6 +4202,80 @@ function numberFromUnknown(value: unknown): number {
     return Number.isFinite(parsed) ? parsed : 0;
   }
   return 0;
+}
+
+function finiteNumberFromUnknown(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+async function parseCreditsStatusResponse(resp: Response): Promise<
+  | {
+      ok: true;
+      data: Record<string, unknown>;
+      remainingUsd: number;
+      checkoutPending: boolean;
+      checkoutPendingPresent: boolean;
+    }
+  | { ok: false }
+> {
+  let data: unknown;
+  try {
+    data = await resp.json();
+  } catch {
+    return { ok: false };
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return { ok: false };
+  }
+  const record = data as Record<string, unknown>;
+  const remainingUsd = finiteNumberFromUnknown(record.remaining_usd);
+  if (remainingUsd === null) {
+    return { ok: false };
+  }
+  const checkoutPendingPresent = Object.prototype.hasOwnProperty.call(record, "checkout_pending");
+  if (checkoutPendingPresent && typeof record.checkout_pending !== "boolean") {
+    return { ok: false };
+  }
+  return {
+    ok: true,
+    data: record,
+    remainingUsd,
+    checkoutPending: record.checkout_pending === true,
+    checkoutPendingPresent,
+  };
+}
+
+function hasPriorBrainDriveModelsLocalState(preferences: Preferences): boolean {
+  const metadata = preferences.braindrive_models_key;
+  return Boolean(
+    metadata &&
+      (metadata.key_id ||
+        metadata.key_hash ||
+        metadata.masked_key ||
+        metadata.checkout_pending ||
+        metadata.status === "provisioned" ||
+        metadata.status === "ready" ||
+        metadata.status === "checkout_pending" ||
+        metadata.status === "zero_balance" ||
+        metadata.status === "repair_required")
+  );
+}
+
+async function fetchCreditsStatus(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), CREDITS_STATUS_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export function createBrainDriveMemorySafetyGuard(
