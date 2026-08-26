@@ -167,6 +167,11 @@ describe("sandboxed Resume Builder owner resource", () => {
     expect(html).not.toContain("api_key");
   });
 
+  it("reports the signed package patch version to the host", async () => {
+    const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
+    expect(html).toContain('appInfo:{name:"Resume Builder",version:"4.0.1"');
+  });
+
   it("binds host fact confirmation to the exact proposed revision", async () => {
     const html = await readFile(new URL("../resources/main.html", import.meta.url), "utf8");
     expect(html).toContain("fact_revision_id:proposed.fact.metadata.revision_id");

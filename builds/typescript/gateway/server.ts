@@ -9,6 +9,7 @@ import type { FastifyReply } from "fastify";
 import { z } from "zod";
 
 import { createAppLifecycle, createBriefAppLifecycle, type AppLifecycleRuntimeTarget } from "../app-platform/lifecycle/bootstrap.js";
+import { MODERN_FIXTURE_VERSION } from "../app-platform/lifecycle/fixture-repository.js";
 import { createAppLifecycleRoutePlatform, registerAppLifecycleRoutes } from "../app-platform/lifecycle/routes.js";
 import { AppMcpHost } from "../app-platform/mcp-host/app-host.js";
 import { BriefAppHostAdapter } from "../app-platform/mcp-host/brief-host-adapter.js";
@@ -814,7 +815,7 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
 
   if (appLifecycleService) {
     registerAppLifecycleRoutes(app, createAppLifecycleRoutePlatform([
-      { routeKey: "resume-builder", displayName: "Resume Builder", publisherName: "BrainDrive", availableVersion: "4.0.0", service: appLifecycleService },
+      { routeKey: "resume-builder", displayName: "Resume Builder", publisherName: "BrainDrive", availableVersion: MODERN_FIXTURE_VERSION, service: appLifecycleService },
       { routeKey: "brief-builder", displayName: "Brief Builder", publisherName: "BrainDrive", availableVersion: "1.2.0", service: briefLifecycleService! },
     ], 2));
     registerAppMcpHostRoutes(app, createAppMcpHostRoutePlatform([
