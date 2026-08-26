@@ -3,6 +3,7 @@ import { Menu } from "lucide-react";
 import { createPortal } from "react-dom";
 
 import { getOnboardingStatus } from "@/api/gateway-adapter";
+import AppsPage from "@/components/apps/AppsPage";
 import ChatPanel from "@/components/chat/ChatPanel";
 import DocumentView from "@/components/document/DocumentView";
 import SettingsModal from "@/components/settings/SettingsModal";
@@ -32,6 +33,8 @@ export default function AppShell({
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isAppsOpen, setIsAppsOpen] = useState(false);
+  const [isNativeAppOpen, setIsNativeAppOpen] = useState(false);
   const [activeFile, setActiveFile] = useState<ProjectFile | null>(null);
   const [mobileHeaderHeight, setMobileHeaderHeight] = useState(0);
   const stableAppHeightRef = useRef(0);
@@ -180,7 +183,13 @@ export default function AppShell({
   }, []);
 
   function handleFileClick(file: ProjectFile) {
+    setIsAppsOpen(false);
     setActiveFile(file);
+  }
+
+  function handleSelectProject(projectId: string) {
+    setIsAppsOpen(false);
+    selectProject(projectId);
   }
 
   function handleReturnToChat() {
@@ -208,6 +217,13 @@ export default function AppShell({
         // Keep the chat result visible if a background file refresh fails.
       }
     })();
+  }
+
+  function handleAppSessionClosed() {
+    if (!selectedProjectId || isRootAgentProjectId(selectedProjectId)) return;
+    void refreshSelectedProjectFiles().then((nextFiles) => {
+      setActiveFile((current) => current ? nextFiles.find((file) => file.path === current.path) ?? null : null);
+    }).catch(() => undefined);
   }
 
   const documentContent = activeFile && selectedProject ? (
@@ -249,7 +265,7 @@ export default function AppShell({
             <button
               type="button"
               aria-label="Go to BrainDrive home"
-              onClick={() => selectProject(ROOT_AGENT_PROJECT_ID)}
+              onClick={() => handleSelectProject(ROOT_AGENT_PROJECT_ID)}
               className="cursor-pointer bg-transparent p-0"
             >
               <img src="/braindrive-logo.svg" alt="BrainDrive" className="h-5 w-auto" />
@@ -264,7 +280,7 @@ export default function AppShell({
       className="flex overflow-hidden bg-bd-bg-chat text-bd-text-primary"
       style={{ height: "var(--app-height)", maxHeight: "var(--app-height)" }}
     >
-      <div className="hidden md:flex md:shrink-0">
+      {!isNativeAppOpen ? <div className="hidden md:flex md:shrink-0">
         <Sidebar
           isCollapsed={isCollapsed}
           onToggle={() => {
@@ -276,18 +292,20 @@ export default function AppShell({
           projectFiles={projectFiles}
           isLoadingProjects={isLoadingProjects}
           isLoadingFiles={isLoadingFiles}
-          onSelectProject={selectProject}
+          onSelectProject={handleSelectProject}
           onDeselectProject={deselectProject}
           onReturnToChat={handleReturnToChat}
           onFileClick={handleFileClick}
           onOpenSettings={() => setIsSettingsOpen(true)}
+          onOpenApps={() => { setActiveFile(null); setIsAppsOpen(true); }}
+          isAppsActive={isAppsOpen}
           onLogout={() => onLogout?.()}
           tier={deploymentMode === "managed" ? "concierge" : "local"}
           onAddProject={addProject}
           onRemoveProject={removeProject}
           onRenameProject={renameProject}
         />
-      </div>
+      </div> : null}
 
       {isMobileSidebarOpen ? (
         <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true">
@@ -309,7 +327,7 @@ export default function AppShell({
               projectFiles={projectFiles}
               isLoadingProjects={isLoadingProjects}
               isLoadingFiles={isLoadingFiles}
-              onSelectProject={selectProject}
+              onSelectProject={handleSelectProject}
               onDeselectProject={deselectProject}
               onReturnToChat={handleReturnToChat}
               onFileClick={handleFileClick}
@@ -317,6 +335,8 @@ export default function AppShell({
                 setIsMobileSidebarOpen(false);
                 setIsSettingsOpen(true);
               }}
+              onOpenApps={() => { setActiveFile(null); setIsAppsOpen(true); setIsMobileSidebarOpen(false); }}
+              isAppsActive={isAppsOpen}
               onLogout={() => onLogout?.()}
               tier={deploymentMode === "managed" ? "concierge" : "local"}
               onAddProject={addProject}
@@ -334,7 +354,7 @@ export default function AppShell({
         <div
           className="flex min-h-0 flex-1 flex-col overflow-hidden pt-[var(--mobile-header-height)] md:pt-0"
         >
-          {children ?? (
+          {isAppsOpen ? <AppsPage entryPoint={selectedProject?.name.trim().toLowerCase() === "career" ? "career" : "direct"} onOpenSettings={() => setIsSettingsOpen(true)} onSessionClosed={handleAppSessionClosed} onNativeAppActiveChange={setIsNativeAppOpen} /> : children ?? (
             <ChatPanel
               activeConversationId={activeConversationId}
               activeProjectId={selectedProjectId}

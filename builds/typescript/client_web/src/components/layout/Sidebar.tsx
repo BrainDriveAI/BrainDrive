@@ -1,4 +1,4 @@
-import { Bot, ChevronLeft, FileText, MoreHorizontal, Pencil, Plus, Trash2, X } from "lucide-react";
+import { AppWindow, Bot, ChevronLeft, FileText, MoreHorizontal, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { getSession } from "@/api/auth-adapter";
@@ -35,6 +35,8 @@ type SidebarProps = {
   onReturnToChat: () => void;
   onFileClick: (file: ProjectFile) => void;
   onOpenSettings: () => void;
+  onOpenApps: () => void;
+  isAppsActive: boolean;
   onLogout: () => void;
   onAddProject?: (name: string) => Promise<void>;
   onRemoveProject?: (id: string) => Promise<void>;
@@ -57,6 +59,8 @@ export default function Sidebar({
   onReturnToChat,
   onFileClick,
   onOpenSettings,
+  onOpenApps,
+  isAppsActive,
   onLogout,
   onAddProject,
   onRemoveProject,
@@ -160,12 +164,14 @@ export default function Sidebar({
           onSelectProject(projectId);
         }}
         onOpenSettings={onOpenSettings}
+        onOpenApps={onOpenApps}
+        isAppsActive={isAppsActive}
       />
     );
   }
 
-  const isRootAgentSelected = isRootAgentProjectId(selectedProjectId);
-  const isProjectView = selectedProject !== null && !isRootAgentSelected;
+  const isRootAgentSelected = !isAppsActive && isRootAgentProjectId(selectedProjectId);
+  const isProjectView = !isAppsActive && selectedProject !== null && !isRootAgentSelected;
   const projectModel = selectedProject ? buildProjectSidebarModel(selectedProject.id, projectFiles) : null;
   const selectedProjectLabel = selectedProject
     ? projectDisplayLabel(selectedProject.id, selectedProject.name)
@@ -205,6 +211,20 @@ export default function Sidebar({
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col">
+        <div className="px-4 pb-2 pt-1">
+          <button
+            type="button"
+            aria-current={isAppsActive ? "page" : undefined}
+            onClick={() => { onOpenApps(); onClose?.(); }}
+            className={[
+              "flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-[14px] transition-all duration-200 hover:bg-bd-bg-hover",
+              isAppsActive ? "border-l-2 border-bd-amber bg-bd-bg-tertiary pl-[10px] text-bd-text-primary" : "text-bd-text-secondary",
+            ].join(" ")}
+          >
+            <AppWindow size={17} strokeWidth={1.5} aria-hidden="true" />
+            <span>Apps</span>
+          </button>
+        </div>
         {isProjectView ? (
           <div className="flex items-center gap-2 px-4 pb-3 pt-2">
             <button
@@ -301,7 +321,7 @@ export default function Sidebar({
 
               {projects.filter((project) => !isRootAgentProjectId(project.id)).map((project) => {
                 const Icon = getProjectIcon(project.icon);
-                const isActive = project.id === selectedProjectId;
+                  const isActive = !isAppsActive && project.id === selectedProjectId;
                 const isMenuOpen = menuOpenForProject === project.id;
                 const isRenaming = renamingProjectId === project.id;
 

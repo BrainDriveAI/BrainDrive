@@ -1,0 +1,30 @@
+{
+  "trust_root_version": 1,
+  "trust_domain": "braindrive-app-release",
+  "root_key": {
+    "key_id": "braindrive-app-root-2026",
+    "algorithm": "ed25519",
+    "public_key": "8rgp0cKZuF0EQTumZPfaerPuNyOCVXfbLSsiSW1uawg=",
+    "status": "active"
+  },
+  "threshold": 1,
+  "release_keys": [
+    {
+      "key_version": 1,
+      "key_id": "braindrive-app-release-2026-01",
+      "algorithm": "ed25519",
+      "public_key": "IzRyVosUlE8knQiUiZuKLjRvQKjesVVEj9Gn4BnIG7M=",
+      "not_before": "2026-08-01T00:00:00.000Z",
+      "not_after": "2027-08-01T00:00:00.000Z",
+      "status": "active",
+      "authorization": {
+        "signature_version": 1,
+        "domain_separator": "BrainDrive-App-Release-Key-v1",
+        "canonicalization": "braindrive-canonical-json-v1",
+        "signature_algorithm": "ed25519",
+        "signing_key_id": "braindrive-app-root-2026",
+        "signature": "zJnAx0ZoCWYmQ/5LkCr78U3CkPRb7oMhEijlb9+bA4tLWoL4VwqPmt6mcU481M4ySfCP+gUgqcjIA5IAF4pYDQ=="
+      }
+    }
+  ]
+}

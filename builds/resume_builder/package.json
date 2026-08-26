@@ -1,0 +1,25 @@
+{
+  "name": "@braindrive/resume-builder",
+  "version": "0.0.0-milestone-7",
+  "private": true,
+  "type": "module",
+  "description": "Resume Builder sandbox workflow, contracts, and host-brokered MCP surface",
+  "license": "MIT",
+  "scripts": {
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "26.1.1",
+    "typescript": "6.0.3",
+    "vitest": "4.1.10"
+  },
+  "braindrive": {
+    "appId": "ai.braindrive.resume-builder",
+    "appContractSchemaVersion": 1,
+    "resumeDataSchemaVersion": 3,
+    "resumeInferenceSchemaVersion": 1,
+    "appBridgeSchemaVersion": 1,
+    "runtimeEnabled": false
+  }
+}

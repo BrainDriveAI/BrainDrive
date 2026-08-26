@@ -1,0 +1,9 @@
+{
+  "paths": [
+    "../escape.js",
+    "/absolute/server.js",
+    "payload\\server.js",
+    "payload//server.js",
+    "payload/./server.js"
+  ]
+}

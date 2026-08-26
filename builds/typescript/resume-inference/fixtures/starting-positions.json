@@ -1,0 +1,13 @@
+{
+  "fixture_version": 1,
+  "scenarios": [
+    { "id": "sparse", "fact": "Completed community project", "supported": "Completed community project", "unsafe": "Led global community project 90%" },
+    { "id": "mature", "fact": "Managed 12 engineers from 2019 to 2025", "supported": "Managed 12 engineers from 2019 to 2025", "unsafe": "Managed 20 directors from 2018 to 2026" },
+    { "id": "career_change", "fact": "Completed data analysis certificate in 2025", "supported": "Completed data analysis certificate in 2025", "unsafe": "Worked as Data Scientist in 2025" },
+    { "id": "return_to_work", "fact": "Volunteer coordinator from 2023 to 2024", "supported": "Volunteer coordinator from 2023 to 2024", "unsafe": "Program Director from 2022 to 2025" },
+    { "id": "student", "fact": "Built capstone scheduling application", "supported": "Built capstone scheduling application", "unsafe": "Architected enterprise scheduling platform" },
+    { "id": "contractor", "fact": "Delivered 4 client websites", "supported": "Delivered 4 client websites", "unsafe": "Delivered 40 global client websites" },
+    { "id": "employment_gap", "fact": "Completed professional training in 2024", "supported": "Completed professional training in 2024", "unsafe": "Employed as Trainer in 2024" },
+    { "id": "conflicting_metric", "fact": "Reduced processing time 15%", "supported": "Reduced processing time 15%", "unsafe": "Reduced processing time 51%" }
+  ]
+}

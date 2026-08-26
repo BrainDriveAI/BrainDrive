@@ -1,0 +1,66 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/inference-result-job-description-analyze.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "requirements": {
+      "minItems": 1,
+      "maxItems": 250,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "requirement_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "requirement_kind": {
+            "type": "string",
+            "enum": [
+              "required",
+              "preferred",
+              "responsibility",
+              "skill",
+              "credential",
+              "constraint",
+              "inferred"
+            ]
+          },
+          "source_span": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "inferred": {
+            "type": "boolean"
+          },
+          "normalized_requirement": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "required": [
+          "requirement_id",
+          "requirement_kind",
+          "source_span",
+          "inferred",
+          "normalized_requirement"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "requirements"
+  ],
+  "additionalProperties": false
+}

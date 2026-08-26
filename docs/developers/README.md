@@ -55,6 +55,7 @@ Normal BrainDrive owners looking to install or use the product should use the [p
 | Auth and config | Deployment-mode, authentication, runtime, and provider preferences | [Architecture: auth and configuration](architecture/README.md#authentication-and-configuration) |
 | Memory and secrets | File-backed memory and separately protected secret material | [Memory and secrets lifecycle](architecture/memory-and-secrets.md) |
 | Providers and MCP | Model adapter profiles and registered external tool services | [Provider integration](integrations/providers.md) and [MCP/tools](integrations/mcp-and-tools.md) |
+| First-party Apps, Resume Builder, and Brief Builder | Trusted app contracts, lifecycle, capabilities, structured inference, app-specific evidence, rendering, and owner workflows | [App contracts](../../builds/typescript/app-platform/contracts/README.md), [Resume domain](../../builds/typescript/resume-domain/README.md), [Brief domain](../../builds/typescript/brief-domain/README.md), and [MCP Apps host](../../builds/typescript/app-platform/mcp-host/README.md) |
 | Docker and installer | Dev, local, and production packaging and lifecycle scripts | [Docker installer README](../../installer/docker/README.md) |
 | Tauri desktop | Native shell and embedded local runtime for the web client | [Tauri subsystem README](../../builds/typescript/src-tauri/README.md) |
 | Tests and CI | Workspace checks plus repository CI composition | [Change verification matrix](verification.md) |

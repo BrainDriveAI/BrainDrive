@@ -1,0 +1,5 @@
+{
+  "transport": "container_internal",
+  "authentication": "per_installation_token",
+  "public_bind_allowed": true
+}

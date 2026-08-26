@@ -30,14 +30,18 @@ const initialProjectFiles: ProjectFile[] = [
   },
 ];
 
-vi.mock("@/api/gateway-adapter", () => ({
-  getOnboardingStatus: vi.fn(async () => ({
-    onboarding_required: false,
-    active_provider_profile: null,
-    default_provider_profile: null,
-    providers: [],
-  })),
-}));
+vi.mock("@/api/gateway-adapter", async () => {
+  const actual = await vi.importActual<typeof import("@/api/gateway-adapter")>("@/api/gateway-adapter");
+  return {
+    ...actual,
+    getOnboardingStatus: vi.fn(async () => ({
+      onboarding_required: false,
+      active_provider_profile: null,
+      default_provider_profile: null,
+      providers: [],
+    })),
+  };
+});
 
 vi.mock("@/hooks/useProjects", () => ({
   useProjects: () => ({
@@ -63,8 +67,10 @@ vi.mock("./Sidebar", () => ({
   default: (props: {
     selectedProjectId: string | null;
     projectFiles: ProjectFile[];
+    onOpenApps: () => void;
   }) => (
     <aside>
+      <button type="button" onClick={props.onOpenApps}>Apps</button>
       <div data-testid="selected-project">{props.selectedProjectId}</div>
       <div data-testid="sidebar-files">
         {props.projectFiles.map((file) => file.path).join(",")}
@@ -72,6 +78,8 @@ vi.mock("./Sidebar", () => ({
     </aside>
   ),
 }));
+
+vi.mock("@/components/apps/AppsPage", () => ({ default: ({ onOpenSettings, onSessionClosed }: { onOpenSettings?: () => void; onSessionClosed?: () => void }) => <section aria-label="Apps surface">Apps surface<button type="button" onClick={onOpenSettings}>Open model settings recovery</button><button type="button" onClick={onSessionClosed}>Close app session</button></section> }));
 
 vi.mock("@/components/chat/ChatPanel", () => ({
   default: (props: {
@@ -120,6 +128,14 @@ describe("AppShell project file refresh", () => {
     expect(selectProjectMock).not.toHaveBeenCalled();
   });
 
+  it("refreshes project documents after an installed app session closes", async () => {
+    const user = userEvent.setup();
+    render(<AppShell />);
+    await user.click(screen.getByRole("button", { name: "Apps" }));
+    await user.click(screen.getByRole("button", { name: "Close app session" }));
+    await waitFor(() => expect(refreshSelectedProjectFilesMock).toHaveBeenCalled());
+  });
+
   it("ignores stale legacy memory update notice state", () => {
     window.localStorage.setItem("braindrive.memoryUpdateReportSeen.starter-pack-26.4.20", "1");
 
@@ -127,6 +143,23 @@ describe("AppShell project file refresh", () => {
 
     expect(screen.queryByText("BrainDrive is up to date.")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Dismiss memory update notice" })).not.toBeInTheDocument();
+  });
+
+  it("opens the single Apps surface without changing the selected project", async () => {
+    const user = userEvent.setup();
+    render(<AppShell />);
+    await user.click(screen.getByRole("button", { name: "Apps" }));
+    expect(screen.getByRole("region", { name: "Apps surface" })).toBeInTheDocument();
+    expect(selectProjectMock).not.toHaveBeenCalled();
+  });
+
+  it("routes app model recovery into the existing settings modal", async () => {
+    const user = userEvent.setup();
+    render(<AppShell />);
+    await user.click(screen.getByRole("button", { name: "Apps" }));
+    await user.click(screen.getByRole("button", { name: "Open model settings recovery" }));
+    expect(screen.getAllByText("Settings").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Close settings" }).length).toBeGreaterThan(0);
   });
 
 });

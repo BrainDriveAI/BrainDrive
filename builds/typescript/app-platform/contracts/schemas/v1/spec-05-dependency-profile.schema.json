@@ -1,0 +1,60 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/spec-05-dependency-profile.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "profile_version": {
+      "type": "number",
+      "const": 1
+    },
+    "modern_client": {
+      "type": "string",
+      "const": "@modelcontextprotocol/client@2.0.0"
+    },
+    "modern_core": {
+      "type": "string",
+      "const": "@modelcontextprotocol/core@2.0.0"
+    },
+    "fake_peer_server": {
+      "type": "string",
+      "const": "@modelcontextprotocol/server@2.0.0"
+    },
+    "node_transport": {
+      "type": "string",
+      "const": "@modelcontextprotocol/node@2.0.0"
+    },
+    "legacy_sdk": {
+      "type": "string",
+      "const": "@modelcontextprotocol/sdk@1.30.0"
+    },
+    "apps_sdk": {
+      "type": "string",
+      "const": "@modelcontextprotocol/ext-apps@1.7.5"
+    },
+    "conformance": {
+      "type": "string",
+      "const": "@modelcontextprotocol/conformance@0.2.0-alpha.11"
+    },
+    "runtime_node": {
+      "type": "string",
+      "const": ">=20"
+    },
+    "conformance_cli_node": {
+      "type": "string",
+      "const": ">=22"
+    }
+  },
+  "required": [
+    "profile_version",
+    "modern_client",
+    "modern_core",
+    "fake_peer_server",
+    "node_transport",
+    "legacy_sdk",
+    "apps_sdk",
+    "conformance",
+    "runtime_node",
+    "conformance_cli_node"
+  ],
+  "additionalProperties": false
+}

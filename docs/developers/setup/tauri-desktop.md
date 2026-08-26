@@ -11,7 +11,7 @@
 > - Parent: [docs/developers/README.md](../README.md).
 > - Adjacent topics: [BrainDrive Tauri desktop shell](../../../builds/typescript/src-tauri/README.md); [Native TypeScript and web development](./native.md); [Change verification](../verification.md); [Safe debugging and failure evidence](../debugging.md).
 > - Keywords: `Tauri desktop`, `Rust`, `embedded runtime`, `provider-independent startup`.
-> - Sources: [`builds/typescript/src-tauri/tauri.conf.json`](../../../builds/typescript/src-tauri/tauri.conf.json); [`builds/typescript/src-tauri/src/main.rs`](../../../builds/typescript/src-tauri/src/main.rs); [`builds/typescript/package.json`](../../../builds/typescript/package.json).
+> - Sources: [`builds/typescript/src-tauri/tauri.conf.json`](../../../builds/typescript/src-tauri/tauri.conf.json); [`builds/typescript/src-tauri/src/main.rs`](../../../builds/typescript/src-tauri/src/main.rs); [`builds/typescript/src-tauri/src/process_containment.rs`](../../../builds/typescript/src-tauri/src/process_containment.rs); [`builds/typescript/src-tauri/src/native_export.rs`](../../../builds/typescript/src-tauri/src/native_export.rs); [`builds/typescript/scripts/desktop-stage-runtime.mjs`](../../../builds/typescript/scripts/desktop-stage-runtime.mjs); [`builds/typescript/scripts/desktop-release-aliases.mjs`](../../../builds/typescript/scripts/desktop-release-aliases.mjs); [`builds/typescript/package.json`](../../../builds/typescript/package.json).
 > - Tests: [`tools/docs/test/developer-journeys.test.mjs`](../../../tools/docs/test/developer-journeys.test.mjs).
 <!-- catalog-contract:end tauri-desktop-setup -->
 
@@ -66,7 +66,7 @@ The shared client handoff was subsequently corrected under focused source tests:
 
 | Claimed platform | J-05 evidence state |
 |---|---|
-| Native Windows | `DEFERRED — REQUIRED BEFORE MILESTONE 7` |
+| Native Windows | Prior J-05 evidence is stale for Spec 08 desktop staging/runtime changes; fresh exact-candidate two-app evidence is required |
 | Native macOS | Configured bundle target; not claimed for V1 J-05 |
 | WSL/Linux | Not claimed for V1 J-05; diagnostics only |
 

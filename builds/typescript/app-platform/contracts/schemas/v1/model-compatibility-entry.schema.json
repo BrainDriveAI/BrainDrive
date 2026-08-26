@@ -1,0 +1,96 @@
+{
+  "$id": "https://schemas.braindrive.ai/resume-builder/v1/model-compatibility-entry.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "registry_version": {
+      "type": "number",
+      "const": 1
+    },
+    "provider_profile_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "model_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "purpose": {
+      "type": "string",
+      "enum": [
+        "resume_dialogue",
+        "resume_transcript_extract",
+        "interview_assist",
+        "general_resume_draft",
+        "job_description_analyze",
+        "requirement_evidence_match",
+        "tailoring_plan",
+        "targeted_resume_draft",
+        "resume_revision_classify",
+        "resume_revision_draft",
+        "resume_guidance",
+        "resume_strategy",
+        "resume_craft_evaluate",
+        "resume_craft_repair"
+      ]
+    },
+    "output_schema_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "prompt_policy_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "prompt_policy_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "compatible": {
+      "type": "boolean"
+    },
+    "fixture_corpus_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "tested_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "zero_unsupported_claim_gate": {
+      "type": "boolean"
+    },
+    "schema_success_rate": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "latency_p95_ms": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "registry_version",
+    "provider_profile_id",
+    "model_id",
+    "purpose",
+    "output_schema_id",
+    "prompt_policy_id",
+    "prompt_policy_version",
+    "compatible",
+    "fixture_corpus_digest",
+    "tested_at",
+    "zero_unsupported_claim_gate",
+    "schema_success_rate",
+    "latency_p95_ms"
+  ],
+  "additionalProperties": false
+}

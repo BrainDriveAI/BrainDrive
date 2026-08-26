@@ -1,4 +1,4 @@
-import { Bot, ChevronRight, Settings } from "lucide-react";
+import { AppWindow, Bot, ChevronRight, Settings } from "lucide-react";
 
 import { ROOT_AGENT_PROJECT_ID, isRootAgentProjectId } from "@/lib/rootAgent";
 import type { Project } from "@/types/ui";
@@ -12,6 +12,8 @@ type SidebarCollapsedProps = {
   selectedProjectId: string | null;
   onSelectProject: (projectId: string) => void;
   onOpenSettings: () => void;
+  onOpenApps: () => void;
+  isAppsActive: boolean;
 };
 
 export default function SidebarCollapsed({
@@ -19,7 +21,9 @@ export default function SidebarCollapsed({
   projects,
   selectedProjectId,
   onSelectProject,
-  onOpenSettings
+  onOpenSettings,
+  onOpenApps,
+  isAppsActive,
 }: SidebarCollapsedProps) {
   return (
     <aside className="flex h-dvh w-[48px] flex-col items-center border-r border-bd-border bg-bd-bg-secondary py-3 transition-all duration-200">
@@ -38,13 +42,26 @@ export default function SidebarCollapsed({
       <div className="mt-4 flex min-h-0 w-full flex-1 flex-col items-center gap-2 overflow-y-auto px-1 pb-3">
         <button
           type="button"
+          onClick={onOpenApps}
+          className={[
+            "flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-200 hover:bg-bd-amber/80 hover:text-bd-bg-primary",
+            isAppsActive ? "bg-bd-amber text-bd-bg-primary" : "bg-bd-bg-tertiary text-bd-text-primary",
+          ].join(" ")}
+          title="Apps"
+          aria-label="Apps"
+          aria-current={isAppsActive ? "page" : undefined}
+        >
+          <AppWindow size={16} strokeWidth={1.8} />
+        </button>
+        <button
+          type="button"
           onClick={() => {
             onSelectProject(ROOT_AGENT_PROJECT_ID);
             onToggle();
           }}
           className={[
             "flex h-8 w-8 cursor-pointer items-center justify-center rounded-full transition-colors duration-200 hover:bg-bd-amber/80 hover:text-bd-bg-primary",
-            isRootAgentProjectId(selectedProjectId)
+            !isAppsActive && isRootAgentProjectId(selectedProjectId)
               ? "bg-bd-amber text-bd-bg-primary"
               : "bg-bd-bg-tertiary text-bd-text-primary"
           ].join(" ")}
@@ -55,7 +72,7 @@ export default function SidebarCollapsed({
         </button>
         {projects.filter((project) => !isRootAgentProjectId(project.id)).map((project) => {
           const Icon = getProjectIcon(project.icon);
-          const isActive = project.id === selectedProjectId;
+          const isActive = !isAppsActive && project.id === selectedProjectId;
 
           return (
             <button

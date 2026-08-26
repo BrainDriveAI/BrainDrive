@@ -1,0 +1,8 @@
+{
+  "kind": "fact_proposal",
+  "fact_kind": "employment",
+  "value": "Synthetic owner-visible proposal",
+  "state": "suggested",
+  "source_revision_ids": ["91000000-0000-4000-8000-000000000001"],
+  "sensitivity": "sensitive"
+}

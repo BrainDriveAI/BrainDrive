@@ -1,0 +1,468 @@
+import { z } from "zod";
+
+import { NonEmptyStringSchema, OpaqueIdSchema } from "../app-platform/contracts/common.js";
+import {
+  CraftCorrectionClassSchema,
+  CraftEvidenceReferenceSchema,
+  CraftCriterionSchema,
+  EvidenceStatusSchema,
+  GuidanceResultSchema,
+  JobEvidenceDimensionSchema,
+  RequirementKindSchema,
+  ResumeHistoryShapeSchema,
+  ResumeRoleBulletDensitySchema,
+  ResumeStrategyOmissionReasonSchema,
+  RevisionIntentClassSchema,
+  TargetFitClassSchema,
+} from "../app-platform/contracts/data.js";
+import { type InferencePurpose, PURPOSE_OUTPUT_SCHEMAS } from "../app-platform/contracts/inference.js";
+
+const SupportIdsSchema = z.array(OpaqueIdSchema).max(32);
+
+export const ResumeDialogueContextSchema = z.object({
+  dialogue_version: z.literal(2),
+  messages: z.array(z.object({
+    message_id: OpaqueIdSchema,
+    role: z.enum(["user", "assistant"]),
+    content: z.string().min(1).max(16_384),
+    source_revision_id: OpaqueIdSchema.nullable(),
+  }).strict()).max(40),
+  current_message_id: OpaqueIdSchema.nullable(),
+  current_user_message: z.string().min(1).max(16_384).nullable(),
+  resume_state: z.object({
+    facts: z.array(z.object({
+      record_id: OpaqueIdSchema,
+      revision_id: OpaqueIdSchema,
+      revision: z.number().int().positive(),
+      fact_kind: z.enum(["identity", "contact", "employment", "education", "skill", "credential", "accomplishment", "project", "preference", "job_evidence"]),
+      value: z.string().min(1).max(16_384),
+      source_revision_ids: z.array(OpaqueIdSchema).min(1).max(64),
+    }).strict()).max(500),
+    definitions: z.array(z.object({
+      record_id: OpaqueIdSchema,
+      revision_id: OpaqueIdSchema,
+      revision: z.number().int().positive(),
+      title: z.string().min(1).max(256),
+      status: z.enum(["draft", "proposed", "approved"]),
+      statements: z.array(z.object({
+        statement_id: OpaqueIdSchema,
+        section_id: NonEmptyStringSchema,
+        kind: z.enum(["factual", "presentation"]),
+        display_role: z.enum(["heading", "bullet", "line"]).optional(),
+        text: z.string().min(1).max(8_192),
+        supporting_confirmed_fact_revision_ids: z.array(OpaqueIdSchema).max(32),
+      }).strict()).min(1).max(500),
+      section_order: z.array(NonEmptyStringSchema).min(1).max(32),
+    }).strict()).max(50),
+  }).strict(),
+  tool_results: z.array(z.object({
+    action_id: OpaqueIdSchema,
+    status: z.enum(["executed", "requires_owner_confirmation", "rejected"]),
+    code: z.string().min(1).max(64),
+    message: z.string().min(1).max(512),
+  }).strict()).max(32),
+}).strict().superRefine((value, context) => {
+  if (value.current_user_message !== null && value.messages.at(-1)?.role !== "user") {
+    context.addIssue({ code: "custom", path: ["messages"], message: "dialogue context with a current message must end with the owner turn" });
+  }
+  if (value.current_user_message !== null && value.messages.at(-1)?.content !== value.current_user_message) {
+    context.addIssue({ code: "custom", path: ["current_user_message"], message: "current owner message must match the final dialogue turn" });
+  }
+  if ((value.current_user_message === null) !== (value.current_message_id === null)) {
+    context.addIssue({ code: "custom", path: ["current_message_id"], message: "current message identity and content must appear together" });
+  }
+  if (value.current_message_id !== null && value.messages.at(-1)?.message_id !== value.current_message_id) {
+    context.addIssue({ code: "custom", path: ["current_message_id"], message: "current message identity must match the final dialogue turn" });
+  }
+});
+
+export const ResumeDialogueSourceReferenceSchema = z.object({
+  message_id: OpaqueIdSchema,
+  quote: z.string().min(1).max(16_384),
+}).strict();
+
+const ResumeDialogueFactBodySchema = {
+  action_id: OpaqueIdSchema,
+  fact_kind: z.enum(["identity", "contact", "employment", "education", "skill", "credential", "accomplishment", "project", "preference"]),
+  value: z.string().min(1).max(16_384),
+  source_references: z.array(ResumeDialogueSourceReferenceSchema).min(1).max(32),
+} as const;
+
+export const ResumeDialogueCreateFactActionSchema = z.object({
+  ...ResumeDialogueFactBodySchema,
+  action: z.literal("create_fact"),
+}).strict();
+
+export const ResumeDialogueUpdateFactActionSchema = z.object({
+  ...ResumeDialogueFactBodySchema,
+  action: z.literal("update_fact"),
+  record_id: OpaqueIdSchema,
+  expected_revision: z.number().int().positive(),
+}).strict();
+
+export const ResumeDialogueFactActionSchema = z.discriminatedUnion("action", [
+  ResumeDialogueCreateFactActionSchema,
+  ResumeDialogueUpdateFactActionSchema,
+]);
+
+export const ResumeDialogueDraftActionSchema = z.object({
+  action_id: OpaqueIdSchema,
+  action: z.literal("save_resume_version"),
+  base_definition_revision_id: OpaqueIdSchema.nullable(),
+  title: z.string().min(1).max(256),
+  statements: z.array(z.object({
+    statement_id: OpaqueIdSchema,
+    section_id: NonEmptyStringSchema,
+    kind: z.literal("factual"),
+    display_role: z.enum(["heading", "bullet", "line"]).optional(),
+    text: z.string().min(1).max(8_192),
+    supporting_fact_refs: z.array(OpaqueIdSchema).min(1).max(32),
+  }).strict()).min(1).max(500),
+  section_order: z.array(NonEmptyStringSchema).min(1).max(32),
+  presentation_preferences: z.record(z.string(), z.string().max(2_048)),
+  locale: z.string().min(2).max(35),
+  page_intent: z.enum(["one_page", "two_pages", "concise", "detailed"]),
+  template_id: z.literal("ats-basic"),
+  template_version: z.literal("1"),
+}).strict();
+
+export const ResumeDialogueExportActionSchema = z.object({
+  action_id: OpaqueIdSchema,
+  action: z.literal("request_export"),
+  definition_revision_id: OpaqueIdSchema.nullable(),
+  format: z.enum(["pdf", "text"]),
+}).strict();
+
+export const ResumeDialogueActionSchema = z.discriminatedUnion("action", [
+  ResumeDialogueCreateFactActionSchema,
+  ResumeDialogueUpdateFactActionSchema,
+  ResumeDialogueDraftActionSchema,
+  ResumeDialogueExportActionSchema,
+]);
+
+/** @deprecated Kept only so older migration helpers can parse without becoming a runtime path. */
+export const ResumeDialogueFactOperationSchema: z.ZodTypeAny = z.any();
+
+export const ResumeDialogueResultSchema = z.object({
+  dialogue_version: z.literal(2),
+  assistant_message: z.string().min(1).max(4_096),
+  actions: z.array(ResumeDialogueActionSchema).max(32),
+}).strict().superRefine((value, context) => {
+  const actionIds = value.actions.map((action) => action.action_id);
+  if (new Set(actionIds).size !== actionIds.length) context.addIssue({ code: "custom", path: ["actions"], message: "action identities must be unique" });
+  if (value.actions.filter((action) => action.action === "save_resume_version").length > 1) context.addIssue({ code: "custom", path: ["actions"], message: "one turn may save at most one resume version" });
+  if (value.actions.filter((action) => action.action === "request_export").length > 1) context.addIssue({ code: "custom", path: ["actions"], message: "one turn may request at most one export" });
+});
+
+export const ResumeTranscriptSnapshotSchema = z.object({
+  transcript_version: z.literal(1),
+  turns: z.array(z.object({
+    source_revision_id: OpaqueIdSchema,
+    occurred_at: z.string().datetime({ offset: true }),
+    assistant: z.string().min(1).max(8_192),
+    owner: z.string().min(1).max(16_384),
+    follow_up: z.string().min(1).max(8_192),
+  }).strict()).min(1).max(200),
+}).strict();
+
+export const ResumeTranscriptCitationSchema = z.object({
+  source_revision_id: OpaqueIdSchema,
+  quote: z.string().min(1).max(16_384),
+}).strict();
+
+const TranscriptSimpleProposalSchema = z.object({
+  proposal_id: OpaqueIdSchema,
+  fact_kind: z.enum(["identity", "contact", "education", "skill", "credential", "project", "preference"]),
+  value: z.string().min(1).max(16_384),
+  citations: z.array(ResumeTranscriptCitationSchema).min(1).max(16),
+}).strict();
+
+const TranscriptEmploymentProposalSchema = z.object({
+  proposal_id: OpaqueIdSchema,
+  fact_kind: z.literal("employment"),
+  employment: z.object({
+    title: z.string().min(1).max(256),
+    employer: z.string().min(1).max(256),
+    location: z.string().max(256).nullable(),
+    start_date: z.string().max(128).nullable(),
+    end_date: z.string().max(128).nullable(),
+    responsibilities: z.string().max(8_192).nullable(),
+  }).strict(),
+  citations: z.array(ResumeTranscriptCitationSchema).min(1).max(16),
+}).strict();
+
+const TranscriptEvidenceProposalSchema = z.object({
+  proposal_id: OpaqueIdSchema,
+  fact_kind: z.enum(["accomplishment", "job_evidence"]),
+  text: z.string().min(1).max(8_192),
+  dimension: JobEvidenceDimensionSchema.exclude(["identity"]).nullable(),
+  employment_proposal_id: OpaqueIdSchema.nullable(),
+  existing_job_fact_revision_id: OpaqueIdSchema.nullable(),
+  citations: z.array(ResumeTranscriptCitationSchema).min(1).max(16),
+}).strict().superRefine((value, context) => {
+  if ((value.employment_proposal_id === null) === (value.existing_job_fact_revision_id === null)) {
+    context.addIssue({ code: "custom", message: "role evidence requires exactly one employment association" });
+  }
+  if (value.fact_kind === "job_evidence" && value.dimension === null) {
+    context.addIssue({ code: "custom", path: ["dimension"], message: "job evidence requires a dimension" });
+  }
+});
+
+export const ResumeTranscriptFactProposalSchema = z.union([
+  TranscriptSimpleProposalSchema,
+  TranscriptEmploymentProposalSchema,
+  TranscriptEvidenceProposalSchema,
+]);
+
+export const ResumeTranscriptGapSchema = z.object({
+  gap_id: OpaqueIdSchema,
+  kind: z.enum(["missing_role", "missing_employer", "ambiguous_association", "missing_supporting_evidence", "missing_contact", "missing_education", "other"]),
+  question: z.string().min(1).max(2_048),
+  source_revision_ids: z.array(OpaqueIdSchema).max(16),
+}).strict();
+
+export const ResumeTranscriptExtractionResultSchema = z.object({
+  extraction_version: z.literal(1),
+  proposals: z.array(ResumeTranscriptFactProposalSchema).max(500),
+  gaps: z.array(ResumeTranscriptGapSchema).max(50),
+}).strict().superRefine((value, context) => {
+  if (value.proposals.length === 0 && value.gaps.length === 0) {
+    context.addIssue({ code: "custom", message: "transcript extraction requires at least one grounded proposal or one explicit gap" });
+  }
+  const proposalIds = value.proposals.map((proposal) => proposal.proposal_id);
+  if (new Set(proposalIds).size !== proposalIds.length) context.addIssue({ code: "custom", path: ["proposals"], message: "proposal identities must be unique" });
+  const employmentIds = new Set(value.proposals.filter((proposal) => proposal.fact_kind === "employment").map((proposal) => proposal.proposal_id));
+  for (const [index, proposal] of value.proposals.entries()) {
+    if ((proposal.fact_kind === "accomplishment" || proposal.fact_kind === "job_evidence") && proposal.employment_proposal_id && !employmentIds.has(proposal.employment_proposal_id)) {
+      context.addIssue({ code: "custom", path: ["proposals", index, "employment_proposal_id"], message: "evidence association must reference an employment proposal in this extraction" });
+    }
+  }
+});
+
+export const GeneratedStatementSchema = z.object({
+  statement_id: OpaqueIdSchema,
+  section_id: NonEmptyStringSchema.default("experience"),
+  kind: z.enum(["factual", "presentation"]),
+  display_role: z.enum(["heading", "bullet", "line"]).optional(),
+  text: z.string().min(1).max(8_192),
+  supporting_confirmed_fact_revision_ids: SupportIdsSchema,
+}).strict().superRefine((value, context) => {
+  if (value.kind === "factual" && value.supporting_confirmed_fact_revision_ids.length === 0) {
+    context.addIssue({ code: "custom", message: "factual statements require confirmed support" });
+  }
+});
+
+export const InterviewAssistResultSchema = z.object({
+  questions: z.array(z.object({
+    question_id: OpaqueIdSchema,
+    job_fact_revision_id: OpaqueIdSchema,
+    opportunity_id: OpaqueIdSchema,
+    dimension: JobEvidenceDimensionSchema.exclude(["identity"]),
+    opportunity_kind: z.enum(["qualitative", "metric"]),
+    value_category: z.enum(["distinct_accomplishment", "decision_useful_outcome", "scope_or_scale", "tools_in_use", "progression", "core_responsibility"]),
+    selection_method: z.literal("deterministic_value"),
+    prompt: z.string().min(1).max(2_048),
+    rationale: z.string().min(1).max(1_024),
+  }).strict()).length(1),
+}).strict();
+
+export const GeneralResumeDraftResultSchema = z.object({
+  title: z.string().min(1).max(256),
+  statements: z.array(GeneratedStatementSchema).min(1).max(500),
+  section_order: z.array(NonEmptyStringSchema).min(1).max(32),
+  omissions: z.array(z.object({ fact_revision_id: OpaqueIdSchema, reason_code: ResumeStrategyOmissionReasonSchema }).strict()).max(500),
+}).strict();
+
+export const JobDescriptionAnalyzeResultSchema = z.object({
+  requirements: z.array(z.object({
+    requirement_id: OpaqueIdSchema,
+    requirement_kind: RequirementKindSchema,
+    source_span: z.string().min(1).max(4_096).nullable(),
+    inferred: z.boolean(),
+    normalized_requirement: z.string().min(1).max(4_096),
+  }).strict().superRefine((value, context) => {
+    if (value.inferred !== (value.requirement_kind === "inferred")) context.addIssue({ code: "custom", message: "inferred flag mismatch" });
+    if (!value.inferred && value.source_span === null) context.addIssue({ code: "custom", message: "stated requirement needs a source span" });
+  })).min(1).max(250),
+}).strict();
+
+export const RequirementEvidenceMatchResultSchema = z.object({
+  evidence: z.array(z.object({
+    requirement_id: OpaqueIdSchema,
+    evidence_status: EvidenceStatusSchema,
+    supporting_confirmed_fact_revision_ids: SupportIdsSchema,
+    explanation: z.string().min(1).max(4_096),
+    clarification: z.string().max(4_096).nullable(),
+  }).strict().superRefine((value, context) => {
+    if (value.evidence_status === "supported" && value.supporting_confirmed_fact_revision_ids.length === 0) context.addIssue({ code: "custom", message: "supported evidence needs confirmed facts" });
+    if (value.evidence_status === "unsupported" && value.supporting_confirmed_fact_revision_ids.length > 0) context.addIssue({ code: "custom", message: "unsupported evidence cannot cite facts" });
+  })).min(1).max(250),
+}).strict();
+
+export const TailoringPlanResultSchema = z.object({
+  plan_version: z.literal(2),
+  threshold_policy_id: NonEmptyStringSchema,
+  threshold_policy_version: NonEmptyStringSchema,
+  fit_class: TargetFitClassSchema,
+  outcome: z.enum(["targeted_variant", "no_meaningful_change"]),
+  no_change_reason: z.enum(["ambiguous_evidence", "insufficient_supported_fit", "no_material_resume_change"]).nullable(),
+  support_counts: z.object({ core: z.number().int().nonnegative(), transferable: z.number().int().nonnegative(), partial: z.number().int().nonnegative(), unsupported: z.number().int().nonnegative() }).strict(),
+  changes: z.array(z.object({
+    change_id: OpaqueIdSchema,
+    requirement_id: OpaqueIdSchema,
+    statement_id: OpaqueIdSchema.nullable(),
+    action: z.enum(["selection", "ordering", "emphasis", "faithful_wording", "shorten"]),
+    rationale: z.string().min(1).max(2_048),
+    supporting_confirmed_fact_revision_ids: SupportIdsSchema.min(1),
+  }).strict()).max(500),
+}).strict().superRefine((value, context) => {
+  if ((value.outcome === "targeted_variant") !== (value.changes.length > 0)) context.addIssue({ code: "custom", message: "tailoring outcome requires a material-change manifest" });
+  if ((value.outcome === "no_meaningful_change") !== (value.no_change_reason !== null)) context.addIssue({ code: "custom", message: "no-change tailoring outcome requires one bounded reason" });
+});
+
+export const ResumeStrategyResultSchema = z.object({
+  strategy_version: z.literal(1),
+  history_shape: ResumeHistoryShapeSchema,
+  history_reason_code: z.enum(["standard_chronology", "thin_history", "senior_compression", "career_transition", "employment_gap", "overlap_or_promotion"]),
+  role_emphasis: z.array(z.object({
+    job_fact_revision_id: OpaqueIdSchema,
+    priority: z.enum(["primary", "supporting", "compressed"]),
+    reason_code: z.enum(["recent", "relevant", "evidence_rich", "continuity", "older_context"]),
+    bullet_density: ResumeRoleBulletDensitySchema,
+  }).strict()).max(100),
+  section_order: z.array(NonEmptyStringSchema).min(1).max(32),
+  evidence_priorities: z.array(z.object({ fact_revision_id: OpaqueIdSchema, priority: z.enum(["must_use", "preferred", "context"]) }).strict()).max(500),
+  summary_decision: z.enum(["include", "omit"]),
+  summary_reason_code: z.enum(["supported_positioning", "insufficient_distinct_value", "redundant_with_experience"]),
+  skills_context: z.array(z.object({
+    skill_fact_revision_id: OpaqueIdSchema,
+    placement: z.enum(["role", "project", "skills_section"]),
+    context_fact_revision_ids: z.array(OpaqueIdSchema).max(16),
+  }).strict()).max(100),
+  omissions: z.array(z.object({ fact_revision_id: OpaqueIdSchema, reason_code: ResumeStrategyOmissionReasonSchema }).strict()).max(500),
+  unresolved_gap_ids: z.array(OpaqueIdSchema).max(100),
+  owner_rationale: z.string().min(1).max(1_024),
+}).strict();
+
+export const ResumeCraftEvaluateResultSchema = z.object({
+  report_version: z.literal(2),
+  evidence_context: z.enum(["standard", "limited"]),
+  verdict: z.enum(["pass", "fail"]),
+  criterion_verdicts: z.array(z.object({
+    criterion: CraftCriterionSchema,
+    verdict: z.enum(["pass", "fail", "not_applicable"]),
+    evidence_refs: z.array(CraftEvidenceReferenceSchema).min(1).max(500),
+    finding_ids: z.array(OpaqueIdSchema).max(500),
+  }).strict()).length(10),
+  findings: z.array(z.object({
+    finding_id: OpaqueIdSchema,
+    criterion: CraftCriterionSchema,
+    severity: z.enum(["guidance", "blocking"]),
+    correction_class: CraftCorrectionClassSchema,
+    safe_message: z.string().min(1).max(512),
+    evidence_ref_ids: z.array(OpaqueIdSchema).min(1).max(500),
+  }).strict()).max(500),
+}).strict().superRefine((value, context) => {
+  const criteria = value.criterion_verdicts.map((entry) => entry.criterion);
+  if (new Set(criteria).size !== CraftCriterionSchema.options.length || CraftCriterionSchema.options.some((criterion) => !criteria.includes(criterion))) context.addIssue({ code: "custom", path: ["criterion_verdicts"], message: "every craft criterion is required exactly once" });
+  const allEvidence = value.criterion_verdicts.flatMap((entry) => entry.evidence_refs);
+  const evidenceIds = new Set(allEvidence.map((entry) => entry.evidence_ref_id));
+  if (evidenceIds.size !== allEvidence.length) context.addIssue({ code: "custom", path: ["criterion_verdicts"], message: "craft evidence identities must be unique" });
+  for (const entry of value.criterion_verdicts) {
+    if (entry.verdict === "pass" && !entry.evidence_refs.some((reference) => reference.polarity === "positive")) context.addIssue({ code: "custom", message: "passing craft criteria require positive evidence" });
+    if (entry.verdict === "fail" && !entry.evidence_refs.some((reference) => reference.polarity === "negative" || reference.polarity === "absence")) context.addIssue({ code: "custom", message: "failing craft criteria require negative evidence or absence" });
+    if (entry.verdict === "not_applicable" && !entry.evidence_refs.some((reference) => reference.kind === "explicit_absence" && reference.polarity === "absence")) context.addIssue({ code: "custom", message: "not-applicable craft criteria require explicit absence evidence" });
+    if (entry.criterion.startsWith("C") && entry.verdict === "not_applicable") context.addIssue({ code: "custom", message: "general craft criteria are always applicable" });
+  }
+  const findingIds = new Set(value.findings.map((finding) => finding.finding_id));
+  if (findingIds.size !== value.findings.length || value.criterion_verdicts.some((entry) => entry.finding_ids.some((id) => !findingIds.has(id)))) context.addIssue({ code: "custom", path: ["findings"], message: "craft finding references are invalid" });
+  if (value.findings.some((finding) => finding.evidence_ref_ids.some((id) => !evidenceIds.has(id)))) context.addIssue({ code: "custom", path: ["findings"], message: "craft findings require report evidence" });
+  const failed = value.criterion_verdicts.some((entry) => entry.verdict === "fail") || value.findings.some((finding) => finding.severity === "blocking");
+  if ((value.verdict === "fail") !== failed) context.addIssue({ code: "custom", path: ["verdict"], message: "craft verdict and mandatory findings disagree" });
+});
+
+const CraftRepairResultBodySchema = z.object({
+  source_definition_revision_id: OpaqueIdSchema,
+  source_report_revision_id: OpaqueIdSchema,
+  changed_statement_ids: z.array(OpaqueIdSchema).min(1).max(500),
+  title: z.string().min(1).max(256),
+  statements: z.array(GeneratedStatementSchema).min(1).max(500),
+  section_order: z.array(NonEmptyStringSchema).min(1).max(32),
+}).strict();
+
+export const ResumeCraftRepairResultSchema = z.union([
+  CraftRepairResultBodySchema.extend({ repair_version: z.literal(1) }).strict(),
+  CraftRepairResultBodySchema.extend({ repair_version: z.literal(2) }).strict(),
+]);
+
+const TargetedResumeVariantResultSchema = z.object({
+  parent_general_definition_revision_id: OpaqueIdSchema,
+  job_revision_id: OpaqueIdSchema,
+  title: z.string().min(1).max(256),
+  statements: z.array(GeneratedStatementSchema).min(1).max(500),
+  changed_statement_ids: z.array(OpaqueIdSchema).max(500),
+  section_order: z.array(NonEmptyStringSchema).min(1).max(32),
+}).strict();
+
+const TargetedResumeNoChangeResultSchema = z.object({
+  outcome: z.literal("no_meaningful_change"),
+  no_change_reason: z.literal("no_material_resume_change"),
+  parent_general_definition_revision_id: OpaqueIdSchema,
+  job_revision_id: OpaqueIdSchema,
+}).strict();
+
+export const TargetedResumeDraftResultSchema = z.union([
+  TargetedResumeVariantResultSchema,
+  TargetedResumeNoChangeResultSchema,
+]);
+
+export const ResumeRevisionClassifyResultSchema = z.object({
+  classification: RevisionIntentClassSchema,
+  target: z.object({ scope: z.enum(["statement", "section", "resume"]), target_id: z.string().min(1).max(256).nullable() }).strict(),
+  clarification: z.string().min(1).max(2_048).nullable(),
+  proposed_fact_changes: z.array(z.object({
+    fact_revision_id: OpaqueIdSchema.nullable(),
+    change_kind: z.enum(["add", "correct", "remove"]),
+    owner_visible_summary: z.string().min(1).max(1_024),
+  }).strict()).max(25),
+}).strict().superRefine((value, context) => {
+  if ((value.classification === "ambiguous") !== (value.clarification !== null)) context.addIssue({ code: "custom", message: "only ambiguous revisions require clarification" });
+  if (value.classification === "presentation" && value.proposed_fact_changes.length > 0) context.addIssue({ code: "custom", message: "presentation revisions cannot propose fact changes" });
+});
+
+export const ResumeRevisionDraftResultSchema = z.object({
+  source_definition_revision_id: OpaqueIdSchema,
+  revision_request_revision_id: OpaqueIdSchema,
+  title: z.string().min(1).max(256),
+  statements: z.array(GeneratedStatementSchema).min(1).max(500),
+  section_order: z.array(NonEmptyStringSchema).min(1).max(32),
+  changed_statement_ids: z.array(OpaqueIdSchema).max(500),
+}).strict();
+
+export const ResumeGuidanceResultSchema = GuidanceResultSchema;
+
+export const PURPOSE_RESULT_SCHEMAS = {
+  resume_dialogue: ResumeDialogueResultSchema,
+  resume_transcript_extract: ResumeTranscriptExtractionResultSchema,
+  interview_assist: InterviewAssistResultSchema,
+  general_resume_draft: GeneralResumeDraftResultSchema,
+  job_description_analyze: JobDescriptionAnalyzeResultSchema,
+  requirement_evidence_match: RequirementEvidenceMatchResultSchema,
+  tailoring_plan: TailoringPlanResultSchema,
+  targeted_resume_draft: TargetedResumeDraftResultSchema,
+  resume_revision_classify: ResumeRevisionClassifyResultSchema,
+  resume_revision_draft: ResumeRevisionDraftResultSchema,
+  resume_guidance: ResumeGuidanceResultSchema,
+  resume_strategy: ResumeStrategyResultSchema,
+  resume_craft_evaluate: ResumeCraftEvaluateResultSchema,
+  resume_craft_repair: ResumeCraftRepairResultSchema,
+} as const satisfies Record<InferencePurpose, z.ZodType>;
+
+export function parsePurposeResult(purpose: InferencePurpose, schemaId: string, value: unknown): unknown {
+  if (schemaId !== PURPOSE_OUTPUT_SCHEMAS[purpose]) throw new Error("purpose/output schema mismatch");
+  return PURPOSE_RESULT_SCHEMAS[purpose].parse(value);
+}
+
+export function purposeJsonSchema(purpose: InferencePurpose): Record<string, unknown> {
+  return z.toJSONSchema(PURPOSE_RESULT_SCHEMAS[purpose], { target: "draft-7" }) as Record<string, unknown>;
+}

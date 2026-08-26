@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-import { getConversation, type ConversationDetail } from "@/api/gateway-adapter";
+import { GatewayNotFoundError, getConversation, type ConversationDetail } from "@/api/gateway-adapter";
 import { useGatewayChat } from "@/api/useGatewayChat";
 import type { Message } from "@/types/ui";
 
@@ -33,9 +33,11 @@ function formatToolStatus(toolName: string): string {
 type ChatPanelProps = {
   activeConversationId: string | null;
   activeProjectId?: string | null;
+  introProjectId?: string | null;
   draftKey?: string | null;
   isEmpty?: boolean;
   onConversationComplete?: (conversationId: string) => void;
+  onConversationMissing?: (conversationId: string) => void;
   messageMetadata?: Record<string, unknown>;
   contentOverride?: ReactNode;
   onSendMessage?: () => void;
@@ -57,9 +59,11 @@ function mapConversationMessages(conversation: ConversationDetail): Message[] {
 export default function ChatPanel({
   activeConversationId,
   activeProjectId,
+  introProjectId,
   draftKey = null,
   isEmpty = false,
   onConversationComplete,
+  onConversationMissing,
   messageMetadata,
   contentOverride,
   onSendMessage,
@@ -121,6 +125,14 @@ export default function ChatPanel({
           return;
         }
 
+        // A saved conversation can disappear after an owner resets their local
+        // BrainDrive data or changes accounts. Let the owning surface clear its
+        // persisted pointer rather than leaving native chat permanently stuck.
+        if (loadError instanceof GatewayNotFoundError) {
+          onConversationMissing?.(activeConversationId);
+          return;
+        }
+
         setHistoryError(loadError instanceof Error ? loadError.message : String(loadError));
         setConnectionStatus("disconnected");
       });
@@ -128,7 +140,7 @@ export default function ChatPanel({
     return () => {
       cancelled = true;
     };
-  }, [activeConversationId]);
+  }, [activeConversationId, onConversationMissing]);
 
   useEffect(() => {
     if (error) {
@@ -274,7 +286,7 @@ export default function ChatPanel({
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
           {shouldShowConversation ? (shouldShowEmptyState ? (
             <EmptyState
-              projectId={activeProjectId}
+              projectId={introProjectId ?? activeProjectId}
               onSuggestionClick={(suggestion) => append(suggestion, { metadata: messageMetadata })}
             />
           ) : (

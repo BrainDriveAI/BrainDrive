@@ -1,8 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const isolatedE2e = process.env.BRAINDRIVE_E2E_ISOLATED === "1";
+const browserAccessE2e = process.env.BRAINDRIVE_E2E_BROWSER_ACCESS === "1";
 const webPort = process.env.BRAINDRIVE_E2E_WEB_PORT ?? "5073";
-const baseURL = `http://127.0.0.1:${webPort}`;
+const baseURL = process.env.BRAINDRIVE_E2E_BASE_URL ?? `http://127.0.0.1:${webPort}`;
 const artifactRoot = process.env.BRAINDRIVE_E2E_ARTIFACT_ROOT;
 
 export default defineConfig({
@@ -40,10 +41,12 @@ export default defineConfig({
     },
   ],
 
-  webServer: {
-    command: `npm run dev -- --host 127.0.0.1 --port ${webPort}`,
-    url: baseURL,
-    reuseExistingServer: !isolatedE2e && !process.env.CI,
-    timeout: 15_000,
-  },
+  webServer: browserAccessE2e
+    ? undefined
+    : {
+        command: `npm run dev -- --host 127.0.0.1 --port ${webPort}`,
+        url: baseURL,
+        reuseExistingServer: !isolatedE2e && !process.env.CI,
+        timeout: 15_000,
+      },
 });

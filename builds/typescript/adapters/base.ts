@@ -32,6 +32,23 @@ export type ModelAdapterCallOptions = {
   };
 };
 
+export type StructuredCompletionRequest = {
+  system: string;
+  user: string;
+  schemaName: string;
+  schema: Record<string, unknown>;
+  maxOutputTokens: number;
+  timeoutMs: number;
+  signal?: AbortSignal;
+};
+
+export type StructuredCompletionResponse = {
+  text: string;
+  finishReason: string;
+  usage?: TokenUsage;
+  cost?: CostMetadata;
+};
+
 export type ModelStreamChunk =
   | {
       type: "text-delta";
@@ -64,4 +81,7 @@ export interface ModelAdapter {
     options?: ModelAdapterCallOptions
   ): AsyncIterable<ModelStreamChunk>;
   listModels?(): Promise<ProviderModel[]>;
+  completeStructuredNoTools?(
+    request: StructuredCompletionRequest
+  ): Promise<StructuredCompletionResponse>;
 }
