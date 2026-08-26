@@ -1894,7 +1894,12 @@ export async function buildServer(rootDir = process.cwd()) {
         return;
       }
       const data = (await resp.json()) as Record<string, unknown>;
-      return { ...data, purchase_status: "activating" };
+      const checkoutUrl = typeof data.checkout_url === "string" ? data.checkout_url : "";
+      if (!checkoutUrl) {
+        reply.code(502).send({ error: "Checkout service unavailable" });
+        return;
+      }
+      return { checkout_url: checkoutUrl, purchase_status: "activating" };
     } catch (error) {
       if (error instanceof BrainDriveModelsProvisioningError) {
         auditLog("credits.checkout_key_unavailable", {

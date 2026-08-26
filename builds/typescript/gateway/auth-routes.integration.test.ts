@@ -1755,6 +1755,69 @@ describe.sequential("gateway auth route integration", () => {
     await expect(readVaultSecret("provider/ai-gateway/api_key")).resolves.toBe("sk-existing-paid-key");
   });
 
+  it("returns only the browser-safe checkout contract even if the host adds success-poll fields", async () => {
+    context = await createTestServer({
+      authMode: "local-owner",
+      adapterConfig: brainDriveModelsAdapterConfig(),
+    });
+    mockPreferences = {
+      ...mockPreferences,
+      provider_credentials: {
+        "braindrive-models": {
+          mode: "secret_ref",
+          secret_ref: "provider/ai-gateway/api_key",
+          required: true,
+        },
+      },
+    };
+    await writeVaultSecret("provider/ai-gateway/api_key", "sk-existing-safe-checkout");
+
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      const requestUrl = String(url);
+      if (requestUrl.endsWith("/credits/status")) {
+        expect(init?.headers).toMatchObject({ Authorization: "Bearer sk-existing-safe-checkout" });
+        return new Response(JSON.stringify({ remaining_usd: 0, key_valid: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (requestUrl.endsWith("/credits/checkout")) {
+        expect(init?.headers).toMatchObject({ Authorization: "Bearer sk-existing-safe-checkout" });
+        expect(String(init?.body ?? "")).not.toContain("sk-existing-safe-checkout");
+        return new Response(
+          JSON.stringify({
+            checkout_url: "https://checkout.stripe.com/c/pay_safe",
+            purchase_status: "ready",
+            checkout_pending: false,
+            state: "completed_auto_bound",
+            mode: "auto_bound",
+            message_code: "completed_auto_bound",
+            key: "sk-host-must-not-reach-browser",
+            api_key: "sk-api-key-must-not-reach-browser",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await context.app.inject({
+      method: "POST",
+      url: "/credits/checkout",
+      headers: localOwnerAdminHeaders(),
+      payload: { amount: 5, email: "owner@example.com" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(parseJson(response.body)).toEqual({
+      checkout_url: "https://checkout.stripe.com/c/pay_safe",
+      purchase_status: "activating",
+    });
+    expect(response.body).not.toContain("sk-host-must-not-reach-browser");
+    expect(response.body).not.toContain("completed_auto_bound");
+  });
+
   it("preserves an existing zero-balance BrainDrive Models vault key during checkout", async () => {
     context = await createTestServer({
       authMode: "local-owner",
