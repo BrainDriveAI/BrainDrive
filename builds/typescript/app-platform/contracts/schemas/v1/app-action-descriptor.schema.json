@@ -1,0 +1,138 @@
+{
+  "$id": "https://schemas.braindrive.ai/app-platform/v1/app-action-descriptor.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "action_version": {
+      "type": "number",
+      "const": 1
+    },
+    "action_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "read",
+        "write",
+        "render",
+        "export",
+        "recover",
+        "inspect"
+      ]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "input_schema_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+    },
+    "result_schema_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+    },
+    "confirmation": {
+      "type": "string",
+      "enum": [
+        "none",
+        "owner_confirmation",
+        "trusted_owner_confirmation"
+      ]
+    },
+    "idempotency_policy": {
+      "type": "string",
+      "enum": [
+        "not_applicable",
+        "optional",
+        "required"
+      ]
+    },
+    "model_exposure": {
+      "type": "string",
+      "enum": [
+        "hidden",
+        "available"
+      ]
+    },
+    "required_capabilities": {
+      "maxItems": 8,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+          },
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 65535
+          }
+        },
+        "required": [
+          "name",
+          "version"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "required_inference_purposes": {
+      "maxItems": 8,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "purpose_id": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+          },
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 65535
+          }
+        },
+        "required": [
+          "purpose_id",
+          "version"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "action_version",
+    "action_id",
+    "kind",
+    "title",
+    "description",
+    "input_schema_id",
+    "result_schema_id",
+    "confirmation",
+    "idempotency_policy",
+    "model_exposure",
+    "required_capabilities",
+    "required_inference_purposes"
+  ],
+  "additionalProperties": false
+}

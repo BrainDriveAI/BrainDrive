@@ -1,13 +1,16 @@
 import type { AppViewResumeRequest } from "./app-view-registry.js";
 import type { CompleteMcpResult } from "../../mcp/result-envelope.js";
-import type { AppLaunch } from "./app-host-types.js";
+import type { AppChatModelContext, AppChatModelContextRequest, AppChatWorkspaceLaunch, AppChatWorkspaceLaunchInput, AppLaunch } from "./app-host-types.js";
 
-export type { AppLaunch } from "./app-host-types.js";
+export type { AppChatModelContext, AppChatModelContextRequest, AppChatWorkspaceLaunch, AppChatWorkspaceLaunchInput, AppLaunch } from "./app-host-types.js";
 
 export interface AppMcpHostAdapter {
   readonly appId: string;
   readonly routeKey: string;
   launch(entryPoint?: "direct" | "career", resume?: AppViewResumeRequest): Promise<AppLaunch>;
+  launchChatWorkspace(input?: AppChatWorkspaceLaunchInput): Promise<AppChatWorkspaceLaunch>;
+  readChatWorkspaceSession(sessionId: string): Promise<AppChatWorkspaceLaunch["session"]>;
+  buildChatWorkspaceModelContext(request: AppChatModelContextRequest): Promise<AppChatModelContext>;
   handleAppsBridge(sessionId: string, rawEnvelope: unknown): Promise<unknown>;
   cancelAppsBridgeRequest(sessionId: string, operationId: string): boolean;
   handleBridge(sessionId: string, rawMessage: unknown, context: { origin: string; sourceMatches: boolean }): Promise<{ status: "ready" } | { status: "completed"; result: CompleteMcpResult } | { status: "capability_completed"; result: unknown }>;
@@ -27,6 +30,9 @@ export class AppMcpHost implements AppMcpHostAdapter {
   get appId(): string { return this.adapter.appId; }
   get routeKey(): string { return this.adapter.routeKey; }
   launch(entryPoint: "direct" | "career" = "direct", resume?: AppViewResumeRequest): Promise<AppLaunch> { return this.adapter.launch(entryPoint, resume); }
+  launchChatWorkspace(input: AppChatWorkspaceLaunchInput = {}): Promise<AppChatWorkspaceLaunch> { return this.adapter.launchChatWorkspace(input); }
+  readChatWorkspaceSession(sessionId: string): Promise<AppChatWorkspaceLaunch["session"]> { return this.adapter.readChatWorkspaceSession(sessionId); }
+  buildChatWorkspaceModelContext(request: AppChatModelContextRequest): Promise<AppChatModelContext> { return this.adapter.buildChatWorkspaceModelContext(request); }
   handleAppsBridge(sessionId: string, rawEnvelope: unknown): Promise<unknown> { return this.adapter.handleAppsBridge(sessionId, rawEnvelope); }
   cancelAppsBridgeRequest(sessionId: string, operationId: string): boolean { return this.adapter.cancelAppsBridgeRequest(sessionId, operationId); }
   handleBridge(sessionId: string, rawMessage: unknown, context: { origin: string; sourceMatches: boolean }) { return this.adapter.handleBridge(sessionId, rawMessage, context); }

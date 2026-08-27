@@ -81,7 +81,26 @@ vi.mock("./Sidebar", () => ({
   ),
 }));
 
-vi.mock("@/components/apps/AppsPage", () => ({ default: ({ onOpenSettings, onSessionClosed }: { onOpenSettings?: () => void; onSessionClosed?: () => void }) => <section aria-label="Apps surface">Apps surface<input aria-label="App draft" defaultValue="" /><button type="button" onClick={onOpenSettings}>Open model settings recovery</button><button type="button" onClick={onSessionClosed}>Close app session</button></section> }));
+vi.mock("@/components/apps/AppsPage", () => ({
+  default: ({
+    onOpenSettings,
+    onSessionClosed,
+    onWorkspaceActiveChange,
+  }: {
+    onOpenSettings?: () => void;
+    onSessionClosed?: () => void;
+    onWorkspaceActiveChange?: (active: boolean) => void;
+  }) => (
+    <section aria-label="Apps surface">
+      Apps surface
+      <input aria-label="App draft" defaultValue="" />
+      <button type="button" onClick={onOpenSettings}>Open model settings recovery</button>
+      <button type="button" onClick={onSessionClosed}>Close app session</button>
+      <button type="button" onClick={() => onWorkspaceActiveChange?.(true)}>Open app workspace</button>
+      <button type="button" onClick={() => onWorkspaceActiveChange?.(false)}>Back to app catalog</button>
+    </section>
+  ),
+}));
 
 vi.mock("@/components/chat/ChatPanel", () => ({
   default: (props: {
@@ -176,6 +195,21 @@ describe("AppShell project file refresh", () => {
     await user.click(screen.getByRole("button", { name: "Open model settings recovery" }));
     expect(screen.getAllByText("Settings").length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: "Close settings" }).length).toBeGreaterThan(0);
+  });
+
+  it("hides the BrainDrive sidebar while an app workspace owns the page", async () => {
+    const user = userEvent.setup();
+    render(<AppShell />);
+
+    expect(screen.getByRole("complementary")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Apps" }));
+    await user.click(screen.getByRole("button", { name: "Open app workspace" }));
+
+    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Apps surface" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Back to app catalog" }));
+    expect(screen.getByRole("complementary")).toBeInTheDocument();
   });
 
 });

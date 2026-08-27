@@ -15,6 +15,7 @@ import { PackageFileSchema, PackagePathSchema, PlatformArtifactSchema } from "./
 const canonicalDottedIdentifier = /^[a-z0-9]+(?:[.-][a-z0-9]+)+$/;
 const canonicalNamespacedIdentifier = /^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)*$/;
 const hostBindingIdentifier = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
+const uiResourceUriPattern = /^ui:\/\/[a-z0-9]+(?:-[a-z0-9]+)*\/[a-z0-9][a-z0-9._/-]*$/;
 
 export const CanonicalAppIdSchema = z.string().min(3).max(128).regex(canonicalDottedIdentifier);
 export const CanonicalPublisherIdSchema = z.string().min(3).max(96).regex(/^[a-z0-9]+(?:\.[a-z0-9]+)+$/);
@@ -23,6 +24,7 @@ export const CapabilityIdentifierSchema = z.string().min(3).max(128).regex(canon
 export const InferencePurposeIdentifierSchema = z.string().min(3).max(128).regex(canonicalNamespacedIdentifier);
 export const HostBindingIdSchema = z.string().min(3).max(128).regex(hostBindingIdentifier);
 export const ContractSchemaIdSchema = z.string().min(3).max(128).regex(canonicalNamespacedIdentifier);
+export const UiResourceUriSchema = z.string().regex(uiResourceUriPattern).max(2_048);
 
 const unsafePresentationPattern = /[<>\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]|(?:javascript|data|file):|https?:\s*\/\//i;
 
@@ -73,12 +75,169 @@ export const CatalogPresentationSchema = z
 export const PrimaryUiResourceDescriptorSchema = z
   .object({
     resource_version: z.literal(1),
-    uri: z.string().regex(/^ui:\/\/[a-z0-9]+(?:-[a-z0-9]+)*\/[a-z0-9][a-z0-9._/-]*$/).max(2_048),
+    uri: UiResourceUriSchema,
     package_path: PackagePathSchema,
     mime_type: z.literal(MCP_APP_MEDIA_TYPE),
     content_digest: Sha256DigestSchema,
   })
   .strict();
+
+const DescriptorResourceIdSchema = HostBindingIdSchema;
+const DescriptorDocumentIdSchema = HostBindingIdSchema;
+const DescriptorContextIdSchema = HostBindingIdSchema;
+const DescriptorActionIdSchema = HostBindingIdSchema;
+const DescriptorPresentationIdSchema = HostBindingIdSchema;
+const DescriptorWorkspaceIdSchema = HostBindingIdSchema;
+
+function uniqueValues(values: readonly string[], path: (string | number)[], context: z.RefinementCtx): void {
+  if (new Set(values).size !== values.length) context.addIssue({ code: "custom", path, message: "duplicate_identity" });
+}
+
+export const AppResourceDescriptorSchema = z
+  .object({
+    resource_version: z.literal(1),
+    resource_id: DescriptorResourceIdSchema,
+    role: z.enum(["agent_instructions", "interview_guide", "quality_standard", "template_standard", "recovery_guidance", "owner_reference"]),
+    title: safePresentationText(80),
+    description: safePresentationText(512),
+    package_path: PackagePathSchema,
+    media_type: z.enum(["text/markdown", "text/plain", "application/json"]),
+    content_digest: Sha256DigestSchema,
+    owner_editable: z.boolean(),
+    prompt_inclusion: z.enum(["never", "workspace_start", "document_open", "action_request"]),
+  })
+  .strict();
+
+export const WorkspaceDocumentDescriptorSchema = z
+  .object({
+    document_version: z.literal(1),
+    document_id: DescriptorDocumentIdSchema,
+    role: z.enum(["conversation", "source_document", "derived_document", "advanced_resource", "recovery"]),
+    title: safePresentationText(80),
+    description: safePresentationText(512),
+    editable: z.boolean(),
+    default_visibility: z.enum(["primary", "secondary", "advanced"]),
+    model_access: z.enum(["none", "read_reference", "read_write_draft", "action_result"]),
+    resource_id: DescriptorResourceIdSchema.nullable(),
+    data_binding_id: HostBindingIdSchema.nullable(),
+  })
+  .strict();
+
+export const AppContextRequestDescriptorSchema = z
+  .object({
+    context_version: z.literal(1),
+    context_id: DescriptorContextIdSchema,
+    kind: z.enum(["career_context", "owner_profile", "workspace_context", "app_state"]),
+    title: safePresentationText(80),
+    description: safePresentationText(512),
+    required: z.boolean(),
+    max_bytes: z.number().int().positive().max(1_048_576),
+    freshness_policy: z.enum(["latest_available", "session_snapshot", "explicit_owner_refresh"]),
+    required_capabilities: z.array(CapabilityRequestSchema).max(8),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    uniqueValues(value.required_capabilities.map((item) => `${item.name}@${item.version}`), ["required_capabilities"], context);
+  });
+
+export const AppActionDescriptorSchema = z
+  .object({
+    action_version: z.literal(1),
+    action_id: DescriptorActionIdSchema,
+    kind: z.enum(["read", "write", "render", "export", "recover", "inspect"]),
+    title: safePresentationText(80),
+    description: safePresentationText(512),
+    input_schema_id: ContractSchemaIdSchema,
+    result_schema_id: ContractSchemaIdSchema,
+    confirmation: z.enum(["none", "owner_confirmation", "trusted_owner_confirmation"]),
+    idempotency_policy: z.enum(["not_applicable", "optional", "required"]),
+    model_exposure: z.enum(["hidden", "available"]),
+    required_capabilities: z.array(CapabilityRequestSchema).max(8),
+    required_inference_purposes: z.array(InferencePurposeRequestSchema).max(8),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    uniqueValues(value.required_capabilities.map((item) => `${item.name}@${item.version}`), ["required_capabilities"], context);
+    uniqueValues(value.required_inference_purposes.map((item) => `${item.purpose_id}@${item.version}`), ["required_inference_purposes"], context);
+  });
+
+export const ChatWorkspaceDescriptorSchema = z
+  .object({
+    workspace_version: z.literal(1),
+    workspace_id: DescriptorWorkspaceIdSchema,
+    title: safePresentationText(80),
+    description: safePresentationText(512),
+    default_document_id: DescriptorDocumentIdSchema,
+    documents: z.array(WorkspaceDocumentDescriptorSchema).min(1).max(16),
+    resources: z.array(AppResourceDescriptorSchema).max(32),
+    context_requests: z.array(AppContextRequestDescriptorSchema).max(16),
+    actions: z.array(AppActionDescriptorSchema).max(32),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    uniqueValues(value.documents.map((item) => item.document_id), ["documents"], context);
+    uniqueValues(value.resources.map((item) => item.resource_id), ["resources"], context);
+    uniqueValues(value.context_requests.map((item) => item.context_id), ["context_requests"], context);
+    uniqueValues(value.actions.map((item) => item.action_id), ["actions"], context);
+    const documentIds = new Set(value.documents.map((item) => item.document_id));
+    if (!documentIds.has(value.default_document_id)) {
+      context.addIssue({ code: "custom", path: ["default_document_id"], message: "default document must reference a declared workspace document" });
+    }
+    const resourceIds = new Set(value.resources.map((item) => item.resource_id));
+    for (const [index, document] of value.documents.entries()) {
+      if (document.resource_id !== null && !resourceIds.has(document.resource_id)) {
+        context.addIssue({ code: "custom", path: ["documents", index, "resource_id"], message: "document resource must reference a declared app resource" });
+      }
+    }
+  });
+
+export const AppPresentationProfileSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      profile_version: z.literal(1),
+      presentation_id: DescriptorPresentationIdSchema,
+      type: z.literal("surface"),
+      label: safePresentationText(80),
+      description: safePresentationText(512),
+      resource_uri: UiResourceUriSchema,
+      owner_visibility: z.enum(["primary", "secondary", "internal"]),
+    })
+    .strict(),
+  z
+    .object({
+      profile_version: z.literal(1),
+      presentation_id: DescriptorPresentationIdSchema,
+      type: z.literal("chat_workspace"),
+      label: safePresentationText(80),
+      description: safePresentationText(512),
+      workspace_id: DescriptorWorkspaceIdSchema,
+      owner_visibility: z.enum(["primary", "secondary", "internal"]),
+    })
+    .strict(),
+]);
+
+export const AppPresentationSetSchema = z
+  .object({
+    presentation_set_version: z.literal(1),
+    default_presentation_id: DescriptorPresentationIdSchema,
+    profiles: z.array(AppPresentationProfileSchema).min(1).max(8),
+    workspaces: z.array(ChatWorkspaceDescriptorSchema).max(8),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    uniqueValues(value.profiles.map((item) => item.presentation_id), ["profiles"], context);
+    uniqueValues(value.workspaces.map((item) => item.workspace_id), ["workspaces"], context);
+    const profileIds = new Set(value.profiles.map((item) => item.presentation_id));
+    if (!profileIds.has(value.default_presentation_id)) {
+      context.addIssue({ code: "custom", path: ["default_presentation_id"], message: "default presentation must reference a declared profile" });
+    }
+    const workspaceIds = new Set(value.workspaces.map((item) => item.workspace_id));
+    for (const [index, profile] of value.profiles.entries()) {
+      if (profile.type === "chat_workspace" && !workspaceIds.has(profile.workspace_id)) {
+        context.addIssue({ code: "custom", path: ["profiles", index, "workspace_id"], message: "chat presentation must reference a declared workspace" });
+      }
+    }
+  });
 
 const ArchivePolicySchema = z
   .object({
@@ -117,6 +276,7 @@ export const GenericPackageManifestSchema = z
       })
       .strict(),
     primary_resource: PrimaryUiResourceDescriptorSchema,
+    presentations: AppPresentationSetSchema.optional(),
     requested_capabilities: z.array(CapabilityRequestSchema).max(64),
     requested_inference_purposes: z.array(InferencePurposeRequestSchema).max(32),
     provenance_path: PackagePathSchema,
@@ -162,6 +322,42 @@ export const GenericPackageManifestSchema = z
     const primary = files.get(value.primary_resource.package_path);
     if (!primary || primary.mode !== "read_only" || primary.digest !== value.primary_resource.content_digest) {
       context.addIssue({ code: "custom", path: ["primary_resource"], message: "primary resource must bind a declared immutable package file" });
+    }
+    if (value.presentations) {
+      const requestedCapabilities = new Set(value.requested_capabilities.map((item) => `${item.name}@${item.version}`));
+      const requestedPurposes = new Set(value.requested_inference_purposes.map((item) => `${item.purpose_id}@${item.version}`));
+      for (const [index, profile] of value.presentations.profiles.entries()) {
+        if (profile.type === "surface" && profile.resource_uri !== value.primary_resource.uri) {
+          context.addIssue({ code: "custom", path: ["presentations", "profiles", index, "resource_uri"], message: "surface presentation must bind the primary UI resource" });
+        }
+      }
+      for (const [workspaceIndex, workspace] of value.presentations.workspaces.entries()) {
+        for (const [resourceIndex, resource] of workspace.resources.entries()) {
+          const file = files.get(resource.package_path);
+          if (!file || file.mode !== "read_only" || file.digest !== resource.content_digest) {
+            context.addIssue({ code: "custom", path: ["presentations", "workspaces", workspaceIndex, "resources", resourceIndex], message: "app resource must bind a declared immutable package file" });
+          }
+        }
+        for (const [contextIndex, request] of workspace.context_requests.entries()) {
+          for (const [capabilityIndex, capability] of request.required_capabilities.entries()) {
+            if (!requestedCapabilities.has(`${capability.name}@${capability.version}`)) {
+              context.addIssue({ code: "custom", path: ["presentations", "workspaces", workspaceIndex, "context_requests", contextIndex, "required_capabilities", capabilityIndex], message: "context request capability must be requested by the manifest" });
+            }
+          }
+        }
+        for (const [actionIndex, action] of workspace.actions.entries()) {
+          for (const [capabilityIndex, capability] of action.required_capabilities.entries()) {
+            if (!requestedCapabilities.has(`${capability.name}@${capability.version}`)) {
+              context.addIssue({ code: "custom", path: ["presentations", "workspaces", workspaceIndex, "actions", actionIndex, "required_capabilities", capabilityIndex], message: "action capability must be requested by the manifest" });
+            }
+          }
+          for (const [purposeIndex, purpose] of action.required_inference_purposes.entries()) {
+            if (!requestedPurposes.has(`${purpose.purpose_id}@${purpose.version}`)) {
+              context.addIssue({ code: "custom", path: ["presentations", "workspaces", workspaceIndex, "actions", actionIndex, "required_inference_purposes", purposeIndex], message: "action inference purpose must be requested by the manifest" });
+            }
+          }
+        }
+      }
     }
     const icon = value.catalog.icon;
     if (icon) {
@@ -366,6 +562,7 @@ export const ResolvedAppDescriptorSchema = z
     resources: z
       .object({ primary: PrimaryUiResourceDescriptorSchema })
       .strict(),
+    presentations: AppPresentationSetSchema.nullable(),
     compatibility: GenericPackageManifestSchema.shape.compatibility,
     requested_authority: z
       .object({
@@ -392,6 +589,13 @@ export const ResolvedAppDescriptorSchema = z
   });
 
 export type GenericPackageManifest = z.infer<typeof GenericPackageManifestSchema>;
+export type AppPresentationProfile = z.infer<typeof AppPresentationProfileSchema>;
+export type AppPresentationSet = z.infer<typeof AppPresentationSetSchema>;
+export type ChatWorkspaceDescriptor = z.infer<typeof ChatWorkspaceDescriptorSchema>;
+export type WorkspaceDocumentDescriptor = z.infer<typeof WorkspaceDocumentDescriptorSchema>;
+export type AppResourceDescriptor = z.infer<typeof AppResourceDescriptorSchema>;
+export type AppContextRequestDescriptor = z.infer<typeof AppContextRequestDescriptorSchema>;
+export type AppActionDescriptor = z.infer<typeof AppActionDescriptorSchema>;
 export type FirstPartyAppRegistration = z.infer<typeof FirstPartyAppRegistrationSchema>;
 export type VerifiedFirstPartyPackage = z.infer<typeof VerifiedFirstPartyPackageSchema>;
 export type ResolvedAppDescriptor = z.infer<typeof ResolvedAppDescriptorSchema>;

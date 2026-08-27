@@ -134,6 +134,7 @@ export class FirstPartyAppRegistry {
       lifecycle_binding_id: registration.lifecycle_binding_id,
       operation_binding: operationBinding === null ? null : operationBinding.data,
       resources: { primary: manifest.primary_resource },
+      presentations: manifest.presentations ?? null,
       compatibility: manifest.compatibility,
       requested_authority: {
         capabilities: manifest.requested_capabilities,

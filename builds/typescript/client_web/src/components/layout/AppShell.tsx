@@ -35,6 +35,7 @@ export default function AppShell({
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAppsOpen, setIsAppsOpen] = useState(false);
   const [hasOpenedApps, setHasOpenedApps] = useState(false);
+  const [isAppWorkspaceActive, setIsAppWorkspaceActive] = useState(false);
   const [activeFile, setActiveFile] = useState<ProjectFile | null>(null);
   const [mobileHeaderHeight, setMobileHeaderHeight] = useState(0);
   const stableAppHeightRef = useRef(0);
@@ -246,6 +247,7 @@ export default function AppShell({
   } as CSSProperties;
 
   const mobileHeader = typeof document === "undefined"
+    || isAppWorkspaceActive
     ? null
     : createPortal(
         <div className="pointer-events-none fixed inset-x-0 top-0 z-30 md:hidden">
@@ -286,7 +288,7 @@ export default function AppShell({
       className="flex overflow-hidden bg-bd-bg-chat text-bd-text-primary"
       style={{ height: "var(--app-height)", maxHeight: "var(--app-height)" }}
     >
-      <div className="hidden md:flex md:shrink-0">
+      {!isAppWorkspaceActive ? <div className="hidden md:flex md:shrink-0">
         <Sidebar
           isCollapsed={isCollapsed}
           onToggle={() => {
@@ -311,9 +313,9 @@ export default function AppShell({
           onRemoveProject={removeProject}
           onRenameProject={renameProject}
         />
-      </div>
+      </div> : null}
 
-      {isMobileSidebarOpen ? (
+      {isMobileSidebarOpen && !isAppWorkspaceActive ? (
         <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true">
           <button
             type="button"
@@ -366,7 +368,14 @@ export default function AppShell({
               hidden={!isAppsOpen}
               aria-hidden={!isAppsOpen}
             >
-              <AppsPage entryPoint={selectedProject?.name.trim().toLowerCase() === "career" ? "career" : "direct"} onOpenSettings={() => setIsSettingsOpen(true)} onSessionClosed={handleAppSessionClosed} />
+              <AppsPage
+                entryPoint={selectedProject?.name.trim().toLowerCase() === "career" ? "career" : "direct"}
+                onOpenSettings={() => setIsSettingsOpen(true)}
+                onSessionClosed={handleAppSessionClosed}
+                onWorkspaceActiveChange={setIsAppWorkspaceActive}
+                onLogout={() => onLogout?.()}
+                tier={deploymentMode === "managed" ? "concierge" : "local"}
+              />
             </div>
           ) : null}
           {!isAppsOpen ? children ?? (

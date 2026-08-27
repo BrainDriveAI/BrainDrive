@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { canonicalJson, canonicalJsonDocumentDigest, canonicalSignedBytes } from "../contracts/common.js";
-import { GenericPackageManifestSchema } from "../contracts/app-registry.js";
+import { GenericPackageManifestSchema, type GenericPackageManifest } from "../contracts/app-registry.js";
 import { z } from "zod";
 import {
   PackageDescriptorSchema,
@@ -22,6 +22,9 @@ type Manifest = z.infer<typeof PackageManifestSchema>;
 type Descriptor = z.infer<typeof PackageDescriptorSchema>;
 type SourceIndex = z.infer<typeof PackageSourceIndexSchema>;
 type Revocations = z.infer<typeof RevocationListSchema>;
+type ModernPresentations = NonNullable<GenericPackageManifest["presentations"]>;
+type ModernResourceRole = ModernPresentations["workspaces"][number]["resources"][number]["role"];
+type ModernPromptInclusion = ModernPresentations["workspaces"][number]["resources"][number]["prompt_inclusion"];
 
 const PersistedGenericSourceIndexSchema = z.object({
   payload: z.object({
@@ -62,6 +65,7 @@ export type SyntheticFirstPartyFixture = {
   resourceHtml?: string;
   requestedCapabilities?: readonly string[];
   requestedInferencePurposes?: readonly { purpose_id: string; version: number }[];
+  presentations?: GenericPackageManifest["presentations"];
 };
 
 function appVersionKey(appId: string, version: string): string {
@@ -119,6 +123,7 @@ export async function createSyntheticFirstPartyFixtureRepository(
       ],
       compatibility: { app_contract: 1, host_min_version: "26.7.23", mcp_protocol: "2026-07-28", mcp_apps: { extension_id: "io.modelcontextprotocol/ui", version: "2026-01-26" }, data_contract_version: 1 },
       primary_resource: { resource_version: 1, uri: `ui://${app.routeKey}/main`, package_path: "payload/ui/main.html", mime_type: "text/html;profile=mcp-app", content_digest: digest(ui) },
+      ...(app.presentations ? { presentations: app.presentations } : {}),
       requested_capabilities: (app.requestedCapabilities ?? ["career.context.read"]).map((name) => ({ name, version: 1 })),
       requested_inference_purposes: app.requestedInferencePurposes ?? [], provenance_path: "provenance/build.jsonl", sbom_path: "sbom/cyclonedx.json", retention_policy: "retain_owner_data_remove_runtime_authority",
     });
@@ -215,6 +220,274 @@ function loadResumeBuilderInferenceProgram(): string {
   const resourcePath = candidates.find((candidate) => existsSync(candidate));
   if (!resourcePath) throw new Error("Resume Builder inference program is missing");
   return readFileSync(resourcePath, "utf8");
+}
+
+const RESUME_INFERENCE_PURPOSE_REQUESTS = [
+  { purpose_id: "resume.interview-assist", version: 1 },
+  { purpose_id: "resume.general-draft", version: 1 },
+  { purpose_id: "resume.job-description-analyze", version: 1 },
+  { purpose_id: "resume.requirement-evidence-match", version: 1 },
+  { purpose_id: "resume.tailoring-plan", version: 1 },
+  { purpose_id: "resume.targeted-draft", version: 1 },
+  { purpose_id: "resume.revision-classify", version: 1 },
+  { purpose_id: "resume.revision-draft", version: 1 },
+  { purpose_id: "resume.guidance", version: 1 },
+  { purpose_id: "resume.strategy", version: 2 },
+  { purpose_id: "resume.craft-evaluate", version: 1 },
+  { purpose_id: "resume.craft-repair", version: 1 },
+] as const;
+
+const RESUME_CHAT_RESOURCE_FILES = [
+  {
+    resourceId: "agent.instructions",
+    role: "agent_instructions" as const,
+    title: "Agent Instructions",
+    description: "Resume Builder operating rules for the chat workspace.",
+    packagePath: "payload/resources/agent-instructions.md",
+    fileName: "agent-instructions.md",
+    promptInclusion: "workspace_start" as const,
+  },
+  {
+    resourceId: "interview.guide",
+    role: "interview_guide" as const,
+    title: "Interview Guide",
+    description: "Topic order and question guidance for building the Resume Profile.",
+    packagePath: "payload/resources/interview-guide.md",
+    fileName: "interview-guide.md",
+    promptInclusion: "workspace_start" as const,
+  },
+  {
+    resourceId: "quality.standard",
+    role: "quality_standard" as const,
+    title: "Resume Quality Standard",
+    description: "Rules for supported claims, review, and factual safety.",
+    packagePath: "payload/resources/resume-quality-standard.md",
+    fileName: "resume-quality-standard.md",
+    promptInclusion: "action_request" as const,
+  },
+  {
+    resourceId: "template.standard",
+    role: "template_standard" as const,
+    title: "Resume Template Standard",
+    description: "Default renderer binding and template-scope limits for this release.",
+    packagePath: "payload/resources/resume-template-standard.md",
+    fileName: "resume-template-standard.md",
+    promptInclusion: "action_request" as const,
+  },
+  {
+    resourceId: "recovery.guidance",
+    role: "recovery_guidance" as const,
+    title: "Recovery Guidance",
+    description: "Resume session recovery and draft reconciliation behavior.",
+    packagePath: "payload/resources/recovery-guidance.md",
+    fileName: "recovery-guidance.md",
+    promptInclusion: "document_open" as const,
+  },
+] as const;
+
+function loadResumeBuilderResource(fileName: string): Buffer {
+  const candidates = [
+    path.resolve(process.cwd(), "../resume_builder/resources", fileName),
+    fileURLToPath(new URL(`../../../resume_builder/resources/${fileName}`, import.meta.url)),
+    fileURLToPath(new URL(`../../../../resume_builder/resources/${fileName}`, import.meta.url)),
+  ];
+  const resourcePath = candidates.find((candidate) => existsSync(candidate));
+  if (!resourcePath) throw new Error(`Resume Builder package resource is missing: ${fileName}`);
+  return Buffer.from(readFileSync(resourcePath, "utf8"), "utf8");
+}
+
+function buildModernResumePresentations(files: Map<string, Buffer>): GenericPackageManifest["presentations"] {
+  const cap = (name: typeof MODERN_FIXTURE_CAPABILITIES[number]) => ({ name, version: 1 });
+  const appResource = (resource: typeof RESUME_CHAT_RESOURCE_FILES[number]) => ({
+    resource_version: 1 as const,
+    resource_id: resource.resourceId,
+    role: resource.role as ModernResourceRole,
+    title: resource.title,
+    description: resource.description,
+    package_path: resource.packagePath,
+    media_type: "text/markdown" as const,
+    content_digest: digest(files.get(resource.packagePath)!),
+    owner_editable: false,
+    prompt_inclusion: resource.promptInclusion as ModernPromptInclusion,
+  });
+  return {
+    presentation_set_version: 1,
+    default_presentation_id: "just.chat",
+    profiles: [
+      {
+        profile_version: 1,
+        presentation_id: "just.chat",
+        type: "chat_workspace",
+        label: "Just Chat With It",
+        description: "Build your Resume Profile and Resume in a native chat workspace.",
+        workspace_id: "resume.chat",
+        owner_visibility: "primary",
+      },
+      {
+        profile_version: 1,
+        presentation_id: "structured.internal",
+        type: "surface",
+        label: "Structured Resume Builder",
+        description: "Internal structured Resume Builder surface retained for compatibility.",
+        resource_uri: "ui://resume-builder/main",
+        owner_visibility: "internal",
+      },
+    ],
+    workspaces: [{
+      workspace_version: 1,
+      workspace_id: "resume.chat",
+      title: "Resume Builder",
+      description: "Chat-first Resume Builder workspace with Profile and Resume documents.",
+      default_document_id: "conversation",
+      documents: [
+        {
+          document_version: 1,
+          document_id: "conversation",
+          role: "conversation",
+          title: "Conversation",
+          description: "Resume Builder chat.",
+          editable: true,
+          default_visibility: "primary",
+          model_access: "read_write_draft",
+          resource_id: null,
+          data_binding_id: null,
+        },
+        {
+          document_version: 1,
+          document_id: "resume.profile",
+          role: "source_document",
+          title: "Your Resume Profile",
+          description: "Reviewed resume source profile built from Resume-domain records.",
+          editable: true,
+          default_visibility: "primary",
+          model_access: "read_write_draft",
+          resource_id: null,
+          data_binding_id: "resume.profile.current",
+        },
+        {
+          document_version: 1,
+          document_id: "resume.document",
+          role: "derived_document",
+          title: "Your Resume",
+          description: "Formatted Resume derived from the current general Resume definition.",
+          editable: false,
+          default_visibility: "primary",
+          model_access: "action_result",
+          resource_id: null,
+          data_binding_id: "resume.definition.current.general",
+        },
+        ...RESUME_CHAT_RESOURCE_FILES.map((resource) => ({
+          document_version: 1 as const,
+          document_id: resource.resourceId,
+          role: "advanced_resource" as const,
+          title: resource.title,
+          description: resource.description,
+          editable: false,
+          default_visibility: "advanced" as const,
+          model_access: "read_reference" as const,
+          resource_id: resource.resourceId,
+          data_binding_id: null,
+        })),
+      ],
+      resources: RESUME_CHAT_RESOURCE_FILES.map(appResource),
+      context_requests: [
+        {
+          context_version: 1,
+          context_id: "career.resume_context",
+          kind: "career_context",
+          title: "Career Context",
+          description: "Owner career context available to Resume Builder for profile setup.",
+          required: false,
+          max_bytes: 65_536,
+          freshness_policy: "session_snapshot",
+          required_capabilities: [cap("career.context.read")],
+        },
+        {
+          context_version: 1,
+          context_id: "resume.workspace_state",
+          kind: "app_state",
+          title: "Resume Workspace State",
+          description: "Resume Builder state projected through app-owned Resume-domain records.",
+          required: false,
+          max_bytes: 65_536,
+          freshness_policy: "latest_available",
+          required_capabilities: [cap("resume.definitions.read")],
+        },
+      ],
+      actions: [
+        {
+          action_version: 1,
+          action_id: "resume.profile.read",
+          kind: "read",
+          title: "Read Resume Profile",
+          description: "Read the current Resume Profile projection from Resume-domain records.",
+          input_schema_id: "resume.profile.read.input.v1",
+          result_schema_id: "resume.profile.read.result.v1",
+          confirmation: "none",
+          idempotency_policy: "not_applicable",
+          model_exposure: "available",
+          required_capabilities: [cap("resume.definitions.read")],
+          required_inference_purposes: [],
+        },
+        {
+          action_version: 1,
+          action_id: "resume.profile.update",
+          kind: "write",
+          title: "Update Resume Profile",
+          description: "Write app-owned Resume Profile progress through Resume-domain records.",
+          input_schema_id: "resume.profile.update.input.v1",
+          result_schema_id: "resume.profile.update.result.v1",
+          confirmation: "none",
+          idempotency_policy: "required",
+          model_exposure: "available",
+          required_capabilities: [cap("resume.definitions.write")],
+          required_inference_purposes: [],
+        },
+        {
+          action_version: 1,
+          action_id: "resume.create",
+          kind: "render",
+          title: "Create Resume",
+          description: "Create the current general Resume from the reviewed Resume Profile state.",
+          input_schema_id: "resume.create.input.v1",
+          result_schema_id: "resume.create.result.v1",
+          confirmation: "owner_confirmation",
+          idempotency_policy: "required",
+          model_exposure: "available",
+          required_capabilities: [cap("resume.definitions.write")],
+          required_inference_purposes: [],
+        },
+        {
+          action_version: 1,
+          action_id: "resume.export.pdf.request",
+          kind: "export",
+          title: "Request PDF Export",
+          description: "Request a PDF export for the current Resume through the host export broker.",
+          input_schema_id: "resume.export.pdf.request.input.v1",
+          result_schema_id: "resume.export.pdf.request.result.v1",
+          confirmation: "trusted_owner_confirmation",
+          idempotency_policy: "required",
+          model_exposure: "available",
+          required_capabilities: [cap("resume.export.request")],
+          required_inference_purposes: [],
+        },
+        {
+          action_version: 1,
+          action_id: "resume.state.read",
+          kind: "inspect",
+          title: "Read Resume Operation State",
+          description: "Read Resume Builder operation state for recovery and convergence checks.",
+          input_schema_id: "resume.state.read.input.v1",
+          result_schema_id: "resume.state.read.result.v1",
+          confirmation: "none",
+          idempotency_policy: "not_applicable",
+          model_exposure: "available",
+          required_capabilities: [cap("resume.operations.read")],
+          required_inference_purposes: [],
+        },
+      ],
+    }],
+  };
 }
 
 const FIXTURE_SERVER = `import http from "node:http";
@@ -458,6 +731,9 @@ async function loadOrCreateFixtureSource(
   const entries: SourceIndex["payload"]["entries"] = [];
   const modernFixtureHtml = authorityLabel === "modern" ? loadResumeBuilderUi() : null;
   const modernInferenceProgram = authorityLabel === "modern" ? loadResumeBuilderInferenceProgram() : null;
+  const modernResourceFiles = authorityLabel === "modern"
+    ? new Map(RESUME_CHAT_RESOURCE_FILES.map((resource) => [resource.packagePath, loadResumeBuilderResource(resource.fileName)] as [string, Buffer]))
+    : null;
   const publishedAt = new Date().toISOString();
   const nextUpdateAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
   for (const version of versions) {
@@ -465,42 +741,70 @@ async function loadOrCreateFixtureSource(
       ["payload/docker/index.js", Buffer.from(version === MODERN_FIXTURE_VERSION ? modernFixtureServer(modernFixtureHtml!, version) : FIXTURE_SERVER.replace('version:"1.0.0"', `version:"${version}"`), "utf8")],
       ...(version === MODERN_FIXTURE_VERSION ? [["payload/docker/inference-program.js", Buffer.from(modernInferenceProgram!, "utf8")] as [string, Buffer]] : []),
       ...(version === MODERN_FIXTURE_VERSION ? [["payload/ui/main.html", Buffer.from(modernFixtureHtml!, "utf8")] as [string, Buffer]] : []),
+      ...(version === MODERN_FIXTURE_VERSION ? [...modernResourceFiles!] : []),
       ["provenance/build.jsonl", Buffer.from(`${canonicalJson({ builder: "braindrive-fixture", version, source: "repository" })}\n`, "utf8")],
       ["sbom/cyclonedx.json", Buffer.from(`${canonicalJson({ bomFormat: "CycloneDX", specVersion: "1.6", version: 1, components: [] })}\n`, "utf8")],
     ]);
-    const manifest: Manifest = PackageManifestSchema.parse({
-      manifest_version: 1,
-      app_id: "ai.braindrive.resume-builder",
-      publisher_id: "ai.braindrive",
-      display_name: "Resume Builder",
-      package_version: version,
-      archive: { format: "zip", profile: "braindrive-zip-v1", compression: "store", layout_version: 1, manifest_path: "manifest.json", undeclared_entries: "reject", links_and_device_nodes: "reject", max_file_count: 256, max_compressed_bytes: 67_108_864, max_uncompressed_bytes: 268_435_456 },
-      files: [...files].map(([filePath, bytes]) => ({ path: filePath, kind: "file", mode: filePath.endsWith("/index.js") ? "executable" : "read_only", size_bytes: bytes.length, digest: digest(bytes) })),
-      platform_artifacts: [
-        { target: "docker_linux_x64", os: "linux", architecture: "x64", runtime_kind: "packaged_node", entrypoint: "payload/docker/index.js" },
-        { target: "desktop_windows_x64", os: "windows", architecture: "x64", runtime_kind: "packaged_node", entrypoint: "payload/docker/index.js" },
-        { target: "desktop_macos_universal", os: "macos", architecture: "universal", runtime_kind: "packaged_node", entrypoint: "payload/docker/index.js" },
-      ],
-      compatibility: { app_contract: 1, host_min_version: "26.7.23", mcp_protocol: "2026-07-28", legacy_mcp_adapter: "2025-11-25", mcp_apps: { extension_id: "io.modelcontextprotocol/ui", version: "2026-01-26" }, data_schema: version === MODERN_FIXTURE_VERSION ? { read_min: 2, read_max: 4, write_version: 4 } : { read_min: 1, read_max: 1, write_version: 1 } },
-      requested_capabilities: version === MODERN_FIXTURE_VERSION ? [...MODERN_FIXTURE_CAPABILITIES] : ["career.context.read", "career.facts.read", "career.facts.propose", "career.facts.confirm", "resume.definitions.read", "resume.definitions.write", "resume.jobs.read", "resume.jobs.write", "resume.artifacts.register", "resume.export.request", "resume.operations.read", ...(version === "1.0.0" ? [] : ["app.inference.request" as const])],
-      provenance_path: "provenance/build.jsonl",
-      sbom_path: "sbom/cyclonedx.json",
-      retention_policy: "retain_owner_data_remove_runtime_authority",
-    });
+    const platformArtifacts = [
+      { target: "docker_linux_x64" as const, os: "linux" as const, architecture: "x64" as const, runtime_kind: "packaged_node" as const, entrypoint: "payload/docker/index.js" },
+      { target: "desktop_windows_x64" as const, os: "windows" as const, architecture: "x64" as const, runtime_kind: "packaged_node" as const, entrypoint: "payload/docker/index.js" },
+      { target: "desktop_macos_universal" as const, os: "macos" as const, architecture: "universal" as const, runtime_kind: "packaged_node" as const, entrypoint: "payload/docker/index.js" },
+    ];
+    const manifest = version === MODERN_FIXTURE_VERSION
+      ? GenericPackageManifestSchema.parse({
+          manifest_version: 2,
+          app_id: "ai.braindrive.resume-builder",
+          publisher_id: "ai.braindrive",
+          package_version: version,
+          catalog: {
+            display_name: "Resume Builder",
+            summary: "Build an owner-reviewed Resume Profile and Resume in a chat-first workspace.",
+            icon: null,
+            retention_summary: "Resume Builder retains career data, resume history, artifacts, exports, and lifecycle evidence after uninstall.",
+          },
+          archive: { format: "zip", profile: "braindrive-zip-v1", compression: "store", layout_version: 1, manifest_path: "manifest.json", undeclared_entries: "reject", links_and_device_nodes: "reject", max_file_count: 256, max_compressed_bytes: 67_108_864, max_uncompressed_bytes: 268_435_456 },
+          files: [...files].map(([filePath, bytes]) => ({ path: filePath, kind: "file", mode: filePath.endsWith("/index.js") ? "executable" : "read_only", size_bytes: bytes.length, digest: digest(bytes) })).sort((a, b) => a.path.localeCompare(b.path)),
+          platform_artifacts: platformArtifacts,
+          compatibility: { app_contract: 1, host_min_version: "26.7.23", mcp_protocol: "2026-07-28", mcp_apps: { extension_id: "io.modelcontextprotocol/ui", version: "2026-01-26" }, data_contract_version: 4 },
+          primary_resource: { resource_version: 1, uri: "ui://resume-builder/main", package_path: "payload/ui/main.html", mime_type: "text/html;profile=mcp-app", content_digest: digest(files.get("payload/ui/main.html")!) },
+          presentations: buildModernResumePresentations(files),
+          requested_capabilities: MODERN_FIXTURE_CAPABILITIES.map((name) => ({ name, version: 1 })),
+          requested_inference_purposes: [...RESUME_INFERENCE_PURPOSE_REQUESTS],
+          provenance_path: "provenance/build.jsonl",
+          sbom_path: "sbom/cyclonedx.json",
+          retention_policy: "retain_owner_data_remove_runtime_authority",
+        })
+      : PackageManifestSchema.parse({
+          manifest_version: 1,
+          app_id: "ai.braindrive.resume-builder",
+          publisher_id: "ai.braindrive",
+          display_name: "Resume Builder",
+          package_version: version,
+          archive: { format: "zip", profile: "braindrive-zip-v1", compression: "store", layout_version: 1, manifest_path: "manifest.json", undeclared_entries: "reject", links_and_device_nodes: "reject", max_file_count: 256, max_compressed_bytes: 67_108_864, max_uncompressed_bytes: 268_435_456 },
+          files: [...files].map(([filePath, bytes]) => ({ path: filePath, kind: "file", mode: filePath.endsWith("/index.js") ? "executable" : "read_only", size_bytes: bytes.length, digest: digest(bytes) })),
+          platform_artifacts: platformArtifacts,
+          compatibility: { app_contract: 1, host_min_version: "26.7.23", mcp_protocol: "2026-07-28", legacy_mcp_adapter: "2025-11-25", mcp_apps: { extension_id: "io.modelcontextprotocol/ui", version: "2026-01-26" }, data_schema: { read_min: 1, read_max: 1, write_version: 1 } },
+          requested_capabilities: ["career.context.read", "career.facts.read", "career.facts.propose", "career.facts.confirm", "resume.definitions.read", "resume.definitions.write", "resume.jobs.read", "resume.jobs.write", "resume.artifacts.register", "resume.export.request", "resume.operations.read", ...(version === "1.0.0" ? [] : ["app.inference.request" as const])],
+          provenance_path: "provenance/build.jsonl",
+          sbom_path: "sbom/cyclonedx.json",
+          retention_policy: "retain_owner_data_remove_runtime_authority",
+        });
     const archive = createStoredZip([
       { name: "manifest.json", bytes: Buffer.from(`${canonicalJson(manifest)}\n`, "utf8"), executable: false },
       ...[...files].map(([name, bytes]) => ({ name, bytes, executable: name.endsWith("/index.js") })),
     ]);
     const archivePath = path.join(root, `${version}.bdapp`);
     await writeFile(archivePath, archive, { mode: 0o644 });
-    const payload: Descriptor["payload"] = {
-      descriptor_version: 1,
+    const payload = {
+      descriptor_version: manifest.manifest_version === 2 ? 2 as const : 1 as const,
       manifest,
       manifest_digest: canonicalJsonDocumentDigest(manifest),
-      archive: { media_type: "application/vnd.braindrive.app+zip", byte_length: archive.length, digest: digest(archive) },
+      archive: { media_type: "application/vnd.braindrive.app+zip" as const, byte_length: archive.length, digest: digest(archive) },
       published_at: publishedAt,
     };
-    const descriptor = PackageDescriptorSchema.parse({ payload, signature: { signature_version: 1, domain_separator: "BrainDrive-App-Package-v1", canonicalization: "braindrive-canonical-json-v1", signature_algorithm: "ed25519", signing_key_id: releaseKeyId, signature: releaseSigner("BrainDrive-App-Package-v1", payload) } });
+    const descriptor = manifest.manifest_version === 2
+      ? { payload, signature: { signature_version: 1 as const, domain_separator: "BrainDrive-App-Package-v1" as const, canonicalization: "braindrive-canonical-json-v1" as const, signature_algorithm: "ed25519" as const, signing_key_id: releaseKeyId, signature: releaseSigner("BrainDrive-App-Package-v1", payload) } }
+      : PackageDescriptorSchema.parse({ payload: payload as Descriptor["payload"], signature: { signature_version: 1, domain_separator: "BrainDrive-App-Package-v1", canonicalization: "braindrive-canonical-json-v1", signature_algorithm: "ed25519", signing_key_id: releaseKeyId, signature: releaseSigner("BrainDrive-App-Package-v1", payload) } });
     const descriptorPath = path.join(root, `${version}.descriptor.json`);
     await writeJson(descriptorPath, descriptor);
     packages[version] = { archivePath, descriptorPath };

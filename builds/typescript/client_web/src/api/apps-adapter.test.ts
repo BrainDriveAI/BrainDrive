@@ -1,5 +1,5 @@
 import { authenticatedFetch } from "./auth-adapter";
-import { AppCapabilityError, callAppCapability, closeAppSession, finalizeResumeBuilderExport, getApp, getAppCatalog, launchApp, mutateApp, sendAppAppsBridgeMessage, sendAppBridgeMessage, type AppLaunch, type AppStatus } from "./apps-adapter";
+import { AppCapabilityError, callAppCapability, closeAppSession, finalizeResumeBuilderExport, getApp, getAppCatalog, launchApp, launchAppChatWorkspace, mutateApp, readAppChatWorkspaceSession, sendAppAppsBridgeMessage, sendAppBridgeMessage, type AppChatWorkspaceLaunch, type AppLaunch, type AppStatus } from "./apps-adapter";
 
 vi.mock("./auth-adapter", () => ({ authenticatedFetch: vi.fn() }));
 const fetchMock = vi.mocked(authenticatedFetch);
@@ -85,6 +85,112 @@ describe("Apps gateway adapter", () => {
     expect(body).not.toContain(prior.bridge_token_id);
     expect(body).not.toContain(prior.resource.html);
     expect(body).not.toContain(prior.server_id);
+  });
+
+  it("launches and reads app-chat workspace sessions through the additive generic routes", async () => {
+    const chat = {
+      launch_version: 1,
+      kind: "chat_workspace",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        operation_id: crypto.randomUUID(),
+        session_generation: 1,
+        owner_id: crypto.randomUUID(),
+        account_id: crypto.randomUUID(),
+        actor_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        publisher_id: "ai.braindrive",
+        installation_id: crypto.randomUUID(),
+        package_digest: `sha256:${"c".repeat(64)}` as const,
+        lifecycle_generation: 2,
+        grant_id: crypto.randomUUID(),
+        grant_revision: 1,
+        revocation_generation: 0,
+        presentation_id: "chat",
+        workspace_id: "resume.chat",
+        context_grant_set_digest: `sha256:${"d".repeat(64)}` as const,
+        created_at: "2026-08-26T12:00:00.000Z",
+        expires_at: "2026-08-26T12:05:00.000Z",
+      },
+      resumed: false,
+      presentation: { profile_version: 1, presentation_id: "chat", type: "chat_workspace", label: "Just Chat With It", description: "Open chat.", workspace_id: "resume.chat", owner_visibility: "primary" },
+      workspace: { workspace_version: 1, workspace_id: "resume.chat", title: "Workspace", description: "Shell.", default_document_id: "conversation", documents: [], resources: [], actions: [] },
+      context: { context_projection_set_version: 1, context_grant_set_digest: `sha256:${"d".repeat(64)}` as const, items: [] },
+    } satisfies AppChatWorkspaceLaunch;
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify(chat), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(chat.session), { status: 200 }));
+
+    await expect(launchAppChatWorkspace("resume-builder", { presentationId: "chat", workspaceId: "resume.chat" })).resolves.toMatchObject({ kind: "chat_workspace" });
+    await expect(readAppChatWorkspaceSession("resume-builder", chat.session.session_id)).resolves.toMatchObject({ session_id: chat.session.session_id });
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/api/apps/resume-builder/chat-workspaces/launch",
+      `/api/apps/resume-builder/chat-workspaces/sessions/${chat.session.session_id}`,
+    ]);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]![1]?.body))).toEqual({ presentation_id: "chat", workspace_id: "resume.chat" });
+  });
+
+  it("reconnects an app-chat workspace without serializing sandbox bridge credentials or app resources", async () => {
+    const chat = {
+      launch_version: 1,
+      kind: "chat_workspace",
+      session: {
+        session_id: crypto.randomUUID(),
+        view_id: crypto.randomUUID(),
+        operation_id: crypto.randomUUID(),
+        session_generation: 4,
+        owner_id: crypto.randomUUID(),
+        account_id: crypto.randomUUID(),
+        actor_id: crypto.randomUUID(),
+        app_id: "ai.braindrive.resume-builder",
+        publisher_id: "ai.braindrive",
+        installation_id: crypto.randomUUID(),
+        package_digest: `sha256:${"c".repeat(64)}` as const,
+        lifecycle_generation: 2,
+        grant_id: crypto.randomUUID(),
+        grant_revision: 1,
+        revocation_generation: 0,
+        presentation_id: "chat",
+        workspace_id: "resume.chat",
+        context_grant_set_digest: `sha256:${"d".repeat(64)}` as const,
+        created_at: "2026-08-26T12:00:00.000Z",
+        expires_at: "2026-08-26T12:05:00.000Z",
+      },
+      resumed: true,
+      presentation: { profile_version: 1, presentation_id: "chat", type: "chat_workspace", label: "Just Chat With It", description: "Open chat.", workspace_id: "resume.chat", owner_visibility: "primary" },
+      workspace: {
+        workspace_version: 1,
+        workspace_id: "resume.chat",
+        title: "Workspace",
+        description: "Shell.",
+        default_document_id: "conversation",
+        documents: [],
+        resources: [{ resource_version: 1, resource_id: "instructions", role: "agent_instructions", title: "Instructions", description: "Resource.", package_path: "payload/resources/instructions.md", media_type: "text/markdown", content_digest: `sha256:${"e".repeat(64)}`, owner_editable: false, prompt_inclusion: "workspace_start" }],
+        actions: [],
+      },
+      context: { context_projection_set_version: 1, context_grant_set_digest: `sha256:${"d".repeat(64)}` as const, items: [] },
+    } satisfies AppChatWorkspaceLaunch;
+    const next = { ...chat, session: { ...chat.session, session_id: crypto.randomUUID(), session_generation: 5 } };
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(next), { status: 200 }));
+
+    await launchAppChatWorkspace("resume-builder", { presentationId: "chat", workspaceId: "resume.chat", resume: chat });
+
+    const body = String(fetchMock.mock.calls[0]![1]?.body);
+    expect(JSON.parse(body)).toEqual({
+      presentation_id: "chat",
+      workspace_id: "resume.chat",
+      resume: {
+        session_id: chat.session.session_id,
+        view_id: chat.session.view_id,
+        operation_id: chat.session.operation_id,
+        session_generation: 4,
+      },
+    });
+    expect(body).not.toContain("payload/resources/instructions.md");
+    expect(body).not.toContain("bridge_token_id");
+    expect(body).not.toContain("server_id");
   });
 
   it("refreshes authoritative status after a lost committed response without declaring request failure", async () => {

@@ -9,12 +9,14 @@ import type { FastifyReply } from "fastify";
 import { z } from "zod";
 
 import { createAppLifecycle, createBriefAppLifecycle, type AppLifecycleRuntimeTarget } from "../app-platform/lifecycle/bootstrap.js";
+import { AppPlatformError } from "../app-platform/lifecycle/errors.js";
 import { MODERN_FIXTURE_VERSION } from "../app-platform/lifecycle/fixture-repository.js";
 import { createAppLifecycleRoutePlatform, registerAppLifecycleRoutes } from "../app-platform/lifecycle/routes.js";
 import { AppMcpHost } from "../app-platform/mcp-host/app-host.js";
 import { BriefAppHostAdapter } from "../app-platform/mcp-host/brief-host-adapter.js";
 import { ResumeAppHostAdapter } from "../app-platform/mcp-host/resume-host-adapter.js";
-import { createAppMcpHostRoutePlatform, registerAppMcpHostRoutes } from "../app-platform/mcp-host/routes.js";
+import { parseAppChatModelMetadata } from "../app-platform/mcp-host/app-chat-model.js";
+import { createAppMcpHostRoutePlatform, registerAppMcpHostRoutes, type AppMcpHostRoutePlatform } from "../app-platform/mcp-host/routes.js";
 import { BriefDataStore } from "../brief-domain/store.js";
 import { BriefDomainService } from "../brief-domain/service.js";
 import { BriefInferenceBroker } from "../brief-inference/broker.js";
@@ -487,6 +489,7 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
     : null;
   let appMcpHost: AppMcpHost | null = null;
   let briefMcpHost: AppMcpHost | null = null;
+  let appMcpHostRoutePlatform: AppMcpHostRoutePlatform | null = null;
   const publishedDocumentProviders: PublishedProjectDocumentProvider[] = [];
   if (appLifecycleService) {
     const resumeDataStore = new ResumeDataStore(runtimeConfig.memory_root, appLifecycleService.dependencies.ownerDataRoot);
@@ -818,10 +821,11 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
       { routeKey: "resume-builder", displayName: "Resume Builder", publisherName: "BrainDrive", availableVersion: MODERN_FIXTURE_VERSION, service: appLifecycleService },
       { routeKey: "brief-builder", displayName: "Brief Builder", publisherName: "BrainDrive", availableVersion: "1.2.0", service: briefLifecycleService! },
     ], 2));
-    registerAppMcpHostRoutes(app, createAppMcpHostRoutePlatform([
+    appMcpHostRoutePlatform = createAppMcpHostRoutePlatform([
       { appId: appMcpHost!.appId, routeKey: appMcpHost!.routeKey, host: appMcpHost! },
       { appId: briefMcpHost!.appId, routeKey: briefMcpHost!.routeKey, host: briefMcpHost! },
-    ]));
+    ]);
+    registerAppMcpHostRoutes(app, appMcpHostRoutePlatform);
   }
 
   app.post("/message", async (request, reply) => {
@@ -873,7 +877,24 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
     const projectContext = projectId
       ? buildProjectChatContext(projectId, projectFiles)
       : "";
-    const finalPrompt = promptWithSkills.prompt + projectContext;
+    let appChatModelContext: Awaited<ReturnType<typeof resolveAppChatModelContextForMessage>> = null;
+    try {
+      appChatModelContext = await resolveAppChatModelContextForMessage(body.metadata, appMcpHostRoutePlatform);
+    } catch (error) {
+      const statusCode = error instanceof AppPlatformError ? error.statusCode : 400;
+      const code = error instanceof AppPlatformError ? error.code : "invalid_request";
+      auditLog("app.chat_workspace.model_context_denied", {
+        conversation_id: conversationId,
+        code,
+        status_code: statusCode,
+      });
+      reply.code(statusCode).send({ error: code });
+      return;
+    }
+    const finalPrompt = promptWithSkills.prompt + projectContext + (appChatModelContext?.prompt_context ?? "");
+    const requestToolExecutor = appChatModelContext
+      ? new ToolExecutor([...tools, ...appChatModelContext.tools])
+      : toolExecutor;
 
     const correlationId = crypto.randomUUID();
     const contextWindow = await prepareContextWindow({
@@ -881,7 +902,7 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
       conversationId,
       correlationId,
       messages: conversations.buildConversationMessages(conversationId, finalPrompt),
-      tools: toolExecutor.listTools(request.authContext),
+      tools: requestToolExecutor.listTools(request.authContext),
     });
 
     auditLog("context.window", {
@@ -983,7 +1004,7 @@ export async function buildServer(rootDir = process.cwd(), dependencies: BuildSe
 
       for await (const event of runAgentLoop(
         modelAdapter,
-        toolExecutor,
+        requestToolExecutor,
         approvalStore,
         engineRequest,
         request.authContext,
@@ -4444,6 +4465,24 @@ export function createBrainDriveMemorySafetyGuard(
   void projectId;
   void conversation;
   return () => null;
+}
+
+async function resolveAppChatModelContextForMessage(
+  metadata: Record<string, unknown> | undefined,
+  platform: AppMcpHostRoutePlatform | null,
+) {
+  try {
+    const appChat = parseAppChatModelMetadata(metadata);
+    if (!appChat) return null;
+    if (!platform) throw new AppPlatformError("denied", "App-chat model sessions are unavailable", 403);
+    const selected = platform.entries.find((entry) => entry.appId === appChat.app_id);
+    if (!selected) throw new AppPlatformError("app_not_found", "App-chat model session targets an unavailable app", 404);
+    return selected.host.buildChatWorkspaceModelContext(appChat);
+  } catch (error) {
+    if (error instanceof AppPlatformError) throw error;
+    if (error instanceof z.ZodError) throw new AppPlatformError("invalid_input", "App-chat model metadata is invalid", 400);
+    throw new AppPlatformError("invalid_input", "App-chat model metadata is invalid", 400);
+  }
 }
 
 if (isDirectEntrypoint(process.argv[1], import.meta.url)) {

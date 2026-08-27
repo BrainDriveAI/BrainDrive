@@ -11,7 +11,7 @@ import { McpConnectionManager } from "../../mcp/host/connection-manager.js";
 import { SdkMcpPeer } from "../../mcp/host/sdk-peer.js";
 import { ModernMcpAppsClient, appVisibleToolNames, identityForRuntime, type ModernMcpSession } from "./modern-client.js";
 import { AppViewRegistry, type AppViewResumeRequest } from "./app-view-registry.js";
-import type { AppLaunch, AppMcpHostAdapter } from "./app-host.js";
+import type { AppChatModelContext, AppChatModelContextRequest, AppChatWorkspaceLaunch, AppChatWorkspaceLaunchInput, AppLaunch, AppMcpHostAdapter } from "./app-host.js";
 import type { CapabilityGrant } from "../lifecycle/store.js";
 import type { CompleteMcpResult } from "../../mcp/result-envelope.js";
 
@@ -79,6 +79,18 @@ export class BriefAppHostAdapter implements AppMcpHostAdapter {
     this.#sessions.set(view.sessionId, { sessionId: view.sessionId, viewId: view.viewId, operationId: view.operationId, installationId: record.installation_id, packageDigest, lifecycleGeneration: record.generation, bridgeTokenId: issued.claims.token_id, expiresAt: issued.claims.expires_at, client, mcp, resource: loaded.resource, grant: descriptor.grant, allowedCapabilities, allowedTools, seen: new Set(), inferenceOperations: new Set() });
     this.audit("brief.mcp.launch_stage", { app_id: this.appId, installation_id: record.installation_id, stage: "ready" });
     return { launch_version: 1, session_id: view.sessionId, installation_id: record.installation_id, view_id: view.viewId, operation_id: view.operationId, bridge_generation: view.bridgeGeneration, resumed: view.resumed, bridge_token_id: issued.claims.token_id, server_id: mcp.connectionId, expires_at: issued.claims.expires_at, protocol: { core: mcp.protocolVersion, apps_extension: mcp.extensionVersion, server_name: mcp.serverName, server_version: mcp.serverVersion }, resource: loaded.resource, allowed_tools: [...allowedTools], allowed_capabilities: [...allowedCapabilities], entry_point: "direct" };
+  }
+
+  async launchChatWorkspace(_input: AppChatWorkspaceLaunchInput = {}): Promise<AppChatWorkspaceLaunch> {
+    throw new AppPlatformError("incompatible_schema", "Brief Builder does not declare an app-chat workspace", 409);
+  }
+
+  async readChatWorkspaceSession(_sessionId: string): Promise<AppChatWorkspaceLaunch["session"]> {
+    throw new AppPlatformError("session_closed", "Brief Builder app-chat session is closed", 410);
+  }
+
+  async buildChatWorkspaceModelContext(_request: AppChatModelContextRequest): Promise<AppChatModelContext> {
+    throw new AppPlatformError("session_closed", "Brief Builder app-chat session is closed", 410);
   }
 
   async handleBridge(sessionId: string, raw: unknown, context: { origin: string; sourceMatches: boolean }): Promise<{ status: "ready" } | { status: "completed"; result: CompleteMcpResult } | { status: "capability_completed"; result: unknown }> {

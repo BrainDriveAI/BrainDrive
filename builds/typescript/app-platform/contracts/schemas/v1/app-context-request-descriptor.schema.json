@@ -1,0 +1,89 @@
+{
+  "$id": "https://schemas.braindrive.ai/app-platform/v1/app-context-request-descriptor.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "context_version": {
+      "type": "number",
+      "const": 1
+    },
+    "context_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "career_context",
+        "owner_profile",
+        "workspace_context",
+        "app_state"
+      ]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "required": {
+      "type": "boolean"
+    },
+    "max_bytes": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 1048576
+    },
+    "freshness_policy": {
+      "type": "string",
+      "enum": [
+        "latest_available",
+        "session_snapshot",
+        "explicit_owner_refresh"
+      ]
+    },
+    "required_capabilities": {
+      "maxItems": 8,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 128,
+            "pattern": "^[a-z][a-z0-9_-]*(?:\\.[a-z][a-z0-9_-]*)*$"
+          },
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 65535
+          }
+        },
+        "required": [
+          "name",
+          "version"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "context_version",
+    "context_id",
+    "kind",
+    "title",
+    "description",
+    "required",
+    "max_bytes",
+    "freshness_policy",
+    "required_capabilities"
+  ],
+  "additionalProperties": false
+}

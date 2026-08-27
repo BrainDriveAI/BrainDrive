@@ -16,10 +16,63 @@ const permissions: PermissionSet = {
 };
 
 function createHost() {
+  const chatSession = {
+    session_id: crypto.randomUUID(),
+    view_id: crypto.randomUUID(),
+    operation_id: crypto.randomUUID(),
+    session_generation: 1,
+    owner_id: crypto.randomUUID(),
+    account_id: crypto.randomUUID(),
+    actor_id: crypto.randomUUID(),
+    app_id: "ai.braindrive.resume-builder",
+    publisher_id: "ai.braindrive",
+    installation_id: crypto.randomUUID(),
+    package_digest: `sha256:${"a".repeat(64)}` as const,
+    lifecycle_generation: 2,
+    grant_id: crypto.randomUUID(),
+    grant_revision: 1,
+    revocation_generation: 0,
+    presentation_id: "chat",
+    workspace_id: "resume.chat",
+    context_grant_set_digest: `sha256:${"b".repeat(64)}` as const,
+    created_at: "2026-08-26T12:00:00.000Z",
+    expires_at: "2026-08-26T12:05:00.000Z",
+  };
   return {
     appId: "ai.braindrive.resume-builder",
     routeKey: "resume-builder",
     launch: vi.fn(async () => ({ launch_version: 1, session_id: crypto.randomUUID() })),
+    launchChatWorkspace: vi.fn(async () => ({
+      launch_version: 1,
+      kind: "chat_workspace",
+      session: chatSession,
+      resumed: false,
+      presentation: {
+        profile_version: 1,
+        presentation_id: "chat",
+        type: "chat_workspace",
+        label: "Just Chat With It",
+        description: "Open the native chat workspace.",
+        workspace_id: "resume.chat",
+        owner_visibility: "primary",
+      },
+      workspace: {
+        workspace_version: 1,
+        workspace_id: "resume.chat",
+        title: "Resume Workspace",
+        description: "Native app-chat workspace.",
+        default_document_id: "conversation",
+        documents: [],
+        resources: [],
+        actions: [],
+      },
+      context: {
+        context_projection_set_version: 1,
+        context_grant_set_digest: chatSession.context_grant_set_digest,
+        items: [],
+      },
+    })),
+    readChatWorkspaceSession: vi.fn(async () => chatSession),
     handleBridge: vi.fn(async () => ({ status: "ready" })),
     handleAppsBridge: vi.fn(async () => ({ jsonrpc: "2.0", id: "request", result: {} })),
     cancelAppsBridgeRequest: vi.fn(() => true),
@@ -104,6 +157,32 @@ describe("owner MCP Apps host gateway routes", () => {
     });
     expect(valid.json()).toEqual({ status: "ready" });
     expect(host.handleBridge).toHaveBeenCalledWith(sessionId, {}, { origin: "null", sourceMatches: true });
+
+    const chatResume = { session_id: crypto.randomUUID(), view_id: crypto.randomUUID(), operation_id: crypto.randomUUID(), session_generation: 2 };
+    const chat = await app.inject({
+      method: "POST",
+      url: "/apps/resume-builder/chat-workspaces/launch",
+      payload: { presentation_id: "chat", workspace_id: "resume.chat", resume: chatResume },
+    });
+    expect(chat.statusCode).toBe(200);
+    expect(chat.json()).toMatchObject({ kind: "chat_workspace", session: { presentation_id: "chat", workspace_id: "resume.chat" } });
+    expect(host.launchChatWorkspace).toHaveBeenCalledWith({
+      presentationId: "chat",
+      workspaceId: "resume.chat",
+      resume: {
+        sessionId: chatResume.session_id,
+        viewId: chatResume.view_id,
+        operationId: chatResume.operation_id,
+        sessionGeneration: 2,
+      },
+    });
+
+    const readSession = await app.inject({
+      method: "GET",
+      url: `/apps/resume-builder/chat-workspaces/sessions/${chat.json().session.session_id}`,
+    });
+    expect(readSession.statusCode).toBe(200);
+    expect(host.readChatWorkspaceSession).toHaveBeenCalledWith(chat.json().session.session_id);
 
     const envelope = { bridge_envelope_version: 1 };
     const apps = await app.inject({ method: "POST", url: "/apps/resume-builder/apps-bridge", payload: { session_id: sessionId, envelope } });

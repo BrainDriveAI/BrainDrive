@@ -7,7 +7,7 @@ import type { Message } from "@/types/ui";
 
 import Composer from "./Composer";
 import ConnectionBanner from "./ConnectionBanner";
-import EmptyState from "./EmptyState";
+import EmptyState, { type ProjectIntro } from "./EmptyState";
 import ErrorMessage from "./ErrorMessage";
 import MessageList from "./MessageList";
 
@@ -38,6 +38,7 @@ type ChatPanelProps = {
   onConversationComplete?: (conversationId: string) => void;
   messageMetadata?: Record<string, unknown>;
   contentOverride?: ReactNode;
+  emptyStateIntro?: ProjectIntro;
   onSendMessage?: () => void;
   onOpenSettings?: () => void;
 };
@@ -62,6 +63,7 @@ export default function ChatPanel({
   onConversationComplete,
   messageMetadata,
   contentOverride,
+  emptyStateIntro,
   onSendMessage,
   onOpenSettings
 }: ChatPanelProps) {
@@ -275,6 +277,7 @@ export default function ChatPanel({
           {shouldShowConversation ? (shouldShowEmptyState ? (
             <EmptyState
               projectId={activeProjectId}
+              intro={emptyStateIntro}
               onSuggestionClick={(suggestion) => append(suggestion, { metadata: messageMetadata })}
             />
           ) : (

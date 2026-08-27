@@ -218,6 +218,7 @@ describe("FirstPartyAppRegistry", () => {
     const { descriptor_digest: _descriptorDigest, ...body } = first;
     expect(first.descriptor_digest).toBe(canonicalInputDigest(body));
     expect(first.operation_binding).toBeNull();
+    expect(first.presentations).toBeNull();
     const operationBinding = {
       installation_id: "10000000-0000-4000-8000-000000000001",
       lifecycle_generation: 2,
@@ -234,6 +235,110 @@ describe("FirstPartyAppRegistry", () => {
     expect(Object.isFrozen(first)).toBe(true);
     expect(Object.isFrozen(first.reviewed_authority.capabilities)).toBe(true);
     expect(() => (first.catalog.display_name as string) = "changed").toThrow();
+  });
+
+  it("projects optional chat workspace presentation descriptors into resolved descriptors", () => {
+    const registry = new FirstPartyAppRegistry([resumeRegistration]);
+    const chatManifest = GenericPackageManifestSchema.parse({
+      ...resumeManifest,
+      presentations: {
+        presentation_set_version: 1,
+        default_presentation_id: "chat",
+        profiles: [
+          {
+            profile_version: 1,
+            presentation_id: "chat",
+            type: "chat_workspace",
+            label: "Just Chat With It",
+            description: "Open a native BrainDrive app workspace.",
+            workspace_id: "resume.chat",
+            owner_visibility: "primary",
+          },
+          {
+            profile_version: 1,
+            presentation_id: "surface",
+            type: "surface",
+            label: "Open App",
+            description: "Open the packaged sandboxed app surface.",
+            resource_uri: "ui://resume-builder/main",
+            owner_visibility: "internal",
+          },
+        ],
+        workspaces: [{
+          workspace_version: 1,
+          workspace_id: "resume.chat",
+          title: "Resume Workspace",
+          description: "Chat with the app and inspect package-owned resources.",
+          default_document_id: "conversation",
+          documents: [
+            {
+              document_version: 1,
+              document_id: "conversation",
+              role: "conversation",
+              title: "Conversation",
+              description: "Native BrainDrive conversation.",
+              editable: false,
+              default_visibility: "primary",
+              model_access: "read_write_draft",
+              resource_id: null,
+              data_binding_id: null,
+            },
+            {
+              document_version: 1,
+              document_id: "resource",
+              role: "advanced_resource",
+              title: "App Resource",
+              description: "Digest-bound package resource.",
+              editable: false,
+              default_visibility: "advanced",
+              model_access: "read_reference",
+              resource_id: "app.resource",
+              data_binding_id: null,
+            },
+          ],
+          resources: [{
+            resource_version: 1,
+            resource_id: "app.resource",
+            role: "owner_reference",
+            title: "App Resource",
+            description: "Synthetic digest-bound resource.",
+            package_path: "payload/ui/icon.png",
+            media_type: "text/plain",
+            content_digest: digest("d"),
+            owner_editable: false,
+            prompt_inclusion: "workspace_start",
+          }],
+          context_requests: [{
+            context_version: 1,
+            context_id: "resume.context",
+            kind: "app_state",
+            title: "App State",
+            description: "Purpose-limited app state.",
+            required: false,
+            max_bytes: 65_536,
+            freshness_policy: "session_snapshot",
+            required_capabilities: [{ name: "resume.definitions.read", version: 1 }],
+          }],
+          actions: [{
+            action_version: 1,
+            action_id: "resume.generate",
+            kind: "render",
+            title: "Create Resume",
+            description: "Request an app-owned render operation.",
+            input_schema_id: "resume.generate.input.v1",
+            result_schema_id: "resume.generate.result.v1",
+            confirmation: "owner_confirmation",
+            idempotency_policy: "required",
+            model_exposure: "available",
+            required_capabilities: [],
+            required_inference_purposes: [{ purpose_id: "resume.generate", version: 1 }],
+          }],
+        }],
+      },
+    });
+    const resolved = registry.resolveVerifiedApp("resume-builder", verifiedPackage(chatManifest, "resume-builder"));
+    expect(resolved.presentations?.default_presentation_id).toBe("chat");
+    expect(resolved.presentations?.workspaces[0].actions[0].action_id).toBe("resume.generate");
   });
 
   it.each([

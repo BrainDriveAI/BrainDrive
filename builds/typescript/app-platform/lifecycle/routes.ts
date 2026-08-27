@@ -304,6 +304,29 @@ async function ownerSafeDescriptor(entry: AppLifecycleRouteEntry) {
     catalog: manifest?.manifest_version === 2 ? {
       summary: manifest.catalog.summary, icon: manifest.catalog.icon,
       retention_summary: manifest.catalog.retention_summary, primary_resource_uri: manifest.primary_resource.uri,
+      presentations: manifest.presentations ? {
+        presentation_set_version: manifest.presentations.presentation_set_version,
+        default_presentation_id: manifest.presentations.default_presentation_id,
+        profiles: manifest.presentations.profiles.map((profile) => profile.type === "chat_workspace"
+          ? {
+              profile_version: profile.profile_version,
+              presentation_id: profile.presentation_id,
+              type: profile.type,
+              label: profile.label,
+              description: profile.description,
+              workspace_id: profile.workspace_id,
+              owner_visibility: profile.owner_visibility,
+            }
+          : {
+              profile_version: profile.profile_version,
+              presentation_id: profile.presentation_id,
+              type: profile.type,
+              label: profile.label,
+              description: profile.description,
+              resource_uri: profile.resource_uri,
+              owner_visibility: profile.owner_visibility,
+            }),
+      } : null,
       provenance: "verified_first_party_package",
     } : null,
     availability: {

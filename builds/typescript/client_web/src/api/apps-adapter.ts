@@ -26,6 +26,32 @@ export type AppLifecycleOperationView = {
   completed_at: string | null;
 };
 
+export type AppPresentationProfileSummary =
+  | {
+      profile_version: 1;
+      presentation_id: string;
+      type: "surface";
+      label: string;
+      description: string;
+      resource_uri: string;
+      owner_visibility: "primary" | "secondary" | "internal";
+    }
+  | {
+      profile_version: 1;
+      presentation_id: string;
+      type: "chat_workspace";
+      label: string;
+      description: string;
+      workspace_id: string;
+      owner_visibility: "primary" | "secondary" | "internal";
+    };
+
+export type AppPresentationSetSummary = {
+  presentation_set_version: 1;
+  default_presentation_id: string;
+  profiles: AppPresentationProfileSummary[];
+};
+
 export type AppStatus = {
   contract_version: 1;
   identity: {
@@ -60,6 +86,7 @@ export type AppStatus = {
     retention_summary: string;
     primary_resource_uri: string;
     provenance: "verified_first_party_package" | "host_registration";
+    presentations?: AppPresentationSetSummary | null;
   } | null;
   availability?: {
     status: "available" | "unavailable";
@@ -74,8 +101,9 @@ export type AppStatus = {
 
 export type AppCatalog = { catalog_version: 1; apps: AppStatus[] };
 
-export type AppLaunch = {
+export type AppSurfaceLaunch = {
   launch_version: 1;
+  kind?: "surface";
   session_id: string;
   installation_id: string;
   view_id: string;
@@ -97,6 +125,112 @@ export type AppLaunch = {
   allowed_capabilities: string[];
   entry_point: "direct" | "career";
 };
+
+export type AppWorkspaceDocumentDescriptor = {
+  document_version: 1;
+  document_id: string;
+  role: "conversation" | "source_document" | "derived_document" | "advanced_resource" | "recovery";
+  title: string;
+  description: string;
+  editable: boolean;
+  default_visibility: "primary" | "secondary" | "advanced";
+  model_access: "none" | "read_reference" | "read_write_draft" | "action_result";
+  resource_id: string | null;
+  data_binding_id: string | null;
+};
+
+export type AppResourceDescriptor = {
+  resource_version: 1;
+  resource_id: string;
+  role: "agent_instructions" | "interview_guide" | "quality_standard" | "template_standard" | "recovery_guidance" | "owner_reference";
+  title: string;
+  description: string;
+  package_path: string;
+  media_type: "text/markdown" | "text/plain" | "application/json";
+  content_digest: `sha256:${string}`;
+  owner_editable: boolean;
+  prompt_inclusion: "never" | "workspace_start" | "document_open" | "action_request";
+};
+
+export type AppActionDescriptor = {
+  action_version: 1;
+  action_id: string;
+  kind: "read" | "write" | "render" | "export" | "recover" | "inspect";
+  title: string;
+  description: string;
+  input_schema_id: string;
+  result_schema_id: string;
+  confirmation: "none" | "owner_confirmation" | "trusted_owner_confirmation";
+  idempotency_policy: "not_applicable" | "optional" | "required";
+  model_exposure: "hidden" | "available";
+};
+
+export type AppChatContextProjection = {
+  context_projection_set_version: 1;
+  context_grant_set_digest: `sha256:${string}`;
+  items: Array<
+    | {
+        context_projection_version: 1;
+        context_id: string;
+        kind: "career_context" | "owner_profile" | "workspace_context" | "app_state";
+        state: "available";
+        required: boolean;
+        byte_length: number;
+        content_digest: `sha256:${string}`;
+        content: unknown;
+      }
+    | {
+        context_projection_version: 1;
+        context_id: string;
+        kind: "career_context" | "owner_profile" | "workspace_context" | "app_state";
+        state: "unavailable";
+        required: boolean;
+        reason: "not_granted" | "unsupported" | "too_large";
+      }
+  >;
+};
+
+export type AppChatWorkspaceLaunch = {
+  launch_version: 1;
+  kind: "chat_workspace";
+  session: {
+    session_id: string;
+    view_id: string;
+    operation_id: string;
+    session_generation: number;
+    owner_id: string;
+    account_id: string;
+    actor_id: string;
+    app_id: string;
+    publisher_id: string;
+    installation_id: string;
+    package_digest: `sha256:${string}`;
+    lifecycle_generation: number;
+    grant_id: string;
+    grant_revision: number;
+    revocation_generation: number;
+    presentation_id: string;
+    workspace_id: string;
+    context_grant_set_digest: `sha256:${string}`;
+    created_at: string;
+    expires_at: string;
+  };
+  resumed: boolean;
+  workspace: {
+    workspace_version: 1;
+    workspace_id: string;
+    title: string;
+    description: string;
+    default_document_id: string;
+    documents: AppWorkspaceDocumentDescriptor[];
+    resources: AppResourceDescriptor[];
+    actions: AppActionDescriptor[];
+  };
+  presentation: Extract<AppPresentationProfileSummary, { type: "chat_workspace" }>;
+  context: AppChatContextProjection;
+};
+
+export type AppLaunch = AppSurfaceLaunch | AppChatWorkspaceLaunch;
 
 export type OwnerSafeAppDataState = {
   state_version: 1;
@@ -238,7 +372,7 @@ export async function mutateApp(appKey: string, action: AppLifecycleAction, curr
   }
 }
 
-export function launchApp(appKey: string, entryPoint: "direct" | "career" = "direct", resume?: AppLaunch): Promise<AppLaunch> {
+export function launchApp(appKey: string, entryPoint: "direct" | "career" = "direct", resume?: AppSurfaceLaunch): Promise<AppSurfaceLaunch> {
   return requestJson(`${appPath(appKey)}/launch`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -250,6 +384,32 @@ export function launchApp(appKey: string, entryPoint: "direct" | "career" = "dir
           view_id: resume.view_id,
           operation_id: resume.operation_id,
           bridge_generation: resume.bridge_generation,
+        },
+      } : {}),
+    }),
+  });
+}
+
+export function launchAppChatWorkspace(
+  appKey: string,
+  input: {
+    presentationId?: string;
+    workspaceId?: string;
+    resume?: AppChatWorkspaceLaunch;
+  } = {},
+): Promise<AppChatWorkspaceLaunch> {
+  return requestJson(`${appPath(appKey)}/chat-workspaces/launch`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      ...(input.presentationId ? { presentation_id: input.presentationId } : {}),
+      ...(input.workspaceId ? { workspace_id: input.workspaceId } : {}),
+      ...(input.resume ? {
+        resume: {
+          session_id: input.resume.session.session_id,
+          view_id: input.resume.session.view_id,
+          operation_id: input.resume.session.operation_id,
+          session_generation: input.resume.session.session_generation,
         },
       } : {}),
     }),
@@ -353,6 +513,10 @@ export async function closeAppSession(appKey: string, sessionId: string): Promis
   if (!response.ok && response.status !== 404 && response.status !== 410) throw new GatewayError("Unable to close app session", response.status);
 }
 
+export function readAppChatWorkspaceSession(appKey: string, sessionId: string): Promise<AppChatWorkspaceLaunch["session"]> {
+  return requestJson(`${appPath(appKey)}/chat-workspaces/sessions/${encodeURIComponent(sessionId)}`);
+}
+
 export function sendAppBridgeMessage(appKey: string, sessionId: string, message: unknown): Promise<unknown> {
   return requestJson(`${appPath(appKey)}/bridge`, {
     method: "POST",
@@ -361,7 +525,7 @@ export function sendAppBridgeMessage(appKey: string, sessionId: string, message:
   });
 }
 
-export function sendAppAppsBridgeMessage(appKey: string, launch: AppLaunch, message: unknown, signal?: AbortSignal): Promise<unknown> {
+export function sendAppAppsBridgeMessage(appKey: string, launch: AppSurfaceLaunch, message: unknown, signal?: AbortSignal): Promise<unknown> {
   const operationId = secureRandomUuid();
   if (signal?.aborted) return Promise.reject(new DOMException("Cancelled", "AbortError"));
   const cancel = () => {

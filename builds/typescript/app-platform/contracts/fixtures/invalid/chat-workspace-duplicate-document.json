@@ -1,0 +1,36 @@
+{
+  "workspace_version": 1,
+  "workspace_id": "resume.chat",
+  "title": "Resume Workspace",
+  "description": "Invalid duplicate document fixture.",
+  "default_document_id": "conversation",
+  "documents": [
+    {
+      "document_version": 1,
+      "document_id": "conversation",
+      "role": "conversation",
+      "title": "Conversation",
+      "description": "Native BrainDrive conversation.",
+      "editable": false,
+      "default_visibility": "primary",
+      "model_access": "read_write_draft",
+      "resource_id": null,
+      "data_binding_id": null
+    },
+    {
+      "document_version": 1,
+      "document_id": "conversation",
+      "role": "source_document",
+      "title": "Duplicate",
+      "description": "This id intentionally duplicates the conversation id.",
+      "editable": true,
+      "default_visibility": "primary",
+      "model_access": "read_write_draft",
+      "resource_id": null,
+      "data_binding_id": "resume.profile"
+    }
+  ],
+  "resources": [],
+  "context_requests": [],
+  "actions": []
+}

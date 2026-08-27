@@ -1,0 +1,92 @@
+{
+  "workspace_version": 1,
+  "workspace_id": "resume.chat",
+  "title": "Resume Workspace",
+  "description": "Chat with the app and inspect app-owned documents.",
+  "default_document_id": "conversation",
+  "documents": [
+    {
+      "document_version": 1,
+      "document_id": "conversation",
+      "role": "conversation",
+      "title": "Conversation",
+      "description": "Native BrainDrive conversation for the app workspace.",
+      "editable": false,
+      "default_visibility": "primary",
+      "model_access": "read_write_draft",
+      "resource_id": null,
+      "data_binding_id": null
+    },
+    {
+      "document_version": 1,
+      "document_id": "profile",
+      "role": "source_document",
+      "title": "Your Resume Profile",
+      "description": "Editable owner-reviewed source document.",
+      "editable": true,
+      "default_visibility": "primary",
+      "model_access": "read_write_draft",
+      "resource_id": null,
+      "data_binding_id": "resume.profile"
+    },
+    {
+      "document_version": 1,
+      "document_id": "instructions",
+      "role": "advanced_resource",
+      "title": "Agent Instructions",
+      "description": "Package-owned app instructions exposed for inspection.",
+      "editable": false,
+      "default_visibility": "advanced",
+      "model_access": "read_reference",
+      "resource_id": "agent.instructions",
+      "data_binding_id": null
+    }
+  ],
+  "resources": [
+    {
+      "resource_version": 1,
+      "resource_id": "agent.instructions",
+      "role": "agent_instructions",
+      "title": "Agent Instructions",
+      "description": "Digest-bound package instructions.",
+      "package_path": "payload/resources/agent-instructions.md",
+      "media_type": "text/markdown",
+      "content_digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "owner_editable": false,
+      "prompt_inclusion": "workspace_start"
+    }
+  ],
+  "context_requests": [
+    {
+      "context_version": 1,
+      "context_id": "career.summary",
+      "kind": "career_context",
+      "title": "Career Context",
+      "description": "Purpose-limited career summary when the owner grants access.",
+      "required": false,
+      "max_bytes": 65536,
+      "freshness_policy": "latest_available",
+      "required_capabilities": [
+        { "name": "career.context.read", "version": 1 }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "action_version": 1,
+      "action_id": "resume.profile.update",
+      "kind": "write",
+      "title": "Update Profile",
+      "description": "Request an app-owned source document update.",
+      "input_schema_id": "resume.profile.update.input.v1",
+      "result_schema_id": "resume.profile.update.result.v1",
+      "confirmation": "none",
+      "idempotency_policy": "required",
+      "model_exposure": "available",
+      "required_capabilities": [
+        { "name": "resume.definitions.write", "version": 1 }
+      ],
+      "required_inference_purposes": []
+    }
+  ]
+}

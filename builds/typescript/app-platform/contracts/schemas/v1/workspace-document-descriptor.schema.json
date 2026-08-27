@@ -1,0 +1,96 @@
+{
+  "$id": "https://schemas.braindrive.ai/app-platform/v1/workspace-document-descriptor.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "document_version": {
+      "type": "number",
+      "const": 1
+    },
+    "document_id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "conversation",
+        "source_document",
+        "derived_document",
+        "advanced_resource",
+        "recovery"
+      ]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "editable": {
+      "type": "boolean"
+    },
+    "default_visibility": {
+      "type": "string",
+      "enum": [
+        "primary",
+        "secondary",
+        "advanced"
+      ]
+    },
+    "model_access": {
+      "type": "string",
+      "enum": [
+        "none",
+        "read_reference",
+        "read_write_draft",
+        "action_result"
+      ]
+    },
+    "resource_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "data_binding_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "document_version",
+    "document_id",
+    "role",
+    "title",
+    "description",
+    "editable",
+    "default_visibility",
+    "model_access",
+    "resource_id",
+    "data_binding_id"
+  ],
+  "additionalProperties": false
+}

@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { PermissionSet } from "../../contracts.js";
 import { SUPERVISOR_POLICY } from "../contracts/package.js";
-import { revokeFixtureVersion } from "./fixture-repository.js";
+import { MODERN_FIXTURE_VERSION, revokeFixtureVersion } from "./fixture-repository.js";
 import { PackageVerifier } from "./package-verifier.js";
 import { createAppLifecycleRoutePlatform, registerAppLifecycleRoutes } from "./routes.js";
 import { createLifecycleHarness } from "./test-helpers.js";
@@ -173,6 +173,41 @@ describe("owner lifecycle gateway routes", () => {
     expect(serialized).not.toContain("connection_token");
     expect(serialized).not.toContain("private_key");
     expect(serialized).not.toContain("package_root");
+    await app.close();
+  });
+
+  it("projects owner-safe modern chat presentations without workspace internals", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "bd-app-routes-presentations-")); roots.push(root);
+    const h = await createLifecycleHarness(root);
+    const app = Fastify();
+    app.addHook("preHandler", async (request) => { request.authContext = { actorId: "owner", actorType: "owner", mode: "local-owner", permissions }; });
+    registerAppLifecycleRoutes(app, createAppLifecycleRoutePlatform([
+      { routeKey: "resume-builder", displayName: "Resume Builder", publisherName: "BrainDrive", availableVersion: MODERN_FIXTURE_VERSION, service: h.service },
+    ]));
+
+    const installed = await app.inject({ method: "POST", url: "/apps/resume-builder/install", payload: { ...installBody(), version: MODERN_FIXTURE_VERSION } });
+    expect(installed.statusCode).toBe(200);
+    const catalog = (await app.inject({ method: "GET", url: "/apps" })).json().apps[0];
+    expect(catalog.catalog.presentations).toEqual({
+      presentation_set_version: 1,
+      default_presentation_id: "just.chat",
+      profiles: [
+        expect.objectContaining({
+          presentation_id: "just.chat",
+          type: "chat_workspace",
+          label: "Just Chat With It",
+          workspace_id: "resume.chat",
+          owner_visibility: "primary",
+        }),
+        expect.objectContaining({
+          presentation_id: "structured.internal",
+          type: "surface",
+          resource_uri: "ui://resume-builder/main",
+          owner_visibility: "internal",
+        }),
+      ],
+    });
+    expect(JSON.stringify(catalog.catalog.presentations)).not.toMatch(/workspace_version|documents|actions|payload\/resources|content_digest|workspace_start/i);
     await app.close();
   });
 

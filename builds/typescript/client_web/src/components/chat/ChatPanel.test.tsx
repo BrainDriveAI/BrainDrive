@@ -114,6 +114,32 @@ describe("ChatPanel typing indicator behavior", () => {
     expect(screen.queryByRole("button", { name: "Try Again" })).not.toBeInTheDocument();
   });
 
+  it("renders custom empty-state copy and sends the configured CTA message", async () => {
+    const user = userEvent.setup();
+    const hookState = makeHookState();
+    useGatewayChatMock.mockReturnValue(hookState);
+
+    render(
+      <ChatPanel
+        activeConversationId={null}
+        isEmpty
+        emptyStateIntro={{
+          heading: "Let's build your resume",
+          description: "Tell me the role you want, paste an existing resume, or describe your experience.",
+          cta: "Start my resume",
+          ctaMessage: "I want to build my resume.",
+        }}
+      />
+    );
+
+    expect(screen.getByRole("heading", { name: "Let's build your resume" })).toBeInTheDocument();
+    expect(screen.getByText("Tell me the role you want, paste an existing resume, or describe your experience.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Start my resume" }));
+
+    expect(hookState.append).toHaveBeenCalledWith("I want to build my resume.", { metadata: undefined });
+  });
+
   it("treats provider timeout messages as provider errors regardless of casing", () => {
     const onOpenSettings = vi.fn();
     const hookState = makeHookState({

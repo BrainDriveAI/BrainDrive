@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { AppPlatformError } from "../lifecycle/errors.js";
 import type { AppMcpHost } from "./app-host.js";
-import { AppRouteKeySchema, CanonicalAppIdSchema, CapabilityIdentifierSchema } from "../contracts/app-registry.js";
+import { AppRouteKeySchema, CanonicalAppIdSchema, CapabilityIdentifierSchema, HostBindingIdSchema } from "../contracts/app-registry.js";
 
 const bridgeRequestSchema = z.object({
   session_id: z.string().uuid(),
@@ -32,6 +32,16 @@ const launchRequestSchema = z.object({
     view_id: z.string().uuid(),
     operation_id: z.string().uuid(),
     bridge_generation: z.number().int().positive(),
+  }).strict().optional(),
+}).strict();
+const chatWorkspaceLaunchRequestSchema = z.object({
+  presentation_id: HostBindingIdSchema.optional(),
+  workspace_id: HostBindingIdSchema.optional(),
+  resume: z.object({
+    session_id: z.string().uuid(),
+    view_id: z.string().uuid(),
+    operation_id: z.string().uuid(),
+    session_generation: z.number().int().positive(),
   }).strict().optional(),
 }).strict();
 const finalizeExportRequestSchema = z.object({
@@ -114,6 +124,37 @@ export function registerAppMcpHostRoutes(app: FastifyInstance, hostOrPlatform: A
         : undefined;
       return reply.send(await selected.host.launch(parsed.data.entry_point, resume));
     }
+    catch (error) { return sendSafeError(reply, error); }
+  });
+
+  app.post("/apps/:appKey/chat-workspaces/launch", async (request, reply) => {
+    const selected = resolveHost(request, reply, platform); if (!selected) return;
+    if (!authorizeOwner(request, reply)) return;
+    const parsed = chatWorkspaceLaunchRequestSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_request" });
+    try {
+      return reply.send(await selected.host.launchChatWorkspace({
+        presentationId: parsed.data.presentation_id,
+        workspaceId: parsed.data.workspace_id,
+        resume: parsed.data.resume
+          ? {
+              sessionId: parsed.data.resume.session_id,
+              viewId: parsed.data.resume.view_id,
+              operationId: parsed.data.resume.operation_id,
+              sessionGeneration: parsed.data.resume.session_generation,
+            }
+          : undefined,
+      }));
+    }
+    catch (error) { return sendSafeError(reply, error); }
+  });
+
+  app.get("/apps/:appKey/chat-workspaces/sessions/:sessionId", async (request, reply) => {
+    const selected = resolveHost(request, reply, platform); if (!selected) return;
+    if (!authorizeOwner(request, reply)) return;
+    const parsed = z.object({ sessionId: z.string().uuid() }).safeParse(request.params);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_request" });
+    try { return reply.send(await selected.host.readChatWorkspaceSession(parsed.data.sessionId)); }
     catch (error) { return sendSafeError(reply, error); }
   });
 
