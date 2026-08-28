@@ -155,41 +155,22 @@ describe("SCAF-007 self-contained installed app proof", () => {
       const readOperationId = randomUUID();
       const profileOperationId = randomUUID();
       const profileActionInput = {
-        kind: "interview_progress",
-        progress: {
-          expected_revision: null,
-          status: "review_needed",
-          current_topic: null,
-          completed_topics: ["direction", "experience"],
-          skipped_topics: [],
-          draft_state: "owner_reviewed",
-          session_id: launch.session.session_id,
-        },
+        profile_markdown: "# Maya Torres\n\nProduct operations leader with launch and process improvement experience.",
+        completed_topics: ["direction", "experience"],
+        skipped_topics: [],
+        current_topic: null,
       };
       const createOperationId = randomUUID();
       const resumeActionInput = {
-        definition_kind: "general",
-        status: "proposed",
         title: "Maya Torres - Director of Product Operations",
-        statements: [{
-          statement_id: randomUUID(),
-          section_id: "experience",
-          kind: "presentation",
-          display_role: "bullet",
-          text: "Reduced launch slips by 38% across six product squads.",
-          supporting_confirmed_fact_revision_ids: [],
-        }],
-        section_order: ["experience"],
-        presentation_preferences: {},
+        resume_markdown: [
+          "# Maya Torres - Director of Product Operations",
+          "",
+          "## Experience",
+          "- Reduced launch slips by 38% across six product squads.",
+        ].join("\n"),
         locale: "en-US",
         page_intent: "one_page",
-        template_id: "ats-basic",
-        template_version: "1",
-        parent_definition_revision_id: null,
-        job_revision_id: null,
-        policy_version: "owner-authored-v1",
-        prompt_policy_version: null,
-        variant: null,
       };
 
       await expect(executor.execute(ownerAuth, toolContext(), "app_action_resume_profile_read", {
@@ -226,12 +207,53 @@ describe("SCAF-007 self-contained installed app proof", () => {
       const calls = vi.mocked(router.execute).mock.calls;
       expect(calls.at(-2)).toEqual([
         "resume.definitions.write",
-        profileActionInput,
+        expect.objectContaining({
+          kind: "interview_progress",
+          progress: expect.objectContaining({
+            expected_revision: null,
+            status: "review_needed",
+            current_topic: null,
+            completed_topics: ["direction", "experience"],
+            skipped_topics: [],
+            draft_state: "owner_reviewed",
+            session_id: launch.session.session_id,
+            audit_turn: expect.objectContaining({
+              transcript_version: 1,
+              turn_id: profileOperationId,
+              session_id: launch.session.session_id,
+              answer: profileActionInput.profile_markdown,
+            }),
+          }),
+        }),
         expect.objectContaining({ viewId: launch.session.view_id }),
       ]);
       expect(calls.at(-1)).toEqual([
         "resume.definitions.write",
-        resumeActionInput,
+        expect.objectContaining({
+          definition_kind: "general",
+          status: "proposed",
+          title: "Maya Torres - Director of Product Operations",
+          statements: expect.arrayContaining([
+            expect.objectContaining({
+              section_id: "experience",
+              kind: "presentation",
+              display_role: "bullet",
+              text: "Reduced launch slips by 38% across six product squads.",
+              supporting_confirmed_fact_revision_ids: [],
+            }),
+          ]),
+          section_order: ["experience"],
+          presentation_preferences: {},
+          locale: "en-US",
+          page_intent: "one_page",
+          template_id: "resume.single-column",
+          template_version: "1",
+          parent_definition_revision_id: null,
+          job_revision_id: null,
+          policy_version: "owner-authored-v1",
+          prompt_policy_version: null,
+          variant: null,
+        }),
         expect.objectContaining({ viewId: launch.session.view_id, hostOwnerConfirmed: true }),
       ]);
     } finally {
@@ -586,49 +608,6 @@ function briefProofPresentations(): NonNullable<GenericPackageManifest["presenta
       catalog_revision: { type: "integer" },
     },
     required: ["source", "draft", "approved", "catalog_revision"],
-  };
-  const writeInputSchema = {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      action: { type: "string", const: "edit" },
-      source_revision_id: { type: "string", format: "uuid" },
-      expected_catalog_revision: { type: "integer" },
-      title: { type: "string", minLength: 1, maxLength: 160 },
-      statements: {
-        type: "array",
-        minItems: 1,
-        maxItems: 8,
-        items: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            statement_id: { type: "string", format: "uuid" },
-            text: { type: "string", minLength: 1, maxLength: 2048 },
-            support: {
-              type: "object",
-              additionalProperties: false,
-              properties: {
-                kind: { type: "string", const: "owner_context" },
-                context: { type: "string", minLength: 1, maxLength: 2048 },
-              },
-              required: ["kind", "context"],
-            },
-          },
-          required: ["statement_id", "text", "support"],
-        },
-      },
-    },
-    required: ["action", "source_revision_id", "expected_catalog_revision", "title", "statements"],
-  };
-  const writeResultSchema = {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      draft: { type: "object", additionalProperties: true, properties: {}, required: [] },
-      catalog_revision: { type: "integer" },
-    },
-    required: ["draft", "catalog_revision"],
   };
   return {
     presentation_set_version: 1,

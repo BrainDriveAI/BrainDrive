@@ -18,7 +18,6 @@ import {
 import { AppPlatformError } from "./errors.js";
 import { createStoredZip } from "./zip.js";
 
-type Manifest = z.infer<typeof PackageManifestSchema>;
 type Descriptor = z.infer<typeof PackageDescriptorSchema>;
 type SourceIndex = z.infer<typeof PackageSourceIndexSchema>;
 type Revocations = z.infer<typeof RevocationListSchema>;

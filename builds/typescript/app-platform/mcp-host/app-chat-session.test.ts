@@ -120,42 +120,6 @@ function profileUpdateInputSchema(): Record<string, unknown> {
   };
 }
 
-function profileUpdateCapabilityInputSchema(): Record<string, unknown> {
-  return {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      kind: { type: "string", enum: ["interview_progress"] },
-      progress: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          expected_revision: { type: ["number", "null"] },
-          status: { type: "string", enum: ["review_needed"] },
-          current_topic: { type: ["string", "null"], maxLength: 64 },
-          completed_topics: { type: "array", items: { type: "string", minLength: 1, maxLength: 64 }, maxItems: 32 },
-          skipped_topics: { type: "array", items: { type: "string", minLength: 1, maxLength: 64 }, maxItems: 32 },
-          draft_state: { type: "string", enum: ["owner_reviewed"] },
-          session_id: { type: "string", format: "uuid" },
-          audit_turn: {
-            type: "object",
-            additionalProperties: true,
-            properties: {
-              transcript_version: { type: "number" },
-              turn_id: { type: "string", format: "uuid" },
-              session_id: { type: "string", format: "uuid" },
-              answer: { type: "string", minLength: 1, maxLength: 65536 },
-            },
-            required: ["transcript_version", "turn_id", "session_id", "answer"],
-          },
-        },
-        required: ["expected_revision", "status", "current_topic", "completed_topics", "skipped_topics", "draft_state", "session_id", "audit_turn"],
-      },
-    },
-    required: ["kind", "progress"],
-  };
-}
-
 function resumeCreateInputSchema(): Record<string, unknown> {
   return {
     type: "object",
@@ -178,72 +142,6 @@ function resumeCreateInputSchema(): Record<string, unknown> {
       },
     },
     required: ["title"],
-  };
-}
-
-function resumeCreateCapabilityInputSchema(): Record<string, unknown> {
-  return {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      definition_kind: { type: "string", enum: ["general"] },
-      status: { type: "string", enum: ["proposed"] },
-      title: { type: "string", minLength: 1, maxLength: 256 },
-      statements: {
-        type: "array",
-        items: {
-          type: "object",
-          additionalProperties: true,
-          properties: {
-            statement_id: { type: "string", format: "uuid" },
-            section_id: { type: "string", minLength: 1, maxLength: 64 },
-            text: { type: "string", minLength: 1, maxLength: 8192 },
-          },
-          required: ["statement_id", "section_id", "text"],
-        },
-        minItems: 1,
-        maxItems: 500,
-      },
-      section_order: { type: "array", items: { type: "string", minLength: 1, maxLength: 64 }, minItems: 1, maxItems: 32 },
-      presentation_preferences: { type: "object", additionalProperties: true, properties: {}, required: [] },
-      locale: { type: "string", minLength: 2, maxLength: 35 },
-      page_intent: { type: "string", enum: ["one_page", "two_pages", "concise", "detailed"] },
-      template_id: { type: "string", minLength: 1, maxLength: 128 },
-      template_version: { type: "string", minLength: 1, maxLength: 64 },
-      parent_definition_revision_id: { type: ["string", "null"], maxLength: 128 },
-      job_revision_id: { type: ["string", "null"], maxLength: 128 },
-      policy_version: { type: "string", minLength: 1, maxLength: 128 },
-      prompt_policy_version: { type: ["string", "null"], maxLength: 128 },
-      variant: { type: ["object", "null"], additionalProperties: true, properties: {}, required: [] },
-    },
-    required: [
-      "definition_kind",
-      "status",
-      "title",
-      "statements",
-      "section_order",
-      "presentation_preferences",
-      "locale",
-      "page_intent",
-      "template_id",
-      "template_version",
-      "parent_definition_revision_id",
-      "job_revision_id",
-      "policy_version",
-      "prompt_policy_version",
-      "variant",
-    ],
-  };
-}
-
-function stateReadInputSchema(): Record<string, unknown> {
-  return {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      queried_operation_id: { type: "string", format: "uuid" },
-    },
-    required: ["queried_operation_id"],
   };
 }
 
