@@ -199,6 +199,7 @@ describe("AppChatWorkspace", () => {
     expect(screen.getByText("Conversation transcript")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Message your BrainDrive...")).toBeInTheDocument();
     expect(screen.getByTestId("app-chat-workspace-pane")).toHaveClass("flex", "min-h-0", "flex-1", "flex-col", "overflow-hidden");
+    expect(screen.queryByRole("button", { name: /reload/i })).not.toBeInTheDocument();
   });
 
   it("uses app-declared empty-state copy for the conversation start", async () => {

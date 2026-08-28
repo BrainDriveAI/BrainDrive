@@ -32,7 +32,6 @@ type AppChatWorkspaceProps = {
   appName: string;
   launch: AppChatWorkspaceLaunch;
   onSessionClosed: () => void;
-  onReload?: () => Promise<void>;
   onOpenSettings?: () => void;
   onLogout?: () => void;
   tier?: "local" | "concierge";
@@ -122,7 +121,6 @@ export default function AppChatWorkspace({
   appName,
   launch,
   onSessionClosed,
-  onReload,
   onOpenSettings,
   onLogout,
   tier = "local",
@@ -131,7 +129,6 @@ export default function AppChatWorkspace({
   const [activeItemKey, setActiveItemKey] = useState(() => defaultItemKey(launch, items));
   const [sessionState, setSessionState] = useState<"loading" | "ready" | "unavailable">("loading");
   const [sessionError, setSessionError] = useState<string | null>(null);
-  const [isReloading, setIsReloading] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [queuedChatMessage, setQueuedChatMessage] = useState<{ id: string; content: string } | null>(null);
   const activeHeadingRef = useRef<HTMLHeadingElement | null>(null);
@@ -218,19 +215,6 @@ export default function AppChatWorkspace({
       id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
       content: prompt,
     });
-  }
-
-  async function reloadWorkspace() {
-    if (!onReload || isReloading) return;
-    setIsReloading(true);
-    setSessionError(null);
-    try {
-      await onReload();
-    } catch {
-      setSessionError("This app workspace could not reconnect. Try again or return to Apps.");
-    } finally {
-      setIsReloading(false);
-    }
   }
 
   function moveNavigationFocus(event: KeyboardEvent<HTMLButtonElement>, currentKey: string) {
@@ -332,12 +316,6 @@ export default function AppChatWorkspace({
         </div>
 
         <div className="mt-auto space-y-2 pt-4">
-          {onReload ? (
-            <Button type="button" variant="ghost" size="sm" aria-label="Reload app workspace" onClick={() => void reloadWorkspace()} disabled={isReloading} className="w-fit gap-2 px-1 text-bd-text-secondary hover:bg-transparent hover:text-bd-text-heading">
-              {isReloading ? <LoaderCircle size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-              Reload
-            </Button>
-          ) : null}
           <AppWorkspaceProfileControl
             onOpenSettings={onOpenSettings}
             onLogout={onLogout}

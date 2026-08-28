@@ -170,7 +170,7 @@ export default function AppsPage({
   };
 
   if (selected) return isChatWorkspaceLaunch(selected.launch)
-    ? <AppChatWorkspace appKey={selected.appKey} appName={selected.appName} launch={selected.launch} onSessionClosed={closeSession} onReload={reloadSession} onOpenSettings={onOpenSettings} onLogout={onLogout} tier={tier} />
+    ? <AppChatWorkspace appKey={selected.appKey} appName={selected.appName} launch={selected.launch} onSessionClosed={closeSession} onOpenSettings={onOpenSettings} onLogout={onLogout} tier={tier} />
     : <SandboxedAppFrame appKey={selected.appKey} appId={selected.appId} appName={selected.appName} launch={selected.launch} onSessionClosed={closeSession} onReload={reloadSession} onOpenSettings={onOpenSettings} />;
 
   return (
